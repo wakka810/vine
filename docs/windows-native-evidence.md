@@ -5892,17 +5892,41 @@ Chrome agree on sequence 148,187／instruction 147,768,691, implementation
 mutation. This does not claim pointer-event ingestion, cursor movement, capture,
 or general multi-display coordinate behavior.
 
-## 176. BGI post-scan texture `LockRect` gateway
+## 176. BGI post-scan texture `LockRect`／`UnlockRect`
 
-The exact reached x86 COM call uses live `IDirect3DTexture9` pointer
-`0x01020004`, slot 19 endpoint `0x01021160`, level 0, locked-rectangle output
-`0x006FF8C4`, full-texture RECT `[0,0,1280,720]` at `0x006FF8CC`, flags
-`0x8000`, and return address `0x1004154C`. Node and Chrome stop on the same
-`com-method-unsupported` fault at instruction 147,769,351 with identical
-terminal memory content. Existing controlled native evidence establishes that
-surface `LockRect` rejects a live DC and succeeds after release, but it does not
-by itself define the reached texture pool／usage／flag variant. The call is
-therefore classified as a subsystem gateway: implementation must establish
-texture byte authority, pitch and output publication, lock lifetime,
-`UnlockRect`, wrong-owner／nested-lock rejection, and failure atomicity before
-claiming completion.
+Focused primary capture is 989,700 bytes／2,638 lines／SHA-256
+`51a5da5bc1333be398b0195eeb26f861f00fca5fbb446d0a5510beb3b86a238f`;
+its summary is 304,692 bytes／SHA-256
+`b88058f804d5dba0dbc2babed665f0690ea12ca16f0bea80754ad13fbe20df13`.
+Independent confirmation is 955,735 bytes／2,540 lines／SHA-256
+`990fa4723aa9a4b9328c8563934e3526bccb12791417e2393c190d9aa149691f`;
+its summary is 304,607 bytes／SHA-256
+`4291de663ef29443bf8843442244f15f7015d78332017e54f7aaf4cb6a67e55a`.
+The runs contain 2,636／2,538 events, 1,278／1,229 balanced API pairs, maximum
+API depth 3, and no unpaired shutdown frames. Raw traces remain under
+`.work/windows-traces/`; the source executable hash is unchanged.
+
+Both primary runs create the `2048x1024`, one-level, static X8R8G8B8 SYSTEMMEM
+texture at caller RVA `0x0005A715`. The reached lock at RVA `0x0004154C` uses
+level 0, `RECT [0,0,1280,720]`, and flags `0x8000`; it returns `D3D_OK`, pitch
+8,192, and a zero 32-byte backing prefix. The matching unlock at RVA
+`0x000415A8` returns `D3D_OK`. The locked-rectangle output's eight bytes before
+the primary call are `[233,157,103,119,8,12,187,117]`, so successful output
+publication is observable rather than inferred from zero-initialized memory.
+
+The controlled lifetime oracle fixes a first lock as `D3D_OK`, a nested lock as
+`D3DERR_INVALIDCALL` with its eight-byte `0xCC` output unchanged, matching
+unlock as `D3D_OK`, and repeated unlock-without-lock as `D3D_OK`. Every success
+and failure preserves its LastError sentinel. This evidence defines the reached
+texture lock lifetime and output behavior; it does not generalize other mip
+levels, formats, pools, rectangles, flags, dynamic textures, device loss, or
+reset behavior.
+
+The runtime uses `GuestMemory` as the byte authority and `RuntimeGraphicsTexture`
+as the backing identity／lock／generation authority. Canonical Node and Chrome
+publish pitch 8,192 and bits `0x44001000` from allocation 77／owner 100 at
+sequence 148,198, close the lock at sequence 148,203, and later publish that
+backing through the exact partial UpdateTexture at sequence 148,272. Both
+complete the second draw／Present cycle and stop at
+`IDirect3DDevice9::TestCooperativeLevel`; exact instruction, report, and memory
+identities remain in the current manifest.

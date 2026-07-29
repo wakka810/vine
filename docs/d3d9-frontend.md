@@ -20,8 +20,9 @@ slot 31 `UpdateTexture`, slot 41 `BeginScene`, slot 42 `EndScene`, slot 43 `Clea
 81 `DrawPrimitive`, slot 89 `SetFVF`, and slot 100 `SetStreamSource`
 delegate to implemented handlers. `CreateTexture`
 publishes a complete 22-slot `IDirect3DTexture9`
-interface whose IUnknown methods, slot 18 `GetSurfaceLevel`, and slot 21
-`AddDirtyRect` delegate to implemented handlers. `GetSurfaceLevel(0)` publishes a complete 17-slot
+interface whose IUnknown methods, slot 18 `GetSurfaceLevel`, slot 19 `LockRect`,
+slot 20 `UnlockRect`, and slot 21 `AddDirtyRect` delegate to implemented
+handlers. `GetSurfaceLevel(0)` publishes a complete 17-slot
 `IDirect3DSurface9` interface whose IUnknown methods plus slot 15 `GetDC` and
 slot 16 `ReleaseDC` delegate to implemented handlers. `CreateVertexBuffer`
 publishes a complete 14-slot `IDirect3DVertexBuffer9` interface whose IUnknown
@@ -34,13 +35,16 @@ class. In particular, slots 11, 21, and 22 are `void`, while slot 80 returns a
 32-bit floating value through x87 `ST(0)`; those methods remain unsupported and
 therefore do not yet require a completion transport for those return classes.
 
-The current private continuation reaches `IDirect3DTexture9` slot 19
+The current private continuation completes `IDirect3DTexture9` slot 19
 `LockRect` at instruction 147,769,351 with level 0, output pointer
 `0x006FF8C4`, full-texture RECT pointer `0x006FF8CC`, and flags `0x8000` on the
-live texture at `0x01020004`. Dispatch rejects it as an explicit COM structured
-stop before graphics or guest-memory mutation. This fixes the next subsystem
-gateway only; locked bytes, pitch publication, lock ownership, nested-lock
-rejection, and `UnlockRect` remain unclaimed.
+live texture at `0x01020004`. It publishes pitch 8,192 and Rust-owned guest
+backing address `0x44001000`; slot 20 `UnlockRect` later closes that exact lock,
+and the second bounded `UpdateTexture` publishes the resulting pixel source to
+the destination texture. Node and Chrome then complete the second scene,
+draw, and Present cycle before stopping at `IDirect3DDevice9` slot 3
+`TestCooperativeLevel` at instruction 148,744,443. Device-loss and recovery
+semantics remain unclaimed at that gateway.
 
 The two-page COM backing is Rust-owned guest memory. Its data page finishes
 read-only and its endpoint page finishes read／execute. The endpoint bytes are
@@ -645,6 +649,48 @@ texel backing, perform a browser upload, implement partial-dirty transfer or the
 reached dynamic-destination native variant, begin a scene, draw, Present, or
 produce visible pixels.
 
+## Bounded texture backing, LockRect, and partial refresh
+
+Policy version 31 adds
+`primary-recreated-system-memory-presentation-lock-v1` for texture slots 19 and
+20. The admitted `LockRect` is limited to recreated SYSTEMMEM texture variant
+3, level zero, X8R8G8B8, `RECT [0,0,1280,720]`, and
+`D3DLOCK_NO_DIRTY_UPDATE`. `RuntimeGraphicsTexture` owns the descriptor,
+backing identity, active-lock lifetime, content generation, and pixel-source
+relation. `GuestMemory` alone owns the bytes. The first successful lock lazily
+allocates the complete 8,388,608-byte level-zero backing, publishes pitch 8,192
+and the checked bits pointer atomically, and changes the backing protection to
+read/write. `UnlockRect` restores read-only protection and publishes a
+generation-checked pixel source. The pixel-source relation is non-owning but
+blocks retirement of its source allocation until every dependent texture is
+retired or republished.
+
+The aggregate root coordinates graphics, address-space, memory-protection, and
+guest-output preflight before targeted commit. Unknown or wrong-owner objects,
+unsupported geometry or flags, unwritable output, capacity exhaustion, stale
+plans, and a nested lock fail without consuming an allocation, changing
+protection, publishing partial output, or advancing a generation. The native
+oracle fixes nested lock as `D3DERR_INVALIDCALL` with unchanged output and a
+repeated unlock-without-lock as an `S_OK` no-op. The accepted
+`D3DLOCK_NO_DIRTY_UPDATE` call preserves the existing dirty region.
+
+The later exact partial `UpdateTexture` accepts `[0,0,1280,720]` only when the
+destination still represents the immediately preceding source generation. It
+publishes the full authoritative source backing as the destination pixel source
+while consuming the bounded source dirty region in one two-texture commit. This
+generation precondition prevents an older logical history from being silently
+combined with newer guest bytes. Arbitrary partial histories and the native
+dynamic-destination variant remain unsupported.
+
+The Worker reads the authoritative backing through the execution mirror only
+when materializing a draw submission, converts B8G8R8X8 bytes for WebGL2, and
+does not retain a second Windows texture, lock, or byte authority. Canonical
+Node and Chrome evidence agrees on lock sequence 148,198, unlock sequence
+148,203, partial update sequence 148,272, content generation 2, and two complete
+draw／Present cycles. The next structured gateway is
+`IDirect3DDevice9::TestCooperativeLevel`; readable title pixels, other mip
+levels／formats／lock flags, resize, device loss, and recovery are not claimed.
+
 ## Bounded device scene lifecycle
 
 Version 21 adds `primary-first-frame-scene-begin-v1` for device slot 41.
@@ -1130,7 +1176,9 @@ browser frame, and stops before the already-supported `WINMM.dll!timeGetTime`.
   initial `SetRenderState` settings, the bounded initial and post-scene
   `GetRasterStatus` queries,
   one exact full-target black `Clear`, one bounded source-texture
-  `AddDirtyRect`, one exact static SYSTEMMEM-to-DEFAULT `UpdateTexture`, one
+  `AddDirtyRect`, the initial whole-content and later exact partial
+  SYSTEMMEM-to-DEFAULT `UpdateTexture` calls, one exact level-zero
+  SYSTEMMEM `LockRect`／`UnlockRect` lifetime, one
   exact inactive-to-active `BeginScene`, the exact two sampler-0 MIN／MAG
   linear `SetSamplerState` calls, the exact six stage-0
   `SetTextureStageState` calls, the exact stage-0 static DEFAULT
@@ -1141,22 +1189,25 @@ browser frame, and stops before the already-supported `WINMM.dll!timeGetTime`.
   full-frame discard `Present` are
   implemented. Mode
   enumeration, general device／format／usage checks, other levels,
-  surface／texture storage, vertex declarations, other resource locks, other
-  device/resource state, partial dirty-region transfer, dynamic-destination
+  other texture formats／levels／lock rectangles／flags, vertex declarations,
+  other resource locks, other device/resource state, arbitrary partial-history
+  transfer, dynamic-destination
   `UpdateTexture`, partial／depth／stencil Clear, other scene variants, other sampler／state／
   filter variants, other texture stages／operations／arguments／resources,
   other vertex formats, other streams／vertex buffers／offsets／strides, NULL
   stream unbind, other draws, partial or redirected Present, dirty-region
-  Present, Reset, subsequent frame flow, resize, device／context loss, recovery,
+  Present, Reset, further frame flow, resize, device／context loss, recovery,
   and readable renderer output remain unsupported.
 - `CreateDevice`, `CreateTexture`, `GetSurfaceLevel`, the reached surface DC
   fill, vertex-buffer gateway, full-target Clear, bounded AddDirtyRect,
-  bounded UpdateTexture, bounded BeginScene, bounded sampler state, bounded
+  bounded UpdateTexture, bounded texture lock lifetime, bounded BeginScene, bounded sampler state, bounded
   texture-stage state, bounded texture binding, bounded FVF state, bounded
   stream-source binding, bounded immutable draw submission, and bounded scene
-  close create Rust logical state only. The bounded Present is the sole current
-  exception: it publishes a Rust-owned immutable frame and creates one
-  non-owning Worker WebGL2 resource. It does not move Windows device／COM state
-  or authoritative back-buffer lifetime into TypeScript.
+  close create Rust logical state, with texture and vertex bytes remaining
+  authoritative in Rust GuestMemory. The bounded Present publishes a Rust-owned
+  immutable frame and creates one non-owning Worker WebGL2 resource; the Worker
+  copies authoritative texture bytes only for that rendering operation. It does
+  not move Windows device／COM state, texture lock lifetime, or authoritative
+  back-buffer／texture lifetime into TypeScript.
 - D3D8, D3D10／11, DXGI, shader translation, and general D3D9 compatibility are
   not claimed.

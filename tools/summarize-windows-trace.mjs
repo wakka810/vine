@@ -83,6 +83,7 @@ const supportedObservations = new Set([
   "d3d9-initial-textures",
   "d3d9-recreated-textures",
   "d3d9-texture-add-dirty-rect",
+  "d3d9-texture-lock-rect",
   "d3d9-update-texture",
   "d3d9-begin-scene",
   "d3d9-set-texture",

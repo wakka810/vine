@@ -25,6 +25,7 @@ pub const RUNTIME_GRAPHICS_VERTEX_BUFFER_LIMIT: usize = 4_096;
 pub const RUNTIME_GRAPHICS_SURFACE_FILL_LIMIT: usize = 16_384;
 pub const RUNTIME_GRAPHICS_DRAW_SUBMISSION_LIMIT: usize = 4_096;
 pub const RUNTIME_GRAPHICS_DRAW_VERTEX_BYTES_LIMIT: usize = 1024 * 1024;
+pub const RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE: u32 = 0x0000_8000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -510,6 +511,34 @@ pub struct RuntimeGraphicsVertexBufferBacking {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsTextureBacking {
+    pub address_allocation_id: ProcessAddressAllocationId,
+    pub memory_owner: MemoryOwnerId,
+    pub range: GuestRange,
+    pub row_pitch: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsTextureLock {
+    pub level: u32,
+    pub rect: RuntimeRect,
+    pub flags: u32,
+    pub pitch: u32,
+    pub guest_address: GuestAddress,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsTexturePixelSource {
+    pub source_texture_id: RuntimeGraphicsTextureId,
+    pub source_content_generation: u64,
+    pub range: GuestRange,
+    pub row_pitch: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RuntimeGraphicsVertexBufferLock {
     pub offset: u32,
     pub byte_length: u32,
@@ -540,12 +569,17 @@ pub struct RuntimeGraphicsTextureContent {
     pub content_generation: u64,
     pub fills: Vec<RuntimeGraphicsSurfaceFill>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub pixel_source: Option<RuntimeGraphicsTexturePixelSource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_update: Option<RuntimeGraphicsTextureUpdate>,
 }
 
 impl RuntimeGraphicsTextureContent {
     fn is_pristine(&self) -> bool {
-        self.content_generation == 0 && self.fills.is_empty() && self.last_update.is_none()
+        self.content_generation == 0
+            && self.fills.is_empty()
+            && self.pixel_source.is_none()
+            && self.last_update.is_none()
     }
 }
 
@@ -688,7 +722,11 @@ pub struct RuntimeGraphicsTexture {
     pub namespace: String,
     pub device_id: RuntimeGraphicsDeviceId,
     pub descriptor: RuntimeGraphicsTextureDescriptor,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backing: Option<RuntimeGraphicsTextureBacking>,
     pub com_object_id: RuntimeComObjectId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_lock: Option<RuntimeGraphicsTextureLock>,
     pub dirty_region: RuntimeGraphicsTextureDirtyRegion,
     #[serde(skip_serializing_if = "RuntimeGraphicsTextureContent::is_pristine")]
     pub content: RuntimeGraphicsTextureContent,
@@ -814,6 +852,14 @@ pub(crate) struct RuntimeGraphicsPresentRequest {
 pub(crate) struct RuntimeGraphicsTextureCreateRequest {
     pub device_com_object_id: RuntimeComObjectId,
     pub descriptor: RuntimeGraphicsTextureDescriptor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsTextureLockRequest {
+    pub texture_com_object_id: RuntimeComObjectId,
+    pub level: u32,
+    pub rect: RuntimeRect,
+    pub flags: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1048,6 +1094,43 @@ pub(crate) struct RuntimeGraphicsTextureCreationPlan {
     request: RuntimeGraphicsTextureCreateRequest,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsTextureBackingPlan {
+    pub address_allocation_id: ProcessAddressAllocationId,
+    pub range: GuestRange,
+    pub row_pitch: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsTextureLockPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    texture_id: RuntimeGraphicsTextureId,
+    texture_generation: u64,
+    next_texture_generation: u64,
+    previous_backing: Option<RuntimeGraphicsTextureBacking>,
+    backing_installation: Option<RuntimeGraphicsTextureBackingPlan>,
+    lock: RuntimeGraphicsTextureLock,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeGraphicsTextureUnlockPlan {
+    expected_generation: u64,
+    texture_id: RuntimeGraphicsTextureId,
+    texture_generation: u64,
+    mutation: Option<RuntimeGraphicsTextureUnlockMutationPlan>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimeGraphicsTextureUnlockMutationPlan {
+    next_generation: u64,
+    next_texture_generation: u64,
+    content_generation: u64,
+    next_content_generation: u64,
+    lock: RuntimeGraphicsTextureLock,
+    pixel_source: RuntimeGraphicsTexturePixelSource,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RuntimeGraphicsTextureDirtyRegionMarkPlan {
     expected_generation: u64,
@@ -1076,6 +1159,7 @@ pub(crate) struct RuntimeGraphicsTextureUpdatePlan {
     destination_content_generation: u64,
     next_destination_content_generation: u64,
     destination_fills: Vec<RuntimeGraphicsSurfaceFill>,
+    destination_pixel_source: Option<RuntimeGraphicsTexturePixelSource>,
     update: Option<RuntimeGraphicsTextureUpdate>,
     next_update_sequence: u64,
     request: RuntimeGraphicsTextureUpdateRequest,
@@ -1273,6 +1357,17 @@ pub struct RuntimeGraphicsTextureUpdateResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RuntimeGraphicsTextureUnlockResult {
+    pub texture_id: RuntimeGraphicsTextureId,
+    pub generation: u64,
+    pub content_generation: u64,
+    pub changed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pixel_source: Option<RuntimeGraphicsTexturePixelSource>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RuntimeGraphicsSurfaceFillResult {
     pub surface_id: RuntimeGraphicsSurfaceId,
     pub texture_id: RuntimeGraphicsTextureId,
@@ -1308,6 +1403,30 @@ impl RuntimeGraphicsTextureCreationPlan {
 
     pub(crate) fn descriptor(&self) -> RuntimeGraphicsTextureDescriptor {
         self.request.descriptor
+    }
+}
+
+impl RuntimeGraphicsTextureLockPlan {
+    pub(crate) fn texture_id(&self) -> RuntimeGraphicsTextureId {
+        self.texture_id
+    }
+
+    pub(crate) fn backing_installation(&self) -> Option<RuntimeGraphicsTextureBackingPlan> {
+        self.backing_installation
+    }
+
+    pub(crate) fn lock(&self) -> RuntimeGraphicsTextureLock {
+        self.lock
+    }
+}
+
+impl RuntimeGraphicsTextureUnlockPlan {
+    pub(crate) fn texture_id(&self) -> RuntimeGraphicsTextureId {
+        self.texture_id
+    }
+
+    pub(crate) fn changes_content(&self) -> bool {
+        self.mutation.is_some()
     }
 }
 
@@ -2539,6 +2658,33 @@ impl RuntimeGraphics {
                 "logical draw submission requires the reached initialized static DEFAULT texture",
             ));
         }
+        if let Some(pixel_source) = texture.content.pixel_source {
+            let source = self.texture(pixel_source.source_texture_id)?;
+            let backing = source.backing.ok_or_else(|| {
+                RuntimeStateError::invalid_input(
+                    "runtime-graphics",
+                    "graphics-draw-texture-pixel-source-missing",
+                    "logical draw texture pixel source has no live guest-memory backing",
+                )
+            })?;
+            if source.device_id != device.id
+                || source.active_lock.is_some()
+                || source.content.content_generation != pixel_source.source_content_generation
+                || source.content.pixel_source != Some(pixel_source)
+                || backing.range != pixel_source.range
+                || backing.row_pitch != pixel_source.row_pitch
+                || source.descriptor.width != texture.descriptor.width
+                || source.descriptor.height != texture.descriptor.height
+                || source.descriptor.levels != texture.descriptor.levels
+                || source.descriptor.color_format != texture.descriptor.color_format
+            {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-graphics",
+                    "graphics-draw-texture-pixel-source-stale",
+                    "logical draw texture pixel source no longer matches its live SYSTEMMEM authority",
+                ));
+            }
+        }
         Ok(RuntimeGraphicsDrawResolvedState {
             scene,
             flexible_vertex_format,
@@ -2583,6 +2729,13 @@ impl RuntimeGraphics {
             .textures
             .get(&texture_id)
             .expect("validated logical texture association disappeared");
+        if texture.active_lock.is_some() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-graphics",
+                "graphics-texture-binding-while-locked",
+                "logical texture binding requires an unlocked texture",
+            ));
+        }
         if texture.device_id != device_id {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-graphics",
@@ -3121,7 +3274,9 @@ impl RuntimeGraphics {
             namespace: RUNTIME_GRAPHICS_TEXTURE_ID_NAMESPACE.to_owned(),
             device_id: plan.device_id,
             descriptor: plan.request.descriptor,
+            backing: None,
             com_object_id,
+            active_lock: None,
             dirty_region: RuntimeGraphicsTextureDirtyRegion::WholeTexture,
             content: RuntimeGraphicsTextureContent::default(),
             generation: plan.next_generation,
@@ -3138,6 +3293,303 @@ impl RuntimeGraphics {
         self.next_texture_id = next_texture_id;
         self.generation = plan.next_generation;
         texture
+    }
+
+    pub(super) fn plan_texture_lock(
+        &self,
+        request: RuntimeGraphicsTextureLockRequest,
+        backing_installation: Option<RuntimeGraphicsTextureBackingPlan>,
+    ) -> Result<RuntimeGraphicsTextureLockPlan, RuntimeStateError> {
+        let texture = self.texture_for_com_object(request.texture_com_object_id)?;
+        if request.level != 0
+            || request.flags != RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE
+            || texture.descriptor.levels != 1
+            || texture.descriptor.usage != RuntimeGraphicsTextureUsage::None
+            || texture.descriptor.pool != RuntimeGraphicsTexturePool::SystemMemory
+            || texture.descriptor.color_format != RuntimeGraphicsColorFormat::B8g8r8x8Unorm
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-texture-lock-variant-unsupported",
+                "bounded texture locking supports the reached level-zero static SYSTEMMEM no-dirty-update variant",
+            ));
+        }
+        validate_texture_dirty_rect(request.rect, texture.descriptor)?;
+        if texture.active_lock.is_some() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-graphics",
+                "graphics-texture-already-locked",
+                "logical graphics texture already has an active lock",
+            ));
+        }
+        let (row_pitch, byte_length) = texture_byte_layout(texture.descriptor)?;
+        let backing_start = match (texture.backing, backing_installation) {
+            (Some(backing), None)
+                if backing.address_allocation_id.0 != 0
+                    && backing.memory_owner.0 != 0
+                    && backing.row_pitch == row_pitch
+                    && backing.range.byte_length() >= u64::from(byte_length) =>
+            {
+                backing.range.start()
+            }
+            (None, Some(backing))
+                if backing.address_allocation_id.0 != 0
+                    && backing.range.start().0 != 0
+                    && backing.row_pitch == row_pitch
+                    && backing.range.byte_length() >= u64::from(byte_length) =>
+            {
+                backing.range.start()
+            }
+            _ => {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-graphics",
+                    "graphics-texture-backing-plan-invalid",
+                    "logical texture LockRect requires exactly one existing or planned texel backing",
+                ));
+            }
+        };
+        let byte_offset = u64::try_from(request.rect.top)
+            .ok()
+            .and_then(|top| top.checked_mul(u64::from(row_pitch)))
+            .and_then(|offset| {
+                u64::try_from(request.rect.left)
+                    .ok()
+                    .and_then(|left| left.checked_mul(4))
+                    .and_then(|left| offset.checked_add(left))
+            })
+            .ok_or_else(|| {
+                RuntimeStateError::invalid_input(
+                    "runtime-graphics",
+                    "graphics-texture-lock-address-overflow",
+                    "logical texture LockRect offset exceeds the x86 guest address space",
+                )
+            })?;
+        let guest_address = u64::from(backing_start.0)
+            .checked_add(byte_offset)
+            .and_then(|address| u32::try_from(address).ok())
+            .map(GuestAddress)
+            .ok_or_else(|| {
+                RuntimeStateError::invalid_input(
+                    "runtime-graphics",
+                    "graphics-texture-lock-address-overflow",
+                    "logical texture LockRect address exceeds the x86 guest address space",
+                )
+            })?;
+        let lock = RuntimeGraphicsTextureLock {
+            level: request.level,
+            rect: request.rect,
+            flags: request.flags,
+            pitch: row_pitch,
+            guest_address,
+        };
+        Ok(RuntimeGraphicsTextureLockPlan {
+            expected_generation: self.generation,
+            next_generation: checked_next_generation(self.generation)?,
+            texture_id: texture.id,
+            texture_generation: texture.generation,
+            next_texture_generation: checked_texture_generation(texture.generation, "locked")?,
+            previous_backing: texture.backing,
+            backing_installation,
+            lock,
+        })
+    }
+
+    pub(super) fn preflight_texture_lock(
+        &self,
+        plan: &RuntimeGraphicsTextureLockPlan,
+        backing_memory_owner: Option<MemoryOwnerId>,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(texture) = self.textures.get(&plan.texture_id) else {
+            return Err(stale_plan("graphics-texture-lock-plan-stale"));
+        };
+        let backing_shape_matches = match (
+            texture.backing,
+            plan.previous_backing,
+            plan.backing_installation,
+            backing_memory_owner,
+        ) {
+            (Some(current), Some(previous), None, None) => current == previous,
+            (None, None, Some(backing), Some(memory_owner)) => {
+                backing.address_allocation_id.0 != 0
+                    && backing.range.start().0 != 0
+                    && backing.range.start() <= plan.lock.guest_address
+                    && backing.row_pitch == plan.lock.pitch
+                    && memory_owner.0 != 0
+            }
+            _ => false,
+        };
+        if self.generation != plan.expected_generation
+            || texture.generation != plan.texture_generation
+            || texture.backing != plan.previous_backing
+            || texture.active_lock.is_some()
+            || !backing_shape_matches
+            || plan.lock.level != 0
+            || plan.lock.flags != RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE
+            || plan.lock.pitch != texture_byte_layout(texture.descriptor)?.0
+            || self.generation.checked_add(1) != Some(plan.next_generation)
+            || texture.generation.checked_add(1) != Some(plan.next_texture_generation)
+        {
+            return Err(stale_plan("graphics-texture-lock-plan-stale"));
+        }
+        validate_texture_dirty_rect(plan.lock.rect, texture.descriptor)?;
+        self.validate_texture_association(texture.com_object_id, texture.id)
+    }
+
+    pub(super) fn commit_texture_lock(
+        &mut self,
+        plan: RuntimeGraphicsTextureLockPlan,
+        backing_memory_owner: Option<MemoryOwnerId>,
+    ) -> RuntimeGraphicsTextureLock {
+        debug_assert!(
+            self.preflight_texture_lock(&plan, backing_memory_owner)
+                .is_ok()
+        );
+        let texture = self
+            .textures
+            .get_mut(&plan.texture_id)
+            .expect("preflighted graphics texture disappeared");
+        if let Some(backing) = plan.backing_installation {
+            texture.backing = Some(RuntimeGraphicsTextureBacking {
+                address_allocation_id: backing.address_allocation_id,
+                memory_owner: backing_memory_owner
+                    .expect("preflighted texture backing omitted its memory owner"),
+                range: backing.range,
+                row_pitch: backing.row_pitch,
+            });
+        }
+        texture.active_lock = Some(plan.lock);
+        texture.generation = plan.next_texture_generation;
+        self.generation = plan.next_generation;
+        plan.lock
+    }
+
+    pub(super) fn plan_texture_unlock(
+        &self,
+        texture_com_object_id: RuntimeComObjectId,
+    ) -> Result<RuntimeGraphicsTextureUnlockPlan, RuntimeStateError> {
+        let texture = self.texture_for_com_object(texture_com_object_id)?;
+        let mutation = if let Some(lock) = texture.active_lock {
+            let backing = texture.backing.ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-graphics",
+                    "graphics-texture-unlock-backing-missing",
+                    "logical graphics texture has an active lock without texel backing",
+                )
+            })?;
+            let next_content_generation = texture
+                .content
+                .content_generation
+                .checked_add(1)
+                .ok_or_else(|| {
+                    RuntimeStateError::resource_limit(
+                        "runtime-graphics",
+                        "graphics-texture-content-generation-exhausted",
+                        "logical graphics texture content generation is exhausted",
+                    )
+                })?;
+            Some(RuntimeGraphicsTextureUnlockMutationPlan {
+                next_generation: checked_next_generation(self.generation)?,
+                next_texture_generation: checked_texture_generation(
+                    texture.generation,
+                    "unlocked",
+                )?,
+                content_generation: texture.content.content_generation,
+                next_content_generation,
+                lock,
+                pixel_source: RuntimeGraphicsTexturePixelSource {
+                    source_texture_id: texture.id,
+                    source_content_generation: next_content_generation,
+                    range: backing.range,
+                    row_pitch: backing.row_pitch,
+                },
+            })
+        } else {
+            None
+        };
+        Ok(RuntimeGraphicsTextureUnlockPlan {
+            expected_generation: self.generation,
+            texture_id: texture.id,
+            texture_generation: texture.generation,
+            mutation,
+        })
+    }
+
+    pub(super) fn preflight_texture_unlock(
+        &self,
+        plan: &RuntimeGraphicsTextureUnlockPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(texture) = self.textures.get(&plan.texture_id) else {
+            return Err(stale_plan("graphics-texture-unlock-plan-stale"));
+        };
+        if self.generation != plan.expected_generation
+            || texture.generation != plan.texture_generation
+        {
+            return Err(stale_plan("graphics-texture-unlock-plan-stale"));
+        }
+        match &plan.mutation {
+            None if texture.active_lock.is_none() => {}
+            Some(mutation) => {
+                let backing = texture
+                    .backing
+                    .ok_or_else(|| stale_plan("graphics-texture-unlock-plan-stale"))?;
+                if texture.content.content_generation != mutation.content_generation
+                    || texture.active_lock != Some(mutation.lock)
+                    || mutation.pixel_source.source_texture_id != texture.id
+                    || mutation.pixel_source.source_content_generation
+                        != mutation.next_content_generation
+                    || mutation.pixel_source.range != backing.range
+                    || mutation.pixel_source.row_pitch != backing.row_pitch
+                    || self.generation.checked_add(1) != Some(mutation.next_generation)
+                    || texture.generation.checked_add(1) != Some(mutation.next_texture_generation)
+                    || texture.content.content_generation.checked_add(1)
+                        != Some(mutation.next_content_generation)
+                {
+                    return Err(stale_plan("graphics-texture-unlock-plan-stale"));
+                }
+            }
+            None => {
+                return Err(stale_plan("graphics-texture-unlock-plan-stale"));
+            }
+        }
+        self.validate_texture_association(texture.com_object_id, texture.id)
+    }
+
+    pub(super) fn commit_texture_unlock(
+        &mut self,
+        plan: RuntimeGraphicsTextureUnlockPlan,
+    ) -> RuntimeGraphicsTextureUnlockResult {
+        debug_assert!(self.preflight_texture_unlock(&plan).is_ok());
+        let Some(mutation) = plan.mutation else {
+            let texture = self
+                .textures
+                .get(&plan.texture_id)
+                .expect("preflighted graphics texture disappeared");
+            return RuntimeGraphicsTextureUnlockResult {
+                texture_id: texture.id,
+                generation: texture.generation,
+                content_generation: texture.content.content_generation,
+                changed: false,
+                pixel_source: texture.content.pixel_source,
+            };
+        };
+        let texture = self
+            .textures
+            .get_mut(&plan.texture_id)
+            .expect("preflighted graphics texture disappeared");
+        texture.active_lock = None;
+        texture.content.content_generation = mutation.next_content_generation;
+        texture.content.fills.clear();
+        texture.content.pixel_source = Some(mutation.pixel_source);
+        texture.content.last_update = None;
+        texture.generation = mutation.next_texture_generation;
+        self.generation = mutation.next_generation;
+        RuntimeGraphicsTextureUnlockResult {
+            texture_id: texture.id,
+            generation: texture.generation,
+            content_generation: texture.content.content_generation,
+            changed: true,
+            pixel_source: Some(mutation.pixel_source),
+        }
     }
 
     pub(super) fn plan_texture_dirty_region_mark(
@@ -3161,6 +3613,13 @@ impl RuntimeGraphics {
             .textures
             .get(&texture_id)
             .expect("validated logical texture association disappeared");
+        if texture.active_lock.is_some() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-graphics",
+                "graphics-texture-dirty-region-while-locked",
+                "logical texture dirty-region updates require an unlocked texture",
+            ));
+        }
         let dirty_region =
             merged_texture_dirty_region(texture.dirty_region, request.rect, texture.descriptor)?;
         let changed = dirty_region != texture.dirty_region;
@@ -3301,16 +3760,7 @@ impl RuntimeGraphics {
             .get(&destination_texture_id)
             .expect("validated destination texture association disappeared");
         validate_texture_update_pair(device_id, source, destination)?;
-        if matches!(
-            source.dirty_region,
-            RuntimeGraphicsTextureDirtyRegion::Rect(_)
-        ) {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-graphics",
-                "graphics-texture-update-partial-dirty-region-unsupported",
-                "logical texture update currently requires a whole-texture or clean source",
-            ));
-        }
+        validate_partial_texture_update_lineage(source, destination)?;
         let transferred = source.dirty_region != RuntimeGraphicsTextureDirtyRegion::Clean;
         let (
             next_generation,
@@ -3318,6 +3768,7 @@ impl RuntimeGraphics {
             next_destination_texture_generation,
             next_destination_content_generation,
             destination_fills,
+            destination_pixel_source,
             update,
             next_update_sequence,
         ) = if transferred {
@@ -3353,6 +3804,7 @@ impl RuntimeGraphics {
                 next_destination_texture_generation,
                 next_destination_content_generation,
                 source.content.fills.clone(),
+                source.content.pixel_source,
                 Some(RuntimeGraphicsTextureUpdate {
                     sequence: self.next_texture_update_sequence,
                     source_texture_id,
@@ -3368,6 +3820,7 @@ impl RuntimeGraphics {
                 destination.generation,
                 destination.content.content_generation,
                 Vec::new(),
+                None,
                 None,
                 self.next_texture_update_sequence,
             )
@@ -3387,6 +3840,7 @@ impl RuntimeGraphics {
             destination_content_generation: destination.content.content_generation,
             next_destination_content_generation,
             destination_fills,
+            destination_pixel_source,
             update,
             next_update_sequence,
             request,
@@ -3419,6 +3873,7 @@ impl RuntimeGraphics {
             plan.destination_texture_id,
         )?;
         validate_texture_update_pair(plan.device_id, source, destination)?;
+        validate_partial_texture_update_lineage(source, destination)?;
         if source.generation != plan.source_texture_generation
             || source.dirty_region != plan.source_dirty_region
             || source.content.content_generation != plan.source_content_generation
@@ -3429,16 +3884,14 @@ impl RuntimeGraphics {
         }
         let transferred = source.dirty_region != RuntimeGraphicsTextureDirtyRegion::Clean;
         if transferred {
-            if matches!(
-                source.dirty_region,
-                RuntimeGraphicsTextureDirtyRegion::Rect(_)
-            ) || self.generation.checked_add(1) != Some(plan.next_generation)
+            if self.generation.checked_add(1) != Some(plan.next_generation)
                 || source.generation.checked_add(1) != Some(plan.next_source_texture_generation)
                 || destination.generation.checked_add(1)
                     != Some(plan.next_destination_texture_generation)
                 || destination.content.content_generation.checked_add(1)
                     != Some(plan.next_destination_content_generation)
                 || plan.destination_fills != source.content.fills
+                || plan.destination_pixel_source != source.content.pixel_source
                 || plan.update
                     != Some(RuntimeGraphicsTextureUpdate {
                         sequence: self.next_texture_update_sequence,
@@ -3456,6 +3909,7 @@ impl RuntimeGraphics {
             || plan.next_destination_texture_generation != destination.generation
             || plan.next_destination_content_generation != destination.content.content_generation
             || !plan.destination_fills.is_empty()
+            || plan.destination_pixel_source.is_some()
             || plan.update.is_some()
             || plan.next_update_sequence != self.next_texture_update_sequence
         {
@@ -3482,6 +3936,7 @@ impl RuntimeGraphics {
                 .get_mut(&plan.destination_texture_id)
                 .expect("preflighted destination texture disappeared");
             destination.content.fills = plan.destination_fills;
+            destination.content.pixel_source = plan.destination_pixel_source;
             destination.content.content_generation = plan.next_destination_content_generation;
             destination.content.last_update = plan.update;
             destination.generation = plan.next_destination_texture_generation;
@@ -3995,6 +4450,13 @@ impl RuntimeGraphics {
                 "logical graphics surface fill has no live texture authority",
             )
         })?;
+        if texture.active_lock.is_some() || texture.content.pixel_source.is_some() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-graphics",
+                "graphics-surface-fill-texture-content-busy",
+                "logical surface fill cannot overlap an active or guest-backed texture content path",
+            ));
+        }
         let empty =
             request.rect.left == request.rect.right || request.rect.top == request.rect.bottom;
         if !empty && texture.content.fills.len() >= RUNTIME_GRAPHICS_SURFACE_FILL_LIMIT {
@@ -4247,6 +4709,26 @@ impl RuntimeGraphics {
                 (vertex_buffer.backing, vertex_buffer.descriptor.byte_length)
             })
             .collect())
+    }
+
+    pub(crate) fn texture_backings_for_retirement(
+        &self,
+        plan: &RuntimeGraphicsComRetirementPlan,
+    ) -> Result<Vec<(RuntimeGraphicsTextureBacking, u32)>, RuntimeStateError> {
+        self.preflight_com_object_retirement(plan)?;
+        plan.texture_associations
+            .iter()
+            .filter_map(|(_, texture_id)| {
+                let texture = self
+                    .textures
+                    .get(texture_id)
+                    .expect("validated retiring graphics texture disappeared");
+                texture.backing.map(|backing| {
+                    texture_byte_layout(texture.descriptor)
+                        .map(|(_, byte_length)| (backing, byte_length))
+                })
+            })
+            .collect()
     }
 
     pub(crate) fn preflight_com_object_retirement(
@@ -4516,6 +4998,22 @@ impl RuntimeGraphics {
             .iter()
             .map(|(_, texture_id)| *texture_id)
             .collect::<BTreeSet<_>>();
+        for texture in self.textures.values() {
+            if retiring_textures.contains(&texture.id) {
+                continue;
+            }
+            if texture
+                .content
+                .pixel_source
+                .is_some_and(|source| retiring_textures.contains(&source.source_texture_id))
+            {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-graphics",
+                    "graphics-texture-retirement-has-live-pixel-source-dependent",
+                    "logical texture backing cannot retire while live texture content still references it",
+                ));
+            }
+        }
         let retiring_vertex_buffers = vertex_buffer_associations
             .iter()
             .map(|(_, vertex_buffer_id)| *vertex_buffer_id)
@@ -5175,7 +5673,41 @@ fn validate_texture_creation_request(
             "logical graphics texture creation requires a live device and nonzero descriptor",
         ));
     }
+    texture_byte_layout(request.descriptor)?;
     Ok(())
+}
+
+pub(super) fn texture_byte_layout(
+    descriptor: RuntimeGraphicsTextureDescriptor,
+) -> Result<(u32, u32), RuntimeStateError> {
+    let bytes_per_pixel = match descriptor.color_format {
+        RuntimeGraphicsColorFormat::B8g8r8x8Unorm => 4_u32,
+    };
+    let row_pitch = descriptor
+        .width
+        .checked_mul(bytes_per_pixel)
+        .ok_or_else(|| {
+            RuntimeStateError::invalid_input(
+                "runtime-graphics",
+                "graphics-texture-row-pitch-overflow",
+                "logical graphics texture row pitch exceeds x86 resource accounting",
+            )
+        })?;
+    let byte_length = row_pitch.checked_mul(descriptor.height).ok_or_else(|| {
+        RuntimeStateError::invalid_input(
+            "runtime-graphics",
+            "graphics-texture-byte-length-overflow",
+            "logical graphics texture byte length exceeds x86 resource accounting",
+        )
+    })?;
+    if row_pitch == 0 || byte_length == 0 {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-graphics",
+            "graphics-texture-layout-empty",
+            "logical graphics texture layout must contain texels",
+        ));
+    }
+    Ok((row_pitch, byte_length))
 }
 
 fn validate_texture_dirty_region_mark_request(
@@ -5223,11 +5755,71 @@ fn validate_texture_update_pair(
         || source.descriptor.height != destination.descriptor.height
         || source.descriptor.levels != destination.descriptor.levels
         || source.descriptor.color_format != destination.descriptor.color_format
+        || source.active_lock.is_some()
+        || destination.active_lock.is_some()
     {
         return Err(RuntimeStateError::invalid_input(
             "runtime-graphics",
             "graphics-texture-update-pair-invalid",
             "logical texture update requires compatible distinct SYSTEMMEM and DEFAULT textures owned by the calling device",
+        ));
+    }
+    if let Some(pixel_source) = source.content.pixel_source {
+        let backing = source.backing.ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-graphics",
+                "graphics-texture-pixel-source-backing-missing",
+                "logical texture pixel source has no live guest-memory backing",
+            )
+        })?;
+        if pixel_source.source_texture_id != source.id
+            || pixel_source.source_content_generation != source.content.content_generation
+            || pixel_source.range != backing.range
+            || pixel_source.row_pitch != backing.row_pitch
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-graphics",
+                "graphics-texture-pixel-source-invalid",
+                "logical texture pixel source does not match its live guest-memory backing",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_partial_texture_update_lineage(
+    source: &RuntimeGraphicsTexture,
+    destination: &RuntimeGraphicsTexture,
+) -> Result<(), RuntimeStateError> {
+    if !matches!(
+        source.dirty_region,
+        RuntimeGraphicsTextureDirtyRegion::Rect(_)
+    ) {
+        return Ok(());
+    }
+    let pixel_source = source.content.pixel_source.ok_or_else(|| {
+        RuntimeStateError::invalid_input(
+            "runtime-graphics",
+            "graphics-texture-update-partial-source-bytes-unavailable",
+            "partial logical texture update requires authoritative source backing bytes",
+        )
+    })?;
+    let previous_update = destination.content.last_update.ok_or_else(|| {
+        RuntimeStateError::invalid_input(
+            "runtime-graphics",
+            "graphics-texture-update-partial-destination-lineage-missing",
+            "partial logical texture update requires a destination containing the immediately preceding source generation",
+        )
+    })?;
+    if pixel_source.source_texture_id != source.id
+        || previous_update.source_texture_id != source.id
+        || previous_update.source_content_generation.checked_add(1)
+            != Some(source.content.content_generation)
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-graphics",
+            "graphics-texture-update-partial-destination-lineage-invalid",
+            "partial logical texture update destination does not contain the immediately preceding source generation",
         ));
     }
     Ok(())
@@ -7088,6 +7680,156 @@ mod tests {
     }
 
     #[test]
+    fn texture_lock_unlock_owns_backing_content_and_failure_atomicity() {
+        let mut graphics = RuntimeGraphics::default();
+        let device_plan = graphics.plan_device_creation(request()).unwrap();
+        graphics.commit_device_creation(device_plan, RuntimeComObjectId(7));
+        let texture_plan = graphics
+            .plan_texture_creation(texture_request(RuntimeComObjectId(7)))
+            .unwrap();
+        let texture = graphics.commit_texture_creation(texture_plan, RuntimeComObjectId(8));
+        let backing_range = GuestRange::new(RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, 0x40_0000)
+            .expect("one 1024x1024 B8G8R8X8 texture backing");
+        let request = RuntimeGraphicsTextureLockRequest {
+            texture_com_object_id: RuntimeComObjectId(8),
+            level: 0,
+            rect: RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 800,
+                bottom: 600,
+            },
+            flags: RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE,
+        };
+        let plan = graphics
+            .plan_texture_lock(
+                request,
+                Some(RuntimeGraphicsTextureBackingPlan {
+                    address_allocation_id: ProcessAddressAllocationId(41),
+                    range: backing_range,
+                    row_pitch: 4_096,
+                }),
+            )
+            .unwrap();
+        let stale_lock = plan.clone();
+        graphics
+            .preflight_texture_lock(&plan, Some(MemoryOwnerId(23)))
+            .unwrap();
+        let lock = graphics.commit_texture_lock(plan, Some(MemoryOwnerId(23)));
+        assert_eq!(lock.pitch, 4_096);
+        assert_eq!(lock.guest_address, backing_range.start());
+        let locked = graphics.texture(texture.id).unwrap();
+        assert_eq!(locked.active_lock, Some(lock));
+        assert_eq!(
+            locked.backing,
+            Some(RuntimeGraphicsTextureBacking {
+                address_allocation_id: ProcessAddressAllocationId(41),
+                memory_owner: MemoryOwnerId(23),
+                range: backing_range,
+                row_pitch: 4_096,
+            })
+        );
+        assert_eq!(
+            graphics
+                .preflight_texture_lock(&stale_lock, Some(MemoryOwnerId(23)))
+                .unwrap_err()
+                .code,
+            "graphics-texture-lock-plan-stale"
+        );
+
+        for error in [
+            graphics.plan_texture_lock(request, None).unwrap_err().code,
+            graphics
+                .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
+                    texture_com_object_id: RuntimeComObjectId(8),
+                    rect: Some(request.rect),
+                })
+                .unwrap_err()
+                .code,
+        ] {
+            assert!(matches!(
+                error,
+                "graphics-texture-already-locked" | "graphics-texture-dirty-region-while-locked"
+            ));
+        }
+
+        let unlock_plan = graphics.plan_texture_unlock(RuntimeComObjectId(8)).unwrap();
+        let stale_unlock = unlock_plan.clone();
+        graphics.preflight_texture_unlock(&unlock_plan).unwrap();
+        let unlock = graphics.commit_texture_unlock(unlock_plan);
+        assert_eq!(unlock.texture_id, texture.id);
+        assert_eq!(unlock.content_generation, 1);
+        assert!(unlock.changed);
+        assert_eq!(
+            unlock.pixel_source,
+            Some(RuntimeGraphicsTexturePixelSource {
+                source_texture_id: texture.id,
+                source_content_generation: 1,
+                range: backing_range,
+                row_pitch: 4_096,
+            })
+        );
+        let unlocked = graphics.texture(texture.id).unwrap();
+        assert!(unlocked.active_lock.is_none());
+        assert_eq!(unlocked.content.pixel_source, unlock.pixel_source);
+        assert_eq!(
+            unlocked.dirty_region,
+            RuntimeGraphicsTextureDirtyRegion::WholeTexture,
+            "D3DLOCK_NO_DIRTY_UPDATE must not mutate dirty-region authority"
+        );
+        let unlocked_backing = unlocked.backing.unwrap();
+        assert_eq!(
+            graphics
+                .preflight_texture_unlock(&stale_unlock)
+                .unwrap_err()
+                .code,
+            "graphics-texture-unlock-plan-stale"
+        );
+        let before_repeated_unlock = graphics.clone();
+        let repeated_unlock = graphics.plan_texture_unlock(RuntimeComObjectId(8)).unwrap();
+        graphics.preflight_texture_unlock(&repeated_unlock).unwrap();
+        let repeated_unlock = graphics.commit_texture_unlock(repeated_unlock);
+        assert!(!repeated_unlock.changed);
+        assert_eq!(repeated_unlock.pixel_source, unlock.pixel_source);
+        assert_eq!(graphics, before_repeated_unlock);
+
+        for unsupported in [
+            RuntimeGraphicsTextureLockRequest {
+                level: 1,
+                ..request
+            },
+            RuntimeGraphicsTextureLockRequest {
+                flags: 0,
+                ..request
+            },
+            RuntimeGraphicsTextureLockRequest {
+                rect: RuntimeRect {
+                    right: 1_025,
+                    ..request.rect
+                },
+                ..request
+            },
+        ] {
+            let before = graphics.clone();
+            assert!(graphics.plan_texture_lock(unsupported, None).is_err());
+            assert_eq!(graphics, before);
+        }
+
+        let retirement = graphics
+            .plan_com_object_retirements(&[RuntimeComObjectId(8)].into_iter().collect())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            graphics
+                .texture_backings_for_retirement(&retirement)
+                .unwrap(),
+            vec![(unlocked_backing, 0x40_0000)]
+        );
+        graphics.commit_com_object_retirement(retirement);
+        assert!(graphics.textures().is_empty());
+    }
+
+    #[test]
     fn texture_dirty_regions_are_bounded_coalesced_and_failure_atomic() {
         let mut graphics = RuntimeGraphics::default();
         let device_plan = graphics.plan_device_creation(request()).unwrap();
@@ -7622,26 +8364,134 @@ mod tests {
         );
         assert_eq!(graphics, before_reversed);
 
+        let backing_range = GuestRange::new(RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, 0x40_0000)
+            .expect("one 1024x1024 B8G8R8X8 texture backing");
+        let lock_request = RuntimeGraphicsTextureLockRequest {
+            texture_com_object_id: RuntimeComObjectId(2),
+            level: 0,
+            rect: RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 800,
+                bottom: 600,
+            },
+            flags: RUNTIME_GRAPHICS_TEXTURE_LOCK_NO_DIRTY_UPDATE,
+        };
+        let lock = graphics
+            .plan_texture_lock(
+                lock_request,
+                Some(RuntimeGraphicsTextureBackingPlan {
+                    address_allocation_id: ProcessAddressAllocationId(41),
+                    range: backing_range,
+                    row_pitch: 4_096,
+                }),
+            )
+            .unwrap();
+        graphics
+            .preflight_texture_lock(&lock, Some(MemoryOwnerId(23)))
+            .unwrap();
+        graphics.commit_texture_lock(lock, Some(MemoryOwnerId(23)));
+        let unlock = graphics.plan_texture_unlock(RuntimeComObjectId(2)).unwrap();
+        graphics.preflight_texture_unlock(&unlock).unwrap();
+        graphics.commit_texture_unlock(unlock);
+
+        let partial_rect = RuntimeRect {
+            left: 1,
+            top: 2,
+            right: 17,
+            bottom: 19,
+        };
         let mark = graphics
             .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
                 texture_com_object_id: RuntimeComObjectId(2),
-                rect: Some(RuntimeRect {
-                    left: 1,
-                    top: 2,
-                    right: 17,
-                    bottom: 19,
-                }),
+                rect: Some(partial_rect),
             })
             .unwrap();
         graphics.commit_texture_dirty_region_mark(mark);
-        let before_partial = graphics.clone();
+        let partial = graphics.plan_texture_update(request).unwrap();
+        let stale_partial = partial.clone();
+        graphics.preflight_texture_update(&partial).unwrap();
+        let partial = graphics.commit_texture_update(partial);
+        assert!(partial.transferred);
         assert_eq!(
-            graphics.plan_texture_update(request).unwrap_err().code,
-            "graphics-texture-update-partial-dirty-region-unsupported"
+            partial.update.unwrap().dirty_region,
+            RuntimeGraphicsTextureDirtyRegion::Rect(partial_rect)
         );
-        assert_eq!(graphics, before_partial);
+        let committed_source = graphics.texture(source.id).unwrap();
+        let committed_destination = graphics.texture(destination.id).unwrap();
+        assert_eq!(
+            committed_source.dirty_region,
+            RuntimeGraphicsTextureDirtyRegion::Clean
+        );
+        assert_eq!(
+            committed_destination.content.pixel_source,
+            committed_source.content.pixel_source
+        );
+        assert_eq!(
+            committed_destination
+                .content
+                .last_update
+                .unwrap()
+                .source_content_generation,
+            2
+        );
+        let before_source_only_retirement = graphics.clone();
+        assert_eq!(
+            graphics
+                .plan_com_object_retirements(&[RuntimeComObjectId(2)].into_iter().collect())
+                .unwrap_err()
+                .code,
+            "graphics-texture-retirement-has-live-pixel-source-dependent"
+        );
+        assert_eq!(graphics, before_source_only_retirement);
+        let paired_retirement = graphics
+            .plan_com_object_retirements(
+                &[RuntimeComObjectId(2), RuntimeComObjectId(4)]
+                    .into_iter()
+                    .collect(),
+            )
+            .unwrap()
+            .unwrap();
+        graphics
+            .preflight_com_object_retirement(&paired_retirement)
+            .unwrap();
+        assert_eq!(
+            graphics
+                .preflight_texture_update(&stale_partial)
+                .unwrap_err()
+                .code,
+            "graphics-texture-update-plan-stale"
+        );
+
+        let second_destination = graphics.plan_texture_creation(destination_request).unwrap();
+        graphics.commit_texture_creation(second_destination, RuntimeComObjectId(5));
+        let relock = graphics.plan_texture_lock(lock_request, None).unwrap();
+        graphics.preflight_texture_lock(&relock, None).unwrap();
+        graphics.commit_texture_lock(relock, None);
+        let reunlock = graphics.plan_texture_unlock(RuntimeComObjectId(2)).unwrap();
+        graphics.commit_texture_unlock(reunlock);
+        let mark = graphics
+            .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
+                texture_com_object_id: RuntimeComObjectId(2),
+                rect: Some(partial_rect),
+            })
+            .unwrap();
+        graphics.commit_texture_dirty_region_mark(mark);
+        let before_missing_lineage = graphics.clone();
+        assert_eq!(
+            graphics
+                .plan_texture_update(RuntimeGraphicsTextureUpdateRequest {
+                    device_com_object_id: RuntimeComObjectId(1),
+                    source_texture_com_object_id: RuntimeComObjectId(2),
+                    destination_texture_com_object_id: RuntimeComObjectId(5),
+                })
+                .unwrap_err()
+                .code,
+            "graphics-texture-update-partial-destination-lineage-missing"
+        );
+        assert_eq!(graphics, before_missing_lineage);
         assert_eq!(graphics.device(device.id).unwrap().id, device.id);
-        assert_eq!(graphics.next_texture_update_sequence, 2);
+        assert_eq!(graphics.next_texture_update_sequence, 3);
         assert_eq!(surface.texture_id, source.id);
     }
 }

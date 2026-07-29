@@ -865,7 +865,22 @@ copy、pixel backing、renderer uploadは続く`UpdateTexture` gatewayの責務�
 
 Reached `UpdateTexture`はsource／destination texture relation、descriptor role、logical content、dirty state、全generation
 capacityをpreflightし、sourceのRust-owned level-zero contentをdestinationへ複製してsource dirtyをconsumeする一回の
-two-resource targeted commitを行う。続く`BeginScene`は同じ`RuntimeGraphicsDevice`上でinactive-to-active lifecycleと
+two-resource targeted commitを行う。後続のpartial updateは、destinationがsourceの直前generationを表す場合だけ
+exact dirty rectangleを受理し、sourceのfull authoritative backingをgeneration-checked pixel sourceとしてpublishする。
+これによりlogical command historyとguest byte backingの異なる世代を混合しない。Arbitrary partial historyは
+profile外としてmutation前に拒否する。
+
+Reached texture `LockRect`はlive COM-to-texture relation、level／format／pool／RECT／flags、backing capacity、
+address-space、GuestMemory output spanを全てpreflightし、level-zero full backingをgraphics-resource arenaへlazy allocate
+してpitch／bits outputとread-write protectionを一transactionでpublishする。Byte authorityは`GuestMemory`、descriptor、
+allocation identity、single active lock、content／pixel-source generationは`RuntimeGraphicsTexture`が所有する。
+`UnlockRect`は同じlock lifetimeを閉じてbackingをread-onlyへ戻し、non-owning generation-checked pixel-source relationを
+publishする。このrelationが参照中のsource allocationはretireできず、paired retirementまたはrepublishでのみ解消する。
+Nested lock、stale plan、unwritable output、capacity failureはallocation、protection、output、generationを不変にし、nativeで
+確認したunlock-without-lockはmutation-free successとする。TypeScriptはdraw materialization時にexecution mirrorからchecked
+copyするだけで、Windows texture bytes、lock、generationの第二authorityを持たない。
+
+続く`BeginScene`は同じ`RuntimeGraphicsDevice`上でinactive-to-active lifecycleと
 scene sequenceだけをplan／preflight／commitする。Reached `SetSamplerState`はdevice-owned sparse typed mapへ
 sampler 0のMIN／MAG linearだけを追加し、同値repeatをgeneration不変のsuccessにする。Native driverのprofile外
 permissivenessを推測で一般化せず、unsupported sampler／state／valueはmutation前にtyped resultへ落とす。Reached

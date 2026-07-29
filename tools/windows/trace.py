@@ -103,6 +103,7 @@ SUPPORTED_OBSERVATIONS = (
     "d3d9-initial-textures",
     "d3d9-recreated-textures",
     "d3d9-texture-add-dirty-rect",
+    "d3d9-texture-lock-rect",
     "d3d9-update-texture",
     "d3d9-begin-scene",
     "d3d9-set-texture",
@@ -183,7 +184,13 @@ def main() -> int:
     write_lock = threading.Lock()
     accepting_agent_events = True
     with args.output.open(output_mode, encoding="utf-8", newline="\n") as output:
-        def write_event(event: dict, *, agent_event: bool = False) -> None:
+        def write_event(
+            event: dict,
+            *,
+            agent_event: bool = False,
+            close_agent_events: bool = False,
+        ) -> None:
+            nonlocal accepting_agent_events
             with write_lock:
                 if agent_event and not accepting_agent_events:
                     return
@@ -192,6 +199,8 @@ def main() -> int:
                     + "\n"
                 )
                 output.flush()
+                if close_agent_events:
+                    accepting_agent_events = False
 
         write_event(
             {
@@ -245,11 +254,16 @@ def main() -> int:
                 nonlocal observed_stop_event
                 if message["type"] == "send":
                     event = message["payload"]
-                    write_event(event, agent_event=True)
-                    if (
+                    is_stop_event = (
                         args.stop_on_event is not None
                         and event.get("kind") == args.stop_on_event
-                    ):
+                    )
+                    write_event(
+                        event,
+                        agent_event=True,
+                        close_agent_events=is_stop_event,
+                    )
+                    if is_stop_event:
                         observed_stop_event = args.stop_on_event
                         stop_requested.set()
                 else:

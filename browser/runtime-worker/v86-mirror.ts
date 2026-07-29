@@ -862,10 +862,24 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   readGuestU32(address: number): number {
-    const bytes = new Uint8Array(4);
+    const bytes = this.readGuestBytes(address, 4);
+    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true);
+  }
+
+  readGuestBytes(address: number, byteLength: number): Uint8Array {
+    invariant(
+      Number.isSafeInteger(address) && address > 0 &&
+        Number.isSafeInteger(byteLength) && byteLength > 0,
+      "guest mirror byte read requires a nonempty x86 range",
+    );
+    const end = address + byteLength;
+    invariant(
+      Number.isSafeInteger(end) && end <= 0x1_0000_0000,
+      "guest mirror byte read wrapped the address space",
+    );
+    const bytes = new Uint8Array(byteLength);
     for (let index = 0; index < bytes.length; index += 1) {
-      const current = (address + index) >>> 0;
-      invariant(current >= address, "guest read wrapped the address space");
+      const current = address + index;
       const mapping = this.#mappingFor(current);
       if (!mapping.protection.read) {
         throw new ExecutionMemoryAccessFault(
@@ -876,7 +890,7 @@ export class V86Mirror implements ExecutionEngine {
       }
       bytes[index] = this.#physicalMemory[mapping.physicalBase + (current & 0xfff)] ?? 0;
     }
-    return new DataView(bytes.buffer).getUint32(0, true);
+    return bytes;
   }
 
   readU32(address: number): number {

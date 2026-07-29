@@ -125,7 +125,7 @@ const RUNTIME_FRAME_HOST_COMPLETION: u32 = 19;
 const RUNTIME_FRAME_THREAD_EXIT: u32 = 20;
 const RUNTIME_FRAME_THREAD_EXIT_COMPLETION: u32 = 21;
 const RUNTIME_FRAME_MAX_CONTROL_BYTES: usize = 1024 * 1024;
-const RUNTIME_FRAME_MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
+const RUNTIME_FRAME_MAX_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
 const GENERIC_RUNTIME_TRAP_LIMIT: usize = 32_768;
 const GENERIC_RUNTIME_MAX_TRAP_LIMIT: usize = 196_608;
 const GENERIC_RUNTIME_CALLBACK_DEPTH_LIMIT: usize = 64;
@@ -4011,7 +4011,7 @@ fn run_v86_generic_runtime_session(
     gdiplus_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v30();
+    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v31();
     if !d3d9_clear_enabled {
         d3d9_policy.clear = None;
     }
@@ -6545,8 +6545,10 @@ fn run_v86_generic_runtime_session(
                             None
                         };
                         let graphics_texture = if completion.frame.interface == "IDirect3DTexture9"
-                            && completion.frame.method == "AddDirtyRect"
-                        {
+                            && matches!(
+                                completion.frame.method.as_str(),
+                                "AddDirtyRect" | "LockRect" | "UnlockRect"
+                            ) {
                             process
                                 .runtime
                                 .graphics_textures()

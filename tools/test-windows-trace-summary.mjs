@@ -6012,6 +6012,17 @@ assert.doesNotThrow(() =>
   summarizeTrace(encode(d3d9TextureAddDirtyRectSelection)),
 );
 
+const d3d9TextureLockRectSelection = structuredClone(events);
+d3d9TextureLockRectSelection[0].arguments.observations = [
+  "d3d9-texture-lock-rect",
+];
+d3d9TextureLockRectSelection.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["d3d9-texture-lock-rect"];
+assert.doesNotThrow(() =>
+  summarizeTrace(encode(d3d9TextureLockRectSelection)),
+);
+
 const d3d9UpdateTextureSelection = structuredClone(events);
 d3d9UpdateTextureSelection[0].arguments.observations = [
   "d3d9-update-texture",

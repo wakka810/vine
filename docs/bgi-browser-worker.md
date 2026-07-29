@@ -336,13 +336,17 @@ native-derived 38-key scan with no input receipt and a zero signed SHORT for
 every query. The continuation then completes the existing deterministic
 `WINMM.dll!timeGetTime` and `USER32.dll!SetRect` contracts at sequences 148,196
 and 148,197. The latter atomically publishes `[0,0,1280,720]`. Node and Chrome
-stop at the same instruction 147,769,351 `IDirect3DTexture9::LockRect` call with
+complete the instruction 147,769,351 `IDirect3DTexture9::LockRect` call with
 level 0, a writable `D3DLOCKED_RECT`, the full rectangle, and flags `0x8000`.
-Ordered call semantics, all 63 immutable source reads, terminal memory content,
-cursor／rectangle writes, scan order, render completion counts, and the COM stop
-identity are equivalent. Texture locking itself is not implemented by this
-profile. Generations, report hashes, timing, and exact artifact identities
-remain manifest-owned evidence rather than guest semantics.
+Rust lazily publishes the 8 MiB GuestMemory backing with pitch 8,192; the later
+`UnlockRect`, bounded partial `UpdateTexture`, second scene／draw／Present cycle,
+and browser byte materialization also complete. Ordered call semantics, all 63
+immutable source reads, terminal memory content, cursor／rectangle writes, scan
+order, render completion counts, and the next COM stop identity are equivalent.
+Both engines stop at instruction 148,744,443 on
+`IDirect3DDevice9::TestCooperativeLevel`. Generations, report hashes, timing,
+and exact artifact identities remain manifest-owned evidence rather than guest
+semantics.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
@@ -375,9 +379,10 @@ fingerprint before and after execution.
 - Unsupported behavior remains an explicit structured stop. A normal capability
   completion requires a versioned count and next-endpoint contract; reaching a
   later API by itself does not establish subsystem completeness.
-- The reached `IDirect3DTexture9::LockRect` is a subsystem gateway, not a
-  successful texture lock. No locked pitch／bits output, texture byte mutation,
-  lock lifetime, or matching `UnlockRect` is claimed by this checkpoint.
+- The bounded `IDirect3DTexture9::LockRect`／`UnlockRect` path claims only the
+  reached level-zero X8R8G8B8 SYSTEMMEM rectangle and
+  `D3DLOCK_NO_DIRTY_UPDATE`. Other levels, formats, rectangles, flags, concurrent
+  locks, and renderer ownership of Windows texture state remain unsupported.
 - `DragAcceptFiles` changes only the logical acceptance bit. Browser drag
   events, `HDROP`, `WM_DROPFILES`, file permission, and VFS import remain
   unimplemented.
@@ -387,10 +392,12 @@ fingerprint before and after execution.
 - The reached Clear itself does not claim partial rectangles, depth／stencil
   clears, or pixel storage. Upload, draw, and publication occur only through
   the separately bounded first-Present snapshot.
-- The reached AddDirtyRect stores only a bounded Rust-owned dirty region. The following
-  UpdateTexture consumes that region and copies only Rust-owned logical commands; it does
-  not allocate pixel storage, copy texel bytes, support partial dirty regions or the native
-  dynamic-destination variant, or upload to a renderer. The following BeginScene creates
+- The reached AddDirtyRect stores only a bounded Rust-owned dirty region. The
+  first UpdateTexture copies Rust-owned logical commands; the later exact
+  partial update publishes a generation-checked Rust GuestMemory pixel source.
+  Arbitrary partial histories and the native dynamic-destination variant remain
+  unsupported. The Worker performs only a bounded rendering-time byte copy and
+  owns no Windows texture or lock state. The following BeginScene creates
   only Rust-owned logical scene state, the two reached sampler calls add only Rust-owned typed
   sampler state, the six reached texture-stage calls add only Rust-owned typed stage-0
   fixed-function state, SetTexture adds one non-owning Rust-owned binding, SetFVF

@@ -16,10 +16,11 @@ use crate::runtime::{
     RuntimeComMethodImplementation, RuntimeComMethodRegistration, RuntimeComMethodTarget,
     RuntimeComObjectId, RuntimeComObjectRecord, RuntimeComObjectRegistration, RuntimeComReturnKind,
     RuntimeGetGraphicsSurfaceDcResult, RuntimeGraphicsSurfaceDcAcquisitionPlan,
-    RuntimeGraphicsVertexBuffer, RuntimeGraphicsVertexBufferCreateRequest,
-    RuntimeGraphicsVertexBufferLock, RuntimeGraphicsVertexBufferLockRequest,
-    RuntimeGraphicsVertexBufferUnlockResult, RuntimeKernel, RuntimeStateError,
-    RuntimeStateErrorClass,
+    RuntimeGraphicsTextureLock, RuntimeGraphicsTextureLockRequest,
+    RuntimeGraphicsTextureUnlockResult, RuntimeGraphicsVertexBuffer,
+    RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferLock,
+    RuntimeGraphicsVertexBufferLockRequest, RuntimeGraphicsVertexBufferUnlockResult, RuntimeKernel,
+    RuntimeStateError, RuntimeStateErrorClass,
 };
 
 pub const COM_S_OK: ComHResult = ComHResult(0);
@@ -431,6 +432,139 @@ impl ComFrontendCall<'_> {
         self.runtime
             .preflight_graphics_vertex_buffer_unlock(&plan)?;
         let result = self.runtime.commit_graphics_vertex_buffer_unlock(plan);
+        transaction.commit_transaction();
+        Ok(result)
+    }
+
+    pub(crate) fn lock_graphics_texture_with_guest_locked_rect_write(
+        &mut self,
+        request: RuntimeGraphicsTextureLockRequest,
+        output_address: GuestAddress,
+    ) -> Result<(RuntimeGraphicsTextureLock, Vec<ComGuestWriteReceipt>), RuntimeStateError> {
+        self.memory
+            .validate_access(output_address, 8, MemoryAccess::Write)
+            .map_err(RuntimeStateError::from_memory)?;
+        let plan = self.runtime.plan_graphics_texture_lock(request)?;
+        let lock = plan.lock();
+        let resource_allocation = plan.resource_allocation().cloned();
+        let existing_backing = if resource_allocation.is_none() {
+            Some(
+                self.runtime
+                    .graphics_texture(plan.texture_id())?
+                    .backing
+                    .ok_or_else(|| {
+                        RuntimeStateError::runtime_defect(
+                            "runtime-graphics",
+                            "graphics-texture-lock-existing-backing-missing",
+                            "texture LockRect without an allocation plan has no live texel backing",
+                        )
+                    })?,
+            )
+        } else {
+            None
+        };
+        let mut transaction = self.memory.begin_transaction();
+        let backing_memory_owner = if let Some(allocation) = &resource_allocation {
+            let owner = transaction
+                .create_owner(MemoryOwnerKind::Runtime)
+                .map_err(RuntimeStateError::from_memory)?;
+            transaction
+                .reserve_fixed_for_address_allocation(
+                    allocation.id.0,
+                    owner,
+                    MemoryRegionKind::GraphicsResource,
+                    allocation.range.base,
+                    allocation.range.byte_length,
+                )
+                .map_err(RuntimeStateError::from_memory)?;
+            let range = GuestRange::new(allocation.range.base, allocation.range.byte_length)
+                .map_err(RuntimeStateError::from_memory)?;
+            transaction
+                .commit(
+                    owner,
+                    range,
+                    PageProtection {
+                        read: true,
+                        write: true,
+                        execute: false,
+                    },
+                )
+                .map_err(RuntimeStateError::from_memory)?;
+            Some(owner)
+        } else {
+            let backing = existing_backing.expect("existing texture backing was preflighted");
+            transaction
+                .protect(
+                    backing.memory_owner,
+                    backing.range,
+                    PageProtection {
+                        read: true,
+                        write: true,
+                        execute: false,
+                    },
+                )
+                .map_err(RuntimeStateError::from_memory)?;
+            None
+        };
+        let mut bytes = Vec::with_capacity(8);
+        bytes.extend_from_slice(&lock.pitch.to_le_bytes());
+        bytes.extend_from_slice(&lock.guest_address.0.to_le_bytes());
+        let write_result = transaction
+            .write(output_address, &bytes)
+            .map_err(RuntimeStateError::from_memory)?;
+        self.runtime
+            .preflight_graphics_texture_lock(&plan, backing_memory_owner)?;
+        let committed = self
+            .runtime
+            .commit_graphics_texture_lock(plan, backing_memory_owner)?;
+        transaction.commit_transaction();
+        debug_assert_eq!(committed, lock);
+        Ok((
+            committed,
+            vec![ComGuestWriteReceipt {
+                address: output_address,
+                bytes,
+                result: write_result,
+            }],
+        ))
+    }
+
+    pub(crate) fn unlock_graphics_texture(
+        &mut self,
+        texture_com_object_id: RuntimeComObjectId,
+    ) -> Result<RuntimeGraphicsTextureUnlockResult, RuntimeStateError> {
+        let plan = self
+            .runtime
+            .plan_graphics_texture_unlock(texture_com_object_id)?;
+        if !plan.changes_content() {
+            self.runtime.preflight_graphics_texture_unlock(&plan)?;
+            return Ok(self.runtime.commit_graphics_texture_unlock(plan));
+        }
+        let backing = self
+            .runtime
+            .graphics_texture(plan.texture_id())?
+            .backing
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-graphics",
+                    "graphics-texture-unlock-backing-missing",
+                    "preflighted texture UnlockRect has no texel backing",
+                )
+            })?;
+        let mut transaction = self.memory.begin_transaction();
+        transaction
+            .protect(
+                backing.memory_owner,
+                backing.range,
+                PageProtection {
+                    read: true,
+                    write: false,
+                    execute: false,
+                },
+            )
+            .map_err(RuntimeStateError::from_memory)?;
+        self.runtime.preflight_graphics_texture_unlock(&plan)?;
+        let result = self.runtime.commit_graphics_texture_unlock(plan);
         transaction.commit_transaction();
         Ok(result)
     }

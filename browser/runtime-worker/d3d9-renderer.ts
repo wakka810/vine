@@ -54,6 +54,7 @@ export class D3d9WebGl2Renderer {
   present(
     device: RuntimeGraphicsDeviceSnapshot,
     binding: LogicalComBinding,
+    textureBacking?: Uint8Array,
   ): RuntimeBrowserPresentationReceipt {
     invariant(
       binding.interfaceName === "IDirect3DDevice9" &&
@@ -132,7 +133,7 @@ export class D3d9WebGl2Renderer {
       "first-frame renderer received unsupported fixed-function state",
     );
     const { texturePixels, vertices } = this.#preflightResource;
-    materializeTexture(submission.texture, texturePixels);
+    materializeTexture(submission.texture, texturePixels, textureBacking);
     decodeVertices(submission.vertexData, submission.vertexCount, vertices);
 
     // All policy, identity, capacity, and immutable input validation is complete.
@@ -360,6 +361,7 @@ function materializeTexture(
     NonNullable<RuntimeGraphicsDeviceSnapshot["presentedFrame"]>["backBuffer"]["drawSubmissions"]
   >[number]["texture"],
   pixels: Uint8Array,
+  backing?: Uint8Array,
 ): void {
   const { width, height, colorFormat } = texture.descriptor;
   invariant(
@@ -376,6 +378,24 @@ function materializeTexture(
     byteLength === TEXTURE_BYTE_LENGTH && pixels.byteLength === byteLength,
     "renderer texture staging capacity does not match the policy band",
   );
+  const pixelSource = texture.content.pixelSource;
+  if (pixelSource !== undefined) {
+    invariant(
+      backing !== undefined &&
+        pixelSource.range.byteLength === byteLength &&
+        pixelSource.rowPitch === width * 4 &&
+        backing.byteLength === byteLength,
+      "renderer texture pixel source does not match its checked guest backing",
+    );
+    for (let offset = 0; offset < byteLength; offset += 4) {
+      pixels[offset] = backing[offset + 2] ?? 0;
+      pixels[offset + 1] = backing[offset + 1] ?? 0;
+      pixels[offset + 2] = backing[offset] ?? 0;
+      pixels[offset + 3] = 0xff;
+    }
+    return;
+  }
+  invariant(backing === undefined, "renderer received guest backing without a pixel source");
   pixels.fill(0);
   for (let offset = 3; offset < pixels.length; offset += 4) {
     pixels[offset] = 0xff;

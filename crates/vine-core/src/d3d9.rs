@@ -25,7 +25,8 @@ use crate::runtime::{
     RuntimeGraphicsTextureArgument, RuntimeGraphicsTextureBindingUpdateRequest,
     RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsTextureDescriptor,
     RuntimeGraphicsTextureDirtyRegion, RuntimeGraphicsTextureDirtyRegionMarkRequest,
-    RuntimeGraphicsTextureFilter, RuntimeGraphicsTextureOperation, RuntimeGraphicsTexturePool,
+    RuntimeGraphicsTextureFilter, RuntimeGraphicsTextureLockRequest,
+    RuntimeGraphicsTextureOperation, RuntimeGraphicsTexturePool,
     RuntimeGraphicsTextureStageStateUpdate, RuntimeGraphicsTextureStageStateUpdateRequest,
     RuntimeGraphicsTextureUpdateRequest, RuntimeGraphicsTextureUsage,
     RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferDescriptor,
@@ -37,7 +38,7 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 30;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 31;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -55,6 +56,7 @@ pub const D3D9_D3DFMT_X8R8G8B8: u32 = 22;
 pub const D3D9_D3DRTYPE_TEXTURE: u32 = 3;
 pub const D3D9_D3DUSAGE_DYNAMIC: u32 = 0x0000_0200;
 pub const D3D9_D3DUSAGE_WRITEONLY: u32 = 0x0000_0008;
+pub const D3D9_D3DLOCK_NO_DIRTY_UPDATE: u32 = 0x0000_8000;
 pub const D3D9_D3DCLEAR_TARGET: u32 = 0x0000_0001;
 pub const D3D9_D3DRS_ZENABLE: u32 = 7;
 pub const D3D9_D3DRS_CULLMODE: u32 = 22;
@@ -388,10 +390,21 @@ pub struct D3d9AddDirtyRectPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct D3d9TextureLockRectPolicy {
+    pub profile_id: String,
+    pub source_texture_variant_indices: Vec<u32>,
+    pub level: u32,
+    pub rect: RuntimeRect,
+    pub flags: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct D3d9UpdateTexturePolicy {
     pub profile_id: String,
     pub source_texture_variant_indices: Vec<u32>,
     pub destination_texture_variant_indices: Vec<u32>,
+    pub partial_dirty_rect: RuntimeRect,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -444,6 +457,7 @@ pub struct D3d9CompatibilityPolicy {
     pub raster_status: Option<D3d9RasterStatusPolicy>,
     pub clear: Option<D3d9ClearPolicy>,
     pub add_dirty_rect: Option<D3d9AddDirtyRectPolicy>,
+    pub texture_lock_rect: Option<D3d9TextureLockRectPolicy>,
     pub update_texture: Option<D3d9UpdateTexturePolicy>,
     pub begin_scene: Option<D3d9BeginScenePolicy>,
     pub end_scene: Option<D3d9EndScenePolicy>,
@@ -451,11 +465,11 @@ pub struct D3d9CompatibilityPolicy {
 }
 
 impl D3d9CompatibilityPolicy {
-    pub fn controlled_v30() -> Self {
+    pub fn controlled_v31() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
-            id: "d3d9-primary-virtual-adapter-v30".to_owned(),
+            id: "d3d9-primary-virtual-adapter-v31".to_owned(),
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -619,11 +633,29 @@ impl D3d9CompatibilityPolicy {
                 profile_id: "primary-recreated-system-memory-texture-dirty-rect-v1".to_owned(),
                 source_texture_variant_indices: vec![3],
             }),
+            texture_lock_rect: Some(D3d9TextureLockRectPolicy {
+                profile_id: "primary-recreated-system-memory-presentation-lock-v1".to_owned(),
+                source_texture_variant_indices: vec![3],
+                level: 0,
+                rect: RuntimeRect {
+                    left: 0,
+                    top: 0,
+                    right: 1_280,
+                    bottom: 720,
+                },
+                flags: D3D9_D3DLOCK_NO_DIRTY_UPDATE,
+            }),
             update_texture: Some(D3d9UpdateTexturePolicy {
-                profile_id: "primary-recreated-system-memory-to-static-default-texture-update-v1"
+                profile_id: "primary-recreated-system-memory-to-static-default-texture-update-v2"
                     .to_owned(),
                 source_texture_variant_indices: vec![3],
                 destination_texture_variant_indices: vec![4],
+                partial_dirty_rect: RuntimeRect {
+                    left: 0,
+                    top: 0,
+                    right: 1_280,
+                    bottom: 720,
+                },
             }),
             begin_scene: Some(D3d9BeginScenePolicy {
                 profile_id: "primary-first-frame-scene-begin-v1".to_owned(),
@@ -650,6 +682,7 @@ impl D3d9CompatibilityPolicy {
             surface.source_texture_variant_indices = vec![0];
         }
         self.add_dirty_rect = None;
+        self.texture_lock_rect = None;
         self.update_texture = None;
         self.texture_binding = None;
         self.flexible_vertex_format = None;
@@ -668,6 +701,7 @@ impl D3d9CompatibilityPolicy {
             surface.source_texture_variant_indices = vec![0];
         }
         self.add_dirty_rect = None;
+        self.texture_lock_rect = None;
         self.update_texture = None;
         self.texture_binding = None;
         self.flexible_vertex_format = None;
@@ -1021,6 +1055,18 @@ impl D3d9CompatibilityPolicy {
                 "D3D9 AddDirtyRect profile must select the reached recreated system-memory texture",
             ));
         }
+        if let Some(texture_lock_rect) = self.texture_lock_rect.as_ref()
+            && self
+                .create_texture
+                .as_ref()
+                .is_none_or(|texture| !valid_texture_lock_rect_policy(texture_lock_rect, texture))
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-texture-lock-rect-profile-invalid",
+                "D3D9 LockRect profile must select the reached recreated system-memory presentation rectangle",
+            ));
+        }
         if let Some(update_texture) = self.update_texture.as_ref()
             && self
                 .create_texture
@@ -1364,13 +1410,50 @@ fn valid_add_dirty_rect_policy(
         })
 }
 
+fn valid_texture_lock_rect_policy(
+    policy: &D3d9TextureLockRectPolicy,
+    texture: &D3d9CreateTexturePolicy,
+) -> bool {
+    policy.profile_id == "primary-recreated-system-memory-presentation-lock-v1"
+        && policy.source_texture_variant_indices == [3]
+        && policy.level == 0
+        && policy.rect
+            == RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 1_280,
+                bottom: 720,
+            }
+        && policy.flags == D3D9_D3DLOCK_NO_DIRTY_UPDATE
+        && policy.source_texture_variant_indices.iter().all(|index| {
+            texture
+                .variants
+                .get(*index as usize)
+                .is_some_and(|variant| {
+                    variant.width == 2_048
+                        && variant.height == 1_024
+                        && variant.levels == 1
+                        && variant.usage == 0
+                        && variant.format == D3D9_D3DFMT_X8R8G8B8
+                        && variant.pool == D3D9_D3DPOOL_SYSTEMMEM
+                })
+        })
+}
+
 fn valid_update_texture_policy(
     policy: &D3d9UpdateTexturePolicy,
     texture: &D3d9CreateTexturePolicy,
 ) -> bool {
-    if policy.profile_id != "primary-recreated-system-memory-to-static-default-texture-update-v1"
+    if policy.profile_id != "primary-recreated-system-memory-to-static-default-texture-update-v2"
         || policy.source_texture_variant_indices != [3]
         || policy.destination_texture_variant_indices != [4]
+        || policy.partial_dirty_rect
+            != (RuntimeRect {
+                left: 0,
+                top: 0,
+                right: 1_280,
+                bottom: 720,
+            })
     {
         return false;
     }
@@ -2049,6 +2132,8 @@ fn dispatch_d3d9_texture_frontend_call(
 ) -> ComDispatchOutcome {
     let expected = match call.frame().vtable_slot {
         18 => ("GetSurfaceLevel", 2),
+        19 => ("LockRect", 4),
+        20 => ("UnlockRect", 1),
         21 => ("AddDirtyRect", 1),
         _ => {
             return call.fault(
@@ -2073,6 +2158,8 @@ fn dispatch_d3d9_texture_frontend_call(
     }
     match call.frame().vtable_slot {
         18 => dispatch_get_surface_level(policy, call),
+        19 => dispatch_texture_lock_rect(policy, call),
+        20 => dispatch_texture_unlock_rect(policy, call),
         21 => dispatch_add_dirty_rect(policy, call),
         _ => unreachable!(),
     }
@@ -3145,6 +3232,137 @@ fn dispatch_vertex_buffer_unlock(
     }
 }
 
+fn dispatch_texture_lock_rect(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(lock_policy) = policy.texture_lock_rect.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-texture-lock-rect",
+            "texture-lock-rect-policy-disabled",
+            "D3D9 compatibility policy does not enable texture LockRect",
+        );
+    };
+    let level = call.frame().explicit_arguments[0];
+    let output_pointer = call.frame().explicit_arguments[1];
+    let rect_pointer = call.frame().explicit_arguments[2];
+    let flags = call.frame().explicit_arguments[3];
+    if output_pointer == 0
+        || rect_pointer == 0
+        || level != lock_policy.level
+        || flags != lock_policy.flags
+    {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    let texture = match call
+        .runtime()
+        .graphics_texture_for_com_object(call.frame().object_id)
+    {
+        Ok(texture) => texture,
+        Err(error) => return call.runtime_fault(error),
+    };
+    let allowed = policy
+        .create_texture
+        .as_ref()
+        .map(|texture_policy| {
+            lock_policy
+                .source_texture_variant_indices
+                .iter()
+                .filter_map(|index| texture_policy.variants.get(*index as usize))
+                .any(|variant| logical_texture_matches_variant(&texture.descriptor, variant))
+        })
+        .unwrap_or(false);
+    if !allowed {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-texture-lock-rect",
+            "texture-lock-rect-texture-variant-unsupported",
+            "D3D9 compatibility policy does not enable LockRect for this texture variant",
+        );
+    }
+    let rect_address = GuestAddress(rect_pointer);
+    if let Err(error) = call
+        .memory()
+        .validate_access(rect_address, 16, MemoryAccess::Read)
+    {
+        return call.memory_fault(error);
+    }
+    let rect_bytes = match call.memory().read(rect_address, 16) {
+        Ok(bytes) => bytes,
+        Err(error) => return call.memory_fault(error),
+    };
+    let rect = RuntimeRect {
+        left: i32::from_le_bytes(rect_bytes[0..4].try_into().expect("validated RECT left")),
+        top: i32::from_le_bytes(rect_bytes[4..8].try_into().expect("validated RECT top")),
+        right: i32::from_le_bytes(rect_bytes[8..12].try_into().expect("validated RECT right")),
+        bottom: i32::from_le_bytes(
+            rect_bytes[12..16]
+                .try_into()
+                .expect("validated RECT bottom"),
+        ),
+    };
+    if rect != lock_policy.rect {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    let mut call = call;
+    match call.lock_graphics_texture_with_guest_locked_rect_write(
+        RuntimeGraphicsTextureLockRequest {
+            texture_com_object_id: call.frame().object_id,
+            level,
+            rect,
+            flags,
+        },
+        GuestAddress(output_pointer),
+    ) {
+        Ok((lock, guest_writes)) => {
+            debug_assert_eq!(lock.level, level);
+            debug_assert_eq!(lock.rect, rect);
+            debug_assert_eq!(lock.flags, flags);
+            call.complete(ComReturnValue::HResult(COM_S_OK), guest_writes)
+        }
+        Err(error)
+            if matches!(
+                error.code,
+                "graphics-texture-already-locked"
+                    | "graphics-texture-lock-variant-unsupported"
+                    | "graphics-texture-dirty-rect-out-of-bounds"
+            ) =>
+        {
+            call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new())
+        }
+        Err(error) => call.runtime_fault(error),
+    }
+}
+
+fn dispatch_texture_unlock_rect(
+    policy: &D3d9CompatibilityPolicy,
+    mut call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(lock_policy) = policy.texture_lock_rect.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-texture-unlock-rect",
+            "texture-unlock-rect-policy-disabled",
+            "D3D9 compatibility policy does not enable texture UnlockRect",
+        );
+    };
+    let level = call.frame().explicit_arguments[0];
+    if level != lock_policy.level {
+        return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
+    }
+    match call.unlock_graphics_texture(call.frame().object_id) {
+        Ok(result) => {
+            debug_assert_ne!(result.content_generation, 0);
+            call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
+        }
+        Err(error) if error.code == "graphics-texture-not-locked" => {
+            call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new())
+        }
+        Err(error) => call.runtime_fault(error),
+    }
+}
+
 fn dispatch_get_surface_level(
     policy: &D3d9CompatibilityPolicy,
     call: ComFrontendCall<'_>,
@@ -3392,13 +3610,14 @@ fn dispatch_update_texture(
     }
     if matches!(
         source.dirty_region,
-        RuntimeGraphicsTextureDirtyRegion::Rect(_)
+        RuntimeGraphicsTextureDirtyRegion::Rect(rect)
+            if rect != update_policy.partial_dirty_rect
     ) {
         return call.fault(
             ComFaultClass::Unsupported,
             "d3d9-update-texture",
-            "update-texture-partial-dirty-region-unsupported",
-            "D3D9 compatibility policy currently enables whole-texture and clean-source updates only",
+            "update-texture-partial-dirty-region-variant-unsupported",
+            "D3D9 compatibility policy does not enable this partial dirty-region variant",
         );
     }
     let plan =
@@ -4197,7 +4416,7 @@ pub fn direct3dtexture9_object_spec() -> ComObjectSpec {
             0 => ComMethodSpec::query_interface(),
             1 => ComMethodSpec::add_ref(),
             2 => ComMethodSpec::release(),
-            18 | 21 => ComMethodSpec::frontend_hresult(*name, *argument_words),
+            18..=21 => ComMethodSpec::frontend_hresult(*name, *argument_words),
             7 | 8 | 10 | 11 | 12 | 13 | 15 => {
                 ComMethodSpec::unsupported_u32(*name, *argument_words)
             }

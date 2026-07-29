@@ -1011,6 +1011,8 @@ class BrowserRuntimeSession {
     drawPrimitive: 0,
     endScene: 0,
     present: 0,
+    textureLockRect: 0,
+    textureUnlockRect: 0,
   };
   readonly #semanticCallDigest = new SemanticCallDigest();
   #waitForSingleObjectExCompletions = 0;
@@ -1056,6 +1058,7 @@ class BrowserRuntimeSession {
   readonly #d3d9InitialSamplerStateCalls: RuntimeSupportedCallSnapshot[] = [];
   readonly #d3d9InitialTextureStageStateCalls: RuntimeSupportedCallSnapshot[] =
     [];
+  #d3d9TextureLockRectCall: RuntimeSupportedCallSnapshot | null = null;
   #synchronousApiBoundariesSinceYield = 0;
   #watchdogContext: SessionReport["watchdogContext"] = null;
   #watchdogArmedAt: number | null = null;
@@ -1134,6 +1137,9 @@ class BrowserRuntimeSession {
     d3d9Clear: null as SessionReport["d3d9Clear"],
     d3d9AddDirtyRect: null as SessionReport["d3d9AddDirtyRect"],
     d3d9UpdateTexture: null as SessionReport["d3d9UpdateTexture"],
+    d3d9TextureLockRect: null as SessionReport["d3d9TextureLockRect"],
+    d3d9PartialUpdateTexture:
+      null as SessionReport["d3d9PartialUpdateTexture"],
     d3d9BeginScene: null as SessionReport["d3d9BeginScene"],
     d3d9InitialSamplerStates: null as SessionReport["d3d9InitialSamplerStates"],
     d3d9InitialTextureStageStates:
@@ -3388,11 +3394,20 @@ class BrowserRuntimeSession {
         metadata.graphicsDevice !== undefined,
       "Present reached without its browser renderer or Rust device snapshot",
     );
+    const submission = metadata.graphicsDevice.presentedFrame?.backBuffer
+      .drawSubmissions?.[0];
+    const pixelSource = submission?.texture.content.pixelSource;
+    const textureBacking = pixelSource === undefined
+      ? undefined
+      : this.#requireEngine().readGuestBytes(
+          pixelSource.range.start,
+          pixelSource.range.byteLength,
+        );
     return this.#d3d9Renderer.present(metadata.graphicsDevice, {
       objectId: frame.objectId,
       interfaceId: frame.interfaceId,
       interfaceName: frame.interface,
-    });
+    }, textureBacking);
   }
 
   #recordBgiComCompletion(
@@ -3440,6 +3455,7 @@ class BrowserRuntimeSession {
     this.#recordD3d9RecreatedTextureCall(call);
     this.#recordD3d9ClearCall(call);
     this.#recordD3d9AddDirtyRectCall(call);
+    this.#recordD3d9TextureLockRectCall(call);
     this.#recordD3d9UpdateTextureCall(call);
     this.#recordD3d9BeginSceneCall(call);
     this.#recordD3d9InitialSamplerStateCall(call);
@@ -3464,8 +3480,16 @@ class BrowserRuntimeSession {
       if (call.implementationId === "user32.set-rect.v1") {
         counts.setRect += 1;
       } else if (call.interface === "IDirect3DTexture9") {
-        if (call.vtableSlot === 21) {
-          counts.addDirtyRect += 1;
+        switch (call.vtableSlot) {
+          case 19:
+            counts.textureLockRect += 1;
+            break;
+          case 20:
+            counts.textureUnlockRect += 1;
+            break;
+          case 21:
+            counts.addDirtyRect += 1;
+            break;
         }
       } else if (call.interface === "IDirect3DDevice9") {
         switch (call.vtableSlot) {
@@ -3505,7 +3529,11 @@ class BrowserRuntimeSession {
         }
       }
       const scan = this.#report.getAsyncKeyStateInitialScan;
-      if (scan !== null && call.sequence > scan.lastCall.sequence) {
+      if (
+        scan !== null &&
+        (call.sequence === scan.lastCall.sequence + 1 ||
+          call.sequence === scan.lastCall.sequence + 2)
+      ) {
         this.#initialScanContinuationCalls.push(structuredClone(call));
         invariant(
           this.#initialScanContinuationCalls.length <= 2,
@@ -5019,7 +5047,7 @@ class BrowserRuntimeSession {
       );
       this.#report.d3d9RecreatedTextures = {
         calls: [],
-        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
         createTextureProfileId:
           "primary-initial-and-recreated-x8r8g8b8-textures-v2",
         getSurfaceLevelProfileId:
@@ -5043,6 +5071,14 @@ class BrowserRuntimeSession {
       !includesD3d9Clear(this.#configuration.capabilityProfile) ||
       call.interface !== "IDirect3DDevice9" ||
       call.vtableSlot !== 43
+    ) {
+      return;
+    }
+    if (
+      isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#report.d3d9Clear !== null
     ) {
       return;
     }
@@ -5088,7 +5124,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9Clear = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
       clearProfileId: "primary-full-render-target-black-v1",
       targetAuthority: "rust-runtime-graphics-logical-device-back-buffer",
       targetScope: "full-presentation-back-buffer",
@@ -5105,6 +5141,14 @@ class BrowserRuntimeSession {
       !isD3d9AddDirtyRect(this.#configuration.capabilityProfile) ||
       call.interface !== "IDirect3DTexture9" ||
       call.vtableSlot !== 21
+    ) {
+      return;
+    }
+    if (
+      isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#report.d3d9AddDirtyRect !== null
     ) {
       return;
     }
@@ -5145,7 +5189,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9AddDirtyRect = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
       addDirtyRectProfileId:
         "primary-recreated-system-memory-texture-dirty-rect-v1",
       textureAuthority: "rust-runtime-graphics-logical-texture",
@@ -5164,6 +5208,10 @@ class BrowserRuntimeSession {
       call.interface !== "IDirect3DDevice9" ||
       call.vtableSlot !== 31
     ) {
+      return;
+    }
+    if (call.sequence !== 127_358) {
+      this.#recordD3d9PartialUpdateTextureCall(call);
       return;
     }
     const update = call.graphicsTextureUpdate;
@@ -5237,9 +5285,9 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9UpdateTexture = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
       updateTextureProfileId:
-        "primary-recreated-system-memory-to-static-default-texture-update-v1",
+        "primary-recreated-system-memory-to-static-default-texture-update-v2",
       contentAuthority: "rust-runtime-graphics-logical-texture",
       sourceDirtyRegionBefore: "whole-texture",
       sourceDirtyRegionAfter: "clean",
@@ -5247,9 +5295,252 @@ class BrowserRuntimeSession {
       transferScope: "whole-texture-level-zero-logical-content",
       mutation: "dual-texture-preflight-targeted-commit",
       failureAtomicity: true,
-      partialDirtyRegionsImplemented: false,
+      partialDirtyRegionsImplemented: true,
+      partialDirtyRect: [0, 0, 1_280, 720],
+      partialTransferPrecondition:
+        "destination-immediately-preceding-source-generation",
       dynamicDestinationImplemented: false,
       browserRendererResourceCreated: false,
+    };
+  }
+
+  #recordD3d9PartialUpdateTextureCall(
+    call: RuntimeSupportedCallSnapshot,
+  ): void {
+    const update = call.graphicsTextureUpdate;
+    const source = update?.source;
+    const destination = update?.destination;
+    const sourceBacking = source?.backing;
+    const sourcePixels = source?.content?.pixelSource;
+    const destinationPixels = destination?.content?.pixelSource;
+    const lastUpdate = destination?.content?.lastUpdate;
+    const dirtyRect =
+      lastUpdate?.dirtyRegion.kind === "rect"
+        ? lastUpdate.dirtyRegion.rect
+        : undefined;
+    invariant(
+      isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      ) &&
+        this.#report.d3d9UpdateTexture !== null &&
+        this.#report.d3d9PartialUpdateTexture === null &&
+        call.sequence === 148_272 &&
+        this.#report.instructions === 148_744_059 &&
+        call.symbol === "IDirect3DDevice9.UpdateTexture" &&
+        call.arguments.join(",") === "16842756,16908292,16973828" &&
+        "kind" in call.result &&
+        call.result.kind === "h-result" &&
+        call.result.value === 0 &&
+        call.returnAddress === 0x1005_b038 &&
+        call.stackPointerBefore === 0x006f_f878 &&
+        call.stackPointerAfter === 0x006f_f888 &&
+        call.referenceCount === 5 &&
+        call.objectRetired === false &&
+        call.guestWrites.length === 0 &&
+        source?.id === 7 &&
+        source.namespace === "vine.logical-graphics-texture.v1" &&
+        source.deviceId === 3 &&
+        source.descriptor.width === 2_048 &&
+        source.descriptor.height === 1_024 &&
+        source.descriptor.levels === 1 &&
+        source.descriptor.usage === "none" &&
+        source.descriptor.colorFormat === "b8g8r8x8-unorm" &&
+        source.descriptor.pool === "system-memory" &&
+        sourceBacking?.addressAllocationId === 77 &&
+        sourceBacking.memoryOwner === 100 &&
+        sourceBacking.range.start === 0x4400_1000 &&
+        sourceBacking.range.byteLength === 0x0080_0000 &&
+        sourceBacking.rowPitch === 8_192 &&
+        source.comObjectId === "22" &&
+        source.activeLock === undefined &&
+        source.dirtyRegion.kind === "clean" &&
+        source.content?.contentGeneration === 2 &&
+        source.content.fills.length === 0 &&
+        sourcePixels?.sourceTextureId === 7 &&
+        sourcePixels.sourceContentGeneration === 2 &&
+        sourcePixels.range.start === 0x4400_1000 &&
+        sourcePixels.range.byteLength === 0x0080_0000 &&
+        sourcePixels.rowPitch === 8_192 &&
+        source.generation === 46 &&
+        destination?.id === 8 &&
+        destination.namespace === "vine.logical-graphics-texture.v1" &&
+        destination.deviceId === 3 &&
+        destination.descriptor.width === 2_048 &&
+        destination.descriptor.height === 1_024 &&
+        destination.descriptor.levels === 1 &&
+        destination.descriptor.usage === "none" &&
+        destination.descriptor.colorFormat === "b8g8r8x8-unorm" &&
+        destination.descriptor.pool === "default" &&
+        destination.backing === undefined &&
+        destination.comObjectId === "24" &&
+        destination.dirtyRegion.kind === "whole-texture" &&
+        destination.content?.contentGeneration === 2 &&
+        destination.content.fills.length === 0 &&
+        destinationPixels?.sourceTextureId === 7 &&
+        destinationPixels.sourceContentGeneration === 2 &&
+        destinationPixels.range.start === 0x4400_1000 &&
+        destinationPixels.range.byteLength === 0x0080_0000 &&
+        destinationPixels.rowPitch === 8_192 &&
+        lastUpdate?.sequence === 2 &&
+        lastUpdate.sourceTextureId === 7 &&
+        lastUpdate.sourceContentGeneration === 2 &&
+        dirtyRect?.left === 0 &&
+        dirtyRect.top === 0 &&
+        dirtyRect.right === 1_280 &&
+        dirtyRect.bottom === 720 &&
+        destination.generation === 46,
+      `D3D9 partial UpdateTexture ABI or authoritative byte lineage changed: ${JSON.stringify(call)}`,
+    );
+    this.#report.d3d9PartialUpdateTexture = {
+      call: structuredClone(call),
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+      updateTextureProfileId:
+        "primary-recreated-system-memory-to-static-default-texture-update-v2",
+      dirtyRegion: { left: 0, top: 0, right: 1_280, bottom: 720 },
+      byteAuthority: "rust-guest-memory-graphics-resource-allocation",
+      transferPublication: "full-authoritative-source-backing",
+      partialTransferPrecondition:
+        "destination-immediately-preceding-source-generation",
+      sourceDirtyRegionAfter: "clean",
+      mutation: "dual-texture-plan-preflight-targeted-commit",
+      failureAtomicity: true,
+      arbitraryPartialHistoryImplemented: false,
+      dynamicDestinationImplemented: false,
+    };
+  }
+
+  #recordD3d9TextureLockRectCall(call: RuntimeSupportedCallSnapshot): void {
+    if (
+      !isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      ) ||
+      call.interface !== "IDirect3DTexture9" ||
+      (call.vtableSlot !== 19 && call.vtableSlot !== 20)
+    ) {
+      return;
+    }
+    const texture = call.graphicsTexture;
+    if (call.vtableSlot === 19) {
+      const backing = texture?.backing;
+      const lock = texture?.activeLock;
+      const fill = texture?.content?.fills[0];
+      invariant(
+        this.#d3d9TextureLockRectCall === null &&
+          this.#report.d3d9TextureLockRect === null &&
+          call.sequence === 148_198 &&
+          this.#report.instructions === 147_769_351 &&
+          call.symbol === "IDirect3DTexture9.LockRect" &&
+          call.arguments.join(",") ===
+            "16908292,0,7338180,7338188,32768" &&
+          "kind" in call.result &&
+          call.result.kind === "h-result" &&
+          call.result.value === 0 &&
+          call.returnAddress === 0x1004_154c &&
+          call.stackPointerBefore === 0x006f_f8a8 &&
+          call.stackPointerAfter === 0x006f_f8c0 &&
+          call.referenceCount === 1 &&
+          call.objectRetired === false &&
+          call.guestWrites.length === 1 &&
+          call.guestWrites[0]?.address === 0x006f_f8c4 &&
+          call.guestWrites[0].bytes.join(",") === "0,32,0,0,0,16,0,68" &&
+          texture?.id === 7 &&
+          texture.namespace === "vine.logical-graphics-texture.v1" &&
+          texture.deviceId === 3 &&
+          texture.descriptor.width === 2_048 &&
+          texture.descriptor.height === 1_024 &&
+          texture.descriptor.levels === 1 &&
+          texture.descriptor.usage === "none" &&
+          texture.descriptor.colorFormat === "b8g8r8x8-unorm" &&
+          texture.descriptor.pool === "system-memory" &&
+          backing?.addressAllocationId === 77 &&
+          backing.memoryOwner === 100 &&
+          backing.range.start === 0x4400_1000 &&
+          backing.range.byteLength === 0x0080_0000 &&
+          backing.rowPitch === 8_192 &&
+          texture.comObjectId === "22" &&
+          lock?.level === 0 &&
+          lock.rect.left === 0 &&
+          lock.rect.top === 0 &&
+          lock.rect.right === 1_280 &&
+          lock.rect.bottom === 720 &&
+          lock.flags === 0x8000 &&
+          lock.pitch === 8_192 &&
+          lock.guestAddress === 0x4400_1000 &&
+          texture.dirtyRegion.kind === "clean" &&
+          texture.content?.contentGeneration === 1 &&
+          texture.content.fills.length === 1 &&
+          fill?.sequence === 3 &&
+          fill.rect.left === 0 &&
+          fill.rect.top === 0 &&
+          fill.rect.right === 1_280 &&
+          fill.rect.bottom === 720 &&
+          fill.colorRef === 0 &&
+          texture.generation === 43,
+        `D3D9 LockRect ABI, backing allocation, or lock lifetime changed: ${JSON.stringify(call)}`,
+      );
+      this.#d3d9TextureLockRectCall = structuredClone(call);
+      return;
+    }
+
+    const lockCall = this.#d3d9TextureLockRectCall;
+    const backing = texture?.backing;
+    const pixelSource = texture?.content?.pixelSource;
+    invariant(
+      lockCall !== null &&
+        this.#report.d3d9TextureLockRect === null &&
+        call.sequence === 148_203 &&
+        this.#report.instructions === 148_730_506 &&
+        call.symbol === "IDirect3DTexture9.UnlockRect" &&
+        call.arguments.join(",") === "16908292,0" &&
+        "kind" in call.result &&
+        call.result.kind === "h-result" &&
+        call.result.value === 0 &&
+        call.returnAddress === 0x1004_15a8 &&
+        call.stackPointerBefore === 0x006f_f8d8 &&
+        call.stackPointerAfter === 0x006f_f8e4 &&
+        call.referenceCount === 1 &&
+        call.objectRetired === false &&
+        call.guestWrites.length === 0 &&
+        texture?.id === 7 &&
+        texture.namespace === "vine.logical-graphics-texture.v1" &&
+        backing?.addressAllocationId === 77 &&
+        backing.memoryOwner === 100 &&
+        backing.range.start === 0x4400_1000 &&
+        backing.range.byteLength === 0x0080_0000 &&
+        backing.rowPitch === 8_192 &&
+        texture.activeLock === undefined &&
+        texture.dirtyRegion.kind === "clean" &&
+        texture.content?.contentGeneration === 2 &&
+        texture.content.fills.length === 0 &&
+        pixelSource?.sourceTextureId === 7 &&
+        pixelSource.sourceContentGeneration === 2 &&
+        pixelSource.range.start === 0x4400_1000 &&
+        pixelSource.range.byteLength === 0x0080_0000 &&
+        pixelSource.rowPitch === 8_192 &&
+        texture.generation === 44,
+      `D3D9 UnlockRect ABI or byte-authority publication changed: ${JSON.stringify(call)}`,
+    );
+    this.#report.d3d9TextureLockRect = {
+      lock: structuredClone(lockCall),
+      unlock: structuredClone(call),
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+      lockRectProfileId:
+        "primary-recreated-system-memory-presentation-lock-v1",
+      textureAuthority: "rust-runtime-graphics-logical-texture",
+      byteAuthority: "rust-guest-memory-graphics-resource-allocation",
+      backingAllocation: "lazy-full-level-zero",
+      outputWrite: "guest-memory-preflight-atomic-pitch-and-pbits",
+      lockLifetime: "single-active-lock-until-unlock-rect",
+      lockFlags: "D3DLOCK_NO_DIRTY_UPDATE",
+      mutation: "cross-subsystem-plan-preflight-targeted-commit",
+      failureAtomicity: true,
+      nestedLockReturnsInvalidCall: true,
+      unlockWithoutLockSucceedsNoop: true,
+      dirtyRegionUpdatedByUnlock: false,
+      browserRendererByteCopy: "execution-mirror-read-on-draw-submission",
+      additionalMipLevelsImplemented: false,
+      additionalFormatsImplemented: false,
+      additionalLockFlagsImplemented: false,
     };
   }
 
@@ -5258,6 +5549,14 @@ class BrowserRuntimeSession {
       !isD3d9BeginScene(this.#configuration.capabilityProfile) ||
       call.interface !== "IDirect3DDevice9" ||
       call.vtableSlot !== 41
+    ) {
+      return;
+    }
+    if (
+      isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#report.d3d9BeginScene !== null
     ) {
       return;
     }
@@ -5291,7 +5590,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9BeginScene = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
       beginSceneProfileId: "primary-first-frame-scene-begin-v1",
       sceneAuthority: "rust-runtime-graphics-logical-device",
       lifecycle: "inactive-to-active",
@@ -5309,6 +5608,18 @@ class BrowserRuntimeSession {
     if (
       !isD3d9InitialSamplerStates(this.#configuration.capabilityProfile) ||
       call.interface !== "IDirect3DDevice9"
+    ) {
+      return;
+    }
+    if (
+      isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#report.d3d9InitialSamplerStates !== null &&
+      (call.vtableSlot === 69 ||
+        (call.vtableSlot === 57 &&
+          this.#report.d3d9InitialSamplerStates
+            .postSamplerRenderStateRejections.length === 3))
     ) {
       return;
     }
@@ -5404,7 +5715,7 @@ class BrowserRuntimeSession {
       this.#report.d3d9InitialSamplerStates = {
         calls: [first, second],
         postSamplerRenderStateRejections: [],
-        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
         samplerStateProfileId: "primary-first-frame-linear-sampler-states-v1",
         stateAuthority: "rust-runtime-graphics-logical-device-sampler-states",
         mutation: "validate-plan-preflight-targeted-idempotent-commit",
@@ -5423,6 +5734,14 @@ class BrowserRuntimeSession {
       !isD3d9InitialTextureStageStates(this.#configuration.capabilityProfile) ||
       call.interface !== "IDirect3DDevice9" ||
       call.vtableSlot !== 67
+    ) {
+      return;
+    }
+    if (
+      isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#report.d3d9InitialTextureStageStates !== null
     ) {
       return;
     }
@@ -5491,7 +5810,7 @@ class BrowserRuntimeSession {
       );
       this.#report.d3d9InitialTextureStageStates = {
         calls: [first, second, third, fourth, fifth, sixth],
-        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
         textureStageStateProfileId:
           "primary-first-frame-fixed-function-texture-stage-zero-v1",
         stateAuthority:
@@ -5510,6 +5829,14 @@ class BrowserRuntimeSession {
       !isD3d9SetTexture(this.#configuration.capabilityProfile) ||
       call.interface !== "IDirect3DDevice9" ||
       call.vtableSlot !== 65
+    ) {
+      return;
+    }
+    if (
+      isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#report.d3d9SetTexture !== null
     ) {
       return;
     }
@@ -5546,7 +5873,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9SetTexture = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
       textureBindingProfileId:
         "primary-first-frame-static-default-texture-stage-zero-v1",
       stateAuthority: "rust-runtime-graphics-logical-device-texture-bindings",
@@ -5565,6 +5892,14 @@ class BrowserRuntimeSession {
       !isD3d9SetFvf(this.#configuration.capabilityProfile) ||
       call.interface !== "IDirect3DDevice9" ||
       call.vtableSlot !== 89
+    ) {
+      return;
+    }
+    if (
+      isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#report.d3d9SetFvf !== null
     ) {
       return;
     }
@@ -5601,7 +5936,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9SetFvf = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
       flexibleVertexFormatProfileId:
         "primary-first-frame-transformed-diffuse-textured-fvf-v1",
       stateAuthority:
@@ -5619,6 +5954,14 @@ class BrowserRuntimeSession {
       !isD3d9SetStreamSource(this.#configuration.capabilityProfile) ||
       call.interface !== "IDirect3DDevice9" ||
       call.vtableSlot !== 100
+    ) {
+      return;
+    }
+    if (
+      isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#report.d3d9SetStreamSource !== null
     ) {
       return;
     }
@@ -5663,7 +6006,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9SetStreamSource = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
       streamSourceProfileId:
         "primary-first-frame-transformed-diffuse-textured-stream-zero-v1",
       stateAuthority: "rust-runtime-graphics-logical-device-stream-sources",
@@ -5685,6 +6028,14 @@ class BrowserRuntimeSession {
       !isD3d9DrawPrimitive(this.#configuration.capabilityProfile) ||
       call.interface !== "IDirect3DDevice9" ||
       call.vtableSlot !== 81
+    ) {
+      return;
+    }
+    if (
+      isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#report.d3d9DrawPrimitive !== null
     ) {
       return;
     }
@@ -5746,7 +6097,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9DrawPrimitive = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
       drawPrimitiveProfileId: "primary-first-frame-triangle-strip-quad-draw-v1",
       stateAuthority:
         "rust-runtime-graphics-logical-device-back-buffer-draw-submissions",
@@ -5770,6 +6121,14 @@ class BrowserRuntimeSession {
       !isD3d9EndScene(this.#configuration.capabilityProfile) ||
       call.interface !== "IDirect3DDevice9" ||
       call.vtableSlot !== 42
+    ) {
+      return;
+    }
+    if (
+      isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#report.d3d9EndScene !== null
     ) {
       return;
     }
@@ -5807,7 +6166,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9EndScene = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
       endSceneProfileId: "primary-first-frame-scene-end-v1",
       sceneAuthority: "rust-runtime-graphics-logical-device-active-scene",
       lifecycle: "active-to-inactive",
@@ -5877,7 +6236,7 @@ class BrowserRuntimeSession {
     this.#report.d3d9PostEndSceneRasterStatus = {
       call: structuredClone(call),
       cumulativeCompletions: this.#d3d9RasterStatusCompletionCount,
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
       rasterStatusProfileId: "primary-stable-last-visible-scanline-v2",
       displayProfileId: "single-monitor-1920x1080-work-1920x1032-v2",
       stateAuthority: "rust-d3d9-compatibility-policy",
@@ -5933,6 +6292,14 @@ class BrowserRuntimeSession {
       !isD3d9Present(this.#configuration.capabilityProfile) ||
       call.interface !== "IDirect3DDevice9" ||
       call.vtableSlot !== 17
+    ) {
+      return;
+    }
+    if (
+      isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#report.d3d9Present !== null
     ) {
       return;
     }
@@ -6002,7 +6369,7 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9Present = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v30",
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
       presentProfileId: "primary-first-frame-full-back-buffer-present-v1",
       frameAuthority: "rust-runtime-graphics-logical-device-presented-frame",
       browserResourceAuthority: "typescript-browser-resource-table",
@@ -6449,6 +6816,14 @@ class BrowserRuntimeSession {
       return;
     }
     if (this.#report.setRect !== null) {
+      if (
+        isUser32AsyncKeyStateInitialScanContinuation(
+          this.#configuration.capabilityProfile,
+        ) &&
+        call.sequence > 148_197
+      ) {
+        return;
+      }
       invariant(
         isUser32AsyncKeyStateInitialScanContinuation(
           this.#configuration.capabilityProfile,
@@ -6547,7 +6922,7 @@ class BrowserRuntimeSession {
         prerequisiteScanCompletionInstructionCount: 147_769_226,
         calls: structuredClone(this.#initialScanContinuationCalls),
         renderCompletionCounts: structuredClone(this.#renderCompletionCounts),
-        nextSubsystemGateway: "d3d9-texture-lock-rect",
+        nextSubsystemGateway: "d3d9-device-test-cooperative-level",
       };
     }
     this.#cancelAndFinish(
@@ -8265,7 +8640,7 @@ class BrowserRuntimeSession {
             (isUser32AsyncKeyStateInitialScanContinuation(
               this.#configuration.capabilityProfile,
             )
-              ? "d3d9-idirect3dtexture9-method"
+              ? "d3d9-idirect3ddevice9-method"
               : isD3d9PostPresentContinuation(
               this.#configuration.capabilityProfile,
             )
@@ -8665,6 +9040,8 @@ class BrowserRuntimeSession {
     ) {
       const scan = this.#report.getAsyncKeyStateInitialScan;
       const continuation = this.#report.initialScanContinuation;
+      const textureLock = this.#report.d3d9TextureLockRect;
+      const partialUpdate = this.#report.d3d9PartialUpdateTexture;
       const calls = continuation?.calls;
       const timeGetTime = calls?.[0];
       const setRect = calls?.[1];
@@ -8697,9 +9074,9 @@ class BrowserRuntimeSession {
         | undefined;
       const pacing = this.#timerPacing.metrics();
       invariant(
-        this.#report.supportedCallCount === 148_197 &&
+        this.#report.supportedCallCount === 148_292 &&
           this.#report.supportedCallSemanticsSha256 ===
-            "28ac402efe494bcf4649576b0fcd790dc1601528455178c728a197283cd77035" &&
+            "f81e68414e5a48c0b51ed5cce847bfb38e73bfd9c518decae947ca6f65c994c1" &&
           this.#report.checkpointCompletion === null &&
           this.#report.keyboardInput.receivedMessages === 0 &&
           this.#report.keyboardInput.receipts.length === 0 &&
@@ -8710,7 +9087,8 @@ class BrowserRuntimeSession {
           continuation?.prerequisiteScanCompletionSequence === 148_195 &&
           continuation.prerequisiteScanCompletionInstructionCount ===
             147_769_226 &&
-          continuation.nextSubsystemGateway === "d3d9-texture-lock-rect" &&
+          continuation.nextSubsystemGateway ===
+            "d3d9-device-test-cooperative-level" &&
           calls?.length === 2 &&
           timeGetTime?.sequence === 148_196 &&
           timeGetTime.module.toLowerCase() === "winmm.dll" &&
@@ -8735,48 +9113,60 @@ class BrowserRuntimeSession {
             "0,0,0,0,0,0,0,0,0,5,0,0,208,2,0,0" &&
           JSON.stringify(continuation.renderCompletionCounts) ===
             JSON.stringify({
-              clear: 1,
-              setRect: 2,
-              addDirtyRect: 1,
-              updateTexture: 1,
-              beginScene: 1,
-              samplerState: 2,
-              textureStageState: 6,
-              setTexture: 1,
-              setFvf: 1,
-              setStreamSource: 1,
-              drawPrimitive: 1,
-              endScene: 1,
-              present: 1,
+              clear: 2,
+              setRect: 3,
+              addDirtyRect: 2,
+              updateTexture: 2,
+              beginScene: 2,
+              samplerState: 4,
+              textureStageState: 12,
+              setTexture: 2,
+              setFvf: 2,
+              setStreamSource: 2,
+              drawPrimitive: 2,
+              endScene: 2,
+              present: 2,
+              textureLockRect: 1,
+              textureUnlockRect: 1,
             }) &&
-          stop?.instructionCount === 147_769_351 &&
+          textureLock?.lock.sequence === 148_198 &&
+          textureLock.unlock.sequence === 148_203 &&
+          textureLock.unlockWithoutLockSucceedsNoop === true &&
+          partialUpdate?.call.sequence === 148_272 &&
+          partialUpdate.call.graphicsTextureUpdate?.source.content
+            ?.contentGeneration === 2 &&
+          partialUpdate.call.graphicsTextureUpdate.destination.content
+            ?.lastUpdate?.sequence === 2 &&
+          stop?.instructionCount === 148_744_443 &&
           stop.memoryContentSha256 ===
-            "2bcf1e3ac756a55317ed8edd5a4145f7f431f583608ae5705026a59badcb31c9" &&
-          stop.capabilityCluster === "d3d9-idirect3dtexture9-method" &&
+            "7d90c3c7e63ca50c4436f5321fd33c297713b11cc5e2c578374555178c11c387" &&
+          stop.capabilityCluster === "d3d9-idirect3ddevice9-method" &&
           endpoint?.kind === "com-method" &&
-          endpoint.endpointAddress === 0x0102_1160 &&
-          endpoint.target?.interface === "IDirect3DTexture9" &&
-          endpoint.target.vtableSlot === 19 &&
-          endpoint.target.method === "LockRect" &&
-          endpoint.target.endpointAddress === 0x0102_1160 &&
+          endpoint.endpointAddress === 0x0101_1060 &&
+          endpoint.target?.interface === "IDirect3DDevice9" &&
+          endpoint.target.vtableSlot === 3 &&
+          endpoint.target.method === "TestCooperativeLevel" &&
+          endpoint.target.endpointAddress === 0x0101_1060 &&
           fault?.class === "unsupported" &&
           fault.stage === "com-dispatch" &&
           fault.code === "com-method-unsupported" &&
-          fault.callSite === 0x1004_154c &&
-          fault.target?.interface === "IDirect3DTexture9" &&
-          fault.target.vtableSlot === 19 &&
-          fault.target.method === "LockRect" &&
-          fault.target.endpointAddress === 0x0102_1160 &&
-          this.#waitForSingleObjectExCompletions === 10_567 &&
-          pacing.requests === 10_567 &&
-          pacing.completions === 10_567 &&
+          fault.callSite === 0x1005_adcd &&
+          fault.target?.interface === "IDirect3DDevice9" &&
+          fault.target.vtableSlot === 3 &&
+          fault.target.method === "TestCooperativeLevel" &&
+          fault.target.endpointAddress === 0x0101_1060 &&
+          this.#waitForSingleObjectExCompletions === 10_568 &&
+          pacing.requests === 10_568 &&
+          pacing.completions === 10_568 &&
           pacing.pending === 0,
-        `initial-scan continuation or LockRect stop changed: ${JSON.stringify({
+        `initial-scan continuation or TestCooperativeLevel stop changed: ${JSON.stringify({
           supportedCallCount: this.#report.supportedCallCount,
           supportedCallSemanticsSha256:
             this.#report.supportedCallSemanticsSha256,
           scan,
           continuation,
+          textureLock,
+          partialUpdate,
           stop,
           endpoint,
           fault,
@@ -8977,6 +9367,8 @@ worker.addEventListener(
               d3d9Clear: null,
               d3d9AddDirtyRect: null,
               d3d9UpdateTexture: null,
+              d3d9TextureLockRect: null,
+              d3d9PartialUpdateTexture: null,
               d3d9BeginScene: null,
               d3d9InitialSamplerStates: null,
               d3d9InitialTextureStageStates: null,

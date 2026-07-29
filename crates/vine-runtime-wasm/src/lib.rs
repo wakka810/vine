@@ -512,7 +512,7 @@ impl BrowserRuntime {
                     .ok_or_else(|| "controlled User32 policy has no input profile".to_owned())?,
             )
             .map_err(error_string)?;
-        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v30();
+        let d3d9_policy = D3d9CompatibilityPolicy::controlled_v31();
         d3d9_policy.validate().map_err(api_fault_string)?;
         let mut runtime_exports = [
             "fixture_deferred_add",
@@ -699,7 +699,7 @@ impl BrowserRuntime {
         imm32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
-        let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v30();
+        let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v31();
         if !capabilities.d3d9_clear {
             d3d9_policy.clear = None;
         }
@@ -1911,8 +1911,10 @@ impl BrowserRuntime {
                     None
                 };
                 let graphics_texture = if completion.frame.interface == "IDirect3DTexture9"
-                    && completion.frame.method == "AddDirtyRect"
-                {
+                    && matches!(
+                        completion.frame.method.as_str(),
+                        "AddDirtyRect" | "LockRect" | "UnlockRect"
+                    ) {
                     self.runtime
                         .graphics_textures()
                         .values()

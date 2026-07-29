@@ -1328,6 +1328,25 @@ content generation 1、fill sequence 3、source dirty consumption、zero guest w
 Canonical stopは6 instructions後の`IDirect3DDevice9::BeginScene()` slot 41である。Texel backing、partial-dirty transfer、
 dynamic destination、browser upload、scene／draw／Presentはこのcheckpointのacceptanceへ含めない。
 
+後続のtexture `LockRect`／`UnlockRect` checkpointは、focused native二runでprimary SYSTEMMEM textureのlevel 0、
+`RECT [0,0,1280,720]`、flags `0x8000`が`D3D_OK`、pitch 8,192を返し、nested lockが
+`D3DERR_INVALIDCALL`かつoutput不変、unlockとrepeated unlockが`D3D_OK`、全LastError sentinel preserveとなることを
+oracleとする。Raw traceはprimary 2,636 events／1,278 balanced pairs、confirmation 2,538 events／1,229 balanced pairsで、
+最大API depth 3、diagnostics 0、source executable hash不変を固定する。
+
+Focused Rust model／dispatcher testsはlazy 8,388,608-byte graphics allocation、GuestMemory byte authority、pitch／bitsの
+atomic output、read-write／read-only protection transition、single active lock、nested／stale／wrong-owner／unwritable-output／
+capacity failure atomicity、source allocation retirement guard、unlock-without-lock no-opを比較する。Node／Chromeはlock
+sequence 148,198／instruction 147,769,351、output `0020000000100044`、allocation 77／owner 100、unlock sequence
+148,203／instruction 148,730,506、content generation 2を一致させる。
+
+同じ機能群のpartial `UpdateTexture` acceptanceはsequence 148,272／instruction 148,744,059、exact dirty rectangle
+`[0,0,1280,720]`、source／destination generation 46、content generation 2、update sequence 2を一致させる。
+Destinationがsourceの直前generationを表すprecondition、full authoritative backing publication、source dirty consumption、
+two-texture failure atomicityを固定し、arbitrary partial historyとdynamic destinationはclaimしない。Workerはdraw時にのみ
+execution mirrorからchecked byte copyし、Node／Chromeは二回目のscene／draw／Presentまで同順序で完了して、次の
+`IDirect3DDevice9::TestCooperativeLevel()` slot 3で停止する。
+
 続く`BeginScene` leafは、focused primary trace二runがcaller RVA `0x5B048`、zero explicit arguments、`D3D_OK`、
 LastError 0 preserve、直後の`test eax,eax; js` consumerを一致させることをoracleとする。Controlled PE32/i386
 lifecycle oracleは二回の同一runでvalid begin／end cycleを`D3D_OK`、outside／repeated EndSceneとnested BeginSceneを

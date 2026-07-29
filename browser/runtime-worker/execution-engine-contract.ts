@@ -119,6 +119,7 @@ export interface ExecutionEngine {
   applyCpuResume(resume: CpuResume): void;
   enterGuestCallback(target: number, stackPointer: number): void;
   readGuestU32(address: number): number;
+  readGuestBytes(address: number, byteLength: number): Uint8Array;
   collectChangedPages(): DirtyMirrorPage[];
   collectChangedPageViews(): DirtyMirrorPage[];
   applyMemoryDelta(delta: HostMemoryDelta): void;
