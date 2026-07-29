@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-29T19:46:08.894Z",
+  "recordedAt": "2026-07-29T20:28:26.427Z",
   "repository": {
-    "implementationCommit": "fd128a2b4e4ce57eab4f807901171aaef94d2b3c",
-    "implementationTree": "4913523e99066d322ef488e15dfcff93395980ed",
-    "headCommit": "fd128a2b4e4ce57eab4f807901171aaef94d2b3c",
+    "implementationCommit": "c1eded8f00cbe507e9afd514172e7e12fef61847",
+    "implementationTree": "535d909e2877e8c2a78e2d8d07127f901e7350cb",
+    "headCommit": "c1eded8f00cbe507e9afd514172e7e12fef61847",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,15 +27,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "kernel32-set-waitable-timer-post-critical-section-batch",
-    "runtimeProfile": "kernel32-set-waitable-timer-post-critical-section-batch",
+    "runtimeCheckpoint": "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
+    "runtimeProfile": "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-kernel32-set-waitable-timer-post-critical-section-batch",
+    "nodeReportSchema": "vine.v86-bgi-kernel32-wait-for-single-object-ex-post-timer-arm-batch",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v62",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v63",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -70,42 +70,39 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 128,
-      "supportedCalls": 158115,
-      "callSemanticsSha256": "ea918c1143107f0b5ee0c374b1306e9e58c712106637285657ccc7225771d7a0",
-      "instructions": 276361197,
-      "finalGeneration": 289913,
-      "memoryContentSha256": "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf",
+      "supportedCalls": 158116,
+      "callSemanticsSha256": "b4d9f6ee62c0c7fdb48c1e7c148624c2c8911701a7a061ee81a773debcefd745",
+      "instructions": 276361222,
+      "finalGeneration": 289914,
+      "memoryContentSha256": "a2016162ae29d5f3b8ccd7e2006e0c8648418b9dc1f5adbc930d3c920b8834fa",
       "checkpointCompletion": {
-        "capability": "kernel32-set-waitable-timer-post-critical-section-batch",
-        "implementationId": "kernel32.set-waitable-timer.relative-one-shot.v1",
+        "capability": "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
+        "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "firstCompletionSequence": 158115,
-        "firstCompletionInstructionCount": 276361191,
-        "lastCompletionSequence": 158115,
-        "lastCompletionInstructionCount": 276361191,
+        "firstCompletionSequence": 158116,
+        "firstCompletionInstructionCount": 276361197,
+        "lastCompletionSequence": 158116,
+        "lastCompletionInstructionCount": 276361197,
         "completions": [
           {
-            "sequence": 158115,
+            "sequence": 158116,
             "module": "KERNEL32.dll",
-            "symbol": "SetWaitableTimer",
+            "symbol": "WaitForSingleObjectEx",
             "occurrence": 11207,
-            "trapInstructionCount": 276361191,
+            "trapInstructionCount": 276361197,
             "arguments": [
               1459683330,
-              1343225752,
-              0,
-              0,
-              0,
-              0
+              10,
+              1
             ],
             "result": {
               "action": "set",
-              "value": 1
+              "value": 0
             },
-            "implementationId": "kernel32.set-waitable-timer.relative-one-shot.v1",
-            "returnAddress": 268764679,
-            "stackPointerBefore": 1343225724,
+            "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+            "returnAddress": 268764693,
+            "stackPointerBefore": 1343225736,
             "stackPointerAfter": 1343225752,
             "lastError": 0,
             "guestWrites": [],
@@ -114,12 +111,9 @@
               "timer": {
                 "id": 2,
                 "manualReset": true,
-                "arm": {
-                  "relativeDueTime100ns": 5000,
-                  "armedAtTime100ns": 56075000,
-                  "deadlineTime100ns": 56080000,
-                  "periodMilliseconds": 0,
-                  "generation": 11203
+                "lastExpiration": {
+                  "armGeneration": 11203,
+                  "deadlineTime100ns": 56080000
                 }
               },
               "objectRecord": {
@@ -132,81 +126,83 @@
                 "namespace": "vine.runtime-waitable-timer-object.v1",
                 "closePolicy": "close-handle",
                 "waitState": {
-                  "state": "nonsignaled"
+                  "state": "signaled",
+                  "exit_code": 0
                 },
                 "openHandles": 1
-              }
+              },
+              "timerClock": {
+                "currentTime100ns": 56080000,
+                "generation": 11207
+              },
+              "nextWaitRegistrationId": 11208
             }
           }
         ],
         "threadId": 8193,
-        "instructionCount": 276361197,
+        "instructionCount": 276361222,
         "nextEndpoint": {
-          "id": 122,
-          "address": 2130708368,
+          "id": 144,
+          "address": 2130708720,
           "module": "KERNEL32.dll",
           "symbol": {
             "kind": "name",
-            "name": "WaitForSingleObjectEx"
+            "name": "EnterCriticalSection"
           },
           "disposition": "declared-runtime-export",
-          "iatAddress": 269292176
+          "iatAddress": 269292264
         },
-        "memoryContentSha256": "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf",
+        "memoryContentSha256": "a2016162ae29d5f3b8ccd7e2006e0c8648418b9dc1f5adbc930d3c920b8834fa",
         "nextArguments": [
-          1459683330,
-          10,
-          1
+          269797584
         ],
-        "nextReturnAddress": 268764693,
-        "nextStackPointer": 1343225736
+        "nextReturnAddress": 269031318,
+        "nextStackPointer": 1343225712
       },
-      "writebackBatches": 161075,
-      "dirtyPages": 236712,
-      "changedBytes": 36243519,
+      "writebackBatches": 161076,
+      "dirtyPages": 236714,
+      "changedBytes": 36243547,
       "hostDeltaBatches": 125750
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 158115,
-      "callSemanticsSha256": "ea918c1143107f0b5ee0c374b1306e9e58c712106637285657ccc7225771d7a0",
-      "instructions": 276361197,
-      "finalGeneration": 305863,
-      "memoryContentSha256": "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf",
+      "supportedCalls": 158116,
+      "callSemanticsSha256": "b4d9f6ee62c0c7fdb48c1e7c148624c2c8911701a7a061ee81a773debcefd745",
+      "instructions": 276361222,
+      "finalGeneration": 305864,
+      "memoryContentSha256": "a2016162ae29d5f3b8ccd7e2006e0c8648418b9dc1f5adbc930d3c920b8834fa",
       "checkpointCompletion": {
-        "capability": "kernel32-set-waitable-timer-post-critical-section-batch",
-        "implementationId": "kernel32.set-waitable-timer.relative-one-shot.v1",
+        "capability": "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
+        "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "firstCompletionSequence": 158115,
-        "firstCompletionInstructionCount": 276361191,
-        "lastCompletionSequence": 158115,
-        "lastCompletionInstructionCount": 276361191,
+        "firstCompletionSequence": 158116,
+        "firstCompletionInstructionCount": 276361197,
+        "lastCompletionSequence": 158116,
+        "lastCompletionInstructionCount": 276361197,
         "completions": [
           {
-            "sequence": 158115,
+            "sequence": 158116,
             "module": "kernel32.dll",
-            "symbol": "SetWaitableTimer",
+            "symbol": "WaitForSingleObjectEx",
             "arguments": [
               1459683330,
-              1343225752,
-              0,
-              0,
-              0,
-              0
+              10,
+              1
             ],
             "result": {
               "action": "set",
-              "value": 1
+              "value": 0
             },
-            "implementationId": "kernel32.set-waitable-timer.relative-one-shot.v1",
-            "returnAddress": 268764679,
-            "stackPointerBefore": 1343225724,
+            "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+            "returnAddress": 268764693,
+            "stackPointerBefore": 1343225736,
             "stackPointerAfter": 1343225752,
             "lastError": 0,
             "guestWrites": [],
             "waitableTimer": {
               "handle": 1459683330,
+              "nextWaitRegistrationId": 11208,
               "objectRecord": {
                 "closePolicy": "close-handle",
                 "id": 24,
@@ -218,50 +214,50 @@
                 "namespace": "vine.runtime-waitable-timer-object.v1",
                 "openHandles": 1,
                 "waitState": {
-                  "state": "nonsignaled"
+                  "exit_code": 0,
+                  "state": "signaled"
                 }
               },
               "timer": {
-                "arm": {
-                  "armedAtTime100ns": 56075000,
-                  "deadlineTime100ns": 56080000,
-                  "generation": 11203,
-                  "periodMilliseconds": 0,
-                  "relativeDueTime100ns": 5000
-                },
                 "id": 2,
+                "lastExpiration": {
+                  "armGeneration": 11203,
+                  "deadlineTime100ns": 56080000
+                },
                 "manualReset": true
+              },
+              "timerClock": {
+                "currentTime100ns": 56080000,
+                "generation": 11207
               }
             }
           }
         ],
         "threadId": 8193,
-        "instructionCount": 276361197,
+        "instructionCount": 276361222,
         "nextEndpoint": {
-          "address": 2130708368,
+          "address": 2130708720,
           "disposition": "declared-runtime-export",
-          "iatAddress": 269292176,
-          "id": 122,
+          "iatAddress": 269292264,
+          "id": 144,
           "module": "kernel32.dll",
           "symbol": {
             "kind": "name",
-            "name": "WaitForSingleObjectEx"
+            "name": "EnterCriticalSection"
           }
         },
         "nextArguments": [
-          1459683330,
-          10,
-          1
+          269797584
         ],
-        "nextReturnAddress": 268764693,
-        "nextStackPointer": 1343225736,
-        "memoryContentSha256": "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf"
+        "nextReturnAddress": 269031318,
+        "nextStackPointer": 1343225712,
+        "memoryContentSha256": "a2016162ae29d5f3b8ccd7e2006e0c8648418b9dc1f5adbc930d3c920b8834fa"
       },
-      "wasmBridgeCalls": 476176,
+      "wasmBridgeCalls": 476179,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 567662,
+          "transitionCount": 567668,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -308,34 +304,32 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
-      "pausedHistoricalCheckpoint": "kernel32-set-waitable-timer-post-critical-section-batch",
-      "instructionCount": 276361197,
-      "capabilityCluster": "kernel32-waitable-timer-wait",
-      "reason": "kernel32-set-waitable-timer-post-critical-section-batch-checkpoint-complete",
+      "nextCheckpoint": "kernel32-enter-critical-section-post-timer-wait-batch",
+      "pausedHistoricalCheckpoint": "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
+      "instructionCount": 276361222,
+      "capabilityCluster": "kernel32-critical-section-synchronization",
+      "reason": "kernel32-wait-for-single-object-ex-post-timer-arm-batch-checkpoint-complete",
       "completion": {
-        "capability": "kernel32-set-waitable-timer-post-critical-section-batch",
-        "implementationId": "kernel32.set-waitable-timer.relative-one-shot.v1",
+        "capability": "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
+        "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "firstCompletionSequence": 158115,
-        "firstCompletionInstructionCount": 276361191,
-        "lastCompletionSequence": 158115,
-        "lastCompletionInstructionCount": 276361191
+        "firstCompletionSequence": 158116,
+        "firstCompletionInstructionCount": 276361197,
+        "lastCompletionSequence": 158116,
+        "lastCompletionInstructionCount": 276361197
       },
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
-        "endpointId": 122,
-        "api": "KERNEL32.dll!WaitForSingleObjectEx",
-        "endpointAddress": "0x7f000790",
-        "iatAddress": "0x100d1290",
+        "endpointId": 144,
+        "api": "KERNEL32.dll!EnterCriticalSection",
+        "endpointAddress": "0x7f0008f0",
+        "iatAddress": "0x100d12e8",
         "observedModule": "KERNEL32.dll",
-        "observedSymbol": "WaitForSingleObjectEx",
+        "observedSymbol": "EnterCriticalSection",
         "disposition": "declared-runtime-export",
         "arguments": [
-          "0x57010002",
-          "0x0000000a",
-          "0x00000001"
+          "0x1014c8d0"
         ]
       }
     },
@@ -352,14 +346,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-set-waitable-timer-post-critical-section-batch/report.json",
-      "bytes": 2862866,
-      "sha256": "5330ebb7569a9811b1ad3bacc0aca8be49400a0cad126d884bc63c6cd297581e"
+      "path": ".work/v86-bgi-wait-for-single-object-ex-post-timer-arm-batch/report.json",
+      "bytes": 2862860,
+      "sha256": "8e6acc5fae0f6c1a834a363a4b65049565bf0eb9385fec9ed5c0610a0b4480ec"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2576373,
-      "sha256": "be379469b30551a2496f70bc1615a093afe6165423ec48425775be3431afed3a"
+      "bytes": 2576376,
+      "sha256": "8c5d325c8bb4b9bca4433d84823960417f85f568055cb01e8fdb3b4be393bcdc"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -374,7 +368,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3766,
-      "sha256": "92fa48508a5f010889638665ef26553af0e579480f68dbb484158efebcccf6d0"
+      "sha256": "d5e2087c77dcf7162645cb97478c5a7f6e40889751aa5b8a66f76f04b951a219"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -411,5 +405,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "b2c71d173b18c31d93b8cf2656f2e7c5b74776687d223b6f383f843d284ea2f3"
+  "payloadSha256": "85954a4c9bbb3d8471a95cf46da83562519f40b65a9067dcf96f9f04ef57463f"
 }
