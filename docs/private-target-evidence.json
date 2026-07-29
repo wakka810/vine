@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-29T11:06:54.305Z",
+  "recordedAt": "2026-07-29T12:53:49.514Z",
   "repository": {
-    "implementationCommit": "36420f27658ea4aaa48398e431db743211c74194",
-    "implementationTree": "6ed3945f00a3f31d14d872c0bc9afbd5b15bf9a1",
-    "headCommit": "36420f27658ea4aaa48398e431db743211c74194",
+    "implementationCommit": "5394050fab159d07b9e1c0b00af75cc8195215e9",
+    "implementationTree": "5d5cbb92fbe2e47c402aa85b8f9503dea8c5fa1e",
+    "headCommit": "5394050fab159d07b9e1c0b00af75cc8195215e9",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,15 +27,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "runtime-thread-stack-growth",
-    "runtimeProfile": "runtime-thread-stack-growth",
+    "runtimeCheckpoint": "runtime-trapless-execution-budget",
+    "runtimeProfile": "runtime-trapless-execution-budget",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-runtime-thread-stack-growth",
+    "nodeReportSchema": "vine.v86-bgi-runtime-trapless-execution-budget",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v54",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v55",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -68,30 +68,78 @@
   "semantic": {
     "outcome": "passed",
     "node": {
-      "outcome": "structured-stop",
+      "outcome": "checkpoint-complete",
       "implementedApiContracts": 128,
       "supportedCalls": 158098,
       "callSemanticsSha256": "c795f34a0a893523c0e92382635fd51c5a386ff51ff9f614d90b642581559fce",
-      "instructions": 266703249,
-      "finalGeneration": 287857,
-      "memoryContentSha256": "0719c6c7b1019e1b61eca9811ab475cef68130698bf1ea36499f8f8ca7024e7f",
-      "writebackBatches": 160383,
-      "dirtyPages": 235270,
-      "changedBytes": 30501184,
-      "hostDeltaBatches": 125061
+      "instructions": 276358836,
+      "finalGeneration": 289882,
+      "memoryContentSha256": "f9cbbcc490533a966eb846aa3cb385f4b976b4330b6d8c4a8152ff745b826fbf",
+      "checkpointCompletion": {
+        "capability": "runtime-trapless-execution-budget",
+        "implementationId": "runtime.execute-to-owned-boundary.v1",
+        "requiredCompletions": 1,
+        "completionCount": 1,
+        "lastCompletionSequence": 158098,
+        "lastCompletionInstructionCount": 226703249,
+        "previousBudgetStopInstructionCount": 266703249,
+        "maximumAdditionalInstructions": 64000000,
+        "additionalInstructionCount": 49655587,
+        "instructionBudget": 4096,
+        "instructionCount": 276358836,
+        "nextEndpoint": {
+          "id": 76,
+          "address": 2130707632,
+          "module": "KERNEL32.dll",
+          "symbol": {
+            "kind": "name",
+            "name": "HeapFree"
+          }
+        },
+        "memoryContentSha256": "f9cbbcc490533a966eb846aa3cb385f4b976b4330b6d8c4a8152ff745b826fbf"
+      },
+      "writebackBatches": 161058,
+      "dirtyPages": 236007,
+      "changedBytes": 33492982,
+      "hostDeltaBatches": 125736
     },
     "browser": {
-      "outcome": "structured-stop",
+      "outcome": "checkpoint-complete",
       "supportedCalls": 158098,
       "callSemanticsSha256": "c795f34a0a893523c0e92382635fd51c5a386ff51ff9f614d90b642581559fce",
-      "instructions": 266703249,
-      "finalGeneration": 303244,
-      "memoryContentSha256": "0719c6c7b1019e1b61eca9811ab475cef68130698bf1ea36499f8f8ca7024e7f",
-      "wasmBridgeCalls": 473539,
+      "instructions": 276358836,
+      "finalGeneration": 305832,
+      "memoryContentSha256": "f9cbbcc490533a966eb846aa3cb385f4b976b4330b6d8c4a8152ff745b826fbf",
+      "checkpointCompletion": {
+        "capability": "runtime-trapless-execution-budget",
+        "implementationId": "runtime.execute-to-owned-boundary.v1",
+        "requiredCompletions": 1,
+        "completionCount": 1,
+        "lastCompletionSequence": 158098,
+        "lastCompletionInstructionCount": 226703249,
+        "previousBudgetStopInstructionCount": 266703249,
+        "maximumAdditionalInstructions": 64000000,
+        "additionalInstructionCount": 49655587,
+        "instructionBudget": 16384,
+        "instructionCount": 276358836,
+        "nextEndpoint": {
+          "address": 2130707632,
+          "disposition": "declared-runtime-export",
+          "iatAddress": 269291992,
+          "id": 76,
+          "module": "kernel32.dll",
+          "symbol": {
+            "kind": "name",
+            "name": "HeapFree"
+          }
+        },
+        "memoryContentSha256": "f9cbbcc490533a966eb846aa3cb385f4b976b4330b6d8c4a8152ff745b826fbf"
+      },
+      "wasmBridgeCalls": 476127,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 563892,
+          "transitionCount": 567607,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -137,27 +185,32 @@
     },
     "memoryEquivalent": true,
     "nextStructuredStop": {
-      "kind": "execution-budget",
-      "nextCheckpoint": "runtime-trapless-execution-budget",
-      "pausedHistoricalCheckpoint": "runtime-thread-stack-growth",
-      "instructionCount": 266703249,
-      "capabilityCluster": "guest-execution-instruction-budget",
-      "reason": "instruction-budget-exhausted",
-      "endpointKind": null,
-      "endpointId": null,
-      "api": null,
-      "arguments": [],
-      "endpointAddress": null,
-      "iatAddress": null,
-      "returnAddress": null,
-      "endpoint": null,
-      "fault": {
-        "class": "resource-limit",
-        "stage": "guest-execution",
-        "code": "instruction-budget-exhausted",
-        "instructionPointer": "0x1005f640",
-        "previousInstructionPointer": "0x1005f64d",
-        "maximumAdditionalInstructions": 40000000
+      "kind": "capability-checkpoint",
+      "nextCheckpoint": "kernel32-heap-free-large-buffer",
+      "pausedHistoricalCheckpoint": "runtime-trapless-execution-budget",
+      "instructionCount": 276358836,
+      "capabilityCluster": "kernel32-heap-lifecycle",
+      "reason": "runtime-trapless-execution-budget-checkpoint-complete",
+      "completion": {
+        "capability": "runtime-trapless-execution-budget",
+        "implementationId": "runtime.execute-to-owned-boundary.v1",
+        "requiredCompletions": 1,
+        "completionCount": 1,
+        "lastCompletionSequence": 158098,
+        "lastCompletionInstructionCount": 226703249,
+        "previousBudgetStopInstructionCount": 266703249,
+        "maximumAdditionalInstructions": 64000000,
+        "additionalInstructionCount": 49655587
+      },
+      "nextEndpoint": {
+        "endpointKind": "runtime-system-export",
+        "endpointId": 76,
+        "api": "KERNEL32.dll!HeapFree",
+        "endpointAddress": "0x7f0004b0",
+        "iatAddress": "0x100d11d8",
+        "observedModule": "KERNEL32.dll",
+        "observedSymbol": "HeapFree",
+        "disposition": "declared-runtime-export"
       }
     },
     "cleanup": {
@@ -173,14 +226,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-runtime-thread-stack-growth/report.json",
-      "bytes": 2368930,
-      "sha256": "4a568cda36741fda3b36c8fbc84a199b138d2f1e7583a642f48c496996270634"
+      "path": ".work/v86-bgi-runtime-trapless-execution-budget/report.json",
+      "bytes": 2861213,
+      "sha256": "717323b647e15dc66e537f7d56b47bf5362b87958f0c966d3eaae112d72b83a7"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 3991591,
-      "sha256": "e7e063508cde5160fe7c45b9f2529b69386a8a108b310a2996806a0aaf06a7fb"
+      "bytes": 2574295,
+      "sha256": "a32c223e78be6ef12fc1f27e5e457a40e7475587a7092aaea52e499f77a57bfa"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -195,7 +248,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3766,
-      "sha256": "514e07920befd4a0675b7f3bcd5880a0f8bbbfecfc420db291775f8f8bef3194"
+      "sha256": "70ca4dcb28a7fd9a17d0906ece8bb87b44cf225b7611f5d1cc014a649d7ab355"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -232,5 +285,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "3f25f8a03faf61db856dfeb6becd81f1b019f4cf4b411d567fd34d2c56ae839d"
+  "payloadSha256": "b2a3cab06ab1b3dfb35f96f6899020578f3ed55e72d592c7a23fd07670354ae0"
 }
