@@ -536,6 +536,8 @@ struct GenericRuntimeCompletion {
     #[serde(skip_serializing_if = "Option::is_none")]
     heap_allocation: Option<GenericRuntimeHeapAllocation>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    heap_free: Option<GenericRuntimeHeapFree>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     standard_handle: Option<RuntimeStandardHandle>,
     #[serde(skip_serializing_if = "Option::is_none")]
     file_type: Option<GenericRuntimeFileType>,
@@ -888,6 +890,23 @@ struct GenericRuntimeHeapAllocation {
     heap_handle: u32,
     allocation: RuntimeHeapAllocation,
     live_allocations: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct GenericRuntimeHeapFreeBefore {
+    heap_handle: u32,
+    allocation: RuntimeHeapAllocation,
+    live_allocations: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeHeapFree {
+    heap_handle: u32,
+    allocation: RuntimeHeapAllocation,
+    live_allocations_before: usize,
+    live_allocations_after: usize,
+    allocation_retired: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -4922,6 +4941,7 @@ fn run_v86_generic_runtime_session(
                             interlocked_increment: None,
                             interlocked_decrement: None,
                             heap_allocation: None,
+                            heap_free: None,
                             standard_handle: None,
                             file_type: None,
                             current_directory: None,
@@ -5202,6 +5222,18 @@ fn run_v86_generic_runtime_session(
                 } else {
                     None
                 };
+                let heap_free_before = if kernel32_policy.allows_heap_free(0)
+                    && endpoint.matches(
+                        "kernel32.dll",
+                        &ApiSymbol::Name {
+                            name: "HeapFree".to_owned(),
+                        },
+                    ) {
+                    generic_runtime_heap_free_before(&process.runtime, memory, trap.stack_pointer)
+                        .ok()
+                } else {
+                    None
+                };
                 let mut session = ExecutionSession::new(memory, &mut process.runtime);
                 match dispatcher.dispatch_owned(
                     ApiOwnedTrap {
@@ -5302,6 +5334,9 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
+                        let heap_free = heap_free_before
+                            .map(|before| generic_runtime_heap_free(&session, &completion, before))
+                            .transpose()?;
                         let standard_handle = if matches!(
                             enabled_capability,
                             Some(
@@ -5861,6 +5896,7 @@ fn run_v86_generic_runtime_session(
                                 interlocked_increment,
                                 interlocked_decrement,
                                 heap_allocation,
+                                heap_free,
                                 standard_handle,
                                 file_type,
                                 current_directory,
@@ -6218,6 +6254,7 @@ fn run_v86_generic_runtime_session(
                                 interlocked_increment: None,
                                 interlocked_decrement: None,
                                 heap_allocation: None,
+                                heap_free: None,
                                 standard_handle: None,
                                 file_type: None,
                                 current_directory: None,
@@ -6335,6 +6372,7 @@ fn run_v86_generic_runtime_session(
                                 interlocked_increment: None,
                                 interlocked_decrement: None,
                                 heap_allocation: None,
+                                heap_free: None,
                                 standard_handle: None,
                                 file_type: None,
                                 current_directory: None,
@@ -7597,6 +7635,124 @@ fn generic_runtime_heap_allocation(
             )
         })?,
     })
+}
+
+fn generic_runtime_heap_free_before(
+    runtime: &RuntimeState,
+    memory: &GuestMemory,
+    stack_pointer: u32,
+) -> Result<GenericRuntimeHeapFreeBefore, LoaderError> {
+    let heap_handle = read_generic_runtime_stack_u32(memory, stack_pointer, 0, "HeapFree heap")?;
+    let address = GuestAddress(read_generic_runtime_stack_u32(
+        memory,
+        stack_pointer,
+        2,
+        "HeapFree allocation",
+    )?);
+    let allocation = runtime
+        .private_heap_allocation(heap_handle, address)
+        .map_err(runtime_state_error)?;
+    let live_allocations = usize::try_from(
+        runtime
+            .heap(heap_handle)
+            .map_err(runtime_state_error)?
+            .live_allocations,
+    )
+    .map_err(|_| {
+        LoaderError::runtime_defect(
+            "runtime-reentry",
+            "heap-live-allocation-count-not-representable",
+            "pre-free live allocation count does not fit host accounting",
+        )
+    })?;
+    Ok(GenericRuntimeHeapFreeBefore {
+        heap_handle,
+        allocation,
+        live_allocations,
+    })
+}
+
+fn generic_runtime_heap_free(
+    session: &ExecutionSession<'_>,
+    completion: &ApiImmediateCompletion,
+    before: GenericRuntimeHeapFreeBefore,
+) -> Result<GenericRuntimeHeapFree, LoaderError> {
+    if completion.frame.argument_u32(0) != Some(before.heap_handle)
+        || completion.frame.argument_u32(2) != Some(before.allocation.address.0)
+        || !matches!(completion.eax, RegisterUpdate::Set(value) if value != 0)
+    {
+        return Err(LoaderError::runtime_defect(
+            "runtime-reentry",
+            "heap-free-completion-identity-mismatch",
+            "completed HeapFree did not retire the preflighted heap allocation",
+        ));
+    }
+    let live_allocations_after = usize::try_from(
+        session
+            .runtime()
+            .heap(before.heap_handle)
+            .map_err(runtime_state_error)?
+            .live_allocations,
+    )
+    .map_err(|_| {
+        LoaderError::runtime_defect(
+            "runtime-reentry",
+            "heap-live-allocation-count-not-representable",
+            "post-free live allocation count does not fit host accounting",
+        )
+    })?;
+    let allocation_retired = session
+        .runtime()
+        .private_heap_allocation(before.heap_handle, before.allocation.address)
+        .is_err();
+    if before.live_allocations.checked_sub(1) != Some(live_allocations_after) || !allocation_retired
+    {
+        return Err(LoaderError::runtime_defect(
+            "runtime-reentry",
+            "heap-free-lifecycle-mismatch",
+            "completed HeapFree did not atomically retire exactly one live allocation",
+        ));
+    }
+    Ok(GenericRuntimeHeapFree {
+        heap_handle: before.heap_handle,
+        allocation: before.allocation,
+        live_allocations_before: before.live_allocations,
+        live_allocations_after,
+        allocation_retired,
+    })
+}
+
+fn read_generic_runtime_stack_u32(
+    memory: &GuestMemory,
+    stack_pointer: u32,
+    argument_index: u32,
+    label: &str,
+) -> Result<u32, LoaderError> {
+    let byte_offset = argument_index
+        .checked_add(1)
+        .and_then(|index| index.checked_mul(4))
+        .ok_or_else(|| {
+            LoaderError::invalid_input(
+                "runtime-reentry",
+                "runtime-frame-address-overflow",
+                format!("{label} argument offset crosses the x86 address limit"),
+            )
+        })?;
+    let address = GuestAddress(stack_pointer.checked_add(byte_offset).ok_or_else(|| {
+        LoaderError::invalid_input(
+            "runtime-reentry",
+            "runtime-frame-address-overflow",
+            format!("{label} argument address crosses the x86 address limit"),
+        )
+    })?);
+    let bytes = memory.read(address, 4).map_err(memory_error)?;
+    Ok(u32::from_le_bytes(bytes.try_into().map_err(|_| {
+        LoaderError::runtime_defect(
+            "runtime-reentry",
+            "runtime-frame-read-size-invalid",
+            format!("checked {label} frame did not contain one DWORD"),
+        )
+    })?))
 }
 
 fn generic_runtime_standard_handle(
@@ -14297,7 +14453,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "user32-peek-message-a"
                 | "user32-is-iconic"
                 | "runtime-thread-stack-growth"
-                | "runtime-trapless-execution-budget" => {
+                | "runtime-trapless-execution-budget"
+                | "kernel32-heap-free-large-buffer" => {
                     GenericRuntimeCapability::User32AsyncKeyStateInitialScan
                 }
                 "kernel32-leave-critical-section" => {

@@ -1326,6 +1326,29 @@ impl BrowserRuntime {
             return_address,
             argument_bytes,
         };
+        let heap_free_before = if endpoint.matches(
+            "kernel32.dll",
+            &vine_core::ApiSymbol::Name {
+                name: "HeapFree".to_owned(),
+            },
+        ) {
+            let read_argument = |index: u32| -> Option<u32> {
+                let byte_offset = index.checked_add(1)?.checked_mul(4)?;
+                let address = stack_pointer.0.checked_add(byte_offset).map(GuestAddress)?;
+                let bytes = self.memory.read(address, 4).ok()?;
+                Some(u32::from_le_bytes(bytes.try_into().ok()?))
+            };
+            read_argument(0).and_then(|heap_handle| {
+                let allocation = self
+                    .runtime
+                    .private_heap_allocation(heap_handle, GuestAddress(read_argument(2)?))
+                    .ok()?;
+                let live_allocations = self.runtime.heap(heap_handle).ok()?.live_allocations;
+                Some((heap_handle, allocation, live_allocations))
+            })
+        } else {
+            None
+        };
         let callback_sentinel = self.callback_sentinel;
         let target = &self.target;
         let dispatcher = &self.dispatcher;
@@ -1508,6 +1531,34 @@ impl BrowserRuntime {
             DispatchOutcome::GuestCallback(call) => self.begin_callback(call),
             DispatchOutcome::Immediate(completion) => {
                 let delta = self.pending_delta()?;
+                let heap_free = heap_free_before
+                    .map(|(heap_handle, allocation, live_allocations_before)| {
+                        let live_allocations_after = self
+                            .runtime
+                            .heap(heap_handle)
+                            .map_err(error_string)?
+                            .live_allocations;
+                        let allocation_retired = self
+                            .runtime
+                            .private_heap_allocation(heap_handle, allocation.address)
+                            .is_err();
+                        if live_allocations_before.checked_sub(1) != Some(live_allocations_after)
+                            || !allocation_retired
+                        {
+                            return Err(
+                                "HeapFree did not atomically retire exactly one allocation"
+                                    .to_owned(),
+                            );
+                        }
+                        Ok(json!({
+                            "heapHandle": heap_handle,
+                            "allocation": allocation,
+                            "liveAllocationsBefore": live_allocations_before,
+                            "liveAllocationsAfter": live_allocations_after,
+                            "allocationRetired": allocation_retired,
+                        }))
+                    })
+                    .transpose()?;
                 let mut metadata = match &self.target {
                     BrowserRuntimeTarget::ControlledFixture
                     | BrowserRuntimeTarget::ControlledSourceRead { .. } => {
@@ -1526,6 +1577,9 @@ impl BrowserRuntime {
                             "completion": completion,
                             "memory": self.memory.synchronization_state(),
                         });
+                        if let Some(heap_free) = heap_free {
+                            metadata["heapFree"] = heap_free;
+                        }
                         if completion.implementation_id == "kernel32.set-current-directory-a.v1" {
                             metadata["currentDirectory"] = json!({
                                 "directory": self.runtime.current_directory_a(),

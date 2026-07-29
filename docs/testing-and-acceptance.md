@@ -750,6 +750,15 @@ failure 0、17 thresholds passedである。これはmultiple／arbitrary large 
 fill identity、full-play memory profileの代用ではない。詳細は
 [bgi-large-heap-allocation.md](bgi-large-heap-allocation.md)を正とする。
 
+Reached ordinary multi-page `HeapFree`のacceptanceは、exact live allocation
+identityとlive-count transition、reserved range全体の`0xDD` poison、dirty-only
+binary delta、mapping／cache effectなし、`TRUE`／LastError preserve／guest output
+なしを一つのtransactionとして検証する。Nodeはpost-ack、Chrome Workerは
+pre-ack snapshotを記録するため、absolute generationの一致ではなく同じ
+one-generation advance、dirty-page range／owner、payload digest、final memory
+content、および明示したack orderingを要求する。詳細は
+[bgi-large-ordinary-heap-free.md](bgi-large-ordinary-heap-free.md)を正とする。
+
 Reached FLS allocationの代表Rust contractはstatic／dynamic endpoint ID `1`のcoexistence、
 unmapped callback rejection、executable／NULL callback、logical indices `0..127`、capacity
 failure時のstate／memory／LastError不変を固定する。private BGI profileはnative index `9`を

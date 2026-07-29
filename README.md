@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `runtime-trapless-execution-budget`: 158098 calls across 128 endpoint contracts / 126 APIs, memory generation 289882 |
+| Runtime diagnostics | `kernel32-heap-free-large-buffer`: 158100 calls across 128 endpoint contracts / 126 APIs, memory generation 289886 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `runtime-trapless-execution-budget` completed 1 bounded execution continuations by instruction 226703249; verification stopped at `KERNEL32.dll!HeapFree` on instruction 276358836 (`runtime-trapless-execution-budget-checkpoint-complete`) |
+| Next structured stop | `kernel32-heap-free-large-buffer` completed 2 large ordinary private-heap frees by instruction 276358879; verification stopped at `KERNEL32.dll!HeapAlloc` on instruction 276358985 (`kernel32-heap-free-large-buffer-checkpoint-complete`) |
 
-The active semantic report is 2,861,213 bytes with SHA-256
-`717323b647e15dc66e537f7d56b47bf5362b87958f0c966d3eaae112d72b83a7`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 2,936,167 bytes with SHA-256
+`e64835ec60e81d05ec5ecfb13bf84adb2556cb8b360cc02655184f5bbc297a4d`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

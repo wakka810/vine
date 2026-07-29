@@ -180,9 +180,14 @@ export function validateCurrentCheckpoint(manifest) {
     user32AsyncKeyStateInputContinuationActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-async-key-state-input";
-  const runtimeTraplessExecutionBudgetActive =
+  const largeHeapFreeActive =
+    root.activeRuntimeCheckpoint?.profile ===
+      "kernel32-heap-free-large-buffer";
+  const runtimeTraplessExecutionBudgetCheckpointActive =
     root.activeRuntimeCheckpoint?.profile ===
       "runtime-trapless-execution-budget";
+  const runtimeTraplessExecutionBudgetActive =
+    runtimeTraplessExecutionBudgetCheckpointActive || largeHeapFreeActive;
   const runtimeThreadStackGrowthCheckpointActive =
     root.activeRuntimeCheckpoint?.profile === "runtime-thread-stack-growth";
   const runtimeThreadStackGrowthActive =
@@ -668,7 +673,24 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "2,3,4,5,6,7,8"
                   : "2,3,4";
-  const profileExpectations = runtimeTraplessExecutionBudgetActive
+  const profileExpectations = largeHeapFreeActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 125_738,
+        browserMappingDirtyPages: 145_168,
+        browserSuccessExecutionTransitions: 567_613,
+        latestSchema: "vine.v86-bgi-kernel32-heap-free-large-buffer",
+        latestWritebackBatches: 161_060,
+        latestWritebackDirtyPages: 236_011,
+        latestWritebackChangedBytes: 33_493_088,
+        latestHostDeltaBatches: 125_738,
+        latestFinalMemoryGeneration: 289_886,
+        semanticCallDigestSha256:
+          "9a0ae6fde8ba2f8414757ebf33af7a6a834ee9b9931637e78eda2a99547797da",
+        memoryContentSha256:
+          "f5bf558d4405c7940d627805b8f5ce3b3e20cc77b74a3370c21c745f7637b180",
+      }
+    : runtimeTraplessExecutionBudgetActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 125_736,
@@ -1765,9 +1787,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v55") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v56") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v55",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v56",
     );
   }
   if (
@@ -2551,8 +2573,10 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (runtimeTraplessExecutionBudgetActive
-        ? 23
+      (largeHeapFreeActive
+        ? 24
+        : runtimeTraplessExecutionBudgetActive
+          ? 23
         : runtimeThreadStackGrowthActive
           ? 22
         : user32IsIconicActive
@@ -19424,8 +19448,10 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (runtimeTraplessExecutionBudgetActive
-        ? "Bounded Rust/Wasm guest execution across serviceable page faults to the next runtime-owned endpoint without adding guest-visible semantics"
+      (largeHeapFreeActive
+        ? "Rust-owned large ordinary private-heap allocation retirement with failure-atomic deterministic poison publication through binary host deltas"
+        : runtimeTraplessExecutionBudgetActive
+          ? "Bounded Rust/Wasm guest execution across serviceable page faults to the next runtime-owned endpoint without adding guest-visible semantics"
         : runtimeThreadStackGrowthActive
           ? "Rust-owned current-selected-thread stack guard growth with per-thread identity validation and failure-atomic guest-memory commit"
         : user32IsIconicActive
@@ -21721,7 +21747,7 @@ export function validateCurrentCheckpoint(manifest) {
       }
     }
   }
-  if (runtimeTraplessExecutionBudgetActive) {
+  if (runtimeTraplessExecutionBudgetCheckpointActive) {
     const expectedCompletion = currentStop.completion ?? {};
     const expectedEndpoint = currentStop.nextEndpoint ?? {};
     if (
@@ -21782,6 +21808,162 @@ export function validateCurrentCheckpoint(manifest) {
         errors.push(
           `${label} trapless execution checkpoint evidence is invalid`,
         );
+      }
+    }
+  }
+  if (largeHeapFreeActive) {
+    const expectedCompletion = currentStop.completion ?? {};
+    const expectedEndpoint = currentStop.nextEndpoint ?? {};
+    if (
+      currentStop.kind !== "capability-checkpoint" ||
+      currentStop.nextCheckpoint !== "kernel32-heap-alloc-24-byte-buffer" ||
+      currentStop.pausedHistoricalCheckpoint !==
+        "kernel32-heap-free-large-buffer" ||
+      currentStop.instructionCount !== 276_358_985 ||
+      currentStop.capabilityCluster !== "kernel32-heap-lifecycle" ||
+      currentStop.reason !==
+        "kernel32-heap-free-large-buffer-checkpoint-complete" ||
+      expectedCompletion.capability !== "kernel32-heap-free-large-buffer" ||
+      expectedCompletion.implementationId !== "kernel32.heap-free.v1" ||
+      expectedCompletion.requiredCompletions !== 2 ||
+      expectedCompletion.completionCount !== 2 ||
+      expectedCompletion.firstCompletionSequence !== 158_099 ||
+      expectedCompletion.firstCompletionInstructionCount !== 276_358_836 ||
+      expectedCompletion.lastCompletionSequence !== 158_100 ||
+      expectedCompletion.lastCompletionInstructionCount !== 276_358_879 ||
+      expectedCompletion.freedByte !== 0xdd ||
+      expectedEndpoint.endpointKind !== "runtime-system-export" ||
+      expectedEndpoint.endpointId !== 75 ||
+      expectedEndpoint.api?.toLowerCase() !== "kernel32.dll!heapalloc" ||
+      expectedEndpoint.endpointAddress !== "0x7f0004a0" ||
+      expectedEndpoint.iatAddress !== "0x100d11d4" ||
+      expectedEndpoint.observedModule?.toLowerCase() !== "kernel32.dll" ||
+      expectedEndpoint.observedSymbol !== "HeapAlloc" ||
+      expectedEndpoint.disposition !== "declared-runtime-export" ||
+      expectedEndpoint.arguments?.join(",") !== "0x68010001,0x00000000,24" ||
+      active.runtimeExecutionBudgetScope !==
+        "profile-scoped-bounded-slices-across-serviceable-page-faults-to-next-runtime-owned-endpoint" ||
+      active.runtimeHeapBacking?.capabilityExpansionPausedAt !==
+        "kernel32-heap-alloc-24-byte-buffer" ||
+      !Number.isSafeInteger(bgiBrowserEvidence.statusMessagesObserved) ||
+      bgiBrowserEvidence.statusMessagesObserved <
+        bgiBrowserEvidence.statusMessagesRetained ||
+      bgiBrowserEvidence.statusMessagesRetained !== 4_096
+    ) {
+      errors.push("large HeapFree checkpoint stop is invalid");
+    }
+    const expectedFrees = [
+      {
+        sequence: 158_099,
+        instructionCount: 276_358_836,
+        occurrence: 425,
+        arguments: "0x68010001,0x00000000,0x3f7f3200",
+        allocationId: 1_347,
+        allocationAddress: "0x3f7f3200",
+        allocationBytes: 2_764_816,
+        reservedBytes: 2_764_816,
+        liveBefore: 923,
+        liveAfter: 922,
+        dirtyPageCount: 676,
+        firstDirtyPage: "0x3f7f3000",
+        lastDirtyPage: "0x3fa96000",
+        payloadBytes: 2_768_896,
+        payloadSha256:
+          "e139bec6f081ab6be0711612720ad36a930a4aa7952b3250ca9b90adcc249f60",
+      },
+      {
+        sequence: 158_100,
+        instructionCount: 276_358_879,
+        occurrence: 426,
+        arguments: "0x68010001,0x00000000,0x3f794e78",
+        allocationId: 1_346,
+        allocationAddress: "0x3f794e78",
+        allocationBytes: 385_924,
+        reservedBytes: 385_928,
+        liveBefore: 922,
+        liveAfter: 921,
+        dirtyPageCount: 96,
+        firstDirtyPage: "0x3f794000",
+        lastDirtyPage: "0x3f7f3000",
+        payloadBytes: 393_216,
+        payloadSha256:
+          "b2cf3d4624dd0ed5915c6fb49bf148395ba214ac8eeb671611871dc5e22c27f2",
+      },
+    ];
+    const transportGenerations = {
+      "browser BGI": [
+        [305_832, 305_833, 305_832],
+        [305_834, 305_835, 305_834],
+      ],
+      latest: [
+        [289_882, 289_883, 289_883],
+        [289_884, 289_885, 289_885],
+      ],
+    };
+    for (const [label, completion] of [
+      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+    ]) {
+      if (
+        completion.capability !== "kernel32-heap-free-large-buffer" ||
+        completion.implementationId !== "kernel32.heap-free.v1" ||
+        completion.requiredCompletions !== 2 ||
+        completion.completionCount !== 2 ||
+        completion.firstCompletionSequence !== 158_099 ||
+        completion.firstCompletionInstructionCount !== 276_358_836 ||
+        completion.lastCompletionSequence !== 158_100 ||
+        completion.lastCompletionInstructionCount !== 276_358_879 ||
+        completion.freedByte !== 0xdd ||
+        completion.instructionCount !== 276_358_985 ||
+        completion.nextEndpoint?.endpointId !== 75 ||
+        completion.nextEndpoint?.endpointAddress !== "0x7f0004a0" ||
+        completion.nextEndpoint?.api?.toLowerCase() !==
+          "kernel32.dll!heapalloc" ||
+        completion.nextArguments?.join(",") !==
+          "0x68010001,0x00000000,24" ||
+        completion.nextReturnAddress !== "0x100a4a33" ||
+        completion.nextStackPointer !== "0x006ff4d4" ||
+        completion.memoryContentSha256 !==
+          "f5bf558d4405c7940d627805b8f5ce3b3e20cc77b74a3370c21c745f7637b180" ||
+        completion.completions?.length !== 2
+      ) {
+        errors.push(`${label} large HeapFree checkpoint evidence is invalid`);
+        continue;
+      }
+      for (const [index, free] of completion.completions.entries()) {
+        const expected = expectedFrees[index];
+        const generations = transportGenerations[label][index];
+        if (
+          free.sequence !== expected.sequence ||
+          free.instructionCount !== expected.instructionCount ||
+          free.occurrence !== expected.occurrence ||
+          free.arguments?.join(",") !== expected.arguments ||
+          free.allocationId !== expected.allocationId ||
+          free.allocationAddress !== expected.allocationAddress ||
+          free.allocationBytes !== expected.allocationBytes ||
+          free.reservedBytes !== expected.reservedBytes ||
+          free.initialization !== "deterministic-uninitialized" ||
+          free.liveAllocationsBefore !== expected.liveBefore ||
+          free.liveAllocationsAfter !== expected.liveAfter ||
+          free.allocationRetired !== true ||
+          free.result !== true ||
+          free.lastError !== 0 ||
+          free.guestWriteBytes !== 0 ||
+          free.deltaFromGeneration !== generations[0] ||
+          free.deltaGeneration !== generations[1] ||
+          free.memoryAcknowledgedGeneration !== generations[2] ||
+          free.deltaGeneration !== free.deltaFromGeneration + 1 ||
+          free.mappingOperationCount !== 0 ||
+          free.dirtyPageCount !== expected.dirtyPageCount ||
+          free.firstDirtyPage !== expected.firstDirtyPage ||
+          free.lastDirtyPage !== expected.lastDirtyPage ||
+          free.dirtyPageOwner !== 81 ||
+          free.cacheInvalidation !== false ||
+          free.payloadBytes !== expected.payloadBytes ||
+          free.payloadSha256 !== expected.payloadSha256
+        ) {
+          errors.push(`${label} large HeapFree completion ${index} is invalid`);
+        }
       }
     }
   }
@@ -22767,7 +22949,13 @@ export function validateCurrentCheckpoint(manifest) {
                 errors.push(`${label} current-thread stack-growth evidence is invalid`);
               }
             }
-            if (runtimeTraplessExecutionBudgetActive) {
+            if (largeHeapFreeActive) {
+              if (currentStop.kind !== "capability-checkpoint") {
+                errors.push(
+                  "large HeapFree continuation must end at a capability checkpoint",
+                );
+              }
+            } else if (runtimeTraplessExecutionBudgetActive) {
               if (currentStop.kind !== "capability-checkpoint") {
                 errors.push(
                   "trapless execution continuation must end at a capability checkpoint",
@@ -23997,13 +24185,16 @@ export function renderReadmeStatus(manifest) {
                               : next.completion.capability ===
                                   "runtime-trapless-execution-budget"
                                 ? "bounded execution continuations"
-                              : next.completion.capability ===
-                                  "user32-async-key-state-input-continuation"
-                                ? "held-key async-key queries"
                                 : next.completion.capability ===
-                                    "user32-async-key-state-initial-scan"
-                                  ? "zero-input startup key queries"
-                                  : "recurring waits"
+                                    "kernel32-heap-free-large-buffer"
+                                  ? "large ordinary private-heap frees"
+                                  : next.completion.capability ===
+                                      "user32-async-key-state-input-continuation"
+                                    ? "held-key async-key queries"
+                                    : next.completion.capability ===
+                                        "user32-async-key-state-initial-scan"
+                                      ? "zero-input startup key queries"
+                                      : "recurring waits"
         } ` +
         `by instruction ${next.completion.lastCompletionInstructionCount}; verification stopped at ` +
         `\`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +

@@ -12,7 +12,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 55 as const/u);
+assert.match(protocol, /protocolVersion = 56 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -71,6 +71,15 @@ assert.match(protocol, /initialScanContinuation:/u);
 assert.match(protocol, /peekMessageA:/u);
 assert.match(protocol, /isIconic:/u);
 assert.match(protocol, /runtime-trapless-execution-budget/u);
+assert.match(protocol, /kernel32-heap-free-large-buffer/u);
+assert.match(protocol, /heapFree\?: \{/u);
+assert.match(protocol, /allocationRetired: boolean/u);
+assert.match(protocol, /capability: "kernel32-heap-free-large-buffer"/u);
+assert.match(protocol, /freeDelta: \{/u);
+assert.match(
+  protocol,
+  /memoryAfter: \{ generation: number; acknowledgedGeneration: number \}/u,
+);
 assert.match(protocol, /d3d9TestCooperativeLevel:/u);
 
 assert.match(

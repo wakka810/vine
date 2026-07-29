@@ -89,9 +89,12 @@ const user32AsyncKeyStateInitialScanCheckpointProfile =
   bgiProfile === "user32-async-key-state-initial-scan";
 const runtimeTraplessExecutionBudgetProfile =
   bgiProfile === "runtime-trapless-execution-budget";
+const largeHeapFreeProfile =
+  bgiProfile === "kernel32-heap-free-large-buffer";
 const runtimeThreadStackGrowthProfile =
   bgiProfile === "runtime-thread-stack-growth" ||
-  runtimeTraplessExecutionBudgetProfile;
+  runtimeTraplessExecutionBudgetProfile ||
+  largeHeapFreeProfile;
 const user32IsIconicProfile =
   bgiProfile === "user32-is-iconic" || runtimeThreadStackGrowthProfile;
 const user32PeekMessageAProfile =
@@ -170,7 +173,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v55";
+const runtimeProtocol = "vine.browser-runtime-worker.v56";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -832,6 +835,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-is-iconic",
         "runtime-thread-stack-growth",
         "runtime-trapless-execution-budget",
+        "kernel32-heap-free-large-buffer",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -883,6 +887,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-is-iconic",
         "runtime-thread-stack-growth",
         "runtime-trapless-execution-budget",
+        "kernel32-heap-free-large-buffer",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -934,6 +939,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-is-iconic",
         "runtime-thread-stack-growth",
         "runtime-trapless-execution-budget",
+        "kernel32-heap-free-large-buffer",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
@@ -994,6 +1000,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "primary-main-loop-progression" ||
         bgiProfile === "kernel32-leave-critical-section" ||
         runtimeTraplessExecutionBudgetProfile ||
+        largeHeapFreeProfile ||
         user32AsyncKeyStateInputProfile ||
         user32AsyncKeyStateInitialScanCheckpointProfile ||
         (d3d9EndSceneProfile && !d3d9PostPresentContinuationProfile);
@@ -5149,6 +5156,71 @@ function validateBgiEquivalence(browser, oracle) {
       browserCheckpoint.nextEndpoint.symbol,
       oracleCheckpoint.nextEndpoint.symbol,
     );
+    if (
+      oracleCheckpoint.capability === "kernel32-heap-free-large-buffer"
+    ) {
+      const normalizeCompletion = ({ call, freeDelta, memoryAfter }) => ({
+        call: {
+          ...normalizeSemanticCall(call),
+          implementationId: call.implementationId,
+          heapFree: call.heapFree,
+        },
+        freeDelta: {
+          generationAdvance:
+            freeDelta.generation - freeDelta.fromGeneration,
+          mappingOperations: freeDelta.mappingOperations,
+          dirtyPages: freeDelta.dirtyPages,
+          cacheEffects: freeDelta.cacheEffects,
+          payloadBytes: freeDelta.payloadBytes,
+          payloadSha256: freeDelta.payloadSha256,
+        },
+        memoryGenerationMatchesDelta:
+          memoryAfter.generation === freeDelta.generation,
+      });
+      for (const completion of browserCheckpoint.completions) {
+        assert.equal(
+          completion.memoryAfter.acknowledgedGeneration,
+          completion.freeDelta.fromGeneration,
+          "Chrome Worker must preserve the pre-ack Rust memory snapshot",
+        );
+      }
+      for (const completion of oracleCheckpoint.completions) {
+        assert.equal(
+          completion.memoryAfter.acknowledgedGeneration,
+          completion.freeDelta.generation,
+          "Node oracle must preserve its post-ack Rust memory snapshot",
+        );
+      }
+      assert.deepEqual(
+        {
+          firstCompletionSequence: browserCheckpoint.firstCompletionSequence,
+          firstCompletionInstructionCount:
+            browserCheckpoint.firstCompletionInstructionCount,
+          lastCompletionSequence: browserCheckpoint.lastCompletionSequence,
+          lastCompletionInstructionCount:
+            browserCheckpoint.lastCompletionInstructionCount,
+          freedByte: browserCheckpoint.freedByte,
+          nextArguments: browserCheckpoint.nextArguments,
+          nextReturnAddress: browserCheckpoint.nextReturnAddress,
+          nextStackPointer: browserCheckpoint.nextStackPointer,
+          completions: browserCheckpoint.completions.map(normalizeCompletion),
+        },
+        {
+          firstCompletionSequence: oracleCheckpoint.firstCompletionSequence,
+          firstCompletionInstructionCount:
+            oracleCheckpoint.firstCompletionInstructionCount,
+          lastCompletionSequence: oracleCheckpoint.lastCompletionSequence,
+          lastCompletionInstructionCount:
+            oracleCheckpoint.lastCompletionInstructionCount,
+          freedByte: oracleCheckpoint.freedByte,
+          nextArguments: oracleCheckpoint.nextArguments,
+          nextReturnAddress: oracleCheckpoint.nextReturnAddress,
+          nextStackPointer: oracleCheckpoint.nextStackPointer,
+          completions: oracleCheckpoint.completions.map(normalizeCompletion),
+        },
+        "Chrome Worker large HeapFree lifecycle differs from the Node oracle",
+      );
+    }
     if (oracleCheckpoint.capability === "kernel32-enter-critical-section") {
       assert.deepEqual(
         browserCheckpoint.roundtrips,

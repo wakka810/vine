@@ -402,7 +402,7 @@ function isRuntimeThreadStackGrowth(
 ): boolean {
   return (
     profile === "runtime-thread-stack-growth" ||
-    isRuntimeTraplessExecutionBudget(profile)
+    includesRuntimeTraplessExecutionBudget(profile)
   );
 }
 
@@ -416,6 +416,21 @@ function isRuntimeTraplessExecutionBudget(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return profile === "runtime-trapless-execution-budget";
+}
+
+function isLargeHeapFreeCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "kernel32-heap-free-large-buffer";
+}
+
+function includesRuntimeTraplessExecutionBudget(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isRuntimeTraplessExecutionBudget(profile) ||
+    isLargeHeapFreeCheckpoint(profile)
+  );
 }
 
 function d3d9CompatibilityPolicyId(
@@ -577,6 +592,7 @@ interface CompletionMetadata {
   gdiplus?: RuntimeGdiplusSnapshot;
   imm32?: RuntimeImm32Snapshot;
   virtualMemory?: RuntimeVirtualMemorySnapshot;
+  heapFree?: RuntimeSupportedCallSnapshot["heapFree"];
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
   threadSelection?: ApiBoundaryThreadSelection;
@@ -665,6 +681,7 @@ interface HostCompletionMetadata {
   gdiplus?: RuntimeGdiplusSnapshot;
   imm32?: RuntimeImm32Snapshot;
   virtualMemory?: RuntimeVirtualMemorySnapshot;
+  heapFree?: RuntimeSupportedCallSnapshot["heapFree"];
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
 }
@@ -711,6 +728,17 @@ interface WritableProfileLease {
   epoch: number;
   titleFingerprint: string;
   profileId: string;
+}
+
+type LargeHeapFreeCheckpoint = Extract<
+  NonNullable<SessionReport["checkpointCompletion"]>,
+  { capability: "kernel32-heap-free-large-buffer" }
+>;
+
+interface AppliedHostDeltaEvidence {
+  delta: ReturnType<typeof decodeHostDelta>;
+  payloadBytes: number;
+  payloadSha256: string;
 }
 
 interface WritableProfileHydratedMetadata {
@@ -764,6 +792,7 @@ interface CallbackCompletionMetadata {
   gdiplus?: RuntimeGdiplusSnapshot;
   imm32?: RuntimeImm32Snapshot;
   virtualMemory?: RuntimeVirtualMemorySnapshot;
+  heapFree?: RuntimeSupportedCallSnapshot["heapFree"];
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
 }
@@ -1058,6 +1087,9 @@ class BrowserRuntimeSession {
     call: RuntimeSupportedCallSnapshot;
     instructionCount: number;
   }> = [];
+  readonly #largeHeapFreeCompletions: LargeHeapFreeCheckpoint["completions"] =
+    [];
+  readonly #largeHeapFreeInstructionCounts: number[] = [];
   readonly #renderCompletionCounts: NonNullable<
     SessionReport["initialScanContinuation"]
   >["renderCompletionCounts"] = {
@@ -3110,6 +3142,58 @@ class BrowserRuntimeSession {
       const address = slice.context.instructionPointer;
       if (endpointAddresses.has(address)) {
         if (
+          isLargeHeapFreeCheckpoint(
+            this.#configuration.capabilityProfile,
+          ) &&
+          this.#largeHeapFreeCompletions.length > 0
+        ) {
+          const reachedEndpoint = prepared.endpoints.find(
+            (candidate) => candidate.address === address,
+          );
+          invariant(
+            reachedEndpoint !== undefined,
+            "large HeapFree checkpoint reached an unowned API endpoint",
+          );
+          const reachedHeapFree =
+            reachedEndpoint.module?.toLowerCase() === "kernel32.dll" &&
+            reachedEndpoint.symbol?.kind === "name" &&
+            reachedEndpoint.symbol.name === "HeapFree";
+          if (!reachedHeapFree) {
+            const firstCompletion = this.#largeHeapFreeCompletions[0];
+            const lastCompletion = this.#largeHeapFreeCompletions.at(-1);
+            const firstInstructionCount =
+              this.#largeHeapFreeInstructionCounts[0];
+            const lastInstructionCount =
+              this.#largeHeapFreeInstructionCounts.at(-1);
+            invariant(
+              firstCompletion !== undefined &&
+                lastCompletion !== undefined &&
+                firstInstructionCount !== undefined &&
+                lastInstructionCount !== undefined,
+              "large HeapFree checkpoint lost its completed free evidence",
+            );
+            this.#report.checkpointCompletion = {
+              capability: "kernel32-heap-free-large-buffer",
+              implementationId: "kernel32.heap-free.v1",
+              requiredCompletions: this.#largeHeapFreeCompletions.length,
+              completionCount: this.#largeHeapFreeCompletions.length,
+              firstCompletionSequence: firstCompletion.call.sequence,
+              firstCompletionInstructionCount: firstInstructionCount,
+              lastCompletionSequence: lastCompletion.call.sequence,
+              lastCompletionInstructionCount: lastInstructionCount,
+              completions: structuredClone(this.#largeHeapFreeCompletions),
+              freedByte: 0xdd,
+              instructionCount: 0,
+              nextEndpoint: { id: 0, address: 0 },
+              nextArguments: [],
+              nextReturnAddress: 0,
+              nextStackPointer: 0,
+              memoryContentSha256: "",
+            };
+            this.#bgiCheckpointPending = true;
+          }
+        }
+        if (
           isRuntimeTraplessExecutionBudget(
             this.#configuration.capabilityProfile,
           ) &&
@@ -3445,12 +3529,28 @@ class BrowserRuntimeSession {
       }
       case "api-complete": {
         const resumeState = this.#takeApiResumeState();
-        this.#applyOptionalDelta(output);
+        const appliedDelta = this.#applyOptionalDelta(output);
+        const appliedDeltaEvidence =
+          isLargeHeapFreeCheckpoint(this.#configuration.capabilityProfile) &&
+          metadata.completion.implementationId === "kernel32.heap-free.v1" &&
+          this.#nextBgiCallSequence + 1 >= 158_099 &&
+          appliedDelta !== null
+            ? {
+                delta: appliedDelta,
+                payloadBytes: output.payload.byteLength,
+                payloadSha256: await sha256Hex(output.payload),
+              }
+            : undefined;
         if (metadata.createdThread !== undefined) {
           this.#registerCreatedThread(metadata.createdThread);
         }
         if (this.#requirePrepared().workload === "private-bgi") {
-          this.#recordBgiCompletion(metadata);
+          this.#recordBgiCompletion(
+            metadata,
+            undefined,
+            undefined,
+            appliedDeltaEvidence,
+          );
         }
         engine.applyCpuResume(metadata.completion);
         this.#threadExecutionStates.set(this.#currentThreadId, resumeState);
@@ -3782,7 +3882,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "user32-async-key-state-input-continuation" ||
           checkpoint.capability === "user32-async-key-state-initial-scan" ||
-          checkpoint.capability === "runtime-trapless-execution-budget"
+          checkpoint.capability === "runtime-trapless-execution-budget" ||
+          checkpoint.capability === "kernel32-heap-free-large-buffer"
             ? "kernel32-create-directory-a-v1"
             : "kernel32-wait-for-single-object-ex-v1"),
       "BGI capability checkpoint has no matching compatibility profile",
@@ -3837,13 +3938,27 @@ class BrowserRuntimeSession {
     checkpoint.instructionCount = this.#report.instructions;
     checkpoint.nextEndpoint = endpoint;
     checkpoint.memoryContentSha256 = reflection.contentSha256;
-    if (checkpoint.capability === "runtime-trapless-execution-budget") {
+    if (checkpoint.capability === "kernel32-heap-free-large-buffer") {
+      checkpoint.nextArguments = [
+        this.#requireEngine().readGuestU32(stackPointer + 4),
+        this.#requireEngine().readGuestU32(stackPointer + 8),
+        this.#requireEngine().readGuestU32(stackPointer + 12),
+      ];
+      checkpoint.nextReturnAddress = returnAddress;
+      checkpoint.nextStackPointer = stackPointer;
+    }
+    if (
+      checkpoint.capability === "runtime-trapless-execution-budget" ||
+      checkpoint.capability === "kernel32-heap-free-large-buffer"
+    ) {
       this.#completeInitialScanContinuationReport();
     }
     this.#cancelAndFinish(
       "checkpoint-complete",
       checkpoint.capability === "runtime-trapless-execution-budget"
         ? "Trapless execution budget continuation checkpoint completed"
+        : checkpoint.capability === "kernel32-heap-free-large-buffer"
+          ? "Large-buffer HeapFree batch checkpoint completed"
         : checkpoint.capability === "kernel32-leave-critical-section"
         ? "LeaveCriticalSection main-thread release checkpoint completed"
         : checkpoint.capability === "user32-async-key-state-initial-scan"
@@ -3887,6 +4002,7 @@ class BrowserRuntimeSession {
       CompletionMetadata | CallbackCompletionMetadata | HostCompletionMetadata,
     reservedSequence?: number,
     callbackResult?: number,
+    appliedDeltaEvidence?: AppliedHostDeltaEvidence,
   ): void {
     const endpoint = metadata.endpoint;
     invariant(
@@ -4062,6 +4178,12 @@ class BrowserRuntimeSession {
       isVirtualAllocCompletion === (metadata.virtualMemory !== undefined),
       "BGI virtual-memory completion metadata mismatch",
     );
+    const isHeapFreeCompletion =
+      completion.implementationId === "kernel32.heap-free.v1";
+    invariant(
+      isHeapFreeCompletion === (metadata.heapFree !== undefined),
+      "BGI HeapFree completion metadata mismatch",
+    );
     const sequence = reservedSequence ?? ++this.#nextBgiCallSequence;
     const call: RuntimeSupportedCallSnapshot = {
       sequence,
@@ -4127,6 +4249,9 @@ class BrowserRuntimeSession {
       ...(metadata.virtualMemory === undefined
         ? {}
         : { virtualMemory: metadata.virtualMemory }),
+      ...(metadata.heapFree === undefined
+        ? {}
+        : { heapFree: metadata.heapFree }),
     };
     this.#recordD3d9RecreatedTextureCall(call);
     this.#recordSetRectCall(call);
@@ -4912,6 +5037,46 @@ class BrowserRuntimeSession {
     }
     this.#recordPostPresentContinuationCall(call);
     this.#recordCompletedCallEvidence(call);
+    if (
+      isLargeHeapFreeCheckpoint(this.#configuration.capabilityProfile) &&
+      completion.implementationId === "kernel32.heap-free.v1" &&
+      sequence >= 158_099
+    ) {
+      const heapFree = call.heapFree;
+      const delta = appliedDeltaEvidence?.delta;
+      invariant(
+        heapFree !== undefined &&
+          heapFree.heapHandle === call.arguments[0] &&
+          heapFree.allocation.address === call.arguments[2] &&
+          heapFree.liveAllocationsAfter ===
+            heapFree.liveAllocationsBefore - 1 &&
+          heapFree.allocationRetired &&
+          appliedDeltaEvidence !== undefined &&
+          delta !== undefined &&
+          delta.mappingOperations.length === 0 &&
+          delta.pages.length > 0 &&
+          delta.generation === delta.fromGeneration + 1n &&
+          metadata.memory !== undefined,
+        "large HeapFree completion omitted its atomic retirement delta",
+      );
+      this.#largeHeapFreeCompletions.push({
+        call: structuredClone(call),
+        freeDelta: {
+          fromGeneration: Number(delta.fromGeneration),
+          generation: Number(delta.generation),
+          mappingOperations: [],
+          dirtyPages: delta.pages.map(({ address, owner }) => ({
+            address,
+            owner,
+          })),
+          cacheEffects: structuredClone(delta.cacheEffects),
+          payloadBytes: appliedDeltaEvidence.payloadBytes,
+          payloadSha256: appliedDeltaEvidence.payloadSha256,
+        },
+        memoryAfter: structuredClone(metadata.memory),
+      });
+      this.#largeHeapFreeInstructionCounts.push(this.#report.instructions);
+    }
     if (
       isD3d9PostRasterStatusWaitableTimer(
         this.#configuration.capabilityProfile,
@@ -8160,13 +8325,13 @@ class BrowserRuntimeSession {
 
   #applyOptionalDelta(
     output: Pick<BridgeOutput<unknown>, "control" | "payload">,
-  ): void {
+  ): ReturnType<typeof decodeHostDelta> | null {
     if (output.control.byteLength === 0) {
       invariant(
         output.payload.byteLength === 0,
         "host delta payload has no control descriptor",
       );
-      return;
+      return null;
     }
     const delta = decodeHostDelta(output.control, output.payload);
     invariant(
@@ -8181,6 +8346,7 @@ class BrowserRuntimeSession {
       }
     }
     this.#applyAuthoritativeDelta(delta);
+    return delta;
   }
 
   #applyAuthoritativeDelta(delta: ReturnType<typeof decodeHostDelta>): void {
@@ -9803,6 +9969,180 @@ class BrowserRuntimeSession {
             peek,
             iconic,
             stop,
+            waitForSingleObjectExCompletions:
+              this.#waitForSingleObjectExCompletions,
+            pacing,
+          })}`,
+        );
+      }
+      if (
+        isLargeHeapFreeCheckpoint(this.#configuration.capabilityProfile) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report.checkpointCompletion;
+        const firstFree =
+          checkpoint?.capability === "kernel32-heap-free-large-buffer"
+            ? checkpoint.completions[0]
+            : undefined;
+        const lastFree =
+          checkpoint?.capability === "kernel32-heap-free-large-buffer"
+            ? checkpoint.completions[1]
+            : undefined;
+        const validFree = (
+          completion: LargeHeapFreeCheckpoint["completions"][number] | undefined,
+          expected: {
+            sequence: number;
+            allocationId: number;
+            address: number;
+            byteLength: number;
+            reservedByteLength: number;
+            liveBefore: number;
+            liveAfter: number;
+            fromGeneration: number;
+            generation: number;
+            dirtyPages: number;
+            firstDirtyPage: number;
+            lastDirtyPage: number;
+            payloadBytes: number;
+            payloadSha256: string;
+          },
+        ): boolean => {
+          const free = completion?.call.heapFree;
+          const delta = completion?.freeDelta;
+          return (
+            completion?.call.sequence === expected.sequence &&
+            completion.call.module.toLowerCase() === "kernel32.dll" &&
+            completion.call.symbol === "HeapFree" &&
+            completion.call.arguments.join(",") ===
+              `1744896001,0,${expected.address}` &&
+            "action" in completion.call.result &&
+            completion.call.result.action === "set" &&
+            completion.call.result.value === 1 &&
+            completion.call.implementationId === "kernel32.heap-free.v1" &&
+            completion.call.returnAddress === 269_109_453 &&
+            completion.call.stackPointerAfter ===
+              completion.call.stackPointerBefore + 16 &&
+            completion.call.lastError === 0 &&
+            completion.call.guestWrites.length === 0 &&
+            free?.heapHandle === 0x6801_0001 &&
+            free.allocation.id === expected.allocationId &&
+            free.allocation.address === expected.address &&
+            free.allocation.byteLength === expected.byteLength &&
+            free.allocation.reservedByteLength ===
+              expected.reservedByteLength &&
+            free.allocation.initialization ===
+              "deterministic-uninitialized" &&
+            free.liveAllocationsBefore === expected.liveBefore &&
+            free.liveAllocationsAfter === expected.liveAfter &&
+            free.allocationRetired === true &&
+            delta?.fromGeneration === expected.fromGeneration &&
+            delta.generation === expected.generation &&
+            delta.generation === delta.fromGeneration + 1 &&
+            delta.mappingOperations.length === 0 &&
+            delta.dirtyPages.length === expected.dirtyPages &&
+            delta.dirtyPages.every(
+              ({ address, owner }, index) =>
+                owner === 81 &&
+                address === expected.firstDirtyPage + index * 4_096,
+            ) &&
+            delta.dirtyPages.at(-1)?.address === expected.lastDirtyPage &&
+            delta.cacheEffects.flushTlb === false &&
+            delta.cacheEffects.invalidateInstructionFetch === false &&
+            delta.cacheEffects.invalidateGeneratedCode === false &&
+            delta.payloadBytes === expected.payloadBytes &&
+            delta.payloadSha256 === expected.payloadSha256 &&
+            completion.memoryAfter.generation === delta.generation &&
+            completion.memoryAfter.acknowledgedGeneration ===
+              delta.fromGeneration
+          );
+        };
+        const pacing = this.#timerPacing.metrics();
+        invariant(
+          this.#report.supportedCallCount === 158_100 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "9a0ae6fde8ba2f8414757ebf33af7a6a834ee9b9931637e78eda2a99547797da" &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability === "kernel32-heap-free-large-buffer" &&
+            checkpoint.implementationId === "kernel32.heap-free.v1" &&
+            checkpoint.requiredCompletions === 2 &&
+            checkpoint.completionCount === 2 &&
+            checkpoint.firstCompletionSequence === 158_099 &&
+            checkpoint.firstCompletionInstructionCount === 276_358_836 &&
+            checkpoint.lastCompletionSequence === 158_100 &&
+            checkpoint.lastCompletionInstructionCount === 276_358_879 &&
+            checkpoint.freedByte === 0xdd &&
+            validFree(firstFree, {
+              sequence: 158_099,
+              allocationId: 1_347,
+              address: 1_065_300_480,
+              byteLength: 2_764_816,
+              reservedByteLength: 2_764_816,
+              liveBefore: 923,
+              liveAfter: 922,
+              fromGeneration: 305_832,
+              generation: 305_833,
+              dirtyPages: 676,
+              firstDirtyPage: 1_065_299_968,
+              lastDirtyPage: 1_068_064_768,
+              payloadBytes: 2_768_896,
+              payloadSha256:
+                "e139bec6f081ab6be0711612720ad36a930a4aa7952b3250ca9b90adcc249f60",
+            }) &&
+            validFree(lastFree, {
+              sequence: 158_100,
+              allocationId: 1_346,
+              address: 1_064_914_552,
+              byteLength: 385_924,
+              reservedByteLength: 385_928,
+              liveBefore: 922,
+              liveAfter: 921,
+              fromGeneration: 305_834,
+              generation: 305_835,
+              dirtyPages: 96,
+              firstDirtyPage: 1_064_910_848,
+              lastDirtyPage: 1_065_299_968,
+              payloadBytes: 393_216,
+              payloadSha256:
+                "b2cf3d4624dd0ed5915c6fb49bf148395ba214ac8eeb671611871dc5e22c27f2",
+            }) &&
+            checkpoint.instructionCount === 276_358_985 &&
+            checkpoint.nextEndpoint.id === 75 &&
+            checkpoint.nextEndpoint.address === 0x7f00_04a0 &&
+            checkpoint.nextEndpoint.module?.toLowerCase() === "kernel32.dll" &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "HeapAlloc" &&
+            checkpoint.nextArguments.join(",") === "1744896001,0,24" &&
+            checkpoint.nextReturnAddress === 269_109_811 &&
+            checkpoint.nextStackPointer === 7_337_172 &&
+            checkpoint.memoryContentSha256 ===
+              "f5bf558d4405c7940d627805b8f5ce3b3e20cc77b74a3370c21c745f7637b180" &&
+            this.#report.instructions === 276_358_985 &&
+            this.#generation === 305_836n &&
+            this.#report.writebackBatches === 177_116 &&
+            this.#report.writebackPages === 268_665 &&
+            this.#report.mappingDeltas === 125_738 &&
+            this.#report.mappingDirtyPages === 145_168 &&
+            this.#report.contextSwitches === 2_456 &&
+            this.#report.stackGrowths.length === 11 &&
+            this.#report.heapPageMaterializations?.length === 2_918 &&
+            this.#report.sourceReads.length === 86 &&
+            this.#report.sourceReads.filter(
+              (read) => read.request.sourceId === 1,
+            ).length === 82 &&
+            this.#waitForSingleObjectExCompletions === 11_205 &&
+            pacing.requests === this.#waitForSingleObjectExCompletions &&
+            pacing.completions === this.#waitForSingleObjectExCompletions &&
+            pacing.pending === 0,
+          `large HeapFree lifecycle checkpoint changed: ${JSON.stringify({
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            checkpoint,
+            finalGeneration: Number(this.#generation),
+            writebackBatches: this.#report.writebackBatches,
+            writebackPages: this.#report.writebackPages,
+            mappingDeltas: this.#report.mappingDeltas,
+            mappingDirtyPages: this.#report.mappingDirtyPages,
             waitForSingleObjectExCompletions:
               this.#waitForSingleObjectExCompletions,
             pacing,

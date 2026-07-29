@@ -24,6 +24,9 @@ Later [bgi-private-heap-free-size-1.md](bgi-private-heap-free-size-1.md) connect
 the reached exact flags-zero `HeapFree` to this same transaction. Guest
 [`bgi-private-heap-size-128.md`](bgi-private-heap-size-128.md) then proves a
 larger zeroed dirty-only allocation without importing native address reuse.
+The later [large ordinary free checkpoint](bgi-large-ordinary-heap-free.md)
+proves that the same transaction retires consecutive multi-page allocations
+and publishes only Rust-authoritative poison deltas across Node and Chrome.
 Active schema-v2 policy exposes flags `0` and `HEAP_ZERO_MEMORY` for ordinary
 nonzero requests through 16 MiB and the separately listed exact 64 MiB large
 variant. It does not treat the 16–64 MiB gap as supported. `HeapDestroy`／

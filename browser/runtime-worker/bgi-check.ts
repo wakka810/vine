@@ -50,7 +50,8 @@ const d3d9Canvas =
   capabilityProfile === "user32-peek-message-a" ||
   capabilityProfile === "user32-is-iconic" ||
   capabilityProfile === "runtime-thread-stack-growth" ||
-  capabilityProfile === "runtime-trapless-execution-budget"
+  capabilityProfile === "runtime-trapless-execution-budget" ||
+  capabilityProfile === "kernel32-heap-free-large-buffer"
     ? requiredElement<HTMLCanvasElement>(
         "#surface",
       ).transferControlToOffscreen()
@@ -144,7 +145,8 @@ const startMessage = {
     watchdogInstructionLimit:
       scenario === "watchdog"
         ? 1
-        : capabilityProfile === "runtime-trapless-execution-budget"
+        : capabilityProfile === "runtime-trapless-execution-budget" ||
+            capabilityProfile === "kernel32-heap-free-large-buffer"
           ? 320_000_000
           : capabilityProfile === "runtime-thread-stack-growth"
           ? 300_000_000
@@ -188,7 +190,8 @@ const startMessage = {
       capabilityProfile === "user32-peek-message-a" ||
       capabilityProfile === "user32-is-iconic" ||
       capabilityProfile === "runtime-thread-stack-growth" ||
-      capabilityProfile === "runtime-trapless-execution-budget"
+      capabilityProfile === "runtime-trapless-execution-budget" ||
+      capabilityProfile === "kernel32-heap-free-large-buffer"
         ? 600_000
         : capabilityProfile === "kernel32-sleep-zero" ||
             capabilityProfile === "kernel32-global-memory-status" ||
@@ -334,7 +337,8 @@ function parseCapabilityProfile(
     value === "user32-peek-message-a" ||
     value === "user32-is-iconic" ||
     value === "runtime-thread-stack-growth" ||
-    value === "runtime-trapless-execution-budget"
+    value === "runtime-trapless-execution-budget" ||
+    value === "kernel32-heap-free-large-buffer"
     ? value
     : undefined;
 }

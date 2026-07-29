@@ -239,6 +239,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-is-iconic",
         "runtime-thread-stack-growth",
         "runtime-trapless-execution-budget",
+        "kernel32-heap-free-large-buffer",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -398,6 +399,7 @@ assert(
       "user32-is-iconic",
       "runtime-thread-stack-growth",
       "runtime-trapless-execution-budget",
+      "kernel32-heap-free-large-buffer",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -435,7 +437,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "user32-peek-message-a" ||
     genericRuntimeCapability === "user32-is-iconic" ||
     genericRuntimeCapability === "runtime-thread-stack-growth" ||
-    genericRuntimeCapability === "runtime-trapless-execution-budget"
+    genericRuntimeCapability === "runtime-trapless-execution-budget" ||
+    genericRuntimeCapability === "kernel32-heap-free-large-buffer"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -756,9 +759,14 @@ const runtimeThreadStackGrowthCheckpointEnabled =
   genericRuntimeCapability === "runtime-thread-stack-growth";
 const runtimeTraplessExecutionBudgetCheckpointEnabled =
   genericRuntimeCapability === "runtime-trapless-execution-budget";
+const largeHeapFreeCheckpointEnabled =
+  genericRuntimeCapability === "kernel32-heap-free-large-buffer";
+const runtimeTraplessExecutionBudgetEnabled =
+  runtimeTraplessExecutionBudgetCheckpointEnabled ||
+  largeHeapFreeCheckpointEnabled;
 const runtimeThreadStackGrowthEnabled =
   runtimeThreadStackGrowthCheckpointEnabled ||
-  runtimeTraplessExecutionBudgetCheckpointEnabled;
+  runtimeTraplessExecutionBudgetEnabled;
 const user32IsIconicEnabled =
   user32IsIconicCheckpointEnabled || runtimeThreadStackGrowthEnabled;
 const user32PeekMessageAEnabled =
@@ -1209,9 +1217,11 @@ const outputDirectory = path.join(
   ".work",
   genericRuntimeCapability !== null
     ? runtimeThreadStackGrowthEnabled
-      ? runtimeTraplessExecutionBudgetCheckpointEnabled
-        ? "v86-bgi-runtime-trapless-execution-budget"
-        : "v86-bgi-runtime-thread-stack-growth"
+      ? largeHeapFreeCheckpointEnabled
+        ? "v86-bgi-heap-free-large-buffer"
+        : runtimeTraplessExecutionBudgetCheckpointEnabled
+          ? "v86-bgi-runtime-trapless-execution-budget"
+          : "v86-bgi-runtime-thread-stack-growth"
       : user32IsIconicCheckpointEnabled
       ? "v86-bgi-is-iconic"
       : user32PeekMessageACheckpointEnabled
@@ -5640,6 +5650,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (largeHeapFreeCheckpointEnabled) {
+        validateLargeHeapFreeResult(genericResult);
       } else if (runtimeTraplessExecutionBudgetCheckpointEnabled) {
         validateRuntimeTraplessExecutionBudgetResult(genericResult);
       } else if (runtimeThreadStackGrowthCheckpointEnabled) {
@@ -5946,9 +5958,11 @@ async function run() {
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
           : runtimeThreadStackGrowthEnabled
-            ? runtimeTraplessExecutionBudgetCheckpointEnabled
-              ? "bgi trapless execution budget continuation"
-              : "bgi current-thread stack growth"
+            ? largeHeapFreeCheckpointEnabled
+              ? "bgi large-buffer private-heap free batch"
+              : runtimeTraplessExecutionBudgetCheckpointEnabled
+                ? "bgi trapless execution budget continuation"
+                : "bgi current-thread stack growth"
             : user32IsIconicCheckpointEnabled
             ? "bgi IsIconic logical-window state query"
             : user32PeekMessageACheckpointEnabled
@@ -6530,6 +6544,7 @@ async function runGenericRuntimeReentry({
   let enterCriticalSectionAcquisition = null;
   const enterCriticalSectionRoundtrips = [];
   let checkpointCompletion = null;
+  const largeHeapFreeCompletions = [];
   let initialAsyncKeyStateScan = null;
   let d3d9PostEndSceneSequence = null;
   let d3d9PostEndSceneRasterStatusSequence = null;
@@ -6772,6 +6787,34 @@ async function runGenericRuntimeReentry({
       receipt: writebackReceipt,
     });
     if (
+      largeHeapFreeCheckpointEnabled &&
+      checkpointCompletion === null &&
+      largeHeapFreeCompletions.length > 0 &&
+      endpoint !== null &&
+      !(
+        endpoint.module.toLowerCase() === "kernel32.dll" &&
+        endpoint.symbol === "HeapFree"
+      )
+    ) {
+      const firstCompletion = largeHeapFreeCompletions[0];
+      const lastCompletion = largeHeapFreeCompletions.at(-1);
+      checkpointCompletion = {
+        capability: "kernel32-heap-free-large-buffer",
+        implementationId: "kernel32.heap-free.v1",
+        requiredCompletions: largeHeapFreeCompletions.length,
+        completionCount: largeHeapFreeCompletions.length,
+        firstCompletionSequence: firstCompletion.call.sequence,
+        firstCompletionInstructionCount: firstCompletion.call.trapInstructionCount,
+        lastCompletionSequence: lastCompletion.call.sequence,
+        lastCompletionInstructionCount: lastCompletion.call.trapInstructionCount,
+        completions: structuredClone(largeHeapFreeCompletions),
+        freedByte: 0xdd,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
+    if (
       runtimeTraplessExecutionBudgetCheckpointEnabled &&
       checkpointCompletion === null &&
       continuation.instructionCount > 266_703_249 &&
@@ -6807,6 +6850,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "kernel32-heap-free-large-buffer"
+            ? "kernel32-heap-free-large-buffer-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "runtime-trapless-execution-budget"
             ? "runtime-trapless-execution-budget-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -6864,6 +6910,11 @@ async function runGenericRuntimeReentry({
             }
           : { kind: "name", name: endpoint.symbol },
       };
+      if (largeHeapFreeCheckpointEnabled) {
+        checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 4);
+        checkpointCompletion.nextReturnAddress = terminal.returnAddress;
+        checkpointCompletion.nextStackPointer = continuation.finalState.esp;
+      }
       checkpointCompletion.memoryContentSha256 = stopped.memoryContentSha256;
       return {
         frozenSemanticCalls,
@@ -7514,6 +7565,7 @@ async function runGenericRuntimeReentry({
         : null;
     await writeRuntimeJsonFrame(child.stdin, runtimeFrame.trap, trapRequest);
 
+    let callHostDelta = null;
     let response = await readRuntimeFrame(
       protocolReader,
       null,
@@ -7555,6 +7607,24 @@ async function runGenericRuntimeReentry({
         payloadSha256: sha256(response.payload),
         cacheEffects: delta.cacheEffects,
       });
+      if (
+        largeHeapFreeCheckpointEnabled &&
+        endpoint.module.toLowerCase() === "kernel32.dll" &&
+        endpoint.symbol === "HeapFree"
+      ) {
+        callHostDelta = {
+          fromGeneration: delta.fromGeneration,
+          generation: delta.generation,
+          mappingOperations: structuredClone(delta.mappingOperations),
+          dirtyPages: delta.dirtyPages.map(({ address, owner }) => ({
+            address,
+            owner,
+          })),
+          cacheEffects: structuredClone(delta.cacheEffects),
+          payloadBytes: response.payload.length,
+          payloadSha256: sha256(response.payload),
+        };
+      }
       await writeRuntimeFrame(
         child.stdin,
         runtimeFrame.acknowledgement,
@@ -7722,6 +7792,20 @@ async function runGenericRuntimeReentry({
       frozenSemanticCalls += 1;
     }
     supportedCalls.push(call);
+    if (
+      largeHeapFreeCheckpointEnabled &&
+      call.implementationId === "kernel32.heap-free.v1" &&
+      sequence >= 158_099
+    ) {
+      assert(callHostDelta, "large-heap free completion omitted its host delta");
+      assert.equal(call.heapFree?.allocation?.address, call.arguments[2]);
+      assert.equal(call.heapFree?.allocationRetired, true);
+      largeHeapFreeCompletions.push({
+        call: structuredClone(call),
+        freeDelta: callHostDelta,
+        memoryAfter: structuredClone(completionFrame.memory),
+      });
+    }
     if (enterCriticalSectionCheckpointEnabled) {
       if (
         call.implementationId === "kernel32.enter-critical-section.v1" &&
@@ -8771,6 +8855,9 @@ function buildGenericCallRecord(
     ...(completionFrame.heapAllocation === undefined
       ? {}
       : { heapAllocation: completionFrame.heapAllocation }),
+    ...(completionFrame.heapFree === undefined
+      ? {}
+      : { heapFree: completionFrame.heapFree }),
     ...(completionFrame.standardHandle === undefined
       ? {}
       : { standardHandle: completionFrame.standardHandle }),
@@ -23200,6 +23287,142 @@ function validateRuntimeTraplessExecutionBudgetResult(result) {
   assert.equal(result.terminal.instructionCount, 276_358_836);
 }
 
+function validateLargeHeapFreeResult(result) {
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  const checkpoint = result.checkpointCompletion;
+  assert.equal(checkpoint?.capability, "kernel32-heap-free-large-buffer");
+  assert.equal(checkpoint?.implementationId, "kernel32.heap-free.v1");
+  assert.equal(checkpoint?.requiredCompletions, 2);
+  assert.equal(checkpoint?.completionCount, 2);
+  assert.equal(checkpoint?.completions?.length, 2);
+  assert.equal(checkpoint?.firstCompletionSequence, 158_099);
+  assert.equal(checkpoint?.firstCompletionInstructionCount, 276_358_836);
+  assert.equal(checkpoint?.lastCompletionSequence, 158_100);
+  assert.equal(checkpoint?.lastCompletionInstructionCount, 276_358_879);
+  assert.equal(result.supportedCalls.length, 158_100);
+  const expectedCompletions = [
+    {
+      sequence: 158_099,
+      occurrence: 425,
+      instructionCount: 276_358_836,
+      allocationId: 1_347,
+      address: 1_065_300_480,
+      byteLength: 2_764_816,
+      reservedByteLength: 2_764_816,
+      liveBefore: 923,
+      liveAfter: 922,
+      stackPointerBefore: 7_335_772,
+      stackPointerAfter: 7_335_788,
+      fromGeneration: 289_882,
+      generation: 289_883,
+      dirtyPages: 676,
+      firstDirtyPage: 1_065_299_968,
+      lastDirtyPage: 1_068_064_768,
+      payloadBytes: 2_768_896,
+      payloadSha256:
+        "e139bec6f081ab6be0711612720ad36a930a4aa7952b3250ca9b90adcc249f60",
+    },
+    {
+      sequence: 158_100,
+      occurrence: 426,
+      instructionCount: 276_358_879,
+      allocationId: 1_346,
+      address: 1_064_914_552,
+      byteLength: 385_924,
+      reservedByteLength: 385_928,
+      liveBefore: 922,
+      liveAfter: 921,
+      stackPointerBefore: 7_335_868,
+      stackPointerAfter: 7_335_884,
+      fromGeneration: 289_884,
+      generation: 289_885,
+      dirtyPages: 96,
+      firstDirtyPage: 1_064_910_848,
+      lastDirtyPage: 1_065_299_968,
+      payloadBytes: 393_216,
+      payloadSha256:
+        "b2cf3d4624dd0ed5915c6fb49bf148395ba214ac8eeb671611871dc5e22c27f2",
+    },
+  ];
+  for (const [index, completion] of (checkpoint?.completions ?? []).entries()) {
+    const expected = expectedCompletions[index];
+    const call = completion.call;
+    assert.equal(call.sequence, expected.sequence);
+    assert.equal(call.occurrence, expected.occurrence);
+    assert.equal(call.trapInstructionCount, expected.instructionCount);
+    assert.deepEqual(call.arguments, [0x6801_0001, 0, expected.address]);
+    assert.equal(call.heapFree?.heapHandle, 0x6801_0001);
+    assert.equal(call.heapFree?.allocation?.id, expected.allocationId);
+    assert.equal(call.heapFree?.allocation?.address, expected.address);
+    assert.equal(call.heapFree?.allocation?.byteLength, expected.byteLength);
+    assert.equal(
+      call.heapFree?.allocation?.reservedByteLength,
+      expected.reservedByteLength,
+    );
+    assert.equal(
+      call.heapFree?.allocation?.initialization,
+      "deterministic-uninitialized",
+    );
+    assert.equal(call.heapFree?.liveAllocationsBefore, expected.liveBefore);
+    assert.equal(call.heapFree?.liveAllocationsAfter, expected.liveAfter);
+    assert.equal(call.heapFree?.allocationRetired, true);
+    assert.deepEqual(call.result, { action: "set", value: 1 });
+    assert.equal(call.implementationId, "kernel32.heap-free.v1");
+    assert.equal(call.returnAddress, 269_109_453);
+    assert.equal(call.stackPointerBefore, expected.stackPointerBefore);
+    assert.equal(call.stackPointerAfter, expected.stackPointerAfter);
+    assert.equal(call.lastError, 0);
+    assert.equal(call.guestWrites?.length, 0);
+    assert.equal(completion.freeDelta?.fromGeneration, expected.fromGeneration);
+    assert.equal(completion.freeDelta?.generation, expected.generation);
+    assert.deepEqual(completion.freeDelta?.mappingOperations, []);
+    assert.deepEqual(completion.freeDelta?.cacheEffects, {
+      flushTlb: false,
+      invalidateInstructionFetch: false,
+      invalidateGeneratedCode: false,
+    });
+    assert.equal(completion.freeDelta?.dirtyPages.length, expected.dirtyPages);
+    assert.equal(
+      completion.freeDelta?.dirtyPages[0]?.address,
+      expected.firstDirtyPage,
+    );
+    assert.equal(
+      completion.freeDelta?.dirtyPages.at(-1)?.address,
+      expected.lastDirtyPage,
+    );
+    assert(
+      completion.freeDelta?.dirtyPages.every(({ owner }) => owner === 81),
+    );
+    assert.equal(completion.freeDelta?.payloadBytes, expected.payloadBytes);
+    assert.equal(
+      completion.freeDelta?.payloadSha256,
+      expected.payloadSha256,
+    );
+    assert.equal(completion.memoryAfter?.generation, expected.generation);
+    assert.equal(
+      completion.memoryAfter?.acknowledgedGeneration,
+      expected.generation,
+    );
+  }
+  assert.equal(checkpoint?.freedByte, 0xdd);
+  assert.equal(checkpoint?.instructionCount, 276_358_985);
+  assert.equal(result.terminal.instructionCount, 276_358_985);
+  assert.deepEqual(checkpoint?.nextEndpoint, {
+    id: 75,
+    address: 0x7f00_04a0,
+    module: "KERNEL32.dll",
+    symbol: { kind: "name", name: "HeapAlloc" },
+  });
+  assert.deepEqual(checkpoint?.nextArguments, [0x6801_0001, 0, 24]);
+  assert.equal(checkpoint?.nextReturnAddress, 269_109_811);
+  assert.equal(checkpoint?.nextStackPointer, 7_337_172);
+  assert.equal(
+    checkpoint?.memoryContentSha256,
+    "f5bf558d4405c7940d627805b8f5ce3b3e20cc77b74a3370c21c745f7637b180",
+  );
+}
+
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -28438,10 +28661,12 @@ function buildGenericRuntimeReentryReport({
       getAsyncKeyStateCall,
       "async-key report summary requires one GetAsyncKeyState completion",
     );
-    if (runtimeTraplessExecutionBudgetCheckpointEnabled) {
+    if (runtimeTraplessExecutionBudgetEnabled) {
       assert.equal(
         genericResult.checkpointCompletion?.capability,
-        "runtime-trapless-execution-budget",
+        largeHeapFreeCheckpointEnabled
+          ? "kernel32-heap-free-large-buffer"
+          : "runtime-trapless-execution-budget",
       );
     } else if (user32AsyncKeyStateInitialScanContinuationCheckpointEnabled) {
       assert.equal(genericResult.checkpointCompletion, undefined);
@@ -28628,9 +28853,11 @@ function buildGenericRuntimeReentryReport({
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
         : runtimeThreadStackGrowthEnabled
-          ? runtimeTraplessExecutionBudgetCheckpointEnabled
-            ? "vine.v86-bgi-runtime-trapless-execution-budget"
-            : "vine.v86-bgi-runtime-thread-stack-growth"
+          ? largeHeapFreeCheckpointEnabled
+            ? "vine.v86-bgi-kernel32-heap-free-large-buffer"
+            : runtimeTraplessExecutionBudgetCheckpointEnabled
+              ? "vine.v86-bgi-runtime-trapless-execution-budget"
+              : "vine.v86-bgi-runtime-thread-stack-growth"
           : user32IsIconicCheckpointEnabled
           ? "vine.v86-bgi-user32-is-iconic"
           : user32PeekMessageACheckpointEnabled
@@ -29888,6 +30115,9 @@ function buildGenericRuntimeReentryReport({
               genericResult.checkpointCompletion.capability ===
               "runtime-trapless-execution-budget"
                 ? "BGI crossed the former trapless execution budget and stopped at the next runtime-owned endpoint"
+                : genericResult.checkpointCompletion.capability ===
+                    "kernel32-heap-free-large-buffer"
+                  ? "BGI atomically retired the reached large private-heap buffers and stopped before the next owned endpoint"
                 : genericResult.checkpointCompletion.capability ===
                     "user32-async-key-state-initial-scan"
                 ? "BGI completed the native-derived 38-key initial GetAsyncKeyState scan without injected input and stopped before the next owned endpoint"
@@ -36491,13 +36721,13 @@ function restoreStdcall(
 
 function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
   const instructionBudget = sourceFileReadEnabled
-    ? runtimeTraplessExecutionBudgetCheckpointEnabled
+    ? runtimeTraplessExecutionBudgetEnabled
       ? 4_096
       : 256
     : guest.instructionBudget;
   const maximumExecuteStops = sourceFileReadEnabled
     ? user32AsyncKeyStateInitialScanEnabled
-      ? runtimeTraplessExecutionBudgetCheckpointEnabled
+      ? runtimeTraplessExecutionBudgetEnabled
         ? 15_625
         : 156_250
       : 39_063
