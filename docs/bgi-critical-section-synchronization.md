@@ -268,8 +268,15 @@ The follow-on `kernel32-set-waitable-timer-post-timer-wait-batch` profile has
 now consumed that arm and reached the next alertable wait frame. It does not
 change either critical-section identity or add a synchronization mutation;
 the balanced state published by this checkpoint remains authoritative while
-the existing Rust timer owner performs the separate rearm transaction. The
-active wait continuation and exact stop identity remain in
+the existing Rust timer owner performs the separate rearm transaction.
+
+The subsequent
+`kernel32-wait-for-single-object-ex-post-timer-rearm-batch` profile has now
+completed that wait and reached another `EnterCriticalSection(0x1014c8d0)`
+frame. The wait checkpoint performs no critical-section mutation and creates
+no second synchronization owner; `RuntimeSynchronization` still owns the
+balanced unlocked state until the next profile dispatches this acquisition.
+The active recurrence and exact stop identity remain in
 [current-checkpoint.json](current-checkpoint.json).
 
 ## Historical next structured stop

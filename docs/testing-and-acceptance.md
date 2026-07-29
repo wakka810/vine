@@ -1050,6 +1050,15 @@ zero guest write、stack cleanup、新しいlogical deadline、ordered semantic 
 checkpointではclock advance、expiration、wait result、pacing callbackを発生させない。次のwait recurrence、
 exact値、artifact identityは`current-checkpoint.json`を正本とし、新しいperformance baselineは要求しない。
 
+Post-timer-rearm `WaitForSingleObjectEx` recurrenceは、そのlive armを既存のfinite alertable wait
+transactionで消費する。Rustはtimer／typed object／arm／registration／logical clock／owner thread／scheduler
+laneをpreflightし、expiration、`signaled` state、registration retirement、`WAIT_OBJECT_0`を一括commitする。
+Node／Chromeはzero guest write、LastError preserve、ordered semantic digest、terminal memory、次の
+`EnterCriticalSection(0x1014c8d0)` frameを一致させる。Workerはversioned pacing requestを一件だけ
+acknowledgeし、pending／cancelled／stale callbackを残さず、Windows timer、clock、wait result、thread resumeの
+authorityにならない。APC delivery、general timeout、cross-thread waiter、performance baselineは拡張せず、
+exact値とartifact identityは`current-checkpoint.json`だけを正本とする。
+
 Reached `GetVersionExA`の代表contractはdynamic in/out pointerのminimum 4-byte
 preflight、accepted 148／156-byte full-span read、policy-field merge、single atomic write、
 BOOLとhandler-owned LastErrorを固定する。Dispatcher fixtureはbase／extended layout、native-unwritten

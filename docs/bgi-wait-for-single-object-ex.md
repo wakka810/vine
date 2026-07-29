@@ -222,11 +222,21 @@ that reached arm through the existing Rust timer transaction and stops before
 the next `WaitForSingleObjectEx(0x57010002, 10, TRUE)` dispatch. Its completion
 leaves the manual-reset object nonsignaled with a new live arm; it does not
 advance the clock, expire the timer, choose a wait result, or create a browser
-pacing resource. The active
-`kernel32-wait-for-single-object-ex-post-timer-rearm-batch` continuation must
-consume that arm through the same finite alertable wait transaction described
-above. Exact arm identity, deadline, occurrence, and terminal report remain
-manifest-owned.
+pacing resource.
+
+The follow-on
+`kernel32-wait-for-single-object-ex-post-timer-rearm-batch` profile now
+consumes that live arm through the same finite alertable wait transaction.
+Rust revalidates the timer, typed object, arm generation, registration,
+logical clock, owner thread, and scheduler lane before jointly publishing the
+logical expiration, signaled object, retired registration, and
+`WAIT_OBJECT_0`. Node and Chrome agree on the zero-write completion, preserved
+LastError, ordered semantics, terminal memory, and following
+`EnterCriticalSection(0x1014c8d0)` frame. The Worker acknowledges one more
+versioned pacing request and retains no pending, cancelled, or stale callback;
+it remains non-owning evidence rather than a Windows wait authority. The next
+critical-section recurrence and all exact occurrence, generation, deadline,
+and artifact values remain manifest-owned.
 
 ## Non-claims
 

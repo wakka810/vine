@@ -12,7 +12,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 65 as const/u);
+assert.match(protocol, /protocolVersion = 66 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -101,6 +101,10 @@ assert.match(
 );
 assert.match(
   protocol,
+  /kernel32-wait-for-single-object-ex-post-timer-rearm-batch/u,
+);
+assert.match(
+  protocol,
   /kernel32-wait-for-single-object-ex-post-critical-section/u,
 );
 assert.match(
@@ -129,7 +133,11 @@ assert.match(
 );
 assert.match(
   protocol,
-  /capability: "kernel32-wait-for-single-object-ex-post-timer-arm-batch"/u,
+  /"kernel32-wait-for-single-object-ex-post-timer-arm-batch"/u,
+);
+assert.match(
+  protocol,
+  /"kernel32-wait-for-single-object-ex-post-timer-rearm-batch"/u,
 );
 assert.match(
   protocol,

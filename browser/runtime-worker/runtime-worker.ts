@@ -533,8 +533,54 @@ function isPostTimerArmWaitCheckpoint(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
-    profile === "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
+    profile === "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
+    profile === "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   );
+}
+
+function postTimerArmWaitExpectation(
+  profile: SessionConfiguration["capabilityProfile"],
+) {
+  return profile ===
+    "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
+    ? ({
+        capability:
+          "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
+        sequence: 158_124,
+        instructionCount: 276_361_344,
+        terminalInstructionCount: 276_361_369,
+        armGeneration: 11_204,
+        deadlineTime100ns: 56_085_000,
+        clockGeneration: 11_208,
+        nextWaitRegistrationId: 11_209,
+        semanticDigest:
+          "952121a940b5ae292fa2ddc2a0c0dafb7ea239e8dbbe739c5aad2924b0ce10f8",
+        finalGeneration: 305_878n,
+        writebackBatches: 177_140,
+        writebackPages: 269_379,
+        mappingDeltas: 125_756,
+        mappingDirtyPages: 145_861,
+        waitCompletions: 11_208,
+      } as const)
+    : ({
+        capability:
+          "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
+        sequence: 158_116,
+        instructionCount: 276_361_197,
+        terminalInstructionCount: 276_361_222,
+        armGeneration: 11_203,
+        deadlineTime100ns: 56_080_000,
+        clockGeneration: 11_207,
+        nextWaitRegistrationId: 11_208,
+        semanticDigest:
+          "b4d9f6ee62c0c7fdb48c1e7c148624c2c8911701a7a061ee81a773debcefd745",
+        finalGeneration: 305_864n,
+        writebackBatches: 177_132,
+        writebackPages: 269_368,
+        mappingDeltas: 125_750,
+        mappingDirtyPages: 145_855,
+        waitCompletions: 11_207,
+      } as const);
 }
 
 function includesPostHeapTimeGetTimeEvidence(
@@ -4355,6 +4401,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
           checkpoint.capability ===
+            "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
+          checkpoint.capability ===
             "kernel32-wait-for-single-object-ex-post-critical-section"
             ? "kernel32-create-directory-a-v1"
             : "kernel32-wait-for-single-object-ex-v1"),
@@ -4425,6 +4473,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
       checkpoint.capability ===
+        "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
+      checkpoint.capability ===
         "kernel32-wait-for-single-object-ex-post-critical-section"
     ) {
       checkpoint.nextArguments =
@@ -4459,7 +4509,9 @@ class BrowserRuntimeSession {
                   "kernel32-wait-for-single-object-ex-post-critical-section"
                 ? [this.#requireEngine().readGuestU32(stackPointer + 4)]
               : checkpoint.capability ===
-                  "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
+                    "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
+                  checkpoint.capability ===
+                    "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
                 ? [this.#requireEngine().readGuestU32(stackPointer + 4)]
               : checkpoint.capability ===
                     "kernel32-set-waitable-timer-post-critical-section-batch" ||
@@ -4489,6 +4541,8 @@ class BrowserRuntimeSession {
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
       checkpoint.capability ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
+      checkpoint.capability ===
+        "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
       checkpoint.capability ===
         "kernel32-wait-for-single-object-ex-post-critical-section"
     ) {
@@ -4520,6 +4574,9 @@ class BrowserRuntimeSession {
                 : checkpoint.capability ===
                     "kernel32-set-waitable-timer-post-critical-section-batch"
                   ? "Post-critical-section waitable-timer arm checkpoint completed"
+                : checkpoint.capability ===
+                    "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
+                  ? "Post-timer-rearm waitable-timer checkpoint completed"
                 : checkpoint.capability ===
                     "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
                   ? "Post-timer-arm waitable-timer checkpoint completed"
@@ -6029,13 +6086,20 @@ class BrowserRuntimeSession {
         isPostTimerArmWaitCheckpoint(
           this.#configuration.capabilityProfile,
         ) &&
-        sequence === 158_116
+        sequence ===
+          postTimerArmWaitExpectation(
+            this.#configuration.capabilityProfile,
+          ).sequence
       ) {
+        const expected = postTimerArmWaitExpectation(
+          this.#configuration.capabilityProfile,
+        );
         const timer = call.waitableTimer;
         invariant(
           this.#report.checkpointCompletion === null &&
             this.#currentThreadId === 8_193 &&
-            this.#waitForSingleObjectExCompletions === 11_207 &&
+            this.#waitForSingleObjectExCompletions ===
+              expected.waitCompletions &&
             call.module.toLowerCase() === "kernel32.dll" &&
             call.symbol === "WaitForSingleObjectEx" &&
             call.arguments.join(",") === "1459683330,10,1" &&
@@ -6050,20 +6114,22 @@ class BrowserRuntimeSession {
             timer?.handle === 0x5701_0002 &&
             timer.timer.id === 2 &&
             timer.timer.manualReset &&
-            timer.timer.lastExpiration?.armGeneration === 11_203 &&
-            timer.timer.lastExpiration.deadlineTime100ns === 56_080_000 &&
+            timer.timer.lastExpiration?.armGeneration ===
+              expected.armGeneration &&
+            timer.timer.lastExpiration.deadlineTime100ns ===
+              expected.deadlineTime100ns &&
             timer.objectRecord.id === 24 &&
             timer.objectRecord.waitState.state === "signaled" &&
             timer.objectRecord.waitState.exit_code === 0 &&
             timer.objectRecord.openHandles === 1 &&
-            timer.timerClock?.currentTime100ns === 56_080_000 &&
-            timer.timerClock.generation === 11_207 &&
-            timer.nextWaitRegistrationId === 11_208,
-          "post-timer-arm wait changed its timer expiration contract",
+            timer.timerClock?.currentTime100ns ===
+              expected.deadlineTime100ns &&
+            timer.timerClock.generation === expected.clockGeneration &&
+            timer.nextWaitRegistrationId === expected.nextWaitRegistrationId,
+          "timer-arm wait recurrence changed its timer expiration contract",
         );
         this.#report.checkpointCompletion = {
-          capability:
-            "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
+          capability: expected.capability,
           implementationId:
             "kernel32.wait-for-single-object-ex.waitable-timer.v1",
           requiredCompletions: 1,
@@ -11765,33 +11831,36 @@ class BrowserRuntimeSession {
         ) &&
         terminal.outcome === "checkpoint-complete"
       ) {
+        const expected = postTimerArmWaitExpectation(
+          this.#configuration.capabilityProfile,
+        );
         const checkpoint = this.#report.checkpointCompletion;
         const completions =
-          checkpoint?.capability ===
-          "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
+          checkpoint?.capability === expected.capability
             ? checkpoint.completions
             : [];
         const [completion] = completions;
         const timer = completion?.waitableTimer;
         const pacing = this.#timerPacing.metrics();
         invariant(
-          this.#report.supportedCallCount === 158_116 &&
+          this.#report.supportedCallCount === expected.sequence &&
             this.#report.supportedCallSemanticsSha256 ===
-              "b4d9f6ee62c0c7fdb48c1e7c148624c2c8911701a7a061ee81a773debcefd745" &&
+              expected.semanticDigest &&
             this.#report.firstUnsupported === null &&
-            checkpoint?.capability ===
-              "kernel32-wait-for-single-object-ex-post-timer-arm-batch" &&
+            checkpoint?.capability === expected.capability &&
             checkpoint.implementationId ===
               "kernel32.wait-for-single-object-ex.waitable-timer.v1" &&
             checkpoint.requiredCompletions === 1 &&
             checkpoint.completionCount === 1 &&
-            checkpoint.firstCompletionSequence === 158_116 &&
-            checkpoint.firstCompletionInstructionCount === 276_361_197 &&
-            checkpoint.lastCompletionSequence === 158_116 &&
-            checkpoint.lastCompletionInstructionCount === 276_361_197 &&
+            checkpoint.firstCompletionSequence === expected.sequence &&
+            checkpoint.firstCompletionInstructionCount ===
+              expected.instructionCount &&
+            checkpoint.lastCompletionSequence === expected.sequence &&
+            checkpoint.lastCompletionInstructionCount ===
+              expected.instructionCount &&
             checkpoint.threadId === 8_193 &&
             completions.length === 1 &&
-            completion?.sequence === 158_116 &&
+            completion?.sequence === expected.sequence &&
             completion.module.toLowerCase() === "kernel32.dll" &&
             completion.symbol === "WaitForSingleObjectEx" &&
             completion.arguments.join(",") === "1459683330,10,1" &&
@@ -11808,16 +11877,20 @@ class BrowserRuntimeSession {
             timer?.handle === 0x5701_0002 &&
             timer.timer.id === 2 &&
             timer.timer.manualReset &&
-            timer.timer.lastExpiration?.armGeneration === 11_203 &&
-            timer.timer.lastExpiration.deadlineTime100ns === 56_080_000 &&
+            timer.timer.lastExpiration?.armGeneration ===
+              expected.armGeneration &&
+            timer.timer.lastExpiration.deadlineTime100ns ===
+              expected.deadlineTime100ns &&
             timer.objectRecord.id === 24 &&
             timer.objectRecord.waitState.state === "signaled" &&
             timer.objectRecord.waitState.exit_code === 0 &&
             timer.objectRecord.openHandles === 1 &&
-            timer.timerClock?.currentTime100ns === 56_080_000 &&
-            timer.timerClock.generation === 11_207 &&
-            timer.nextWaitRegistrationId === 11_208 &&
-            checkpoint.instructionCount === 276_361_222 &&
+            timer.timerClock?.currentTime100ns ===
+              expected.deadlineTime100ns &&
+            timer.timerClock.generation === expected.clockGeneration &&
+            timer.nextWaitRegistrationId === expected.nextWaitRegistrationId &&
+            checkpoint.instructionCount ===
+              expected.terminalInstructionCount &&
             checkpoint.nextEndpoint.id === 144 &&
             checkpoint.nextEndpoint.address === 0x7f00_08f0 &&
             checkpoint.nextEndpoint.disposition ===
@@ -11831,12 +11904,12 @@ class BrowserRuntimeSession {
             checkpoint.nextStackPointer === 0x500f_ff70 &&
             checkpoint.memoryContentSha256 ===
               "a2016162ae29d5f3b8ccd7e2006e0c8648418b9dc1f5adbc930d3c920b8834fa" &&
-            this.#report.instructions === 276_361_222 &&
-            this.#generation === 305_864n &&
-            this.#report.writebackBatches === 177_132 &&
-            this.#report.writebackPages === 269_368 &&
-            this.#report.mappingDeltas === 125_750 &&
-            this.#report.mappingDirtyPages === 145_855 &&
+            this.#report.instructions === expected.terminalInstructionCount &&
+            this.#generation === expected.finalGeneration &&
+            this.#report.writebackBatches === expected.writebackBatches &&
+            this.#report.writebackPages === expected.writebackPages &&
+            this.#report.mappingDeltas === expected.mappingDeltas &&
+            this.#report.mappingDirtyPages === expected.mappingDirtyPages &&
             this.#report.contextSwitches === 2_457 &&
             this.#report.stackGrowths.length === 11 &&
             this.#report.heapPageMaterializations?.length === 2_918 &&
@@ -11844,11 +11917,12 @@ class BrowserRuntimeSession {
             this.#report.sourceReads.filter(
               (read) => read.request.sourceId === 1,
             ).length === 82 &&
-            this.#waitForSingleObjectExCompletions === 11_207 &&
+            this.#waitForSingleObjectExCompletions ===
+              expected.waitCompletions &&
             pacing.requests === this.#waitForSingleObjectExCompletions &&
             pacing.completions === this.#waitForSingleObjectExCompletions &&
             pacing.pending === 0,
-          `post-timer-arm wait checkpoint changed: ${JSON.stringify({
+          `timer-arm wait checkpoint changed: ${JSON.stringify({
             supportedCallCount: this.#report.supportedCallCount,
             supportedCallSemanticsSha256:
               this.#report.supportedCallSemanticsSha256,

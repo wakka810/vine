@@ -107,8 +107,11 @@ const postCriticalSectionSetWaitableTimerProfile =
   bgiProfile ===
     "kernel32-set-waitable-timer-post-critical-section-batch" ||
   postTimerWaitSetWaitableTimerProfile;
+const postTimerRearmWaitProfile =
+  bgiProfile === "kernel32-wait-for-single-object-ex-post-timer-rearm-batch";
 const postTimerArmWaitProfile =
-  bgiProfile === "kernel32-wait-for-single-object-ex-post-timer-arm-batch";
+  bgiProfile === "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
+  bgiProfile === "kernel32-wait-for-single-object-ex-post-timer-rearm-batch";
 const postCriticalSectionWaitProfile =
   bgiProfile === "kernel32-wait-for-single-object-ex-post-critical-section";
 const postHeapTimeGetTimeEvidenceProfile =
@@ -203,7 +206,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v65";
+const runtimeProtocol = "vine.browser-runtime-worker.v66";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -874,6 +877,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-set-waitable-timer-post-critical-section-batch",
         "kernel32-set-waitable-timer-post-timer-wait-batch",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
+        "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
         "kernel32-wait-for-single-object-ex-post-critical-section",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
@@ -935,6 +939,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-set-waitable-timer-post-critical-section-batch",
         "kernel32-set-waitable-timer-post-timer-wait-batch",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
+        "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
         "kernel32-wait-for-single-object-ex-post-critical-section",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
@@ -996,6 +1001,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-set-waitable-timer-post-critical-section-batch",
         "kernel32-set-waitable-timer-post-timer-wait-batch",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
+        "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
         "kernel32-wait-for-single-object-ex-post-critical-section",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
@@ -1119,7 +1125,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         const pacingCount = user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
             ? runtimeThreadStackGrowthProfile
-              ? postTimerArmWaitProfile ||
+              ? postTimerRearmWaitProfile
+                ? 11_208
+                : postTimerArmWaitProfile ||
                 postTimerWaitCriticalSectionProfile ||
                 postTimerWaitSetWaitableTimerProfile
                 ? 11_207
@@ -5557,7 +5565,9 @@ function validateBgiEquivalence(browser, oracle) {
       oracleCheckpoint.capability ===
         "kernel32-wait-for-single-object-ex-post-critical-section" ||
       oracleCheckpoint.capability ===
-        "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
+        "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
+      oracleCheckpoint.capability ===
+        "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
     ) {
       const normalizeWaitCall = (call) => ({
         ...normalizeSemanticCall(call),

@@ -157,9 +157,13 @@ memory, and the following alertable wait frame.
 
 The Worker records only non-owning completion evidence: it does not create a
 browser timer or choose a wait result. The follow-on
-`kernel32-wait-for-single-object-ex-post-timer-rearm-batch` profile owns the
-next dispatch boundary. Exact occurrence counts, generations, deadlines,
-report identities, and frame position remain authoritative only in
+`kernel32-wait-for-single-object-ex-post-timer-rearm-batch` profile has now
+consumed the rearmed timer through the separate Rust-owned finite alertable
+wait transaction and reached the next `EnterCriticalSection` frame. That wait
+advances the logical clock and publishes expiration without changing the arm
+transaction or giving the browser timer authority. Exact occurrence counts,
+generations, deadlines, report identities, and the next critical-section
+checkpoint remain authoritative only in
 [current-checkpoint.json](current-checkpoint.json).
 
 ## Non-claims
