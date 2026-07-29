@@ -54,7 +54,9 @@ const d3d9Canvas =
   capabilityProfile === "kernel32-heap-free-large-buffer" ||
   capabilityProfile === "kernel32-heap-alloc-24-byte-buffer" ||
   capabilityProfile === "winmm-time-get-time-post-heap-reuse" ||
-  capabilityProfile === "kernel32-enter-critical-section-post-clock"
+  capabilityProfile === "kernel32-enter-critical-section-post-clock" ||
+  capabilityProfile ===
+    "kernel32-wait-for-single-object-ex-post-critical-section"
     ? requiredElement<HTMLCanvasElement>(
         "#surface",
       ).transferControlToOffscreen()
@@ -152,7 +154,9 @@ const startMessage = {
             capabilityProfile === "kernel32-heap-free-large-buffer" ||
             capabilityProfile === "kernel32-heap-alloc-24-byte-buffer" ||
             capabilityProfile === "winmm-time-get-time-post-heap-reuse" ||
-            capabilityProfile === "kernel32-enter-critical-section-post-clock"
+            capabilityProfile === "kernel32-enter-critical-section-post-clock" ||
+            capabilityProfile ===
+              "kernel32-wait-for-single-object-ex-post-critical-section"
           ? 320_000_000
           : capabilityProfile === "runtime-thread-stack-growth"
           ? 300_000_000
@@ -200,7 +204,9 @@ const startMessage = {
       capabilityProfile === "kernel32-heap-free-large-buffer" ||
       capabilityProfile === "kernel32-heap-alloc-24-byte-buffer" ||
       capabilityProfile === "winmm-time-get-time-post-heap-reuse" ||
-      capabilityProfile === "kernel32-enter-critical-section-post-clock"
+      capabilityProfile === "kernel32-enter-critical-section-post-clock" ||
+      capabilityProfile ===
+        "kernel32-wait-for-single-object-ex-post-critical-section"
         ? 600_000
         : capabilityProfile === "kernel32-sleep-zero" ||
             capabilityProfile === "kernel32-global-memory-status" ||
@@ -350,7 +356,8 @@ function parseCapabilityProfile(
     value === "kernel32-heap-free-large-buffer" ||
     value === "kernel32-heap-alloc-24-byte-buffer" ||
     value === "winmm-time-get-time-post-heap-reuse" ||
-    value === "kernel32-enter-critical-section-post-clock"
+    value === "kernel32-enter-critical-section-post-clock" ||
+    value === "kernel32-wait-for-single-object-ex-post-critical-section"
     ? value
     : undefined;
 }

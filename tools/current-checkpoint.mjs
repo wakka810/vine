@@ -192,6 +192,9 @@ export function validateCurrentCheckpoint(manifest) {
   const postClockCriticalSectionActive =
     root.activeRuntimeCheckpoint?.profile ===
       "kernel32-enter-critical-section-post-clock";
+  const postCriticalSectionWaitActive =
+    root.activeRuntimeCheckpoint?.profile ===
+      "kernel32-wait-for-single-object-ex-post-critical-section";
   const runtimeTraplessExecutionBudgetCheckpointActive =
     root.activeRuntimeCheckpoint?.profile ===
       "runtime-trapless-execution-budget";
@@ -200,7 +203,8 @@ export function validateCurrentCheckpoint(manifest) {
     largeHeapFreeActive ||
     heapAlloc24Active ||
     postHeapTimeGetTimeActive ||
-    postClockCriticalSectionActive;
+    postClockCriticalSectionActive ||
+    postCriticalSectionWaitActive;
   const runtimeThreadStackGrowthCheckpointActive =
     root.activeRuntimeCheckpoint?.profile === "runtime-thread-stack-growth";
   const runtimeThreadStackGrowthActive =
@@ -361,7 +365,9 @@ export function validateCurrentCheckpoint(manifest) {
     : createDirectoryAActive
       ? "15954287,16290526"
       : "15953766,16290005";
-  const timerCycleCount = runtimeThreadStackGrowthActive
+  const timerCycleCount = postCriticalSectionWaitActive
+    ? 11_206
+    : runtimeThreadStackGrowthActive
     ? 11_205
     : user32IsIconicActive
     ? 10_571
@@ -457,7 +463,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
                   : "11973553,11973700,11973847";
-  const timerWaitSequences = runtimeThreadStackGrowthActive
+  const timerWaitSequences = postCriticalSectionWaitActive
+    ? "18682,158108"
+    : runtimeThreadStackGrowthActive
     ? "18682,158035"
     : user32IsIconicActive
     ? "18682,148473"
@@ -484,7 +492,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "18682,18690,18698,18706,18714,18722,18730"
                   : "18682,18690,18698";
-  const timerWaitInstructionCounts = runtimeThreadStackGrowthActive
+  const timerWaitInstructionCounts = postCriticalSectionWaitActive
+    ? "11974080,276361050"
+    : runtimeThreadStackGrowthActive
     ? "11974080,225662006"
     : user32IsIconicActive
     ? "11974080,148770738"
@@ -511,7 +521,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
                   : "11973559,11973706,11973853";
-  const timerGenerations = runtimeThreadStackGrowthActive
+  const timerGenerations = postCriticalSectionWaitActive
+    ? "1,11202"
+    : runtimeThreadStackGrowthActive
     ? "1,11201"
     : user32IsIconicActive
     ? "1,3"
@@ -538,7 +550,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "1,2,3,4,5,6,7"
                   : "1,2,3";
-  const timerClockGenerations = runtimeThreadStackGrowthActive
+  const timerClockGenerations = postCriticalSectionWaitActive
+    ? "1,11206"
+    : runtimeThreadStackGrowthActive
     ? "1,11205"
     : user32IsIconicActive
     ? "1,10571"
@@ -551,7 +565,9 @@ export function validateCurrentCheckpoint(manifest) {
     : d3d9PostRasterStatusWaitableTimerActive
     ? "1,9187"
     : timerGenerations;
-  const timerDeadlines = runtimeThreadStackGrowthActive
+  const timerDeadlines = postCriticalSectionWaitActive
+    ? "5000,56075000"
+    : runtimeThreadStackGrowthActive
     ? "5000,56070000"
     : user32IsIconicActive
     ? "5000,52885000"
@@ -578,7 +594,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "5000,10000,15000,20000,25000,30000,35000"
                   : "5000,10000,15000";
-  const timerPacingRequestIds = runtimeThreadStackGrowthActive
+  const timerPacingRequestIds = postCriticalSectionWaitActive
+    ? "3,11293"
+    : runtimeThreadStackGrowthActive
     ? "3,11291"
     : user32IsIconicActive
     ? "3,10635"
@@ -605,7 +623,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "3,4,5,6,7,8,9"
                   : "3,4,5";
-  const timerPacingRegistrationIds = runtimeThreadStackGrowthActive
+  const timerPacingRegistrationIds = postCriticalSectionWaitActive
+    ? "1,11206"
+    : runtimeThreadStackGrowthActive
     ? "1,11205"
     : user32IsIconicActive
     ? "1,10571"
@@ -632,7 +652,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "1,2,3,4,5,6,7"
                   : "1,2,3";
-  const timerPacingClockGenerations = runtimeThreadStackGrowthActive
+  const timerPacingClockGenerations = postCriticalSectionWaitActive
+    ? "0,11205"
+    : runtimeThreadStackGrowthActive
     ? "0,11204"
     : user32IsIconicActive
     ? "0,10570"
@@ -659,7 +681,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "0,1,2,3,4,5,6"
                   : "0,1,2";
-  const timerNextRegistrationIds = runtimeThreadStackGrowthActive
+  const timerNextRegistrationIds = postCriticalSectionWaitActive
+    ? "2,11207"
+    : runtimeThreadStackGrowthActive
     ? "2,11206"
     : user32IsIconicActive
     ? "2,10572"
@@ -686,7 +710,25 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "2,3,4,5,6,7,8"
                   : "2,3,4";
-  const profileExpectations = postClockCriticalSectionActive
+  const profileExpectations = postCriticalSectionWaitActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 125_744,
+        browserMappingDirtyPages: 145_849,
+        browserSuccessExecutionTransitions: 567_641,
+        latestSchema:
+          "vine.v86-bgi-kernel32-wait-for-single-object-ex-post-critical-section",
+        latestWritebackBatches: 161_068,
+        latestWritebackDirtyPages: 236_703,
+        latestWritebackChangedBytes: 36_243_440,
+        latestHostDeltaBatches: 125_744,
+        latestFinalMemoryGeneration: 289_900,
+        semanticCallDigestSha256:
+          "3ca0fa06e6a89d4024685afa6dda1070f2107b961f16b10dcdbb9d583dc63f39",
+        memoryContentSha256:
+          "a2016162ae29d5f3b8ccd7e2006e0c8648418b9dc1f5adbc930d3c920b8834fa",
+      }
+    : postClockCriticalSectionActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 125_744,
@@ -1852,9 +1894,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v59") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v60") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v59",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v60",
     );
   }
   if (
@@ -2638,7 +2680,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (postClockCriticalSectionActive
+      (postCriticalSectionWaitActive
+        ? 28
+        : postClockCriticalSectionActive
         ? 27
         : postHeapTimeGetTimeActive
         ? 26
@@ -2680,7 +2724,7 @@ export function validateCurrentCheckpoint(manifest) {
             ? 29
             : 21) ||
     bgiMappingOperations.commit !==
-      (postClockCriticalSectionActive
+      (postClockCriticalSectionActive || postCriticalSectionWaitActive
         ? 3_114
         : runtimeThreadStackGrowthActive
         ? 2_439
@@ -2734,7 +2778,7 @@ export function validateCurrentCheckpoint(manifest) {
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     bgiBrowserEvidence.contextSwitches !==
-      (postClockCriticalSectionActive
+      (postClockCriticalSectionActive || postCriticalSectionWaitActive
         ? 2_457
         : runtimeThreadStackGrowthActive
         ? 2_456
@@ -19523,7 +19567,9 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (postClockCriticalSectionActive
+      (postCriticalSectionWaitActive
+        ? "Rust-owned finite alertable waitable-timer completion through RuntimeTimers, RuntimeWaits, and the scheduler with deterministic browser pacing acknowledgement"
+        : postClockCriticalSectionActive
         ? "Rust-owned balanced critical-section acquire/release roundtrip through RuntimeSynchronization with atomic guest-state publication and scheduler handoff"
         : postHeapTimeGetTimeActive
         ? "Rust-owned post-heap multimedia tick sampling over shared RuntimeProcessState clock authority without browser clock import"
@@ -22450,6 +22496,110 @@ export function validateCurrentCheckpoint(manifest) {
       }
     }
   }
+  if (postCriticalSectionWaitActive) {
+    const expectedCompletion = currentStop.completion ?? {};
+    const expectedEndpoint = currentStop.nextEndpoint ?? {};
+    if (
+      currentStop.kind !== "capability-checkpoint" ||
+      currentStop.nextCheckpoint !==
+        "kernel32-enter-critical-section-post-wait" ||
+      currentStop.pausedHistoricalCheckpoint !==
+        "kernel32-wait-for-single-object-ex-post-critical-section" ||
+      currentStop.instructionCount !== 276_361_075 ||
+      currentStop.capabilityCluster !==
+        "kernel32-critical-section-synchronization" ||
+      currentStop.reason !==
+        "kernel32-wait-for-single-object-ex-post-critical-section-checkpoint-complete" ||
+      expectedCompletion.capability !==
+        "kernel32-wait-for-single-object-ex-post-critical-section" ||
+      expectedCompletion.implementationId !==
+        "kernel32.wait-for-single-object-ex.waitable-timer.v1" ||
+      expectedCompletion.requiredCompletions !== 1 ||
+      expectedCompletion.completionCount !== 1 ||
+      expectedCompletion.firstCompletionSequence !== 158_108 ||
+      expectedCompletion.firstCompletionInstructionCount !== 276_361_050 ||
+      expectedCompletion.lastCompletionSequence !== 158_108 ||
+      expectedCompletion.lastCompletionInstructionCount !== 276_361_050 ||
+      expectedEndpoint.endpointKind !== "runtime-system-export" ||
+      expectedEndpoint.endpointId !== 144 ||
+      expectedEndpoint.api?.toLowerCase() !==
+        "kernel32.dll!entercriticalsection" ||
+      expectedEndpoint.endpointAddress !== "0x7f0008f0" ||
+      expectedEndpoint.iatAddress !== "0x100d12e8" ||
+      expectedEndpoint.observedModule?.toLowerCase() !== "kernel32.dll" ||
+      expectedEndpoint.observedSymbol !== "EnterCriticalSection" ||
+      expectedEndpoint.disposition !== "declared-runtime-export" ||
+      expectedEndpoint.arguments?.join(",") !== "0x1014c8d0" ||
+      active.runtimeHeapBacking?.capabilityExpansionPausedAt !==
+        "kernel32-enter-critical-section-post-wait" ||
+      !Number.isSafeInteger(bgiBrowserEvidence.statusMessagesObserved) ||
+      bgiBrowserEvidence.statusMessagesObserved <
+        bgiBrowserEvidence.statusMessagesRetained ||
+      bgiBrowserEvidence.statusMessagesRetained !== 4_096
+    ) {
+      errors.push("post-critical-section wait checkpoint stop is invalid");
+    }
+    for (const [label, completion] of [
+      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+    ]) {
+      const call = completion.completions?.[0] ?? {};
+      if (
+        completion.capability !==
+          "kernel32-wait-for-single-object-ex-post-critical-section" ||
+        completion.implementationId !==
+          "kernel32.wait-for-single-object-ex.waitable-timer.v1" ||
+        completion.requiredCompletions !== 1 ||
+        completion.completionCount !== 1 ||
+        completion.firstCompletionSequence !== 158_108 ||
+        completion.firstCompletionInstructionCount !== 276_361_050 ||
+        completion.lastCompletionSequence !== 158_108 ||
+        completion.lastCompletionInstructionCount !== 276_361_050 ||
+        completion.completions?.length !== 1 ||
+        completion.threadId !== 8_193 ||
+        completion.instructionCount !== 276_361_075 ||
+        completion.nextEndpoint?.endpointId !== 144 ||
+        completion.nextEndpoint?.endpointAddress !== "0x7f0008f0" ||
+        completion.nextEndpoint?.api?.toLowerCase() !==
+          "kernel32.dll!entercriticalsection" ||
+        completion.nextEndpoint?.iatAddress !== "0x100d12e8" ||
+        completion.nextArguments?.join(",") !== "0x1014c8d0" ||
+        completion.nextReturnAddress !== "0x10091796" ||
+        completion.nextStackPointer !== "0x500fff70" ||
+        completion.memoryContentSha256 !==
+          "a2016162ae29d5f3b8ccd7e2006e0c8648418b9dc1f5adbc930d3c920b8834fa" ||
+        call.sequence !== 158_108 ||
+        call.instructionCount !== 276_361_050 ||
+        call.occurrence !== 11_206 ||
+        call.api !== "KERNEL32.dll!WaitForSingleObjectEx" ||
+        call.arguments?.join(",") !==
+          "0x57010002,0x0000000a,0x00000001" ||
+        call.result !== 0 ||
+        call.implementationId !==
+          "kernel32.wait-for-single-object-ex.waitable-timer.v1" ||
+        call.returnAddress !== "0x10050615" ||
+        call.stackPointers?.join(",") !== "0x500fff88,0x500fff98" ||
+        call.lastError !== 0 ||
+        call.guestWriteBytes !== 0 ||
+        call.waitableTimerHandle !== "0x57010002" ||
+        call.waitableTimerId !== 2 ||
+        call.waitableTimerManualReset !== true ||
+        call.waitableTimerArmGeneration !== 11_202 ||
+        call.waitableTimerDeadlineTime100ns !== 56_075_000 ||
+        call.waitableTimerObjectId !== 24 ||
+        call.waitableTimerWaitState !== "signaled" ||
+        call.waitableTimerExitCode !== 0 ||
+        call.waitableTimerOpenHandles !== 1 ||
+        call.waitableTimerClockTime100ns !== 56_075_000 ||
+        call.waitableTimerClockGeneration !== 11_206 ||
+        call.nextWaitRegistrationId !== 11_207
+      ) {
+        errors.push(
+          `${label} post-critical-section wait checkpoint evidence is invalid`,
+        );
+      }
+    }
+  }
   if (active.profile === "d3d9-end-scene") {
     if (
       currentStop.nextEndpoint?.observedModule !== "<com>" ||
@@ -23436,7 +23586,8 @@ export function validateCurrentCheckpoint(manifest) {
               largeHeapFreeActive ||
               heapAlloc24Active ||
               postHeapTimeGetTimeActive ||
-              postClockCriticalSectionActive
+              postClockCriticalSectionActive ||
+              postCriticalSectionWaitActive
             ) {
               if (currentStop.kind !== "capability-checkpoint") {
                 errors.push(
@@ -24685,6 +24836,9 @@ export function renderReadmeStatus(manifest) {
                                     : next.completion.capability ===
                                         "kernel32-enter-critical-section-post-clock"
                                       ? "critical-section acquire/release roundtrip"
+                                    : next.completion.capability ===
+                                        "kernel32-wait-for-single-object-ex-post-critical-section"
+                                      ? "waitable-timer wait"
                                   : next.completion.capability ===
                                       "user32-async-key-state-input-continuation"
                                     ? "held-key async-key queries"

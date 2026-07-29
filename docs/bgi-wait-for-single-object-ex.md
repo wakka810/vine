@@ -166,6 +166,26 @@ policy remains a dependency policy rather than a second state authority. Its
 180-second repeated-session observation passed all versioned thresholds in a
 valid performance environment; exact current metrics remain manifest-owned.
 
+## Post-critical-section recurrence
+
+The `kernel32-wait-for-single-object-ex-post-critical-section` profile resumes
+after the post-clock balanced critical-section roundtrip and consumes the
+already-armed manual-reset timer wait through the next owned endpoint. It uses
+the existing finite alertable `WaitForSingleObjectEx` transaction: Rust
+revalidates the handle, timer, object, arm, registration, logical clock,
+waiting thread, and scheduler lane before atomically expiring the timer,
+signaling the object, retiring the registration, and returning
+`WAIT_OBJECT_0` without a guest write.
+
+Node and Chrome agree on the completion snapshot, ordered semantic digest,
+terminal memory, and next `EnterCriticalSection` call. The Worker contributes
+one browser pacing acknowledgement and finishes with no pending or stale
+resource; it does not own the Windows timer, wait registration, result, or
+thread selection. This is reachability evidence for the existing transaction,
+not a new timeout, APC, cross-thread waiter, or browser-clock semantic claim.
+Exact report identities and the follow-on checkpoint remain authoritative only
+in [current-checkpoint.json](current-checkpoint.json).
+
 ## Non-claims
 
 - Alertable mode is accepted, but APC delivery and `WAIT_IO_COMPLETION` are not

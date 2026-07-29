@@ -1003,6 +1003,14 @@ scheduler handoffとcall provenanceを混同しない。既存`RuntimeSynchroniz
 とし、最初の異種owned endpointである`WaitForSingleObjectEx(handle,10,TRUE)`直前で停止する。
 Cross-thread blockingやAPC一般化はclaimせず、変動するexact値は`current-checkpoint.json`を正とする。
 
+Post-critical-section `WaitForSingleObjectEx` recurrenceは、既存のfinite alertable
+waitable-timer transactionをそのまま再利用し、handle／timer／object／arm／registration／logical
+clock／waiting thread／scheduler laneの再検証後にだけexpiration、signal、registration retirement、
+`WAIT_OBJECT_0`をcommitする。Node／Chromeはtimer snapshot、zero guest write、LastError、ordered
+semantic digest、terminal memory、次の`EnterCriticalSection` endpointを一致させる。Worker pacingは
+一件のacknowledgementを追加してpending／stale resourceを残さず、Windows timer、wait result、thread
+selectionのauthorityにならない。APC delivery、general timeout、cross-thread waiterはclaimしない。
+
 Reached `GetVersionExA`の代表contractはdynamic in/out pointerのminimum 4-byte
 preflight、accepted 148／156-byte full-span read、policy-field merge、single atomic write、
 BOOLとhandler-owned LastErrorを固定する。Dispatcher fixtureはbase／extended layout、native-unwritten

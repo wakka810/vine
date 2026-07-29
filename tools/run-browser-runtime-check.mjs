@@ -97,8 +97,12 @@ const postHeapTimeGetTimeProfile =
   bgiProfile === "winmm-time-get-time-post-heap-reuse";
 const postClockCriticalSectionProfile =
   bgiProfile === "kernel32-enter-critical-section-post-clock";
+const postCriticalSectionWaitProfile =
+  bgiProfile === "kernel32-wait-for-single-object-ex-post-critical-section";
 const postHeapTimeGetTimeEvidenceProfile =
-  postHeapTimeGetTimeProfile || postClockCriticalSectionProfile;
+  postHeapTimeGetTimeProfile ||
+  postClockCriticalSectionProfile ||
+  postCriticalSectionWaitProfile;
 const runtimeThreadStackGrowthProfile =
   bgiProfile === "runtime-thread-stack-growth" ||
   runtimeTraplessExecutionBudgetProfile ||
@@ -183,7 +187,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v59";
+const runtimeProtocol = "vine.browser-runtime-worker.v60";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -849,6 +853,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-heap-alloc-24-byte-buffer",
         "winmm-time-get-time-post-heap-reuse",
         "kernel32-enter-critical-section-post-clock",
+        "kernel32-wait-for-single-object-ex-post-critical-section",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -904,6 +909,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-heap-alloc-24-byte-buffer",
         "winmm-time-get-time-post-heap-reuse",
         "kernel32-enter-critical-section-post-clock",
+        "kernel32-wait-for-single-object-ex-post-critical-section",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -959,11 +965,13 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-heap-alloc-24-byte-buffer",
         "winmm-time-get-time-post-heap-reuse",
         "kernel32-enter-critical-section-post-clock",
+        "kernel32-wait-for-single-object-ex-post-critical-section",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
             ? runtimeThreadStackGrowthProfile
-              ? postClockCriticalSectionProfile
+              ? postClockCriticalSectionProfile ||
+                postCriticalSectionWaitProfile
                 ? 2_457
                 : 2_456
               : user32IsIconicProfile
@@ -1025,6 +1033,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         heapAlloc24Profile ||
         postHeapTimeGetTimeProfile ||
         postClockCriticalSectionProfile ||
+        postCriticalSectionWaitProfile ||
         user32AsyncKeyStateInputProfile ||
         user32AsyncKeyStateInitialScanCheckpointProfile ||
         (d3d9EndSceneProfile && !d3d9PostPresentContinuationProfile);
@@ -1071,7 +1080,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         const pacingCount = user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
             ? runtimeThreadStackGrowthProfile
-              ? 11_205
+              ? postCriticalSectionWaitProfile
+                ? 11_206
+                : 11_205
               : user32IsIconicProfile
                 ? 10_571
               : 10_569
@@ -5402,6 +5413,45 @@ function validateBgiEquivalence(browser, oracle) {
           ),
         },
         "Chrome Worker post-clock critical-section roundtrip differs from the Node oracle",
+      );
+    }
+    if (
+      oracleCheckpoint.capability ===
+      "kernel32-wait-for-single-object-ex-post-critical-section"
+    ) {
+      const normalizeWaitCall = (call) => ({
+        ...normalizeSemanticCall(call),
+        implementationId: call.implementationId,
+        waitableTimer: call.waitableTimer,
+      });
+      assert.deepEqual(
+        {
+          firstCompletionSequence: browserCheckpoint.firstCompletionSequence,
+          firstCompletionInstructionCount:
+            browserCheckpoint.firstCompletionInstructionCount,
+          lastCompletionSequence: browserCheckpoint.lastCompletionSequence,
+          lastCompletionInstructionCount:
+            browserCheckpoint.lastCompletionInstructionCount,
+          threadId: browserCheckpoint.threadId,
+          nextArguments: browserCheckpoint.nextArguments,
+          nextReturnAddress: browserCheckpoint.nextReturnAddress,
+          nextStackPointer: browserCheckpoint.nextStackPointer,
+          completions: browserCheckpoint.completions.map(normalizeWaitCall),
+        },
+        {
+          firstCompletionSequence: oracleCheckpoint.firstCompletionSequence,
+          firstCompletionInstructionCount:
+            oracleCheckpoint.firstCompletionInstructionCount,
+          lastCompletionSequence: oracleCheckpoint.lastCompletionSequence,
+          lastCompletionInstructionCount:
+            oracleCheckpoint.lastCompletionInstructionCount,
+          threadId: oracleCheckpoint.threadId,
+          nextArguments: oracleCheckpoint.nextArguments,
+          nextReturnAddress: oracleCheckpoint.nextReturnAddress,
+          nextStackPointer: oracleCheckpoint.nextStackPointer,
+          completions: oracleCheckpoint.completions.map(normalizeWaitCall),
+        },
+        "Chrome Worker post-critical-section wait lifecycle differs from the Node oracle",
       );
     }
     if (oracleCheckpoint.capability === "kernel32-enter-critical-section") {

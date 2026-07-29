@@ -225,6 +225,12 @@ then stops before `WaitForSingleObjectEx(0x57010002, 10, TRUE)`. Exact current
 instructions, endpoint identity, report identities, and the follow-on profile
 are authoritative in [current-checkpoint.json](current-checkpoint.json).
 
+The follow-on post-critical-section wait profile consumes that existing timer
+transaction and reaches the next critical-section acquisition without adding a
+second synchronization or scheduler authority. Its stable wait contract is
+documented in
+[bgi-wait-for-single-object-ex.md](bgi-wait-for-single-object-ex.md).
+
 This evidence does not add cross-thread critical-section blocking, fairness,
 abandonment, timeout, or APC semantics.
 

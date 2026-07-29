@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 59 as const;
+export const protocolVersion = 60 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -51,7 +51,8 @@ export type BgiCapabilityProfile =
   | "kernel32-heap-free-large-buffer"
   | "kernel32-heap-alloc-24-byte-buffer"
   | "winmm-time-get-time-post-heap-reuse"
-  | "kernel32-enter-critical-section-post-clock";
+  | "kernel32-enter-critical-section-post-clock"
+  | "kernel32-wait-for-single-object-ex-post-critical-section";
 
 export type RuntimeKeyboardSourceEventKind =
   "focus-gained" | "focus-lost" | "key-down" | "key-up";
@@ -1668,6 +1669,33 @@ export interface SessionReport {
             | { kind: "ordinal"; ordinal: number };
         };
         nextArguments: [number, number, number];
+        nextReturnAddress: number;
+        nextStackPointer: number;
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "kernel32-wait-for-single-object-ex-post-critical-section";
+        implementationId: "kernel32.wait-for-single-object-ex.waitable-timer.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        completions: [RuntimeSupportedCallSnapshot];
+        threadId: number;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          disposition: "declared-runtime-export";
+          iatAddress: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        nextArguments: [number];
         nextReturnAddress: number;
         nextStackPointer: number;
         memoryContentSha256: string;
