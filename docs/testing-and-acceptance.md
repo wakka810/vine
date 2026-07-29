@@ -1019,6 +1019,14 @@ publication、pair終了時のbalanced state、ordered semantic digest、termina
 completion evidenceだけを保持する。次の`SetWaitableTimer`は6引数frame直前で停止し、このcheckpoint
 内ではtimerを再armしない。Cross-thread contention、fairness、abandonmentは引き続きclaimしない。
 
+Post-critical-section `SetWaitableTimer` recurrenceは、既存のrelative one-shot arm transactionを
+再利用し、timer ID／logical handle／manual-reset mode／typed-object identity／close policy／open-handle
+countを再検証してからtimer payloadと`nonsignaled` wait stateをjoint commitする。Node／Chromeは
+BOOL／LastError、zero guest write、stack cleanup、arm generation、logical deadline、ordered semantic
+digest、terminal memory、直後の`WaitForSingleObjectEx(handle,10,TRUE)` frameを一致させる。このprofileは
+wait dispatch前で停止し、clock advance、expiration、signal、wait result、browser pacing resourceを
+claimしない。既存handlerのreachability checkpointなので、新しいperformance baselineは要求しない。
+
 Reached `GetVersionExA`の代表contractはdynamic in/out pointerのminimum 4-byte
 preflight、accepted 148／156-byte full-span read、policy-field merge、single atomic write、
 BOOLとhandler-owned LastErrorを固定する。Dispatcher fixtureはbase／extended layout、native-unwritten

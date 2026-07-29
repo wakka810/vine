@@ -119,6 +119,27 @@ This semantic leaf does not add a host crossing, browser clock, expiration
 scan, or hot-path work. The unchanged versioned browser performance observation
 is therefore retained instead of creating a new performance baseline.
 
+## Late post-critical-section recurrence
+
+The `kernel32-set-waitable-timer-post-critical-section-batch` profile consumes
+the late arm reached after the post-wait critical-section batch. It reuses the
+same `kernel32.set-waitable-timer.relative-one-shot.v1` transaction and the
+same `RuntimeTimers`／`RuntimeObjectTable` authorities. The reached call
+rearms manual-reset timer ID 2 through logical handle `0x57010002`, advances
+the arm generation, publishes the new logical deadline, and leaves object ID
+24 nonsignaled. BOOL, LastError, zero guest write, stack cleanup, typed-object
+identity, close policy, and open-handle count are checked as one completion.
+
+Node and Chrome agree on the arm and object snapshots, ordered semantic digest,
+terminal memory, and the following
+`WaitForSingleObjectEx(0x57010002, 10, TRUE)` frame. The profile stops before
+that wait is dispatched. The Worker records completion evidence only: it does
+not create a browser timer, advance the logical clock, signal the object, or
+choose a wait result. This is recurrence evidence for the existing semantic
+leaf, so it does not create a new performance baseline. Current counts, report
+identities, and the follow-on checkpoint are authoritative only in
+[current-checkpoint.json](current-checkpoint.json).
+
 ## Non-claims
 
 - Timer expiration, signaling at a logical deadline, periodic rearm, APC

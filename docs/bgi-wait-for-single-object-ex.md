@@ -193,6 +193,13 @@ does not arm the timer in the critical-section checkpoint or create a browser
 timer authority. The balanced batch contract is documented in
 [bgi-critical-section-synchronization.md](bgi-critical-section-synchronization.md).
 
+The late `kernel32-set-waitable-timer-post-critical-section-batch` profile now
+consumes that arm and stops on the next wait frame. It validates the rearmed
+timer/object identity and deadline but does not consume the wait, request a
+browser pacing resource, expire the timer, or signal the object. Those effects
+remain owned by the existing wait transaction and are the next structured
+boundary recorded in the current manifest.
+
 ## Non-claims
 
 - Alertable mode is accepted, but APC delivery and `WAIT_IO_COMPLETION` are not
