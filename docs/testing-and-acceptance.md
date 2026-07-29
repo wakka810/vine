@@ -1042,6 +1042,14 @@ preserve、24-byte locked／unlocked publication、最終balanced state、termin
 Workerはnon-owning evidenceだけを保持する。次のtimer arm dispatch前で停止し、contention／fairness／
 abandonment／APC semanticsや新しいperformance baselineを拡張しない。
 
+Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
+Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
+preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、
+zero guest write、stack cleanup、新しいlogical deadline、ordered semantic digest、terminal memory、直後の
+`WaitForSingleObjectEx(handle,10,TRUE)` frameを一致させる。WorkerはWindows timer stateを所有せず、この
+checkpointではclock advance、expiration、wait result、pacing callbackを発生させない。次のwait recurrence、
+exact値、artifact identityは`current-checkpoint.json`を正本とし、新しいperformance baselineは要求しない。
+
 Reached `GetVersionExA`の代表contractはdynamic in/out pointerのminimum 4-byte
 preflight、accepted 148／156-byte full-span read、policy-field merge、single atomic write、
 BOOLとhandler-owned LastErrorを固定する。Dispatcher fixtureはbase／extended layout、native-unwritten

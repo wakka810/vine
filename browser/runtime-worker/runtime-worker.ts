@@ -467,8 +467,49 @@ function isPostCriticalSectionSetWaitableTimerCheckpoint(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
-    profile === "kernel32-set-waitable-timer-post-critical-section-batch"
+    profile === "kernel32-set-waitable-timer-post-critical-section-batch" ||
+    profile === "kernel32-set-waitable-timer-post-timer-wait-batch"
   );
+}
+
+function postSetWaitableTimerExpectation(
+  profile: SessionConfiguration["capabilityProfile"],
+) {
+  return profile === "kernel32-set-waitable-timer-post-timer-wait-batch"
+    ? ({
+        capability: "kernel32-set-waitable-timer-post-timer-wait-batch",
+        sequence: 158_123,
+        instructionCount: 276_361_338,
+        terminalInstructionCount: 276_361_344,
+        armedAtTime100ns: 56_080_000,
+        deadlineTime100ns: 56_085_000,
+        armGeneration: 11_204,
+        semanticDigest:
+          "b6db19c1beaaedefe177c3f29a619da75bfe9431a440be4c40fc537d99bd3b2e",
+        finalGeneration: 305_877n,
+        writebackBatches: 177_139,
+        writebackPages: 269_377,
+        mappingDeltas: 125_756,
+        mappingDirtyPages: 145_861,
+        waitCompletions: 11_207,
+      } as const)
+    : ({
+        capability: "kernel32-set-waitable-timer-post-critical-section-batch",
+        sequence: 158_115,
+        instructionCount: 276_361_191,
+        terminalInstructionCount: 276_361_197,
+        armedAtTime100ns: 56_075_000,
+        deadlineTime100ns: 56_080_000,
+        armGeneration: 11_203,
+        semanticDigest:
+          "ea918c1143107f0b5ee0c374b1306e9e58c712106637285657ccc7225771d7a0",
+        finalGeneration: 305_863n,
+        writebackBatches: 177_131,
+        writebackPages: 269_366,
+        mappingDeltas: 125_750,
+        mappingDirtyPages: 145_855,
+        waitCompletions: 11_206,
+      } as const);
 }
 
 function isPostCheckpointCriticalSectionRoundtrip(
@@ -4310,6 +4351,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
+            "kernel32-set-waitable-timer-post-timer-wait-batch" ||
+          checkpoint.capability ===
             "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
           checkpoint.capability ===
             "kernel32-wait-for-single-object-ex-post-critical-section"
@@ -4378,6 +4421,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
+        "kernel32-set-waitable-timer-post-timer-wait-batch" ||
+      checkpoint.capability ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
       checkpoint.capability ===
         "kernel32-wait-for-single-object-ex-post-critical-section"
@@ -4417,7 +4462,9 @@ class BrowserRuntimeSession {
                   "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
                 ? [this.#requireEngine().readGuestU32(stackPointer + 4)]
               : checkpoint.capability ===
-                  "kernel32-set-waitable-timer-post-critical-section-batch"
+                    "kernel32-set-waitable-timer-post-critical-section-batch" ||
+                  checkpoint.capability ===
+                    "kernel32-set-waitable-timer-post-timer-wait-batch"
                 ? [
                     this.#requireEngine().readGuestU32(stackPointer + 4),
                     this.#requireEngine().readGuestU32(stackPointer + 8),
@@ -4438,6 +4485,8 @@ class BrowserRuntimeSession {
         "kernel32-enter-critical-section-post-timer-wait-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
+      checkpoint.capability ===
+        "kernel32-set-waitable-timer-post-timer-wait-batch" ||
       checkpoint.capability ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
       checkpoint.capability ===
@@ -4465,6 +4514,9 @@ class BrowserRuntimeSession {
                 : checkpoint.capability ===
                     "kernel32-enter-critical-section-post-timer-wait-batch"
                   ? "Post-timer-wait critical-section batch checkpoint completed"
+                : checkpoint.capability ===
+                    "kernel32-set-waitable-timer-post-timer-wait-batch"
+                  ? "Post-timer-wait waitable-timer arm checkpoint completed"
                 : checkpoint.capability ===
                     "kernel32-set-waitable-timer-post-critical-section-batch"
                   ? "Post-critical-section waitable-timer arm checkpoint completed"
@@ -5562,10 +5614,16 @@ class BrowserRuntimeSession {
       isPostCriticalSectionSetWaitableTimerCheckpoint(
         this.#configuration.capabilityProfile,
       ) &&
-      sequence === 158_115 &&
+      sequence ===
+        postSetWaitableTimerExpectation(
+          this.#configuration.capabilityProfile,
+        ).sequence &&
       completion.implementationId ===
         "kernel32.set-waitable-timer.relative-one-shot.v1"
     ) {
+      const expected = postSetWaitableTimerExpectation(
+        this.#configuration.capabilityProfile,
+      );
       const timer = call.waitableTimer;
       const arm = timer?.timer.arm;
       invariant(
@@ -5587,17 +5645,16 @@ class BrowserRuntimeSession {
           timer.timer.id === 2 &&
           timer.timer.manualReset === true &&
           arm?.relativeDueTime100ns === 5_000 &&
-          arm.armedAtTime100ns === 56_075_000 &&
-          arm.deadlineTime100ns === 56_080_000 &&
+          arm.armedAtTime100ns === expected.armedAtTime100ns &&
+          arm.deadlineTime100ns === expected.deadlineTime100ns &&
           arm.periodMilliseconds === 0 &&
-          arm.generation === 11_203 &&
+          arm.generation === expected.armGeneration &&
           timer.objectRecord.id === 24 &&
           timer.objectRecord.waitState?.state === "nonsignaled",
-        "post-critical-section SetWaitableTimer recurrence changed its Rust-owned arm contract",
+        "SetWaitableTimer recurrence changed its Rust-owned arm contract",
       );
       this.#report.checkpointCompletion = {
-        capability:
-          "kernel32-set-waitable-timer-post-critical-section-batch",
+        capability: expected.capability,
         implementationId:
           "kernel32.set-waitable-timer.relative-one-shot.v1",
         requiredCompletions: 1,
@@ -11595,10 +11652,15 @@ class BrowserRuntimeSession {
         ) &&
         terminal.outcome === "checkpoint-complete"
       ) {
+        const expected = postSetWaitableTimerExpectation(
+          this.#configuration.capabilityProfile,
+        );
         const checkpoint = this.#report.checkpointCompletion;
         const completions =
           checkpoint?.capability ===
-          "kernel32-set-waitable-timer-post-critical-section-batch"
+            "kernel32-set-waitable-timer-post-critical-section-batch" ||
+          checkpoint?.capability ===
+            "kernel32-set-waitable-timer-post-timer-wait-batch"
             ? checkpoint.completions
             : [];
         const [completion] = completions;
@@ -11606,23 +11668,24 @@ class BrowserRuntimeSession {
         const arm = timer?.timer.arm;
         const pacing = this.#timerPacing.metrics();
         invariant(
-          this.#report.supportedCallCount === 158_115 &&
+          this.#report.supportedCallCount === expected.sequence &&
             this.#report.supportedCallSemanticsSha256 ===
-              "ea918c1143107f0b5ee0c374b1306e9e58c712106637285657ccc7225771d7a0" &&
+              expected.semanticDigest &&
             this.#report.firstUnsupported === null &&
-            checkpoint?.capability ===
-              "kernel32-set-waitable-timer-post-critical-section-batch" &&
+            checkpoint?.capability === expected.capability &&
             checkpoint.implementationId ===
               "kernel32.set-waitable-timer.relative-one-shot.v1" &&
             checkpoint.requiredCompletions === 1 &&
             checkpoint.completionCount === 1 &&
-            checkpoint.firstCompletionSequence === 158_115 &&
-            checkpoint.firstCompletionInstructionCount === 276_361_191 &&
-            checkpoint.lastCompletionSequence === 158_115 &&
-            checkpoint.lastCompletionInstructionCount === 276_361_191 &&
+            checkpoint.firstCompletionSequence === expected.sequence &&
+            checkpoint.firstCompletionInstructionCount ===
+              expected.instructionCount &&
+            checkpoint.lastCompletionSequence === expected.sequence &&
+            checkpoint.lastCompletionInstructionCount ===
+              expected.instructionCount &&
             checkpoint.threadId === 8_193 &&
             completions.length === 1 &&
-            completion?.sequence === 158_115 &&
+            completion?.sequence === expected.sequence &&
             completion.module.toLowerCase() === "kernel32.dll" &&
             completion.symbol === "SetWaitableTimer" &&
             completion.arguments.join(",") ===
@@ -11641,13 +11704,14 @@ class BrowserRuntimeSession {
             timer.timer.id === 2 &&
             timer.timer.manualReset === true &&
             arm?.relativeDueTime100ns === 5_000 &&
-            arm.armedAtTime100ns === 56_075_000 &&
-            arm.deadlineTime100ns === 56_080_000 &&
+            arm.armedAtTime100ns === expected.armedAtTime100ns &&
+            arm.deadlineTime100ns === expected.deadlineTime100ns &&
             arm.periodMilliseconds === 0 &&
-            arm.generation === 11_203 &&
+            arm.generation === expected.armGeneration &&
             timer.objectRecord.id === 24 &&
             timer.objectRecord.waitState?.state === "nonsignaled" &&
-            checkpoint.instructionCount === 276_361_197 &&
+            checkpoint.instructionCount ===
+              expected.terminalInstructionCount &&
             checkpoint.nextEndpoint.id === 122 &&
             checkpoint.nextEndpoint.address === 0x7f00_0790 &&
             checkpoint.nextEndpoint.disposition ===
@@ -11661,12 +11725,12 @@ class BrowserRuntimeSession {
             checkpoint.nextStackPointer === 0x500f_ff88 &&
             checkpoint.memoryContentSha256 ===
               "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf" &&
-            this.#report.instructions === 276_361_197 &&
-            this.#generation === 305_863n &&
-            this.#report.writebackBatches === 177_131 &&
-            this.#report.writebackPages === 269_366 &&
-            this.#report.mappingDeltas === 125_750 &&
-            this.#report.mappingDirtyPages === 145_855 &&
+            this.#report.instructions === expected.terminalInstructionCount &&
+            this.#generation === expected.finalGeneration &&
+            this.#report.writebackBatches === expected.writebackBatches &&
+            this.#report.writebackPages === expected.writebackPages &&
+            this.#report.mappingDeltas === expected.mappingDeltas &&
+            this.#report.mappingDirtyPages === expected.mappingDirtyPages &&
             this.#report.contextSwitches === 2_457 &&
             this.#report.stackGrowths.length === 11 &&
             this.#report.heapPageMaterializations?.length === 2_918 &&
@@ -11674,11 +11738,12 @@ class BrowserRuntimeSession {
             this.#report.sourceReads.filter(
               (read) => read.request.sourceId === 1,
             ).length === 82 &&
-            this.#waitForSingleObjectExCompletions === 11_206 &&
+            this.#waitForSingleObjectExCompletions ===
+              expected.waitCompletions &&
             pacing.requests === this.#waitForSingleObjectExCompletions &&
             pacing.completions === this.#waitForSingleObjectExCompletions &&
             pacing.pending === 0,
-          `post-critical-section waitable-timer arm checkpoint changed: ${JSON.stringify({
+          `waitable-timer arm checkpoint changed: ${JSON.stringify({
             supportedCallCount: this.#report.supportedCallCount,
             supportedCallSemanticsSha256:
               this.#report.supportedCallSemanticsSha256,

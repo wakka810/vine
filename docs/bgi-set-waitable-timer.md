@@ -146,9 +146,21 @@ authoritative only in [current-checkpoint.json](current-checkpoint.json).
 After that wait completes, the reached balanced critical-section recurrence
 now arrives at another `SetWaitableTimer` frame. The critical-section
 checkpoint stops before dispatching this call, so it records no additional arm
-generation or timer mutation. The next structured stop in the manifest owns
-the exact follow-on profile and frame identity; this document continues to
-define the timer-arm transaction that profile must reuse.
+generation or timer mutation. The
+`kernel32-set-waitable-timer-post-timer-wait-batch` profile now consumes that
+frame through the same relative one-shot transaction. Rust revalidates timer
+ID 2, logical handle `0x57010002`, object ID 24, manual-reset mode, object
+lifetime, and the current arm generation before jointly publishing the new
+timer payload and `nonsignaled` object state. Node and Chrome agree on BOOL,
+LastError, zero guest write, stack cleanup, the new logical deadline, terminal
+memory, and the following alertable wait frame.
+
+The Worker records only non-owning completion evidence: it does not create a
+browser timer or choose a wait result. The follow-on
+`kernel32-wait-for-single-object-ex-post-timer-rearm-batch` profile owns the
+next dispatch boundary. Exact occurrence counts, generations, deadlines,
+report identities, and frame position remain authoritative only in
+[current-checkpoint.json](current-checkpoint.json).
 
 ## Non-claims
 
@@ -165,7 +177,7 @@ define the timer-arm transaction that profile must reuse.
 - Logical timer handles are Vine ABI identities, not native handles or browser
   timer IDs.
 
-## Next structured stop
+## Historical first next structured stop
 
 ```text
 KERNEL32.dll!WaitForSingleObjectEx(0x57010002, 10, TRUE)
@@ -176,3 +188,6 @@ return address:    0x10050615
 instruction count: 11,973,559
 fault:             endpoint-contract-missing
 ```
+
+That first wait stop has been consumed. The active recurrence and its exact
+next endpoint are recorded only in the current checkpoint manifest.

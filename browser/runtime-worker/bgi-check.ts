@@ -61,6 +61,8 @@ const d3d9Canvas =
   capabilityProfile ===
     "kernel32-set-waitable-timer-post-critical-section-batch" ||
   capabilityProfile ===
+    "kernel32-set-waitable-timer-post-timer-wait-batch" ||
+  capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
   capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-critical-section"
@@ -168,6 +170,8 @@ const startMessage = {
             capabilityProfile ===
               "kernel32-set-waitable-timer-post-critical-section-batch" ||
             capabilityProfile ===
+              "kernel32-set-waitable-timer-post-timer-wait-batch" ||
+            capabilityProfile ===
               "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
             capabilityProfile ===
               "kernel32-wait-for-single-object-ex-post-critical-section"
@@ -224,6 +228,8 @@ const startMessage = {
         "kernel32-enter-critical-section-post-timer-wait-batch" ||
       capabilityProfile ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
+      capabilityProfile ===
+        "kernel32-set-waitable-timer-post-timer-wait-batch" ||
       capabilityProfile ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
       capabilityProfile ===
@@ -381,6 +387,7 @@ function parseCapabilityProfile(
     value === "kernel32-enter-critical-section-post-wait" ||
     value === "kernel32-enter-critical-section-post-timer-wait-batch" ||
     value === "kernel32-set-waitable-timer-post-critical-section-batch" ||
+    value === "kernel32-set-waitable-timer-post-timer-wait-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-critical-section"
     ? value

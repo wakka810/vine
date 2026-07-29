@@ -217,6 +217,17 @@ does not alter the wait result or create another timer, wait, scheduler, or
 browser authority; its stable synchronization contract is documented in
 [bgi-critical-section-synchronization.md](bgi-critical-section-synchronization.md).
 
+The `kernel32-set-waitable-timer-post-timer-wait-batch` profile now consumes
+that reached arm through the existing Rust timer transaction and stops before
+the next `WaitForSingleObjectEx(0x57010002, 10, TRUE)` dispatch. Its completion
+leaves the manual-reset object nonsignaled with a new live arm; it does not
+advance the clock, expire the timer, choose a wait result, or create a browser
+pacing resource. The active
+`kernel32-wait-for-single-object-ex-post-timer-rearm-batch` continuation must
+consume that arm through the same finite alertable wait transaction described
+above. Exact arm identity, deadline, occurrence, and terminal report remain
+manifest-owned.
+
 ## Non-claims
 
 - Alertable mode is accepted, but APC delivery and `WAIT_IO_COMPLETION` are not

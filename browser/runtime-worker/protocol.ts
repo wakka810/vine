@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 64 as const;
+export const protocolVersion = 65 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -54,6 +54,7 @@ export type BgiCapabilityProfile =
   | "kernel32-enter-critical-section-post-clock"
   | "kernel32-enter-critical-section-post-wait"
   | "kernel32-set-waitable-timer-post-critical-section-batch"
+  | "kernel32-set-waitable-timer-post-timer-wait-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
   | "kernel32-wait-for-single-object-ex-post-critical-section";
@@ -1752,7 +1753,9 @@ export interface SessionReport {
         memoryContentSha256: string;
       }
     | {
-        capability: "kernel32-set-waitable-timer-post-critical-section-batch";
+        capability:
+          | "kernel32-set-waitable-timer-post-critical-section-batch"
+          | "kernel32-set-waitable-timer-post-timer-wait-batch";
         implementationId: "kernel32.set-waitable-timer.relative-one-shot.v1";
         requiredCompletions: 1;
         completionCount: 1;

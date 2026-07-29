@@ -264,6 +264,14 @@ Worker retains non-owning evidence only. The profile stops before dispatching
 the following timer arm. Exact positions, aggregate counts, report identities,
 and the next profile remain manifest-owned.
 
+The follow-on `kernel32-set-waitable-timer-post-timer-wait-batch` profile has
+now consumed that arm and reached the next alertable wait frame. It does not
+change either critical-section identity or add a synchronization mutation;
+the balanced state published by this checkpoint remains authoritative while
+the existing Rust timer owner performs the separate rearm transaction. The
+active wait continuation and exact stop identity remain in
+[current-checkpoint.json](current-checkpoint.json).
+
 ## Historical next structured stop
 
 After the fourteenth initialization returns, BGI reaches instruction 575 at:
