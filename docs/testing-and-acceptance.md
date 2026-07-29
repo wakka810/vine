@@ -1049,6 +1049,16 @@ Post-timer-rearm wait直後のcritical-section recurrenceも、同じ6 call／3 
 stateを所有し、Workerはnon-owning evidenceだけを保持する。timer arm dispatch前で停止し、contention、
 fairness、abandonment、APC semanticsや新しいperformance baselineを拡張しない。
 
+その後の`SetWaitableTimer` recurrenceは既存relative one-shot transactionでframeを消費し、timer／typed
+object／live generation／lifetimeのpreflight後にlogical deadlineと`nonsignaled` stateをjoint commitする。
+Node／ChromeはBOOL／LastError、zero guest write、stack cleanup、ordered semantic digest、terminal memory、
+次のalertable wait frameを一致させる。以後はsingle-call checkpointを繰り返さず、次のwait completion、
+6 call／3 roundtripのbalanced critical-section block、次のrearmを
+`primary-main-loop-recurring-timer-cycle-batch`として一括検査する。各ownerのvalidation／failure atomicity、
+一件のversioned pacing acknowledgement、最終balanced state、次wait直前の停止を維持し、unbounded loop、
+APC、general timeout、cross-thread contention、long-run安定性はclaimしない。Exact値とartifact identityは
+`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

@@ -167,11 +167,24 @@ checkpoint remain authoritative only in
 [current-checkpoint.json](current-checkpoint.json).
 
 The post-rearm-wait critical-section recurrence has now consumed its balanced
-six-call block and reached another `SetWaitableTimer` frame. It stops before
-dispatching the arm, so it does not advance the timer generation, change the
-object wait state, or create a browser timer. The next structured stop in the
-manifest identifies the exact frame that must reuse this same relative
-one-shot preflight and targeted-commit transaction.
+six-call block and reached another `SetWaitableTimer` frame. The
+`kernel32-set-waitable-timer-post-timer-rearm-wait-batch` profile consumes that
+frame through the same relative one-shot preflight and targeted-commit
+transaction. Rust revalidates timer ID 2, logical handle `0x57010002`, object
+ID 24, manual-reset mode, lifetime, and the live generation before jointly
+publishing the next logical deadline and `nonsignaled` object state. Node and
+Chrome agree on BOOL, LastError, zero guest write, stack cleanup, timer/object
+identity, ordered semantics, terminal memory, and the following alertable wait
+frame. The Worker records non-owning evidence and creates no browser timer.
+
+Further recurrence is grouped as
+`primary-main-loop-recurring-timer-cycle-batch`: one complete alertable wait,
+the contiguous three balanced critical-section roundtrips, and the following
+rearm are verified as one scenario unit before stopping at the next wait. This
+batching changes neither semantic handler nor authority; it prevents repeated
+single-call checkpoints from becoming the unit of progress. Exact positions,
+generations, deadlines, report identities, and the active stop remain
+manifest-owned.
 
 ## Non-claims
 

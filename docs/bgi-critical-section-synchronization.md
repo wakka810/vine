@@ -294,6 +294,17 @@ and the Worker retains only non-owning evidence. The profile stops before the
 next timer arm transaction. Exact positions, aggregate counts, artifact
 identities, and the next profile remain manifest-owned.
 
+The follow-on
+`kernel32-set-waitable-timer-post-timer-rearm-wait-batch` profile has now
+consumed that arm and reached the next alertable wait without mutating either
+critical-section identity or introducing a second synchronization owner. The
+next `primary-main-loop-recurring-timer-cycle-batch` checkpoint treats the
+wait, all three balanced acquire/release roundtrips, and the following rearm as
+one recurring main-loop scenario unit. Each synchronization call must still
+publish exactly one failure-atomic 24-byte update and leave both identities
+balanced before the rearm; batching does not weaken the per-call owner or
+failure-ordering contract.
+
 ## Historical next structured stop
 
 After the fourteenth initialization returns, BGI reaches instruction 575 at:

@@ -543,14 +543,36 @@ function isPostCriticalSectionSetWaitableTimerCheckpoint(
 ): boolean {
   return (
     profile === "kernel32-set-waitable-timer-post-critical-section-batch" ||
-    profile === "kernel32-set-waitable-timer-post-timer-wait-batch"
+    profile === "kernel32-set-waitable-timer-post-timer-wait-batch" ||
+    profile ===
+      "kernel32-set-waitable-timer-post-timer-rearm-wait-batch"
   );
 }
 
 function postSetWaitableTimerExpectation(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  return profile === "kernel32-set-waitable-timer-post-timer-wait-batch"
+  return profile ===
+    "kernel32-set-waitable-timer-post-timer-rearm-wait-batch"
+    ? ({
+        capability:
+          "kernel32-set-waitable-timer-post-timer-rearm-wait-batch",
+        sequence: 158_131,
+        instructionCount: 276_361_485,
+        terminalInstructionCount: 276_361_491,
+        armedAtTime100ns: 56_085_000,
+        deadlineTime100ns: 56_090_000,
+        armGeneration: 11_205,
+        semanticDigest:
+          "6a5dc16de09e556f83e9b2541439f8b804870ad9b7e8f253d5c383a0344b5aba",
+        finalGeneration: 305_891n,
+        writebackBatches: 177_147,
+        writebackPages: 269_388,
+        mappingDeltas: 125_762,
+        mappingDirtyPages: 145_867,
+        waitCompletions: 11_208,
+      } as const)
+    : profile === "kernel32-set-waitable-timer-post-timer-wait-batch"
     ? ({
         capability: "kernel32-set-waitable-timer-post-timer-wait-batch",
         sequence: 158_123,
@@ -4478,6 +4500,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-timer-wait-batch" ||
           checkpoint.capability ===
+            "kernel32-set-waitable-timer-post-timer-rearm-wait-batch" ||
+          checkpoint.capability ===
             "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
           checkpoint.capability ===
             "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
@@ -4552,6 +4576,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
       checkpoint.capability ===
+        "kernel32-set-waitable-timer-post-timer-rearm-wait-batch" ||
+      checkpoint.capability ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
       checkpoint.capability ===
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
@@ -4599,7 +4625,9 @@ class BrowserRuntimeSession {
               : checkpoint.capability ===
                     "kernel32-set-waitable-timer-post-critical-section-batch" ||
                   checkpoint.capability ===
-                    "kernel32-set-waitable-timer-post-timer-wait-batch"
+                    "kernel32-set-waitable-timer-post-timer-wait-batch" ||
+                  checkpoint.capability ===
+                    "kernel32-set-waitable-timer-post-timer-rearm-wait-batch"
                 ? [
                     this.#requireEngine().readGuestU32(stackPointer + 4),
                     this.#requireEngine().readGuestU32(stackPointer + 8),
@@ -4624,6 +4652,8 @@ class BrowserRuntimeSession {
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
+      checkpoint.capability ===
+        "kernel32-set-waitable-timer-post-timer-rearm-wait-batch" ||
       checkpoint.capability ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
       checkpoint.capability ===
@@ -4659,6 +4689,9 @@ class BrowserRuntimeSession {
                 : checkpoint.capability ===
                     "kernel32-set-waitable-timer-post-timer-wait-batch"
                   ? "Post-timer-wait waitable-timer arm checkpoint completed"
+                : checkpoint.capability ===
+                    "kernel32-set-waitable-timer-post-timer-rearm-wait-batch"
+                  ? "Post-timer-rearm-wait waitable-timer arm checkpoint completed"
                 : checkpoint.capability ===
                     "kernel32-set-waitable-timer-post-critical-section-batch"
                   ? "Post-critical-section waitable-timer arm checkpoint completed"
@@ -11811,7 +11844,9 @@ class BrowserRuntimeSession {
           checkpoint?.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint?.capability ===
-            "kernel32-set-waitable-timer-post-timer-wait-batch"
+            "kernel32-set-waitable-timer-post-timer-wait-batch" ||
+          checkpoint?.capability ===
+            "kernel32-set-waitable-timer-post-timer-rearm-wait-batch"
             ? checkpoint.completions
             : [];
         const [completion] = completions;
