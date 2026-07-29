@@ -1608,7 +1608,7 @@ W3 representative browser contractは、このW2 harnessが成功後にemitす�
 deferred host completion、nested callback、automatic writeback、Canvas／Web Audio／IndexedDB、immutable source range read、
 writable profile read／commit transport、pending cancel、watchdog、thread／process return sentinelを通す。Source fixtureは
 Rust-owned manifest／handle／cursorとsame-origin title／snapshot／object adapterを通り、二つのrange payloadとexit codeを
-guest自身とrunnerの両方で検証する。Current protocol version 25は`thread-switch`／`thread-exit`を含むclosed
+guest自身とrunnerの両方で検証する。Versioned protocolは`thread-switch`／`thread-exit`を含むclosed
 execution-state graphとper-thread opaque CPU context、callback completionから同depthのreplacement callbackへのtransition、
 Rust-owned logical windowとGDI+ session completion metadata、versioned writable commit completion、normal capability completion、
 versioned waitable-timer pacing／page lifecycle、read-only `DragAcceptFiles` window snapshot、Rust-selected immediate API
@@ -1649,6 +1649,13 @@ exact failure、artifact、試した切り分け、
 optimizationへ進む。Methodologyとnon-claimsは[bgi-browser-worker.md](bgi-browser-worker.md)および
 [bgi-browser-benchmark.md](bgi-browser-benchmark.md)を正とする。
 
+Trapless continuation profileはprofile全体のinstruction／wall-clock上限を持ち、Rustがservice可能なpage faultを
+同じwindow内で処理して次のruntime-owned endpointまで再開する。Node／Chromeのslice sizeとreconciliation
+generationは同一でなくてよいが、旧bounded stopを越えたこと、terminal instruction、next endpoint、ordered call
+digest、final memory digestはexactに一致しなければならない。Chromeのprogress statusは全observed countを残しつつ
+先頭と最新を含む最大4,096件へbounded化し、summary reportの4 MiB上限を緩めない。Window exhaustion、
+unserviceable fault、cancel、watchdogはterminal stateとpending work zeroを検証する。
+
 Timer-heavy profileのbrowser scheduling remediationは、guest-visible logical deadline／timer／thread authorityを
 変えない場合だけ認める。Task driver、yield coalescing、Wasm dispatch fast pathを変更した時はNode／Chromeの
 ordered semantic digestとfinal memory digestをexactに再確認し、cancel／watchdog／pending host waitの即時境界を
@@ -1666,14 +1673,11 @@ SHA-256も固定し、aggregate external CPUだけを残す再現不能な診断
 監視欠測、Updater、versionedな持続CPU／disk excursion、同一processのQoS変化はworkload threshold failureと
 混ぜず`invalid-environment`として破棄する。Heartbeat P99 25 msを含む17 thresholdは不変である。
 先行するwaitable-timer pacing profileは同一fixture／thresholdでworkloadとenvironment qualificationを
-通過し、main-thread releaseまでのsemantic checkpointを閉じた。Active continuation profileはRust
-schedulerの`8192 -> 8193 -> 8192`選択後、同じcritical-sectionをmain threadがreleaseして直後に
-reacquireすることをNode／Chromeで一致させ、次の`LeaveCriticalSection` endpointで停止する。
-同profileの180秒gateは99 sessions、semantic failure 0、17／17 workload threshold、
-environment qualification `valid`を得た。先行する`sustained-external-cpu` invalid runは履歴diagnostic
-として保持し、thresholdやauthorityを変更していない。これによりperformance-environment blockerを
-解除し、次の`LeaveCriticalSection` endpointからprimary executionを継続できる。Exact current値、
-report identity、attempted optionsはmanifestだけを正本とする。
+通過し、main-thread releaseまでのsemantic checkpointを閉じた。後続continuationはRust schedulerの
+logical thread selection、critical-section lifecycle、per-thread stack growthを保持したままbounded guest
+executionを次のowned endpointまで進める。旧instruction-budget stopを越えるprofileでもbudget自体を
+無制限化せず、page-fault serviceとterminal endpointのorderingをNode／Chromeで一致させる。
+Exact current値、report identity、attempted options、次endpointはmanifestだけを正本とする。
 
 - create／show／resize／destroy と message order
 - PeekMessage／GetMessage、SendMessage／PostMessage、nested dispatch

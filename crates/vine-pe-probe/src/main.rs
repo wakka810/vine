@@ -14296,7 +14296,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "user32-async-key-state-initial-scan-continuation"
                 | "user32-peek-message-a"
                 | "user32-is-iconic"
-                | "runtime-thread-stack-growth" => {
+                | "runtime-thread-stack-growth"
+                | "runtime-trapless-execution-budget" => {
                     GenericRuntimeCapability::User32AsyncKeyStateInitialScan
                 }
                 "kernel32-leave-critical-section" => {

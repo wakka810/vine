@@ -180,8 +180,14 @@ export function validateCurrentCheckpoint(manifest) {
     user32AsyncKeyStateInputContinuationActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-async-key-state-input";
-  const runtimeThreadStackGrowthActive =
+  const runtimeTraplessExecutionBudgetActive =
+    root.activeRuntimeCheckpoint?.profile ===
+      "runtime-trapless-execution-budget";
+  const runtimeThreadStackGrowthCheckpointActive =
     root.activeRuntimeCheckpoint?.profile === "runtime-thread-stack-growth";
+  const runtimeThreadStackGrowthActive =
+    runtimeThreadStackGrowthCheckpointActive ||
+    runtimeTraplessExecutionBudgetActive;
   const user32IsIconicCheckpointActive =
     root.activeRuntimeCheckpoint?.profile === "user32-is-iconic";
   const user32IsIconicActive =
@@ -662,8 +668,25 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "2,3,4,5,6,7,8"
                   : "2,3,4";
-  const profileExpectations = runtimeThreadStackGrowthActive
+  const profileExpectations = runtimeTraplessExecutionBudgetActive
     ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 125_736,
+        browserMappingDirtyPages: 144_396,
+        browserSuccessExecutionTransitions: 567_607,
+        latestSchema: "vine.v86-bgi-runtime-trapless-execution-budget",
+        latestWritebackBatches: 161_058,
+        latestWritebackDirtyPages: 236_007,
+        latestWritebackChangedBytes: 33_492_982,
+        latestHostDeltaBatches: 125_736,
+        latestFinalMemoryGeneration: 289_882,
+        semanticCallDigestSha256:
+          "c795f34a0a893523c0e92382635fd51c5a386ff51ff9f614d90b642581559fce",
+        memoryContentSha256:
+          "f9cbbcc490533a966eb846aa3cb385f4b976b4330b6d8c4a8152ff745b826fbf",
+      }
+    : runtimeThreadStackGrowthActive
+      ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 125_061,
         browserMappingDirtyPages: 143_721,
@@ -1742,9 +1765,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v54") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v55") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v54",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v55",
     );
   }
   if (
@@ -2528,8 +2551,10 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (runtimeThreadStackGrowthActive
-        ? 22
+      (runtimeTraplessExecutionBudgetActive
+        ? 23
+        : runtimeThreadStackGrowthActive
+          ? 22
         : user32IsIconicActive
         ? 21
         : user32PeekMessageAActive
@@ -19399,8 +19424,10 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (runtimeThreadStackGrowthActive
-        ? "Rust-owned current-selected-thread stack guard growth with per-thread identity validation and failure-atomic guest-memory commit"
+      (runtimeTraplessExecutionBudgetActive
+        ? "Bounded Rust/Wasm guest execution across serviceable page faults to the next runtime-owned endpoint without adding guest-visible semantics"
+        : runtimeThreadStackGrowthActive
+          ? "Rust-owned current-selected-thread stack guard growth with per-thread identity validation and failure-atomic guest-memory commit"
         : user32IsIconicActive
         ? "Rust-owned IsIconic query derived from the logical window effective style without duplicating minimized-state authority"
         : user32PeekMessageAActive
@@ -21694,6 +21721,70 @@ export function validateCurrentCheckpoint(manifest) {
       }
     }
   }
+  if (runtimeTraplessExecutionBudgetActive) {
+    const expectedCompletion = currentStop.completion ?? {};
+    const expectedEndpoint = currentStop.nextEndpoint ?? {};
+    if (
+      currentStop.kind !== "capability-checkpoint" ||
+      currentStop.nextCheckpoint !== "kernel32-heap-free-large-buffer" ||
+      currentStop.pausedHistoricalCheckpoint !==
+        "runtime-trapless-execution-budget" ||
+      currentStop.instructionCount !== 276_358_836 ||
+      currentStop.capabilityCluster !== "kernel32-heap-lifecycle" ||
+      currentStop.reason !==
+        "runtime-trapless-execution-budget-checkpoint-complete" ||
+      expectedCompletion.previousBudgetStopInstructionCount !==
+        266_703_249 ||
+      expectedCompletion.maximumAdditionalInstructions !== 64_000_000 ||
+      expectedCompletion.additionalInstructionCount !== 49_655_587 ||
+      expectedEndpoint.endpointKind !== "runtime-system-export" ||
+      expectedEndpoint.endpointId !== 76 ||
+      expectedEndpoint.api?.toLowerCase() !== "kernel32.dll!heapfree" ||
+      expectedEndpoint.endpointAddress !== "0x7f0004b0" ||
+      expectedEndpoint.iatAddress !== "0x100d11d8" ||
+      expectedEndpoint.observedModule?.toLowerCase() !== "kernel32.dll" ||
+      expectedEndpoint.observedSymbol !== "HeapFree" ||
+      expectedEndpoint.disposition !== "declared-runtime-export" ||
+      active.runtimeExecutionBudgetScope !==
+        "profile-scoped-bounded-slices-across-serviceable-page-faults-to-next-runtime-owned-endpoint" ||
+      !Number.isSafeInteger(bgiBrowserEvidence.statusMessagesObserved) ||
+      bgiBrowserEvidence.statusMessagesObserved <
+        bgiBrowserEvidence.statusMessagesRetained ||
+      bgiBrowserEvidence.statusMessagesRetained !== 4_096
+    ) {
+      errors.push("trapless execution budget continuation stop is invalid");
+    }
+    for (const [label, completion] of [
+      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+    ]) {
+      if (
+        completion.capability !== "runtime-trapless-execution-budget" ||
+        completion.implementationId !==
+          "runtime.execute-to-owned-boundary.v1" ||
+        completion.requiredCompletions !== 1 ||
+        completion.completionCount !== 1 ||
+        completion.lastCompletionSequence !== 158_098 ||
+        completion.lastCompletionInstructionCount !== 226_703_249 ||
+        completion.previousBudgetStopInstructionCount !== 266_703_249 ||
+        completion.maximumAdditionalInstructions !== 64_000_000 ||
+        completion.additionalInstructionCount !== 49_655_587 ||
+        completion.instructionCount !== 276_358_836 ||
+        completion.nextEndpoint?.endpointId !== 76 ||
+        completion.nextEndpoint?.endpointAddress !== "0x7f0004b0" ||
+        completion.nextEndpoint?.api?.toLowerCase() !==
+          "kernel32.dll!heapfree" ||
+        completion.memoryContentSha256 !==
+          "f9cbbcc490533a966eb846aa3cb385f4b976b4330b6d8c4a8152ff745b826fbf" ||
+        (label === "browser BGI" && completion.instructionBudget !== 16_384) ||
+        (label === "latest" && completion.instructionBudget !== 4_096)
+      ) {
+        errors.push(
+          `${label} trapless execution checkpoint evidence is invalid`,
+        );
+      }
+    }
+  }
   if (active.profile === "d3d9-end-scene") {
     if (
       currentStop.nextEndpoint?.observedModule !== "<com>" ||
@@ -22676,7 +22767,13 @@ export function validateCurrentCheckpoint(manifest) {
                 errors.push(`${label} current-thread stack-growth evidence is invalid`);
               }
             }
-            if (
+            if (runtimeTraplessExecutionBudgetActive) {
+              if (currentStop.kind !== "capability-checkpoint") {
+                errors.push(
+                  "trapless execution continuation must end at a capability checkpoint",
+                );
+              }
+            } else if (
               currentStop.kind !== "execution-budget" ||
               currentStop.nextCheckpoint !==
                 "runtime-trapless-execution-budget" ||
@@ -23898,12 +23995,15 @@ export function renderReadmeStatus(manifest) {
                                 "d3d9-first-present"
                               ? "first frame presentations"
                               : next.completion.capability ===
+                                  "runtime-trapless-execution-budget"
+                                ? "bounded execution continuations"
+                              : next.completion.capability ===
                                   "user32-async-key-state-input-continuation"
                                 ? "held-key async-key queries"
                                 : next.completion.capability ===
                                     "user32-async-key-state-initial-scan"
                                   ? "zero-input startup key queries"
-                              : "recurring waits"
+                                  : "recurring waits"
         } ` +
         `by instruction ${next.completion.lastCompletionInstructionCount}; verification stopped at ` +
         `\`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +

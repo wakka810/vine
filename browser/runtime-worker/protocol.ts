@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 54 as const;
+export const protocolVersion = 55 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -46,7 +46,8 @@ export type BgiCapabilityProfile =
   | "user32-async-key-state-initial-scan-continuation"
   | "user32-peek-message-a"
   | "user32-is-iconic"
-  | "runtime-thread-stack-growth";
+  | "runtime-thread-stack-growth"
+  | "runtime-trapless-execution-budget";
 
 export type RuntimeKeyboardSourceEventKind =
   "focus-gained" | "focus-lost" | "key-down" | "key-up";
@@ -1480,6 +1481,28 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "runtime-trapless-execution-budget";
+        implementationId: "runtime.execute-to-owned-boundary.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        previousBudgetStopInstructionCount: number;
+        maximumAdditionalInstructions: number;
+        additionalInstructionCount: number;
+        instructionBudget: number;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        memoryContentSha256: string;
+      }
     | {
         capability: "kernel32-wait-for-single-object-ex";
         implementationId: "kernel32.wait-for-single-object-ex.waitable-timer.v1";

@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `runtime-thread-stack-growth`: 158098 calls across 128 endpoint contracts / 126 APIs, memory generation 287857 |
+| Runtime diagnostics | `runtime-trapless-execution-budget`: 158098 calls across 128 endpoint contracts / 126 APIs, memory generation 289882 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `guest-execution-instruction-budget` at instruction 266703249: `instruction-budget-exhausted` at EIP `0x1005f640` after 40,000,000 bounded instructions |
+| Next structured stop | `runtime-trapless-execution-budget` completed 1 bounded execution continuations by instruction 226703249; verification stopped at `KERNEL32.dll!HeapFree` on instruction 276358836 (`runtime-trapless-execution-budget-checkpoint-complete`) |
 
-The active semantic report is 2,368,930 bytes with SHA-256
-`4a568cda36741fda3b36c8fbc84a199b138d2f1e7583a642f48c496996270634`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 2,861,213 bytes with SHA-256
+`717323b647e15dc66e537f7d56b47bf5362b87958f0c966d3eaae112d72b83a7`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

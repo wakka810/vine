@@ -193,6 +193,16 @@ Untouched writable pages remain clean, every Dirty clear is followed by a TLB
 flush, and Rust ends each receipt with no dirty page or pending invalidation.
 See [memory-writeback.md](memory-writeback.md).
 
+Long private-target continuation keeps the same authority boundary across
+multiple execution slices. A page fault that the Rust memory／thread subsystem
+can service is reconciled and execution resumes inside the existing bounded
+window; it is not promoted to a terminal checkpoint merely because it crossed
+the execution-engine boundary. Node and Chrome may use different bounded slice
+sizes, so reconciliation generations and batch counts need not match. The gate
+instead requires the same guest-visible call digest, final instruction boundary,
+next owned endpoint, and final memory-content digest. An unserviceable fault or
+window exhaustion remains a structured stop before further mutation.
+
 ## Limits
 
 - PTE Dirty discovery is O(writable mappings) per bounded slice and currently

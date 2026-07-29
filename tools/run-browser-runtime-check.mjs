@@ -87,8 +87,11 @@ const user32AsyncKeyStateInputProfile =
   user32AsyncKeyStateInputContinuationProfile;
 const user32AsyncKeyStateInitialScanCheckpointProfile =
   bgiProfile === "user32-async-key-state-initial-scan";
+const runtimeTraplessExecutionBudgetProfile =
+  bgiProfile === "runtime-trapless-execution-budget";
 const runtimeThreadStackGrowthProfile =
-  bgiProfile === "runtime-thread-stack-growth";
+  bgiProfile === "runtime-thread-stack-growth" ||
+  runtimeTraplessExecutionBudgetProfile;
 const user32IsIconicProfile =
   bgiProfile === "user32-is-iconic" || runtimeThreadStackGrowthProfile;
 const user32PeekMessageAProfile =
@@ -167,7 +170,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v54";
+const runtimeProtocol = "vine.browser-runtime-worker.v55";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -828,6 +831,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-peek-message-a",
         "user32-is-iconic",
         "runtime-thread-stack-growth",
+        "runtime-trapless-execution-budget",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -878,6 +882,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-peek-message-a",
         "user32-is-iconic",
         "runtime-thread-stack-growth",
+        "runtime-trapless-execution-budget",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -928,6 +933,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-peek-message-a",
         "user32-is-iconic",
         "runtime-thread-stack-growth",
+        "runtime-trapless-execution-budget",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
@@ -972,6 +978,12 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       },
       generation: 0,
     });
+    assert.equal(evidence.statusMessagesRetained, evidence.statuses.length);
+    assert(evidence.statusMessagesObserved >= evidence.statusMessagesRetained);
+    assert(evidence.statusMessagesRetained <= 4_096);
+    if (evidence.statusMessagesObserved > 4_096) {
+      assert.equal(evidence.statusMessagesRetained, 4_096);
+    }
     assert(evidence.statuses.some(({ phase }) => phase === "running"));
     if (scenario === "success") {
       const capabilityCheckpoint =
@@ -981,6 +993,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "kernel32-leave-critical-section-continuation" ||
         bgiProfile === "primary-main-loop-progression" ||
         bgiProfile === "kernel32-leave-critical-section" ||
+        runtimeTraplessExecutionBudgetProfile ||
         user32AsyncKeyStateInputProfile ||
         user32AsyncKeyStateInitialScanCheckpointProfile ||
         (d3d9EndSceneProfile && !d3d9PostPresentContinuationProfile);

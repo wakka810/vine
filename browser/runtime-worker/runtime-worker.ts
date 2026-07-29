@@ -90,6 +90,9 @@ const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
 const BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 64;
 const MAX_PENDING_KEYBOARD_EVENTS = 256;
 const RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS = 40_000_000;
+const RUNTIME_TRAPLESS_EXECUTION_BUDGET_START_INSTRUCTION = 226_703_249;
+const RUNTIME_TRAPLESS_EXECUTION_BUDGET_PREVIOUS_STOP = 266_703_249;
+const RUNTIME_TRAPLESS_EXECUTION_BUDGET_MAX_INSTRUCTIONS = 64_000_000;
 const USER32_ASYNC_KEY_STATE_INITIAL_SCAN_VIRTUAL_KEYS = [
   14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99, 52, 100,
   53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17, 1, 2, 4, 5, 6,
@@ -397,7 +400,22 @@ function isUser32IsIconic(
 function isRuntimeThreadStackGrowth(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
+  return (
+    profile === "runtime-thread-stack-growth" ||
+    isRuntimeTraplessExecutionBudget(profile)
+  );
+}
+
+function isRuntimeThreadStackGrowthCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
   return profile === "runtime-thread-stack-growth";
+}
+
+function isRuntimeTraplessExecutionBudget(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "runtime-trapless-execution-budget";
 }
 
 function d3d9CompatibilityPolicyId(
@@ -2962,12 +2980,27 @@ class BrowserRuntimeSession {
       const createdThreadStackGrowthObserved = this.#report.stackGrowths.some(
         ({ threadId }) => threadId !== this.#initialThreadId,
       );
+      const runtimeTraplessExecutionBudgetActive =
+        isRuntimeTraplessExecutionBudget(
+          this.#configuration.capabilityProfile,
+        ) &&
+        createdThreadStackGrowthObserved &&
+        this.#report.supportedCallCount === 158_098;
       const remainingTraplessInstructions =
-        isRuntimeThreadStackGrowth(this.#configuration.capabilityProfile) &&
-        createdThreadStackGrowthObserved
+        runtimeTraplessExecutionBudgetActive
+          ? RUNTIME_TRAPLESS_EXECUTION_BUDGET_MAX_INSTRUCTIONS -
+            (this.#report.instructions -
+              RUNTIME_TRAPLESS_EXECUTION_BUDGET_START_INSTRUCTION)
+          : isRuntimeThreadStackGrowthCheckpoint(
+                this.#configuration.capabilityProfile,
+              ) && createdThreadStackGrowthObserved
           ? RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS -
             this.#instructionsSinceOwnedStop
           : this.#configuration.instructionBudget;
+      invariant(
+        remainingTraplessInstructions > 0,
+        "trapless execution continuation exceeded its bounded window",
+      );
       const slice = engine.executeBudget(
         Math.min(
           this.#configuration.instructionBudget,
@@ -2986,10 +3019,16 @@ class BrowserRuntimeSession {
 
       if (slice.stop.kind === "budget-yield") {
         if (
-          isRuntimeThreadStackGrowth(this.#configuration.capabilityProfile) &&
-          createdThreadStackGrowthObserved &&
-          this.#instructionsSinceOwnedStop ===
-            RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS
+          (runtimeTraplessExecutionBudgetActive &&
+            this.#report.instructions -
+              RUNTIME_TRAPLESS_EXECUTION_BUDGET_START_INSTRUCTION ===
+              RUNTIME_TRAPLESS_EXECUTION_BUDGET_MAX_INSTRUCTIONS) ||
+          (isRuntimeThreadStackGrowthCheckpoint(
+            this.#configuration.capabilityProfile,
+          ) &&
+            createdThreadStackGrowthObserved &&
+            this.#instructionsSinceOwnedStop ===
+              RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS)
         ) {
           this.#completeInstructionBudgetStructuredStop(slice.context);
           continue;
@@ -3070,6 +3109,42 @@ class BrowserRuntimeSession {
       );
       const address = slice.context.instructionPointer;
       if (endpointAddresses.has(address)) {
+        if (
+          isRuntimeTraplessExecutionBudget(
+            this.#configuration.capabilityProfile,
+          ) &&
+          this.#report.supportedCallCount === 158_098 &&
+          this.#report.instructions >
+            RUNTIME_TRAPLESS_EXECUTION_BUDGET_PREVIOUS_STOP
+        ) {
+          const additionalInstructionCount =
+            this.#report.instructions -
+            RUNTIME_TRAPLESS_EXECUTION_BUDGET_START_INSTRUCTION;
+          invariant(
+            additionalInstructionCount <=
+              RUNTIME_TRAPLESS_EXECUTION_BUDGET_MAX_INSTRUCTIONS,
+            "trapless execution endpoint exceeded its bounded window",
+          );
+          this.#report.checkpointCompletion = {
+            capability: "runtime-trapless-execution-budget",
+            implementationId: "runtime.execute-to-owned-boundary.v1",
+            requiredCompletions: 1,
+            completionCount: 1,
+            lastCompletionSequence: this.#report.supportedCallCount,
+            lastCompletionInstructionCount:
+              RUNTIME_TRAPLESS_EXECUTION_BUDGET_START_INSTRUCTION,
+            previousBudgetStopInstructionCount:
+              RUNTIME_TRAPLESS_EXECUTION_BUDGET_PREVIOUS_STOP,
+            maximumAdditionalInstructions:
+              RUNTIME_TRAPLESS_EXECUTION_BUDGET_MAX_INSTRUCTIONS,
+            additionalInstructionCount,
+            instructionBudget: this.#configuration.instructionBudget,
+            instructionCount: 0,
+            nextEndpoint: { id: 0, address: 0 },
+            memoryContentSha256: "",
+          };
+          this.#bgiCheckpointPending = true;
+        }
         this.#threadResumeStates.set(
           this.#currentThreadId,
           sliceState === "running" ? "ready" : "guest-callback",
@@ -3706,7 +3781,8 @@ class BrowserRuntimeSession {
           checkpoint.capability === "user32-async-key-state-input" ||
           checkpoint.capability ===
             "user32-async-key-state-input-continuation" ||
-          checkpoint.capability === "user32-async-key-state-initial-scan"
+          checkpoint.capability === "user32-async-key-state-initial-scan" ||
+          checkpoint.capability === "runtime-trapless-execution-budget"
             ? "kernel32-create-directory-a-v1"
             : "kernel32-wait-for-single-object-ex-v1"),
       "BGI capability checkpoint has no matching compatibility profile",
@@ -3761,9 +3837,14 @@ class BrowserRuntimeSession {
     checkpoint.instructionCount = this.#report.instructions;
     checkpoint.nextEndpoint = endpoint;
     checkpoint.memoryContentSha256 = reflection.contentSha256;
+    if (checkpoint.capability === "runtime-trapless-execution-budget") {
+      this.#completeInitialScanContinuationReport();
+    }
     this.#cancelAndFinish(
       "checkpoint-complete",
-      checkpoint.capability === "kernel32-leave-critical-section"
+      checkpoint.capability === "runtime-trapless-execution-budget"
+        ? "Trapless execution budget continuation checkpoint completed"
+        : checkpoint.capability === "kernel32-leave-critical-section"
         ? "LeaveCriticalSection main-thread release checkpoint completed"
         : checkpoint.capability === "user32-async-key-state-initial-scan"
           ? "GetAsyncKeyState initial no-input scan checkpoint completed"
@@ -7433,14 +7514,25 @@ class BrowserRuntimeSession {
   #completeInstructionBudgetStructuredStop(
     context: ExecutionCpuContext,
   ): void {
+    const traplessExecutionBudget = isRuntimeTraplessExecutionBudget(
+      this.#configuration.capabilityProfile,
+    );
+    const maximumAdditionalInstructions = traplessExecutionBudget
+      ? RUNTIME_TRAPLESS_EXECUTION_BUDGET_MAX_INSTRUCTIONS
+      : RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS;
     invariant(
       this.#requirePrepared().workload === "private-bgi" &&
         isRuntimeThreadStackGrowth(this.#configuration.capabilityProfile) &&
         this.#report.stackGrowths.some(
           ({ threadId }) => threadId !== this.#initialThreadId,
         ) &&
-        this.#instructionsSinceOwnedStop ===
-          RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS,
+        (traplessExecutionBudget
+          ? this.#report.supportedCallCount === 158_098 &&
+            this.#report.instructions -
+              RUNTIME_TRAPLESS_EXECUTION_BUDGET_START_INSTRUCTION ===
+              maximumAdditionalInstructions
+          : this.#instructionsSinceOwnedStop ===
+            maximumAdditionalInstructions),
       "instruction-budget stop occurred outside current-thread stack continuation",
     );
     const reflection =
@@ -7461,12 +7553,11 @@ class BrowserRuntimeSession {
         stage: "guest-execution",
         code: "instruction-budget-exhausted",
         message:
-          `guest execution reached the bounded ${RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS}-instruction ` +
+          `guest execution reached the bounded ${maximumAdditionalInstructions}-instruction ` +
           `window at 0x${context.instructionPointer.toString(16)}`,
         instructionPointer: context.instructionPointer,
         previousInstructionPointer: context.previousInstructionPointer,
-        maximumAdditionalInstructions:
-          RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS,
+        maximumAdditionalInstructions,
       },
       instructionCount: this.#report.instructions,
       memoryContentSha256: reflection.contentSha256,
@@ -9344,9 +9435,8 @@ class BrowserRuntimeSession {
         );
       }
       if (
-        isUser32AsyncKeyStateInitialScan(
-          this.#configuration.capabilityProfile,
-        ) &&
+        this.#configuration.capabilityProfile ===
+          "user32-async-key-state-initial-scan" &&
         terminal.outcome === "checkpoint-complete"
       ) {
         const scan = this.#report.getAsyncKeyStateInitialScan;
@@ -9720,7 +9810,75 @@ class BrowserRuntimeSession {
         );
       }
       if (
-        isRuntimeThreadStackGrowth(
+        isRuntimeTraplessExecutionBudget(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report.checkpointCompletion;
+        const createdThreadGrowths = this.#report.stackGrowths.filter(
+          (growth) => growth.threadId === 8_193,
+        );
+        const sourceReads = this.#report.sourceReads;
+        const lastSourceRead = sourceReads.at(-1);
+        const pacing = this.#timerPacing.metrics();
+        invariant(
+          this.#report.supportedCallCount === 158_098 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "c795f34a0a893523c0e92382635fd51c5a386ff51ff9f614d90b642581559fce" &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability ===
+              "runtime-trapless-execution-budget" &&
+            checkpoint.implementationId ===
+              "runtime.execute-to-owned-boundary.v1" &&
+            checkpoint.requiredCompletions === 1 &&
+            checkpoint.completionCount === 1 &&
+            checkpoint.lastCompletionSequence === 158_098 &&
+            checkpoint.lastCompletionInstructionCount ===
+              RUNTIME_TRAPLESS_EXECUTION_BUDGET_START_INSTRUCTION &&
+            checkpoint.previousBudgetStopInstructionCount ===
+              RUNTIME_TRAPLESS_EXECUTION_BUDGET_PREVIOUS_STOP &&
+            checkpoint.maximumAdditionalInstructions ===
+              RUNTIME_TRAPLESS_EXECUTION_BUDGET_MAX_INSTRUCTIONS &&
+            checkpoint.additionalInstructionCount === 49_655_587 &&
+            checkpoint.instructionBudget > 0 &&
+            checkpoint.instructionCount === 276_358_836 &&
+            checkpoint.nextEndpoint.id === 76 &&
+            checkpoint.nextEndpoint.address === 0x7f00_04b0 &&
+            checkpoint.nextEndpoint.module?.toLowerCase() === "kernel32.dll" &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "HeapFree" &&
+            checkpoint.memoryContentSha256 ===
+              "f9cbbcc490533a966eb846aa3cb385f4b976b4330b6d8c4a8152ff745b826fbf" &&
+            this.#report.instructions === 276_358_836 &&
+            createdThreadGrowths.length === 5 &&
+            sourceReads.length === 86 &&
+            sourceReads.filter((read) => read.request.sourceId === 1).length ===
+              82 &&
+            lastSourceRead?.request.objectId === 3 &&
+            lastSourceRead.transferredBytes === 385_924 &&
+            lastSourceRead.contentSha256 ===
+              "5fa61ad41f6084a78d3be10ce8e6f5a3835ae6a856b2bc93946bb5ba0bdc36de" &&
+            this.#waitForSingleObjectExCompletions === 11_205 &&
+            pacing.requests === this.#waitForSingleObjectExCompletions &&
+            pacing.completions === this.#waitForSingleObjectExCompletions &&
+            pacing.pending === 0,
+          `trapless execution budget checkpoint changed: ${JSON.stringify({
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            checkpoint,
+            createdThreadGrowths,
+            sourceReadCount: sourceReads.length,
+            lastSourceRead,
+            waitForSingleObjectExCompletions:
+              this.#waitForSingleObjectExCompletions,
+            pacing,
+          })}`,
+        );
+      }
+      if (
+        isRuntimeThreadStackGrowthCheckpoint(
           this.#configuration.capabilityProfile,
         ) &&
         terminal.outcome === "structured-stop"

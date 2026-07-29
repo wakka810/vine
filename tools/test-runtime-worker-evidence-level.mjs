@@ -12,7 +12,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 54 as const/u);
+assert.match(protocol, /protocolVersion = 55 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -70,6 +70,7 @@ assert.match(protocol, /getAsyncKeyStateInitialScan:/u);
 assert.match(protocol, /initialScanContinuation:/u);
 assert.match(protocol, /peekMessageA:/u);
 assert.match(protocol, /isIconic:/u);
+assert.match(protocol, /runtime-trapless-execution-budget/u);
 assert.match(protocol, /d3d9TestCooperativeLevel:/u);
 
 assert.match(
@@ -135,6 +136,9 @@ assert.match(
   fullProbe,
   /instructionBudget: scenario === "watchdog" \? 4 : 16_384/u,
 );
+assert.match(fullProbe, /maximumRetainedStatuses = 4_096/u);
+assert.match(fullProbe, /statusMessagesObserved \+= 1/u);
+assert.match(fullProbe, /statusMessagesRetained: statuses\.length/u);
 assert.match(benchmark, /evidenceLevel: "summary"/u);
 assert.match(benchmark, /instructionBudget: 16_384/u);
 assert.match(

@@ -238,6 +238,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-peek-message-a",
         "user32-is-iconic",
         "runtime-thread-stack-growth",
+        "runtime-trapless-execution-budget",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -396,6 +397,7 @@ assert(
       "user32-peek-message-a",
       "user32-is-iconic",
       "runtime-thread-stack-growth",
+      "runtime-trapless-execution-budget",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -432,7 +434,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
       "user32-async-key-state-initial-scan-continuation" ||
     genericRuntimeCapability === "user32-peek-message-a" ||
     genericRuntimeCapability === "user32-is-iconic" ||
-    genericRuntimeCapability === "runtime-thread-stack-growth"
+    genericRuntimeCapability === "runtime-thread-stack-growth" ||
+    genericRuntimeCapability === "runtime-trapless-execution-budget"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -751,8 +754,13 @@ const user32IsIconicCheckpointEnabled =
   genericRuntimeCapability === "user32-is-iconic";
 const runtimeThreadStackGrowthCheckpointEnabled =
   genericRuntimeCapability === "runtime-thread-stack-growth";
+const runtimeTraplessExecutionBudgetCheckpointEnabled =
+  genericRuntimeCapability === "runtime-trapless-execution-budget";
+const runtimeThreadStackGrowthEnabled =
+  runtimeThreadStackGrowthCheckpointEnabled ||
+  runtimeTraplessExecutionBudgetCheckpointEnabled;
 const user32IsIconicEnabled =
-  user32IsIconicCheckpointEnabled || runtimeThreadStackGrowthCheckpointEnabled;
+  user32IsIconicCheckpointEnabled || runtimeThreadStackGrowthEnabled;
 const user32PeekMessageAEnabled =
   user32PeekMessageACheckpointEnabled || user32IsIconicEnabled;
 const user32AsyncKeyStateInitialScanContinuationCheckpointEnabled =
@@ -1200,8 +1208,10 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? runtimeThreadStackGrowthCheckpointEnabled
-      ? "v86-bgi-runtime-thread-stack-growth"
+    ? runtimeThreadStackGrowthEnabled
+      ? runtimeTraplessExecutionBudgetCheckpointEnabled
+        ? "v86-bgi-runtime-trapless-execution-budget"
+        : "v86-bgi-runtime-thread-stack-growth"
       : user32IsIconicCheckpointEnabled
       ? "v86-bgi-is-iconic"
       : user32PeekMessageACheckpointEnabled
@@ -5630,6 +5640,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (runtimeTraplessExecutionBudgetCheckpointEnabled) {
+        validateRuntimeTraplessExecutionBudgetResult(genericResult);
       } else if (runtimeThreadStackGrowthCheckpointEnabled) {
         validateRuntimeThreadStackGrowthResult(genericResult);
       } else if (user32IsIconicCheckpointEnabled) {
@@ -5933,8 +5945,10 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : runtimeThreadStackGrowthCheckpointEnabled
-            ? "bgi current-thread stack growth"
+          : runtimeThreadStackGrowthEnabled
+            ? runtimeTraplessExecutionBudgetCheckpointEnabled
+              ? "bgi trapless execution budget continuation"
+              : "bgi current-thread stack growth"
             : user32IsIconicCheckpointEnabled
             ? "bgi IsIconic logical-window state query"
             : user32PeekMessageACheckpointEnabled
@@ -6693,7 +6707,7 @@ async function runGenericRuntimeReentry({
           (threadReturnTerminal &&
             currentThreadId !== runtimeReady.currentThreadId) ||
           (initializeCriticalSectionEnabled && terminal.kind === "page-fault") ||
-          (runtimeThreadStackGrowthCheckpointEnabled &&
+          (runtimeThreadStackGrowthEnabled &&
             terminal.kind === "instruction-budget"),
         `generic runtime reached non-owned terminal at call ${sequence}, ` +
           `instruction ${continuation.instructionCount}: ${JSON.stringify(terminal)}`,
@@ -6757,6 +6771,31 @@ async function runGenericRuntimeReentry({
       payloadSha256: sha256(writeback.payload),
       receipt: writebackReceipt,
     });
+    if (
+      runtimeTraplessExecutionBudgetCheckpointEnabled &&
+      checkpointCompletion === null &&
+      continuation.instructionCount > 266_703_249 &&
+      endpoint !== null
+    ) {
+      const lastCall = supportedCalls.at(-1);
+      assert(lastCall !== undefined);
+      checkpointCompletion = {
+        capability: "runtime-trapless-execution-budget",
+        implementationId: "runtime.execute-to-owned-boundary.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        lastCompletionSequence: lastCall.sequence,
+        lastCompletionInstructionCount: lastCall.trapInstructionCount,
+        previousBudgetStopInstructionCount: 266_703_249,
+        maximumAdditionalInstructions: 64_000_000,
+        additionalInstructionCount:
+          continuation.instructionCount - lastCall.trapInstructionCount,
+        instructionBudget: continuation.instructionBudget,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
     if (checkpointCompletion !== null) {
       assert(
         endpoint !== null,
@@ -6767,7 +6806,11 @@ async function runGenericRuntimeReentry({
         protocolReader,
         generation,
         reason:
-          checkpointCompletion.capability === "kernel32-leave-critical-section"
+          checkpointCompletion.capability ===
+          "runtime-trapless-execution-budget"
+            ? "runtime-trapless-execution-budget-checkpoint-complete"
+            : checkpointCompletion.capability ===
+                "kernel32-leave-critical-section"
             ? "kernel32-leave-critical-section-checkpoint-complete"
             : checkpointCompletion.capability ===
                 "user32-async-key-state-initial-scan"
@@ -23108,6 +23151,55 @@ function validateRuntimeThreadStackGrowthResult(result) {
   );
 }
 
+function validateRuntimeTraplessExecutionBudgetResult(result) {
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 158_098);
+  assert.equal(
+    result.checkpointCompletion?.capability,
+    "runtime-trapless-execution-budget",
+  );
+  assert.equal(
+    result.checkpointCompletion?.implementationId,
+    "runtime.execute-to-owned-boundary.v1",
+  );
+  assert.equal(result.checkpointCompletion?.requiredCompletions, 1);
+  assert.equal(result.checkpointCompletion?.completionCount, 1);
+  assert.equal(result.checkpointCompletion?.lastCompletionSequence, 158_098);
+  assert.equal(
+    result.checkpointCompletion?.lastCompletionInstructionCount,
+    226_703_249,
+  );
+  assert.equal(
+    result.checkpointCompletion?.previousBudgetStopInstructionCount,
+    266_703_249,
+  );
+  assert.equal(
+    result.checkpointCompletion?.maximumAdditionalInstructions,
+    64_000_000,
+  );
+  assert.equal(
+    result.checkpointCompletion?.additionalInstructionCount,
+    49_655_587,
+  );
+  assert.equal(result.checkpointCompletion?.instructionBudget, 4_096);
+  assert.equal(result.checkpointCompletion?.instructionCount, 276_358_836);
+  assert.deepEqual(
+    result.checkpointCompletion?.nextEndpoint,
+    {
+      id: 76,
+      address: 0x7f00_04b0,
+      module: "KERNEL32.dll",
+      symbol: { kind: "name", name: "HeapFree" },
+    },
+  );
+  assert.equal(
+    result.checkpointCompletion?.memoryContentSha256,
+    "f9cbbcc490533a966eb846aa3cb385f4b976b4330b6d8c4a8152ff745b826fbf",
+  );
+  assert.equal(result.terminal.instructionCount, 276_358_836);
+}
+
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -27626,7 +27718,7 @@ function buildGenericRuntimeReentryReport({
                 ? 9_186 +
                   d3d9PostScenePacingCycleCount +
                   (d3d9PostPresentContinuationEnabled &&
-                  !runtimeThreadStackGrowthCheckpointEnabled
+                  !runtimeThreadStackGrowthEnabled
                     ? 1
                     : 0)
                 : 9_186
@@ -28346,7 +28438,12 @@ function buildGenericRuntimeReentryReport({
       getAsyncKeyStateCall,
       "async-key report summary requires one GetAsyncKeyState completion",
     );
-    if (user32AsyncKeyStateInitialScanContinuationCheckpointEnabled) {
+    if (runtimeTraplessExecutionBudgetCheckpointEnabled) {
+      assert.equal(
+        genericResult.checkpointCompletion?.capability,
+        "runtime-trapless-execution-budget",
+      );
+    } else if (user32AsyncKeyStateInitialScanContinuationCheckpointEnabled) {
       assert.equal(genericResult.checkpointCompletion, undefined);
     } else {
       assert.equal(
@@ -28530,8 +28627,10 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : runtimeThreadStackGrowthCheckpointEnabled
-          ? "vine.v86-bgi-runtime-thread-stack-growth"
+        : runtimeThreadStackGrowthEnabled
+          ? runtimeTraplessExecutionBudgetCheckpointEnabled
+            ? "vine.v86-bgi-runtime-trapless-execution-budget"
+            : "vine.v86-bgi-runtime-thread-stack-growth"
           : user32IsIconicCheckpointEnabled
           ? "vine.v86-bgi-user32-is-iconic"
           : user32PeekMessageACheckpointEnabled
@@ -28832,7 +28931,7 @@ function buildGenericRuntimeReentryReport({
                                                                                                                                                                                                                                                                                                                     "kernel32-pointer-decoding"
                                                                                                                                                                                                                                                                                                                   ? "vine.v86-bgi-pointer-decoding"
                                                                                                                                                                                                                                                                                                                   : "vine.v86-bgi-critical-section-synchronization",
-    schemaVersion: runtimeThreadStackGrowthCheckpointEnabled
+    schemaVersion: runtimeThreadStackGrowthEnabled
       ? 1
       : user32IsIconicCheckpointEnabled
       ? 1
@@ -29787,7 +29886,10 @@ function buildGenericRuntimeReentryReport({
             code: "capability-checkpoint-complete",
             message:
               genericResult.checkpointCompletion.capability ===
-              "user32-async-key-state-initial-scan"
+              "runtime-trapless-execution-budget"
+                ? "BGI crossed the former trapless execution budget and stopped at the next runtime-owned endpoint"
+                : genericResult.checkpointCompletion.capability ===
+                    "user32-async-key-state-initial-scan"
                 ? "BGI completed the native-derived 38-key initial GetAsyncKeyState scan without injected input and stopped before the next owned endpoint"
                 : genericResult.checkpointCompletion.capability ===
                     "user32-async-key-state-input-continuation"
@@ -36389,11 +36491,15 @@ function restoreStdcall(
 
 function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
   const instructionBudget = sourceFileReadEnabled
-    ? 256
+    ? runtimeTraplessExecutionBudgetCheckpointEnabled
+      ? 4_096
+      : 256
     : guest.instructionBudget;
   const maximumExecuteStops = sourceFileReadEnabled
     ? user32AsyncKeyStateInitialScanEnabled
-      ? 156_250
+      ? runtimeTraplessExecutionBudgetCheckpointEnabled
+        ? 15_625
+        : 156_250
       : 39_063
     : guest.maximumExecuteStops;
   const thunksByAddress = new Map(
@@ -36417,12 +36523,12 @@ function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
   for (let index = 0; index < maximumExecuteStops; index += 1) {
     const reason = context.wasm.vine_execute_budget(instructionBudget);
     executeStops += 1;
-    const state = captureCpuState(context, reason);
-    finalState = state;
     if (reason === stopReason.budget) {
       budgetStops += 1;
       continue;
     }
+    const state = captureCpuState(context, reason);
+    finalState = state;
     terminal = classifyTerminal(
       state,
       thunksByAddress,
@@ -36433,8 +36539,9 @@ function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
     break;
   }
   if (terminal === null) {
+    finalState = captureCpuState(context, stopReason.budget);
     assert(
-      runtimeThreadStackGrowthCheckpointEnabled,
+      runtimeThreadStackGrowthEnabled,
       `BGI continuation exhausted its bounded ${instructionBudget * maximumExecuteStops}-instruction ` +
         `window at 0x${finalState.instructionPointer.toString(16)} after ` +
         `${finalState.instructionCount - initialInstructionCount} instructions`,

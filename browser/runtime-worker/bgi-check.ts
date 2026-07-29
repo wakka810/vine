@@ -16,6 +16,8 @@ interface BgiBrowserEvidence {
   maximumHeartbeatGapMilliseconds: number;
   usedJsHeapBytesBefore: number | null;
   usedJsHeapBytesAfter: number | null;
+  statusMessagesObserved: number;
+  statusMessagesRetained: number;
   statuses: Array<{ phase: string; detail: string }>;
 }
 
@@ -47,7 +49,8 @@ const d3d9Canvas =
   capabilityProfile === "user32-async-key-state-initial-scan-continuation" ||
   capabilityProfile === "user32-peek-message-a" ||
   capabilityProfile === "user32-is-iconic" ||
-  capabilityProfile === "runtime-thread-stack-growth"
+  capabilityProfile === "runtime-thread-stack-growth" ||
+  capabilityProfile === "runtime-trapless-execution-budget"
     ? requiredElement<HTMLCanvasElement>(
         "#surface",
       ).transferControlToOffscreen()
@@ -62,6 +65,8 @@ const pageLifecycle = observePageLifecycle((lifecycle) => {
   } satisfies MainToWorkerMessage);
 });
 const statuses: Array<{ phase: string; detail: string }> = [];
+const maximumRetainedStatuses = 4_096;
+let statusMessagesObserved = 0;
 const usedJsHeapBytesBefore = performance.memory?.usedJSHeapSize ?? null;
 let heartbeatSamples = 0;
 let maximumHeartbeatGapMilliseconds = 0;
@@ -88,7 +93,13 @@ worker.addEventListener(
       return;
     }
     if (message.type === "session-status") {
-      statuses.push({ phase: message.phase, detail: message.detail });
+      statusMessagesObserved += 1;
+      const observation = { phase: message.phase, detail: message.detail };
+      if (statuses.length < maximumRetainedStatuses) {
+        statuses.push(observation);
+      } else {
+        statuses[maximumRetainedStatuses - 1] = observation;
+      }
       status.textContent = message.detail;
       if (
         scenario === "cancel-pending" &&
@@ -133,7 +144,9 @@ const startMessage = {
     watchdogInstructionLimit:
       scenario === "watchdog"
         ? 1
-        : capabilityProfile === "runtime-thread-stack-growth"
+        : capabilityProfile === "runtime-trapless-execution-budget"
+          ? 320_000_000
+          : capabilityProfile === "runtime-thread-stack-growth"
           ? 300_000_000
           : capabilityProfile === "user32-async-key-state-initial-scan" ||
             capabilityProfile ===
@@ -174,7 +187,8 @@ const startMessage = {
         "user32-async-key-state-initial-scan-continuation" ||
       capabilityProfile === "user32-peek-message-a" ||
       capabilityProfile === "user32-is-iconic" ||
-      capabilityProfile === "runtime-thread-stack-growth"
+      capabilityProfile === "runtime-thread-stack-growth" ||
+      capabilityProfile === "runtime-trapless-execution-budget"
         ? 600_000
         : capabilityProfile === "kernel32-sleep-zero" ||
             capabilityProfile === "kernel32-global-memory-status" ||
@@ -252,6 +266,8 @@ function finish(report: SessionReport): void {
     maximumHeartbeatGapMilliseconds,
     usedJsHeapBytesBefore,
     usedJsHeapBytesAfter: performance.memory?.usedJSHeapSize ?? null,
+    statusMessagesObserved,
+    statusMessagesRetained: statuses.length,
     statuses,
   };
   window.__vineBgiCheck.result = evidence;
@@ -317,7 +333,8 @@ function parseCapabilityProfile(
     value === "user32-async-key-state-initial-scan-continuation" ||
     value === "user32-peek-message-a" ||
     value === "user32-is-iconic" ||
-    value === "runtime-thread-stack-growth"
+    value === "runtime-thread-stack-growth" ||
+    value === "runtime-trapless-execution-budget"
     ? value
     : undefined;
 }

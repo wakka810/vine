@@ -41,6 +41,12 @@ writeback, and host-delta arrays require explicit `full` diagnostic evidence.
 Commit-bound Node and browser summary reports are each limited to 4 MiB, so a
 report-size regression fails before evidence publication.
 
+Browser progress status is diagnostic rather than guest-visible semantics. The
+runner counts every observed status but retains at most 4,096 records: the first
+4,095 observations plus the latest one after the bound is reached. Evidence
+records both observed and retained counts, and verifies that retention is
+bounded before the report-size gate is evaluated.
+
 Scheduler timing uses a partial order. Independent request lanes may be
 interleaved, but each request must precede its own completion and every required
 completion must precede terminal stop. The public contract accepts two valid
