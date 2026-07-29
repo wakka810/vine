@@ -27,6 +27,11 @@ larger zeroed dirty-only allocation without importing native address reuse.
 The later [large ordinary free checkpoint](bgi-large-ordinary-heap-free.md)
 proves that the same transaction retires consecutive multi-page allocations
 and publishes only Rust-authoritative poison deltas across Node and Chrome.
+The following
+[allocation reuse checkpoint](bgi-private-heap-allocation-reuse.md) proves that
+three small allocations receive fresh identities and that a multi-page request
+reuses a free range spanning the boundary of those two coalesced retirements,
+while publishing only Rust-authoritative dirty deltas.
 Active schema-v2 policy exposes flags `0` and `HEAP_ZERO_MEMORY` for ordinary
 nonzero requests through 16 MiB and the separately listed exact 64 MiB large
 variant. It does not treat the 16–64 MiB gap as supported. `HeapDestroy`／

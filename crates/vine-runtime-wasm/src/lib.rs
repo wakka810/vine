@@ -97,6 +97,7 @@ struct BgiCheckpointCapabilities {
     d3d9_end_scene: bool,
     d3d9_present: bool,
     user32_async_key_state_initial_scan: bool,
+    heap_alloc_24_byte_buffer: bool,
 }
 
 impl Bridge {
@@ -403,6 +404,7 @@ enum BrowserRuntimeTarget {
         gdiplus_policy: Box<GdiplusCompatibilityPolicy>,
         imm32_policy: Box<Imm32CompatibilityPolicy>,
         winmm_policy: Box<WinmmCompatibilityPolicy>,
+        heap_allocation_evidence: bool,
     },
 }
 
@@ -906,6 +908,7 @@ impl BrowserRuntime {
                     gdiplus_policy: Box::new(gdiplus_policy),
                     imm32_policy: Box::new(imm32_policy),
                     winmm_policy: Box::new(winmm_policy),
+                    heap_allocation_evidence: capabilities.heap_alloc_24_byte_buffer,
                 },
             },
             metadata,
@@ -1349,6 +1352,13 @@ impl BrowserRuntime {
         } else {
             None
         };
+        let heap_allocation_evidence = matches!(
+            &self.target,
+            BrowserRuntimeTarget::Bgi {
+                heap_allocation_evidence: true,
+                ..
+            }
+        );
         let callback_sentinel = self.callback_sentinel;
         let target = &self.target;
         let dispatcher = &self.dispatcher;
@@ -1531,6 +1541,42 @@ impl BrowserRuntime {
             DispatchOutcome::GuestCallback(call) => self.begin_callback(call),
             DispatchOutcome::Immediate(completion) => {
                 let delta = self.pending_delta()?;
+                let heap_allocation = if heap_allocation_evidence
+                    && completion.implementation_id == "kernel32.heap-alloc.v2"
+                {
+                    let heap_handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                        "completed HeapAlloc frame has no logical heap argument".to_owned()
+                    })?;
+                    let RegisterUpdate::Set(address) = completion.eax else {
+                        return Err("completed HeapAlloc did not return a guest address".to_owned());
+                    };
+                    let allocation = self
+                        .runtime
+                        .private_heap_allocation(heap_handle, GuestAddress(address))
+                        .map_err(error_string)?;
+                    if allocation.byte_length
+                        != completion.frame.argument_u32(2).ok_or_else(|| {
+                            "completed HeapAlloc frame has no byte-length argument".to_owned()
+                        })?
+                    {
+                        return Err(
+                            "completed HeapAlloc allocation size does not match its ABI frame"
+                                .to_owned(),
+                        );
+                    }
+                    let live_allocations = self
+                        .runtime
+                        .heap(heap_handle)
+                        .map_err(error_string)?
+                        .live_allocations;
+                    Some(json!({
+                        "heapHandle": heap_handle,
+                        "allocation": allocation,
+                        "liveAllocations": live_allocations,
+                    }))
+                } else {
+                    None
+                };
                 let heap_free = heap_free_before
                     .map(|(heap_handle, allocation, live_allocations_before)| {
                         let live_allocations_after = self
@@ -1579,6 +1625,9 @@ impl BrowserRuntime {
                         });
                         if let Some(heap_free) = heap_free {
                             metadata["heapFree"] = heap_free;
+                        }
+                        if let Some(heap_allocation) = heap_allocation {
+                            metadata["heapAllocation"] = heap_allocation;
                         }
                         if completion.implementation_id == "kernel32.set-current-directory-a.v1" {
                             metadata["currentDirectory"] = json!({
@@ -4340,6 +4389,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
     d3d9_end_scene_enabled: u32,
     d3d9_present_enabled: u32,
     user32_async_key_state_initial_scan_enabled: u32,
+    heap_alloc_24_byte_buffer_enabled: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_bgi(
@@ -4363,6 +4413,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
                 d3d9_present: d3d9_present_enabled != 0,
                 user32_async_key_state_initial_scan: user32_async_key_state_initial_scan_enabled
                     != 0,
+                heap_alloc_24_byte_buffer: heap_alloc_24_byte_buffer_enabled != 0,
             },
         )
     })

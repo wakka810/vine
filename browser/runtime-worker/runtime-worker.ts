@@ -424,12 +424,19 @@ function isLargeHeapFreeCheckpoint(
   return profile === "kernel32-heap-free-large-buffer";
 }
 
+function isHeapAlloc24Checkpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "kernel32-heap-alloc-24-byte-buffer";
+}
+
 function includesRuntimeTraplessExecutionBudget(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isRuntimeTraplessExecutionBudget(profile) ||
-    isLargeHeapFreeCheckpoint(profile)
+    isLargeHeapFreeCheckpoint(profile) ||
+    isHeapAlloc24Checkpoint(profile)
   );
 }
 
@@ -592,6 +599,7 @@ interface CompletionMetadata {
   gdiplus?: RuntimeGdiplusSnapshot;
   imm32?: RuntimeImm32Snapshot;
   virtualMemory?: RuntimeVirtualMemorySnapshot;
+  heapAllocation?: RuntimeSupportedCallSnapshot["heapAllocation"];
   heapFree?: RuntimeSupportedCallSnapshot["heapFree"];
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
@@ -681,6 +689,7 @@ interface HostCompletionMetadata {
   gdiplus?: RuntimeGdiplusSnapshot;
   imm32?: RuntimeImm32Snapshot;
   virtualMemory?: RuntimeVirtualMemorySnapshot;
+  heapAllocation?: RuntimeSupportedCallSnapshot["heapAllocation"];
   heapFree?: RuntimeSupportedCallSnapshot["heapFree"];
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
@@ -733,6 +742,11 @@ interface WritableProfileLease {
 type LargeHeapFreeCheckpoint = Extract<
   NonNullable<SessionReport["checkpointCompletion"]>,
   { capability: "kernel32-heap-free-large-buffer" }
+>;
+
+type HeapAlloc24Checkpoint = Extract<
+  NonNullable<SessionReport["checkpointCompletion"]>,
+  { capability: "kernel32-heap-alloc-24-byte-buffer" }
 >;
 
 interface AppliedHostDeltaEvidence {
@@ -792,6 +806,7 @@ interface CallbackCompletionMetadata {
   gdiplus?: RuntimeGdiplusSnapshot;
   imm32?: RuntimeImm32Snapshot;
   virtualMemory?: RuntimeVirtualMemorySnapshot;
+  heapAllocation?: RuntimeSupportedCallSnapshot["heapAllocation"];
   heapFree?: RuntimeSupportedCallSnapshot["heapFree"];
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
@@ -1090,6 +1105,8 @@ class BrowserRuntimeSession {
   readonly #largeHeapFreeCompletions: LargeHeapFreeCheckpoint["completions"] =
     [];
   readonly #largeHeapFreeInstructionCounts: number[] = [];
+  readonly #heapAlloc24Completions: HeapAlloc24Checkpoint["completions"] = [];
+  readonly #heapAlloc24InstructionCounts: number[] = [];
   readonly #renderCompletionCounts: NonNullable<
     SessionReport["initialScanContinuation"]
   >["renderCompletionCounts"] = {
@@ -1417,6 +1434,7 @@ class BrowserRuntimeSession {
               isUser32AsyncKeyStateInitialScan(
                 this.#configuration.capabilityProfile,
               ),
+              isHeapAlloc24Checkpoint(this.#configuration.capabilityProfile),
             )
           : workload === "controlled-source-read"
             ? bridge.prepareSourceRead(
@@ -3142,6 +3160,55 @@ class BrowserRuntimeSession {
       const address = slice.context.instructionPointer;
       if (endpointAddresses.has(address)) {
         if (
+          isHeapAlloc24Checkpoint(this.#configuration.capabilityProfile) &&
+          this.#heapAlloc24Completions.length > 0
+        ) {
+          const reachedEndpoint = prepared.endpoints.find(
+            (candidate) => candidate.address === address,
+          );
+          invariant(
+            reachedEndpoint !== undefined,
+            "HeapAlloc checkpoint reached an unowned API endpoint",
+          );
+          const reachedHeapAlloc =
+            reachedEndpoint.module?.toLowerCase() === "kernel32.dll" &&
+            reachedEndpoint.symbol?.kind === "name" &&
+            reachedEndpoint.symbol.name === "HeapAlloc";
+          if (!reachedHeapAlloc) {
+            const firstCompletion = this.#heapAlloc24Completions[0];
+            const lastCompletion = this.#heapAlloc24Completions.at(-1);
+            const firstInstructionCount =
+              this.#heapAlloc24InstructionCounts[0];
+            const lastInstructionCount =
+              this.#heapAlloc24InstructionCounts.at(-1);
+            invariant(
+              firstCompletion !== undefined &&
+                lastCompletion !== undefined &&
+                firstInstructionCount !== undefined &&
+                lastInstructionCount !== undefined,
+              "HeapAlloc checkpoint lost its completed allocation evidence",
+            );
+            this.#report.checkpointCompletion = {
+              capability: "kernel32-heap-alloc-24-byte-buffer",
+              implementationId: "kernel32.heap-alloc.v2",
+              requiredCompletions: this.#heapAlloc24Completions.length,
+              completionCount: this.#heapAlloc24Completions.length,
+              firstCompletionSequence: firstCompletion.call.sequence,
+              firstCompletionInstructionCount: firstInstructionCount,
+              lastCompletionSequence: lastCompletion.call.sequence,
+              lastCompletionInstructionCount: lastInstructionCount,
+              completions: structuredClone(this.#heapAlloc24Completions),
+              instructionCount: 0,
+              nextEndpoint: { id: 0, address: 0 },
+              nextArguments: [],
+              nextReturnAddress: 0,
+              nextStackPointer: 0,
+              memoryContentSha256: "",
+            };
+            this.#bgiCheckpointPending = true;
+          }
+        }
+        if (
           isLargeHeapFreeCheckpoint(
             this.#configuration.capabilityProfile,
           ) &&
@@ -3531,9 +3598,16 @@ class BrowserRuntimeSession {
         const resumeState = this.#takeApiResumeState();
         const appliedDelta = this.#applyOptionalDelta(output);
         const appliedDeltaEvidence =
-          isLargeHeapFreeCheckpoint(this.#configuration.capabilityProfile) &&
-          metadata.completion.implementationId === "kernel32.heap-free.v1" &&
-          this.#nextBgiCallSequence + 1 >= 158_099 &&
+          ((isLargeHeapFreeCheckpoint(this.#configuration.capabilityProfile) &&
+            metadata.completion.implementationId ===
+              "kernel32.heap-free.v1" &&
+            this.#nextBgiCallSequence + 1 >= 158_099) ||
+            (isHeapAlloc24Checkpoint(
+              this.#configuration.capabilityProfile,
+            ) &&
+              metadata.completion.implementationId ===
+                "kernel32.heap-alloc.v2" &&
+              this.#nextBgiCallSequence + 1 >= 158_101)) &&
           appliedDelta !== null
             ? {
                 delta: appliedDelta,
@@ -3883,7 +3957,8 @@ class BrowserRuntimeSession {
             "user32-async-key-state-input-continuation" ||
           checkpoint.capability === "user32-async-key-state-initial-scan" ||
           checkpoint.capability === "runtime-trapless-execution-budget" ||
-          checkpoint.capability === "kernel32-heap-free-large-buffer"
+          checkpoint.capability === "kernel32-heap-free-large-buffer" ||
+          checkpoint.capability === "kernel32-heap-alloc-24-byte-buffer"
             ? "kernel32-create-directory-a-v1"
             : "kernel32-wait-for-single-object-ex-v1"),
       "BGI capability checkpoint has no matching compatibility profile",
@@ -3938,18 +4013,25 @@ class BrowserRuntimeSession {
     checkpoint.instructionCount = this.#report.instructions;
     checkpoint.nextEndpoint = endpoint;
     checkpoint.memoryContentSha256 = reflection.contentSha256;
-    if (checkpoint.capability === "kernel32-heap-free-large-buffer") {
-      checkpoint.nextArguments = [
-        this.#requireEngine().readGuestU32(stackPointer + 4),
-        this.#requireEngine().readGuestU32(stackPointer + 8),
-        this.#requireEngine().readGuestU32(stackPointer + 12),
-      ];
+    if (
+      checkpoint.capability === "kernel32-heap-free-large-buffer" ||
+      checkpoint.capability === "kernel32-heap-alloc-24-byte-buffer"
+    ) {
+      checkpoint.nextArguments =
+        checkpoint.capability === "kernel32-heap-free-large-buffer"
+          ? [
+              this.#requireEngine().readGuestU32(stackPointer + 4),
+              this.#requireEngine().readGuestU32(stackPointer + 8),
+              this.#requireEngine().readGuestU32(stackPointer + 12),
+            ]
+          : [];
       checkpoint.nextReturnAddress = returnAddress;
       checkpoint.nextStackPointer = stackPointer;
     }
     if (
       checkpoint.capability === "runtime-trapless-execution-budget" ||
-      checkpoint.capability === "kernel32-heap-free-large-buffer"
+      checkpoint.capability === "kernel32-heap-free-large-buffer" ||
+      checkpoint.capability === "kernel32-heap-alloc-24-byte-buffer"
     ) {
       this.#completeInitialScanContinuationReport();
     }
@@ -3959,6 +4041,8 @@ class BrowserRuntimeSession {
         ? "Trapless execution budget continuation checkpoint completed"
         : checkpoint.capability === "kernel32-heap-free-large-buffer"
           ? "Large-buffer HeapFree batch checkpoint completed"
+          : checkpoint.capability === "kernel32-heap-alloc-24-byte-buffer"
+            ? "Private-heap allocation and coalesced reuse batch checkpoint completed"
         : checkpoint.capability === "kernel32-leave-critical-section"
         ? "LeaveCriticalSection main-thread release checkpoint completed"
         : checkpoint.capability === "user32-async-key-state-initial-scan"
@@ -4249,6 +4333,9 @@ class BrowserRuntimeSession {
       ...(metadata.virtualMemory === undefined
         ? {}
         : { virtualMemory: metadata.virtualMemory }),
+      ...(metadata.heapAllocation === undefined
+        ? {}
+        : { heapAllocation: metadata.heapAllocation }),
       ...(metadata.heapFree === undefined
         ? {}
         : { heapFree: metadata.heapFree }),
@@ -5037,6 +5124,49 @@ class BrowserRuntimeSession {
     }
     this.#recordPostPresentContinuationCall(call);
     this.#recordCompletedCallEvidence(call);
+    if (
+      isHeapAlloc24Checkpoint(this.#configuration.capabilityProfile) &&
+      completion.implementationId === "kernel32.heap-alloc.v2" &&
+      sequence >= 158_101
+    ) {
+      const heapAllocation = call.heapAllocation;
+      const delta = appliedDeltaEvidence?.delta;
+      invariant(
+        heapAllocation !== undefined &&
+          heapAllocation.heapHandle === call.arguments[0] &&
+          heapAllocation.allocation.byteLength === call.arguments[2] &&
+          "value" in call.result &&
+          heapAllocation.allocation.address === call.result.value &&
+          appliedDeltaEvidence !== undefined &&
+          delta !== undefined &&
+          delta.mappingOperations.length === 0 &&
+          delta.pages.length > 0 &&
+          delta.generation === delta.fromGeneration + 1n &&
+          metadata.memory !== undefined,
+        "HeapAlloc completion omitted its allocation identity or host delta",
+      );
+      this.#heapAlloc24Completions.push({
+        call: structuredClone(call),
+        allocationDelta: {
+          fromGeneration: Number(delta.fromGeneration),
+          generation: Number(delta.generation),
+          mappingOperations: [],
+          dirtyPages: delta.pages.map(({ address, owner }) => ({
+            address,
+            owner,
+          })),
+          cacheEffects: structuredClone(delta.cacheEffects),
+          payloadBytes: appliedDeltaEvidence.payloadBytes,
+          payloadSha256: appliedDeltaEvidence.payloadSha256,
+        },
+        memoryAfter: structuredClone(metadata.memory),
+      });
+      this.#heapAlloc24InstructionCounts.push(this.#report.instructions);
+      invariant(
+        this.#heapAlloc24Completions.length <= 4,
+        "HeapAlloc checkpoint exceeded its bounded allocation batch",
+      );
+    }
     if (
       isLargeHeapFreeCheckpoint(this.#configuration.capabilityProfile) &&
       completion.implementationId === "kernel32.heap-free.v1" &&
@@ -10134,6 +10264,196 @@ class BrowserRuntimeSession {
             pacing.completions === this.#waitForSingleObjectExCompletions &&
             pacing.pending === 0,
           `large HeapFree lifecycle checkpoint changed: ${JSON.stringify({
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            checkpoint,
+            finalGeneration: Number(this.#generation),
+            writebackBatches: this.#report.writebackBatches,
+            writebackPages: this.#report.writebackPages,
+            mappingDeltas: this.#report.mappingDeltas,
+            mappingDirtyPages: this.#report.mappingDirtyPages,
+            waitForSingleObjectExCompletions:
+              this.#waitForSingleObjectExCompletions,
+            pacing,
+          })}`,
+        );
+      }
+      if (
+        isHeapAlloc24Checkpoint(this.#configuration.capabilityProfile) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report.checkpointCompletion;
+        const completions =
+          checkpoint?.capability === "kernel32-heap-alloc-24-byte-buffer"
+            ? checkpoint.completions
+            : [];
+        const expectedCompletions = [
+          {
+            sequence: 158_101,
+            allocationId: 1_348,
+            address: 541_562_816,
+            byteLength: 24,
+            reservedByteLength: 24,
+            liveAllocations: 922,
+            fromGeneration: 305_836,
+            generation: 305_837,
+            dirtyPages: 1,
+            firstDirtyPage: 541_560_832,
+            lastDirtyPage: 541_560_832,
+            owner: 10,
+            payloadBytes: 4_096,
+            payloadSha256:
+              "19dc238b6918ca49a93f6dde58b62bbb1991d6d3171cdba5758f6a551c155680",
+          },
+          {
+            sequence: 158_102,
+            allocationId: 1_349,
+            address: 541_562_736,
+            byteLength: 11,
+            reservedByteLength: 16,
+            liveAllocations: 923,
+            fromGeneration: 305_838,
+            generation: 305_839,
+            dirtyPages: 1,
+            firstDirtyPage: 541_560_832,
+            lastDirtyPage: 541_560_832,
+            owner: 10,
+            payloadBytes: 4_096,
+            payloadSha256:
+              "7231e9584627a03393d45ac72dea04eaa1ab0c788d3ac02272cbeb25399af71c",
+          },
+          {
+            sequence: 158_103,
+            allocationId: 1_350,
+            address: 541_562_840,
+            byteLength: 16,
+            reservedByteLength: 16,
+            liveAllocations: 924,
+            fromGeneration: 305_840,
+            generation: 305_841,
+            dirtyPages: 1,
+            firstDirtyPage: 541_560_832,
+            lastDirtyPage: 541_560_832,
+            owner: 10,
+            payloadBytes: 4_096,
+            payloadSha256:
+              "0ef4481e88170824629eac59c7f8ea695ee51b1c6f75fadc0071e8cc4e7bbb3c",
+          },
+          {
+            sequence: 158_104,
+            allocationId: 1_351,
+            address: 1_064_914_552,
+            byteLength: 2_764_816,
+            reservedByteLength: 2_764_816,
+            liveAllocations: 925,
+            fromGeneration: 305_842,
+            generation: 305_843,
+            dirtyPages: 676,
+            firstDirtyPage: 1_064_910_848,
+            lastDirtyPage: 1_067_675_648,
+            owner: 81,
+            payloadBytes: 2_768_896,
+            payloadSha256:
+              "bd2bba2c8fe1997c93614ca3795da8ea6aef0956f2b9e01909e909be4c79e56a",
+          },
+        ];
+        const validCompletions = completions.every((completion, index) => {
+          const expected = expectedCompletions[index];
+          const allocation = completion.call.heapAllocation;
+          const delta = completion.allocationDelta;
+          return (
+            expected !== undefined &&
+            completion.call.sequence === expected.sequence &&
+            completion.call.module.toLowerCase() === "kernel32.dll" &&
+            completion.call.symbol === "HeapAlloc" &&
+            completion.call.arguments.join(",") ===
+              `1744896001,0,${expected.byteLength}` &&
+            "action" in completion.call.result &&
+            completion.call.result.action === "set" &&
+            completion.call.result.value === expected.address &&
+            completion.call.implementationId === "kernel32.heap-alloc.v2" &&
+            completion.call.returnAddress === 269_109_811 &&
+            completion.call.stackPointerBefore === 7_337_172 &&
+            completion.call.stackPointerAfter === 7_337_188 &&
+            completion.call.lastError === 0 &&
+            completion.call.guestWrites.length === 0 &&
+            allocation?.heapHandle === 0x6801_0001 &&
+            allocation.allocation.id === expected.allocationId &&
+            allocation.allocation.address === expected.address &&
+            allocation.allocation.byteLength === expected.byteLength &&
+            allocation.allocation.reservedByteLength ===
+              expected.reservedByteLength &&
+            allocation.allocation.initialization ===
+              "deterministic-uninitialized" &&
+            allocation.liveAllocations === expected.liveAllocations &&
+            delta.fromGeneration === expected.fromGeneration &&
+            delta.generation === expected.generation &&
+            delta.generation === delta.fromGeneration + 1 &&
+            delta.mappingOperations.length === 0 &&
+            delta.dirtyPages.length === expected.dirtyPages &&
+            delta.dirtyPages.every(
+              ({ address, owner }, pageIndex) =>
+                owner === expected.owner &&
+                address === expected.firstDirtyPage + pageIndex * 4_096,
+            ) &&
+            delta.dirtyPages.at(-1)?.address === expected.lastDirtyPage &&
+            delta.cacheEffects.flushTlb === false &&
+            delta.cacheEffects.invalidateInstructionFetch === false &&
+            delta.cacheEffects.invalidateGeneratedCode === false &&
+            delta.payloadBytes === expected.payloadBytes &&
+            delta.payloadSha256 === expected.payloadSha256 &&
+            completion.memoryAfter.generation === delta.generation &&
+            completion.memoryAfter.acknowledgedGeneration ===
+              delta.fromGeneration
+          );
+        });
+        const pacing = this.#timerPacing.metrics();
+        invariant(
+          this.#report.supportedCallCount === 158_104 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "2cfdbb2fec2315784a72e565b766be7d7fe90ee33f50ce4f4e5c1edb44c4ac00" &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability ===
+              "kernel32-heap-alloc-24-byte-buffer" &&
+            checkpoint.implementationId === "kernel32.heap-alloc.v2" &&
+            checkpoint.requiredCompletions === 4 &&
+            checkpoint.completionCount === 4 &&
+            checkpoint.firstCompletionSequence === 158_101 &&
+            checkpoint.firstCompletionInstructionCount === 276_358_985 &&
+            checkpoint.lastCompletionSequence === 158_104 &&
+            checkpoint.lastCompletionInstructionCount === 276_359_417 &&
+            completions.length === 4 &&
+            validCompletions &&
+            checkpoint.instructionCount === 276_360_829 &&
+            checkpoint.nextEndpoint.id === 8 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0070 &&
+            checkpoint.nextEndpoint.module?.toLowerCase() === "winmm.dll" &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "timeGetTime" &&
+            checkpoint.nextArguments.length === 0 &&
+            checkpoint.nextReturnAddress === 268_715_302 &&
+            checkpoint.nextStackPointer === 7_337_236 &&
+            checkpoint.memoryContentSha256 ===
+              "102795f1f536f78a6faedf72f2114b82123d024dd51dfd9ff6a1bf8032ce846a" &&
+            this.#report.instructions === 276_360_829 &&
+            this.#generation === 305_844n &&
+            this.#report.writebackBatches === 177_120 &&
+            this.#report.writebackPages === 269_348 &&
+            this.#report.mappingDeltas === 125_742 &&
+            this.#report.mappingDirtyPages === 145_847 &&
+            this.#report.contextSwitches === 2_456 &&
+            this.#report.stackGrowths.length === 11 &&
+            this.#report.heapPageMaterializations?.length === 2_918 &&
+            this.#report.sourceReads.length === 86 &&
+            this.#report.sourceReads.filter(
+              (read) => read.request.sourceId === 1,
+            ).length === 82 &&
+            this.#waitForSingleObjectExCompletions === 11_205 &&
+            pacing.requests === this.#waitForSingleObjectExCompletions &&
+            pacing.completions === this.#waitForSingleObjectExCompletions &&
+            pacing.pending === 0,
+          `HeapAlloc lifecycle checkpoint changed: ${JSON.stringify({
             supportedCallCount: this.#report.supportedCallCount,
             supportedCallSemanticsSha256:
               this.#report.supportedCallSemanticsSha256,

@@ -759,6 +759,15 @@ one-generation advance、dirty-page range／owner、payload digest、final memor
 content、および明示したack orderingを要求する。詳細は
 [bgi-large-ordinary-heap-free.md](bgi-large-ordinary-heap-free.md)を正とする。
 
+Reached private-heap allocation reuseのacceptanceは、adjacentなflags-zero
+`HeapAlloc` batchを最初の別endpointまで一体として扱い、fresh allocation ID、
+requested／reserved size、live-count progression、small backing reuse、および
+直前にfreeした隣接rangeをまたぐordinary multi-page first-fitを検証する。各callは
+dirty-only binary delta、mapping／cache effectなし、LastError preserve、guest output
+なしでなければならない。Node post-ack／Chrome Worker pre-ack snapshotの違いを明示し、
+one-generation advance、page range／owner、payload digest、final memory contentを一致させる。
+詳細は[bgi-private-heap-allocation-reuse.md](bgi-private-heap-allocation-reuse.md)を正とする。
+
 Reached FLS allocationの代表Rust contractはstatic／dynamic endpoint ID `1`のcoexistence、
 unmapped callback rejection、executable／NULL callback、logical indices `0..127`、capacity
 failure時のstate／memory／LastError不変を固定する。private BGI profileはnative index `9`を

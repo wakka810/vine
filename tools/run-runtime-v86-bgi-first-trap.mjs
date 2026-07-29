@@ -240,6 +240,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "runtime-thread-stack-growth",
         "runtime-trapless-execution-budget",
         "kernel32-heap-free-large-buffer",
+        "kernel32-heap-alloc-24-byte-buffer",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -400,6 +401,7 @@ assert(
       "runtime-thread-stack-growth",
       "runtime-trapless-execution-budget",
       "kernel32-heap-free-large-buffer",
+      "kernel32-heap-alloc-24-byte-buffer",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -438,7 +440,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "user32-is-iconic" ||
     genericRuntimeCapability === "runtime-thread-stack-growth" ||
     genericRuntimeCapability === "runtime-trapless-execution-budget" ||
-    genericRuntimeCapability === "kernel32-heap-free-large-buffer"
+    genericRuntimeCapability === "kernel32-heap-free-large-buffer" ||
+    genericRuntimeCapability === "kernel32-heap-alloc-24-byte-buffer"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -761,9 +764,12 @@ const runtimeTraplessExecutionBudgetCheckpointEnabled =
   genericRuntimeCapability === "runtime-trapless-execution-budget";
 const largeHeapFreeCheckpointEnabled =
   genericRuntimeCapability === "kernel32-heap-free-large-buffer";
+const heapAlloc24CheckpointEnabled =
+  genericRuntimeCapability === "kernel32-heap-alloc-24-byte-buffer";
 const runtimeTraplessExecutionBudgetEnabled =
   runtimeTraplessExecutionBudgetCheckpointEnabled ||
-  largeHeapFreeCheckpointEnabled;
+  largeHeapFreeCheckpointEnabled ||
+  heapAlloc24CheckpointEnabled;
 const runtimeThreadStackGrowthEnabled =
   runtimeThreadStackGrowthCheckpointEnabled ||
   runtimeTraplessExecutionBudgetEnabled;
@@ -1219,6 +1225,8 @@ const outputDirectory = path.join(
     ? runtimeThreadStackGrowthEnabled
       ? largeHeapFreeCheckpointEnabled
         ? "v86-bgi-heap-free-large-buffer"
+        : heapAlloc24CheckpointEnabled
+          ? "v86-bgi-heap-alloc-24-byte-buffer"
         : runtimeTraplessExecutionBudgetCheckpointEnabled
           ? "v86-bgi-runtime-trapless-execution-budget"
           : "v86-bgi-runtime-thread-stack-growth"
@@ -5652,6 +5660,8 @@ async function run() {
         validateLeaveCriticalSectionContinuationResult(genericResult);
       } else if (largeHeapFreeCheckpointEnabled) {
         validateLargeHeapFreeResult(genericResult);
+      } else if (heapAlloc24CheckpointEnabled) {
+        validateHeapAlloc24Result(genericResult);
       } else if (runtimeTraplessExecutionBudgetCheckpointEnabled) {
         validateRuntimeTraplessExecutionBudgetResult(genericResult);
       } else if (runtimeThreadStackGrowthCheckpointEnabled) {
@@ -5960,6 +5970,8 @@ async function run() {
           : runtimeThreadStackGrowthEnabled
             ? largeHeapFreeCheckpointEnabled
               ? "bgi large-buffer private-heap free batch"
+              : heapAlloc24CheckpointEnabled
+                ? "bgi private-heap allocation and coalesced reuse batch"
               : runtimeTraplessExecutionBudgetCheckpointEnabled
                 ? "bgi trapless execution budget continuation"
                 : "bgi current-thread stack growth"
@@ -6545,6 +6557,7 @@ async function runGenericRuntimeReentry({
   const enterCriticalSectionRoundtrips = [];
   let checkpointCompletion = null;
   const largeHeapFreeCompletions = [];
+  const heapAlloc24Completions = [];
   let initialAsyncKeyStateScan = null;
   let d3d9PostEndSceneSequence = null;
   let d3d9PostEndSceneRasterStatusSequence = null;
@@ -6787,6 +6800,33 @@ async function runGenericRuntimeReentry({
       receipt: writebackReceipt,
     });
     if (
+      heapAlloc24CheckpointEnabled &&
+      checkpointCompletion === null &&
+      heapAlloc24Completions.length > 0 &&
+      endpoint !== null &&
+      !(
+        endpoint.module.toLowerCase() === "kernel32.dll" &&
+        endpoint.symbol === "HeapAlloc"
+      )
+    ) {
+      const firstCompletion = heapAlloc24Completions[0];
+      const lastCompletion = heapAlloc24Completions.at(-1);
+      checkpointCompletion = {
+        capability: "kernel32-heap-alloc-24-byte-buffer",
+        implementationId: "kernel32.heap-alloc.v2",
+        requiredCompletions: heapAlloc24Completions.length,
+        completionCount: heapAlloc24Completions.length,
+        firstCompletionSequence: firstCompletion.call.sequence,
+        firstCompletionInstructionCount: firstCompletion.call.trapInstructionCount,
+        lastCompletionSequence: lastCompletion.call.sequence,
+        lastCompletionInstructionCount: lastCompletion.call.trapInstructionCount,
+        completions: structuredClone(heapAlloc24Completions),
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
+    if (
       largeHeapFreeCheckpointEnabled &&
       checkpointCompletion === null &&
       largeHeapFreeCompletions.length > 0 &&
@@ -6850,6 +6890,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "kernel32-heap-alloc-24-byte-buffer"
+            ? "kernel32-heap-alloc-24-byte-buffer-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "kernel32-heap-free-large-buffer"
             ? "kernel32-heap-free-large-buffer-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -6912,6 +6955,10 @@ async function runGenericRuntimeReentry({
       };
       if (largeHeapFreeCheckpointEnabled) {
         checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 4);
+        checkpointCompletion.nextReturnAddress = terminal.returnAddress;
+        checkpointCompletion.nextStackPointer = continuation.finalState.esp;
+      } else if (heapAlloc24CheckpointEnabled) {
+        checkpointCompletion.nextArguments = [];
         checkpointCompletion.nextReturnAddress = terminal.returnAddress;
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       }
@@ -7607,11 +7654,16 @@ async function runGenericRuntimeReentry({
         payloadSha256: sha256(response.payload),
         cacheEffects: delta.cacheEffects,
       });
-      if (
+      const captureLargeHeapFreeDelta =
         largeHeapFreeCheckpointEnabled &&
         endpoint.module.toLowerCase() === "kernel32.dll" &&
-        endpoint.symbol === "HeapFree"
-      ) {
+        endpoint.symbol === "HeapFree";
+      const captureHeapAlloc24Delta =
+        heapAlloc24CheckpointEnabled &&
+        sequence >= 158_101 &&
+        endpoint.module.toLowerCase() === "kernel32.dll" &&
+        endpoint.symbol === "HeapAlloc";
+      if (captureLargeHeapFreeDelta || captureHeapAlloc24Delta) {
         callHostDelta = {
           fromGeneration: delta.fromGeneration,
           generation: delta.generation,
@@ -7792,6 +7844,22 @@ async function runGenericRuntimeReentry({
       frozenSemanticCalls += 1;
     }
     supportedCalls.push(call);
+    if (
+      heapAlloc24CheckpointEnabled &&
+      call.implementationId === "kernel32.heap-alloc.v2" &&
+      sequence >= 158_101
+    ) {
+      if (sequence === 158_101) {
+        assert.equal(call.arguments[2], 24);
+      }
+      assert(callHostDelta, "small-buffer heap allocation omitted its host delta");
+      assert.equal(call.heapAllocation?.allocation?.address, call.result.value);
+      heapAlloc24Completions.push({
+        call: structuredClone(call),
+        allocationDelta: callHostDelta,
+        memoryAfter: structuredClone(completionFrame.memory),
+      });
+    }
     if (
       largeHeapFreeCheckpointEnabled &&
       call.implementationId === "kernel32.heap-free.v1" &&
@@ -23423,6 +23491,190 @@ function validateLargeHeapFreeResult(result) {
   );
 }
 
+function validateHeapAlloc24Result(result) {
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  const checkpoint = result.checkpointCompletion;
+  assert.equal(checkpoint?.capability, "kernel32-heap-alloc-24-byte-buffer");
+  assert.equal(checkpoint?.implementationId, "kernel32.heap-alloc.v2");
+  assert.equal(checkpoint?.requiredCompletions, 4);
+  assert.equal(checkpoint?.completionCount, 4);
+  assert.equal(checkpoint?.completions?.length, 4);
+  assert.equal(checkpoint?.firstCompletionSequence, 158_101);
+  assert.equal(checkpoint?.firstCompletionInstructionCount, 276_358_985);
+  assert.equal(checkpoint?.lastCompletionSequence, 158_104);
+  assert.equal(checkpoint?.lastCompletionInstructionCount, 276_359_417);
+  assert.equal(result.supportedCalls.length, 158_104);
+  const expectedCompletions = [
+    {
+      sequence: 158_101,
+      occurrence: 1_348,
+      instructionCount: 276_358_985,
+      byteLength: 24,
+      allocationId: 1_348,
+      address: 541_562_816,
+      reservedByteLength: 24,
+      liveAllocations: 922,
+      fromGeneration: 289_886,
+      generation: 289_887,
+      dirtyPages: 1,
+      firstDirtyPage: 541_560_832,
+      lastDirtyPage: 541_560_832,
+      owner: 10,
+      payloadBytes: 4_096,
+      payloadSha256:
+        "19dc238b6918ca49a93f6dde58b62bbb1991d6d3171cdba5758f6a551c155680",
+    },
+    {
+      sequence: 158_102,
+      occurrence: 1_349,
+      instructionCount: 276_359_082,
+      byteLength: 11,
+      allocationId: 1_349,
+      address: 541_562_736,
+      reservedByteLength: 16,
+      liveAllocations: 923,
+      fromGeneration: 289_888,
+      generation: 289_889,
+      dirtyPages: 1,
+      firstDirtyPage: 541_560_832,
+      lastDirtyPage: 541_560_832,
+      owner: 10,
+      payloadBytes: 4_096,
+      payloadSha256:
+        "7231e9584627a03393d45ac72dea04eaa1ab0c788d3ac02272cbeb25399af71c",
+    },
+    {
+      sequence: 158_103,
+      occurrence: 1_350,
+      instructionCount: 276_359_270,
+      byteLength: 16,
+      allocationId: 1_350,
+      address: 541_562_840,
+      reservedByteLength: 16,
+      liveAllocations: 924,
+      fromGeneration: 289_890,
+      generation: 289_891,
+      dirtyPages: 1,
+      firstDirtyPage: 541_560_832,
+      lastDirtyPage: 541_560_832,
+      owner: 10,
+      payloadBytes: 4_096,
+      payloadSha256:
+        "0ef4481e88170824629eac59c7f8ea695ee51b1c6f75fadc0071e8cc4e7bbb3c",
+    },
+    {
+      sequence: 158_104,
+      occurrence: 1_351,
+      instructionCount: 276_359_417,
+      byteLength: 2_764_816,
+      allocationId: 1_351,
+      address: 1_064_914_552,
+      reservedByteLength: 2_764_816,
+      liveAllocations: 925,
+      fromGeneration: 289_892,
+      generation: 289_893,
+      dirtyPages: 676,
+      firstDirtyPage: 1_064_910_848,
+      lastDirtyPage: 1_067_675_648,
+      owner: 81,
+      payloadBytes: 2_768_896,
+      payloadSha256:
+        "bd2bba2c8fe1997c93614ca3795da8ea6aef0956f2b9e01909e909be4c79e56a",
+    },
+  ];
+  for (const [index, completion] of checkpoint.completions.entries()) {
+    const expected = expectedCompletions[index];
+    const call = completion.call;
+    assert.equal(call.sequence, expected.sequence);
+    assert.equal(call.occurrence, expected.occurrence);
+    assert.equal(call.trapInstructionCount, expected.instructionCount);
+    assert.deepEqual(call.arguments, [0x6801_0001, 0, expected.byteLength]);
+    assert.equal(call.implementationId, "kernel32.heap-alloc.v2");
+    assert.equal(call.returnAddress, 269_109_811);
+    assert.equal(call.stackPointerBefore, 7_337_172);
+    assert.equal(call.stackPointerAfter, 7_337_188);
+    assert.equal(call.lastError, 0);
+    assert.deepEqual(call.guestWrites, []);
+    assert.equal(call.heapAllocation?.heapHandle, 0x6801_0001);
+    assert.equal(
+      call.heapAllocation?.allocation?.byteLength,
+      expected.byteLength,
+    );
+    assert.equal(call.heapAllocation?.allocation?.id, expected.allocationId);
+    assert.equal(call.heapAllocation?.allocation?.address, expected.address);
+    assert.equal(
+      call.heapAllocation?.allocation?.reservedByteLength,
+      expected.reservedByteLength,
+    );
+    assert.equal(
+      call.heapAllocation?.allocation?.initialization,
+      "deterministic-uninitialized",
+    );
+    assert.equal(
+      call.heapAllocation?.liveAllocations,
+      expected.liveAllocations,
+    );
+    assert.deepEqual(call.result, {
+      action: "set",
+      value: expected.address,
+    });
+    assert.equal(
+      completion.allocationDelta?.fromGeneration,
+      expected.fromGeneration,
+    );
+    assert.equal(completion.allocationDelta?.generation, expected.generation);
+    assert.deepEqual(completion.allocationDelta?.mappingOperations, []);
+    assert.equal(
+      completion.allocationDelta?.dirtyPages?.length,
+      expected.dirtyPages,
+    );
+    assert.equal(
+      completion.allocationDelta?.dirtyPages[0]?.address,
+      expected.firstDirtyPage,
+    );
+    assert.equal(
+      completion.allocationDelta?.dirtyPages.at(-1)?.address,
+      expected.lastDirtyPage,
+    );
+    assert(
+      completion.allocationDelta?.dirtyPages.every(
+        ({ owner }) => owner === expected.owner,
+      ),
+    );
+    assert.deepEqual(completion.allocationDelta?.cacheEffects, {
+      flushTlb: false,
+      invalidateInstructionFetch: false,
+      invalidateGeneratedCode: false,
+    });
+    assert.equal(completion.allocationDelta?.payloadBytes, expected.payloadBytes);
+    assert.equal(
+      completion.allocationDelta?.payloadSha256,
+      expected.payloadSha256,
+    );
+    assert.equal(completion.memoryAfter?.generation, expected.generation);
+    assert.equal(
+      completion.memoryAfter?.acknowledgedGeneration,
+      expected.generation,
+    );
+  }
+  assert.equal(checkpoint?.instructionCount, 276_360_829);
+  assert.equal(result.terminal.instructionCount, 276_360_829);
+  assert.deepEqual(checkpoint?.nextEndpoint, {
+    id: 8,
+    address: 0x7f00_0070,
+    module: "WINMM.dll",
+    symbol: { kind: "name", name: "timeGetTime" },
+  });
+  assert.deepEqual(checkpoint?.nextArguments, []);
+  assert.equal(checkpoint?.nextReturnAddress, 268_715_302);
+  assert.equal(checkpoint?.nextStackPointer, 7_337_236);
+  assert.equal(
+    checkpoint?.memoryContentSha256,
+    "102795f1f536f78a6faedf72f2114b82123d024dd51dfd9ff6a1bf8032ce846a",
+  );
+}
+
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -28664,9 +28916,11 @@ function buildGenericRuntimeReentryReport({
     if (runtimeTraplessExecutionBudgetEnabled) {
       assert.equal(
         genericResult.checkpointCompletion?.capability,
-        largeHeapFreeCheckpointEnabled
-          ? "kernel32-heap-free-large-buffer"
-          : "runtime-trapless-execution-budget",
+        heapAlloc24CheckpointEnabled
+          ? "kernel32-heap-alloc-24-byte-buffer"
+          : largeHeapFreeCheckpointEnabled
+            ? "kernel32-heap-free-large-buffer"
+            : "runtime-trapless-execution-budget",
       );
     } else if (user32AsyncKeyStateInitialScanContinuationCheckpointEnabled) {
       assert.equal(genericResult.checkpointCompletion, undefined);
@@ -28855,6 +29109,8 @@ function buildGenericRuntimeReentryReport({
         : runtimeThreadStackGrowthEnabled
           ? largeHeapFreeCheckpointEnabled
             ? "vine.v86-bgi-kernel32-heap-free-large-buffer"
+            : heapAlloc24CheckpointEnabled
+              ? "vine.v86-bgi-kernel32-heap-alloc-24-byte-buffer"
             : runtimeTraplessExecutionBudgetCheckpointEnabled
               ? "vine.v86-bgi-runtime-trapless-execution-budget"
               : "vine.v86-bgi-runtime-thread-stack-growth"
@@ -30118,6 +30374,9 @@ function buildGenericRuntimeReentryReport({
                 : genericResult.checkpointCompletion.capability ===
                     "kernel32-heap-free-large-buffer"
                   ? "BGI atomically retired the reached large private-heap buffers and stopped before the next owned endpoint"
+                  : genericResult.checkpointCompletion.capability ===
+                      "kernel32-heap-alloc-24-byte-buffer"
+                    ? "BGI completed the reached private-heap allocation and coalesced reuse batch and stopped before the next owned endpoint"
                 : genericResult.checkpointCompletion.capability ===
                     "user32-async-key-state-initial-scan"
                 ? "BGI completed the native-derived 38-key initial GetAsyncKeyState scan without injected input and stopped before the next owned endpoint"

@@ -183,11 +183,16 @@ export function validateCurrentCheckpoint(manifest) {
   const largeHeapFreeActive =
     root.activeRuntimeCheckpoint?.profile ===
       "kernel32-heap-free-large-buffer";
+  const heapAlloc24Active =
+    root.activeRuntimeCheckpoint?.profile ===
+      "kernel32-heap-alloc-24-byte-buffer";
   const runtimeTraplessExecutionBudgetCheckpointActive =
     root.activeRuntimeCheckpoint?.profile ===
       "runtime-trapless-execution-budget";
   const runtimeTraplessExecutionBudgetActive =
-    runtimeTraplessExecutionBudgetCheckpointActive || largeHeapFreeActive;
+    runtimeTraplessExecutionBudgetCheckpointActive ||
+    largeHeapFreeActive ||
+    heapAlloc24Active;
   const runtimeThreadStackGrowthCheckpointActive =
     root.activeRuntimeCheckpoint?.profile === "runtime-thread-stack-growth";
   const runtimeThreadStackGrowthActive =
@@ -673,7 +678,24 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "2,3,4,5,6,7,8"
                   : "2,3,4";
-  const profileExpectations = largeHeapFreeActive
+  const profileExpectations = heapAlloc24Active
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 125_742,
+        browserMappingDirtyPages: 145_847,
+        browserSuccessExecutionTransitions: 567_625,
+        latestSchema: "vine.v86-bgi-kernel32-heap-alloc-24-byte-buffer",
+        latestWritebackBatches: 161_064,
+        latestWritebackDirtyPages: 236_694,
+        latestWritebackChangedBytes: 36_243_225,
+        latestHostDeltaBatches: 125_742,
+        latestFinalMemoryGeneration: 289_894,
+        semanticCallDigestSha256:
+          "2cfdbb2fec2315784a72e565b766be7d7fe90ee33f50ce4f4e5c1edb44c4ac00",
+        memoryContentSha256:
+          "102795f1f536f78a6faedf72f2114b82123d024dd51dfd9ff6a1bf8032ce846a",
+      }
+    : largeHeapFreeActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 125_738,
@@ -1787,9 +1809,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v56") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v57") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v56",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v57",
     );
   }
   if (
@@ -2573,7 +2595,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (largeHeapFreeActive
+      (heapAlloc24Active
+        ? 25
+        : largeHeapFreeActive
         ? 24
         : runtimeTraplessExecutionBudgetActive
           ? 23
@@ -19450,6 +19474,8 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.implementation !==
       (largeHeapFreeActive
         ? "Rust-owned large ordinary private-heap allocation retirement with failure-atomic deterministic poison publication through binary host deltas"
+        : heapAlloc24Active
+          ? "Rust-owned private-heap allocation identity with failure-atomic small-buffer publication and coalesced ordinary-segment reuse through binary host deltas"
         : runtimeTraplessExecutionBudgetActive
           ? "Bounded Rust/Wasm guest execution across serviceable page faults to the next runtime-owned endpoint without adding guest-visible semantics"
         : runtimeThreadStackGrowthActive
@@ -21967,6 +21993,198 @@ export function validateCurrentCheckpoint(manifest) {
       }
     }
   }
+  if (heapAlloc24Active) {
+    const expectedCompletion = currentStop.completion ?? {};
+    const expectedEndpoint = currentStop.nextEndpoint ?? {};
+    if (
+      currentStop.kind !== "capability-checkpoint" ||
+      currentStop.nextCheckpoint !== "winmm-time-get-time-post-heap-reuse" ||
+      currentStop.pausedHistoricalCheckpoint !==
+        "kernel32-heap-alloc-24-byte-buffer" ||
+      currentStop.instructionCount !== 276_360_829 ||
+      currentStop.capabilityCluster !== "winmm-process-clock" ||
+      currentStop.reason !==
+        "kernel32-heap-alloc-24-byte-buffer-checkpoint-complete" ||
+      expectedCompletion.capability !==
+        "kernel32-heap-alloc-24-byte-buffer" ||
+      expectedCompletion.implementationId !== "kernel32.heap-alloc.v2" ||
+      expectedCompletion.requiredCompletions !== 4 ||
+      expectedCompletion.completionCount !== 4 ||
+      expectedCompletion.firstCompletionSequence !== 158_101 ||
+      expectedCompletion.firstCompletionInstructionCount !== 276_358_985 ||
+      expectedCompletion.lastCompletionSequence !== 158_104 ||
+      expectedCompletion.lastCompletionInstructionCount !== 276_359_417 ||
+      expectedEndpoint.endpointKind !== "runtime-system-export" ||
+      expectedEndpoint.endpointId !== 8 ||
+      expectedEndpoint.api?.toLowerCase() !== "winmm.dll!timegettime" ||
+      expectedEndpoint.endpointAddress !== "0x7f000070" ||
+      expectedEndpoint.iatAddress !== "0x100d14e4" ||
+      expectedEndpoint.observedModule?.toLowerCase() !== "winmm.dll" ||
+      expectedEndpoint.observedSymbol !== "timeGetTime" ||
+      expectedEndpoint.disposition !== "declared-runtime-export" ||
+      expectedEndpoint.arguments?.length !== 0 ||
+      active.runtimeExecutionBudgetScope !==
+        "profile-scoped-bounded-slices-across-serviceable-page-faults-to-next-runtime-owned-endpoint" ||
+      active.runtimeHeapBacking?.capabilityExpansionPausedAt !==
+        "winmm-time-get-time-post-heap-reuse" ||
+      !Number.isSafeInteger(bgiBrowserEvidence.statusMessagesObserved) ||
+      bgiBrowserEvidence.statusMessagesObserved <
+        bgiBrowserEvidence.statusMessagesRetained ||
+      bgiBrowserEvidence.statusMessagesRetained !== 4_096
+    ) {
+      errors.push("HeapAlloc checkpoint stop is invalid");
+    }
+    const expectedAllocations = [
+      {
+        sequence: 158_101,
+        instructionCount: 276_358_985,
+        occurrence: 1_348,
+        arguments: "0x68010001,0x00000000,24",
+        allocationId: 1_348,
+        allocationAddress: "0x204797c0",
+        allocationBytes: 24,
+        reservedBytes: 24,
+        liveAllocations: 922,
+        dirtyPageCount: 1,
+        firstDirtyPage: "0x20479000",
+        lastDirtyPage: "0x20479000",
+        dirtyPageOwner: 10,
+        payloadBytes: 4_096,
+        payloadSha256:
+          "19dc238b6918ca49a93f6dde58b62bbb1991d6d3171cdba5758f6a551c155680",
+      },
+      {
+        sequence: 158_102,
+        instructionCount: 276_359_082,
+        occurrence: 1_349,
+        arguments: "0x68010001,0x00000000,11",
+        allocationId: 1_349,
+        allocationAddress: "0x20479770",
+        allocationBytes: 11,
+        reservedBytes: 16,
+        liveAllocations: 923,
+        dirtyPageCount: 1,
+        firstDirtyPage: "0x20479000",
+        lastDirtyPage: "0x20479000",
+        dirtyPageOwner: 10,
+        payloadBytes: 4_096,
+        payloadSha256:
+          "7231e9584627a03393d45ac72dea04eaa1ab0c788d3ac02272cbeb25399af71c",
+      },
+      {
+        sequence: 158_103,
+        instructionCount: 276_359_270,
+        occurrence: 1_350,
+        arguments: "0x68010001,0x00000000,16",
+        allocationId: 1_350,
+        allocationAddress: "0x204797d8",
+        allocationBytes: 16,
+        reservedBytes: 16,
+        liveAllocations: 924,
+        dirtyPageCount: 1,
+        firstDirtyPage: "0x20479000",
+        lastDirtyPage: "0x20479000",
+        dirtyPageOwner: 10,
+        payloadBytes: 4_096,
+        payloadSha256:
+          "0ef4481e88170824629eac59c7f8ea695ee51b1c6f75fadc0071e8cc4e7bbb3c",
+      },
+      {
+        sequence: 158_104,
+        instructionCount: 276_359_417,
+        occurrence: 1_351,
+        arguments: "0x68010001,0x00000000,2764816",
+        allocationId: 1_351,
+        allocationAddress: "0x3f794e78",
+        allocationBytes: 2_764_816,
+        reservedBytes: 2_764_816,
+        liveAllocations: 925,
+        dirtyPageCount: 676,
+        firstDirtyPage: "0x3f794000",
+        lastDirtyPage: "0x3fa37000",
+        dirtyPageOwner: 81,
+        payloadBytes: 2_768_896,
+        payloadSha256:
+          "bd2bba2c8fe1997c93614ca3795da8ea6aef0956f2b9e01909e909be4c79e56a",
+      },
+    ];
+    const transportGenerations = {
+      "browser BGI": [
+        [305_836, 305_837, 305_836],
+        [305_838, 305_839, 305_838],
+        [305_840, 305_841, 305_840],
+        [305_842, 305_843, 305_842],
+      ],
+      latest: [
+        [289_886, 289_887, 289_887],
+        [289_888, 289_889, 289_889],
+        [289_890, 289_891, 289_891],
+        [289_892, 289_893, 289_893],
+      ],
+    };
+    for (const [label, completion] of [
+      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+    ]) {
+      if (
+        completion.capability !== "kernel32-heap-alloc-24-byte-buffer" ||
+        completion.implementationId !== "kernel32.heap-alloc.v2" ||
+        completion.requiredCompletions !== 4 ||
+        completion.completionCount !== 4 ||
+        completion.firstCompletionSequence !== 158_101 ||
+        completion.firstCompletionInstructionCount !== 276_358_985 ||
+        completion.lastCompletionSequence !== 158_104 ||
+        completion.lastCompletionInstructionCount !== 276_359_417 ||
+        completion.instructionCount !== 276_360_829 ||
+        completion.nextEndpoint?.endpointId !== 8 ||
+        completion.nextEndpoint?.endpointAddress !== "0x7f000070" ||
+        completion.nextEndpoint?.api?.toLowerCase() !==
+          "winmm.dll!timegettime" ||
+        completion.nextArguments?.length !== 0 ||
+        completion.nextReturnAddress !== "0x10044526" ||
+        completion.nextStackPointer !== "0x006ff514" ||
+        completion.memoryContentSha256 !==
+          "102795f1f536f78a6faedf72f2114b82123d024dd51dfd9ff6a1bf8032ce846a" ||
+        completion.completions?.length !== 4
+      ) {
+        errors.push(`${label} HeapAlloc checkpoint evidence is invalid`);
+        continue;
+      }
+      for (const [index, allocation] of completion.completions.entries()) {
+        const expected = expectedAllocations[index];
+        const generations = transportGenerations[label][index];
+        if (
+          allocation.sequence !== expected.sequence ||
+          allocation.instructionCount !== expected.instructionCount ||
+          allocation.occurrence !== expected.occurrence ||
+          allocation.arguments?.join(",") !== expected.arguments ||
+          allocation.allocationId !== expected.allocationId ||
+          allocation.allocationAddress !== expected.allocationAddress ||
+          allocation.allocationBytes !== expected.allocationBytes ||
+          allocation.reservedBytes !== expected.reservedBytes ||
+          allocation.initialization !== "deterministic-uninitialized" ||
+          allocation.liveAllocations !== expected.liveAllocations ||
+          allocation.resultAddress !== expected.allocationAddress ||
+          allocation.lastError !== 0 ||
+          allocation.guestWriteBytes !== 0 ||
+          allocation.deltaFromGeneration !== generations[0] ||
+          allocation.deltaGeneration !== generations[1] ||
+          allocation.memoryAcknowledgedGeneration !== generations[2] ||
+          allocation.deltaGeneration !== allocation.deltaFromGeneration + 1 ||
+          allocation.mappingOperationCount !== 0 ||
+          allocation.dirtyPageCount !== expected.dirtyPageCount ||
+          allocation.firstDirtyPage !== expected.firstDirtyPage ||
+          allocation.lastDirtyPage !== expected.lastDirtyPage ||
+          allocation.dirtyPageOwner !== expected.dirtyPageOwner ||
+          allocation.cacheInvalidation !== false ||
+          allocation.payloadBytes !== expected.payloadBytes ||
+          allocation.payloadSha256 !== expected.payloadSha256
+        ) {
+          errors.push(`${label} HeapAlloc completion ${index} is invalid`);
+        }
+      }
+    }
+  }
   if (active.profile === "d3d9-end-scene") {
     if (
       currentStop.nextEndpoint?.observedModule !== "<com>" ||
@@ -22949,10 +23167,10 @@ export function validateCurrentCheckpoint(manifest) {
                 errors.push(`${label} current-thread stack-growth evidence is invalid`);
               }
             }
-            if (largeHeapFreeActive) {
+            if (largeHeapFreeActive || heapAlloc24Active) {
               if (currentStop.kind !== "capability-checkpoint") {
                 errors.push(
-                  "large HeapFree continuation must end at a capability checkpoint",
+                  "heap lifecycle continuation must end at a capability checkpoint",
                 );
               }
             } else if (runtimeTraplessExecutionBudgetActive) {
@@ -24188,6 +24406,9 @@ export function renderReadmeStatus(manifest) {
                                 : next.completion.capability ===
                                     "kernel32-heap-free-large-buffer"
                                   ? "large ordinary private-heap frees"
+                                  : next.completion.capability ===
+                                      "kernel32-heap-alloc-24-byte-buffer"
+                                    ? "private-heap allocations"
                                   : next.completion.capability ===
                                       "user32-async-key-state-input-continuation"
                                     ? "held-key async-key queries"

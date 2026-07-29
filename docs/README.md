@@ -112,6 +112,7 @@ active completion target は第三者向けの汎用 runtime や multi-title rel
 | [bgi-private-heap-size-16.md](bgi-private-heap-size-16.md) | virtual path由来の16-byte bufferをどうheapへ持つか | native size非import、dirty-only allocation、HeapAlloc size-4 stop |
 | [bgi-private-heap-size-4.md](bgi-private-heap-size-4.md) | empty environmentのterminator tableをどうheapへ持つか | native environment非import、zeroed allocation、HeapFree stop |
 | [bgi-private-heap-free-size-1.md](bgi-private-heap-free-size-1.md) | reached one-byte blockをどう安全にfreeするか | exact heap／pointer lifetime、transactional poison、HeapAlloc size-128 stop |
+| [bgi-private-heap-allocation-reuse.md](bgi-private-heap-allocation-reuse.md) | adjacent free rangeをまたぐreached allocationをどう固定するか | fresh allocation identity、coalesced first-fit、Node／Chrome dirty-delta equivalence |
 | [bgi-private-heap-size-128.md](bgi-private-heap-size-128.md) | fixed 32-entry tableをどうheapへ持つか | native reuse非import、128-byte zeroed allocation、IsProcessorFeaturePresent stop |
 | [bgi-is-processor-feature-present.md](bgi-is-processor-feature-present.md) | CPU feature queryをhost discoveryなしでどう返すか | explicit presence map、BOOL／LastError、SetUnhandledExceptionFilter stop |
 | [bgi-set-unhandled-exception-filter.md](bgi-set-unhandled-exception-filter.md) | guest top-level filterをどこで所有するか | process-owned replacement、executable preflight、HeapSize stop |

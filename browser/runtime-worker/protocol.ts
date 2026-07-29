@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 56 as const;
+export const protocolVersion = 57 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -48,7 +48,8 @@ export type BgiCapabilityProfile =
   | "user32-is-iconic"
   | "runtime-thread-stack-growth"
   | "runtime-trapless-execution-budget"
-  | "kernel32-heap-free-large-buffer";
+  | "kernel32-heap-free-large-buffer"
+  | "kernel32-heap-alloc-24-byte-buffer";
 
 export type RuntimeKeyboardSourceEventKind =
   "focus-gained" | "focus-lost" | "key-down" | "key-up";
@@ -815,6 +816,17 @@ export interface RuntimeSupportedCallSnapshot {
   gdiplus?: RuntimeGdiplusSnapshot;
   imm32?: RuntimeImm32Snapshot;
   virtualMemory?: RuntimeVirtualMemorySnapshot;
+  heapAllocation?: {
+    heapHandle: number;
+    allocation: {
+      id: number;
+      address: number;
+      byteLength: number;
+      reservedByteLength: number;
+      initialization: "zeroed" | "deterministic-uninitialized";
+    };
+    liveAllocations: number;
+  };
   heapFree?: {
     heapHandle: number;
     allocation: {
@@ -1544,6 +1556,46 @@ export interface SessionReport {
           memoryAfter: { generation: number; acknowledgedGeneration: number };
         }>;
         freedByte: 0xdd;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        nextArguments: number[];
+        nextReturnAddress: number;
+        nextStackPointer: number;
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "kernel32-heap-alloc-24-byte-buffer";
+        implementationId: "kernel32.heap-alloc.v2";
+        requiredCompletions: number;
+        completionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        completions: Array<{
+          call: RuntimeSupportedCallSnapshot;
+          allocationDelta: {
+            fromGeneration: number;
+            generation: number;
+            mappingOperations: [];
+            dirtyPages: Array<{ address: number; owner: number }>;
+            cacheEffects: {
+              flushTlb: boolean;
+              invalidateInstructionFetch: boolean;
+              invalidateGeneratedCode: boolean;
+            };
+            payloadBytes: number;
+            payloadSha256: string;
+          };
+          memoryAfter: { generation: number; acknowledgedGeneration: number };
+        }>;
         instructionCount: number;
         nextEndpoint: {
           id: number;
