@@ -231,6 +231,21 @@ second synchronization or scheduler authority. Its stable wait contract is
 documented in
 [bgi-wait-for-single-object-ex.md](bgi-wait-for-single-object-ex.md).
 
+The `kernel32-enter-critical-section-post-wait` profile then consumes the
+contiguous synchronization block through its first non-critical-section owned
+endpoint. Controlled thread `8193` completes three balanced acquire/release
+roundtrips: two on `0x1014C8D0`, followed by one on `0x100FF820`. Every call
+preserves EAX and LastError and publishes the existing 24-byte locked or
+unlocked representation through the Rust guest-memory transaction. Node and
+Chrome agree on the six ordered completions, both logical identities, final
+guest memory, and the terminal `SetWaitableTimer` frame.
+
+This batch adds no new synchronization authority or handler. It is recurrence
+evidence for `RuntimeSynchronization`, including owner-thread publication and
+balanced release before the next timer arm. Browser code records only
+non-owning completion evidence. Exact call positions, generations, terminal
+arguments, and report identities remain manifest-owned.
+
 This evidence does not add cross-thread critical-section blocking, fairness,
 abandonment, timeout, or APC semantics.
 

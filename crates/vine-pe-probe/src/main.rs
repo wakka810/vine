@@ -14458,6 +14458,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "kernel32-heap-alloc-24-byte-buffer"
                 | "winmm-time-get-time-post-heap-reuse"
                 | "kernel32-enter-critical-section-post-clock"
+                | "kernel32-enter-critical-section-post-wait"
                 | "kernel32-wait-for-single-object-ex-post-critical-section" => {
                     GenericRuntimeCapability::User32AsyncKeyStateInitialScan
                 }

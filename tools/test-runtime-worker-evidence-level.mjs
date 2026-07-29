@@ -12,7 +12,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 60 as const/u);
+assert.match(protocol, /protocolVersion = 61 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -82,6 +82,7 @@ assert.match(protocol, /capability: "kernel32-heap-alloc-24-byte-buffer"/u);
 assert.match(protocol, /allocationDelta: \{/u);
 assert.match(protocol, /winmm-time-get-time-post-heap-reuse/u);
 assert.match(protocol, /kernel32-enter-critical-section-post-clock/u);
+assert.match(protocol, /kernel32-enter-critical-section-post-wait/u);
 assert.match(
   protocol,
   /kernel32-wait-for-single-object-ex-post-critical-section/u,
@@ -93,6 +94,10 @@ assert.match(
 assert.match(
   protocol,
   /capability: "kernel32-enter-critical-section-post-clock"/u,
+);
+assert.match(
+  protocol,
+  /capability: "kernel32-enter-critical-section-post-wait"/u,
 );
 assert.match(
   protocol,

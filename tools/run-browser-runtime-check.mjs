@@ -97,11 +97,14 @@ const postHeapTimeGetTimeProfile =
   bgiProfile === "winmm-time-get-time-post-heap-reuse";
 const postClockCriticalSectionProfile =
   bgiProfile === "kernel32-enter-critical-section-post-clock";
+const postWaitCriticalSectionProfile =
+  bgiProfile === "kernel32-enter-critical-section-post-wait";
 const postCriticalSectionWaitProfile =
   bgiProfile === "kernel32-wait-for-single-object-ex-post-critical-section";
 const postHeapTimeGetTimeEvidenceProfile =
   postHeapTimeGetTimeProfile ||
   postClockCriticalSectionProfile ||
+  postWaitCriticalSectionProfile ||
   postCriticalSectionWaitProfile;
 const runtimeThreadStackGrowthProfile =
   bgiProfile === "runtime-thread-stack-growth" ||
@@ -187,7 +190,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v60";
+const runtimeProtocol = "vine.browser-runtime-worker.v61";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -853,6 +856,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-heap-alloc-24-byte-buffer",
         "winmm-time-get-time-post-heap-reuse",
         "kernel32-enter-critical-section-post-clock",
+        "kernel32-enter-critical-section-post-wait",
         "kernel32-wait-for-single-object-ex-post-critical-section",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
@@ -909,6 +913,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-heap-alloc-24-byte-buffer",
         "winmm-time-get-time-post-heap-reuse",
         "kernel32-enter-critical-section-post-clock",
+        "kernel32-enter-critical-section-post-wait",
         "kernel32-wait-for-single-object-ex-post-critical-section",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
@@ -965,12 +970,14 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-heap-alloc-24-byte-buffer",
         "winmm-time-get-time-post-heap-reuse",
         "kernel32-enter-critical-section-post-clock",
+        "kernel32-enter-critical-section-post-wait",
         "kernel32-wait-for-single-object-ex-post-critical-section",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
             ? runtimeThreadStackGrowthProfile
               ? postClockCriticalSectionProfile ||
+                postWaitCriticalSectionProfile ||
                 postCriticalSectionWaitProfile
                 ? 2_457
                 : 2_456
@@ -1033,6 +1040,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         heapAlloc24Profile ||
         postHeapTimeGetTimeProfile ||
         postClockCriticalSectionProfile ||
+        postWaitCriticalSectionProfile ||
         postCriticalSectionWaitProfile ||
         user32AsyncKeyStateInputProfile ||
         user32AsyncKeyStateInitialScanCheckpointProfile ||
@@ -1080,7 +1088,8 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         const pacingCount = user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
             ? runtimeThreadStackGrowthProfile
-              ? postCriticalSectionWaitProfile
+              ? postCriticalSectionWaitProfile ||
+                postWaitCriticalSectionProfile
                 ? 11_206
                 : 11_205
               : user32IsIconicProfile
@@ -5413,6 +5422,56 @@ function validateBgiEquivalence(browser, oracle) {
           ),
         },
         "Chrome Worker post-clock critical-section roundtrip differs from the Node oracle",
+      );
+    }
+    if (
+      oracleCheckpoint.capability ===
+      "kernel32-enter-critical-section-post-wait"
+    ) {
+      const normalizeCriticalSectionCall = (call) => ({
+        ...normalizeSemanticCall(call),
+        implementationId: call.implementationId,
+      });
+      assert.deepEqual(
+        {
+          firstCompletionSequence: browserCheckpoint.firstCompletionSequence,
+          firstCompletionInstructionCount:
+            browserCheckpoint.firstCompletionInstructionCount,
+          lastCompletionSequence: browserCheckpoint.lastCompletionSequence,
+          lastCompletionInstructionCount:
+            browserCheckpoint.lastCompletionInstructionCount,
+          roundtripCount: browserCheckpoint.roundtripCount,
+          criticalSectionAddresses:
+            browserCheckpoint.criticalSectionAddresses,
+          threadId: browserCheckpoint.threadId,
+          balanced: browserCheckpoint.balanced,
+          nextArguments: browserCheckpoint.nextArguments,
+          nextReturnAddress: browserCheckpoint.nextReturnAddress,
+          nextStackPointer: browserCheckpoint.nextStackPointer,
+          completions: browserCheckpoint.completions.map(
+            normalizeCriticalSectionCall,
+          ),
+        },
+        {
+          firstCompletionSequence: oracleCheckpoint.firstCompletionSequence,
+          firstCompletionInstructionCount:
+            oracleCheckpoint.firstCompletionInstructionCount,
+          lastCompletionSequence: oracleCheckpoint.lastCompletionSequence,
+          lastCompletionInstructionCount:
+            oracleCheckpoint.lastCompletionInstructionCount,
+          roundtripCount: oracleCheckpoint.roundtripCount,
+          criticalSectionAddresses:
+            oracleCheckpoint.criticalSectionAddresses,
+          threadId: oracleCheckpoint.threadId,
+          balanced: oracleCheckpoint.balanced,
+          nextArguments: oracleCheckpoint.nextArguments,
+          nextReturnAddress: oracleCheckpoint.nextReturnAddress,
+          nextStackPointer: oracleCheckpoint.nextStackPointer,
+          completions: oracleCheckpoint.completions.map(
+            normalizeCriticalSectionCall,
+          ),
+        },
+        "Chrome Worker post-wait critical-section batch differs from the Node oracle",
       );
     }
     if (

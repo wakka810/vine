@@ -186,6 +186,13 @@ not a new timeout, APC, cross-thread waiter, or browser-clock semantic claim.
 Exact report identities and the follow-on checkpoint remain authoritative only
 in [current-checkpoint.json](current-checkpoint.json).
 
+The follow-on critical-section profile consumes the complete contiguous
+balanced batch and stops before the next `SetWaitableTimer` arm. That endpoint
+is a recurrence of the same Rust-owned timer state described here; reaching it
+does not arm the timer in the critical-section checkpoint or create a browser
+timer authority. The balanced batch contract is documented in
+[bgi-critical-section-synchronization.md](bgi-critical-section-synchronization.md).
+
 ## Non-claims
 
 - Alertable mode is accepted, but APC delivery and `WAIT_IO_COMPLETION` are not

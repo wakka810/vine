@@ -192,9 +192,14 @@ export function validateCurrentCheckpoint(manifest) {
   const postClockCriticalSectionActive =
     root.activeRuntimeCheckpoint?.profile ===
       "kernel32-enter-critical-section-post-clock";
+  const postWaitCriticalSectionActive =
+    root.activeRuntimeCheckpoint?.profile ===
+      "kernel32-enter-critical-section-post-wait";
   const postCriticalSectionWaitActive =
     root.activeRuntimeCheckpoint?.profile ===
       "kernel32-wait-for-single-object-ex-post-critical-section";
+  const postCriticalSectionWaitEvidenceActive =
+    postWaitCriticalSectionActive || postCriticalSectionWaitActive;
   const runtimeTraplessExecutionBudgetCheckpointActive =
     root.activeRuntimeCheckpoint?.profile ===
       "runtime-trapless-execution-budget";
@@ -204,6 +209,7 @@ export function validateCurrentCheckpoint(manifest) {
     heapAlloc24Active ||
     postHeapTimeGetTimeActive ||
     postClockCriticalSectionActive ||
+    postWaitCriticalSectionActive ||
     postCriticalSectionWaitActive;
   const runtimeThreadStackGrowthCheckpointActive =
     root.activeRuntimeCheckpoint?.profile === "runtime-thread-stack-growth";
@@ -365,7 +371,7 @@ export function validateCurrentCheckpoint(manifest) {
     : createDirectoryAActive
       ? "15954287,16290526"
       : "15953766,16290005";
-  const timerCycleCount = postCriticalSectionWaitActive
+  const timerCycleCount = postCriticalSectionWaitEvidenceActive
     ? 11_206
     : runtimeThreadStackGrowthActive
     ? 11_205
@@ -463,7 +469,7 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
                   : "11973553,11973700,11973847";
-  const timerWaitSequences = postCriticalSectionWaitActive
+  const timerWaitSequences = postCriticalSectionWaitEvidenceActive
     ? "18682,158108"
     : runtimeThreadStackGrowthActive
     ? "18682,158035"
@@ -492,7 +498,7 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "18682,18690,18698,18706,18714,18722,18730"
                   : "18682,18690,18698";
-  const timerWaitInstructionCounts = postCriticalSectionWaitActive
+  const timerWaitInstructionCounts = postCriticalSectionWaitEvidenceActive
     ? "11974080,276361050"
     : runtimeThreadStackGrowthActive
     ? "11974080,225662006"
@@ -521,7 +527,7 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
                   : "11973559,11973706,11973853";
-  const timerGenerations = postCriticalSectionWaitActive
+  const timerGenerations = postCriticalSectionWaitEvidenceActive
     ? "1,11202"
     : runtimeThreadStackGrowthActive
     ? "1,11201"
@@ -550,7 +556,7 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "1,2,3,4,5,6,7"
                   : "1,2,3";
-  const timerClockGenerations = postCriticalSectionWaitActive
+  const timerClockGenerations = postCriticalSectionWaitEvidenceActive
     ? "1,11206"
     : runtimeThreadStackGrowthActive
     ? "1,11205"
@@ -565,7 +571,7 @@ export function validateCurrentCheckpoint(manifest) {
     : d3d9PostRasterStatusWaitableTimerActive
     ? "1,9187"
     : timerGenerations;
-  const timerDeadlines = postCriticalSectionWaitActive
+  const timerDeadlines = postCriticalSectionWaitEvidenceActive
     ? "5000,56075000"
     : runtimeThreadStackGrowthActive
     ? "5000,56070000"
@@ -594,7 +600,7 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "5000,10000,15000,20000,25000,30000,35000"
                   : "5000,10000,15000";
-  const timerPacingRequestIds = postCriticalSectionWaitActive
+  const timerPacingRequestIds = postCriticalSectionWaitEvidenceActive
     ? "3,11293"
     : runtimeThreadStackGrowthActive
     ? "3,11291"
@@ -623,7 +629,7 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "3,4,5,6,7,8,9"
                   : "3,4,5";
-  const timerPacingRegistrationIds = postCriticalSectionWaitActive
+  const timerPacingRegistrationIds = postCriticalSectionWaitEvidenceActive
     ? "1,11206"
     : runtimeThreadStackGrowthActive
     ? "1,11205"
@@ -652,7 +658,7 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "1,2,3,4,5,6,7"
                   : "1,2,3";
-  const timerPacingClockGenerations = postCriticalSectionWaitActive
+  const timerPacingClockGenerations = postCriticalSectionWaitEvidenceActive
     ? "0,11205"
     : runtimeThreadStackGrowthActive
     ? "0,11204"
@@ -681,7 +687,7 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "0,1,2,3,4,5,6"
                   : "0,1,2";
-  const timerNextRegistrationIds = postCriticalSectionWaitActive
+  const timerNextRegistrationIds = postCriticalSectionWaitEvidenceActive
     ? "2,11207"
     : runtimeThreadStackGrowthActive
     ? "2,11206"
@@ -710,7 +716,25 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "2,3,4,5,6,7,8"
                   : "2,3,4";
-  const profileExpectations = postCriticalSectionWaitActive
+  const profileExpectations = postWaitCriticalSectionActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 125_750,
+        browserMappingDirtyPages: 145_855,
+        browserSuccessExecutionTransitions: 567_659,
+        latestSchema:
+          "vine.v86-bgi-kernel32-enter-critical-section-post-wait",
+        latestWritebackBatches: 161_074,
+        latestWritebackDirtyPages: 236_711,
+        latestWritebackChangedBytes: 36_243_510,
+        latestHostDeltaBatches: 125_750,
+        latestFinalMemoryGeneration: 289_912,
+        semanticCallDigestSha256:
+          "63091c71ceb92caa0a781fe23ddd1925b800daaf03d48e82263fb618a992f5de",
+        memoryContentSha256:
+          "bd92a619b4ee428eab13238b769afd60f326ce22fcf86d22f3a46fc11df56700",
+      }
+    : postCriticalSectionWaitActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 125_744,
@@ -1894,9 +1918,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v60") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v61") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v60",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v61",
     );
   }
   if (
@@ -2680,7 +2704,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (postCriticalSectionWaitActive
+      (postWaitCriticalSectionActive
+        ? 29
+        : postCriticalSectionWaitActive
         ? 28
         : postClockCriticalSectionActive
         ? 27
@@ -2724,7 +2750,8 @@ export function validateCurrentCheckpoint(manifest) {
             ? 29
             : 21) ||
     bgiMappingOperations.commit !==
-      (postClockCriticalSectionActive || postCriticalSectionWaitActive
+      (postClockCriticalSectionActive ||
+      postCriticalSectionWaitEvidenceActive
         ? 3_114
         : runtimeThreadStackGrowthActive
         ? 2_439
@@ -2778,7 +2805,8 @@ export function validateCurrentCheckpoint(manifest) {
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     bgiBrowserEvidence.contextSwitches !==
-      (postClockCriticalSectionActive || postCriticalSectionWaitActive
+      (postClockCriticalSectionActive ||
+      postCriticalSectionWaitEvidenceActive
         ? 2_457
         : runtimeThreadStackGrowthActive
         ? 2_456
@@ -19567,7 +19595,9 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (postCriticalSectionWaitActive
+      (postWaitCriticalSectionActive
+        ? "Rust-owned three-roundtrip critical-section batch through RuntimeSynchronization with atomic guest-state publication and scheduler handoff"
+        : postCriticalSectionWaitActive
         ? "Rust-owned finite alertable waitable-timer completion through RuntimeTimers, RuntimeWaits, and the scheduler with deterministic browser pacing acknowledgement"
         : postClockCriticalSectionActive
         ? "Rust-owned balanced critical-section acquire/release roundtrip through RuntimeSynchronization with atomic guest-state publication and scheduler handoff"
@@ -22496,6 +22526,133 @@ export function validateCurrentCheckpoint(manifest) {
       }
     }
   }
+  if (postWaitCriticalSectionActive) {
+    const expectedCompletion = currentStop.completion ?? {};
+    const expectedEndpoint = currentStop.nextEndpoint ?? {};
+    if (
+      currentStop.kind !== "capability-checkpoint" ||
+      currentStop.nextCheckpoint !==
+        "kernel32-set-waitable-timer-post-critical-section-batch" ||
+      currentStop.pausedHistoricalCheckpoint !==
+        "kernel32-enter-critical-section-post-wait" ||
+      currentStop.instructionCount !== 276_361_191 ||
+      currentStop.capabilityCluster !== "kernel32-waitable-timer-arm" ||
+      currentStop.reason !==
+        "kernel32-enter-critical-section-post-wait-checkpoint-complete" ||
+      expectedCompletion.capability !==
+        "kernel32-enter-critical-section-post-wait" ||
+      expectedCompletion.implementationId !==
+        "kernel32.critical-section-balanced-batch.v1" ||
+      expectedCompletion.requiredCompletions !== 6 ||
+      expectedCompletion.completionCount !== 6 ||
+      expectedCompletion.firstCompletionSequence !== 158_109 ||
+      expectedCompletion.firstCompletionInstructionCount !== 276_361_075 ||
+      expectedCompletion.lastCompletionSequence !== 158_114 ||
+      expectedCompletion.lastCompletionInstructionCount !== 276_361_156 ||
+      expectedEndpoint.endpointKind !== "runtime-system-export" ||
+      expectedEndpoint.endpointId !== 118 ||
+      expectedEndpoint.api?.toLowerCase() !==
+        "kernel32.dll!setwaitabletimer" ||
+      expectedEndpoint.endpointAddress !== "0x7f000750" ||
+      expectedEndpoint.iatAddress !== "0x100d1280" ||
+      expectedEndpoint.observedModule?.toLowerCase() !== "kernel32.dll" ||
+      expectedEndpoint.observedSymbol !== "SetWaitableTimer" ||
+      expectedEndpoint.disposition !== "declared-runtime-export" ||
+      expectedEndpoint.arguments?.join(",") !==
+        "0x57010002,0x500fff98,0x00000000,0x00000000,0x00000000,0x00000000" ||
+      active.runtimeHeapBacking?.capabilityExpansionPausedAt !==
+        "kernel32-set-waitable-timer-post-critical-section-batch" ||
+      !Number.isSafeInteger(bgiBrowserEvidence.statusMessagesObserved) ||
+      bgiBrowserEvidence.statusMessagesObserved <
+        bgiBrowserEvidence.statusMessagesRetained ||
+      bgiBrowserEvidence.statusMessagesRetained !== 4_096
+    ) {
+      errors.push("post-wait critical-section checkpoint stop is invalid");
+    }
+    const expectedCalls = [
+      [158_109, 276_361_075, 51_334, "EnterCriticalSection", "0x1014c8d0", "0x10091796", "0x500fff70,0x500fff78", "fffffffffeffffff010000000120000000000000d0070002"],
+      [158_110, 276_361_080, 51_334, "LeaveCriticalSection", "0x1014c8d0", "0x100917aa", "0x500fff70,0x500fff78", "ffffffffffffffff000000000000000000000000d0070002"],
+      [158_111, 276_361_116, 51_335, "EnterCriticalSection", "0x1014c8d0", "0x10091966", "0x500fff70,0x500fff78", "fffffffffeffffff010000000120000000000000d0070002"],
+      [158_112, 276_361_121, 51_335, "LeaveCriticalSection", "0x1014c8d0", "0x1009197a", "0x500fff70,0x500fff78", "ffffffffffffffff000000000000000000000000d0070002"],
+      [158_113, 276_361_147, 51_336, "EnterCriticalSection", "0x100ff820", "0x100010db", "0x500fff90,0x500fff98", "fffffffffeffffff010000000120000000000000d0070002"],
+      [158_114, 276_361_156, 51_336, "LeaveCriticalSection", "0x100ff820", "0x100010eb", "0x500fff90,0x500fff98", "ffffffffffffffff000000000000000000000000d0070002"],
+    ];
+    for (const [label, completion] of [
+      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+    ]) {
+      if (
+        completion.capability !==
+          "kernel32-enter-critical-section-post-wait" ||
+        completion.implementationId !==
+          "kernel32.critical-section-balanced-batch.v1" ||
+        completion.requiredCompletions !== 6 ||
+        completion.completionCount !== 6 ||
+        completion.firstCompletionSequence !== 158_109 ||
+        completion.firstCompletionInstructionCount !== 276_361_075 ||
+        completion.lastCompletionSequence !== 158_114 ||
+        completion.lastCompletionInstructionCount !== 276_361_156 ||
+        completion.completions?.length !== 6 ||
+        completion.roundtripCount !== 3 ||
+        completion.criticalSectionAddresses?.join(",") !==
+          "0x1014c8d0,0x1014c8d0,0x100ff820" ||
+        completion.threadId !== 8_193 ||
+        completion.balanced !== true ||
+        completion.instructionCount !== 276_361_191 ||
+        completion.nextEndpoint?.endpointId !== 118 ||
+        completion.nextEndpoint?.endpointAddress !== "0x7f000750" ||
+        completion.nextEndpoint?.api?.toLowerCase() !==
+          "kernel32.dll!setwaitabletimer" ||
+        completion.nextEndpoint?.iatAddress !== "0x100d1280" ||
+        completion.nextArguments?.join(",") !==
+          "0x57010002,0x500fff98,0x00000000,0x00000000,0x00000000,0x00000000" ||
+        completion.nextReturnAddress !== "0x10050607" ||
+        completion.nextStackPointer !== "0x500fff7c" ||
+        completion.memoryContentSha256 !==
+          "bd92a619b4ee428eab13238b769afd60f326ce22fcf86d22f3a46fc11df56700"
+      ) {
+        errors.push(
+          `${label} post-wait critical-section checkpoint evidence is invalid`,
+        );
+        continue;
+      }
+      for (const [index, expected] of expectedCalls.entries()) {
+        const call = completion.completions[index] ?? {};
+        const [
+          sequence,
+          instructionCount,
+          occurrence,
+          symbol,
+          address,
+          returnAddress,
+          stackPointers,
+          guestWriteHex,
+        ] = expected;
+        if (
+          call.sequence !== sequence ||
+          call.instructionCount !== instructionCount ||
+          call.occurrence !== occurrence ||
+          call.api !== `KERNEL32.dll!${symbol}` ||
+          call.arguments?.join(",") !== address ||
+          call.result !== "void-eax-preserved" ||
+          call.implementationId !==
+            (index % 2 === 0
+              ? "kernel32.enter-critical-section.v1"
+              : "kernel32.leave-critical-section.v1") ||
+          call.returnAddress !== returnAddress ||
+          call.stackPointers?.join(",") !== stackPointers ||
+          call.lastError !== 0 ||
+          call.guestWriteAddress !== address ||
+          call.guestWriteBytes !== 24 ||
+          call.guestWriteHex !== guestWriteHex
+        ) {
+          errors.push(
+            `${label} post-wait critical-section completion ${index} is invalid`,
+          );
+        }
+      }
+    }
+  }
   if (postCriticalSectionWaitActive) {
     const expectedCompletion = currentStop.completion ?? {};
     const expectedEndpoint = currentStop.nextEndpoint ?? {};
@@ -23587,6 +23744,7 @@ export function validateCurrentCheckpoint(manifest) {
               heapAlloc24Active ||
               postHeapTimeGetTimeActive ||
               postClockCriticalSectionActive ||
+              postWaitCriticalSectionActive ||
               postCriticalSectionWaitActive
             ) {
               if (currentStop.kind !== "capability-checkpoint") {
@@ -24836,6 +24994,9 @@ export function renderReadmeStatus(manifest) {
                                     : next.completion.capability ===
                                         "kernel32-enter-critical-section-post-clock"
                                       ? "critical-section acquire/release roundtrip"
+                                    : next.completion.capability ===
+                                        "kernel32-enter-critical-section-post-wait"
+                                      ? "balanced critical-section calls"
                                     : next.completion.capability ===
                                         "kernel32-wait-for-single-object-ex-post-critical-section"
                                       ? "waitable-timer wait"

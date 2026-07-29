@@ -1011,6 +1011,14 @@ semantic digest、terminal memory、次の`EnterCriticalSection` endpointを一�
 一件のacknowledgementを追加してpending／stale resourceを残さず、Windows timer、wait result、thread
 selectionのauthorityにならない。APC delivery、general timeout、cross-thread waiterはclaimしない。
 
+Post-wait critical-section continuationは、次の異種owned endpointまでに到達する6 callを
+3組のbalanced `EnterCriticalSection`／`LeaveCriticalSection` batchとして検査する。各pairは
+同一threadと同一guest addressを要求し、EAX／LastError preserve、24-byte locked／unlocked
+publication、pair終了時のbalanced state、ordered semantic digest、terminal memoryをNode／Chromeで
+一致させる。2個のlogical critical-section identityを`RuntimeSynchronization`だけが所有し、Workerは
+completion evidenceだけを保持する。次の`SetWaitableTimer`は6引数frame直前で停止し、このcheckpoint
+内ではtimerを再armしない。Cross-thread contention、fairness、abandonmentは引き続きclaimしない。
+
 Reached `GetVersionExA`の代表contractはdynamic in/out pointerのminimum 4-byte
 preflight、accepted 148／156-byte full-span read、policy-field merge、single atomic write、
 BOOLとhandler-owned LastErrorを固定する。Dispatcher fixtureはbase／extended layout、native-unwritten
