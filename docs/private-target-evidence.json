@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-29T14:28:28.262Z",
+  "recordedAt": "2026-07-29T15:32:15.889Z",
   "repository": {
-    "implementationCommit": "4796b731ea588bc05d4fb3f0f499b71778556dd5",
-    "implementationTree": "52b1cf5e304561ebb3240152200737109389eb19",
-    "headCommit": "4796b731ea588bc05d4fb3f0f499b71778556dd5",
+    "implementationCommit": "95a5ae61f9d55decb2e92d5bc1ccbce9e597e9cc",
+    "implementationTree": "751cae0e19eed5561bfe43ca1ce2de8726ad90cf",
+    "headCommit": "95a5ae61f9d55decb2e92d5bc1ccbce9e597e9cc",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,15 +27,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "kernel32-heap-free-large-buffer",
-    "runtimeProfile": "kernel32-heap-free-large-buffer",
+    "runtimeCheckpoint": "kernel32-heap-alloc-24-byte-buffer",
+    "runtimeProfile": "kernel32-heap-alloc-24-byte-buffer",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-kernel32-heap-free-large-buffer",
+    "nodeReportSchema": "vine.v86-bgi-kernel32-heap-alloc-24-byte-buffer",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v56",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v57",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -70,62 +70,638 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 128,
-      "supportedCalls": 158100,
-      "callSemanticsSha256": "9a0ae6fde8ba2f8414757ebf33af7a6a834ee9b9931637e78eda2a99547797da",
-      "instructions": 276358985,
-      "finalGeneration": 289886,
-      "memoryContentSha256": "f5bf558d4405c7940d627805b8f5ce3b3e20cc77b74a3370c21c745f7637b180",
+      "supportedCalls": 158104,
+      "callSemanticsSha256": "2cfdbb2fec2315784a72e565b766be7d7fe90ee33f50ce4f4e5c1edb44c4ac00",
+      "instructions": 276360829,
+      "finalGeneration": 289894,
+      "memoryContentSha256": "102795f1f536f78a6faedf72f2114b82123d024dd51dfd9ff6a1bf8032ce846a",
       "checkpointCompletion": {
-        "capability": "kernel32-heap-free-large-buffer",
-        "implementationId": "kernel32.heap-free.v1",
-        "requiredCompletions": 2,
-        "completionCount": 2,
-        "firstCompletionSequence": 158099,
-        "firstCompletionInstructionCount": 276358836,
-        "lastCompletionSequence": 158100,
-        "lastCompletionInstructionCount": 276358879,
+        "capability": "kernel32-heap-alloc-24-byte-buffer",
+        "implementationId": "kernel32.heap-alloc.v2",
+        "requiredCompletions": 4,
+        "completionCount": 4,
+        "firstCompletionSequence": 158101,
+        "firstCompletionInstructionCount": 276358985,
+        "lastCompletionSequence": 158104,
+        "lastCompletionInstructionCount": 276359417,
         "completions": [
           {
             "call": {
-              "sequence": 158099,
+              "sequence": 158101,
               "module": "KERNEL32.dll",
-              "symbol": "HeapFree",
-              "occurrence": 425,
-              "trapInstructionCount": 276358836,
+              "symbol": "HeapAlloc",
+              "occurrence": 1348,
+              "trapInstructionCount": 276358985,
               "arguments": [
                 1744896001,
                 0,
-                1065300480
+                24
               ],
               "result": {
                 "action": "set",
-                "value": 1
+                "value": 541562816
               },
-              "implementationId": "kernel32.heap-free.v1",
-              "returnAddress": 269109453,
-              "stackPointerBefore": 7335772,
-              "stackPointerAfter": 7335788,
+              "implementationId": "kernel32.heap-alloc.v2",
+              "returnAddress": 269109811,
+              "stackPointerBefore": 7337172,
+              "stackPointerAfter": 7337188,
               "lastError": 0,
               "guestWrites": [],
-              "heapFree": {
+              "heapAllocation": {
                 "heapHandle": 1744896001,
                 "allocation": {
-                  "id": 1347,
-                  "address": 1065300480,
+                  "id": 1348,
+                  "address": 541562816,
+                  "byteLength": 24,
+                  "reservedByteLength": 24,
+                  "initialization": "deterministic-uninitialized"
+                },
+                "liveAllocations": 922
+              }
+            },
+            "allocationDelta": {
+              "fromGeneration": 289886,
+              "generation": 289887,
+              "mappingOperations": [],
+              "dirtyPages": [
+                {
+                  "address": 541560832,
+                  "owner": 10
+                }
+              ],
+              "cacheEffects": {
+                "flushTlb": false,
+                "invalidateInstructionFetch": false,
+                "invalidateGeneratedCode": false
+              },
+              "payloadBytes": 4096,
+              "payloadSha256": "19dc238b6918ca49a93f6dde58b62bbb1991d6d3171cdba5758f6a551c155680"
+            },
+            "memoryAfter": {
+              "owners": 29,
+              "imageOwners": 1,
+              "sealedOwners": 21,
+              "regions": 29,
+              "imageRegions": 1,
+              "reservedPages": 52204,
+              "committedPages": 9975,
+              "physicalPages": 9975,
+              "dirtyPages": 0,
+              "generation": 289887,
+              "acknowledgedGeneration": 289887
+            }
+          },
+          {
+            "call": {
+              "sequence": 158102,
+              "module": "KERNEL32.dll",
+              "symbol": "HeapAlloc",
+              "occurrence": 1349,
+              "trapInstructionCount": 276359082,
+              "arguments": [
+                1744896001,
+                0,
+                11
+              ],
+              "result": {
+                "action": "set",
+                "value": 541562736
+              },
+              "implementationId": "kernel32.heap-alloc.v2",
+              "returnAddress": 269109811,
+              "stackPointerBefore": 7337172,
+              "stackPointerAfter": 7337188,
+              "lastError": 0,
+              "guestWrites": [],
+              "heapAllocation": {
+                "heapHandle": 1744896001,
+                "allocation": {
+                  "id": 1349,
+                  "address": 541562736,
+                  "byteLength": 11,
+                  "reservedByteLength": 16,
+                  "initialization": "deterministic-uninitialized"
+                },
+                "liveAllocations": 923
+              }
+            },
+            "allocationDelta": {
+              "fromGeneration": 289888,
+              "generation": 289889,
+              "mappingOperations": [],
+              "dirtyPages": [
+                {
+                  "address": 541560832,
+                  "owner": 10
+                }
+              ],
+              "cacheEffects": {
+                "flushTlb": false,
+                "invalidateInstructionFetch": false,
+                "invalidateGeneratedCode": false
+              },
+              "payloadBytes": 4096,
+              "payloadSha256": "7231e9584627a03393d45ac72dea04eaa1ab0c788d3ac02272cbeb25399af71c"
+            },
+            "memoryAfter": {
+              "owners": 29,
+              "imageOwners": 1,
+              "sealedOwners": 21,
+              "regions": 29,
+              "imageRegions": 1,
+              "reservedPages": 52204,
+              "committedPages": 9975,
+              "physicalPages": 9975,
+              "dirtyPages": 0,
+              "generation": 289889,
+              "acknowledgedGeneration": 289889
+            }
+          },
+          {
+            "call": {
+              "sequence": 158103,
+              "module": "KERNEL32.dll",
+              "symbol": "HeapAlloc",
+              "occurrence": 1350,
+              "trapInstructionCount": 276359270,
+              "arguments": [
+                1744896001,
+                0,
+                16
+              ],
+              "result": {
+                "action": "set",
+                "value": 541562840
+              },
+              "implementationId": "kernel32.heap-alloc.v2",
+              "returnAddress": 269109811,
+              "stackPointerBefore": 7337172,
+              "stackPointerAfter": 7337188,
+              "lastError": 0,
+              "guestWrites": [],
+              "heapAllocation": {
+                "heapHandle": 1744896001,
+                "allocation": {
+                  "id": 1350,
+                  "address": 541562840,
+                  "byteLength": 16,
+                  "reservedByteLength": 16,
+                  "initialization": "deterministic-uninitialized"
+                },
+                "liveAllocations": 924
+              }
+            },
+            "allocationDelta": {
+              "fromGeneration": 289890,
+              "generation": 289891,
+              "mappingOperations": [],
+              "dirtyPages": [
+                {
+                  "address": 541560832,
+                  "owner": 10
+                }
+              ],
+              "cacheEffects": {
+                "flushTlb": false,
+                "invalidateInstructionFetch": false,
+                "invalidateGeneratedCode": false
+              },
+              "payloadBytes": 4096,
+              "payloadSha256": "0ef4481e88170824629eac59c7f8ea695ee51b1c6f75fadc0071e8cc4e7bbb3c"
+            },
+            "memoryAfter": {
+              "owners": 29,
+              "imageOwners": 1,
+              "sealedOwners": 21,
+              "regions": 29,
+              "imageRegions": 1,
+              "reservedPages": 52204,
+              "committedPages": 9975,
+              "physicalPages": 9975,
+              "dirtyPages": 0,
+              "generation": 289891,
+              "acknowledgedGeneration": 289891
+            }
+          },
+          {
+            "call": {
+              "sequence": 158104,
+              "module": "KERNEL32.dll",
+              "symbol": "HeapAlloc",
+              "occurrence": 1351,
+              "trapInstructionCount": 276359417,
+              "arguments": [
+                1744896001,
+                0,
+                2764816
+              ],
+              "result": {
+                "action": "set",
+                "value": 1064914552
+              },
+              "implementationId": "kernel32.heap-alloc.v2",
+              "returnAddress": 269109811,
+              "stackPointerBefore": 7337172,
+              "stackPointerAfter": 7337188,
+              "lastError": 0,
+              "guestWrites": [],
+              "heapAllocation": {
+                "heapHandle": 1744896001,
+                "allocation": {
+                  "id": 1351,
+                  "address": 1064914552,
                   "byteLength": 2764816,
                   "reservedByteLength": 2764816,
                   "initialization": "deterministic-uninitialized"
                 },
-                "liveAllocationsBefore": 923,
-                "liveAllocationsAfter": 922,
-                "allocationRetired": true
+                "liveAllocations": 925
               }
             },
-            "freeDelta": {
-              "fromGeneration": 289882,
-              "generation": 289883,
+            "allocationDelta": {
+              "fromGeneration": 289892,
+              "generation": 289893,
               "mappingOperations": [],
               "dirtyPages": [
+                {
+                  "address": 1064910848,
+                  "owner": 81
+                },
+                {
+                  "address": 1064914944,
+                  "owner": 81
+                },
+                {
+                  "address": 1064919040,
+                  "owner": 81
+                },
+                {
+                  "address": 1064923136,
+                  "owner": 81
+                },
+                {
+                  "address": 1064927232,
+                  "owner": 81
+                },
+                {
+                  "address": 1064931328,
+                  "owner": 81
+                },
+                {
+                  "address": 1064935424,
+                  "owner": 81
+                },
+                {
+                  "address": 1064939520,
+                  "owner": 81
+                },
+                {
+                  "address": 1064943616,
+                  "owner": 81
+                },
+                {
+                  "address": 1064947712,
+                  "owner": 81
+                },
+                {
+                  "address": 1064951808,
+                  "owner": 81
+                },
+                {
+                  "address": 1064955904,
+                  "owner": 81
+                },
+                {
+                  "address": 1064960000,
+                  "owner": 81
+                },
+                {
+                  "address": 1064964096,
+                  "owner": 81
+                },
+                {
+                  "address": 1064968192,
+                  "owner": 81
+                },
+                {
+                  "address": 1064972288,
+                  "owner": 81
+                },
+                {
+                  "address": 1064976384,
+                  "owner": 81
+                },
+                {
+                  "address": 1064980480,
+                  "owner": 81
+                },
+                {
+                  "address": 1064984576,
+                  "owner": 81
+                },
+                {
+                  "address": 1064988672,
+                  "owner": 81
+                },
+                {
+                  "address": 1064992768,
+                  "owner": 81
+                },
+                {
+                  "address": 1064996864,
+                  "owner": 81
+                },
+                {
+                  "address": 1065000960,
+                  "owner": 81
+                },
+                {
+                  "address": 1065005056,
+                  "owner": 81
+                },
+                {
+                  "address": 1065009152,
+                  "owner": 81
+                },
+                {
+                  "address": 1065013248,
+                  "owner": 81
+                },
+                {
+                  "address": 1065017344,
+                  "owner": 81
+                },
+                {
+                  "address": 1065021440,
+                  "owner": 81
+                },
+                {
+                  "address": 1065025536,
+                  "owner": 81
+                },
+                {
+                  "address": 1065029632,
+                  "owner": 81
+                },
+                {
+                  "address": 1065033728,
+                  "owner": 81
+                },
+                {
+                  "address": 1065037824,
+                  "owner": 81
+                },
+                {
+                  "address": 1065041920,
+                  "owner": 81
+                },
+                {
+                  "address": 1065046016,
+                  "owner": 81
+                },
+                {
+                  "address": 1065050112,
+                  "owner": 81
+                },
+                {
+                  "address": 1065054208,
+                  "owner": 81
+                },
+                {
+                  "address": 1065058304,
+                  "owner": 81
+                },
+                {
+                  "address": 1065062400,
+                  "owner": 81
+                },
+                {
+                  "address": 1065066496,
+                  "owner": 81
+                },
+                {
+                  "address": 1065070592,
+                  "owner": 81
+                },
+                {
+                  "address": 1065074688,
+                  "owner": 81
+                },
+                {
+                  "address": 1065078784,
+                  "owner": 81
+                },
+                {
+                  "address": 1065082880,
+                  "owner": 81
+                },
+                {
+                  "address": 1065086976,
+                  "owner": 81
+                },
+                {
+                  "address": 1065091072,
+                  "owner": 81
+                },
+                {
+                  "address": 1065095168,
+                  "owner": 81
+                },
+                {
+                  "address": 1065099264,
+                  "owner": 81
+                },
+                {
+                  "address": 1065103360,
+                  "owner": 81
+                },
+                {
+                  "address": 1065107456,
+                  "owner": 81
+                },
+                {
+                  "address": 1065111552,
+                  "owner": 81
+                },
+                {
+                  "address": 1065115648,
+                  "owner": 81
+                },
+                {
+                  "address": 1065119744,
+                  "owner": 81
+                },
+                {
+                  "address": 1065123840,
+                  "owner": 81
+                },
+                {
+                  "address": 1065127936,
+                  "owner": 81
+                },
+                {
+                  "address": 1065132032,
+                  "owner": 81
+                },
+                {
+                  "address": 1065136128,
+                  "owner": 81
+                },
+                {
+                  "address": 1065140224,
+                  "owner": 81
+                },
+                {
+                  "address": 1065144320,
+                  "owner": 81
+                },
+                {
+                  "address": 1065148416,
+                  "owner": 81
+                },
+                {
+                  "address": 1065152512,
+                  "owner": 81
+                },
+                {
+                  "address": 1065156608,
+                  "owner": 81
+                },
+                {
+                  "address": 1065160704,
+                  "owner": 81
+                },
+                {
+                  "address": 1065164800,
+                  "owner": 81
+                },
+                {
+                  "address": 1065168896,
+                  "owner": 81
+                },
+                {
+                  "address": 1065172992,
+                  "owner": 81
+                },
+                {
+                  "address": 1065177088,
+                  "owner": 81
+                },
+                {
+                  "address": 1065181184,
+                  "owner": 81
+                },
+                {
+                  "address": 1065185280,
+                  "owner": 81
+                },
+                {
+                  "address": 1065189376,
+                  "owner": 81
+                },
+                {
+                  "address": 1065193472,
+                  "owner": 81
+                },
+                {
+                  "address": 1065197568,
+                  "owner": 81
+                },
+                {
+                  "address": 1065201664,
+                  "owner": 81
+                },
+                {
+                  "address": 1065205760,
+                  "owner": 81
+                },
+                {
+                  "address": 1065209856,
+                  "owner": 81
+                },
+                {
+                  "address": 1065213952,
+                  "owner": 81
+                },
+                {
+                  "address": 1065218048,
+                  "owner": 81
+                },
+                {
+                  "address": 1065222144,
+                  "owner": 81
+                },
+                {
+                  "address": 1065226240,
+                  "owner": 81
+                },
+                {
+                  "address": 1065230336,
+                  "owner": 81
+                },
+                {
+                  "address": 1065234432,
+                  "owner": 81
+                },
+                {
+                  "address": 1065238528,
+                  "owner": 81
+                },
+                {
+                  "address": 1065242624,
+                  "owner": 81
+                },
+                {
+                  "address": 1065246720,
+                  "owner": 81
+                },
+                {
+                  "address": 1065250816,
+                  "owner": 81
+                },
+                {
+                  "address": 1065254912,
+                  "owner": 81
+                },
+                {
+                  "address": 1065259008,
+                  "owner": 81
+                },
+                {
+                  "address": 1065263104,
+                  "owner": 81
+                },
+                {
+                  "address": 1065267200,
+                  "owner": 81
+                },
+                {
+                  "address": 1065271296,
+                  "owner": 81
+                },
+                {
+                  "address": 1065275392,
+                  "owner": 81
+                },
+                {
+                  "address": 1065279488,
+                  "owner": 81
+                },
+                {
+                  "address": 1065283584,
+                  "owner": 81
+                },
+                {
+                  "address": 1065287680,
+                  "owner": 81
+                },
+                {
+                  "address": 1065291776,
+                  "owner": 81
+                },
+                {
+                  "address": 1065295872,
+                  "owner": 81
+                },
                 {
                   "address": 1065299968,
                   "owner": 81
@@ -2449,386 +3025,6 @@
                 {
                   "address": 1067675648,
                   "owner": 81
-                },
-                {
-                  "address": 1067679744,
-                  "owner": 81
-                },
-                {
-                  "address": 1067683840,
-                  "owner": 81
-                },
-                {
-                  "address": 1067687936,
-                  "owner": 81
-                },
-                {
-                  "address": 1067692032,
-                  "owner": 81
-                },
-                {
-                  "address": 1067696128,
-                  "owner": 81
-                },
-                {
-                  "address": 1067700224,
-                  "owner": 81
-                },
-                {
-                  "address": 1067704320,
-                  "owner": 81
-                },
-                {
-                  "address": 1067708416,
-                  "owner": 81
-                },
-                {
-                  "address": 1067712512,
-                  "owner": 81
-                },
-                {
-                  "address": 1067716608,
-                  "owner": 81
-                },
-                {
-                  "address": 1067720704,
-                  "owner": 81
-                },
-                {
-                  "address": 1067724800,
-                  "owner": 81
-                },
-                {
-                  "address": 1067728896,
-                  "owner": 81
-                },
-                {
-                  "address": 1067732992,
-                  "owner": 81
-                },
-                {
-                  "address": 1067737088,
-                  "owner": 81
-                },
-                {
-                  "address": 1067741184,
-                  "owner": 81
-                },
-                {
-                  "address": 1067745280,
-                  "owner": 81
-                },
-                {
-                  "address": 1067749376,
-                  "owner": 81
-                },
-                {
-                  "address": 1067753472,
-                  "owner": 81
-                },
-                {
-                  "address": 1067757568,
-                  "owner": 81
-                },
-                {
-                  "address": 1067761664,
-                  "owner": 81
-                },
-                {
-                  "address": 1067765760,
-                  "owner": 81
-                },
-                {
-                  "address": 1067769856,
-                  "owner": 81
-                },
-                {
-                  "address": 1067773952,
-                  "owner": 81
-                },
-                {
-                  "address": 1067778048,
-                  "owner": 81
-                },
-                {
-                  "address": 1067782144,
-                  "owner": 81
-                },
-                {
-                  "address": 1067786240,
-                  "owner": 81
-                },
-                {
-                  "address": 1067790336,
-                  "owner": 81
-                },
-                {
-                  "address": 1067794432,
-                  "owner": 81
-                },
-                {
-                  "address": 1067798528,
-                  "owner": 81
-                },
-                {
-                  "address": 1067802624,
-                  "owner": 81
-                },
-                {
-                  "address": 1067806720,
-                  "owner": 81
-                },
-                {
-                  "address": 1067810816,
-                  "owner": 81
-                },
-                {
-                  "address": 1067814912,
-                  "owner": 81
-                },
-                {
-                  "address": 1067819008,
-                  "owner": 81
-                },
-                {
-                  "address": 1067823104,
-                  "owner": 81
-                },
-                {
-                  "address": 1067827200,
-                  "owner": 81
-                },
-                {
-                  "address": 1067831296,
-                  "owner": 81
-                },
-                {
-                  "address": 1067835392,
-                  "owner": 81
-                },
-                {
-                  "address": 1067839488,
-                  "owner": 81
-                },
-                {
-                  "address": 1067843584,
-                  "owner": 81
-                },
-                {
-                  "address": 1067847680,
-                  "owner": 81
-                },
-                {
-                  "address": 1067851776,
-                  "owner": 81
-                },
-                {
-                  "address": 1067855872,
-                  "owner": 81
-                },
-                {
-                  "address": 1067859968,
-                  "owner": 81
-                },
-                {
-                  "address": 1067864064,
-                  "owner": 81
-                },
-                {
-                  "address": 1067868160,
-                  "owner": 81
-                },
-                {
-                  "address": 1067872256,
-                  "owner": 81
-                },
-                {
-                  "address": 1067876352,
-                  "owner": 81
-                },
-                {
-                  "address": 1067880448,
-                  "owner": 81
-                },
-                {
-                  "address": 1067884544,
-                  "owner": 81
-                },
-                {
-                  "address": 1067888640,
-                  "owner": 81
-                },
-                {
-                  "address": 1067892736,
-                  "owner": 81
-                },
-                {
-                  "address": 1067896832,
-                  "owner": 81
-                },
-                {
-                  "address": 1067900928,
-                  "owner": 81
-                },
-                {
-                  "address": 1067905024,
-                  "owner": 81
-                },
-                {
-                  "address": 1067909120,
-                  "owner": 81
-                },
-                {
-                  "address": 1067913216,
-                  "owner": 81
-                },
-                {
-                  "address": 1067917312,
-                  "owner": 81
-                },
-                {
-                  "address": 1067921408,
-                  "owner": 81
-                },
-                {
-                  "address": 1067925504,
-                  "owner": 81
-                },
-                {
-                  "address": 1067929600,
-                  "owner": 81
-                },
-                {
-                  "address": 1067933696,
-                  "owner": 81
-                },
-                {
-                  "address": 1067937792,
-                  "owner": 81
-                },
-                {
-                  "address": 1067941888,
-                  "owner": 81
-                },
-                {
-                  "address": 1067945984,
-                  "owner": 81
-                },
-                {
-                  "address": 1067950080,
-                  "owner": 81
-                },
-                {
-                  "address": 1067954176,
-                  "owner": 81
-                },
-                {
-                  "address": 1067958272,
-                  "owner": 81
-                },
-                {
-                  "address": 1067962368,
-                  "owner": 81
-                },
-                {
-                  "address": 1067966464,
-                  "owner": 81
-                },
-                {
-                  "address": 1067970560,
-                  "owner": 81
-                },
-                {
-                  "address": 1067974656,
-                  "owner": 81
-                },
-                {
-                  "address": 1067978752,
-                  "owner": 81
-                },
-                {
-                  "address": 1067982848,
-                  "owner": 81
-                },
-                {
-                  "address": 1067986944,
-                  "owner": 81
-                },
-                {
-                  "address": 1067991040,
-                  "owner": 81
-                },
-                {
-                  "address": 1067995136,
-                  "owner": 81
-                },
-                {
-                  "address": 1067999232,
-                  "owner": 81
-                },
-                {
-                  "address": 1068003328,
-                  "owner": 81
-                },
-                {
-                  "address": 1068007424,
-                  "owner": 81
-                },
-                {
-                  "address": 1068011520,
-                  "owner": 81
-                },
-                {
-                  "address": 1068015616,
-                  "owner": 81
-                },
-                {
-                  "address": 1068019712,
-                  "owner": 81
-                },
-                {
-                  "address": 1068023808,
-                  "owner": 81
-                },
-                {
-                  "address": 1068027904,
-                  "owner": 81
-                },
-                {
-                  "address": 1068032000,
-                  "owner": 81
-                },
-                {
-                  "address": 1068036096,
-                  "owner": 81
-                },
-                {
-                  "address": 1068040192,
-                  "owner": 81
-                },
-                {
-                  "address": 1068044288,
-                  "owner": 81
-                },
-                {
-                  "address": 1068048384,
-                  "owner": 81
-                },
-                {
-                  "address": 1068052480,
-                  "owner": 81
-                },
-                {
-                  "address": 1068056576,
-                  "owner": 81
-                },
-                {
-                  "address": 1068060672,
-                  "owner": 81
-                },
-                {
-                  "address": 1068064768,
-                  "owner": 81
                 }
               ],
               "cacheEffects": {
@@ -2837,7 +3033,7 @@
                 "invalidateGeneratedCode": false
               },
               "payloadBytes": 2768896,
-              "payloadSha256": "e139bec6f081ab6be0711612720ad36a930a4aa7952b3250ca9b90adcc249f60"
+              "payloadSha256": "bd2bba2c8fe1997c93614ca3795da8ea6aef0956f2b9e01909e909be4c79e56a"
             },
             "memoryAfter": {
               "owners": 29,
@@ -2849,540 +3045,630 @@
               "committedPages": 9975,
               "physicalPages": 9975,
               "dirtyPages": 0,
-              "generation": 289883,
-              "acknowledgedGeneration": 289883
-            }
-          },
-          {
-            "call": {
-              "sequence": 158100,
-              "module": "KERNEL32.dll",
-              "symbol": "HeapFree",
-              "occurrence": 426,
-              "trapInstructionCount": 276358879,
-              "arguments": [
-                1744896001,
-                0,
-                1064914552
-              ],
-              "result": {
-                "action": "set",
-                "value": 1
-              },
-              "implementationId": "kernel32.heap-free.v1",
-              "returnAddress": 269109453,
-              "stackPointerBefore": 7335868,
-              "stackPointerAfter": 7335884,
-              "lastError": 0,
-              "guestWrites": [],
-              "heapFree": {
-                "heapHandle": 1744896001,
-                "allocation": {
-                  "id": 1346,
-                  "address": 1064914552,
-                  "byteLength": 385924,
-                  "reservedByteLength": 385928,
-                  "initialization": "deterministic-uninitialized"
-                },
-                "liveAllocationsBefore": 922,
-                "liveAllocationsAfter": 921,
-                "allocationRetired": true
-              }
-            },
-            "freeDelta": {
-              "fromGeneration": 289884,
-              "generation": 289885,
-              "mappingOperations": [],
-              "dirtyPages": [
-                {
-                  "address": 1064910848,
-                  "owner": 81
-                },
-                {
-                  "address": 1064914944,
-                  "owner": 81
-                },
-                {
-                  "address": 1064919040,
-                  "owner": 81
-                },
-                {
-                  "address": 1064923136,
-                  "owner": 81
-                },
-                {
-                  "address": 1064927232,
-                  "owner": 81
-                },
-                {
-                  "address": 1064931328,
-                  "owner": 81
-                },
-                {
-                  "address": 1064935424,
-                  "owner": 81
-                },
-                {
-                  "address": 1064939520,
-                  "owner": 81
-                },
-                {
-                  "address": 1064943616,
-                  "owner": 81
-                },
-                {
-                  "address": 1064947712,
-                  "owner": 81
-                },
-                {
-                  "address": 1064951808,
-                  "owner": 81
-                },
-                {
-                  "address": 1064955904,
-                  "owner": 81
-                },
-                {
-                  "address": 1064960000,
-                  "owner": 81
-                },
-                {
-                  "address": 1064964096,
-                  "owner": 81
-                },
-                {
-                  "address": 1064968192,
-                  "owner": 81
-                },
-                {
-                  "address": 1064972288,
-                  "owner": 81
-                },
-                {
-                  "address": 1064976384,
-                  "owner": 81
-                },
-                {
-                  "address": 1064980480,
-                  "owner": 81
-                },
-                {
-                  "address": 1064984576,
-                  "owner": 81
-                },
-                {
-                  "address": 1064988672,
-                  "owner": 81
-                },
-                {
-                  "address": 1064992768,
-                  "owner": 81
-                },
-                {
-                  "address": 1064996864,
-                  "owner": 81
-                },
-                {
-                  "address": 1065000960,
-                  "owner": 81
-                },
-                {
-                  "address": 1065005056,
-                  "owner": 81
-                },
-                {
-                  "address": 1065009152,
-                  "owner": 81
-                },
-                {
-                  "address": 1065013248,
-                  "owner": 81
-                },
-                {
-                  "address": 1065017344,
-                  "owner": 81
-                },
-                {
-                  "address": 1065021440,
-                  "owner": 81
-                },
-                {
-                  "address": 1065025536,
-                  "owner": 81
-                },
-                {
-                  "address": 1065029632,
-                  "owner": 81
-                },
-                {
-                  "address": 1065033728,
-                  "owner": 81
-                },
-                {
-                  "address": 1065037824,
-                  "owner": 81
-                },
-                {
-                  "address": 1065041920,
-                  "owner": 81
-                },
-                {
-                  "address": 1065046016,
-                  "owner": 81
-                },
-                {
-                  "address": 1065050112,
-                  "owner": 81
-                },
-                {
-                  "address": 1065054208,
-                  "owner": 81
-                },
-                {
-                  "address": 1065058304,
-                  "owner": 81
-                },
-                {
-                  "address": 1065062400,
-                  "owner": 81
-                },
-                {
-                  "address": 1065066496,
-                  "owner": 81
-                },
-                {
-                  "address": 1065070592,
-                  "owner": 81
-                },
-                {
-                  "address": 1065074688,
-                  "owner": 81
-                },
-                {
-                  "address": 1065078784,
-                  "owner": 81
-                },
-                {
-                  "address": 1065082880,
-                  "owner": 81
-                },
-                {
-                  "address": 1065086976,
-                  "owner": 81
-                },
-                {
-                  "address": 1065091072,
-                  "owner": 81
-                },
-                {
-                  "address": 1065095168,
-                  "owner": 81
-                },
-                {
-                  "address": 1065099264,
-                  "owner": 81
-                },
-                {
-                  "address": 1065103360,
-                  "owner": 81
-                },
-                {
-                  "address": 1065107456,
-                  "owner": 81
-                },
-                {
-                  "address": 1065111552,
-                  "owner": 81
-                },
-                {
-                  "address": 1065115648,
-                  "owner": 81
-                },
-                {
-                  "address": 1065119744,
-                  "owner": 81
-                },
-                {
-                  "address": 1065123840,
-                  "owner": 81
-                },
-                {
-                  "address": 1065127936,
-                  "owner": 81
-                },
-                {
-                  "address": 1065132032,
-                  "owner": 81
-                },
-                {
-                  "address": 1065136128,
-                  "owner": 81
-                },
-                {
-                  "address": 1065140224,
-                  "owner": 81
-                },
-                {
-                  "address": 1065144320,
-                  "owner": 81
-                },
-                {
-                  "address": 1065148416,
-                  "owner": 81
-                },
-                {
-                  "address": 1065152512,
-                  "owner": 81
-                },
-                {
-                  "address": 1065156608,
-                  "owner": 81
-                },
-                {
-                  "address": 1065160704,
-                  "owner": 81
-                },
-                {
-                  "address": 1065164800,
-                  "owner": 81
-                },
-                {
-                  "address": 1065168896,
-                  "owner": 81
-                },
-                {
-                  "address": 1065172992,
-                  "owner": 81
-                },
-                {
-                  "address": 1065177088,
-                  "owner": 81
-                },
-                {
-                  "address": 1065181184,
-                  "owner": 81
-                },
-                {
-                  "address": 1065185280,
-                  "owner": 81
-                },
-                {
-                  "address": 1065189376,
-                  "owner": 81
-                },
-                {
-                  "address": 1065193472,
-                  "owner": 81
-                },
-                {
-                  "address": 1065197568,
-                  "owner": 81
-                },
-                {
-                  "address": 1065201664,
-                  "owner": 81
-                },
-                {
-                  "address": 1065205760,
-                  "owner": 81
-                },
-                {
-                  "address": 1065209856,
-                  "owner": 81
-                },
-                {
-                  "address": 1065213952,
-                  "owner": 81
-                },
-                {
-                  "address": 1065218048,
-                  "owner": 81
-                },
-                {
-                  "address": 1065222144,
-                  "owner": 81
-                },
-                {
-                  "address": 1065226240,
-                  "owner": 81
-                },
-                {
-                  "address": 1065230336,
-                  "owner": 81
-                },
-                {
-                  "address": 1065234432,
-                  "owner": 81
-                },
-                {
-                  "address": 1065238528,
-                  "owner": 81
-                },
-                {
-                  "address": 1065242624,
-                  "owner": 81
-                },
-                {
-                  "address": 1065246720,
-                  "owner": 81
-                },
-                {
-                  "address": 1065250816,
-                  "owner": 81
-                },
-                {
-                  "address": 1065254912,
-                  "owner": 81
-                },
-                {
-                  "address": 1065259008,
-                  "owner": 81
-                },
-                {
-                  "address": 1065263104,
-                  "owner": 81
-                },
-                {
-                  "address": 1065267200,
-                  "owner": 81
-                },
-                {
-                  "address": 1065271296,
-                  "owner": 81
-                },
-                {
-                  "address": 1065275392,
-                  "owner": 81
-                },
-                {
-                  "address": 1065279488,
-                  "owner": 81
-                },
-                {
-                  "address": 1065283584,
-                  "owner": 81
-                },
-                {
-                  "address": 1065287680,
-                  "owner": 81
-                },
-                {
-                  "address": 1065291776,
-                  "owner": 81
-                },
-                {
-                  "address": 1065295872,
-                  "owner": 81
-                },
-                {
-                  "address": 1065299968,
-                  "owner": 81
-                }
-              ],
-              "cacheEffects": {
-                "flushTlb": false,
-                "invalidateInstructionFetch": false,
-                "invalidateGeneratedCode": false
-              },
-              "payloadBytes": 393216,
-              "payloadSha256": "b2cf3d4624dd0ed5915c6fb49bf148395ba214ac8eeb671611871dc5e22c27f2"
-            },
-            "memoryAfter": {
-              "owners": 29,
-              "imageOwners": 1,
-              "sealedOwners": 21,
-              "regions": 29,
-              "imageRegions": 1,
-              "reservedPages": 52204,
-              "committedPages": 9975,
-              "physicalPages": 9975,
-              "dirtyPages": 0,
-              "generation": 289885,
-              "acknowledgedGeneration": 289885
+              "generation": 289893,
+              "acknowledgedGeneration": 289893
             }
           }
         ],
-        "freedByte": 221,
-        "instructionCount": 276358985,
+        "instructionCount": 276360829,
         "nextEndpoint": {
-          "id": 75,
-          "address": 2130707616,
-          "module": "KERNEL32.dll",
+          "id": 8,
+          "address": 2130706544,
+          "module": "WINMM.dll",
           "symbol": {
             "kind": "name",
-            "name": "HeapAlloc"
+            "name": "timeGetTime"
           }
         },
-        "memoryContentSha256": "f5bf558d4405c7940d627805b8f5ce3b3e20cc77b74a3370c21c745f7637b180",
-        "nextArguments": [
-          1744896001,
-          0,
-          24
-        ],
-        "nextReturnAddress": 269109811,
-        "nextStackPointer": 7337172
+        "memoryContentSha256": "102795f1f536f78a6faedf72f2114b82123d024dd51dfd9ff6a1bf8032ce846a",
+        "nextArguments": [],
+        "nextReturnAddress": 268715302,
+        "nextStackPointer": 7337236
       },
-      "writebackBatches": 161060,
-      "dirtyPages": 236011,
-      "changedBytes": 33493088,
-      "hostDeltaBatches": 125738
+      "writebackBatches": 161064,
+      "dirtyPages": 236694,
+      "changedBytes": 36243225,
+      "hostDeltaBatches": 125742
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 158100,
-      "callSemanticsSha256": "9a0ae6fde8ba2f8414757ebf33af7a6a834ee9b9931637e78eda2a99547797da",
-      "instructions": 276358985,
-      "finalGeneration": 305836,
-      "memoryContentSha256": "f5bf558d4405c7940d627805b8f5ce3b3e20cc77b74a3370c21c745f7637b180",
+      "supportedCalls": 158104,
+      "callSemanticsSha256": "2cfdbb2fec2315784a72e565b766be7d7fe90ee33f50ce4f4e5c1edb44c4ac00",
+      "instructions": 276360829,
+      "finalGeneration": 305844,
+      "memoryContentSha256": "102795f1f536f78a6faedf72f2114b82123d024dd51dfd9ff6a1bf8032ce846a",
       "checkpointCompletion": {
-        "capability": "kernel32-heap-free-large-buffer",
-        "implementationId": "kernel32.heap-free.v1",
-        "requiredCompletions": 2,
-        "completionCount": 2,
-        "firstCompletionSequence": 158099,
-        "firstCompletionInstructionCount": 276358836,
-        "lastCompletionSequence": 158100,
-        "lastCompletionInstructionCount": 276358879,
+        "capability": "kernel32-heap-alloc-24-byte-buffer",
+        "implementationId": "kernel32.heap-alloc.v2",
+        "requiredCompletions": 4,
+        "completionCount": 4,
+        "firstCompletionSequence": 158101,
+        "firstCompletionInstructionCount": 276358985,
+        "lastCompletionSequence": 158104,
+        "lastCompletionInstructionCount": 276359417,
         "completions": [
           {
             "call": {
-              "sequence": 158099,
+              "sequence": 158101,
               "module": "kernel32.dll",
-              "symbol": "HeapFree",
+              "symbol": "HeapAlloc",
               "arguments": [
                 1744896001,
                 0,
-                1065300480
+                24
               ],
               "result": {
                 "action": "set",
-                "value": 1
+                "value": 541562816
               },
-              "implementationId": "kernel32.heap-free.v1",
-              "returnAddress": 269109453,
-              "stackPointerBefore": 7335772,
-              "stackPointerAfter": 7335788,
+              "implementationId": "kernel32.heap-alloc.v2",
+              "returnAddress": 269109811,
+              "stackPointerBefore": 7337172,
+              "stackPointerAfter": 7337188,
               "lastError": 0,
               "guestWrites": [],
-              "heapFree": {
+              "heapAllocation": {
                 "allocation": {
-                  "address": 1065300480,
+                  "address": 541562816,
+                  "byteLength": 24,
+                  "id": 1348,
+                  "initialization": "deterministic-uninitialized",
+                  "reservedByteLength": 24
+                },
+                "heapHandle": 1744896001,
+                "liveAllocations": 922
+              }
+            },
+            "allocationDelta": {
+              "fromGeneration": 305836,
+              "generation": 305837,
+              "mappingOperations": [],
+              "dirtyPages": [
+                {
+                  "address": 541560832,
+                  "owner": 10
+                }
+              ],
+              "cacheEffects": {
+                "flushTlb": false,
+                "invalidateInstructionFetch": false,
+                "invalidateGeneratedCode": false
+              },
+              "payloadBytes": 4096,
+              "payloadSha256": "19dc238b6918ca49a93f6dde58b62bbb1991d6d3171cdba5758f6a551c155680"
+            },
+            "memoryAfter": {
+              "acknowledgedGeneration": 305836,
+              "generation": 305837
+            }
+          },
+          {
+            "call": {
+              "sequence": 158102,
+              "module": "kernel32.dll",
+              "symbol": "HeapAlloc",
+              "arguments": [
+                1744896001,
+                0,
+                11
+              ],
+              "result": {
+                "action": "set",
+                "value": 541562736
+              },
+              "implementationId": "kernel32.heap-alloc.v2",
+              "returnAddress": 269109811,
+              "stackPointerBefore": 7337172,
+              "stackPointerAfter": 7337188,
+              "lastError": 0,
+              "guestWrites": [],
+              "heapAllocation": {
+                "allocation": {
+                  "address": 541562736,
+                  "byteLength": 11,
+                  "id": 1349,
+                  "initialization": "deterministic-uninitialized",
+                  "reservedByteLength": 16
+                },
+                "heapHandle": 1744896001,
+                "liveAllocations": 923
+              }
+            },
+            "allocationDelta": {
+              "fromGeneration": 305838,
+              "generation": 305839,
+              "mappingOperations": [],
+              "dirtyPages": [
+                {
+                  "address": 541560832,
+                  "owner": 10
+                }
+              ],
+              "cacheEffects": {
+                "flushTlb": false,
+                "invalidateInstructionFetch": false,
+                "invalidateGeneratedCode": false
+              },
+              "payloadBytes": 4096,
+              "payloadSha256": "7231e9584627a03393d45ac72dea04eaa1ab0c788d3ac02272cbeb25399af71c"
+            },
+            "memoryAfter": {
+              "acknowledgedGeneration": 305838,
+              "generation": 305839
+            }
+          },
+          {
+            "call": {
+              "sequence": 158103,
+              "module": "kernel32.dll",
+              "symbol": "HeapAlloc",
+              "arguments": [
+                1744896001,
+                0,
+                16
+              ],
+              "result": {
+                "action": "set",
+                "value": 541562840
+              },
+              "implementationId": "kernel32.heap-alloc.v2",
+              "returnAddress": 269109811,
+              "stackPointerBefore": 7337172,
+              "stackPointerAfter": 7337188,
+              "lastError": 0,
+              "guestWrites": [],
+              "heapAllocation": {
+                "allocation": {
+                  "address": 541562840,
+                  "byteLength": 16,
+                  "id": 1350,
+                  "initialization": "deterministic-uninitialized",
+                  "reservedByteLength": 16
+                },
+                "heapHandle": 1744896001,
+                "liveAllocations": 924
+              }
+            },
+            "allocationDelta": {
+              "fromGeneration": 305840,
+              "generation": 305841,
+              "mappingOperations": [],
+              "dirtyPages": [
+                {
+                  "address": 541560832,
+                  "owner": 10
+                }
+              ],
+              "cacheEffects": {
+                "flushTlb": false,
+                "invalidateInstructionFetch": false,
+                "invalidateGeneratedCode": false
+              },
+              "payloadBytes": 4096,
+              "payloadSha256": "0ef4481e88170824629eac59c7f8ea695ee51b1c6f75fadc0071e8cc4e7bbb3c"
+            },
+            "memoryAfter": {
+              "acknowledgedGeneration": 305840,
+              "generation": 305841
+            }
+          },
+          {
+            "call": {
+              "sequence": 158104,
+              "module": "kernel32.dll",
+              "symbol": "HeapAlloc",
+              "arguments": [
+                1744896001,
+                0,
+                2764816
+              ],
+              "result": {
+                "action": "set",
+                "value": 1064914552
+              },
+              "implementationId": "kernel32.heap-alloc.v2",
+              "returnAddress": 269109811,
+              "stackPointerBefore": 7337172,
+              "stackPointerAfter": 7337188,
+              "lastError": 0,
+              "guestWrites": [],
+              "heapAllocation": {
+                "allocation": {
+                  "address": 1064914552,
                   "byteLength": 2764816,
-                  "id": 1347,
+                  "id": 1351,
                   "initialization": "deterministic-uninitialized",
                   "reservedByteLength": 2764816
                 },
-                "allocationRetired": true,
                 "heapHandle": 1744896001,
-                "liveAllocationsAfter": 922,
-                "liveAllocationsBefore": 923
+                "liveAllocations": 925
               }
             },
-            "freeDelta": {
-              "fromGeneration": 305832,
-              "generation": 305833,
+            "allocationDelta": {
+              "fromGeneration": 305842,
+              "generation": 305843,
               "mappingOperations": [],
               "dirtyPages": [
+                {
+                  "address": 1064910848,
+                  "owner": 81
+                },
+                {
+                  "address": 1064914944,
+                  "owner": 81
+                },
+                {
+                  "address": 1064919040,
+                  "owner": 81
+                },
+                {
+                  "address": 1064923136,
+                  "owner": 81
+                },
+                {
+                  "address": 1064927232,
+                  "owner": 81
+                },
+                {
+                  "address": 1064931328,
+                  "owner": 81
+                },
+                {
+                  "address": 1064935424,
+                  "owner": 81
+                },
+                {
+                  "address": 1064939520,
+                  "owner": 81
+                },
+                {
+                  "address": 1064943616,
+                  "owner": 81
+                },
+                {
+                  "address": 1064947712,
+                  "owner": 81
+                },
+                {
+                  "address": 1064951808,
+                  "owner": 81
+                },
+                {
+                  "address": 1064955904,
+                  "owner": 81
+                },
+                {
+                  "address": 1064960000,
+                  "owner": 81
+                },
+                {
+                  "address": 1064964096,
+                  "owner": 81
+                },
+                {
+                  "address": 1064968192,
+                  "owner": 81
+                },
+                {
+                  "address": 1064972288,
+                  "owner": 81
+                },
+                {
+                  "address": 1064976384,
+                  "owner": 81
+                },
+                {
+                  "address": 1064980480,
+                  "owner": 81
+                },
+                {
+                  "address": 1064984576,
+                  "owner": 81
+                },
+                {
+                  "address": 1064988672,
+                  "owner": 81
+                },
+                {
+                  "address": 1064992768,
+                  "owner": 81
+                },
+                {
+                  "address": 1064996864,
+                  "owner": 81
+                },
+                {
+                  "address": 1065000960,
+                  "owner": 81
+                },
+                {
+                  "address": 1065005056,
+                  "owner": 81
+                },
+                {
+                  "address": 1065009152,
+                  "owner": 81
+                },
+                {
+                  "address": 1065013248,
+                  "owner": 81
+                },
+                {
+                  "address": 1065017344,
+                  "owner": 81
+                },
+                {
+                  "address": 1065021440,
+                  "owner": 81
+                },
+                {
+                  "address": 1065025536,
+                  "owner": 81
+                },
+                {
+                  "address": 1065029632,
+                  "owner": 81
+                },
+                {
+                  "address": 1065033728,
+                  "owner": 81
+                },
+                {
+                  "address": 1065037824,
+                  "owner": 81
+                },
+                {
+                  "address": 1065041920,
+                  "owner": 81
+                },
+                {
+                  "address": 1065046016,
+                  "owner": 81
+                },
+                {
+                  "address": 1065050112,
+                  "owner": 81
+                },
+                {
+                  "address": 1065054208,
+                  "owner": 81
+                },
+                {
+                  "address": 1065058304,
+                  "owner": 81
+                },
+                {
+                  "address": 1065062400,
+                  "owner": 81
+                },
+                {
+                  "address": 1065066496,
+                  "owner": 81
+                },
+                {
+                  "address": 1065070592,
+                  "owner": 81
+                },
+                {
+                  "address": 1065074688,
+                  "owner": 81
+                },
+                {
+                  "address": 1065078784,
+                  "owner": 81
+                },
+                {
+                  "address": 1065082880,
+                  "owner": 81
+                },
+                {
+                  "address": 1065086976,
+                  "owner": 81
+                },
+                {
+                  "address": 1065091072,
+                  "owner": 81
+                },
+                {
+                  "address": 1065095168,
+                  "owner": 81
+                },
+                {
+                  "address": 1065099264,
+                  "owner": 81
+                },
+                {
+                  "address": 1065103360,
+                  "owner": 81
+                },
+                {
+                  "address": 1065107456,
+                  "owner": 81
+                },
+                {
+                  "address": 1065111552,
+                  "owner": 81
+                },
+                {
+                  "address": 1065115648,
+                  "owner": 81
+                },
+                {
+                  "address": 1065119744,
+                  "owner": 81
+                },
+                {
+                  "address": 1065123840,
+                  "owner": 81
+                },
+                {
+                  "address": 1065127936,
+                  "owner": 81
+                },
+                {
+                  "address": 1065132032,
+                  "owner": 81
+                },
+                {
+                  "address": 1065136128,
+                  "owner": 81
+                },
+                {
+                  "address": 1065140224,
+                  "owner": 81
+                },
+                {
+                  "address": 1065144320,
+                  "owner": 81
+                },
+                {
+                  "address": 1065148416,
+                  "owner": 81
+                },
+                {
+                  "address": 1065152512,
+                  "owner": 81
+                },
+                {
+                  "address": 1065156608,
+                  "owner": 81
+                },
+                {
+                  "address": 1065160704,
+                  "owner": 81
+                },
+                {
+                  "address": 1065164800,
+                  "owner": 81
+                },
+                {
+                  "address": 1065168896,
+                  "owner": 81
+                },
+                {
+                  "address": 1065172992,
+                  "owner": 81
+                },
+                {
+                  "address": 1065177088,
+                  "owner": 81
+                },
+                {
+                  "address": 1065181184,
+                  "owner": 81
+                },
+                {
+                  "address": 1065185280,
+                  "owner": 81
+                },
+                {
+                  "address": 1065189376,
+                  "owner": 81
+                },
+                {
+                  "address": 1065193472,
+                  "owner": 81
+                },
+                {
+                  "address": 1065197568,
+                  "owner": 81
+                },
+                {
+                  "address": 1065201664,
+                  "owner": 81
+                },
+                {
+                  "address": 1065205760,
+                  "owner": 81
+                },
+                {
+                  "address": 1065209856,
+                  "owner": 81
+                },
+                {
+                  "address": 1065213952,
+                  "owner": 81
+                },
+                {
+                  "address": 1065218048,
+                  "owner": 81
+                },
+                {
+                  "address": 1065222144,
+                  "owner": 81
+                },
+                {
+                  "address": 1065226240,
+                  "owner": 81
+                },
+                {
+                  "address": 1065230336,
+                  "owner": 81
+                },
+                {
+                  "address": 1065234432,
+                  "owner": 81
+                },
+                {
+                  "address": 1065238528,
+                  "owner": 81
+                },
+                {
+                  "address": 1065242624,
+                  "owner": 81
+                },
+                {
+                  "address": 1065246720,
+                  "owner": 81
+                },
+                {
+                  "address": 1065250816,
+                  "owner": 81
+                },
+                {
+                  "address": 1065254912,
+                  "owner": 81
+                },
+                {
+                  "address": 1065259008,
+                  "owner": 81
+                },
+                {
+                  "address": 1065263104,
+                  "owner": 81
+                },
+                {
+                  "address": 1065267200,
+                  "owner": 81
+                },
+                {
+                  "address": 1065271296,
+                  "owner": 81
+                },
+                {
+                  "address": 1065275392,
+                  "owner": 81
+                },
+                {
+                  "address": 1065279488,
+                  "owner": 81
+                },
+                {
+                  "address": 1065283584,
+                  "owner": 81
+                },
+                {
+                  "address": 1065287680,
+                  "owner": 81
+                },
+                {
+                  "address": 1065291776,
+                  "owner": 81
+                },
+                {
+                  "address": 1065295872,
+                  "owner": 81
+                },
                 {
                   "address": 1065299968,
                   "owner": 81
@@ -5706,386 +5992,6 @@
                 {
                   "address": 1067675648,
                   "owner": 81
-                },
-                {
-                  "address": 1067679744,
-                  "owner": 81
-                },
-                {
-                  "address": 1067683840,
-                  "owner": 81
-                },
-                {
-                  "address": 1067687936,
-                  "owner": 81
-                },
-                {
-                  "address": 1067692032,
-                  "owner": 81
-                },
-                {
-                  "address": 1067696128,
-                  "owner": 81
-                },
-                {
-                  "address": 1067700224,
-                  "owner": 81
-                },
-                {
-                  "address": 1067704320,
-                  "owner": 81
-                },
-                {
-                  "address": 1067708416,
-                  "owner": 81
-                },
-                {
-                  "address": 1067712512,
-                  "owner": 81
-                },
-                {
-                  "address": 1067716608,
-                  "owner": 81
-                },
-                {
-                  "address": 1067720704,
-                  "owner": 81
-                },
-                {
-                  "address": 1067724800,
-                  "owner": 81
-                },
-                {
-                  "address": 1067728896,
-                  "owner": 81
-                },
-                {
-                  "address": 1067732992,
-                  "owner": 81
-                },
-                {
-                  "address": 1067737088,
-                  "owner": 81
-                },
-                {
-                  "address": 1067741184,
-                  "owner": 81
-                },
-                {
-                  "address": 1067745280,
-                  "owner": 81
-                },
-                {
-                  "address": 1067749376,
-                  "owner": 81
-                },
-                {
-                  "address": 1067753472,
-                  "owner": 81
-                },
-                {
-                  "address": 1067757568,
-                  "owner": 81
-                },
-                {
-                  "address": 1067761664,
-                  "owner": 81
-                },
-                {
-                  "address": 1067765760,
-                  "owner": 81
-                },
-                {
-                  "address": 1067769856,
-                  "owner": 81
-                },
-                {
-                  "address": 1067773952,
-                  "owner": 81
-                },
-                {
-                  "address": 1067778048,
-                  "owner": 81
-                },
-                {
-                  "address": 1067782144,
-                  "owner": 81
-                },
-                {
-                  "address": 1067786240,
-                  "owner": 81
-                },
-                {
-                  "address": 1067790336,
-                  "owner": 81
-                },
-                {
-                  "address": 1067794432,
-                  "owner": 81
-                },
-                {
-                  "address": 1067798528,
-                  "owner": 81
-                },
-                {
-                  "address": 1067802624,
-                  "owner": 81
-                },
-                {
-                  "address": 1067806720,
-                  "owner": 81
-                },
-                {
-                  "address": 1067810816,
-                  "owner": 81
-                },
-                {
-                  "address": 1067814912,
-                  "owner": 81
-                },
-                {
-                  "address": 1067819008,
-                  "owner": 81
-                },
-                {
-                  "address": 1067823104,
-                  "owner": 81
-                },
-                {
-                  "address": 1067827200,
-                  "owner": 81
-                },
-                {
-                  "address": 1067831296,
-                  "owner": 81
-                },
-                {
-                  "address": 1067835392,
-                  "owner": 81
-                },
-                {
-                  "address": 1067839488,
-                  "owner": 81
-                },
-                {
-                  "address": 1067843584,
-                  "owner": 81
-                },
-                {
-                  "address": 1067847680,
-                  "owner": 81
-                },
-                {
-                  "address": 1067851776,
-                  "owner": 81
-                },
-                {
-                  "address": 1067855872,
-                  "owner": 81
-                },
-                {
-                  "address": 1067859968,
-                  "owner": 81
-                },
-                {
-                  "address": 1067864064,
-                  "owner": 81
-                },
-                {
-                  "address": 1067868160,
-                  "owner": 81
-                },
-                {
-                  "address": 1067872256,
-                  "owner": 81
-                },
-                {
-                  "address": 1067876352,
-                  "owner": 81
-                },
-                {
-                  "address": 1067880448,
-                  "owner": 81
-                },
-                {
-                  "address": 1067884544,
-                  "owner": 81
-                },
-                {
-                  "address": 1067888640,
-                  "owner": 81
-                },
-                {
-                  "address": 1067892736,
-                  "owner": 81
-                },
-                {
-                  "address": 1067896832,
-                  "owner": 81
-                },
-                {
-                  "address": 1067900928,
-                  "owner": 81
-                },
-                {
-                  "address": 1067905024,
-                  "owner": 81
-                },
-                {
-                  "address": 1067909120,
-                  "owner": 81
-                },
-                {
-                  "address": 1067913216,
-                  "owner": 81
-                },
-                {
-                  "address": 1067917312,
-                  "owner": 81
-                },
-                {
-                  "address": 1067921408,
-                  "owner": 81
-                },
-                {
-                  "address": 1067925504,
-                  "owner": 81
-                },
-                {
-                  "address": 1067929600,
-                  "owner": 81
-                },
-                {
-                  "address": 1067933696,
-                  "owner": 81
-                },
-                {
-                  "address": 1067937792,
-                  "owner": 81
-                },
-                {
-                  "address": 1067941888,
-                  "owner": 81
-                },
-                {
-                  "address": 1067945984,
-                  "owner": 81
-                },
-                {
-                  "address": 1067950080,
-                  "owner": 81
-                },
-                {
-                  "address": 1067954176,
-                  "owner": 81
-                },
-                {
-                  "address": 1067958272,
-                  "owner": 81
-                },
-                {
-                  "address": 1067962368,
-                  "owner": 81
-                },
-                {
-                  "address": 1067966464,
-                  "owner": 81
-                },
-                {
-                  "address": 1067970560,
-                  "owner": 81
-                },
-                {
-                  "address": 1067974656,
-                  "owner": 81
-                },
-                {
-                  "address": 1067978752,
-                  "owner": 81
-                },
-                {
-                  "address": 1067982848,
-                  "owner": 81
-                },
-                {
-                  "address": 1067986944,
-                  "owner": 81
-                },
-                {
-                  "address": 1067991040,
-                  "owner": 81
-                },
-                {
-                  "address": 1067995136,
-                  "owner": 81
-                },
-                {
-                  "address": 1067999232,
-                  "owner": 81
-                },
-                {
-                  "address": 1068003328,
-                  "owner": 81
-                },
-                {
-                  "address": 1068007424,
-                  "owner": 81
-                },
-                {
-                  "address": 1068011520,
-                  "owner": 81
-                },
-                {
-                  "address": 1068015616,
-                  "owner": 81
-                },
-                {
-                  "address": 1068019712,
-                  "owner": 81
-                },
-                {
-                  "address": 1068023808,
-                  "owner": 81
-                },
-                {
-                  "address": 1068027904,
-                  "owner": 81
-                },
-                {
-                  "address": 1068032000,
-                  "owner": 81
-                },
-                {
-                  "address": 1068036096,
-                  "owner": 81
-                },
-                {
-                  "address": 1068040192,
-                  "owner": 81
-                },
-                {
-                  "address": 1068044288,
-                  "owner": 81
-                },
-                {
-                  "address": 1068048384,
-                  "owner": 81
-                },
-                {
-                  "address": 1068052480,
-                  "owner": 81
-                },
-                {
-                  "address": 1068056576,
-                  "owner": 81
-                },
-                {
-                  "address": 1068060672,
-                  "owner": 81
-                },
-                {
-                  "address": 1068064768,
-                  "owner": 81
                 }
               ],
               "cacheEffects": {
@@ -6094,478 +6000,36 @@
                 "invalidateGeneratedCode": false
               },
               "payloadBytes": 2768896,
-              "payloadSha256": "e139bec6f081ab6be0711612720ad36a930a4aa7952b3250ca9b90adcc249f60"
+              "payloadSha256": "bd2bba2c8fe1997c93614ca3795da8ea6aef0956f2b9e01909e909be4c79e56a"
             },
             "memoryAfter": {
-              "acknowledgedGeneration": 305832,
-              "generation": 305833
-            }
-          },
-          {
-            "call": {
-              "sequence": 158100,
-              "module": "kernel32.dll",
-              "symbol": "HeapFree",
-              "arguments": [
-                1744896001,
-                0,
-                1064914552
-              ],
-              "result": {
-                "action": "set",
-                "value": 1
-              },
-              "implementationId": "kernel32.heap-free.v1",
-              "returnAddress": 269109453,
-              "stackPointerBefore": 7335868,
-              "stackPointerAfter": 7335884,
-              "lastError": 0,
-              "guestWrites": [],
-              "heapFree": {
-                "allocation": {
-                  "address": 1064914552,
-                  "byteLength": 385924,
-                  "id": 1346,
-                  "initialization": "deterministic-uninitialized",
-                  "reservedByteLength": 385928
-                },
-                "allocationRetired": true,
-                "heapHandle": 1744896001,
-                "liveAllocationsAfter": 921,
-                "liveAllocationsBefore": 922
-              }
-            },
-            "freeDelta": {
-              "fromGeneration": 305834,
-              "generation": 305835,
-              "mappingOperations": [],
-              "dirtyPages": [
-                {
-                  "address": 1064910848,
-                  "owner": 81
-                },
-                {
-                  "address": 1064914944,
-                  "owner": 81
-                },
-                {
-                  "address": 1064919040,
-                  "owner": 81
-                },
-                {
-                  "address": 1064923136,
-                  "owner": 81
-                },
-                {
-                  "address": 1064927232,
-                  "owner": 81
-                },
-                {
-                  "address": 1064931328,
-                  "owner": 81
-                },
-                {
-                  "address": 1064935424,
-                  "owner": 81
-                },
-                {
-                  "address": 1064939520,
-                  "owner": 81
-                },
-                {
-                  "address": 1064943616,
-                  "owner": 81
-                },
-                {
-                  "address": 1064947712,
-                  "owner": 81
-                },
-                {
-                  "address": 1064951808,
-                  "owner": 81
-                },
-                {
-                  "address": 1064955904,
-                  "owner": 81
-                },
-                {
-                  "address": 1064960000,
-                  "owner": 81
-                },
-                {
-                  "address": 1064964096,
-                  "owner": 81
-                },
-                {
-                  "address": 1064968192,
-                  "owner": 81
-                },
-                {
-                  "address": 1064972288,
-                  "owner": 81
-                },
-                {
-                  "address": 1064976384,
-                  "owner": 81
-                },
-                {
-                  "address": 1064980480,
-                  "owner": 81
-                },
-                {
-                  "address": 1064984576,
-                  "owner": 81
-                },
-                {
-                  "address": 1064988672,
-                  "owner": 81
-                },
-                {
-                  "address": 1064992768,
-                  "owner": 81
-                },
-                {
-                  "address": 1064996864,
-                  "owner": 81
-                },
-                {
-                  "address": 1065000960,
-                  "owner": 81
-                },
-                {
-                  "address": 1065005056,
-                  "owner": 81
-                },
-                {
-                  "address": 1065009152,
-                  "owner": 81
-                },
-                {
-                  "address": 1065013248,
-                  "owner": 81
-                },
-                {
-                  "address": 1065017344,
-                  "owner": 81
-                },
-                {
-                  "address": 1065021440,
-                  "owner": 81
-                },
-                {
-                  "address": 1065025536,
-                  "owner": 81
-                },
-                {
-                  "address": 1065029632,
-                  "owner": 81
-                },
-                {
-                  "address": 1065033728,
-                  "owner": 81
-                },
-                {
-                  "address": 1065037824,
-                  "owner": 81
-                },
-                {
-                  "address": 1065041920,
-                  "owner": 81
-                },
-                {
-                  "address": 1065046016,
-                  "owner": 81
-                },
-                {
-                  "address": 1065050112,
-                  "owner": 81
-                },
-                {
-                  "address": 1065054208,
-                  "owner": 81
-                },
-                {
-                  "address": 1065058304,
-                  "owner": 81
-                },
-                {
-                  "address": 1065062400,
-                  "owner": 81
-                },
-                {
-                  "address": 1065066496,
-                  "owner": 81
-                },
-                {
-                  "address": 1065070592,
-                  "owner": 81
-                },
-                {
-                  "address": 1065074688,
-                  "owner": 81
-                },
-                {
-                  "address": 1065078784,
-                  "owner": 81
-                },
-                {
-                  "address": 1065082880,
-                  "owner": 81
-                },
-                {
-                  "address": 1065086976,
-                  "owner": 81
-                },
-                {
-                  "address": 1065091072,
-                  "owner": 81
-                },
-                {
-                  "address": 1065095168,
-                  "owner": 81
-                },
-                {
-                  "address": 1065099264,
-                  "owner": 81
-                },
-                {
-                  "address": 1065103360,
-                  "owner": 81
-                },
-                {
-                  "address": 1065107456,
-                  "owner": 81
-                },
-                {
-                  "address": 1065111552,
-                  "owner": 81
-                },
-                {
-                  "address": 1065115648,
-                  "owner": 81
-                },
-                {
-                  "address": 1065119744,
-                  "owner": 81
-                },
-                {
-                  "address": 1065123840,
-                  "owner": 81
-                },
-                {
-                  "address": 1065127936,
-                  "owner": 81
-                },
-                {
-                  "address": 1065132032,
-                  "owner": 81
-                },
-                {
-                  "address": 1065136128,
-                  "owner": 81
-                },
-                {
-                  "address": 1065140224,
-                  "owner": 81
-                },
-                {
-                  "address": 1065144320,
-                  "owner": 81
-                },
-                {
-                  "address": 1065148416,
-                  "owner": 81
-                },
-                {
-                  "address": 1065152512,
-                  "owner": 81
-                },
-                {
-                  "address": 1065156608,
-                  "owner": 81
-                },
-                {
-                  "address": 1065160704,
-                  "owner": 81
-                },
-                {
-                  "address": 1065164800,
-                  "owner": 81
-                },
-                {
-                  "address": 1065168896,
-                  "owner": 81
-                },
-                {
-                  "address": 1065172992,
-                  "owner": 81
-                },
-                {
-                  "address": 1065177088,
-                  "owner": 81
-                },
-                {
-                  "address": 1065181184,
-                  "owner": 81
-                },
-                {
-                  "address": 1065185280,
-                  "owner": 81
-                },
-                {
-                  "address": 1065189376,
-                  "owner": 81
-                },
-                {
-                  "address": 1065193472,
-                  "owner": 81
-                },
-                {
-                  "address": 1065197568,
-                  "owner": 81
-                },
-                {
-                  "address": 1065201664,
-                  "owner": 81
-                },
-                {
-                  "address": 1065205760,
-                  "owner": 81
-                },
-                {
-                  "address": 1065209856,
-                  "owner": 81
-                },
-                {
-                  "address": 1065213952,
-                  "owner": 81
-                },
-                {
-                  "address": 1065218048,
-                  "owner": 81
-                },
-                {
-                  "address": 1065222144,
-                  "owner": 81
-                },
-                {
-                  "address": 1065226240,
-                  "owner": 81
-                },
-                {
-                  "address": 1065230336,
-                  "owner": 81
-                },
-                {
-                  "address": 1065234432,
-                  "owner": 81
-                },
-                {
-                  "address": 1065238528,
-                  "owner": 81
-                },
-                {
-                  "address": 1065242624,
-                  "owner": 81
-                },
-                {
-                  "address": 1065246720,
-                  "owner": 81
-                },
-                {
-                  "address": 1065250816,
-                  "owner": 81
-                },
-                {
-                  "address": 1065254912,
-                  "owner": 81
-                },
-                {
-                  "address": 1065259008,
-                  "owner": 81
-                },
-                {
-                  "address": 1065263104,
-                  "owner": 81
-                },
-                {
-                  "address": 1065267200,
-                  "owner": 81
-                },
-                {
-                  "address": 1065271296,
-                  "owner": 81
-                },
-                {
-                  "address": 1065275392,
-                  "owner": 81
-                },
-                {
-                  "address": 1065279488,
-                  "owner": 81
-                },
-                {
-                  "address": 1065283584,
-                  "owner": 81
-                },
-                {
-                  "address": 1065287680,
-                  "owner": 81
-                },
-                {
-                  "address": 1065291776,
-                  "owner": 81
-                },
-                {
-                  "address": 1065295872,
-                  "owner": 81
-                },
-                {
-                  "address": 1065299968,
-                  "owner": 81
-                }
-              ],
-              "cacheEffects": {
-                "flushTlb": false,
-                "invalidateInstructionFetch": false,
-                "invalidateGeneratedCode": false
-              },
-              "payloadBytes": 393216,
-              "payloadSha256": "b2cf3d4624dd0ed5915c6fb49bf148395ba214ac8eeb671611871dc5e22c27f2"
-            },
-            "memoryAfter": {
-              "acknowledgedGeneration": 305834,
-              "generation": 305835
+              "acknowledgedGeneration": 305842,
+              "generation": 305843
             }
           }
         ],
-        "freedByte": 221,
-        "instructionCount": 276358985,
+        "instructionCount": 276360829,
         "nextEndpoint": {
-          "address": 2130707616,
+          "address": 2130706544,
           "disposition": "declared-runtime-export",
-          "iatAddress": 269291988,
-          "id": 75,
-          "module": "kernel32.dll",
+          "iatAddress": 269292772,
+          "id": 8,
+          "module": "winmm.dll",
           "symbol": {
             "kind": "name",
-            "name": "HeapAlloc"
+            "name": "timeGetTime"
           }
         },
-        "nextArguments": [
-          1744896001,
-          0,
-          24
-        ],
-        "nextReturnAddress": 269109811,
-        "nextStackPointer": 7337172,
-        "memoryContentSha256": "f5bf558d4405c7940d627805b8f5ce3b3e20cc77b74a3370c21c745f7637b180"
+        "nextArguments": [],
+        "nextReturnAddress": 268715302,
+        "nextStackPointer": 7337236,
+        "memoryContentSha256": "102795f1f536f78a6faedf72f2114b82123d024dd51dfd9ff6a1bf8032ce846a"
       },
-      "wasmBridgeCalls": 476133,
+      "wasmBridgeCalls": 476145,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 567613,
+          "transitionCount": 567625,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -6612,36 +6076,31 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "kernel32-heap-alloc-24-byte-buffer",
-      "pausedHistoricalCheckpoint": "kernel32-heap-free-large-buffer",
-      "instructionCount": 276358985,
-      "capabilityCluster": "kernel32-heap-lifecycle",
-      "reason": "kernel32-heap-free-large-buffer-checkpoint-complete",
+      "nextCheckpoint": "winmm-time-get-time-post-heap-reuse",
+      "pausedHistoricalCheckpoint": "kernel32-heap-alloc-24-byte-buffer",
+      "instructionCount": 276360829,
+      "capabilityCluster": "winmm-process-clock",
+      "reason": "kernel32-heap-alloc-24-byte-buffer-checkpoint-complete",
       "completion": {
-        "capability": "kernel32-heap-free-large-buffer",
-        "implementationId": "kernel32.heap-free.v1",
-        "requiredCompletions": 2,
-        "completionCount": 2,
-        "firstCompletionSequence": 158099,
-        "firstCompletionInstructionCount": 276358836,
-        "lastCompletionSequence": 158100,
-        "lastCompletionInstructionCount": 276358879,
-        "freedByte": 221
+        "capability": "kernel32-heap-alloc-24-byte-buffer",
+        "implementationId": "kernel32.heap-alloc.v2",
+        "requiredCompletions": 4,
+        "completionCount": 4,
+        "firstCompletionSequence": 158101,
+        "firstCompletionInstructionCount": 276358985,
+        "lastCompletionSequence": 158104,
+        "lastCompletionInstructionCount": 276359417
       },
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
-        "endpointId": 75,
-        "api": "KERNEL32.dll!HeapAlloc",
-        "endpointAddress": "0x7f0004a0",
-        "iatAddress": "0x100d11d4",
-        "observedModule": "KERNEL32.dll",
-        "observedSymbol": "HeapAlloc",
+        "endpointId": 8,
+        "api": "WINMM.dll!timeGetTime",
+        "endpointAddress": "0x7f000070",
+        "iatAddress": "0x100d14e4",
+        "observedModule": "WINMM.dll",
+        "observedSymbol": "timeGetTime",
         "disposition": "declared-runtime-export",
-        "arguments": [
-          "0x68010001",
-          "0x00000000",
-          "24"
-        ]
+        "arguments": []
       }
     },
     "cleanup": {
@@ -6657,14 +6116,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-heap-free-large-buffer/report.json",
-      "bytes": 2936167,
-      "sha256": "e64835ec60e81d05ec5ecfb13bf84adb2556cb8b360cc02655184f5bbc297a4d"
+      "path": ".work/v86-bgi-heap-alloc-24-byte-buffer/report.json",
+      "bytes": 2931096,
+      "sha256": "b79ea3230591e6dad8c7836c389f30356f856597b63fcf5da6a425b2e36301c0"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2661362,
-      "sha256": "17a24505b7a651136f2b9c2b4569717c3e5dfe54333e4efa1140933e977ac987"
+      "bytes": 2654479,
+      "sha256": "7183a6f27ad3174313cf064bf43794cd3d76634f1327330c7e74570bc4966d94"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -6679,12 +6138,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3766,
-      "sha256": "b351756a40458831ceadcee530ee1e367bf3f0a152f8409913383455364bd993"
+      "sha256": "19cda789865449312248cd90b882f04323984a9bbdcb35baabb862ce1b2dc5aa"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 5111032,
-      "sha256": "53d7bff9ef1e2ac571ccc1596792f0aa0865fc487ac1b8214ab6670a753c462c"
+      "bytes": 5113856,
+      "sha256": "f71a149ecdc5f1d2432293f8255288b95cf24cfcb5d722d81d4d3391c4b68b5c"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -6716,5 +6175,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "1c1d0cae37ecc4eea6120b8c118122adef80174e306b602b338092296466b9eb"
+  "payloadSha256": "78cfef93d7a58f65eaa571f397a5fe609ee6845e2909e88432eba090ffcccfdb"
 }
