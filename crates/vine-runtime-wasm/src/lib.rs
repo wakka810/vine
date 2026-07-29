@@ -699,7 +699,11 @@ impl BrowserRuntime {
         imm32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
-        let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v31();
+        let mut d3d9_policy = if capabilities.user32_async_key_state_initial_scan {
+            D3d9CompatibilityPolicy::controlled_v32()
+        } else {
+            D3d9CompatibilityPolicy::controlled_v31()
+        };
         if !capabilities.d3d9_clear {
             d3d9_policy.clear = None;
         }

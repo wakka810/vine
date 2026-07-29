@@ -59,6 +59,9 @@ const focusedGuestThreadObservation =
 const focusedD3d9CreateDeviceObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-create-device");
+const focusedD3d9TestCooperativeLevelObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("d3d9-test-cooperative-level");
 const focusedD3d9GetSurfaceLevelObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-get-surface-level");
@@ -87,8 +90,7 @@ const focusedD3d9SetTextureObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-set-texture");
 const focusedD3d9SetFvfObservation =
-  selectedObservations.size === 1 &&
-  selectedObservations.has("d3d9-set-fvf");
+  selectedObservations.size === 1 && selectedObservations.has("d3d9-set-fvf");
 const focusedD3d9SetStreamSourceObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-set-stream-source");
@@ -96,8 +98,7 @@ const focusedD3d9DrawPrimitiveObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("d3d9-draw-primitive");
 const focusedD3d9EndSceneObservation =
-  selectedObservations.size === 1 &&
-  selectedObservations.has("d3d9-end-scene");
+  selectedObservations.size === 1 && selectedObservations.has("d3d9-end-scene");
 const focusedD3d9PresentObservation =
   selectedObservations.size === 1 && selectedObservations.has("d3d9-present");
 const focusedD3d9InitialSamplerStatesObservation =
@@ -138,6 +139,7 @@ const focusedD3d9ResourceObservation =
   focusedD3d9GetSurfaceLevelObservation || focusedD3d9SurfaceGetDcObservation;
 const focusedD3d9DeviceObservation =
   focusedD3d9CreateDeviceObservation ||
+  focusedD3d9TestCooperativeLevelObservation ||
   focusedD3d9ResourceObservation ||
   focusedD3d9InitialTexturesObservation ||
   focusedD3d9RecreatedTexturesObservation ||
@@ -160,6 +162,14 @@ const stopOnEvent = agentOptions.stopOnEvent ?? null;
 let sequence = 0;
 let nextCallId = 1;
 let focusedD3d9DeviceMethodCaptured = false;
+let focusedD3d9TestCooperativeLevelDevice = null;
+let focusedD3d9TestCooperativeLevelMainModuleCall = null;
+let focusedD3d9TestCooperativeLevelOracleScheduled = false;
+let focusedD3d9TestCooperativeLevelOracleCall = null;
+let focusedD3d9TestCooperativeLevelOracleComplete = false;
+let focusedD3d9TestCooperativeLevelOracleEvidence = null;
+let focusedD3d9TestCooperativeLevelComplete = false;
+let focusedD3d9TestCooperativeLevelQuiescentNextCallId = null;
 let focusedD3d9TextureMethodCaptured = false;
 let focusedD3d9SurfaceMethodCaptured = false;
 let focusedD3d9SurfaceObject = null;
@@ -477,9 +487,8 @@ let getForegroundWindowOracleEvidence = null;
 let getAsyncKeyStateCompletionRecorded = false;
 const getAsyncKeyStateMainModuleCalls = [];
 const getAsyncKeyStateInitialScanVirtualKeys = [
-  14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99,
-  52, 100, 53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17, 1,
-  2, 4, 5, 6,
+  14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99, 52, 100,
+  53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17, 1, 2, 4, 5, 6,
 ];
 let getAsyncKeyStateScanMatchLength = 0;
 let getAsyncKeyStateScanStart = 0;
@@ -4533,18 +4542,16 @@ function attachIdirect3dtexture9(object) {
               : {
                   rectPointer:
                     this.traceD3d9TextureAddDirtyRectPointer.toString(),
-                  rect: snapshotRect(
-                    this.traceD3d9TextureAddDirtyRectPointer,
-                  ),
+                  rect: snapshotRect(this.traceD3d9TextureAddDirtyRectPointer),
                   lastErrorBefore:
                     this.traceD3d9TextureAddDirtyRectLastErrorBefore,
-                  immediateConsumer:
-                    this.traceD3d9TextureAddDirtyRectMainModuleCaller
-                      ? snapshotInstructionsFollowingDirectJump(
-                          this.returnAddress,
-                          128,
-                        )
-                      : null,
+                  immediateConsumer: this
+                    .traceD3d9TextureAddDirtyRectMainModuleCaller
+                    ? snapshotInstructionsFollowingDirectJump(
+                        this.returnAddress,
+                        128,
+                      )
+                    : null,
                 };
           this.traceD3d9TextureLockedRectOutput =
             focusedD3d9TextureLockRectObservation && slot === 19
@@ -4566,15 +4573,13 @@ function attachIdirect3dtexture9(object) {
                   rectPointer: args[3].toString(),
                   rect: args[3].isNull() ? null : snapshotRect(args[3]),
                   flags: args[4].toUInt32(),
-                  lastErrorBefore:
-                    this.traceD3d9TextureLockRectLastErrorBefore,
-                  immediateConsumer:
-                    this.traceD3d9TextureLockRectMainLockCaller
-                      ? snapshotInstructionsFollowingDirectJump(
-                          this.returnAddress,
-                          128,
-                        )
-                      : null,
+                  lastErrorBefore: this.traceD3d9TextureLockRectLastErrorBefore,
+                  immediateConsumer: this.traceD3d9TextureLockRectMainLockCaller
+                    ? snapshotInstructionsFollowingDirectJump(
+                        this.returnAddress,
+                        128,
+                      )
+                    : null,
                 };
           this.traceD3d9TextureUnlockRect =
             focusedD3d9TextureLockRectObservation && slot === 20
@@ -4587,21 +4592,20 @@ function attachIdirect3dtexture9(object) {
                       ?.after?.fields?.bits !== undefined
                       ? snapshotBoundedRawBytes(
                           ptr(
-                            focusedD3d9TextureLockRectMainLock.lockRect.lockedRect
-                              .after.fields.bits,
+                            focusedD3d9TextureLockRectMainLock.lockRect
+                              .lockedRect.after.fields.bits,
                           ),
                           32,
                         )
                       : null,
-                  lastErrorBefore:
-                    this.traceD3d9TextureLockRectLastErrorBefore,
-                  immediateConsumer:
-                    this.traceD3d9TextureLockRectMainUnlockCaller
-                      ? snapshotInstructionsFollowingDirectJump(
-                          this.returnAddress,
-                          128,
-                        )
-                      : null,
+                  lastErrorBefore: this.traceD3d9TextureLockRectLastErrorBefore,
+                  immediateConsumer: this
+                    .traceD3d9TextureLockRectMainUnlockCaller
+                    ? snapshotInstructionsFollowingDirectJump(
+                        this.returnAddress,
+                        128,
+                      )
+                    : null,
                 }
               : null;
           this.traceD3d9SurfaceLevelOutput = slot === 18 ? args[2] : null;
@@ -4694,9 +4698,7 @@ function attachIdirect3dtexture9(object) {
               ...(d3d9TextureAddDirtyRect === null
                 ? {}
                 : { d3d9TextureAddDirtyRect }),
-              ...(d3d9TextureLockRect === null
-                ? {}
-                : { d3d9TextureLockRect }),
+              ...(d3d9TextureLockRect === null ? {} : { d3d9TextureLockRect }),
               ...(d3d9TextureUnlockRect === null
                 ? {}
                 : { d3d9TextureUnlockRect }),
@@ -4743,8 +4745,7 @@ function attachIdirect3dtexture9(object) {
                 lastError: Number(this.lastError) >>> 0,
                 rectPointer: d3d9TextureAddDirtyRect.rectPointer,
                 rect: d3d9TextureAddDirtyRect.rect,
-                immediateConsumer:
-                  d3d9TextureAddDirtyRect.immediateConsumer,
+                immediateConsumer: d3d9TextureAddDirtyRect.immediateConsumer,
                 caller: this.traceFrame.caller,
               };
               scheduleFocusedD3d9TextureAddDirtyRectOracle();
@@ -4765,8 +4766,7 @@ function attachIdirect3dtexture9(object) {
               arguments: this.traceArguments,
               result: d3d9TextureLockOperation.result,
               resultU32: d3d9TextureLockOperation.resultU32,
-              lastErrorBefore:
-                d3d9TextureLockOperation.lastErrorBefore,
+              lastErrorBefore: d3d9TextureLockOperation.lastErrorBefore,
               lastError: d3d9TextureLockOperation.lastErrorAfter,
               ...(d3d9TextureLockRect === null
                 ? { unlockRect: d3d9TextureUnlockRect }
@@ -4995,7 +4995,39 @@ function attachIdirect3ddevice9(object) {
       const implementationModule = Process.findModuleByAddress(address);
       Interceptor.attach(address, {
         onEnter(args) {
-          if (focusedD3d9RasterStatusObservation) {
+          if (focusedD3d9TestCooperativeLevelObservation) {
+            const caller = describeCaller(this.returnAddress);
+            const callerModule = caller.module?.toLowerCase() ?? null;
+            const objectAddress = args[0].toString().toLowerCase();
+            const isMainModuleCaller =
+              slot === 3 &&
+              callerModule === Process.mainModule.name.toLowerCase() &&
+              caller.rva === 0x5adcd &&
+              focusedD3d9TestCooperativeLevelMainModuleCall === null;
+            const isOracleCaller =
+              slot === 3 &&
+              callerModule === "frida-agent.dll" &&
+              focusedD3d9TestCooperativeLevelOracleCall !== null;
+            if (
+              focusedD3d9TestCooperativeLevelComplete ||
+              (!isMainModuleCaller && !isOracleCaller) ||
+              (focusedD3d9TestCooperativeLevelDevice !== null &&
+                objectAddress !== focusedD3d9TestCooperativeLevelDevice)
+            ) {
+              this.traceFrame = null;
+              return;
+            }
+            focusedD3d9TestCooperativeLevelDevice ??= objectAddress;
+            this.traceD3d9TestCooperativeLevelMainModuleCaller =
+              isMainModuleCaller;
+            this.traceD3d9TestCooperativeLevelOracleCaller = isOracleCaller;
+            if (isOracleCaller) {
+              this.lastError =
+                focusedD3d9TestCooperativeLevelOracleCall.sentinel;
+            }
+            this.traceD3d9TestCooperativeLevelLastErrorBefore =
+              Number(this.lastError) >>> 0;
+          } else if (focusedD3d9RasterStatusObservation) {
             const caller = describeCaller(this.returnAddress);
             const objectAddress = args[0].toString().toLowerCase();
             if (
@@ -5154,8 +5186,7 @@ function attachIdirect3ddevice9(object) {
               return;
             }
             focusedD3d9SetFvfDevice ??= objectAddress;
-            this.traceD3d9SetFvfLastErrorBefore =
-              Number(this.lastError) >>> 0;
+            this.traceD3d9SetFvfLastErrorBefore = Number(this.lastError) >>> 0;
           } else if (focusedD3d9SetStreamSourceObservation) {
             const caller = describeCaller(this.returnAddress);
             const objectAddress = args[0].toString().toLowerCase();
@@ -5244,8 +5275,7 @@ function attachIdirect3ddevice9(object) {
               return;
             }
             focusedD3d9PresentDevice ??= objectAddress;
-            this.traceD3d9PresentLastErrorBefore =
-              Number(this.lastError) >>> 0;
+            this.traceD3d9PresentLastErrorBefore = Number(this.lastError) >>> 0;
           } else if (focusedD3d9InitialSamplerStatesObservation) {
             const caller = describeCaller(this.returnAddress);
             const objectAddress = args[0].toString().toLowerCase();
@@ -5483,13 +5513,26 @@ function attachIdirect3ddevice9(object) {
               ? {
                   sourceTexture: args[1].toString(),
                   destinationTexture: args[2].toString(),
-                  lastErrorBefore:
-                    this.traceD3d9UpdateTextureLastErrorBefore,
+                  lastErrorBefore: this.traceD3d9UpdateTextureLastErrorBefore,
                   immediateConsumer:
                     this.traceD3d9UpdateTextureMainModuleCaller === true
                       ? snapshotInstructionsFollowingDirectJump(
                           this.returnAddress,
                           64,
+                        )
+                      : null,
+                }
+              : null;
+          this.traceD3d9TestCooperativeLevel =
+            focusedD3d9TestCooperativeLevelObservation && slot === 3
+              ? {
+                  lastErrorBefore:
+                    this.traceD3d9TestCooperativeLevelLastErrorBefore,
+                  immediateConsumer:
+                    this.traceD3d9TestCooperativeLevelMainModuleCaller === true
+                      ? snapshotInstructionsFollowingDirectJump(
+                          this.returnAddress,
+                          128,
                         )
                       : null,
                 }
@@ -5534,8 +5577,7 @@ function attachIdirect3ddevice9(object) {
                   vertexBuffer: args[2].toString(),
                   offset: args[3].toUInt32(),
                   stride: args[4].toUInt32(),
-                  lastErrorBefore:
-                    this.traceD3d9SetStreamSourceLastErrorBefore,
+                  lastErrorBefore: this.traceD3d9SetStreamSourceLastErrorBefore,
                   immediateConsumer: snapshotInstructionsFollowingDirectJump(
                     this.returnAddress,
                     128,
@@ -5548,8 +5590,7 @@ function attachIdirect3ddevice9(object) {
                   primitiveType: args[1].toUInt32(),
                   startVertex: args[2].toUInt32(),
                   primitiveCount: args[3].toUInt32(),
-                  lastErrorBefore:
-                    this.traceD3d9DrawPrimitiveLastErrorBefore,
+                  lastErrorBefore: this.traceD3d9DrawPrimitiveLastErrorBefore,
                   immediateConsumer: snapshotInstructionsFollowingDirectJump(
                     this.returnAddress,
                     128,
@@ -5655,6 +5696,15 @@ function attachIdirect3ddevice9(object) {
                   ),
                 };
           const lastError = Number(this.lastError) >>> 0;
+          const d3d9TestCooperativeLevel =
+            this.traceD3d9TestCooperativeLevel === null
+              ? null
+              : {
+                  ...this.traceD3d9TestCooperativeLevel,
+                  result: result.toInt32(),
+                  resultU32: result.toUInt32(),
+                  lastErrorAfter: lastError,
+                };
           const d3d9UpdateTexture =
             this.traceD3d9UpdateTexture === null
               ? null
@@ -5759,18 +5809,15 @@ function attachIdirect3ddevice9(object) {
                 ? {}
                 : { d3d9CreateVertexBuffer }),
               ...(d3d9RasterStatus === null ? {} : { d3d9RasterStatus }),
-              ...(d3d9UpdateTexture === null
+              ...(d3d9TestCooperativeLevel === null
                 ? {}
-                : { d3d9UpdateTexture }),
+                : { d3d9TestCooperativeLevel }),
+              ...(d3d9UpdateTexture === null ? {} : { d3d9UpdateTexture }),
               ...(d3d9BeginScene === null ? {} : { d3d9BeginScene }),
               ...(d3d9SetTexture === null ? {} : { d3d9SetTexture }),
               ...(d3d9SetFvf === null ? {} : { d3d9SetFvf }),
-              ...(d3d9SetStreamSource === null
-                ? {}
-                : { d3d9SetStreamSource }),
-              ...(d3d9DrawPrimitive === null
-                ? {}
-                : { d3d9DrawPrimitive }),
+              ...(d3d9SetStreamSource === null ? {} : { d3d9SetStreamSource }),
+              ...(d3d9DrawPrimitive === null ? {} : { d3d9DrawPrimitive }),
               ...(d3d9EndScene === null ? {} : { d3d9EndScene }),
               ...(d3d9Present === null ? {} : { d3d9Present }),
               ...(d3d9InitialSamplerState === null
@@ -5782,6 +5829,42 @@ function attachIdirect3ddevice9(object) {
             },
             this.lastError,
           );
+          if (d3d9TestCooperativeLevel !== null) {
+            if (this.traceD3d9TestCooperativeLevelOracleCaller) {
+              focusedD3d9TestCooperativeLevelOracleCall.hook = {
+                callId: this.traceFrame.callId,
+                api: name,
+                interface: "IDirect3DDevice9",
+                vtableSlot: slot,
+                object: this.traceObject,
+                arguments: this.traceArguments,
+                result: d3d9TestCooperativeLevel.result,
+                resultU32: d3d9TestCooperativeLevel.resultU32,
+                lastErrorBefore: d3d9TestCooperativeLevel.lastErrorBefore,
+                lastError: d3d9TestCooperativeLevel.lastErrorAfter,
+                caller: this.traceFrame.caller,
+              };
+            } else if (this.traceD3d9TestCooperativeLevelMainModuleCaller) {
+              focusedD3d9TestCooperativeLevelMainModuleCall = {
+                callId: this.traceFrame.callId,
+                api: name,
+                interface: "IDirect3DDevice9",
+                vtableSlot: slot,
+                object: this.traceObject,
+                arguments: this.traceArguments,
+                result: d3d9TestCooperativeLevel.result,
+                resultU32: d3d9TestCooperativeLevel.resultU32,
+                lastErrorBefore: d3d9TestCooperativeLevel.lastErrorBefore,
+                lastError: d3d9TestCooperativeLevel.lastErrorAfter,
+                immediateConsumer: d3d9TestCooperativeLevel.immediateConsumer,
+                caller: this.traceFrame.caller,
+              };
+              scheduleFocusedD3d9TestCooperativeLevelOracle();
+              setImmediate(
+                maybeCompleteFocusedD3d9TestCooperativeLevelObservation,
+              );
+            }
+          }
           if (focusedD3d9InitialTexturesObservation) {
             focusedD3d9InitialTextureCalls.push({
               callId: this.traceFrame.callId,
@@ -5812,10 +5895,7 @@ function attachIdirect3ddevice9(object) {
             });
             maybeCompleteFocusedD3d9RecreatedTexturesObservation();
           }
-          if (
-            focusedD3d9BeginSceneObservation &&
-            d3d9BeginScene !== null
-          ) {
+          if (focusedD3d9BeginSceneObservation && d3d9BeginScene !== null) {
             focusedD3d9BeginSceneMainModuleCall = {
               callId: this.traceFrame.callId,
               api: name,
@@ -5840,10 +5920,7 @@ function attachIdirect3ddevice9(object) {
               recv("vine-trace-stop", () => {}).wait();
             }
           }
-          if (
-            focusedD3d9SetTextureObservation &&
-            d3d9SetTexture !== null
-          ) {
+          if (focusedD3d9SetTextureObservation && d3d9SetTexture !== null) {
             focusedD3d9SetTextureMainModuleCall = {
               callId: this.traceFrame.callId,
               api: name,
@@ -5862,7 +5939,8 @@ function attachIdirect3ddevice9(object) {
             };
             focusedD3d9SetTextureComplete = true;
             emit("d3d9-set-texture-complete", {
-              profile: "x86-bgi-first-frame-static-default-texture-stage-zero-v1",
+              profile:
+                "x86-bgi-first-frame-static-default-texture-stage-zero-v1",
               device: focusedD3d9SetTextureDevice,
               mainModuleCall: focusedD3d9SetTextureMainModuleCall,
             });
@@ -5888,7 +5966,8 @@ function attachIdirect3ddevice9(object) {
             };
             focusedD3d9SetFvfComplete = true;
             emit("d3d9-set-fvf-complete", {
-              profile: "x86-bgi-first-frame-transformed-diffuse-textured-fvf-v1",
+              profile:
+                "x86-bgi-first-frame-transformed-diffuse-textured-fvf-v1",
               device: focusedD3d9SetFvfDevice,
               mainModuleCall: focusedD3d9SetFvfMainModuleCall,
             });
@@ -5999,8 +6078,7 @@ function attachIdirect3ddevice9(object) {
               sourceRect: d3d9Present.sourceRect,
               destinationRectPointer: d3d9Present.destinationRectPointer,
               destinationRect: d3d9Present.destinationRect,
-              destinationWindowOverride:
-                d3d9Present.destinationWindowOverride,
+              destinationWindowOverride: d3d9Present.destinationWindowOverride,
               dirtyRegionPointer: d3d9Present.dirtyRegionPointer,
               lastErrorBefore: d3d9Present.lastErrorBefore,
               lastError: d3d9Present.lastErrorAfter,
@@ -6052,8 +6130,7 @@ function attachIdirect3ddevice9(object) {
               resultU32: d3d9InitialTextureStageState.resultU32,
               lastErrorBefore: d3d9InitialTextureStageState.lastErrorBefore,
               lastError: d3d9InitialTextureStageState.lastErrorAfter,
-              immediateConsumer:
-                d3d9InitialTextureStageState.immediateConsumer,
+              immediateConsumer: d3d9InitialTextureStageState.immediateConsumer,
               caller: this.traceFrame.caller,
             });
             maybeCompleteFocusedD3d9InitialTextureStageStatesObservation();
@@ -6096,8 +6173,7 @@ function attachIdirect3ddevice9(object) {
                   lastErrorBefore: d3d9UpdateTexture.lastErrorBefore,
                   lastError: d3d9UpdateTexture.lastErrorAfter,
                   sourceTexture: d3d9UpdateTexture.sourceTexture,
-                  destinationTexture:
-                    d3d9UpdateTexture.destinationTexture,
+                  destinationTexture: d3d9UpdateTexture.destinationTexture,
                   immediateConsumer: d3d9UpdateTexture.immediateConsumer,
                   caller: this.traceFrame.caller,
                 };
@@ -6123,8 +6199,7 @@ function attachIdirect3ddevice9(object) {
             if (
               d3d9CreateTexture !== null &&
               result.toInt32() >= 0 &&
-              typeof d3d9CreateTexture.textureOutput.after.value ===
-                "string" &&
+              typeof d3d9CreateTexture.textureOutput.after.value === "string" &&
               d3d9CreateTexture.textureOutput.after.value !== "0x0"
             ) {
               focusedD3d9TextureAddDirtyRectObject =
@@ -6148,8 +6223,7 @@ function attachIdirect3ddevice9(object) {
             if (
               d3d9CreateTexture !== null &&
               result.toInt32() >= 0 &&
-              typeof d3d9CreateTexture.textureOutput.after.value ===
-                "string" &&
+              typeof d3d9CreateTexture.textureOutput.after.value === "string" &&
               d3d9CreateTexture.textureOutput.after.value !== "0x0"
             ) {
               focusedD3d9TextureLockRectObject =
@@ -7087,10 +7161,11 @@ function scheduleFocusedD3d9TextureAddDirtyRectOracle() {
           const systemLastError = Number(outcome.lastError) >>> 0;
           if (
             focusedD3d9TextureAddDirtyRectOracleCall.hookResult === null ||
-            focusedD3d9TextureAddDirtyRectOracleCall.hookLastErrorAfter ===
-              null
+            focusedD3d9TextureAddDirtyRectOracleCall.hookLastErrorAfter === null
           ) {
-            throw new Error("AddDirtyRect oracle did not pass through the hook");
+            throw new Error(
+              "AddDirtyRect oracle did not pass through the hook",
+            );
           }
           return {
             id,
@@ -7100,8 +7175,7 @@ function scheduleFocusedD3d9TextureAddDirtyRectOracle() {
             systemResult,
             systemResultU32: systemResult >>> 0,
             systemLastError,
-            hookResult:
-              focusedD3d9TextureAddDirtyRectOracleCall.hookResult,
+            hookResult: focusedD3d9TextureAddDirtyRectOracleCall.hookResult,
             hookLastErrorAfter:
               focusedD3d9TextureAddDirtyRectOracleCall.hookLastErrorAfter,
             hookRect: focusedD3d9TextureAddDirtyRectOracleCall.hookRect,
@@ -7182,18 +7256,12 @@ function maybeCompleteFocusedD3d9TextureAddDirtyRectObservation() {
   }
   if (activeCallsByThread.size !== 0) {
     focusedD3d9TextureAddDirtyRectQuiescentNextCallId = null;
-    setTimeout(
-      maybeCompleteFocusedD3d9TextureAddDirtyRectObservation,
-      10,
-    );
+    setTimeout(maybeCompleteFocusedD3d9TextureAddDirtyRectObservation, 10);
     return;
   }
   if (focusedD3d9TextureAddDirtyRectQuiescentNextCallId !== nextCallId) {
     focusedD3d9TextureAddDirtyRectQuiescentNextCallId = nextCallId;
-    setTimeout(
-      maybeCompleteFocusedD3d9TextureAddDirtyRectObservation,
-      100,
-    );
+    setTimeout(maybeCompleteFocusedD3d9TextureAddDirtyRectObservation, 100);
     return;
   }
   focusedD3d9TextureAddDirtyRectComplete = true;
@@ -7206,6 +7274,117 @@ function maybeCompleteFocusedD3d9TextureAddDirtyRectObservation() {
     oracle: focusedD3d9TextureAddDirtyRectOracleEvidence,
   });
   if (stopOnEvent === "d3d9-texture-add-dirty-rect-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function scheduleFocusedD3d9TestCooperativeLevelOracle() {
+  if (focusedD3d9TestCooperativeLevelOracleScheduled) {
+    return;
+  }
+  focusedD3d9TestCooperativeLevelOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      if (focusedD3d9TestCooperativeLevelDevice === null) {
+        throw new Error(
+          "TestCooperativeLevel oracle has no live device object",
+        );
+      }
+      const device = ptr(focusedD3d9TestCooperativeLevelDevice);
+      const method = new SystemFunction(
+        device
+          .readPointer()
+          .add(3 * Process.pointerSize)
+          .readPointer(),
+        "int32",
+        ["pointer"],
+        "stdcall",
+      );
+      const invoke = (phase, sentinel) => {
+        focusedD3d9TestCooperativeLevelOracleCall = {
+          phase,
+          sentinel,
+          hook: null,
+        };
+        try {
+          const outcome = method(device);
+          const systemResult = Number(outcome.value) | 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          const hook = focusedD3d9TestCooperativeLevelOracleCall.hook;
+          if (hook === null) {
+            throw new Error(
+              `${phase} did not pass through the TestCooperativeLevel hook`,
+            );
+          }
+          return {
+            phase,
+            sentinel,
+            systemResult,
+            systemResultU32: systemResult >>> 0,
+            systemLastError,
+            hook,
+            hookResultMatches: hook.result === systemResult,
+            hookAndSystemLastErrorMatch: hook.lastError === systemLastError,
+            lastErrorPreserved: systemLastError === sentinel,
+          };
+        } finally {
+          focusedD3d9TestCooperativeLevelOracleCall = null;
+        }
+      };
+      const calls = [
+        invoke("first-operational-query", 0x11223344),
+        invoke("repeated-operational-query", 0x55667788),
+      ];
+      focusedD3d9TestCooperativeLevelOracleEvidence = {
+        profile: "x86-live-device-operational-query-v1",
+        calls,
+        allResultsSOk: calls.every((call) => call.systemResult === 0),
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+        allPreserveLastError: calls.every((call) => call.lastErrorPreserved),
+      };
+      focusedD3d9TestCooperativeLevelOracleComplete = true;
+      emit(
+        "d3d9-test-cooperative-level-oracle",
+        focusedD3d9TestCooperativeLevelOracleEvidence,
+      );
+      maybeCompleteFocusedD3d9TestCooperativeLevelObservation();
+    } catch (error) {
+      emit("d3d9-test-cooperative-level-oracle-error", {
+        error: error.message,
+      });
+    }
+  });
+}
+
+function maybeCompleteFocusedD3d9TestCooperativeLevelObservation() {
+  if (
+    focusedD3d9TestCooperativeLevelComplete ||
+    focusedD3d9TestCooperativeLevelMainModuleCall === null ||
+    !focusedD3d9TestCooperativeLevelOracleComplete
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    focusedD3d9TestCooperativeLevelQuiescentNextCallId = null;
+    setTimeout(maybeCompleteFocusedD3d9TestCooperativeLevelObservation, 10);
+    return;
+  }
+  if (focusedD3d9TestCooperativeLevelQuiescentNextCallId !== nextCallId) {
+    focusedD3d9TestCooperativeLevelQuiescentNextCallId = nextCallId;
+    setTimeout(maybeCompleteFocusedD3d9TestCooperativeLevelObservation, 100);
+    return;
+  }
+  focusedD3d9TestCooperativeLevelComplete = true;
+  emit("d3d9-test-cooperative-level-complete", {
+    profile: "x86-bgi-operational-device-query-v1",
+    device: focusedD3d9TestCooperativeLevelDevice,
+    mainModuleCall: focusedD3d9TestCooperativeLevelMainModuleCall,
+    oracle: focusedD3d9TestCooperativeLevelOracleEvidence,
+  });
+  if (stopOnEvent === "d3d9-test-cooperative-level-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }
@@ -7283,7 +7462,9 @@ function scheduleFocusedD3d9TextureLockRectOracle() {
           const systemLastError = Number(outcome.lastError) >>> 0;
           const hook = focusedD3d9TextureLockRectOracleCall.hook;
           if (hook === null) {
-            throw new Error(`${phase} did not pass through the UnlockRect hook`);
+            throw new Error(
+              `${phase} did not pass through the UnlockRect hook`,
+            );
           }
           return {
             phase,
@@ -7417,7 +7598,9 @@ function scheduleFocusedD3d9UpdateTextureOracle() {
             focusedD3d9UpdateTextureOracleCall.hookResult === null ||
             focusedD3d9UpdateTextureOracleCall.hookLastErrorAfter === null
           ) {
-            throw new Error("UpdateTexture oracle did not pass through the hook");
+            throw new Error(
+              "UpdateTexture oracle did not pass through the hook",
+            );
           }
           return {
             id,
@@ -9690,7 +9873,8 @@ function attachShowWindowNormalHook(module) {
       const windowHandlePointer = args[0];
       const command = args[1].toUInt32();
       if (
-        caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase() ||
+        caller.module?.toLowerCase() !==
+          Process.mainModule.name.toLowerCase() ||
         caller.rva !== 0x000938da ||
         command !== 1
       ) {
@@ -9855,7 +10039,8 @@ function attachUpdateWindowHook(module) {
     onEnter(args) {
       const caller = describeCaller(this.returnAddress);
       if (
-        caller.module?.toLowerCase() !== Process.mainModule.name.toLowerCase() ||
+        caller.module?.toLowerCase() !==
+          Process.mainModule.name.toLowerCase() ||
         caller.rva !== 0x000938e7
       ) {
         this.traceFrame = null;
@@ -10342,10 +10527,7 @@ function scheduleGetForegroundWindowOracle(module) {
         ),
       };
       getForegroundWindowOracleComplete = true;
-      emit(
-        "get-foreground-window-oracle",
-        getForegroundWindowOracleEvidence,
-      );
+      emit("get-foreground-window-oracle", getForegroundWindowOracleEvidence);
       maybeCompleteGetForegroundWindowObservation();
     } catch (error) {
       emit("get-foreground-window-oracle-error", { error: error.message });
@@ -11224,10 +11406,7 @@ function attachGetClientRectHook(module, name = "GetClientRect") {
     name === "GetWindowRect" ? "get-window-rect" : "get-client-rect";
   const observationField =
     name === "GetWindowRect" ? "getWindowRect" : "getClientRect";
-  if (
-    getClientRectObservedApi !== null &&
-    getClientRectObservedApi !== name
-  ) {
+  if (getClientRectObservedApi !== null && getClientRectObservedApi !== name) {
     throw new Error("rectangle query observation selected multiple APIs");
   }
   getClientRectObservedApi = name;
@@ -11435,10 +11614,9 @@ function scheduleGetClientRectOracle(module, liveWindowHandle, name) {
 }
 
 function maybeCompleteGetClientRectObservation(
-  observation =
-    getClientRectObservedApi === "GetWindowRect"
-      ? "get-window-rect"
-      : "get-client-rect",
+  observation = getClientRectObservedApi === "GetWindowRect"
+    ? "get-window-rect"
+    : "get-client-rect",
 ) {
   if (
     getClientRectCompletionRecorded ||
@@ -11602,7 +11780,9 @@ function scheduleGetCursorPosOracle(module) {
             getCursorPosOracleCall.hookResult === null ||
             getCursorPosOracleCall.hookLastErrorAfter === null
           ) {
-            throw new Error("GetCursorPos oracle did not pass through the hook");
+            throw new Error(
+              "GetCursorPos oracle did not pass through the hook",
+            );
           }
           const outputAfter = snapshotPoint(output);
           return {
@@ -11618,7 +11798,8 @@ function scheduleGetCursorPosOracle(module) {
             hookLastErrorAfter: getCursorPosOracleCall.hookLastErrorAfter,
             hookOutputBefore: getCursorPosOracleCall.hookOutputBefore,
             hookOutputAfter: getCursorPosOracleCall.hookOutputAfter,
-            hookResultMatches: getCursorPosOracleCall.hookResult === systemResult,
+            hookResultMatches:
+              getCursorPosOracleCall.hookResult === systemResult,
             hookAndSystemLastErrorMatch:
               getCursorPosOracleCall.hookLastErrorAfter === systemLastError,
           };

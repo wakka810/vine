@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `user32-async-key-state-initial-scan-continuation`: 148292 calls across 126 endpoint contracts / 124 APIs, memory generation 271285 |
+| Runtime diagnostics | `user32-async-key-state-initial-scan-continuation`: 148295 calls across 126 endpoint contracts / 124 APIs, memory generation 271288 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `IDirect3DDevice9::TestCooperativeLevel()` at instruction 148744443: `com-method-unsupported` |
+| Next structured stop | `USER32.dll!PeekMessageA(0x006ff8e8, 0x00000000, 0x00000000, 0x00000000, 0x00000001)` at instruction 148744543: `endpoint-contract-missing` |
 
-The active semantic report is 1,978,674 bytes with SHA-256
-`078e9706b55adc2c961a4f93e874cc5e8f4ce4867233809b9cb2d00ba4e2cbdb`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 1,947,280 bytes with SHA-256
+`2b5a44d4e2f3192de2f8ea0abfd4e2f06afcf3d9aa9389951a80972fa3d7fed4`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
@@ -30,7 +30,7 @@ The active semantic report is 1,978,674 bytes with SHA-256
 | `boot-and-process-initialization` | Boot and process initialization | `in-progress` | Primary executable reaches the current structured stop after creating and resuming one guest thread; title entry and child workload completion are not complete |
 | `logical-window-and-message-flow` | Logical window and message flow | `in-progress` | Primary logical window creation, style, DC, activation, frame-change move, already-visible ShowWindow, synchronous WM_PAINT with BeginPaint/EndPaint, and owner-thread SetTimer registration slices pass; queued invalidation, logical clock expiry, WM_TIMER/TIMERPROC delivery, and general message flow remain partial |
 | `immutable-source-asset-access` | Immutable source asset access | `in-progress` | Primary system.arc opens through the immutable boot-archive snapshot mount and completes bounded header, index, and ipl._bp member reads while BGI.gdb stays writable profile state; remaining archives and general asset breadth are not claimed |
-| `first-present-readable-screen` | First present and readable screen | `in-progress` | Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, level-zero surface/GDI fill, locked vertex buffer, fixed-function state, Clear, two bounded scene/draw/present cycles, Rust-owned lazy texture backing with atomic LockRect/UnlockRect, generation-checked partial UpdateTexture publication, and synchronous Worker WebGL2 materialization are complete. The 1280x720 black browser frames are visible before guest resume; readable title content, resize, device loss, and recovery remain unproven, and IDirect3DDevice9::TestCooperativeLevel is the current subsystem gateway. |
+| `first-present-readable-screen` | First present and readable screen | `in-progress` | Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, level-zero surface/GDI fill, locked vertex buffer, fixed-function state, Clear, two bounded scene/draw/present cycles, Rust-owned lazy texture backing with atomic LockRect/UnlockRect, generation-checked partial UpdateTexture publication, synchronous Worker WebGL2 materialization, and a mutation-free live-device TestCooperativeLevel query are complete. The 1280x720 black browser frames are visible before guest resume; readable title content, resize, device loss, recovery, and the PeekMessageA message-queue gateway remain unproven. |
 | `user-input-consumption` | User input consumption | `in-progress` | The primary browser path now covers both controlled input and a zero-input counterfactual: one deterministic ControlLeft key-down produces signed GetAsyncKeyState(VK_CONTROL) results 0x8001 then 0x8000, while a later native-derived 38-key startup scan receives no browser input and returns zero for every query. Rust owns focused keyboard state and a deterministic initial cursor position; the reached GetWindowRect and GetCursorPos consumer writes are Node/Chrome equivalent. Visible gameplay response, key-up, pointer-event ingestion, queued messages, and DirectInput keyboard devices remain outside this checkpoint |
 | `audible-output` | Audible output | `fixture-only` | Controlled 880 Hz browser pulse passes; primary DirectSound8 reaches an 88,200-byte zero-filled secondary sample backing through Lock/Unlock and accepts looping Play, while browser audio transport, audible primary output, and WinMM audio are not reached |
 | `save-browser-restart-load` | Save, browser restart, and load | `not-reached` | Rust-owned writable profile and SQLite generation/idempotency/rollback foundation pass; controlled guest browser commit, restart, and load are not demonstrated |

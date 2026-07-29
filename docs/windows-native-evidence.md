@@ -5930,3 +5930,38 @@ backing through the exact partial UpdateTexture at sequence 148,272. Both
 complete the second draw／Present cycle and stop at
 `IDirect3DDevice9::TestCooperativeLevel`; exact instruction, report, and memory
 identities remain in the current manifest.
+
+## 177. BGI `IDirect3DDevice9::TestCooperativeLevel`
+
+The generic exploratory trace is 16,493,258 bytes／46,186 lines／SHA-256
+`bc85120088c46632ab7a484832c377643d1352c4a05ec94b14a5108122f7c06f`.
+It records 998 completed calls over 8,348 ms, all from caller RVA `0x0005ADCD`,
+all returning `D3D_OK`, with observed LastError values 0 and 3 preserved. The
+consumer compares EAX with `D3DERR_DEVICELOST` and
+`D3DERR_DEVICENOTRESET`, then normalizes the HRESULT sign; an unconditional
+success stub would therefore hide future loss-state behavior from a real
+branch consumer.
+
+The focused primary trace is 860,488 bytes／2,388 lines／SHA-256
+`6c0ffe5274ef31c10dad931fec4afbe917c09e7ef41af81c818a0a23384d2942`;
+its 300,938-byte summary has SHA-256
+`3a96e0f05bc2a92c256a09f71fd506351502946418d994ad8a7404c41935b686`.
+The independent confirmation is 906,734 bytes／2,533 lines／SHA-256
+`0ad60f1ccf023ebc4e7d92cef0fe24762d0213cb35ec5063b640c6f289ab718a`;
+its 301,088-byte summary has SHA-256
+`aed41e06ed0485f4093f1b58382a45bdb662c765339b1ea6f7b7ff7a52ff5a98`.
+They contain 2,386／2,531 events and 1,154／1,226 balanced API pairs, with
+maximum API depth 3 and no unmatched shutdown frames. A controlled live-device
+oracle returns `D3D_OK` and preserves sentinels `0x11223344` and `0x55667788`.
+Raw traces remain under `.work/windows-traces/`; the source executable hash is
+unchanged.
+
+The runtime treats the live `RuntimeGraphics` device association as authority
+and performs no mutation for this operational query. Canonical Node and Chrome
+agree on sequence 148,293／instruction 148,744,443, device pointer
+`0x01010004`, result `D3D_OK`, return address `0x1005ADCD`, stack movement
+`0x006FF8F4` to `0x006FF8FC`, reference count 5, LastError preservation, and
+zero guest writes. They then complete one `SetWaitableTimer`／
+`WaitForSingleObjectEx` pair and stop at instruction 148,744,543 on
+`USER32.dll!PeekMessageA`. This establishes only the reached live operational
+state, not device loss, reset, browser context-loss mapping, or recovery.

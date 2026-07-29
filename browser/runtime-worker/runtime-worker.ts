@@ -89,9 +89,8 @@ const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
 const BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 64;
 const MAX_PENDING_KEYBOARD_EVENTS = 256;
 const USER32_ASYNC_KEY_STATE_INITIAL_SCAN_VIRTUAL_KEYS = [
-  14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99,
-  52, 100, 53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17, 1,
-  2, 4, 5, 6,
+  14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99, 52, 100,
+  53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17, 1, 2, 4, 5, 6,
 ] as const;
 const BGI_UPDATE_WINDOW_PAINT_STRUCT_BYTES = [
   0x09, 0x00, 0x01, 0x47, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -376,6 +375,14 @@ function isUser32AsyncKeyStateInitialScanContinuation(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return profile === "user32-async-key-state-initial-scan-continuation";
+}
+
+function d3d9CompatibilityPolicyId(
+  profile: SessionConfiguration["capabilityProfile"],
+): NonNullable<SessionReport["d3d9Present"]>["compatibilityPolicyId"] {
+  return isUser32AsyncKeyStateInitialScan(profile)
+    ? "d3d9-primary-virtual-adapter-v32"
+    : "d3d9-primary-virtual-adapter-v31";
 }
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
@@ -867,7 +874,10 @@ function validateKeyboardInputEvent(event: RuntimeKeyboardInputEvent): void {
       event.kind === "key-up",
     "keyboard event kind is invalid",
   );
-  invariant(typeof event.repeat === "boolean", "keyboard repeat flag is invalid");
+  invariant(
+    typeof event.repeat === "boolean",
+    "keyboard repeat flag is invalid",
+  );
   if (event.kind === "focus-gained" || event.kind === "focus-lost") {
     invariant(
       event.virtualKey === null && !event.repeat,
@@ -1013,6 +1023,7 @@ class BrowserRuntimeSession {
     present: 0,
     textureLockRect: 0,
     textureUnlockRect: 0,
+    testCooperativeLevel: 0,
   };
   readonly #semanticCallDigest = new SemanticCallDigest();
   #waitForSingleObjectExCompletions = 0;
@@ -1124,22 +1135,20 @@ class BrowserRuntimeSession {
       null as SessionReport["setWindowPosFrameChangeMove"],
     showWindowNormal: null as SessionReport["showWindowNormal"],
     updateWindow: null as SessionReport["updateWindow"],
-    postPresentContinuation:
-      null as SessionReport["postPresentContinuation"],
+    postPresentContinuation: null as SessionReport["postPresentContinuation"],
     getAsyncKeyState: null as SessionReport["getAsyncKeyState"],
     getWindowRect: null as SessionReport["getWindowRect"],
     getCursorPos: null as SessionReport["getCursorPos"],
     getAsyncKeyStateInitialScan:
       null as SessionReport["getAsyncKeyStateInitialScan"],
-    initialScanContinuation:
-      null as SessionReport["initialScanContinuation"],
+    initialScanContinuation: null as SessionReport["initialScanContinuation"],
     d3d9RecreatedTextures: null as SessionReport["d3d9RecreatedTextures"],
     d3d9Clear: null as SessionReport["d3d9Clear"],
     d3d9AddDirtyRect: null as SessionReport["d3d9AddDirtyRect"],
     d3d9UpdateTexture: null as SessionReport["d3d9UpdateTexture"],
     d3d9TextureLockRect: null as SessionReport["d3d9TextureLockRect"],
-    d3d9PartialUpdateTexture:
-      null as SessionReport["d3d9PartialUpdateTexture"],
+    d3d9PartialUpdateTexture: null as SessionReport["d3d9PartialUpdateTexture"],
+    d3d9TestCooperativeLevel: null as SessionReport["d3d9TestCooperativeLevel"],
     d3d9BeginScene: null as SessionReport["d3d9BeginScene"],
     d3d9InitialSamplerStates: null as SessionReport["d3d9InitialSamplerStates"],
     d3d9InitialTextureStageStates:
@@ -1376,9 +1385,7 @@ class BrowserRuntimeSession {
         generation: preparedOutput.metadata.runtime.currentDirectoryGeneration,
       };
       if (
-        isUser32AsyncKeyStateInitialScan(
-          this.#configuration.capabilityProfile,
-        )
+        isUser32AsyncKeyStateInitialScan(this.#configuration.capabilityProfile)
       ) {
         const cursor = preparedOutput.metadata.runtime.cursorPosition;
         invariant(
@@ -2044,7 +2051,8 @@ class BrowserRuntimeSession {
   }
 
   #commitKeyboardInput(event: RuntimeKeyboardInputEvent): void {
-    const output = this.#requireBridge().ingestKeyboardEvent<KeyboardEventMetadata>(event);
+    const output =
+      this.#requireBridge().ingestKeyboardEvent<KeyboardEventMetadata>(event);
     invariant(
       output.control.byteLength === 0 && output.payload.byteLength === 0,
       "keyboard input unexpectedly changed guest memory",
@@ -3394,20 +3402,25 @@ class BrowserRuntimeSession {
         metadata.graphicsDevice !== undefined,
       "Present reached without its browser renderer or Rust device snapshot",
     );
-    const submission = metadata.graphicsDevice.presentedFrame?.backBuffer
-      .drawSubmissions?.[0];
+    const submission =
+      metadata.graphicsDevice.presentedFrame?.backBuffer.drawSubmissions?.[0];
     const pixelSource = submission?.texture.content.pixelSource;
-    const textureBacking = pixelSource === undefined
-      ? undefined
-      : this.#requireEngine().readGuestBytes(
-          pixelSource.range.start,
-          pixelSource.range.byteLength,
-        );
-    return this.#d3d9Renderer.present(metadata.graphicsDevice, {
-      objectId: frame.objectId,
-      interfaceId: frame.interfaceId,
-      interfaceName: frame.interface,
-    }, textureBacking);
+    const textureBacking =
+      pixelSource === undefined
+        ? undefined
+        : this.#requireEngine().readGuestBytes(
+            pixelSource.range.start,
+            pixelSource.range.byteLength,
+          );
+    return this.#d3d9Renderer.present(
+      metadata.graphicsDevice,
+      {
+        objectId: frame.objectId,
+        interfaceId: frame.interfaceId,
+        interfaceName: frame.interface,
+      },
+      textureBacking,
+    );
   }
 
   #recordBgiComCompletion(
@@ -3457,6 +3470,7 @@ class BrowserRuntimeSession {
     this.#recordD3d9AddDirtyRectCall(call);
     this.#recordD3d9TextureLockRectCall(call);
     this.#recordD3d9UpdateTextureCall(call);
+    this.#recordD3d9TestCooperativeLevelCall(call);
     this.#recordD3d9BeginSceneCall(call);
     this.#recordD3d9InitialSamplerStateCall(call);
     this.#recordD3d9InitialTextureStageStateCall(call);
@@ -3493,6 +3507,9 @@ class BrowserRuntimeSession {
         }
       } else if (call.interface === "IDirect3DDevice9") {
         switch (call.vtableSlot) {
+          case 3:
+            counts.testCooperativeLevel += 1;
+            break;
           case 17:
             counts.present += 1;
             break;
@@ -3626,33 +3643,36 @@ class BrowserRuntimeSession {
         ? "LeaveCriticalSection main-thread release checkpoint completed"
         : checkpoint.capability === "user32-async-key-state-initial-scan"
           ? "GetAsyncKeyState initial no-input scan checkpoint completed"
-        : checkpoint.capability ===
-            "user32-async-key-state-input-continuation"
-          ? "GetAsyncKeyState held-key continuation checkpoint completed"
-        : checkpoint.capability === "user32-async-key-state-input"
-          ? "GetAsyncKeyState controlled keyboard input checkpoint completed"
-        : checkpoint.capability === "d3d9-end-scene"
-          ? "EndScene first-frame lifecycle checkpoint completed"
-          : checkpoint.capability === "d3d9-post-end-scene-raster-status"
-            ? "Post-EndScene raster-status checkpoint completed"
-            : checkpoint.capability === "d3d9-post-raster-status-waitable-timer"
-              ? "Post-scene waitable-timer pacing checkpoint completed"
-              : checkpoint.capability === "d3d9-post-scene-present-gateway"
-                ? "Post-scene raster gate to Present checkpoint completed"
-              : checkpoint.capability === "d3d9-first-present"
-                ? "First Present and browser publication checkpoint completed"
-              : checkpoint.capability ===
-                  "kernel32-leave-critical-section-continuation"
-                ? "LeaveCriticalSection continuation checkpoint completed"
-                : checkpoint.capability ===
-                    "kernel32-enter-critical-section-continuation"
-                  ? "EnterCriticalSection continuation checkpoint completed"
-                  : checkpoint.capability === "primary-main-loop-progression"
-                    ? "API-boundary scheduler roundtrip checkpoint completed"
+          : checkpoint.capability ===
+              "user32-async-key-state-input-continuation"
+            ? "GetAsyncKeyState held-key continuation checkpoint completed"
+            : checkpoint.capability === "user32-async-key-state-input"
+              ? "GetAsyncKeyState controlled keyboard input checkpoint completed"
+              : checkpoint.capability === "d3d9-end-scene"
+                ? "EndScene first-frame lifecycle checkpoint completed"
+                : checkpoint.capability === "d3d9-post-end-scene-raster-status"
+                  ? "Post-EndScene raster-status checkpoint completed"
+                  : checkpoint.capability ===
+                      "d3d9-post-raster-status-waitable-timer"
+                    ? "Post-scene waitable-timer pacing checkpoint completed"
                     : checkpoint.capability ===
-                        "kernel32-enter-critical-section"
-                      ? "EnterCriticalSection acquisition/release cycle checkpoint completed"
-                      : "WaitForSingleObjectEx recurring-wait checkpoint completed",
+                        "d3d9-post-scene-present-gateway"
+                      ? "Post-scene raster gate to Present checkpoint completed"
+                      : checkpoint.capability === "d3d9-first-present"
+                        ? "First Present and browser publication checkpoint completed"
+                        : checkpoint.capability ===
+                            "kernel32-leave-critical-section-continuation"
+                          ? "LeaveCriticalSection continuation checkpoint completed"
+                          : checkpoint.capability ===
+                              "kernel32-enter-critical-section-continuation"
+                            ? "EnterCriticalSection continuation checkpoint completed"
+                            : checkpoint.capability ===
+                                "primary-main-loop-progression"
+                              ? "API-boundary scheduler roundtrip checkpoint completed"
+                              : checkpoint.capability ===
+                                  "kernel32-enter-critical-section"
+                                ? "EnterCriticalSection acquisition/release cycle checkpoint completed"
+                                : "WaitForSingleObjectEx recurring-wait checkpoint completed",
       null,
     );
   }
@@ -5047,7 +5067,9 @@ class BrowserRuntimeSession {
       );
       this.#report.d3d9RecreatedTextures = {
         calls: [],
-        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+        compatibilityPolicyId: d3d9CompatibilityPolicyId(
+          this.#configuration.capabilityProfile,
+        ),
         createTextureProfileId:
           "primary-initial-and-recreated-x8r8g8b8-textures-v2",
         getSurfaceLevelProfileId:
@@ -5124,7 +5146,9 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9Clear = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+      compatibilityPolicyId: d3d9CompatibilityPolicyId(
+        this.#configuration.capabilityProfile,
+      ),
       clearProfileId: "primary-full-render-target-black-v1",
       targetAuthority: "rust-runtime-graphics-logical-device-back-buffer",
       targetScope: "full-presentation-back-buffer",
@@ -5189,7 +5213,9 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9AddDirtyRect = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+      compatibilityPolicyId: d3d9CompatibilityPolicyId(
+        this.#configuration.capabilityProfile,
+      ),
       addDirtyRectProfileId:
         "primary-recreated-system-memory-texture-dirty-rect-v1",
       textureAuthority: "rust-runtime-graphics-logical-texture",
@@ -5285,7 +5311,9 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9UpdateTexture = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+      compatibilityPolicyId: d3d9CompatibilityPolicyId(
+        this.#configuration.capabilityProfile,
+      ),
       updateTextureProfileId:
         "primary-recreated-system-memory-to-static-default-texture-update-v2",
       contentAuthority: "rust-runtime-graphics-logical-texture",
@@ -5393,7 +5421,9 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9PartialUpdateTexture = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+      compatibilityPolicyId: d3d9CompatibilityPolicyId(
+        this.#configuration.capabilityProfile,
+      ),
       updateTextureProfileId:
         "primary-recreated-system-memory-to-static-default-texture-update-v2",
       dirtyRegion: { left: 0, top: 0, right: 1_280, bottom: 720 },
@@ -5406,6 +5436,56 @@ class BrowserRuntimeSession {
       failureAtomicity: true,
       arbitraryPartialHistoryImplemented: false,
       dynamicDestinationImplemented: false,
+    };
+  }
+
+  #recordD3d9TestCooperativeLevelCall(
+    call: RuntimeSupportedCallSnapshot,
+  ): void {
+    if (
+      !isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      ) ||
+      call.interface !== "IDirect3DDevice9" ||
+      call.vtableSlot !== 3
+    ) {
+      return;
+    }
+    invariant(
+      this.#report.d3d9TestCooperativeLevel === null &&
+        call.sequence === 148_293 &&
+        this.#report.instructions === 148_744_443 &&
+        call.symbol === "IDirect3DDevice9.TestCooperativeLevel" &&
+        call.arguments.join(",") === "16842756" &&
+        "kind" in call.result &&
+        call.result.kind === "h-result" &&
+        call.result.value === 0 &&
+        call.returnAddress === 0x1005_adcd &&
+        call.stackPointerBefore === 0x006f_f8f4 &&
+        call.stackPointerAfter === 0x006f_f8fc &&
+        call.referenceCount === 5 &&
+        call.objectRetired === false &&
+        call.guestWrites.length === 0,
+      `D3D9 TestCooperativeLevel ABI or operational query changed: ${JSON.stringify(call)}`,
+    );
+    this.#report.d3d9TestCooperativeLevel = {
+      call: structuredClone(call),
+      instructionCount: 148_744_443,
+      compatibilityPolicyId: d3d9CompatibilityPolicyId(
+        this.#configuration.capabilityProfile,
+      ),
+      profileId: "primary-live-operational-device-query-v1",
+      stateAuthority: "rust-runtime-graphics-live-device-association",
+      queryResult: "operational-s-ok",
+      mutation: "none",
+      lastErrorPolicy: "preserve",
+      guestMemoryMutation: false,
+      referenceCountMutation: false,
+      failureAtomicity: true,
+      deviceLostStateImplemented: false,
+      deviceNotResetStateImplemented: false,
+      resetImplemented: false,
+      browserContextLossImported: false,
     };
   }
 
@@ -5430,8 +5510,7 @@ class BrowserRuntimeSession {
           call.sequence === 148_198 &&
           this.#report.instructions === 147_769_351 &&
           call.symbol === "IDirect3DTexture9.LockRect" &&
-          call.arguments.join(",") ===
-            "16908292,0,7338180,7338188,32768" &&
+          call.arguments.join(",") === "16908292,0,7338180,7338188,32768" &&
           "kind" in call.result &&
           call.result.kind === "h-result" &&
           call.result.value === 0 &&
@@ -5523,9 +5602,10 @@ class BrowserRuntimeSession {
     this.#report.d3d9TextureLockRect = {
       lock: structuredClone(lockCall),
       unlock: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
-      lockRectProfileId:
-        "primary-recreated-system-memory-presentation-lock-v1",
+      compatibilityPolicyId: d3d9CompatibilityPolicyId(
+        this.#configuration.capabilityProfile,
+      ),
+      lockRectProfileId: "primary-recreated-system-memory-presentation-lock-v1",
       textureAuthority: "rust-runtime-graphics-logical-texture",
       byteAuthority: "rust-guest-memory-graphics-resource-allocation",
       backingAllocation: "lazy-full-level-zero",
@@ -5590,7 +5670,9 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9BeginScene = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+      compatibilityPolicyId: d3d9CompatibilityPolicyId(
+        this.#configuration.capabilityProfile,
+      ),
       beginSceneProfileId: "primary-first-frame-scene-begin-v1",
       sceneAuthority: "rust-runtime-graphics-logical-device",
       lifecycle: "inactive-to-active",
@@ -5618,8 +5700,8 @@ class BrowserRuntimeSession {
       this.#report.d3d9InitialSamplerStates !== null &&
       (call.vtableSlot === 69 ||
         (call.vtableSlot === 57 &&
-          this.#report.d3d9InitialSamplerStates
-            .postSamplerRenderStateRejections.length === 3))
+          this.#report.d3d9InitialSamplerStates.postSamplerRenderStateRejections
+            .length === 3))
     ) {
       return;
     }
@@ -5715,7 +5797,9 @@ class BrowserRuntimeSession {
       this.#report.d3d9InitialSamplerStates = {
         calls: [first, second],
         postSamplerRenderStateRejections: [],
-        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+        compatibilityPolicyId: d3d9CompatibilityPolicyId(
+          this.#configuration.capabilityProfile,
+        ),
         samplerStateProfileId: "primary-first-frame-linear-sampler-states-v1",
         stateAuthority: "rust-runtime-graphics-logical-device-sampler-states",
         mutation: "validate-plan-preflight-targeted-idempotent-commit",
@@ -5810,7 +5894,9 @@ class BrowserRuntimeSession {
       );
       this.#report.d3d9InitialTextureStageStates = {
         calls: [first, second, third, fourth, fifth, sixth],
-        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+        compatibilityPolicyId: d3d9CompatibilityPolicyId(
+          this.#configuration.capabilityProfile,
+        ),
         textureStageStateProfileId:
           "primary-first-frame-fixed-function-texture-stage-zero-v1",
         stateAuthority:
@@ -5873,7 +5959,9 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9SetTexture = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+      compatibilityPolicyId: d3d9CompatibilityPolicyId(
+        this.#configuration.capabilityProfile,
+      ),
       textureBindingProfileId:
         "primary-first-frame-static-default-texture-stage-zero-v1",
       stateAuthority: "rust-runtime-graphics-logical-device-texture-bindings",
@@ -5936,7 +6024,9 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9SetFvf = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+      compatibilityPolicyId: d3d9CompatibilityPolicyId(
+        this.#configuration.capabilityProfile,
+      ),
       flexibleVertexFormatProfileId:
         "primary-first-frame-transformed-diffuse-textured-fvf-v1",
       stateAuthority:
@@ -6006,7 +6096,9 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9SetStreamSource = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+      compatibilityPolicyId: d3d9CompatibilityPolicyId(
+        this.#configuration.capabilityProfile,
+      ),
       streamSourceProfileId:
         "primary-first-frame-transformed-diffuse-textured-stream-zero-v1",
       stateAuthority: "rust-runtime-graphics-logical-device-stream-sources",
@@ -6097,7 +6189,9 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9DrawPrimitive = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+      compatibilityPolicyId: d3d9CompatibilityPolicyId(
+        this.#configuration.capabilityProfile,
+      ),
       drawPrimitiveProfileId: "primary-first-frame-triangle-strip-quad-draw-v1",
       stateAuthority:
         "rust-runtime-graphics-logical-device-back-buffer-draw-submissions",
@@ -6166,7 +6260,9 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9EndScene = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+      compatibilityPolicyId: d3d9CompatibilityPolicyId(
+        this.#configuration.capabilityProfile,
+      ),
       endSceneProfileId: "primary-first-frame-scene-end-v1",
       sceneAuthority: "rust-runtime-graphics-logical-device-active-scene",
       lifecycle: "active-to-inactive",
@@ -6227,8 +6323,7 @@ class BrowserRuntimeSession {
         write?.address === call.arguments[2] &&
         write.bytes.length === 8 &&
         write.bytes.every(
-          (byte, index) =>
-            byte === [0, 0, 0, 0, 0x37, 0x04, 0, 0][index],
+          (byte, index) => byte === [0, 0, 0, 0, 0x37, 0x04, 0, 0][index],
         ) &&
         call.graphicsDevice === undefined,
       "post-EndScene D3D9 GetRasterStatus ABI or deterministic sample changed",
@@ -6236,7 +6331,9 @@ class BrowserRuntimeSession {
     this.#report.d3d9PostEndSceneRasterStatus = {
       call: structuredClone(call),
       cumulativeCompletions: this.#d3d9RasterStatusCompletionCount,
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+      compatibilityPolicyId: d3d9CompatibilityPolicyId(
+        this.#configuration.capabilityProfile,
+      ),
       rasterStatusProfileId: "primary-stable-last-visible-scanline-v2",
       displayProfileId: "single-monitor-1920x1080-work-1920x1032-v2",
       stateAuthority: "rust-d3d9-compatibility-policy",
@@ -6308,7 +6405,7 @@ class BrowserRuntimeSession {
     const receipt = call.browserPresentation;
     invariant(
       this.#report.d3d9PostEndSceneRasterStatus?.call.sequence ===
-          call.sequence - 1 &&
+        call.sequence - 1 &&
         this.#report.d3d9Present === null &&
         call.sequence === 127_377 &&
         call.symbol === "IDirect3DDevice9.Present" &&
@@ -6369,7 +6466,9 @@ class BrowserRuntimeSession {
     );
     this.#report.d3d9Present = {
       call: structuredClone(call),
-      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+      compatibilityPolicyId: d3d9CompatibilityPolicyId(
+        this.#configuration.capabilityProfile,
+      ),
       presentProfileId: "primary-first-frame-full-back-buffer-present-v1",
       frameAuthority: "rust-runtime-graphics-logical-device-presented-frame",
       browserResourceAuthority: "typescript-browser-resource-table",
@@ -6402,9 +6501,7 @@ class BrowserRuntimeSession {
     }
   }
 
-  #recordPostPresentContinuationCall(
-    call: RuntimeSupportedCallSnapshot,
-  ): void {
+  #recordPostPresentContinuationCall(call: RuntimeSupportedCallSnapshot): void {
     if (!isD3d9PostPresentContinuation(this.#configuration.capabilityProfile)) {
       return;
     }
@@ -6412,7 +6509,7 @@ class BrowserRuntimeSession {
     if (call.sequence === 127_378) {
       const update = this.#report.updateWindow;
       invariant(
-          this.#postPresentTimeGetTimeCall === null &&
+        this.#postPresentTimeGetTimeCall === null &&
           this.#report.postPresentContinuation === null &&
           update !== null &&
           update.callbackActiveAtStop === true &&
@@ -6615,8 +6712,7 @@ class BrowserRuntimeSession {
       getForegroundWindowCall: structuredClone(call),
       updateWindowCallbackReturned: true,
       foregroundWindowQueryCompleted: true,
-      stateAuthority:
-        "rust-runtime-user32-thread-and-process-window-relations",
+      stateAuthority: "rust-runtime-user32-thread-and-process-window-relations",
       browserResourceCreated: false,
     };
   }
@@ -6625,9 +6721,7 @@ class BrowserRuntimeSession {
     call: RuntimeSupportedCallSnapshot,
   ): void {
     if (
-      !isUser32AsyncKeyStateInitialScan(
-        this.#configuration.capabilityProfile,
-      )
+      !isUser32AsyncKeyStateInitialScan(this.#configuration.capabilityProfile)
     ) {
       return;
     }
@@ -6637,8 +6731,7 @@ class BrowserRuntimeSession {
       }
       const output = call.arguments[1];
       const expectedBytes = [
-        0x3d, 0x01, 0, 0, 0x9a, 0, 0, 0, 0x43, 0x06, 0, 0, 0x87, 0x03,
-        0, 0,
+        0x3d, 0x01, 0, 0, 0x9a, 0, 0, 0, 0x43, 0x06, 0, 0, 0x87, 0x03, 0, 0,
       ];
       invariant(
         call.module.toLowerCase() === "user32.dll" &&
@@ -6770,8 +6863,7 @@ class BrowserRuntimeSession {
       inputEventCount: 0,
       stateAuthority: "rust-runtime-input-keyboard",
       browserSourceAuthority: "typescript-browser-input-adapter",
-      returnEncoding:
-        "signed-short-high-bit-down-low-bit-pressed-since-query",
+      returnEncoding: "signed-short-high-bit-down-low-bit-pressed-since-query",
       modifierAggregation: "side-specific-to-generic",
       pressedBitConsumption: "queried-virtual-key-only",
       sourceFocusRequired: true,
@@ -6922,7 +7014,7 @@ class BrowserRuntimeSession {
         prerequisiteScanCompletionInstructionCount: 147_769_226,
         calls: structuredClone(this.#initialScanContinuationCalls),
         renderCompletionCounts: structuredClone(this.#renderCompletionCounts),
-        nextSubsystemGateway: "d3d9-device-test-cooperative-level",
+        nextSubsystemGateway: "user32-peek-message-a",
       };
     }
     this.#cancelAndFinish(
@@ -7245,9 +7337,7 @@ class BrowserRuntimeSession {
         "BGI callback completion has no reserved call sequence",
       );
       if (
-        isD3d9PostPresentContinuation(
-          this.#configuration.capabilityProfile,
-        ) &&
+        isD3d9PostPresentContinuation(this.#configuration.capabilityProfile) &&
         sequence === 127_352
       ) {
         const update = this.#report.updateWindow;
@@ -8485,227 +8575,203 @@ class BrowserRuntimeSession {
     const execution = this.#execution.snapshot();
     let completedTerminal = terminal;
     try {
-    invariant(
-      this.#report.supportedCallCount === this.#semanticCallDigest.count(),
-      "BGI semantic call digest count diverged from completed sequence identity",
-    );
-    this.#report.supportedCallSemanticsSha256 =
-      this.#semanticCallDigest.digestHex();
-    if (
-      (this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
-        this.#configuration.capabilityProfile ===
+      invariant(
+        this.#report.supportedCallCount === this.#semanticCallDigest.count(),
+        "BGI semantic call digest count diverged from completed sequence identity",
+      );
+      this.#report.supportedCallSemanticsSha256 =
+        this.#semanticCallDigest.digestHex();
+      if (
+        (this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
+          this.#configuration.capabilityProfile ===
+            "kernel32-global-memory-status" ||
+          this.#configuration.capabilityProfile ===
+            "kernel32-get-file-attributes-a" ||
+          this.#configuration.capabilityProfile ===
+            "kernel32-create-directory-a" ||
+          includesSetWindowPosRepeatActivation(
+            this.#configuration.capabilityProfile,
+          )) &&
+        terminal.outcome === "structured-stop"
+      ) {
+        const sleepZero = this.#report.sleepZero;
+        invariant(
+          sleepZero !== null &&
+            sleepZero.callCount > 0 &&
+            sleepZero.callCount ===
+              sleepZero.schedulerSelections.selectionCount +
+                sleepZero.noCompetitorCompletions,
+          "Sleep(0) report omitted an execution-boundary outcome",
+        );
+      }
+      if (
+        (this.#configuration.capabilityProfile ===
           "kernel32-global-memory-status" ||
-        this.#configuration.capabilityProfile ===
+          this.#configuration.capabilityProfile ===
+            "kernel32-get-file-attributes-a" ||
+          this.#configuration.capabilityProfile ===
+            "kernel32-create-directory-a" ||
+          includesSetWindowPosRepeatActivation(
+            this.#configuration.capabilityProfile,
+          )) &&
+        terminal.outcome === "structured-stop"
+      ) {
+        invariant(
+          this.#report.globalMemoryStatus !== null,
+          "GlobalMemoryStatus report omitted its deterministic completion",
+        );
+      }
+      if (
+        (this.#configuration.capabilityProfile ===
           "kernel32-get-file-attributes-a" ||
-        this.#configuration.capabilityProfile ===
+          this.#configuration.capabilityProfile ===
+            "kernel32-create-directory-a" ||
+          includesSetWindowPosRepeatActivation(
+            this.#configuration.capabilityProfile,
+          )) &&
+        terminal.outcome === "structured-stop"
+      ) {
+        invariant(
+          this.#report.getFileAttributesA?.callCount === 23,
+          "GetFileAttributesA report omitted a VFS path-query completion",
+        );
+      }
+      if (
+        (this.#configuration.capabilityProfile ===
           "kernel32-create-directory-a" ||
+          includesSetWindowPosRepeatActivation(
+            this.#configuration.capabilityProfile,
+          )) &&
+        terminal.outcome === "structured-stop"
+      ) {
+        invariant(
+          this.#report.createDirectoryA?.call.writableDirectoryCreate
+            .succeeded === true &&
+            this.#report.writableDirectoryCreates.length === 1,
+          "CreateDirectoryA report omitted its durable VFS transaction",
+        );
+      }
+      if (
         includesSetWindowPosRepeatActivation(
           this.#configuration.capabilityProfile,
-        )) &&
-      terminal.outcome === "structured-stop"
-    ) {
-      const sleepZero = this.#report.sleepZero;
-      invariant(
-        sleepZero !== null &&
-          sleepZero.callCount > 0 &&
-          sleepZero.callCount ===
-            sleepZero.schedulerSelections.selectionCount +
-              sleepZero.noCompetitorCompletions,
-        "Sleep(0) report omitted an execution-boundary outcome",
-      );
-    }
-    if (
-      (this.#configuration.capabilityProfile ===
-        "kernel32-global-memory-status" ||
-        this.#configuration.capabilityProfile ===
-          "kernel32-get-file-attributes-a" ||
-        this.#configuration.capabilityProfile ===
-          "kernel32-create-directory-a" ||
-        includesSetWindowPosRepeatActivation(
-          this.#configuration.capabilityProfile,
-        )) &&
-      terminal.outcome === "structured-stop"
-    ) {
-      invariant(
-        this.#report.globalMemoryStatus !== null,
-        "GlobalMemoryStatus report omitted its deterministic completion",
-      );
-    }
-    if (
-      (this.#configuration.capabilityProfile ===
-        "kernel32-get-file-attributes-a" ||
-        this.#configuration.capabilityProfile ===
-          "kernel32-create-directory-a" ||
-        includesSetWindowPosRepeatActivation(
-          this.#configuration.capabilityProfile,
-        )) &&
-      terminal.outcome === "structured-stop"
-    ) {
-      invariant(
-        this.#report.getFileAttributesA?.callCount === 23,
-        "GetFileAttributesA report omitted a VFS path-query completion",
-      );
-    }
-    if (
-      (this.#configuration.capabilityProfile ===
-        "kernel32-create-directory-a" ||
-        includesSetWindowPosRepeatActivation(
-          this.#configuration.capabilityProfile,
-        )) &&
-      terminal.outcome === "structured-stop"
-    ) {
-      invariant(
-        this.#report.createDirectoryA?.call.writableDirectoryCreate
-          .succeeded === true &&
-          this.#report.writableDirectoryCreates.length === 1,
-        "CreateDirectoryA report omitted its durable VFS transaction",
-      );
-    }
-    if (
-      includesSetWindowPosRepeatActivation(
-        this.#configuration.capabilityProfile,
-      ) &&
-      terminal.outcome === "structured-stop"
-    ) {
-      invariant(
-        this.#setWindowPosCompletionCount ===
-          (this.#configuration.capabilityProfile ===
-          "user32-set-window-pos-repeat-activation"
-            ? 5
-            : 6) &&
-          this.#report.setWindowPosRepeatActivation?.repeatCall.occurrence ===
-            5 &&
-          this.#report.setWindowPosRepeatActivation.callbackEvents.length === 2,
-        "SetWindowPos report omitted its repeat activation callback completion",
-      );
-    }
-    if (
-      includesD3d9RecreatedTextures(this.#configuration.capabilityProfile) &&
-      terminal.outcome === "structured-stop"
-    ) {
-      const recreated = this.#report.d3d9RecreatedTextures;
-      invariant(
-        recreated !== null &&
-          recreated.calls.length === 9 &&
-          recreated.calls[0]?.sequence === 108_735 &&
-          recreated.calls.at(-1)?.sequence === 108_743 &&
-          recreated.calls.filter(
-            (call) => call.symbol === "IDirect3DDevice9.CreateTexture",
-          ).length === 3,
-        "D3D9 recreated texture report omitted its transactional call sequence",
-      );
-    }
-    if (
-      isSetWindowPosFrameChangeMove(this.#configuration.capabilityProfile) &&
-      terminal.outcome === "structured-stop"
-    ) {
-      const frameChange = this.#report.setWindowPosFrameChangeMove;
-      invariant(
-        frameChange !== null &&
-          frameChange.callCount === 6 &&
-          frameChange.call.sequence === 127_346 &&
-          frameChange.callbackEvents.length === 6 &&
-          frameChange.nestedMoveCallbackEvents.length === 2,
-        "SetWindowPos frame-change move report omitted its callback or geometry evidence",
-      );
-    }
-    if (
-      includesShowWindowNormal(this.#configuration.capabilityProfile) &&
-      terminal.outcome === "structured-stop"
-    ) {
-      invariant(
-        this.#report.showWindowNormal?.call.sequence === 127_351 &&
-          this.#report.showWindowNormal.mutation === false,
-        "ShowWindow report omitted its bounded SW_SHOWNORMAL completion",
-      );
-    }
-    if (
-      isUpdateWindow(this.#configuration.capabilityProfile) &&
-      terminal.outcome === "structured-stop"
-    ) {
-      const update = this.#report.updateWindow;
-      const firstUnsupported = this.#report.firstUnsupported;
-      invariant(
-        update !== null &&
-          update.call.sequence === 127_352 &&
-          update.call.pendingCallback === true &&
-          update.callbackEvents[0]?.frameId === 30 &&
-          update.beginPaint.sequence === 127_353 &&
-          update.beginPaint.paint.livePaintSessions === 1 &&
-          update.beginPaint.paint.liveDeviceContexts === 1 &&
-          update.endPaint.sequence === 127_354 &&
-          update.endPaint.paint.livePaintSessions === 0 &&
-          update.endPaint.paint.liveDeviceContexts === 0 &&
-          firstUnsupported?.capabilityCluster ===
-            (isUser32AsyncKeyStateInitialScanContinuation(
-              this.#configuration.capabilityProfile,
-            )
-              ? "d3d9-idirect3ddevice9-method"
-              : isD3d9PostPresentContinuation(
-              this.#configuration.capabilityProfile,
-            )
-              ? "user32-api-contract"
-              : isD3d9AddDirtyRect(this.#configuration.capabilityProfile)
-              ? "d3d9-idirect3ddevice9-method"
-              : isSetRect(this.#configuration.capabilityProfile)
-                ? "d3d9-idirect3dtexture9-method"
-                : isD3d9Clear(this.#configuration.capabilityProfile)
+        ) &&
+        terminal.outcome === "structured-stop"
+      ) {
+        invariant(
+          this.#setWindowPosCompletionCount ===
+            (this.#configuration.capabilityProfile ===
+            "user32-set-window-pos-repeat-activation"
+              ? 5
+              : 6) &&
+            this.#report.setWindowPosRepeatActivation?.repeatCall.occurrence ===
+              5 &&
+            this.#report.setWindowPosRepeatActivation.callbackEvents.length ===
+              2,
+          "SetWindowPos report omitted its repeat activation callback completion",
+        );
+      }
+      if (
+        includesD3d9RecreatedTextures(this.#configuration.capabilityProfile) &&
+        terminal.outcome === "structured-stop"
+      ) {
+        const recreated = this.#report.d3d9RecreatedTextures;
+        invariant(
+          recreated !== null &&
+            recreated.calls.length === 9 &&
+            recreated.calls[0]?.sequence === 108_735 &&
+            recreated.calls.at(-1)?.sequence === 108_743 &&
+            recreated.calls.filter(
+              (call) => call.symbol === "IDirect3DDevice9.CreateTexture",
+            ).length === 3,
+          "D3D9 recreated texture report omitted its transactional call sequence",
+        );
+      }
+      if (
+        isSetWindowPosFrameChangeMove(this.#configuration.capabilityProfile) &&
+        terminal.outcome === "structured-stop"
+      ) {
+        const frameChange = this.#report.setWindowPosFrameChangeMove;
+        invariant(
+          frameChange !== null &&
+            frameChange.callCount === 6 &&
+            frameChange.call.sequence === 127_346 &&
+            frameChange.callbackEvents.length === 6 &&
+            frameChange.nestedMoveCallbackEvents.length === 2,
+          "SetWindowPos frame-change move report omitted its callback or geometry evidence",
+        );
+      }
+      if (
+        includesShowWindowNormal(this.#configuration.capabilityProfile) &&
+        terminal.outcome === "structured-stop"
+      ) {
+        invariant(
+          this.#report.showWindowNormal?.call.sequence === 127_351 &&
+            this.#report.showWindowNormal.mutation === false,
+          "ShowWindow report omitted its bounded SW_SHOWNORMAL completion",
+        );
+      }
+      if (
+        isUpdateWindow(this.#configuration.capabilityProfile) &&
+        terminal.outcome === "structured-stop"
+      ) {
+        const update = this.#report.updateWindow;
+        const firstUnsupported = this.#report.firstUnsupported;
+        invariant(
+          update !== null &&
+            update.call.sequence === 127_352 &&
+            update.call.pendingCallback === true &&
+            update.callbackEvents[0]?.frameId === 30 &&
+            update.beginPaint.sequence === 127_353 &&
+            update.beginPaint.paint.livePaintSessions === 1 &&
+            update.beginPaint.paint.liveDeviceContexts === 1 &&
+            update.endPaint.sequence === 127_354 &&
+            update.endPaint.paint.livePaintSessions === 0 &&
+            update.endPaint.paint.liveDeviceContexts === 0 &&
+            firstUnsupported?.capabilityCluster ===
+              (isUser32AsyncKeyStateInitialScanContinuation(
+                this.#configuration.capabilityProfile,
+              )
+                ? "user32-api-contract"
+                : isD3d9PostPresentContinuation(
+                      this.#configuration.capabilityProfile,
+                    )
                   ? "user32-api-contract"
-                  : "d3d9-idirect3ddevice9-method") &&
-          (isD3d9EndScene(this.#configuration.capabilityProfile)
-            ? this.#report.d3d9DrawPrimitive?.call.sequence === 127_374 &&
-              this.#report.d3d9EndScene?.call.sequence === 127_375
-            : isD3d9DrawPrimitive(this.#configuration.capabilityProfile)
-              ? this.#report.d3d9SetStreamSource?.call.sequence === 127_373 &&
-                this.#report.d3d9DrawPrimitive?.call.sequence === 127_374 &&
-                firstUnsupported.instructionCount === 28_761_332 &&
-                firstUnsupported.capabilityCluster ===
-                  "d3d9-idirect3ddevice9-method" &&
-                firstUnsupported.memoryContentSha256 ===
-                  "6736cc7a51bc4fa854877fad65ed254ab6af0f0a10489af5b9eb516dc5e89ee0"
-              : isD3d9SetStreamSource(this.#configuration.capabilityProfile)
-                ? this.#report.d3d9SetFvf?.call.sequence === 127_372 &&
-                  this.#report.d3d9SetStreamSource?.call.sequence === 127_373 &&
-                  firstUnsupported.instructionCount === 28_761_324 &&
+                  : isD3d9AddDirtyRect(this.#configuration.capabilityProfile)
+                    ? "d3d9-idirect3ddevice9-method"
+                    : isSetRect(this.#configuration.capabilityProfile)
+                      ? "d3d9-idirect3dtexture9-method"
+                      : isD3d9Clear(this.#configuration.capabilityProfile)
+                        ? "user32-api-contract"
+                        : "d3d9-idirect3ddevice9-method") &&
+            (isD3d9EndScene(this.#configuration.capabilityProfile)
+              ? this.#report.d3d9DrawPrimitive?.call.sequence === 127_374 &&
+                this.#report.d3d9EndScene?.call.sequence === 127_375
+              : isD3d9DrawPrimitive(this.#configuration.capabilityProfile)
+                ? this.#report.d3d9SetStreamSource?.call.sequence === 127_373 &&
+                  this.#report.d3d9DrawPrimitive?.call.sequence === 127_374 &&
+                  firstUnsupported.instructionCount === 28_761_332 &&
                   firstUnsupported.capabilityCluster ===
                     "d3d9-idirect3ddevice9-method" &&
                   firstUnsupported.memoryContentSha256 ===
-                    "f910711260e589be1f66e3fa7049b6937024766c2e1ff980235f5cae48f074a7"
-                : isD3d9SetFvf(this.#configuration.capabilityProfile)
-                  ? this.#report.d3d9SetTexture?.call.sequence === 127_371 &&
-                    this.#report.d3d9SetFvf?.call.sequence === 127_372 &&
-                    firstUnsupported.instructionCount === 28_761_315 &&
+                    "6736cc7a51bc4fa854877fad65ed254ab6af0f0a10489af5b9eb516dc5e89ee0"
+                : isD3d9SetStreamSource(this.#configuration.capabilityProfile)
+                  ? this.#report.d3d9SetFvf?.call.sequence === 127_372 &&
+                    this.#report.d3d9SetStreamSource?.call.sequence ===
+                      127_373 &&
+                    firstUnsupported.instructionCount === 28_761_324 &&
                     firstUnsupported.capabilityCluster ===
                       "d3d9-idirect3ddevice9-method" &&
                     firstUnsupported.memoryContentSha256 ===
-                      "599b87df20d23ae860b5e3ef0bb763c97247278b6290ba28c4a9c70b7e3e6d21"
-                  : isD3d9SetTexture(this.#configuration.capabilityProfile)
-                    ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
-                      this.#report.setRect?.call.sequence === 127_356 &&
-                      this.#report.d3d9AddDirtyRect?.call.sequence ===
-                        127_357 &&
-                      this.#report.d3d9UpdateTexture?.call.sequence ===
-                        127_358 &&
-                      this.#report.d3d9BeginScene?.call.sequence === 127_359 &&
-                      this.#report.d3d9InitialSamplerStates?.calls[0]
-                        .sequence === 127_360 &&
-                      this.#report.d3d9InitialSamplerStates.calls[1]
-                        .sequence === 127_361 &&
-                      this.#report.d3d9InitialSamplerStates
-                        .postSamplerRenderStateRejections.length === 3 &&
-                      this.#report.d3d9InitialTextureStageStates?.calls[0]
-                        .sequence === 127_365 &&
-                      this.#report.d3d9InitialTextureStageStates.calls[5]
-                        .sequence === 127_370 &&
-                      this.#report.d3d9SetTexture?.call.sequence === 127_371 &&
-                      firstUnsupported.instructionCount === 28_761_298 &&
+                      "f910711260e589be1f66e3fa7049b6937024766c2e1ff980235f5cae48f074a7"
+                  : isD3d9SetFvf(this.#configuration.capabilityProfile)
+                    ? this.#report.d3d9SetTexture?.call.sequence === 127_371 &&
+                      this.#report.d3d9SetFvf?.call.sequence === 127_372 &&
+                      firstUnsupported.instructionCount === 28_761_315 &&
                       firstUnsupported.capabilityCluster ===
                         "d3d9-idirect3ddevice9-method" &&
                       firstUnsupported.memoryContentSha256 ===
-                        "3e9f75fe23428778fcc74f9ffffa9b3d8fc24977ecc38b788151e5ff7cd0b5d1"
-                    : isD3d9InitialTextureStageStates(
-                          this.#configuration.capabilityProfile,
-                        )
+                        "599b87df20d23ae860b5e3ef0bb763c97247278b6290ba28c4a9c70b7e3e6d21"
+                    : isD3d9SetTexture(this.#configuration.capabilityProfile)
                       ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
                         this.#report.setRect?.call.sequence === 127_356 &&
                         this.#report.d3d9AddDirtyRect?.call.sequence ===
@@ -8724,10 +8790,14 @@ class BrowserRuntimeSession {
                           .sequence === 127_365 &&
                         this.#report.d3d9InitialTextureStageStates.calls[5]
                           .sequence === 127_370 &&
-                        firstUnsupported.instructionCount === 28_761_291 &&
+                        this.#report.d3d9SetTexture?.call.sequence ===
+                          127_371 &&
+                        firstUnsupported.instructionCount === 28_761_298 &&
                         firstUnsupported.capabilityCluster ===
-                          "d3d9-idirect3ddevice9-method"
-                      : isD3d9InitialSamplerStates(
+                          "d3d9-idirect3ddevice9-method" &&
+                        firstUnsupported.memoryContentSha256 ===
+                          "3e9f75fe23428778fcc74f9ffffa9b3d8fc24977ecc38b788151e5ff7cd0b5d1"
+                      : isD3d9InitialTextureStageStates(
                             this.#configuration.capabilityProfile,
                           )
                         ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
@@ -8744,12 +8814,14 @@ class BrowserRuntimeSession {
                             .sequence === 127_361 &&
                           this.#report.d3d9InitialSamplerStates
                             .postSamplerRenderStateRejections.length === 3 &&
-                          firstUnsupported.instructionCount === 28_761_237 &&
+                          this.#report.d3d9InitialTextureStageStates?.calls[0]
+                            .sequence === 127_365 &&
+                          this.#report.d3d9InitialTextureStageStates.calls[5]
+                            .sequence === 127_370 &&
+                          firstUnsupported.instructionCount === 28_761_291 &&
                           firstUnsupported.capabilityCluster ===
-                            "d3d9-idirect3ddevice9-method" &&
-                          firstUnsupported.memoryContentSha256 ===
-                            "68d7490f9f03716b648544083c8ba006959e2792659f172c1ffe7c2cc8ed6ca8"
-                        : isD3d9BeginScene(
+                            "d3d9-idirect3ddevice9-method"
+                        : isD3d9InitialSamplerStates(
                               this.#configuration.capabilityProfile,
                             )
                           ? this.#report.d3d9Clear?.call.sequence === 127_355 &&
@@ -8760,12 +8832,18 @@ class BrowserRuntimeSession {
                               127_358 &&
                             this.#report.d3d9BeginScene?.call.sequence ===
                               127_359 &&
-                            firstUnsupported.instructionCount === 28_761_195 &&
+                            this.#report.d3d9InitialSamplerStates?.calls[0]
+                              .sequence === 127_360 &&
+                            this.#report.d3d9InitialSamplerStates.calls[1]
+                              .sequence === 127_361 &&
+                            this.#report.d3d9InitialSamplerStates
+                              .postSamplerRenderStateRejections.length === 3 &&
+                            firstUnsupported.instructionCount === 28_761_237 &&
                             firstUnsupported.capabilityCluster ===
                               "d3d9-idirect3ddevice9-method" &&
                             firstUnsupported.memoryContentSha256 ===
-                              "a8dae8df1346601cdaf44e32e3f082c29b1e88aae363c561fffe70e32036b2cf"
-                          : isD3d9UpdateTexture(
+                              "68d7490f9f03716b648544083c8ba006959e2792659f172c1ffe7c2cc8ed6ca8"
+                          : isD3d9BeginScene(
                                 this.#configuration.capabilityProfile,
                               )
                             ? this.#report.d3d9Clear?.call.sequence ===
@@ -8775,13 +8853,15 @@ class BrowserRuntimeSession {
                                 127_357 &&
                               this.#report.d3d9UpdateTexture?.call.sequence ===
                                 127_358 &&
+                              this.#report.d3d9BeginScene?.call.sequence ===
+                                127_359 &&
                               firstUnsupported.instructionCount ===
-                                28_761_181 &&
+                                28_761_195 &&
                               firstUnsupported.capabilityCluster ===
                                 "d3d9-idirect3ddevice9-method" &&
                               firstUnsupported.memoryContentSha256 ===
-                                "6a33233c5973dc1d97badc37755780ed99688c0fa835c0d2d041acc9e231e57a"
-                            : isD3d9AddDirtyRect(
+                                "a8dae8df1346601cdaf44e32e3f082c29b1e88aae363c561fffe70e32036b2cf"
+                            : isD3d9UpdateTexture(
                                   this.#configuration.capabilityProfile,
                                 )
                               ? this.#report.d3d9Clear?.call.sequence ===
@@ -8790,406 +8870,454 @@ class BrowserRuntimeSession {
                                   127_356 &&
                                 this.#report.d3d9AddDirtyRect?.call.sequence ===
                                   127_357 &&
-                                firstUnsupported.instructionCount === 28_761_175
-                              : isSetRect(this.#configuration.capabilityProfile)
+                                this.#report.d3d9UpdateTexture?.call
+                                  .sequence === 127_358 &&
+                                firstUnsupported.instructionCount ===
+                                  28_761_181 &&
+                                firstUnsupported.capabilityCluster ===
+                                  "d3d9-idirect3ddevice9-method" &&
+                                firstUnsupported.memoryContentSha256 ===
+                                  "6a33233c5973dc1d97badc37755780ed99688c0fa835c0d2d041acc9e231e57a"
+                              : isD3d9AddDirtyRect(
+                                    this.#configuration.capabilityProfile,
+                                  )
                                 ? this.#report.d3d9Clear?.call.sequence ===
                                     127_355 &&
                                   this.#report.setRect?.call.sequence ===
                                     127_356 &&
+                                  this.#report.d3d9AddDirtyRect?.call
+                                    .sequence === 127_357 &&
                                   firstUnsupported.instructionCount ===
-                                    28_761_165
-                                : isD3d9Clear(
+                                    28_761_175
+                                : isSetRect(
                                       this.#configuration.capabilityProfile,
                                     )
                                   ? this.#report.d3d9Clear?.call.sequence ===
                                       127_355 &&
+                                    this.#report.setRect?.call.sequence ===
+                                      127_356 &&
                                     firstUnsupported.instructionCount ===
-                                      28_761_157
-                                  : firstUnsupported.instructionCount ===
-                                    28_761_128),
-        "UpdateWindow report omitted its pending callback or paint-session lifecycle",
-      );
-    }
-    if (
-      this.#configuration.capabilityProfile ===
-        "d3d9-post-present-continuation" &&
-      terminal.outcome === "structured-stop"
-    ) {
-      const continuation = this.#report.postPresentContinuation;
-      const update = this.#report.updateWindow;
-      const stop = this.#report.firstUnsupported;
-      const fault = stop?.fault as
-        | { class?: string; stage?: string; code?: string }
-        | undefined;
-      const pacing = this.#timerPacing.metrics();
-      invariant(
-        this.#report.supportedCallCount === 127_690 &&
-          this.#report.supportedCallSemanticsSha256 ===
-            "ac1eee34c5e1f3e4746600db145ac70a2d0a023949a9094729572c7a04c41617" &&
-          continuation !== null &&
-          continuation.timeGetTimeCall.sequence === 127_378 &&
-          continuation.getForegroundWindowCall.sequence === 127_379 &&
-          update !== null &&
-          update.callbackActiveAtStop === false &&
-          update.callbackEvents.length === 2 &&
-          update.callbackEvents[1]?.action === "return" &&
-          update.callbackEvents[1].instructionCount === 28_761_544 &&
-          this.#waitForSingleObjectExCompletions === 9_205 &&
-          pacing.requests === 9_205 &&
-          pacing.completions === 9_205 &&
-          pacing.pending === 0 &&
-          stop !== null &&
-          stop.instructionCount === 29_325_480 &&
-          stop.memoryContentSha256 ===
-            "6ba9e12a6946dd09a1d673d76f7dab2a11436ad1f7fe5989d2c43a6698b82321" &&
-          stop.capabilityCluster === "user32-api-contract" &&
-          stop.endpoint !== null &&
-          typeof stop.endpoint === "object" &&
-          "id" in stop.endpoint &&
-          stop.endpoint.id === 231 &&
-          "address" in stop.endpoint &&
-          stop.endpoint.address === 0x7f00_0e60 &&
-          "module" in stop.endpoint &&
-          typeof stop.endpoint.module === "string" &&
-          stop.endpoint.module.toLowerCase() === "user32.dll" &&
-          "symbol" in stop.endpoint &&
-          typeof stop.endpoint.symbol === "object" &&
-          stop.endpoint.symbol !== null &&
-          "kind" in stop.endpoint.symbol &&
-          stop.endpoint.symbol.kind === "name" &&
-          "name" in stop.endpoint.symbol &&
-          stop.endpoint.symbol.name === "GetAsyncKeyState" &&
-          fault?.class === "unsupported" &&
-          fault.stage === "api-dispatch" &&
-          fault.code === "endpoint-contract-missing",
-        `post-Present continuation report or GetAsyncKeyState stop changed: ${JSON.stringify(
-          {
-            supportedCallCount: this.#report.supportedCallCount,
-            supportedCallSemanticsSha256:
-              this.#report.supportedCallSemanticsSha256,
-            continuation,
-            callbackActiveAtStop: update?.callbackActiveAtStop,
-            callbackEvents: update?.callbackEvents,
-            waitForSingleObjectExCompletions:
-              this.#waitForSingleObjectExCompletions,
-            pacing,
-            stop,
-            fault,
-          },
-        )}`,
-      );
-    }
-    if (
-      this.#configuration.capabilityProfile ===
-        "user32-async-key-state-input" &&
-      terminal.outcome === "checkpoint-complete"
-    ) {
-      const input = this.#report.keyboardInput;
-      const getAsyncKeyState = this.#report.getAsyncKeyState;
-      const checkpoint = this.#report.checkpointCompletion;
-      const pacing = this.#timerPacing.metrics();
-      invariant(
-        this.#report.supportedCallCount === 127_691 &&
-          this.#report.supportedCallSemanticsSha256 ===
-            "9cf34a9c26fab3e0eccc49318b8601a69ef26fbcd075ccbe022ce93851c8c070" &&
-          this.#report.firstUnsupported === null &&
-          getAsyncKeyState?.call.sequence === 127_691 &&
-          getAsyncKeyState.call.arguments[0] === 0x11 &&
-          "action" in getAsyncKeyState.call.result &&
-          getAsyncKeyState.call.result.action === "set" &&
-          getAsyncKeyState.call.result.value === 0xffff_8001 &&
-          input.receivedMessages === 1 &&
-          input.queuedBeforePrepare === 1 &&
-          input.receipts.length === 1 &&
-          checkpoint?.capability === "user32-async-key-state-input" &&
-          checkpoint.lastCompletionSequence === 127_691 &&
-          checkpoint.lastCompletionInstructionCount === 29_325_480 &&
-          checkpoint.instructionCount === 29_325_523 &&
-          checkpoint.nextEndpoint.id === 8 &&
-          checkpoint.nextEndpoint.address === 0x7f00_0070 &&
-          checkpoint.memoryContentSha256 ===
-            "c7801c079a345735737df36bd26eed53c2381cfdba7b7b618e79b75e5280dae4" &&
-          this.#waitForSingleObjectExCompletions === 9_205 &&
-          pacing.requests === 9_205 &&
-          pacing.completions === 9_205 &&
-          pacing.pending === 0,
-        `GetAsyncKeyState checkpoint report changed: ${JSON.stringify({
-          supportedCallCount: this.#report.supportedCallCount,
-          supportedCallSemanticsSha256:
-            this.#report.supportedCallSemanticsSha256,
-          input,
-          getAsyncKeyState,
-          checkpoint,
-          waitForSingleObjectExCompletions:
-            this.#waitForSingleObjectExCompletions,
-          pacing,
-        })}`,
-      );
-    }
-    if (
-      isUser32AsyncKeyStateInputContinuation(
-        this.#configuration.capabilityProfile,
-      ) && terminal.outcome === "checkpoint-complete"
-    ) {
-      const input = this.#report.keyboardInput;
-      const firstQuery = this.#report.getAsyncKeyState;
-      const checkpoint = this.#report.checkpointCompletion;
-      const pacing = this.#timerPacing.metrics();
-      invariant(
-        this.#report.supportedCallCount === 128_117 &&
-          this.#report.supportedCallSemanticsSha256 ===
-            "35dd9d4e6ee43cdf312e2f3c14ee5f82478373779dfa645074761b1474355404" &&
-          this.#report.firstUnsupported === null &&
-          firstQuery?.call.sequence === 127_691 &&
-          "action" in firstQuery.call.result &&
-          firstQuery.call.result.action === "set" &&
-          firstQuery.call.result.value === 0xffff_8001 &&
-          input.receivedMessages === 1 &&
-          input.queuedBeforePrepare === 1 &&
-          input.receipts.length === 1 &&
-          checkpoint?.capability ===
-            "user32-async-key-state-input-continuation" &&
-          checkpoint.firstCompletionSequence === 127_691 &&
-          checkpoint.firstCompletionInstructionCount === 29_325_480 &&
-          checkpoint.firstResult.value === 0xffff_8001 &&
-          checkpoint.lastCompletionSequence === 128_117 &&
-          checkpoint.lastCompletionInstructionCount === 30_263_849 &&
-          checkpoint.result.value === 0xffff_8000 &&
-          checkpoint.instructionCount === 30_263_940 &&
-          checkpoint.nextEndpoint.id === 75 &&
-          checkpoint.nextEndpoint.address === 0x7f00_04a0 &&
-          checkpoint.memoryContentSha256 ===
-            "1671745d3e36bc8732ff00ed4fde0cad13bfb624d3e61bb3335876d17626be87" &&
-          this.#waitForSingleObjectExCompletions === 9_232 &&
-          pacing.requests === 9_232 &&
-          pacing.completions === 9_232 &&
-          pacing.pending === 0,
-        `GetAsyncKeyState continuation checkpoint report changed: ${JSON.stringify(
-          {
+                                      28_761_165
+                                  : isD3d9Clear(
+                                        this.#configuration.capabilityProfile,
+                                      )
+                                    ? this.#report.d3d9Clear?.call.sequence ===
+                                        127_355 &&
+                                      firstUnsupported.instructionCount ===
+                                        28_761_157
+                                    : firstUnsupported.instructionCount ===
+                                      28_761_128),
+          "UpdateWindow report omitted its pending callback or paint-session lifecycle",
+        );
+      }
+      if (
+        this.#configuration.capabilityProfile ===
+          "d3d9-post-present-continuation" &&
+        terminal.outcome === "structured-stop"
+      ) {
+        const continuation = this.#report.postPresentContinuation;
+        const update = this.#report.updateWindow;
+        const stop = this.#report.firstUnsupported;
+        const fault = stop?.fault as
+          { class?: string; stage?: string; code?: string } | undefined;
+        const pacing = this.#timerPacing.metrics();
+        invariant(
+          this.#report.supportedCallCount === 127_690 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "ac1eee34c5e1f3e4746600db145ac70a2d0a023949a9094729572c7a04c41617" &&
+            continuation !== null &&
+            continuation.timeGetTimeCall.sequence === 127_378 &&
+            continuation.getForegroundWindowCall.sequence === 127_379 &&
+            update !== null &&
+            update.callbackActiveAtStop === false &&
+            update.callbackEvents.length === 2 &&
+            update.callbackEvents[1]?.action === "return" &&
+            update.callbackEvents[1].instructionCount === 28_761_544 &&
+            this.#waitForSingleObjectExCompletions === 9_205 &&
+            pacing.requests === 9_205 &&
+            pacing.completions === 9_205 &&
+            pacing.pending === 0 &&
+            stop !== null &&
+            stop.instructionCount === 29_325_480 &&
+            stop.memoryContentSha256 ===
+              "6ba9e12a6946dd09a1d673d76f7dab2a11436ad1f7fe5989d2c43a6698b82321" &&
+            stop.capabilityCluster === "user32-api-contract" &&
+            stop.endpoint !== null &&
+            typeof stop.endpoint === "object" &&
+            "id" in stop.endpoint &&
+            stop.endpoint.id === 231 &&
+            "address" in stop.endpoint &&
+            stop.endpoint.address === 0x7f00_0e60 &&
+            "module" in stop.endpoint &&
+            typeof stop.endpoint.module === "string" &&
+            stop.endpoint.module.toLowerCase() === "user32.dll" &&
+            "symbol" in stop.endpoint &&
+            typeof stop.endpoint.symbol === "object" &&
+            stop.endpoint.symbol !== null &&
+            "kind" in stop.endpoint.symbol &&
+            stop.endpoint.symbol.kind === "name" &&
+            "name" in stop.endpoint.symbol &&
+            stop.endpoint.symbol.name === "GetAsyncKeyState" &&
+            fault?.class === "unsupported" &&
+            fault.stage === "api-dispatch" &&
+            fault.code === "endpoint-contract-missing",
+          `post-Present continuation report or GetAsyncKeyState stop changed: ${JSON.stringify(
+            {
+              supportedCallCount: this.#report.supportedCallCount,
+              supportedCallSemanticsSha256:
+                this.#report.supportedCallSemanticsSha256,
+              continuation,
+              callbackActiveAtStop: update?.callbackActiveAtStop,
+              callbackEvents: update?.callbackEvents,
+              waitForSingleObjectExCompletions:
+                this.#waitForSingleObjectExCompletions,
+              pacing,
+              stop,
+              fault,
+            },
+          )}`,
+        );
+      }
+      if (
+        this.#configuration.capabilityProfile ===
+          "user32-async-key-state-input" &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const input = this.#report.keyboardInput;
+        const getAsyncKeyState = this.#report.getAsyncKeyState;
+        const checkpoint = this.#report.checkpointCompletion;
+        const pacing = this.#timerPacing.metrics();
+        invariant(
+          this.#report.supportedCallCount === 127_691 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "9cf34a9c26fab3e0eccc49318b8601a69ef26fbcd075ccbe022ce93851c8c070" &&
+            this.#report.firstUnsupported === null &&
+            getAsyncKeyState?.call.sequence === 127_691 &&
+            getAsyncKeyState.call.arguments[0] === 0x11 &&
+            "action" in getAsyncKeyState.call.result &&
+            getAsyncKeyState.call.result.action === "set" &&
+            getAsyncKeyState.call.result.value === 0xffff_8001 &&
+            input.receivedMessages === 1 &&
+            input.queuedBeforePrepare === 1 &&
+            input.receipts.length === 1 &&
+            checkpoint?.capability === "user32-async-key-state-input" &&
+            checkpoint.lastCompletionSequence === 127_691 &&
+            checkpoint.lastCompletionInstructionCount === 29_325_480 &&
+            checkpoint.instructionCount === 29_325_523 &&
+            checkpoint.nextEndpoint.id === 8 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0070 &&
+            checkpoint.memoryContentSha256 ===
+              "c7801c079a345735737df36bd26eed53c2381cfdba7b7b618e79b75e5280dae4" &&
+            this.#waitForSingleObjectExCompletions === 9_205 &&
+            pacing.requests === 9_205 &&
+            pacing.completions === 9_205 &&
+            pacing.pending === 0,
+          `GetAsyncKeyState checkpoint report changed: ${JSON.stringify({
             supportedCallCount: this.#report.supportedCallCount,
             supportedCallSemanticsSha256:
               this.#report.supportedCallSemanticsSha256,
             input,
-            firstQuery,
+            getAsyncKeyState,
             checkpoint,
             waitForSingleObjectExCompletions:
               this.#waitForSingleObjectExCompletions,
             pacing,
-          },
-        )}`,
-      );
-    }
-    if (
-      isUser32AsyncKeyStateInitialScan(
-        this.#configuration.capabilityProfile,
-      ) && terminal.outcome === "checkpoint-complete"
-    ) {
-      const scan = this.#report.getAsyncKeyStateInitialScan;
-      const getWindowRect = this.#report.getWindowRect;
-      const getCursorPos = this.#report.getCursorPos;
-      const checkpoint = this.#report.checkpointCompletion;
-      const pacing = this.#timerPacing.metrics();
-      invariant(
-        this.#report.supportedCallCount === 148_195 &&
-          this.#report.supportedCallSemanticsSha256 ===
-            "807a700fa699f6a8ec3d83954a534960243ec27d203d7f68f499356254910950" &&
-          this.#report.firstUnsupported === null &&
-          this.#report.keyboardInput.receivedMessages === 0 &&
-          this.#report.keyboardInput.receipts.length === 0 &&
-          this.#getAsyncKeyStateInitialScanCalls.length === 89 &&
-          scan?.leadingCallCount === 51 &&
-          scan.firstCall.sequence === 148_153 &&
-          scan.lastCall.sequence === 148_195 &&
-          getWindowRect !== null &&
-          getCursorPos !== null &&
-          checkpoint?.capability ===
-            "user32-async-key-state-initial-scan" &&
-          checkpoint.leadingCallCount === 51 &&
-          checkpoint.firstCompletionSequence === 148_153 &&
-          checkpoint.firstCompletionInstructionCount === 147_765_769 &&
-          checkpoint.lastCompletionSequence === 148_195 &&
-          checkpoint.lastCompletionInstructionCount === 147_769_226 &&
-          checkpoint.instructionCount === 147_769_286 &&
-          checkpoint.nextEndpoint.id === 8 &&
-          checkpoint.nextEndpoint.address === 0x7f00_0070 &&
-          checkpoint.memoryContentSha256 ===
-            "ea8b7752bc8c4424ae5d901958330b09fb7e8af3bf4a506bbeb0f9aeba8fff86" &&
-          this.#waitForSingleObjectExCompletions === pacing.requests &&
-          pacing.requests === pacing.completions &&
-          pacing.pending === 0,
-        `GetAsyncKeyState initial-scan checkpoint report changed: ${JSON.stringify(
-          {
-            supportedCallCount: this.#report.supportedCallCount,
-            supportedCallSemanticsSha256:
-              this.#report.supportedCallSemanticsSha256,
-            scan,
-            getWindowRect,
-            getCursorPos,
-            checkpoint,
-            waitForSingleObjectExCompletions:
-              this.#waitForSingleObjectExCompletions,
-            pacing,
-          },
-        )}`,
-      );
-    }
-    if (
-      isUser32AsyncKeyStateInitialScanContinuation(
-        this.#configuration.capabilityProfile,
-      ) && terminal.outcome === "structured-stop"
-    ) {
-      const scan = this.#report.getAsyncKeyStateInitialScan;
-      const continuation = this.#report.initialScanContinuation;
-      const textureLock = this.#report.d3d9TextureLockRect;
-      const partialUpdate = this.#report.d3d9PartialUpdateTexture;
-      const calls = continuation?.calls;
-      const timeGetTime = calls?.[0];
-      const setRect = calls?.[1];
-      const stop = this.#report.firstUnsupported;
-      const endpoint = stop?.endpoint as
-        | {
-            kind?: string;
-            endpointAddress?: number;
-            target?: {
-              interface?: string;
-              vtableSlot?: number;
-              method?: string;
-              endpointAddress?: number;
-            };
-          }
-        | undefined;
-      const fault = stop?.fault as
-        | {
-            class?: string;
-            stage?: string;
-            code?: string;
-            callSite?: number;
-            target?: {
-              interface?: string;
-              vtableSlot?: number;
-              method?: string;
-              endpointAddress?: number;
-            };
-          }
-        | undefined;
-      const pacing = this.#timerPacing.metrics();
-      invariant(
-        this.#report.supportedCallCount === 148_292 &&
-          this.#report.supportedCallSemanticsSha256 ===
-            "f81e68414e5a48c0b51ed5cce847bfb38e73bfd9c518decae947ca6f65c994c1" &&
-          this.#report.checkpointCompletion === null &&
-          this.#report.keyboardInput.receivedMessages === 0 &&
-          this.#report.keyboardInput.receipts.length === 0 &&
-          this.#getAsyncKeyStateInitialScanCalls.length === 89 &&
-          scan?.leadingCallCount === 51 &&
-          scan.firstCall.sequence === 148_153 &&
-          scan.lastCall.sequence === 148_195 &&
-          continuation?.prerequisiteScanCompletionSequence === 148_195 &&
-          continuation.prerequisiteScanCompletionInstructionCount ===
-            147_769_226 &&
-          continuation.nextSubsystemGateway ===
-            "d3d9-device-test-cooperative-level" &&
-          calls?.length === 2 &&
-          timeGetTime?.sequence === 148_196 &&
-          timeGetTime.module.toLowerCase() === "winmm.dll" &&
-          timeGetTime.symbol === "timeGetTime" &&
-          timeGetTime.arguments.length === 0 &&
-          "action" in timeGetTime.result &&
-          timeGetTime.result.action === "set" &&
-          timeGetTime.result.value === 3_601_112 &&
-          timeGetTime.implementationId === "winmm.time-get-time.v1" &&
-          timeGetTime.returnAddress === 0x1009_1ebf &&
-          timeGetTime.stackPointerBefore === 0x006f_f8f8 &&
-          timeGetTime.stackPointerAfter === 0x006f_f8fc &&
-          timeGetTime.lastError === 0 &&
-          timeGetTime.guestWrites.length === 0 &&
-          setRect?.sequence === 148_197 &&
-          setRect.implementationId === "user32.set-rect.v1" &&
-          setRect.returnAddress === 0x1004_1533 &&
-          setRect.stackPointerBefore === 0x006f_f8a8 &&
-          setRect.stackPointerAfter === 0x006f_f8c0 &&
-          setRect.guestWrites[0]?.address === 0x006f_f8cc &&
-          setRect.guestWrites[0].bytes.join(",") ===
-            "0,0,0,0,0,0,0,0,0,5,0,0,208,2,0,0" &&
-          JSON.stringify(continuation.renderCompletionCounts) ===
-            JSON.stringify({
-              clear: 2,
-              setRect: 3,
-              addDirtyRect: 2,
-              updateTexture: 2,
-              beginScene: 2,
-              samplerState: 4,
-              textureStageState: 12,
-              setTexture: 2,
-              setFvf: 2,
-              setStreamSource: 2,
-              drawPrimitive: 2,
-              endScene: 2,
-              present: 2,
-              textureLockRect: 1,
-              textureUnlockRect: 1,
-            }) &&
-          textureLock?.lock.sequence === 148_198 &&
-          textureLock.unlock.sequence === 148_203 &&
-          textureLock.unlockWithoutLockSucceedsNoop === true &&
-          partialUpdate?.call.sequence === 148_272 &&
-          partialUpdate.call.graphicsTextureUpdate?.source.content
-            ?.contentGeneration === 2 &&
-          partialUpdate.call.graphicsTextureUpdate.destination.content
-            ?.lastUpdate?.sequence === 2 &&
-          stop?.instructionCount === 148_744_443 &&
-          stop.memoryContentSha256 ===
-            "7d90c3c7e63ca50c4436f5321fd33c297713b11cc5e2c578374555178c11c387" &&
-          stop.capabilityCluster === "d3d9-idirect3ddevice9-method" &&
-          endpoint?.kind === "com-method" &&
-          endpoint.endpointAddress === 0x0101_1060 &&
-          endpoint.target?.interface === "IDirect3DDevice9" &&
-          endpoint.target.vtableSlot === 3 &&
-          endpoint.target.method === "TestCooperativeLevel" &&
-          endpoint.target.endpointAddress === 0x0101_1060 &&
-          fault?.class === "unsupported" &&
-          fault.stage === "com-dispatch" &&
-          fault.code === "com-method-unsupported" &&
-          fault.callSite === 0x1005_adcd &&
-          fault.target?.interface === "IDirect3DDevice9" &&
-          fault.target.vtableSlot === 3 &&
-          fault.target.method === "TestCooperativeLevel" &&
-          fault.target.endpointAddress === 0x0101_1060 &&
-          this.#waitForSingleObjectExCompletions === 10_568 &&
-          pacing.requests === 10_568 &&
-          pacing.completions === 10_568 &&
-          pacing.pending === 0,
-        `initial-scan continuation or TestCooperativeLevel stop changed: ${JSON.stringify({
-          supportedCallCount: this.#report.supportedCallCount,
-          supportedCallSemanticsSha256:
-            this.#report.supportedCallSemanticsSha256,
-          scan,
-          continuation,
-          textureLock,
-          partialUpdate,
-          stop,
-          endpoint,
-          fault,
-          waitForSingleObjectExCompletions:
-            this.#waitForSingleObjectExCompletions,
-          pacing,
-        })}`,
-      );
-    }
-    if (this.#configuration.evidenceLevel === "full") {
-      invariant(
-        this.#report.supportedCalls.length === this.#report.supportedCallCount,
-        "full BGI call evidence omitted a completed sequence",
-      );
-      this.#report.supportedCalls.sort(
-        (left, right) => left.sequence - right.sequence,
-      );
-    } else {
-      invariant(
-        this.#report.supportedCalls.length === 0,
-        "summary BGI evidence retained detailed call payloads",
-      );
-    }
+          })}`,
+        );
+      }
+      if (
+        isUser32AsyncKeyStateInputContinuation(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const input = this.#report.keyboardInput;
+        const firstQuery = this.#report.getAsyncKeyState;
+        const checkpoint = this.#report.checkpointCompletion;
+        const pacing = this.#timerPacing.metrics();
+        invariant(
+          this.#report.supportedCallCount === 128_117 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "35dd9d4e6ee43cdf312e2f3c14ee5f82478373779dfa645074761b1474355404" &&
+            this.#report.firstUnsupported === null &&
+            firstQuery?.call.sequence === 127_691 &&
+            "action" in firstQuery.call.result &&
+            firstQuery.call.result.action === "set" &&
+            firstQuery.call.result.value === 0xffff_8001 &&
+            input.receivedMessages === 1 &&
+            input.queuedBeforePrepare === 1 &&
+            input.receipts.length === 1 &&
+            checkpoint?.capability ===
+              "user32-async-key-state-input-continuation" &&
+            checkpoint.firstCompletionSequence === 127_691 &&
+            checkpoint.firstCompletionInstructionCount === 29_325_480 &&
+            checkpoint.firstResult.value === 0xffff_8001 &&
+            checkpoint.lastCompletionSequence === 128_117 &&
+            checkpoint.lastCompletionInstructionCount === 30_263_849 &&
+            checkpoint.result.value === 0xffff_8000 &&
+            checkpoint.instructionCount === 30_263_940 &&
+            checkpoint.nextEndpoint.id === 75 &&
+            checkpoint.nextEndpoint.address === 0x7f00_04a0 &&
+            checkpoint.memoryContentSha256 ===
+              "1671745d3e36bc8732ff00ed4fde0cad13bfb624d3e61bb3335876d17626be87" &&
+            this.#waitForSingleObjectExCompletions === 9_232 &&
+            pacing.requests === 9_232 &&
+            pacing.completions === 9_232 &&
+            pacing.pending === 0,
+          `GetAsyncKeyState continuation checkpoint report changed: ${JSON.stringify(
+            {
+              supportedCallCount: this.#report.supportedCallCount,
+              supportedCallSemanticsSha256:
+                this.#report.supportedCallSemanticsSha256,
+              input,
+              firstQuery,
+              checkpoint,
+              waitForSingleObjectExCompletions:
+                this.#waitForSingleObjectExCompletions,
+              pacing,
+            },
+          )}`,
+        );
+      }
+      if (
+        isUser32AsyncKeyStateInitialScan(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const scan = this.#report.getAsyncKeyStateInitialScan;
+        const getWindowRect = this.#report.getWindowRect;
+        const getCursorPos = this.#report.getCursorPos;
+        const checkpoint = this.#report.checkpointCompletion;
+        const pacing = this.#timerPacing.metrics();
+        invariant(
+          this.#report.supportedCallCount === 148_195 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "807a700fa699f6a8ec3d83954a534960243ec27d203d7f68f499356254910950" &&
+            this.#report.firstUnsupported === null &&
+            this.#report.keyboardInput.receivedMessages === 0 &&
+            this.#report.keyboardInput.receipts.length === 0 &&
+            this.#getAsyncKeyStateInitialScanCalls.length === 89 &&
+            scan?.leadingCallCount === 51 &&
+            scan.firstCall.sequence === 148_153 &&
+            scan.lastCall.sequence === 148_195 &&
+            getWindowRect !== null &&
+            getCursorPos !== null &&
+            checkpoint?.capability === "user32-async-key-state-initial-scan" &&
+            checkpoint.leadingCallCount === 51 &&
+            checkpoint.firstCompletionSequence === 148_153 &&
+            checkpoint.firstCompletionInstructionCount === 147_765_769 &&
+            checkpoint.lastCompletionSequence === 148_195 &&
+            checkpoint.lastCompletionInstructionCount === 147_769_226 &&
+            checkpoint.instructionCount === 147_769_286 &&
+            checkpoint.nextEndpoint.id === 8 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0070 &&
+            checkpoint.memoryContentSha256 ===
+              "ea8b7752bc8c4424ae5d901958330b09fb7e8af3bf4a506bbeb0f9aeba8fff86" &&
+            this.#waitForSingleObjectExCompletions === pacing.requests &&
+            pacing.requests === pacing.completions &&
+            pacing.pending === 0,
+          `GetAsyncKeyState initial-scan checkpoint report changed: ${JSON.stringify(
+            {
+              supportedCallCount: this.#report.supportedCallCount,
+              supportedCallSemanticsSha256:
+                this.#report.supportedCallSemanticsSha256,
+              scan,
+              getWindowRect,
+              getCursorPos,
+              checkpoint,
+              waitForSingleObjectExCompletions:
+                this.#waitForSingleObjectExCompletions,
+              pacing,
+            },
+          )}`,
+        );
+      }
+      if (
+        isUser32AsyncKeyStateInitialScanContinuation(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "structured-stop"
+      ) {
+        const scan = this.#report.getAsyncKeyStateInitialScan;
+        const continuation = this.#report.initialScanContinuation;
+        const textureLock = this.#report.d3d9TextureLockRect;
+        const partialUpdate = this.#report.d3d9PartialUpdateTexture;
+        const cooperativeLevel = this.#report.d3d9TestCooperativeLevel;
+        const calls = continuation?.calls;
+        const timeGetTime = calls?.[0];
+        const setRect = calls?.[1];
+        const stop = this.#report.firstUnsupported;
+        const endpoint = stop?.endpoint as
+          | {
+              id?: number;
+              address?: number;
+              module?: string;
+              symbol?: { kind?: string; name?: string };
+              iatAddress?: number;
+            }
+          | undefined;
+        const fault = stop?.fault as
+          | {
+              class?: string;
+              stage?: string;
+              code?: string;
+              endpoint?: {
+                id?: number;
+                address?: number;
+                module?: string;
+                symbol?: { kind?: string; name?: string };
+                iatAddress?: number;
+              };
+            }
+          | undefined;
+        const pacing = this.#timerPacing.metrics();
+        invariant(
+          this.#report.supportedCallCount === 148_295 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "74170ad0115e2e7c75e752eca7cdcf5a0563d38166fffbb36c46af78d742a88b" &&
+            this.#report.checkpointCompletion === null &&
+            this.#report.keyboardInput.receivedMessages === 0 &&
+            this.#report.keyboardInput.receipts.length === 0 &&
+            this.#getAsyncKeyStateInitialScanCalls.length === 89 &&
+            scan?.leadingCallCount === 51 &&
+            scan.firstCall.sequence === 148_153 &&
+            scan.lastCall.sequence === 148_195 &&
+            continuation?.prerequisiteScanCompletionSequence === 148_195 &&
+            continuation.prerequisiteScanCompletionInstructionCount ===
+              147_769_226 &&
+            continuation.nextSubsystemGateway === "user32-peek-message-a" &&
+            calls?.length === 2 &&
+            timeGetTime?.sequence === 148_196 &&
+            timeGetTime.module.toLowerCase() === "winmm.dll" &&
+            timeGetTime.symbol === "timeGetTime" &&
+            timeGetTime.arguments.length === 0 &&
+            "action" in timeGetTime.result &&
+            timeGetTime.result.action === "set" &&
+            timeGetTime.result.value === 3_601_112 &&
+            timeGetTime.implementationId === "winmm.time-get-time.v1" &&
+            timeGetTime.returnAddress === 0x1009_1ebf &&
+            timeGetTime.stackPointerBefore === 0x006f_f8f8 &&
+            timeGetTime.stackPointerAfter === 0x006f_f8fc &&
+            timeGetTime.lastError === 0 &&
+            timeGetTime.guestWrites.length === 0 &&
+            setRect?.sequence === 148_197 &&
+            setRect.implementationId === "user32.set-rect.v1" &&
+            setRect.returnAddress === 0x1004_1533 &&
+            setRect.stackPointerBefore === 0x006f_f8a8 &&
+            setRect.stackPointerAfter === 0x006f_f8c0 &&
+            setRect.guestWrites[0]?.address === 0x006f_f8cc &&
+            setRect.guestWrites[0].bytes.join(",") ===
+              "0,0,0,0,0,0,0,0,0,5,0,0,208,2,0,0" &&
+            JSON.stringify(continuation.renderCompletionCounts) ===
+              JSON.stringify({
+                clear: 2,
+                setRect: 3,
+                addDirtyRect: 2,
+                updateTexture: 2,
+                beginScene: 2,
+                samplerState: 4,
+                textureStageState: 12,
+                setTexture: 2,
+                setFvf: 2,
+                setStreamSource: 2,
+                drawPrimitive: 2,
+                endScene: 2,
+                present: 2,
+                textureLockRect: 1,
+                textureUnlockRect: 1,
+                testCooperativeLevel: 1,
+              }) &&
+            textureLock?.lock.sequence === 148_198 &&
+            textureLock.unlock.sequence === 148_203 &&
+            textureLock.unlockWithoutLockSucceedsNoop === true &&
+            partialUpdate?.call.sequence === 148_272 &&
+            partialUpdate.call.graphicsTextureUpdate?.source.content
+              ?.contentGeneration === 2 &&
+            partialUpdate.call.graphicsTextureUpdate.destination.content
+              ?.lastUpdate?.sequence === 2 &&
+            cooperativeLevel?.call.sequence === 148_293 &&
+            cooperativeLevel.instructionCount === 148_744_443 &&
+            cooperativeLevel.call.arguments.join(",") === "16842756" &&
+            "kind" in cooperativeLevel.call.result &&
+            cooperativeLevel.call.result.kind === "h-result" &&
+            cooperativeLevel.call.result.value === 0 &&
+            cooperativeLevel.call.returnAddress === 0x1005_adcd &&
+            cooperativeLevel.call.stackPointerBefore === 0x006f_f8f4 &&
+            cooperativeLevel.call.stackPointerAfter === 0x006f_f8fc &&
+            cooperativeLevel.call.referenceCount === 5 &&
+            cooperativeLevel.call.objectRetired === false &&
+            cooperativeLevel.call.guestWrites.length === 0 &&
+            cooperativeLevel.compatibilityPolicyId ===
+              "d3d9-primary-virtual-adapter-v32" &&
+            cooperativeLevel.profileId ===
+              "primary-live-operational-device-query-v1" &&
+            cooperativeLevel.mutation === "none" &&
+            cooperativeLevel.lastErrorPolicy === "preserve" &&
+            cooperativeLevel.guestMemoryMutation === false &&
+            cooperativeLevel.referenceCountMutation === false &&
+            cooperativeLevel.deviceLostStateImplemented === false &&
+            cooperativeLevel.deviceNotResetStateImplemented === false &&
+            cooperativeLevel.resetImplemented === false &&
+            cooperativeLevel.browserContextLossImported === false &&
+            stop?.instructionCount === 148_744_543 &&
+            stop.memoryContentSha256 ===
+              "8cb35ad270630b96dc24dff848b2390a1f2efda5bd162caacaf5e8918d3ed36d" &&
+            stop.capabilityCluster === "user32-api-contract" &&
+            endpoint?.id === 164 &&
+            endpoint.address === 0x7f00_0a30 &&
+            endpoint.module?.toLowerCase() === "user32.dll" &&
+            endpoint.symbol?.kind === "name" &&
+            endpoint.symbol.name === "PeekMessageA" &&
+            endpoint.iatAddress === 0x100d_1368 &&
+            fault?.class === "unsupported" &&
+            fault.stage === "api-dispatch" &&
+            fault.code === "endpoint-contract-missing" &&
+            fault.endpoint?.id === 164 &&
+            fault.endpoint.address === 0x7f00_0a30 &&
+            fault.endpoint.module?.toLowerCase() === "user32.dll" &&
+            fault.endpoint.symbol?.kind === "name" &&
+            fault.endpoint.symbol.name === "PeekMessageA" &&
+            fault.endpoint.iatAddress === 0x100d_1368 &&
+            this.#waitForSingleObjectExCompletions === 10_569 &&
+            pacing.requests === 10_569 &&
+            pacing.completions === 10_569 &&
+            pacing.pending === 0,
+          `initial-scan continuation or TestCooperativeLevel stop changed: ${JSON.stringify(
+            {
+              supportedCallCount: this.#report.supportedCallCount,
+              supportedCallSemanticsSha256:
+                this.#report.supportedCallSemanticsSha256,
+              scan,
+              continuation,
+              textureLock,
+              partialUpdate,
+              cooperativeLevel,
+              stop,
+              endpoint,
+              fault,
+              waitForSingleObjectExCompletions:
+                this.#waitForSingleObjectExCompletions,
+              pacing,
+            },
+          )}`,
+        );
+      }
+      if (this.#configuration.evidenceLevel === "full") {
+        invariant(
+          this.#report.supportedCalls.length ===
+            this.#report.supportedCallCount,
+          "full BGI call evidence omitted a completed sequence",
+        );
+        this.#report.supportedCalls.sort(
+          (left, right) => left.sequence - right.sequence,
+        );
+      } else {
+        invariant(
+          this.#report.supportedCalls.length === 0,
+          "summary BGI evidence retained detailed call payloads",
+        );
+      }
     } catch (error) {
       completedTerminal = {
         outcome: "fault",
@@ -9369,6 +9497,7 @@ worker.addEventListener(
               d3d9UpdateTexture: null,
               d3d9TextureLockRect: null,
               d3d9PartialUpdateTexture: null,
+              d3d9TestCooperativeLevel: null,
               d3d9BeginScene: null,
               d3d9InitialSamplerStates: null,
               d3d9InitialTextureStageStates: null,

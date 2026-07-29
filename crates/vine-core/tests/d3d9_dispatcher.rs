@@ -230,6 +230,38 @@ fn d3d9_device_texture_and_surface_catalogs_fix_the_complete_x86_vtables() {
     policy.validate().unwrap();
     assert_eq!(policy.schema_version, 31);
     assert_eq!(policy.id, "d3d9-primary-virtual-adapter-v31");
+    assert!(policy.test_cooperative_level.is_none());
+    let cooperative_level_policy = D3d9CompatibilityPolicy::controlled_v32();
+    cooperative_level_policy.validate().unwrap();
+    assert_eq!(cooperative_level_policy.schema_version, 32);
+    assert_eq!(
+        cooperative_level_policy.id,
+        "d3d9-primary-virtual-adapter-v32"
+    );
+    assert_eq!(
+        cooperative_level_policy
+            .test_cooperative_level
+            .as_ref()
+            .unwrap()
+            .profile_id,
+        "primary-live-operational-device-query-v1"
+    );
+    let mut missing_cooperative_level = cooperative_level_policy.clone();
+    missing_cooperative_level.test_cooperative_level = None;
+    assert_eq!(
+        missing_cooperative_level.validate().unwrap_err().code,
+        "d3d9-compatibility-policy-header-invalid"
+    );
+    let mut malformed_cooperative_level = cooperative_level_policy.clone();
+    malformed_cooperative_level
+        .test_cooperative_level
+        .as_mut()
+        .unwrap()
+        .profile_id = "unknown".to_owned();
+    assert_eq!(
+        malformed_cooperative_level.validate().unwrap_err().code,
+        "d3d9-test-cooperative-level-profile-invalid"
+    );
     let vertex_buffer = policy.initial_vertex_buffer.as_ref().unwrap();
     assert_eq!(
         vertex_buffer.profile_id,
@@ -633,6 +665,12 @@ fn d3d9_device_texture_and_surface_catalogs_fix_the_complete_x86_vtables() {
             "empty device method at slot {slot}"
         );
     }
+    assert_eq!(interface.methods[3].name, "TestCooperativeLevel");
+    assert_eq!(interface.methods[3].explicit_argument_words, 0);
+    assert_eq!(
+        interface.methods[3].implementation,
+        RuntimeComMethodImplementation::Frontend
+    );
     assert_eq!(interface.methods[6].name, "GetDirect3D");
     assert_eq!(interface.methods[6].explicit_argument_words, 1);
     assert_eq!(interface.methods[17].name, "Present");

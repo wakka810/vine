@@ -321,8 +321,8 @@ values remain in the current manifest.
 
 The current zero-input startup continuation profile
 `user32-async-key-state-initial-scan-continuation` advances browser runtime
-transport to `vine.browser-runtime-worker.v47`, the main／Worker message
-protocol to version 49, and browser BGI report schema to version 17. The main
+transport to `vine.browser-runtime-worker.v51`, the main／Worker message
+protocol to version 51, and browser BGI report schema to version 19. The main
 adapter transfers the same `OffscreenCanvas` but queues no keyboard input. Rust
 extends one growable private heap with a second bounded 16 MiB ordinary backing
 and remains the sole authority for both segments. Execution reaches two
@@ -340,11 +340,14 @@ complete the instruction 147,769,351 `IDirect3DTexture9::LockRect` call with
 level 0, a writable `D3DLOCKED_RECT`, the full rectangle, and flags `0x8000`.
 Rust lazily publishes the 8 MiB GuestMemory backing with pitch 8,192; the later
 `UnlockRect`, bounded partial `UpdateTexture`, second scene／draw／Present cycle,
-and browser byte materialization also complete. Ordered call semantics, all 63
-immutable source reads, terminal memory content, cursor／rectangle writes, scan
-order, render completion counts, and the next COM stop identity are equivalent.
-Both engines stop at instruction 148,744,443 on
-`IDirect3DDevice9::TestCooperativeLevel`. Generations, report hashes, timing,
+and browser byte materialization also complete. Both engines then complete the
+mutation-free live-device `IDirect3DDevice9::TestCooperativeLevel` query at
+sequence 148,293／instruction 148,744,443 with `D3D_OK`, unchanged reference
+count 5, preserved LastError, and zero guest writes. Ordered call semantics,
+all 63 immutable source reads, terminal memory content, cursor／rectangle
+writes, scan order, render completion counts, and the query result are
+equivalent. After one timer arm／wait pair, both stop at instruction
+148,744,543 on `USER32.dll!PeekMessageA`. Generations, report hashes, timing,
 and exact artifact identities remain manifest-owned evidence rather than guest
 semantics.
 

@@ -78,6 +78,7 @@ const supportedObservations = new Set([
   "unhandled-exception-filter",
   "com-initialization",
   "d3d9-create-device",
+  "d3d9-test-cooperative-level",
   "d3d9-get-surface-level",
   "d3d9-surface-get-dc",
   "d3d9-initial-textures",
@@ -2588,7 +2589,8 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         snapshot.result !== observation.result ||
         snapshot.resultU32 !== observation.resultU32 ||
         snapshot.stage !== observation.stage ||
-        snapshot.texture?.toLowerCase() !== observation.texture?.toLowerCase() ||
+        snapshot.texture?.toLowerCase() !==
+          observation.texture?.toLowerCase() ||
         snapshot.lastErrorBefore !== observation.lastErrorBefore ||
         snapshot.lastError !== observation.lastErrorAfter ||
         JSON.stringify(snapshot.immediateConsumer) !==
@@ -2767,8 +2769,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
   const requiresSetStreamSourceCompletion =
     selectedObservations.length === 1 &&
     selectedObservations[0] === "d3d9-set-stream-source" &&
-    traceStart.arguments?.stopOnEvent ===
-      "d3d9-set-stream-source-complete";
+    traceStart.arguments?.stopOnEvent === "d3d9-set-stream-source-complete";
   if (
     setStreamSourceCompletionEvents.length > 1 ||
     (requiresSetStreamSourceCompletion &&
@@ -3052,7 +3053,8 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       snapshot.interface !== "IDirect3DDevice9" ||
       snapshot.vtableSlot !== 42 ||
       snapshot.object?.toLowerCase() !== completion.device.toLowerCase() ||
-      JSON.stringify(snapshot.arguments) !== JSON.stringify(pair.enter.arguments) ||
+      JSON.stringify(snapshot.arguments) !==
+        JSON.stringify(pair.enter.arguments) ||
       snapshot.result !== observation.result ||
       snapshot.resultU32 !== observation.resultU32 ||
       snapshot.lastErrorBefore !== observation.lastErrorBefore ||
@@ -3125,6 +3127,196 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     };
   });
 
+  const testCooperativeLevelOracleEvents = events.filter(
+    (event) => event.kind === "d3d9-test-cooperative-level-oracle",
+  );
+  const testCooperativeLevelCompletionEvents = events.filter(
+    (event) => event.kind === "d3d9-test-cooperative-level-complete",
+  );
+  const requiresTestCooperativeLevelCompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "d3d9-test-cooperative-level" &&
+    traceStart.arguments?.stopOnEvent ===
+      "d3d9-test-cooperative-level-complete";
+  if (
+    testCooperativeLevelOracleEvents.length > 1 ||
+    testCooperativeLevelCompletionEvents.length > 1 ||
+    (requiresTestCooperativeLevelCompletion &&
+      (testCooperativeLevelOracleEvents.length !== 1 ||
+        testCooperativeLevelCompletionEvents.length !== 1))
+  ) {
+    throw new Error(
+      "d3d9-test-cooperative-level observation requires exactly one oracle and structured completion",
+    );
+  }
+  const testCooperativeLevelObservations =
+    testCooperativeLevelCompletionEvents.map((completion) => {
+      const oracle = testCooperativeLevelOracleEvents[0];
+      const snapshot = completion.mainModuleCall;
+      const pair = pairsByCallId.get(snapshot?.callId);
+      const observation = pair?.leave.d3d9TestCooperativeLevel;
+      const instructions = snapshot?.immediateConsumer?.entry?.instructions;
+      const executableModule = path.win32
+        .basename(traceStart.executable)
+        .toLowerCase();
+      if (
+        oracle === undefined ||
+        oracle.profile !== "x86-live-device-operational-query-v1" ||
+        completion.profile !== "x86-bgi-operational-device-query-v1" ||
+        completion.oracle?.profile !== oracle.profile ||
+        typeof completion.device !== "string" ||
+        !/^0x[0-9a-f]+$/iu.test(completion.device) ||
+        BigInt(completion.device) === 0n ||
+        !Array.isArray(oracle.calls) ||
+        oracle.calls.length !== 2 ||
+        oracle.allResultsSOk !== true ||
+        oracle.allResultsMatchHooks !== true ||
+        oracle.allLastErrorsMatchHooks !== true ||
+        oracle.allPreserveLastError !== true ||
+        pair === undefined ||
+        observation === undefined ||
+        snapshot.api !== "TestCooperativeLevel" ||
+        snapshot.interface !== "IDirect3DDevice9" ||
+        snapshot.vtableSlot !== 3 ||
+        snapshot.object?.toLowerCase() !== completion.device.toLowerCase() ||
+        JSON.stringify(snapshot.arguments) !==
+          JSON.stringify(pair.enter.arguments) ||
+        snapshot.result !== observation.result ||
+        snapshot.resultU32 !== observation.resultU32 ||
+        snapshot.lastErrorBefore !== observation.lastErrorBefore ||
+        snapshot.lastError !== observation.lastErrorAfter ||
+        JSON.stringify(snapshot.immediateConsumer) !==
+          JSON.stringify(observation.immediateConsumer) ||
+        snapshot.caller?.module !== pair.enter.caller?.module ||
+        snapshot.caller?.rva !== pair.enter.caller?.rva ||
+        pair.enter.parentCallId !== null ||
+        pair.enter.api !== "TestCooperativeLevel" ||
+        pair.enter.interface !== "IDirect3DDevice9" ||
+        pair.enter.vtableSlot !== 3 ||
+        pair.enter.object?.toLowerCase() !== completion.device.toLowerCase() ||
+        pair.enter.caller?.module?.toLowerCase() !== executableModule ||
+        pair.enter.caller?.rva !== 0x5adcd ||
+        !Array.isArray(pair.enter.arguments) ||
+        pair.enter.arguments.length !== 0 ||
+        BigInt(pair.leave.result) !== 0n ||
+        observation.result !== 0 ||
+        observation.resultU32 !== 0 ||
+        observation.lastErrorBefore !== observation.lastErrorAfter ||
+        pair.leave.lastError !== observation.lastErrorAfter ||
+        !Array.isArray(instructions) ||
+        instructions[0]?.mnemonic !== "cmp" ||
+        instructions[0]?.opStr?.toLowerCase() !== "eax, 0x88760868" ||
+        instructions[1]?.mnemonic !== "je" ||
+        instructions[2]?.mnemonic !== "cmp" ||
+        instructions[2]?.opStr?.toLowerCase() !== "eax, 0x88760869" ||
+        instructions[3]?.mnemonic !== "je" ||
+        instructions[4]?.mnemonic !== "neg" ||
+        instructions[4]?.opStr?.toLowerCase() !== "eax" ||
+        instructions[5]?.mnemonic !== "sbb" ||
+        instructions[5]?.opStr?.toLowerCase() !== "eax, eax" ||
+        instructions[6]?.mnemonic !== "ret"
+      ) {
+        throw new Error(
+          "d3d9-test-cooperative-level completion violates its operational result, LastError, or HRESULT consumer contract",
+        );
+      }
+      const expectedOracleCalls = [
+        ["first-operational-query", 0x11223344],
+        ["repeated-operational-query", 0x55667788],
+      ];
+      const oracleCalls = oracle.calls.map((call, index) => {
+        const [phase, sentinel] = expectedOracleCalls[index];
+        const hook = call.hook;
+        const oraclePair = pairsByCallId.get(hook?.callId);
+        const oracleObservation = oraclePair?.leave.d3d9TestCooperativeLevel;
+        if (
+          call.phase !== phase ||
+          call.sentinel !== sentinel ||
+          call.systemResult !== 0 ||
+          call.systemResultU32 !== 0 ||
+          call.systemLastError !== sentinel ||
+          call.hookResultMatches !== true ||
+          call.hookAndSystemLastErrorMatch !== true ||
+          call.lastErrorPreserved !== true ||
+          oraclePair === undefined ||
+          oracleObservation === undefined ||
+          hook.api !== "TestCooperativeLevel" ||
+          hook.interface !== "IDirect3DDevice9" ||
+          hook.vtableSlot !== 3 ||
+          hook.object?.toLowerCase() !== completion.device.toLowerCase() ||
+          !Array.isArray(hook.arguments) ||
+          hook.arguments.length !== 0 ||
+          hook.result !== 0 ||
+          hook.resultU32 !== 0 ||
+          hook.lastErrorBefore !== sentinel ||
+          hook.lastError !== sentinel ||
+          oraclePair.enter.parentCallId !== null ||
+          oraclePair.enter.api !== "TestCooperativeLevel" ||
+          oraclePair.enter.interface !== "IDirect3DDevice9" ||
+          oraclePair.enter.vtableSlot !== 3 ||
+          oraclePair.enter.object?.toLowerCase() !==
+            completion.device.toLowerCase() ||
+          oraclePair.enter.caller?.module?.toLowerCase() !==
+            "frida-agent.dll" ||
+          oraclePair.enter.threadId !== oracle.threadId ||
+          oraclePair.leave.threadId !== oracle.threadId ||
+          !Array.isArray(oraclePair.enter.arguments) ||
+          oraclePair.enter.arguments.length !== 0 ||
+          BigInt(oraclePair.leave.result) !== 0n ||
+          oracleObservation.lastErrorBefore !== sentinel ||
+          oracleObservation.lastErrorAfter !== sentinel ||
+          oraclePair.leave.lastError !== sentinel
+        ) {
+          throw new Error(
+            `d3d9-test-cooperative-level oracle call ${index} violates its repeated operational query contract`,
+          );
+        }
+        return {
+          sequence: oraclePair.enter.sequence,
+          phase,
+          sentinel,
+          result: oraclePair.leave.result,
+          lastError: oraclePair.leave.lastError,
+        };
+      });
+      if (
+        pair.leave.sequence !== pair.enter.sequence + 1 ||
+        oracleCalls[0].sequence !== pair.leave.sequence + 1 ||
+        oracleCalls[1].sequence !== oracleCalls[0].sequence + 2 ||
+        oracle.sequence !== oracleCalls[1].sequence + 2 ||
+        completion.sequence !== oracle.sequence + 1 ||
+        completion.threadId !== oracle.threadId
+      ) {
+        throw new Error(
+          "d3d9-test-cooperative-level completion violates its thread or ordering contract",
+        );
+      }
+      return {
+        sequence: completion.sequence,
+        profile: completion.profile,
+        mainThreadId: pair.enter.threadId,
+        oracleThreadId: oracle.threadId,
+        device: completion.device,
+        call: {
+          sequence: pair.enter.sequence,
+          caller: {
+            module: pair.enter.caller.module,
+            rva: pair.enter.caller.rva,
+          },
+          result: pair.leave.result,
+          lastErrorBefore: observation.lastErrorBefore,
+          lastError: pair.leave.lastError,
+          hresultConsumed: true,
+          immediateConsumer: observation.immediateConsumer,
+        },
+        oracle: {
+          sequence: oracle.sequence,
+          profile: oracle.profile,
+          calls: oracleCalls,
+        },
+      };
+    });
+
   const presentCompletionEvents = events.filter(
     (event) => event.kind === "d3d9-present-complete",
   );
@@ -3160,7 +3352,8 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       snapshot.interface !== "IDirect3DDevice9" ||
       snapshot.vtableSlot !== 17 ||
       snapshot.object?.toLowerCase() !== completion.device.toLowerCase() ||
-      JSON.stringify(snapshot.arguments) !== JSON.stringify(pair.enter.arguments) ||
+      JSON.stringify(snapshot.arguments) !==
+        JSON.stringify(pair.enter.arguments) ||
       snapshot.result !== observation.result ||
       snapshot.resultU32 !== observation.resultU32 ||
       snapshot.sourceRectPointer !== observation.sourceRectPointer ||
@@ -3268,8 +3461,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
         { callerRva: 0x5b1a0, sampler: 0n, state: 5n, value: 2n },
       ];
       if (
-        completion.profile !==
-          "x86-bgi-first-frame-linear-sampler-states-v1" ||
+        completion.profile !== "x86-bgi-first-frame-linear-sampler-states-v1" ||
         typeof completion.device !== "string" ||
         !/^0x[0-9a-f]+$/iu.test(completion.device) ||
         BigInt(completion.device) === 0n ||
@@ -3372,8 +3564,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
   );
 
   const initialTextureStageStateCompletionEvents = events.filter(
-    (event) =>
-      event.kind === "d3d9-initial-texture-stage-states-complete",
+    (event) => event.kind === "d3d9-initial-texture-stage-states-complete",
   );
   const requiresInitialTextureStageStateCompletion =
     selectedObservations.length === 1 &&
@@ -4821,15 +5012,13 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
   }
 
   const getAsyncKeyStateScanVirtualKeys = [
-    14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99,
-    52, 100, 53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17,
-    1, 2, 4, 5, 6,
+    14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99, 52, 100,
+    53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17, 1, 2, 4, 5, 6,
   ];
   const getAsyncKeyState = getAsyncKeyStateCompletionEvents.map(
     (completion) => {
       if (
-        completion.profile !==
-          "x86-bgi-get-async-key-state-initial-scan-v1" ||
+        completion.profile !== "x86-bgi-get-async-key-state-initial-scan-v1" ||
         !Number.isInteger(completion.leadingCallCount) ||
         completion.leadingCallCount < 1 ||
         completion.leadingCallCount > 128 ||
@@ -5448,6 +5637,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       setStreamSourceObservations,
       drawPrimitiveObservations,
       endSceneObservations,
+      testCooperativeLevelObservations,
       presentObservations,
       initialSamplerStateSequences,
       initialTextureStageStateSequences,

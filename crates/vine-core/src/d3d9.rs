@@ -38,7 +38,7 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 31;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 32;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -431,10 +431,18 @@ pub struct D3d9PresentPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct D3d9TestCooperativeLevelPolicy {
+    pub profile_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct D3d9CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub test_cooperative_level: Option<D3d9TestCooperativeLevelPolicy>,
     pub get_adapter_count: Option<D3d9AdapterCountPolicy>,
     pub get_adapter_monitor: Option<D3d9AdapterMonitorPolicy>,
     pub get_adapter_display_mode: Option<D3d9AdapterDisplayModePolicy>,
@@ -468,8 +476,9 @@ impl D3d9CompatibilityPolicy {
     pub fn controlled_v31() -> Self {
         Self {
             schema: D3D9_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
-            schema_version: D3D9_COMPATIBILITY_POLICY_VERSION,
+            schema_version: 31,
             id: "d3d9-primary-virtual-adapter-v31".to_owned(),
+            test_cooperative_level: None,
             get_adapter_count: Some(D3d9AdapterCountPolicy {
                 profile_id: "single-logical-adapter-v1".to_owned(),
                 display_profile_id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -673,6 +682,16 @@ impl D3d9CompatibilityPolicy {
         }
     }
 
+    pub fn controlled_v32() -> Self {
+        let mut policy = Self::controlled_v31();
+        policy.schema_version = D3D9_COMPATIBILITY_POLICY_VERSION;
+        policy.id = "d3d9-primary-virtual-adapter-v32".to_owned();
+        policy.test_cooperative_level = Some(D3d9TestCooperativeLevelPolicy {
+            profile_id: "primary-live-operational-device-query-v1".to_owned(),
+        });
+        policy
+    }
+
     pub fn restrict_to_system_memory_v1(&mut self) {
         if let Some(texture) = self.create_texture.as_mut() {
             texture.restrict_to_system_memory_v1();
@@ -690,6 +709,7 @@ impl D3d9CompatibilityPolicy {
         self.draw_primitive = None;
         self.end_scene = None;
         self.present = None;
+        self.test_cooperative_level = None;
     }
 
     pub fn restrict_to_initial_textures_v1(&mut self) {
@@ -709,17 +729,32 @@ impl D3d9CompatibilityPolicy {
         self.draw_primitive = None;
         self.end_scene = None;
         self.present = None;
+        self.test_cooperative_level = None;
     }
 
     pub fn validate(&self) -> Result<(), ApiFault> {
-        if self.schema != D3D9_COMPATIBILITY_POLICY_SCHEMA
-            || self.schema_version != D3D9_COMPATIBILITY_POLICY_VERSION
-            || !valid_policy_id(&self.id)
-        {
+        let supported_header = match (self.schema_version, self.id.as_str()) {
+            (31, "d3d9-primary-virtual-adapter-v31") => self.test_cooperative_level.is_none(),
+            (D3D9_COMPATIBILITY_POLICY_VERSION, "d3d9-primary-virtual-adapter-v32") => {
+                self.test_cooperative_level.is_some()
+            }
+            _ => false,
+        };
+        if self.schema != D3D9_COMPATIBILITY_POLICY_SCHEMA || !supported_header {
             return Err(ApiFault::runtime_defect(
                 "d3d9-compatibility-policy",
                 "d3d9-compatibility-policy-header-invalid",
                 "D3D9 compatibility policy has an unsupported schema, version, or ID",
+            ));
+        }
+        if let Some(test) = self.test_cooperative_level.as_ref()
+            && (test.profile_id != "primary-live-operational-device-query-v1"
+                || self.create_device.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "d3d9-compatibility-policy",
+                "d3d9-test-cooperative-level-profile-invalid",
+                "D3D9 cooperative-level profile must describe a live operational logical device",
             ));
         }
         if let Some(count) = self.get_adapter_count.as_ref()
@@ -1840,6 +1875,7 @@ fn dispatch_d3d9_device_frontend_call(
     call: ComFrontendCall<'_>,
 ) -> ComDispatchOutcome {
     let expected = match call.frame().vtable_slot {
+        3 => ("TestCooperativeLevel", 0),
         17 => ("Present", 4),
         19 => ("GetRasterStatus", 2),
         23 => ("CreateTexture", 8),
@@ -1877,6 +1913,7 @@ fn dispatch_d3d9_device_frontend_call(
         );
     }
     match call.frame().vtable_slot {
+        3 => dispatch_test_cooperative_level(policy, call),
         17 => dispatch_present(policy, call),
         19 => dispatch_get_raster_status(policy, call),
         23 => dispatch_create_texture(policy, call),
@@ -1894,6 +1931,31 @@ fn dispatch_d3d9_device_frontend_call(
         100 => dispatch_set_stream_source(policy, call),
         _ => unreachable!(),
     }
+}
+
+fn dispatch_test_cooperative_level(
+    policy: &D3d9CompatibilityPolicy,
+    call: ComFrontendCall<'_>,
+) -> ComDispatchOutcome {
+    let Some(test_policy) = policy.test_cooperative_level.as_ref() else {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "d3d9-test-cooperative-level",
+            "test-cooperative-level-policy-disabled",
+            "D3D9 compatibility policy does not enable TestCooperativeLevel",
+        );
+    };
+    debug_assert_eq!(
+        test_policy.profile_id,
+        "primary-live-operational-device-query-v1"
+    );
+    if let Err(error) = call
+        .runtime()
+        .graphics_device_by_com_object(call.frame().object_id)
+    {
+        return call.runtime_fault(error);
+    }
+    call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
 }
 
 fn dispatch_present(
@@ -4361,7 +4423,7 @@ pub fn direct3ddevice9_object_spec() -> ComObjectSpec {
             0 => ComMethodSpec::query_interface(),
             1 => ComMethodSpec::add_ref(),
             2 => ComMethodSpec::release(),
-            17 | 19 | 23 | 26 | 31 | 41 | 42 | 43 | 57 | 65 | 67 | 69 | 81 | 89 | 100 => {
+            3 | 17 | 19 | 23 | 26 | 31 | 41 | 42 | 43 | 57 | 65 | 67 | 69 | 81 | 89 | 100 => {
                 ComMethodSpec::frontend_hresult(*name, *argument_words)
             }
             4 | 12 | 15 | 78 => ComMethodSpec::unsupported_u32(*name, *argument_words),

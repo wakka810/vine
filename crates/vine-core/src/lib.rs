@@ -95,10 +95,10 @@ pub use d3d9::{
     D3d9InitialTextureStageStatePolicy, D3d9InitialVertexBufferPolicy, D3d9PresentParameters,
     D3d9PresentPolicy, D3d9RasterStatus, D3d9RasterStatusPolicy, D3d9RenderStateSetting,
     D3d9SamplerStateSetting, D3d9StreamSourcePolicy, D3d9SurfaceDcPolicy,
-    D3d9TextureStageStateSetting, D3d9UpdateTexturePolicy, d3d9_contract_for_endpoint,
-    direct3d_create9_contract, direct3d9_object_spec, direct3ddevice9_object_spec,
-    direct3dsurface9_object_spec, direct3dtexture9_object_spec, direct3dvertexbuffer9_object_spec,
-    dispatch_d3d9_api, dispatch_d3d9_com_call,
+    D3d9TestCooperativeLevelPolicy, D3d9TextureStageStateSetting, D3d9UpdateTexturePolicy,
+    d3d9_contract_for_endpoint, direct3d_create9_contract, direct3d9_object_spec,
+    direct3ddevice9_object_spec, direct3dsurface9_object_spec, direct3dtexture9_object_spec,
+    direct3dvertexbuffer9_object_spec, dispatch_d3d9_api, dispatch_d3d9_com_call,
 };
 pub use dinput8::{
     DINPUT8_CLASS_E_NOAGGREGATION, DINPUT8_DI8DEVCLASS_ALL, DINPUT8_DI8DEVCLASS_DEVICE,

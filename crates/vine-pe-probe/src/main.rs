@@ -4011,7 +4011,11 @@ fn run_v86_generic_runtime_session(
     gdiplus_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let mut d3d9_policy = D3d9CompatibilityPolicy::controlled_v31();
+    let mut d3d9_policy = if get_window_rect_enabled {
+        D3d9CompatibilityPolicy::controlled_v32()
+    } else {
+        D3d9CompatibilityPolicy::controlled_v31()
+    };
     if !d3d9_clear_enabled {
         d3d9_policy.clear = None;
     }
@@ -6439,6 +6443,7 @@ fn run_v86_generic_runtime_session(
                         call_site: GuestAddress(trap.return_address),
                     };
                     let d3d9_frontend_enabled = match target.method.slot {
+                        3 => d3d9_policy.test_cooperative_level.is_some(),
                         4 => d3d9_policy.get_adapter_count.is_some(),
                         5 => d3d9_policy.get_adapter_identifier.is_some(),
                         8 => d3d9_policy.get_adapter_display_mode.is_some(),

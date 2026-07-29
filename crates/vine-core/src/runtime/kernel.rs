@@ -9724,6 +9724,71 @@ mod tests {
         write_d3d9_fixture_words(
             &mut memory,
             D3D9_FIXTURE_STACK,
+            &[0x1005_adcd, device_interface.guest_pointer.0],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let before_memory = memory.stats();
+        let before_runtime = runtime.clone();
+        let cooperative_level = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_d3d9_com_call(
+                &D3d9CompatibilityPolicy::controlled_v32(),
+                ComCallTrap {
+                    endpoint_address: device_interface.methods[&3].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: GuestAddress(0x1005_adcd),
+                    call_site: GuestAddress(0x1005_adcd),
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Completed(completion) => completion,
+                other => panic!("TestCooperativeLevel did not complete: {other:?}"),
+            }
+        };
+        assert_eq!(
+            cooperative_level.return_value,
+            ComReturnValue::HResult(COM_S_OK)
+        );
+        assert_eq!(
+            cooperative_level.stack_pointer,
+            GuestAddress(D3D9_FIXTURE_STACK.0 + 8)
+        );
+        assert_eq!(cooperative_level.reference_count, 1);
+        assert!(!cooperative_level.object_retired);
+        assert!(cooperative_level.guest_writes.is_empty());
+        assert_eq!(runtime.current_last_error().unwrap(), 0x1234_5678);
+        assert_eq!(memory.stats(), before_memory);
+        assert_eq!(runtime, before_runtime);
+
+        let disabled_policy = D3d9CompatibilityPolicy::controlled_v31();
+        let disabled_cooperative_level = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            match dispatch_d3d9_com_call(
+                &disabled_policy,
+                ComCallTrap {
+                    endpoint_address: device_interface.methods[&3].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: GuestAddress(0x1005_adcd),
+                    call_site: GuestAddress(0x1005_adcd),
+                },
+                &mut session,
+            ) {
+                ComDispatchOutcome::Fault(fault) => fault,
+                other => panic!("disabled TestCooperativeLevel did not fault: {other:?}"),
+            }
+        };
+        assert_eq!(disabled_cooperative_level.class, ComFaultClass::Unsupported);
+        assert_eq!(
+            disabled_cooperative_level.code,
+            "test-cooperative-level-policy-disabled"
+        );
+        assert_eq!(runtime.current_last_error().unwrap(), 0x1234_5678);
+        assert_eq!(memory.stats(), before_memory);
+        assert_eq!(runtime, before_runtime);
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
             &[
                 0x1005_ad13,
                 device_interface.guest_pointer.0,

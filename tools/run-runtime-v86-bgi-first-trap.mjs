@@ -742,16 +742,17 @@ const user32AsyncKeyStateInitialScanContinuationCheckpointEnabled =
 const user32AsyncKeyStateInitialScanEnabled =
   user32AsyncKeyStateInitialScanCheckpointEnabled ||
   user32AsyncKeyStateInitialScanContinuationCheckpointEnabled;
+const d3d9CompatibilityPolicyId = user32AsyncKeyStateInitialScanEnabled
+  ? "d3d9-primary-virtual-adapter-v32"
+  : "d3d9-primary-virtual-adapter-v31";
 const user32AsyncKeyStateInputEnabled =
   user32AsyncKeyStateInputCheckpointEnabled ||
   user32AsyncKeyStateInputContinuationCheckpointEnabled;
 const user32AsyncKeyStateGatewayEnabled =
-  user32AsyncKeyStateInputEnabled ||
-  user32AsyncKeyStateInitialScanEnabled;
+  user32AsyncKeyStateInputEnabled || user32AsyncKeyStateInitialScanEnabled;
 const user32AsyncKeyStateInitialScanVirtualKeys = [
-  14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99,
-  52, 100, 53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17, 1,
-  2, 4, 5, 6,
+  14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99, 52, 100,
+  53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17, 1, 2, 4, 5, 6,
 ];
 const d3d9PostPresentContinuationCheckpointEnabled =
   genericRuntimeCapability === "d3d9-post-present-continuation";
@@ -1179,302 +1180,302 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-  ? user32AsyncKeyStateInitialScanCheckpointEnabled
+    ? user32AsyncKeyStateInitialScanCheckpointEnabled
       ? "v86-bgi-async-key-state-initial-scan"
       : user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
         ? "v86-bgi-async-key-state-initial-scan-continuation"
-      : user32AsyncKeyStateInputContinuationCheckpointEnabled
-      ? "v86-bgi-async-key-state-input-continuation"
-      : user32AsyncKeyStateInputCheckpointEnabled
-        ? "v86-bgi-async-key-state-input"
-        : d3d9PostPresentContinuationEnabled
-          ? "v86-bgi-d3d9-post-present-continuation"
-          : d3d9PresentCheckpointEnabled
-            ? "v86-bgi-d3d9-first-present"
-            : d3d9PostScenePresentGatewayCheckpointEnabled
-              ? "v86-bgi-d3d9-post-scene-present-gateway"
-              : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
-                ? "v86-bgi-d3d9-post-raster-status-waitable-timer"
-                : d3d9PostEndSceneRasterStatusCheckpointEnabled
-                  ? "v86-bgi-d3d9-post-end-scene-raster-status"
-                  : d3d9EndSceneCheckpointEnabled
-                    ? "v86-bgi-d3d9-end-scene"
-                    : d3d9DrawPrimitiveCheckpointEnabled
-                      ? "v86-bgi-d3d9-draw-primitive"
-                      : d3d9SetStreamSourceCheckpointEnabled
-                        ? "v86-bgi-d3d9-set-stream-source"
-                        : d3d9SetFvfCheckpointEnabled
-                ? "v86-bgi-d3d9-set-fvf"
-                : d3d9SetTextureCheckpointEnabled
-                  ? "v86-bgi-d3d9-set-texture"
-                  : d3d9InitialTextureStageStatesCheckpointEnabled
-                    ? "v86-bgi-d3d9-initial-texture-stage-states"
-                    : d3d9InitialSamplerStatesCheckpointEnabled
-                      ? "v86-bgi-d3d9-initial-sampler-states"
-                      : d3d9BeginSceneCheckpointEnabled
-                        ? "v86-bgi-d3d9-begin-scene"
-                        : d3d9UpdateTextureCheckpointEnabled
-                          ? "v86-bgi-d3d9-update-texture"
-                          : d3d9AddDirtyRectCheckpointEnabled
-                            ? "v86-bgi-d3d9-add-dirty-rect"
-                            : setRectCheckpointEnabled
-                              ? "v86-bgi-set-rect"
-                              : d3d9ClearCheckpointEnabled
-                                ? "v86-bgi-d3d9-clear"
-                                : updateWindowCheckpointEnabled
-                                  ? "v86-bgi-update-window"
-                                  : showWindowNormalCheckpointEnabled
-                                    ? "v86-bgi-show-window-normal"
-                                    : setWindowPosFrameChangeMoveCheckpointEnabled
-                                      ? "v86-bgi-set-window-pos-frame-change-move"
-                                      : d3d9RecreatedTexturesCheckpointEnabled
-                                        ? "v86-bgi-d3d9-recreated-textures"
-                                        : setWindowPosRepeatActivationCheckpointEnabled
-                                          ? "v86-bgi-set-window-pos-repeat-activation"
-                                          : createDirectoryACheckpointEnabled
-                                            ? "v86-bgi-create-directory-a"
-                                            : getFileAttributesACheckpointEnabled
-                                              ? "v86-bgi-get-file-attributes-a"
-                                              : globalMemoryStatusCheckpointEnabled
-                                                ? "v86-bgi-global-memory-status"
-                                                : sleepZeroCheckpointEnabled
-                                                  ? "v86-bgi-sleep-zero"
-                                                  : archiveSourceReadEnabled
-                                                    ? "v86-bgi-archive-source-read"
-                                                    : leaveCriticalSectionContinuationEnabled
-                                                      ? "v86-bgi-leave-critical-section-continuation"
-                                                      : dragAcceptFilesEnabled
-                                                        ? "v86-bgi-drag-accept-files"
-                                                        : primaryMainLoopContinuationEnabled
-                                                          ? "v86-bgi-primary-main-loop-continuation"
-                                                          : enterCriticalSectionContinuationEnabled
-                                                            ? "v86-bgi-enter-critical-section-continuation"
-                                                            : leaveCriticalSectionCheckpointEnabled
-                                                              ? "v86-bgi-leave-critical-section"
-                                                              : mainLoopProgressionEnabled
-                                                                ? "v86-bgi-primary-main-loop-progression"
-                                                                : enterCriticalSectionEnabled
-                                                                  ? "v86-bgi-enter-critical-section"
-                                                                  : waitForSingleObjectExEnabled
-                                                                    ? "v86-bgi-wait-for-single-object-ex"
-                                                                    : setWaitableTimerEnabled
-                                                                      ? "v86-bgi-set-waitable-timer"
-                                                                      : imm32ContextEnabled
-                                                                        ? "v86-bgi-default-ime-context"
-                                                                        : virtualAllocEnabled
-                                                                          ? "v86-bgi-virtual-alloc"
-                                                                          : gdiplusStartupEnabled
-                                                                            ? "v86-bgi-startup"
-                                                                            : textRasterEnabled
-                                                                              ? "v86-bgi-text-raster"
-                                                                              : outlineTextMetricsEnabled
-                                                                                ? "v86-bgi-outline-text-metrics"
-                                                                                : dibLifecycleEnabled
-                                                                                  ? "v86-bgi-dib-lifecycle"
-                                                                                  : compatibleDcEnabled
-                                                                                    ? "v86-bgi-compatible-dc"
-                                                                                    : fontCreationEnabled
-                                                                                      ? "v86-bgi-font-creation"
-                                                                                      : fontEnumerationEnabled
-                                                                                        ? "v86-bgi-font-enumeration"
-                                                                                        : screenDcEnabled
-                                                                                          ? "v86-bgi-screen-dc"
-                                                                                          : setThreadPriorityEnabled
-                                                                                            ? "v86-bgi-set-thread-priority"
-                                                                                            : createThreadEnabled
-                                                                                              ? "v86-bgi-create-thread"
-                                                                                              : setTimerEnabled
-                                                                                                ? "v86-bgi-set-timer"
-                                                                                                : dsoundBufferTransferEnabled
-                                                                                                  ? "v86-bgi-dsound-buffer-lock-unlock-play"
-                                                                                                  : dsoundInitialBuffersEnabled
-                                                                                                    ? "v86-bgi-dsound-initial-buffers"
-                                                                                                    : dsoundRootEnabled
-                                                                                                      ? "v86-bgi-dsound-root-and-cooperative-level"
-                                                                                                      : dinput8EnumDevicesEnabled
-                                                                                                        ? "v86-bgi-dinput8-enum-devices"
-                                                                                                        : dinput8FactoryEnabled
-                                                                                                          ? "v86-bgi-dinput8-api-contract"
-                                                                                                          : getMonitorInfoAEnabled
-                                                                                                            ? "v86-bgi-get-monitor-info-a"
-                                                                                                            : queryPerformanceFrequencyEnabled
-                                                                                                              ? "v86-bgi-query-performance-frequency"
-                                                                                                              : d3d9RasterStatusEnabled
-                                                                                                                ? "v86-bgi-d3d9-raster-status"
-                                                                                                                : d3d9InitialRenderStatesEnabled
-                                                                                                                  ? "v86-bgi-d3d9-initial-render-states"
-                                                                                                                  : d3d9InitialVertexBufferEnabled
-                                                                                                                    ? "v86-bgi-d3d9-initial-vertex-buffer"
-                                                                                                                    : d3d9InitialTexturesEnabled
-                                                                                                                      ? "v86-bgi-d3d9-initial-textures"
-                                                                                                                      : timeGetTimeEnabled
-                                                                                                                        ? "v86-bgi-time-get-time"
-                                                                                                                        : d3d9SurfaceGetDcEnabled
-                                                                                                                          ? "v86-bgi-d3d9-surface-get-dc"
-                                                                                                                          : d3d9GetSurfaceLevelEnabled
-                                                                                                                            ? "v86-bgi-d3d9-get-surface-level"
-                                                                                                                            : d3d9CreateTextureEnabled
-                                                                                                                              ? "v86-bgi-d3d9-create-texture"
-                                                                                                                              : d3d9CreateDeviceEnabled
-                                                                                                                                ? "v86-bgi-d3d9-create-device"
-                                                                                                                                : d3d9GetAdapterMonitorEnabled
-                                                                                                                                  ? "v86-bgi-d3d9-get-adapter-monitor"
-                                                                                                                                  : d3d9GetAdapterCountEnabled
-                                                                                                                                    ? "v86-bgi-d3d9-get-adapter-count"
-                                                                                                                                    : monitorFromWindowEnabled
-                                                                                                                                      ? "v86-bgi-monitor-from-window"
-                                                                                                                                      : setWindowPosActivationEnabled
-                                                                                                                                        ? "v86-bgi-set-window-pos-activation"
-                                                                                                                                        : setWindowLongAEnabled
-                                                                                                                                          ? "v86-bgi-set-window-long-a"
-                                                                                                                                          : windowDcFillEnabled
-                                                                                                                                            ? "v86-bgi-window-dc-fill"
-                                                                                                                                            : getClientRectEnabled
-                                                                                                                                              ? "v86-bgi-get-client-rect"
-                                                                                                                                              : loadLibraryAEnabled
-                                                                                                                                                ? "v86-bgi-load-library-a"
-                                                                                                                                                : d3d9CheckDeviceFormatEnabled
-                                                                                                                                                  ? "v86-bgi-d3d9-check-device-format"
-                                                                                                                                                  : d3d9CheckDeviceTypeEnabled
-                                                                                                                                                    ? "v86-bgi-d3d9-check-device-type"
-                                                                                                                                                    : d3d9GetDeviceCapsEnabled
-                                                                                                                                                      ? "v86-bgi-d3d9-get-device-caps"
-                                                                                                                                                      : d3d9GetAdapterIdentifierEnabled
-                                                                                                                                                        ? "v86-bgi-d3d9-get-adapter-identifier"
-                                                                                                                                                        : d3d9GetAdapterDisplayModeEnabled
-                                                                                                                                                          ? "v86-bgi-d3d9-get-adapter-display-mode"
-                                                                                                                                                          : d3d9RootFactoryEnabled
-                                                                                                                                                            ? "v86-bgi-d3d9-root-factory-and-identity"
-                                                                                                                                                            : setWindowPosInitialPlacementEnabled
-                                                                                                                                                              ? "v86-bgi-set-window-pos-initial-placement"
-                                                                                                                                                              : sendMessageASmallIconEnabled
-                                                                                                                                                                ? "v86-bgi-send-message-a-small-icon"
-                                                                                                                                                                : loadImageASmallIconEnabled
-                                                                                                                                                                  ? "v86-bgi-load-image-a-small-icon"
-                                                                                                                                                                  : getSystemMetricsSmallIconWidthEnabled
-                                                                                                                                                                    ? "v86-bgi-get-system-metrics-small-icon-width"
-                                                                                                                                                                    : getSystemMetricsSmallIconHeightEnabled
-                                                                                                                                                                      ? "v86-bgi-get-system-metrics-small-icon-height"
-                                                                                                                                                                      : createWindowExAEnabled
-                                                                                                                                                                        ? "v86-bgi-create-window-ex-a"
-                                                                                                                                                                        : sourceFileReadEnabled
-                                                                                                                                                                          ? "v86-bgi-source-file-read"
-                                                                                                                                                                          : largeHeapAllocationEnabled
-                                                                                                                                                                            ? "v86-bgi-large-heap-allocation"
-                                                                                                                                                                            : getSystemMetricsEnabled
-                                                                                                                                                                              ? "v86-bgi-get-system-metrics"
-                                                                                                                                                                              : registerClassExAEnabled
-                                                                                                                                                                                ? "v86-bgi-register-class-ex-a"
-                                                                                                                                                                                : loadCursorAEnabled
-                                                                                                                                                                                  ? "v86-bgi-load-cursor-a"
-                                                                                                                                                                                  : loadIconAEnabled
-                                                                                                                                                                                    ? "v86-bgi-load-icon-a"
-                                                                                                                                                                                    : createWaitableTimerAEnabled
-                                                                                                                                                                                      ? "v86-bgi-create-waitable-timer-a"
-                                                                                                                                                                                      : getVersionExAEnabled
-                                                                                                                                                                                        ? "v86-bgi-get-version-ex-a"
-                                                                                                                                                                                        : timeBeginPeriodEnabled
-                                                                                                                                                                                          ? "v86-bgi-time-begin-period"
-                                                                                                                                                                                          : timeGetDevCapsEnabled
-                                                                                                                                                                                            ? "v86-bgi-time-get-dev-caps"
-                                                                                                                                                                                            : swapMouseButtonEnabled
-                                                                                                                                                                                              ? "v86-bgi-swap-mouse-button"
-                                                                                                                                                                                              : getDriveTypeAEnabled
-                                                                                                                                                                                                ? "v86-bgi-get-drive-type-a"
-                                                                                                                                                                                                : getSystemDefaultLangIdEnabled
-                                                                                                                                                                                                  ? "v86-bgi-get-system-default-lang-id"
-                                                                                                                                                                                                  : coInitializeEnabled
-                                                                                                                                                                                                    ? "v86-bgi-co-initialize"
-                                                                                                                                                                                                    : enumDisplayMonitorsEnabled
-                                                                                                                                                                                                      ? "v86-bgi-enum-display-monitors"
-                                                                                                                                                                                                      : getSystemInfoEnabled
-                                                                                                                                                                                                        ? "v86-bgi-get-system-info"
-                                                                                                                                                                                                        : setThreadAffinityMaskEnabled
-                                                                                                                                                                                                          ? "v86-bgi-set-thread-affinity-mask"
-                                                                                                                                                                                                          : getCurrentThreadEnabled
-                                                                                                                                                                                                            ? "v86-bgi-get-current-thread"
-                                                                                                                                                                                                            : createMutexAEnabled
-                                                                                                                                                                                                              ? "v86-bgi-create-mutex-a"
-                                                                                                                                                                                                              : setCurrentDirectoryAEnabled
-                                                                                                                                                                                                                ? "v86-bgi-set-current-directory-a"
-                                                                                                                                                                                                                : multiByteToWideCharCpAcpEnabled
-                                                                                                                                                                                                                  ? "v86-bgi-multi-byte-to-wide-char-cp-acp"
-                                                                                                                                                                                                                  : initializeCriticalSectionEnabled
-                                                                                                                                                                                                                    ? "v86-bgi-initialize-critical-section"
-                                                                                                                                                                                                                    : heapSizeEnabled
-                                                                                                                                                                                                                      ? "v86-bgi-heap-size"
-                                                                                                                                                                                                                      : setUnhandledExceptionFilterEnabled
-                                                                                                                                                                                                                        ? "v86-bgi-set-unhandled-exception-filter"
-                                                                                                                                                                                                                        : isProcessorFeaturePresentEnabled
-                                                                                                                                                                                                                          ? "v86-bgi-is-processor-feature-present"
-                                                                                                                                                                                                                          : privateHeapSize128Enabled
-                                                                                                                                                                                                                            ? "v86-bgi-private-heap-size-128"
-                                                                                                                                                                                                                            : privateHeapFreeSize1Enabled
-                                                                                                                                                                                                                              ? "v86-bgi-private-heap-free-size-1"
-                                                                                                                                                                                                                              : privateHeapSize4Enabled
-                                                                                                                                                                                                                                ? "v86-bgi-private-heap-size-4"
-                                                                                                                                                                                                                                : privateHeapSize16Enabled
-                                                                                                                                                                                                                                  ? "v86-bgi-private-heap-size-16"
-                                                                                                                                                                                                                                  : getModuleFileNameAEnabled
-                                                                                                                                                                                                                                    ? "v86-bgi-get-module-file-name-a"
-                                                                                                                                                                                                                                    : interlockedDecrementEnabled
-                                                                                                                                                                                                                                      ? "v86-bgi-interlocked-decrement"
-                                                                                                                                                                                                                                      : lcMapStringWEnabled
-                                                                                                                                                                                                                                        ? "v86-bgi-lc-map-string-w"
-                                                                                                                                                                                                                                        : getStringTypeWEnabled
-                                                                                                                                                                                                                                          ? "v86-bgi-get-string-type-w"
-                                                                                                                                                                                                                                          : multiByteToWideCharEnabled
-                                                                                                                                                                                                                                            ? "v86-bgi-multi-byte-to-wide-char"
-                                                                                                                                                                                                                                            : getCpInfoEnabled
-                                                                                                                                                                                                                                              ? "v86-bgi-get-cp-info"
-                                                                                                                                                                                                                                              : privateHeapSize544Enabled
-                                                                                                                                                                                                                                                ? "v86-bgi-private-heap-size-544"
-                                                                                                                                                                                                                                                : getAcpEnabled
-                                                                                                                                                                                                                                                  ? "v86-bgi-get-acp"
-                                                                                                                                                                                                                                                  : setLastErrorEnabled
-                                                                                                                                                                                                                                                    ? "v86-bgi-set-last-error"
-                                                                                                                                                                                                                                                    : flsGetValueEnabled
-                                                                                                                                                                                                                                                      ? "v86-bgi-fls-get-value"
-                                                                                                                                                                                                                                                      : tlsGetValueEnabled
-                                                                                                                                                                                                                                                        ? "v86-bgi-tls-get-value"
-                                                                                                                                                                                                                                                        : getLastErrorEnabled
-                                                                                                                                                                                                                                                          ? "v86-bgi-get-last-error"
-                                                                                                                                                                                                                                                          : privateHeapSize1Enabled
-                                                                                                                                                                                                                                                            ? "v86-bgi-private-heap-size-1"
-                                                                                                                                                                                                                                                            : wideCharToMultiByteEnabled
-                                                                                                                                                                                                                                                              ? "v86-bgi-wide-char-to-multi-byte"
-                                                                                                                                                                                                                                                              : environmentStringsWEnabled
-                                                                                                                                                                                                                                                                ? "v86-bgi-environment-strings-w"
-                                                                                                                                                                                                                                                                : commandLineAEnabled
-                                                                                                                                                                                                                                                                  ? "v86-bgi-command-line-a"
-                                                                                                                                                                                                                                                                  : setHandleCountEnabled
-                                                                                                                                                                                                                                                                    ? "v86-bgi-set-handle-count"
-                                                                                                                                                                                                                                                                    : standardErrorFileTypeEnabled
-                                                                                                                                                                                                                                                                      ? "v86-bgi-standard-error-file-type"
-                                                                                                                                                                                                                                                                      : standardErrorHandleEnabled
-                                                                                                                                                                                                                                                                        ? "v86-bgi-standard-error-handle"
-                                                                                                                                                                                                                                                                        : standardOutputFileTypeEnabled
-                                                                                                                                                                                                                                                                          ? "v86-bgi-standard-output-file-type"
-                                                                                                                                                                                                                                                                          : standardOutputHandleEnabled
-                                                                                                                                                                                                                                                                            ? "v86-bgi-standard-output-handle"
-                                                                                                                                                                                                                                                                            : fileTypeEnabled
-                                                                                                                                                                                                                                                                              ? "v86-bgi-file-type"
-                                                                                                                                                                                                                                                                              : standardInputHandleEnabled
-                                                                                                                                                                                                                                                                                ? "v86-bgi-standard-input-handle"
-                                                                                                                                                                                                                                                                                : privateHeapSecondAllocationEnabled
-                                                                                                                                                                                                                                                                                  ? "v86-bgi-private-heap-second-allocation"
-                                                                                                                                                                                                                                                                                  : interlockedIncrementEnabled
-                                                                                                                                                                                                                                                                                    ? "v86-bgi-interlocked-increment"
-                                                                                                                                                                                                                                                                                    : fiberLocalStorageValueEnabled
-                                                                                                                                                                                                                                                                                      ? "v86-bgi-fiber-local-storage-value"
-                                                                                                                                                                                                                                                                                      : privateHeapAllocationEnabled
-                                                                                                                                                                                                                                                                                        ? "v86-bgi-private-heap-allocation"
-                                                                                                                                                                                                                                                                                        : fiberLocalStorageAllocationEnabled
-                                                                                                                                                                                                                                                                                          ? "v86-bgi-fiber-local-storage-allocation"
-                                                                                                                                                                                                                                                                                          : genericRuntimeCapability ===
-                                                                                                                                                                                                                                                                                              "kernel32-pointer-decoding"
-                                                                                                                                                                                                                                                                                            ? "v86-bgi-pointer-decoding"
-                                                                                                                                                                                                                                                                                            : "v86-bgi-critical-section-synchronization"
+        : user32AsyncKeyStateInputContinuationCheckpointEnabled
+          ? "v86-bgi-async-key-state-input-continuation"
+          : user32AsyncKeyStateInputCheckpointEnabled
+            ? "v86-bgi-async-key-state-input"
+            : d3d9PostPresentContinuationEnabled
+              ? "v86-bgi-d3d9-post-present-continuation"
+              : d3d9PresentCheckpointEnabled
+                ? "v86-bgi-d3d9-first-present"
+                : d3d9PostScenePresentGatewayCheckpointEnabled
+                  ? "v86-bgi-d3d9-post-scene-present-gateway"
+                  : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
+                    ? "v86-bgi-d3d9-post-raster-status-waitable-timer"
+                    : d3d9PostEndSceneRasterStatusCheckpointEnabled
+                      ? "v86-bgi-d3d9-post-end-scene-raster-status"
+                      : d3d9EndSceneCheckpointEnabled
+                        ? "v86-bgi-d3d9-end-scene"
+                        : d3d9DrawPrimitiveCheckpointEnabled
+                          ? "v86-bgi-d3d9-draw-primitive"
+                          : d3d9SetStreamSourceCheckpointEnabled
+                            ? "v86-bgi-d3d9-set-stream-source"
+                            : d3d9SetFvfCheckpointEnabled
+                              ? "v86-bgi-d3d9-set-fvf"
+                              : d3d9SetTextureCheckpointEnabled
+                                ? "v86-bgi-d3d9-set-texture"
+                                : d3d9InitialTextureStageStatesCheckpointEnabled
+                                  ? "v86-bgi-d3d9-initial-texture-stage-states"
+                                  : d3d9InitialSamplerStatesCheckpointEnabled
+                                    ? "v86-bgi-d3d9-initial-sampler-states"
+                                    : d3d9BeginSceneCheckpointEnabled
+                                      ? "v86-bgi-d3d9-begin-scene"
+                                      : d3d9UpdateTextureCheckpointEnabled
+                                        ? "v86-bgi-d3d9-update-texture"
+                                        : d3d9AddDirtyRectCheckpointEnabled
+                                          ? "v86-bgi-d3d9-add-dirty-rect"
+                                          : setRectCheckpointEnabled
+                                            ? "v86-bgi-set-rect"
+                                            : d3d9ClearCheckpointEnabled
+                                              ? "v86-bgi-d3d9-clear"
+                                              : updateWindowCheckpointEnabled
+                                                ? "v86-bgi-update-window"
+                                                : showWindowNormalCheckpointEnabled
+                                                  ? "v86-bgi-show-window-normal"
+                                                  : setWindowPosFrameChangeMoveCheckpointEnabled
+                                                    ? "v86-bgi-set-window-pos-frame-change-move"
+                                                    : d3d9RecreatedTexturesCheckpointEnabled
+                                                      ? "v86-bgi-d3d9-recreated-textures"
+                                                      : setWindowPosRepeatActivationCheckpointEnabled
+                                                        ? "v86-bgi-set-window-pos-repeat-activation"
+                                                        : createDirectoryACheckpointEnabled
+                                                          ? "v86-bgi-create-directory-a"
+                                                          : getFileAttributesACheckpointEnabled
+                                                            ? "v86-bgi-get-file-attributes-a"
+                                                            : globalMemoryStatusCheckpointEnabled
+                                                              ? "v86-bgi-global-memory-status"
+                                                              : sleepZeroCheckpointEnabled
+                                                                ? "v86-bgi-sleep-zero"
+                                                                : archiveSourceReadEnabled
+                                                                  ? "v86-bgi-archive-source-read"
+                                                                  : leaveCriticalSectionContinuationEnabled
+                                                                    ? "v86-bgi-leave-critical-section-continuation"
+                                                                    : dragAcceptFilesEnabled
+                                                                      ? "v86-bgi-drag-accept-files"
+                                                                      : primaryMainLoopContinuationEnabled
+                                                                        ? "v86-bgi-primary-main-loop-continuation"
+                                                                        : enterCriticalSectionContinuationEnabled
+                                                                          ? "v86-bgi-enter-critical-section-continuation"
+                                                                          : leaveCriticalSectionCheckpointEnabled
+                                                                            ? "v86-bgi-leave-critical-section"
+                                                                            : mainLoopProgressionEnabled
+                                                                              ? "v86-bgi-primary-main-loop-progression"
+                                                                              : enterCriticalSectionEnabled
+                                                                                ? "v86-bgi-enter-critical-section"
+                                                                                : waitForSingleObjectExEnabled
+                                                                                  ? "v86-bgi-wait-for-single-object-ex"
+                                                                                  : setWaitableTimerEnabled
+                                                                                    ? "v86-bgi-set-waitable-timer"
+                                                                                    : imm32ContextEnabled
+                                                                                      ? "v86-bgi-default-ime-context"
+                                                                                      : virtualAllocEnabled
+                                                                                        ? "v86-bgi-virtual-alloc"
+                                                                                        : gdiplusStartupEnabled
+                                                                                          ? "v86-bgi-startup"
+                                                                                          : textRasterEnabled
+                                                                                            ? "v86-bgi-text-raster"
+                                                                                            : outlineTextMetricsEnabled
+                                                                                              ? "v86-bgi-outline-text-metrics"
+                                                                                              : dibLifecycleEnabled
+                                                                                                ? "v86-bgi-dib-lifecycle"
+                                                                                                : compatibleDcEnabled
+                                                                                                  ? "v86-bgi-compatible-dc"
+                                                                                                  : fontCreationEnabled
+                                                                                                    ? "v86-bgi-font-creation"
+                                                                                                    : fontEnumerationEnabled
+                                                                                                      ? "v86-bgi-font-enumeration"
+                                                                                                      : screenDcEnabled
+                                                                                                        ? "v86-bgi-screen-dc"
+                                                                                                        : setThreadPriorityEnabled
+                                                                                                          ? "v86-bgi-set-thread-priority"
+                                                                                                          : createThreadEnabled
+                                                                                                            ? "v86-bgi-create-thread"
+                                                                                                            : setTimerEnabled
+                                                                                                              ? "v86-bgi-set-timer"
+                                                                                                              : dsoundBufferTransferEnabled
+                                                                                                                ? "v86-bgi-dsound-buffer-lock-unlock-play"
+                                                                                                                : dsoundInitialBuffersEnabled
+                                                                                                                  ? "v86-bgi-dsound-initial-buffers"
+                                                                                                                  : dsoundRootEnabled
+                                                                                                                    ? "v86-bgi-dsound-root-and-cooperative-level"
+                                                                                                                    : dinput8EnumDevicesEnabled
+                                                                                                                      ? "v86-bgi-dinput8-enum-devices"
+                                                                                                                      : dinput8FactoryEnabled
+                                                                                                                        ? "v86-bgi-dinput8-api-contract"
+                                                                                                                        : getMonitorInfoAEnabled
+                                                                                                                          ? "v86-bgi-get-monitor-info-a"
+                                                                                                                          : queryPerformanceFrequencyEnabled
+                                                                                                                            ? "v86-bgi-query-performance-frequency"
+                                                                                                                            : d3d9RasterStatusEnabled
+                                                                                                                              ? "v86-bgi-d3d9-raster-status"
+                                                                                                                              : d3d9InitialRenderStatesEnabled
+                                                                                                                                ? "v86-bgi-d3d9-initial-render-states"
+                                                                                                                                : d3d9InitialVertexBufferEnabled
+                                                                                                                                  ? "v86-bgi-d3d9-initial-vertex-buffer"
+                                                                                                                                  : d3d9InitialTexturesEnabled
+                                                                                                                                    ? "v86-bgi-d3d9-initial-textures"
+                                                                                                                                    : timeGetTimeEnabled
+                                                                                                                                      ? "v86-bgi-time-get-time"
+                                                                                                                                      : d3d9SurfaceGetDcEnabled
+                                                                                                                                        ? "v86-bgi-d3d9-surface-get-dc"
+                                                                                                                                        : d3d9GetSurfaceLevelEnabled
+                                                                                                                                          ? "v86-bgi-d3d9-get-surface-level"
+                                                                                                                                          : d3d9CreateTextureEnabled
+                                                                                                                                            ? "v86-bgi-d3d9-create-texture"
+                                                                                                                                            : d3d9CreateDeviceEnabled
+                                                                                                                                              ? "v86-bgi-d3d9-create-device"
+                                                                                                                                              : d3d9GetAdapterMonitorEnabled
+                                                                                                                                                ? "v86-bgi-d3d9-get-adapter-monitor"
+                                                                                                                                                : d3d9GetAdapterCountEnabled
+                                                                                                                                                  ? "v86-bgi-d3d9-get-adapter-count"
+                                                                                                                                                  : monitorFromWindowEnabled
+                                                                                                                                                    ? "v86-bgi-monitor-from-window"
+                                                                                                                                                    : setWindowPosActivationEnabled
+                                                                                                                                                      ? "v86-bgi-set-window-pos-activation"
+                                                                                                                                                      : setWindowLongAEnabled
+                                                                                                                                                        ? "v86-bgi-set-window-long-a"
+                                                                                                                                                        : windowDcFillEnabled
+                                                                                                                                                          ? "v86-bgi-window-dc-fill"
+                                                                                                                                                          : getClientRectEnabled
+                                                                                                                                                            ? "v86-bgi-get-client-rect"
+                                                                                                                                                            : loadLibraryAEnabled
+                                                                                                                                                              ? "v86-bgi-load-library-a"
+                                                                                                                                                              : d3d9CheckDeviceFormatEnabled
+                                                                                                                                                                ? "v86-bgi-d3d9-check-device-format"
+                                                                                                                                                                : d3d9CheckDeviceTypeEnabled
+                                                                                                                                                                  ? "v86-bgi-d3d9-check-device-type"
+                                                                                                                                                                  : d3d9GetDeviceCapsEnabled
+                                                                                                                                                                    ? "v86-bgi-d3d9-get-device-caps"
+                                                                                                                                                                    : d3d9GetAdapterIdentifierEnabled
+                                                                                                                                                                      ? "v86-bgi-d3d9-get-adapter-identifier"
+                                                                                                                                                                      : d3d9GetAdapterDisplayModeEnabled
+                                                                                                                                                                        ? "v86-bgi-d3d9-get-adapter-display-mode"
+                                                                                                                                                                        : d3d9RootFactoryEnabled
+                                                                                                                                                                          ? "v86-bgi-d3d9-root-factory-and-identity"
+                                                                                                                                                                          : setWindowPosInitialPlacementEnabled
+                                                                                                                                                                            ? "v86-bgi-set-window-pos-initial-placement"
+                                                                                                                                                                            : sendMessageASmallIconEnabled
+                                                                                                                                                                              ? "v86-bgi-send-message-a-small-icon"
+                                                                                                                                                                              : loadImageASmallIconEnabled
+                                                                                                                                                                                ? "v86-bgi-load-image-a-small-icon"
+                                                                                                                                                                                : getSystemMetricsSmallIconWidthEnabled
+                                                                                                                                                                                  ? "v86-bgi-get-system-metrics-small-icon-width"
+                                                                                                                                                                                  : getSystemMetricsSmallIconHeightEnabled
+                                                                                                                                                                                    ? "v86-bgi-get-system-metrics-small-icon-height"
+                                                                                                                                                                                    : createWindowExAEnabled
+                                                                                                                                                                                      ? "v86-bgi-create-window-ex-a"
+                                                                                                                                                                                      : sourceFileReadEnabled
+                                                                                                                                                                                        ? "v86-bgi-source-file-read"
+                                                                                                                                                                                        : largeHeapAllocationEnabled
+                                                                                                                                                                                          ? "v86-bgi-large-heap-allocation"
+                                                                                                                                                                                          : getSystemMetricsEnabled
+                                                                                                                                                                                            ? "v86-bgi-get-system-metrics"
+                                                                                                                                                                                            : registerClassExAEnabled
+                                                                                                                                                                                              ? "v86-bgi-register-class-ex-a"
+                                                                                                                                                                                              : loadCursorAEnabled
+                                                                                                                                                                                                ? "v86-bgi-load-cursor-a"
+                                                                                                                                                                                                : loadIconAEnabled
+                                                                                                                                                                                                  ? "v86-bgi-load-icon-a"
+                                                                                                                                                                                                  : createWaitableTimerAEnabled
+                                                                                                                                                                                                    ? "v86-bgi-create-waitable-timer-a"
+                                                                                                                                                                                                    : getVersionExAEnabled
+                                                                                                                                                                                                      ? "v86-bgi-get-version-ex-a"
+                                                                                                                                                                                                      : timeBeginPeriodEnabled
+                                                                                                                                                                                                        ? "v86-bgi-time-begin-period"
+                                                                                                                                                                                                        : timeGetDevCapsEnabled
+                                                                                                                                                                                                          ? "v86-bgi-time-get-dev-caps"
+                                                                                                                                                                                                          : swapMouseButtonEnabled
+                                                                                                                                                                                                            ? "v86-bgi-swap-mouse-button"
+                                                                                                                                                                                                            : getDriveTypeAEnabled
+                                                                                                                                                                                                              ? "v86-bgi-get-drive-type-a"
+                                                                                                                                                                                                              : getSystemDefaultLangIdEnabled
+                                                                                                                                                                                                                ? "v86-bgi-get-system-default-lang-id"
+                                                                                                                                                                                                                : coInitializeEnabled
+                                                                                                                                                                                                                  ? "v86-bgi-co-initialize"
+                                                                                                                                                                                                                  : enumDisplayMonitorsEnabled
+                                                                                                                                                                                                                    ? "v86-bgi-enum-display-monitors"
+                                                                                                                                                                                                                    : getSystemInfoEnabled
+                                                                                                                                                                                                                      ? "v86-bgi-get-system-info"
+                                                                                                                                                                                                                      : setThreadAffinityMaskEnabled
+                                                                                                                                                                                                                        ? "v86-bgi-set-thread-affinity-mask"
+                                                                                                                                                                                                                        : getCurrentThreadEnabled
+                                                                                                                                                                                                                          ? "v86-bgi-get-current-thread"
+                                                                                                                                                                                                                          : createMutexAEnabled
+                                                                                                                                                                                                                            ? "v86-bgi-create-mutex-a"
+                                                                                                                                                                                                                            : setCurrentDirectoryAEnabled
+                                                                                                                                                                                                                              ? "v86-bgi-set-current-directory-a"
+                                                                                                                                                                                                                              : multiByteToWideCharCpAcpEnabled
+                                                                                                                                                                                                                                ? "v86-bgi-multi-byte-to-wide-char-cp-acp"
+                                                                                                                                                                                                                                : initializeCriticalSectionEnabled
+                                                                                                                                                                                                                                  ? "v86-bgi-initialize-critical-section"
+                                                                                                                                                                                                                                  : heapSizeEnabled
+                                                                                                                                                                                                                                    ? "v86-bgi-heap-size"
+                                                                                                                                                                                                                                    : setUnhandledExceptionFilterEnabled
+                                                                                                                                                                                                                                      ? "v86-bgi-set-unhandled-exception-filter"
+                                                                                                                                                                                                                                      : isProcessorFeaturePresentEnabled
+                                                                                                                                                                                                                                        ? "v86-bgi-is-processor-feature-present"
+                                                                                                                                                                                                                                        : privateHeapSize128Enabled
+                                                                                                                                                                                                                                          ? "v86-bgi-private-heap-size-128"
+                                                                                                                                                                                                                                          : privateHeapFreeSize1Enabled
+                                                                                                                                                                                                                                            ? "v86-bgi-private-heap-free-size-1"
+                                                                                                                                                                                                                                            : privateHeapSize4Enabled
+                                                                                                                                                                                                                                              ? "v86-bgi-private-heap-size-4"
+                                                                                                                                                                                                                                              : privateHeapSize16Enabled
+                                                                                                                                                                                                                                                ? "v86-bgi-private-heap-size-16"
+                                                                                                                                                                                                                                                : getModuleFileNameAEnabled
+                                                                                                                                                                                                                                                  ? "v86-bgi-get-module-file-name-a"
+                                                                                                                                                                                                                                                  : interlockedDecrementEnabled
+                                                                                                                                                                                                                                                    ? "v86-bgi-interlocked-decrement"
+                                                                                                                                                                                                                                                    : lcMapStringWEnabled
+                                                                                                                                                                                                                                                      ? "v86-bgi-lc-map-string-w"
+                                                                                                                                                                                                                                                      : getStringTypeWEnabled
+                                                                                                                                                                                                                                                        ? "v86-bgi-get-string-type-w"
+                                                                                                                                                                                                                                                        : multiByteToWideCharEnabled
+                                                                                                                                                                                                                                                          ? "v86-bgi-multi-byte-to-wide-char"
+                                                                                                                                                                                                                                                          : getCpInfoEnabled
+                                                                                                                                                                                                                                                            ? "v86-bgi-get-cp-info"
+                                                                                                                                                                                                                                                            : privateHeapSize544Enabled
+                                                                                                                                                                                                                                                              ? "v86-bgi-private-heap-size-544"
+                                                                                                                                                                                                                                                              : getAcpEnabled
+                                                                                                                                                                                                                                                                ? "v86-bgi-get-acp"
+                                                                                                                                                                                                                                                                : setLastErrorEnabled
+                                                                                                                                                                                                                                                                  ? "v86-bgi-set-last-error"
+                                                                                                                                                                                                                                                                  : flsGetValueEnabled
+                                                                                                                                                                                                                                                                    ? "v86-bgi-fls-get-value"
+                                                                                                                                                                                                                                                                    : tlsGetValueEnabled
+                                                                                                                                                                                                                                                                      ? "v86-bgi-tls-get-value"
+                                                                                                                                                                                                                                                                      : getLastErrorEnabled
+                                                                                                                                                                                                                                                                        ? "v86-bgi-get-last-error"
+                                                                                                                                                                                                                                                                        : privateHeapSize1Enabled
+                                                                                                                                                                                                                                                                          ? "v86-bgi-private-heap-size-1"
+                                                                                                                                                                                                                                                                          : wideCharToMultiByteEnabled
+                                                                                                                                                                                                                                                                            ? "v86-bgi-wide-char-to-multi-byte"
+                                                                                                                                                                                                                                                                            : environmentStringsWEnabled
+                                                                                                                                                                                                                                                                              ? "v86-bgi-environment-strings-w"
+                                                                                                                                                                                                                                                                              : commandLineAEnabled
+                                                                                                                                                                                                                                                                                ? "v86-bgi-command-line-a"
+                                                                                                                                                                                                                                                                                : setHandleCountEnabled
+                                                                                                                                                                                                                                                                                  ? "v86-bgi-set-handle-count"
+                                                                                                                                                                                                                                                                                  : standardErrorFileTypeEnabled
+                                                                                                                                                                                                                                                                                    ? "v86-bgi-standard-error-file-type"
+                                                                                                                                                                                                                                                                                    : standardErrorHandleEnabled
+                                                                                                                                                                                                                                                                                      ? "v86-bgi-standard-error-handle"
+                                                                                                                                                                                                                                                                                      : standardOutputFileTypeEnabled
+                                                                                                                                                                                                                                                                                        ? "v86-bgi-standard-output-file-type"
+                                                                                                                                                                                                                                                                                        : standardOutputHandleEnabled
+                                                                                                                                                                                                                                                                                          ? "v86-bgi-standard-output-handle"
+                                                                                                                                                                                                                                                                                          : fileTypeEnabled
+                                                                                                                                                                                                                                                                                            ? "v86-bgi-file-type"
+                                                                                                                                                                                                                                                                                            : standardInputHandleEnabled
+                                                                                                                                                                                                                                                                                              ? "v86-bgi-standard-input-handle"
+                                                                                                                                                                                                                                                                                              : privateHeapSecondAllocationEnabled
+                                                                                                                                                                                                                                                                                                ? "v86-bgi-private-heap-second-allocation"
+                                                                                                                                                                                                                                                                                                : interlockedIncrementEnabled
+                                                                                                                                                                                                                                                                                                  ? "v86-bgi-interlocked-increment"
+                                                                                                                                                                                                                                                                                                  : fiberLocalStorageValueEnabled
+                                                                                                                                                                                                                                                                                                    ? "v86-bgi-fiber-local-storage-value"
+                                                                                                                                                                                                                                                                                                    : privateHeapAllocationEnabled
+                                                                                                                                                                                                                                                                                                      ? "v86-bgi-private-heap-allocation"
+                                                                                                                                                                                                                                                                                                      : fiberLocalStorageAllocationEnabled
+                                                                                                                                                                                                                                                                                                        ? "v86-bgi-fiber-local-storage-allocation"
+                                                                                                                                                                                                                                                                                                        : genericRuntimeCapability ===
+                                                                                                                                                                                                                                                                                                            "kernel32-pointer-decoding"
+                                                                                                                                                                                                                                                                                                          ? "v86-bgi-pointer-decoding"
+                                                                                                                                                                                                                                                                                                          : "v86-bgi-critical-section-synchronization"
     : genericRuntimeReentry
       ? "v86-bgi-generic-runtime-reentry"
       : selectedCheckpoint.artifactDirectory,
@@ -5902,300 +5903,300 @@ async function run() {
           ? "bgi generic runtime re-entry"
           : user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
             ? "bgi GetAsyncKeyState initial no-input scan continuation"
-          : user32AsyncKeyStateInitialScanCheckpointEnabled
-            ? "bgi GetAsyncKeyState initial no-input scan"
-          : user32AsyncKeyStateInputContinuationCheckpointEnabled
-            ? "bgi GetAsyncKeyState held-key continuation"
-            : user32AsyncKeyStateInputCheckpointEnabled
-              ? "bgi GetAsyncKeyState controlled keyboard input"
-              : d3d9PostPresentContinuationEnabled
-                ? "bgi post-Present continuation"
-                : d3d9PresentCheckpointEnabled
-                  ? "bgi IDirect3DDevice9::Present first-frame publication"
-                  : d3d9PostScenePresentGatewayCheckpointEnabled
-                    ? "bgi post-scene raster gate to Present"
-            : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
-              ? "bgi post-scene waitable-timer pacing cycle"
-            : d3d9PostEndSceneRasterStatusCheckpointEnabled
-              ? "bgi post-EndScene IDirect3DDevice9::GetRasterStatus completion"
-              : d3d9EndSceneCheckpointEnabled
-                ? "bgi IDirect3DDevice9::EndScene first-frame lifecycle close"
-                : d3d9DrawPrimitiveCheckpointEnabled
-                  ? "bgi IDirect3DDevice9::DrawPrimitive first-frame triangle-strip quad submission"
-                  : d3d9SetStreamSourceCheckpointEnabled
-                    ? "bgi IDirect3DDevice9::SetStreamSource first-frame stream-zero binding"
-                    : d3d9SetFvfCheckpointEnabled
-                      ? "bgi IDirect3DDevice9::SetFVF first-frame flexible vertex format"
-                      : d3d9SetTextureCheckpointEnabled
-                        ? "bgi IDirect3DDevice9::SetTexture first-frame static texture binding"
-                        : d3d9InitialTextureStageStatesCheckpointEnabled
-                          ? "bgi IDirect3DDevice9::SetTextureStageState first-frame stage zero"
-                          : d3d9InitialSamplerStatesCheckpointEnabled
-                            ? "bgi IDirect3DDevice9::SetSamplerState first-frame linear filters"
-                            : d3d9BeginSceneCheckpointEnabled
-                              ? "bgi IDirect3DDevice9::BeginScene lifecycle begin"
-                              : d3d9UpdateTextureCheckpointEnabled
-                                ? "bgi IDirect3DDevice9::UpdateTexture whole-content transfer"
-                                : d3d9AddDirtyRectCheckpointEnabled
-                                  ? "bgi IDirect3DTexture9::AddDirtyRect full-presentation region"
-                                  : setRectCheckpointEnabled
-                                    ? "bgi USER32 SetRect full-presentation RECT"
-                                    : d3d9ClearCheckpointEnabled
-                                      ? "bgi IDirect3DDevice9::Clear full render target"
-                                      : updateWindowCheckpointEnabled
-                                        ? "bgi UpdateWindow full-client BeginPaint/EndPaint session"
-                                        : showWindowNormalCheckpointEnabled
-                                          ? "bgi ShowWindow visible SW_SHOWNORMAL no-op"
-                                          : setWindowPosFrameChangeMoveCheckpointEnabled
-                                            ? "bgi SetWindowPos frame-change move"
-                                            : d3d9RecreatedTexturesCheckpointEnabled
-                                              ? "bgi D3D9 recreated texture sequence"
-                                              : setWindowPosRepeatActivationCheckpointEnabled
-                                                ? "bgi SetWindowPos repeat activation"
-                                                : createDirectoryACheckpointEnabled
-                                                  ? "bgi durable Runtime VFS CreateDirectoryA"
-                                                  : getFileAttributesACheckpointEnabled
-                                                    ? "bgi Runtime VFS GetFileAttributesA"
-                                                    : globalMemoryStatusCheckpointEnabled
-                                                      ? "bgi deterministic x86 GlobalMemoryStatus"
-                                                      : sleepZeroCheckpointEnabled
-                                                        ? "bgi Sleep(0) cooperative scheduler yield"
-                                                        : archiveSourceReadEnabled
-                                                          ? "bgi primary boot-archive source read"
-                                                          : dragAcceptFilesEnabled
-                                                            ? "bgi Shell32 DragAcceptFiles"
-                                                            : primaryMainLoopContinuationEnabled
-                                                              ? "bgi primary main-loop continuation"
-                                                              : leaveCriticalSectionContinuationEnabled
-                                                                ? "bgi primary LeaveCriticalSection continuation"
-                                                                : leaveCriticalSectionCheckpointEnabled
-                                                                  ? "bgi primary LeaveCriticalSection completion"
-                                                                  : enterCriticalSectionContinuationEnabled
-                                                                    ? "bgi primary EnterCriticalSection continuation"
-                                                                    : mainLoopProgressionEnabled
-                                                                      ? "bgi primary main-loop scheduler roundtrip"
-                                                                      : enterCriticalSectionEnabled
-                                                                        ? "bgi EnterCriticalSection primary continuation"
-                                                                        : waitForSingleObjectExEnabled
-                                                                          ? "bgi finite alertable waitable timer completion"
-                                                                          : setWaitableTimerEnabled
-                                                                            ? "bgi relative one-shot waitable timer arm"
-                                                                            : imm32ContextEnabled
-                                                                              ? "bgi logical default IME window and context"
-                                                                              : virtualAllocEnabled
-                                                                                ? "bgi VirtualAlloc top-down reserve-only mapping"
-                                                                                : gdiplusStartupEnabled
-                                                                                  ? "bgi logical GDI+ startup session"
-                                                                                  : textRasterEnabled
-                                                                                    ? "bgi CP932 text raster write into selected 8bpp DIB"
-                                                                                    : outlineTextMetricsEnabled
-                                                                                      ? "bgi CP932 outline text metrics query and output"
-                                                                                      : dibLifecycleEnabled
-                                                                                        ? "bgi DIB section and GDI object lifecycle"
-                                                                                        : compatibleDcEnabled
-                                                                                          ? "bgi NULL-screen compatible memory DC creation"
-                                                                                          : fontCreationEnabled
-                                                                                            ? "bgi CP932 logical font object creation"
-                                                                                            : fontEnumerationEnabled
-                                                                                              ? "bgi CP932 logical font enumeration"
-                                                                                              : screenDcEnabled
-                                                                                                ? "bgi NULL-window primary screen DC acquisition"
-                                                                                                : setThreadPriorityEnabled
-                                                                                                  ? "bgi SetThreadPriority logical created-thread priority"
-                                                                                                  : createThreadEnabled
-                                                                                                    ? "bgi CreateThread and ResumeThread bootstrap"
-                                                                                                    : setTimerEnabled
-                                                                                                      ? "bgi SetTimer logical window callback registration"
-                                                                                                      : dsoundBufferTransferEnabled
-                                                                                                        ? "bgi DirectSound 8 secondary Lock, Unlock, and looping Play"
-                                                                                                        : dsoundInitialBuffersEnabled
-                                                                                                          ? "bgi DirectSound 8 initial primary and secondary buffers"
-                                                                                                          : dsoundRootEnabled
-                                                                                                            ? "bgi DirectSound 8 root and cooperative window relation"
-                                                                                                            : dinput8EnumDevicesEnabled
-                                                                                                              ? "bgi DirectInput8 empty game-controller enumeration"
-                                                                                                              : dinput8FactoryEnabled
-                                                                                                                ? "bgi DirectInput8 root factory and identity"
-                                                                                                                : getMonitorInfoAEnabled
-                                                                                                                  ? "bgi GetMonitorInfoA logical primary monitor"
-                                                                                                                  : queryPerformanceFrequencyEnabled
-                                                                                                                    ? "bgi QueryPerformanceFrequency"
-                                                                                                                    : d3d9RasterStatusEnabled
-                                                                                                                      ? "bgi D3D9 raster-status polling"
-                                                                                                                      : d3d9InitialRenderStatesEnabled
-                                                                                                                        ? "bgi D3D9 initial render-state sequence"
-                                                                                                                        : d3d9InitialVertexBufferEnabled
-                                                                                                                          ? "bgi D3D9 initial vertex-buffer sequence"
-                                                                                                                          : d3d9InitialTexturesEnabled
-                                                                                                                            ? "bgi D3D9 initial texture sequence"
-                                                                                                                            : timeGetTimeEnabled
-                                                                                                                              ? "bgi WinMM timeGetTime"
-                                                                                                                              : d3d9SurfaceGetDcEnabled
-                                                                                                                                ? "bgi D3D9 surface GetDC fill and ReleaseDC"
-                                                                                                                                : d3d9GetSurfaceLevelEnabled
-                                                                                                                                  ? "bgi D3D9 GetSurfaceLevel"
-                                                                                                                                  : d3d9CreateTextureEnabled
-                                                                                                                                    ? "bgi D3D9 CreateTexture"
-                                                                                                                                    : d3d9CreateDeviceEnabled
-                                                                                                                                      ? "bgi D3D9 CreateDevice"
-                                                                                                                                      : d3d9GetAdapterMonitorEnabled
-                                                                                                                                        ? "bgi D3D9 GetAdapterMonitor"
-                                                                                                                                        : d3d9GetAdapterCountEnabled
-                                                                                                                                          ? "bgi D3D9 GetAdapterCount"
-                                                                                                                                          : monitorFromWindowEnabled
-                                                                                                                                            ? "bgi MonitorFromWindow logical primary lookup"
-                                                                                                                                            : setWindowPosActivationEnabled
-                                                                                                                                              ? "bgi SetWindowPos same-geometry activation"
-                                                                                                                                              : setWindowLongAEnabled
-                                                                                                                                                ? "bgi SetWindowLongA GWL_STYLE"
-                                                                                                                                                : windowDcFillEnabled
-                                                                                                                                                  ? "bgi window DC fill"
-                                                                                                                                                  : getClientRectEnabled
-                                                                                                                                                    ? "bgi GetClientRect"
-                                                                                                                                                    : loadLibraryAEnabled
-                                                                                                                                                      ? "bgi LoadLibraryA runtime-system module"
-                                                                                                                                                      : d3d9CheckDeviceFormatEnabled
-                                                                                                                                                        ? "bgi D3D9 CheckDeviceFormat"
-                                                                                                                                                        : d3d9CheckDeviceTypeEnabled
-                                                                                                                                                          ? "bgi D3D9 CheckDeviceType"
-                                                                                                                                                          : d3d9GetDeviceCapsEnabled
-                                                                                                                                                            ? "bgi D3D9 GetDeviceCaps"
-                                                                                                                                                            : d3d9GetAdapterIdentifierEnabled
-                                                                                                                                                              ? "bgi D3D9 GetAdapterIdentifier"
-                                                                                                                                                              : d3d9GetAdapterDisplayModeEnabled
-                                                                                                                                                                ? "bgi D3D9 GetAdapterDisplayMode"
-                                                                                                                                                                : d3d9RootFactoryEnabled
-                                                                                                                                                                  ? "bgi D3D9 root factory and identity"
-                                                                                                                                                                  : setWindowPosInitialPlacementEnabled
-                                                                                                                                                                    ? "bgi SetWindowPos initial placement"
-                                                                                                                                                                    : sendMessageASmallIconEnabled
-                                                                                                                                                                      ? "bgi SendMessageA small icon"
-                                                                                                                                                                      : loadImageASmallIconEnabled
-                                                                                                                                                                        ? "bgi LoadImageA small icon"
-                                                                                                                                                                        : getSystemMetricsSmallIconWidthEnabled
-                                                                                                                                                                          ? "bgi GetSystemMetrics small icon width"
-                                                                                                                                                                          : getSystemMetricsSmallIconHeightEnabled
-                                                                                                                                                                            ? "bgi GetSystemMetrics small icon height"
-                                                                                                                                                                            : createWindowExAEnabled
-                                                                                                                                                                              ? "bgi CreateWindowExA"
-                                                                                                                                                                              : sourceFileReadEnabled
-                                                                                                                                                                                ? "bgi source file read"
-                                                                                                                                                                                : largeHeapAllocationEnabled
-                                                                                                                                                                                  ? "bgi large HeapAlloc"
-                                                                                                                                                                                  : getSystemMetricsEnabled
-                                                                                                                                                                                    ? "bgi GetSystemMetrics"
-                                                                                                                                                                                    : registerClassExAEnabled
-                                                                                                                                                                                      ? "bgi RegisterClassExA"
-                                                                                                                                                                                      : loadCursorAEnabled
-                                                                                                                                                                                        ? "bgi LoadCursorA"
-                                                                                                                                                                                        : loadIconAEnabled
-                                                                                                                                                                                          ? "bgi LoadIconA"
-                                                                                                                                                                                          : createWaitableTimerAEnabled
-                                                                                                                                                                                            ? "bgi CreateWaitableTimerA"
-                                                                                                                                                                                            : getVersionExAEnabled
-                                                                                                                                                                                              ? "bgi GetVersionExA"
-                                                                                                                                                                                              : timeBeginPeriodEnabled
-                                                                                                                                                                                                ? "bgi timeBeginPeriod"
-                                                                                                                                                                                                : timeGetDevCapsEnabled
-                                                                                                                                                                                                  ? "bgi timeGetDevCaps"
-                                                                                                                                                                                                  : swapMouseButtonEnabled
-                                                                                                                                                                                                    ? "bgi SwapMouseButton"
-                                                                                                                                                                                                    : getDriveTypeAEnabled
-                                                                                                                                                                                                      ? "bgi GetDriveTypeA"
-                                                                                                                                                                                                      : getSystemDefaultLangIdEnabled
-                                                                                                                                                                                                        ? "bgi GetSystemDefaultLangID"
-                                                                                                                                                                                                        : coInitializeEnabled
-                                                                                                                                                                                                          ? "bgi CoInitialize"
-                                                                                                                                                                                                          : enumDisplayMonitorsEnabled
-                                                                                                                                                                                                            ? "bgi EnumDisplayMonitors"
-                                                                                                                                                                                                            : getSystemInfoEnabled
-                                                                                                                                                                                                              ? "bgi GetSystemInfo"
-                                                                                                                                                                                                              : setThreadAffinityMaskEnabled
-                                                                                                                                                                                                                ? "bgi SetThreadAffinityMask"
-                                                                                                                                                                                                                : getCurrentThreadEnabled
-                                                                                                                                                                                                                  ? "bgi GetCurrentThread"
-                                                                                                                                                                                                                  : createMutexAEnabled
-                                                                                                                                                                                                                    ? "bgi CreateMutexA"
-                                                                                                                                                                                                                    : setCurrentDirectoryAEnabled
-                                                                                                                                                                                                                      ? "bgi SetCurrentDirectoryA"
-                                                                                                                                                                                                                      : multiByteToWideCharCpAcpEnabled
-                                                                                                                                                                                                                        ? "bgi MultiByteToWideChar CP_ACP"
-                                                                                                                                                                                                                        : initializeCriticalSectionEnabled
-                                                                                                                                                                                                                          ? "bgi InitializeCriticalSection"
-                                                                                                                                                                                                                          : heapSizeEnabled
-                                                                                                                                                                                                                            ? "bgi HeapSize"
-                                                                                                                                                                                                                            : setUnhandledExceptionFilterEnabled
-                                                                                                                                                                                                                              ? "bgi SetUnhandledExceptionFilter"
-                                                                                                                                                                                                                              : isProcessorFeaturePresentEnabled
-                                                                                                                                                                                                                                ? "bgi IsProcessorFeaturePresent"
-                                                                                                                                                                                                                                : privateHeapSize128Enabled
-                                                                                                                                                                                                                                  ? "bgi private-heap size-128 allocation"
-                                                                                                                                                                                                                                  : privateHeapFreeSize1Enabled
-                                                                                                                                                                                                                                    ? "bgi private-heap size-1 free"
-                                                                                                                                                                                                                                    : privateHeapSize4Enabled
-                                                                                                                                                                                                                                      ? "bgi private-heap size-4 allocation"
-                                                                                                                                                                                                                                      : privateHeapSize16Enabled
-                                                                                                                                                                                                                                        ? "bgi private-heap size-16 allocation"
-                                                                                                                                                                                                                                        : getModuleFileNameAEnabled
-                                                                                                                                                                                                                                          ? "bgi GetModuleFileNameA"
-                                                                                                                                                                                                                                          : interlockedDecrementEnabled
-                                                                                                                                                                                                                                            ? "bgi InterlockedDecrement"
-                                                                                                                                                                                                                                            : lcMapStringWEnabled
-                                                                                                                                                                                                                                              ? "bgi LCMapStringW"
-                                                                                                                                                                                                                                              : getStringTypeWEnabled
-                                                                                                                                                                                                                                                ? "bgi GetStringTypeW"
-                                                                                                                                                                                                                                                : multiByteToWideCharEnabled
-                                                                                                                                                                                                                                                  ? "bgi MultiByteToWideChar"
-                                                                                                                                                                                                                                                  : getCpInfoEnabled
-                                                                                                                                                                                                                                                    ? "bgi GetCPInfo"
-                                                                                                                                                                                                                                                    : privateHeapSize544Enabled
-                                                                                                                                                                                                                                                      ? "bgi private-heap size-544 allocation"
-                                                                                                                                                                                                                                                      : getAcpEnabled
-                                                                                                                                                                                                                                                        ? "bgi GetACP"
-                                                                                                                                                                                                                                                        : setLastErrorEnabled
-                                                                                                                                                                                                                                                          ? "bgi SetLastError"
-                                                                                                                                                                                                                                                          : flsGetValueEnabled
-                                                                                                                                                                                                                                                            ? "bgi FlsGetValue"
-                                                                                                                                                                                                                                                            : tlsGetValueEnabled
-                                                                                                                                                                                                                                                              ? "bgi TlsGetValue"
-                                                                                                                                                                                                                                                              : getLastErrorEnabled
-                                                                                                                                                                                                                                                                ? "bgi GetLastError"
-                                                                                                                                                                                                                                                                : privateHeapSize1Enabled
-                                                                                                                                                                                                                                                                  ? "bgi private-heap size-1 allocation"
-                                                                                                                                                                                                                                                                  : wideCharToMultiByteEnabled
-                                                                                                                                                                                                                                                                    ? "bgi WideCharToMultiByte"
-                                                                                                                                                                                                                                                                    : environmentStringsWEnabled
-                                                                                                                                                                                                                                                                      ? "bgi environment strings W"
-                                                                                                                                                                                                                                                                      : commandLineAEnabled
-                                                                                                                                                                                                                                                                        ? "bgi command line A"
-                                                                                                                                                                                                                                                                        : setHandleCountEnabled
-                                                                                                                                                                                                                                                                          ? "bgi set handle count"
-                                                                                                                                                                                                                                                                          : standardErrorFileTypeEnabled
-                                                                                                                                                                                                                                                                            ? "bgi standard error file type"
-                                                                                                                                                                                                                                                                            : standardErrorHandleEnabled
-                                                                                                                                                                                                                                                                              ? "bgi standard error handle"
-                                                                                                                                                                                                                                                                              : standardOutputFileTypeEnabled
-                                                                                                                                                                                                                                                                                ? "bgi standard output file type"
-                                                                                                                                                                                                                                                                                : standardOutputHandleEnabled
-                                                                                                                                                                                                                                                                                  ? "bgi standard output handle"
-                                                                                                                                                                                                                                                                                  : fileTypeEnabled
-                                                                                                                                                                                                                                                                                    ? "bgi file type"
-                                                                                                                                                                                                                                                                                    : standardInputHandleEnabled
-                                                                                                                                                                                                                                                                                      ? "bgi standard input handle"
-                                                                                                                                                                                                                                                                                      : privateHeapSecondAllocationEnabled
-                                                                                                                                                                                                                                                                                        ? "bgi private-heap second allocation"
-                                                                                                                                                                                                                                                                                        : interlockedIncrementEnabled
-                                                                                                                                                                                                                                                                                          ? "bgi interlocked increment"
-                                                                                                                                                                                                                                                                                          : fiberLocalStorageValueEnabled
-                                                                                                                                                                                                                                                                                            ? "bgi fiber-local-storage value"
-                                                                                                                                                                                                                                                                                            : privateHeapAllocationEnabled
-                                                                                                                                                                                                                                                                                              ? "bgi private-heap allocation"
-                                                                                                                                                                                                                                                                                              : fiberLocalStorageAllocationEnabled
-                                                                                                                                                                                                                                                                                                ? "bgi fiber-local-storage allocation"
-                                                                                                                                                                                                                                                                                                : genericRuntimeCapability ===
-                                                                                                                                                                                                                                                                                                    "kernel32-pointer-decoding"
-                                                                                                                                                                                                                                                                                                  ? "bgi pointer decoding"
-                                                                                                                                                                                                                                                                                                  : "bgi critical-section synchronization";
+            : user32AsyncKeyStateInitialScanCheckpointEnabled
+              ? "bgi GetAsyncKeyState initial no-input scan"
+              : user32AsyncKeyStateInputContinuationCheckpointEnabled
+                ? "bgi GetAsyncKeyState held-key continuation"
+                : user32AsyncKeyStateInputCheckpointEnabled
+                  ? "bgi GetAsyncKeyState controlled keyboard input"
+                  : d3d9PostPresentContinuationEnabled
+                    ? "bgi post-Present continuation"
+                    : d3d9PresentCheckpointEnabled
+                      ? "bgi IDirect3DDevice9::Present first-frame publication"
+                      : d3d9PostScenePresentGatewayCheckpointEnabled
+                        ? "bgi post-scene raster gate to Present"
+                        : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
+                          ? "bgi post-scene waitable-timer pacing cycle"
+                          : d3d9PostEndSceneRasterStatusCheckpointEnabled
+                            ? "bgi post-EndScene IDirect3DDevice9::GetRasterStatus completion"
+                            : d3d9EndSceneCheckpointEnabled
+                              ? "bgi IDirect3DDevice9::EndScene first-frame lifecycle close"
+                              : d3d9DrawPrimitiveCheckpointEnabled
+                                ? "bgi IDirect3DDevice9::DrawPrimitive first-frame triangle-strip quad submission"
+                                : d3d9SetStreamSourceCheckpointEnabled
+                                  ? "bgi IDirect3DDevice9::SetStreamSource first-frame stream-zero binding"
+                                  : d3d9SetFvfCheckpointEnabled
+                                    ? "bgi IDirect3DDevice9::SetFVF first-frame flexible vertex format"
+                                    : d3d9SetTextureCheckpointEnabled
+                                      ? "bgi IDirect3DDevice9::SetTexture first-frame static texture binding"
+                                      : d3d9InitialTextureStageStatesCheckpointEnabled
+                                        ? "bgi IDirect3DDevice9::SetTextureStageState first-frame stage zero"
+                                        : d3d9InitialSamplerStatesCheckpointEnabled
+                                          ? "bgi IDirect3DDevice9::SetSamplerState first-frame linear filters"
+                                          : d3d9BeginSceneCheckpointEnabled
+                                            ? "bgi IDirect3DDevice9::BeginScene lifecycle begin"
+                                            : d3d9UpdateTextureCheckpointEnabled
+                                              ? "bgi IDirect3DDevice9::UpdateTexture whole-content transfer"
+                                              : d3d9AddDirtyRectCheckpointEnabled
+                                                ? "bgi IDirect3DTexture9::AddDirtyRect full-presentation region"
+                                                : setRectCheckpointEnabled
+                                                  ? "bgi USER32 SetRect full-presentation RECT"
+                                                  : d3d9ClearCheckpointEnabled
+                                                    ? "bgi IDirect3DDevice9::Clear full render target"
+                                                    : updateWindowCheckpointEnabled
+                                                      ? "bgi UpdateWindow full-client BeginPaint/EndPaint session"
+                                                      : showWindowNormalCheckpointEnabled
+                                                        ? "bgi ShowWindow visible SW_SHOWNORMAL no-op"
+                                                        : setWindowPosFrameChangeMoveCheckpointEnabled
+                                                          ? "bgi SetWindowPos frame-change move"
+                                                          : d3d9RecreatedTexturesCheckpointEnabled
+                                                            ? "bgi D3D9 recreated texture sequence"
+                                                            : setWindowPosRepeatActivationCheckpointEnabled
+                                                              ? "bgi SetWindowPos repeat activation"
+                                                              : createDirectoryACheckpointEnabled
+                                                                ? "bgi durable Runtime VFS CreateDirectoryA"
+                                                                : getFileAttributesACheckpointEnabled
+                                                                  ? "bgi Runtime VFS GetFileAttributesA"
+                                                                  : globalMemoryStatusCheckpointEnabled
+                                                                    ? "bgi deterministic x86 GlobalMemoryStatus"
+                                                                    : sleepZeroCheckpointEnabled
+                                                                      ? "bgi Sleep(0) cooperative scheduler yield"
+                                                                      : archiveSourceReadEnabled
+                                                                        ? "bgi primary boot-archive source read"
+                                                                        : dragAcceptFilesEnabled
+                                                                          ? "bgi Shell32 DragAcceptFiles"
+                                                                          : primaryMainLoopContinuationEnabled
+                                                                            ? "bgi primary main-loop continuation"
+                                                                            : leaveCriticalSectionContinuationEnabled
+                                                                              ? "bgi primary LeaveCriticalSection continuation"
+                                                                              : leaveCriticalSectionCheckpointEnabled
+                                                                                ? "bgi primary LeaveCriticalSection completion"
+                                                                                : enterCriticalSectionContinuationEnabled
+                                                                                  ? "bgi primary EnterCriticalSection continuation"
+                                                                                  : mainLoopProgressionEnabled
+                                                                                    ? "bgi primary main-loop scheduler roundtrip"
+                                                                                    : enterCriticalSectionEnabled
+                                                                                      ? "bgi EnterCriticalSection primary continuation"
+                                                                                      : waitForSingleObjectExEnabled
+                                                                                        ? "bgi finite alertable waitable timer completion"
+                                                                                        : setWaitableTimerEnabled
+                                                                                          ? "bgi relative one-shot waitable timer arm"
+                                                                                          : imm32ContextEnabled
+                                                                                            ? "bgi logical default IME window and context"
+                                                                                            : virtualAllocEnabled
+                                                                                              ? "bgi VirtualAlloc top-down reserve-only mapping"
+                                                                                              : gdiplusStartupEnabled
+                                                                                                ? "bgi logical GDI+ startup session"
+                                                                                                : textRasterEnabled
+                                                                                                  ? "bgi CP932 text raster write into selected 8bpp DIB"
+                                                                                                  : outlineTextMetricsEnabled
+                                                                                                    ? "bgi CP932 outline text metrics query and output"
+                                                                                                    : dibLifecycleEnabled
+                                                                                                      ? "bgi DIB section and GDI object lifecycle"
+                                                                                                      : compatibleDcEnabled
+                                                                                                        ? "bgi NULL-screen compatible memory DC creation"
+                                                                                                        : fontCreationEnabled
+                                                                                                          ? "bgi CP932 logical font object creation"
+                                                                                                          : fontEnumerationEnabled
+                                                                                                            ? "bgi CP932 logical font enumeration"
+                                                                                                            : screenDcEnabled
+                                                                                                              ? "bgi NULL-window primary screen DC acquisition"
+                                                                                                              : setThreadPriorityEnabled
+                                                                                                                ? "bgi SetThreadPriority logical created-thread priority"
+                                                                                                                : createThreadEnabled
+                                                                                                                  ? "bgi CreateThread and ResumeThread bootstrap"
+                                                                                                                  : setTimerEnabled
+                                                                                                                    ? "bgi SetTimer logical window callback registration"
+                                                                                                                    : dsoundBufferTransferEnabled
+                                                                                                                      ? "bgi DirectSound 8 secondary Lock, Unlock, and looping Play"
+                                                                                                                      : dsoundInitialBuffersEnabled
+                                                                                                                        ? "bgi DirectSound 8 initial primary and secondary buffers"
+                                                                                                                        : dsoundRootEnabled
+                                                                                                                          ? "bgi DirectSound 8 root and cooperative window relation"
+                                                                                                                          : dinput8EnumDevicesEnabled
+                                                                                                                            ? "bgi DirectInput8 empty game-controller enumeration"
+                                                                                                                            : dinput8FactoryEnabled
+                                                                                                                              ? "bgi DirectInput8 root factory and identity"
+                                                                                                                              : getMonitorInfoAEnabled
+                                                                                                                                ? "bgi GetMonitorInfoA logical primary monitor"
+                                                                                                                                : queryPerformanceFrequencyEnabled
+                                                                                                                                  ? "bgi QueryPerformanceFrequency"
+                                                                                                                                  : d3d9RasterStatusEnabled
+                                                                                                                                    ? "bgi D3D9 raster-status polling"
+                                                                                                                                    : d3d9InitialRenderStatesEnabled
+                                                                                                                                      ? "bgi D3D9 initial render-state sequence"
+                                                                                                                                      : d3d9InitialVertexBufferEnabled
+                                                                                                                                        ? "bgi D3D9 initial vertex-buffer sequence"
+                                                                                                                                        : d3d9InitialTexturesEnabled
+                                                                                                                                          ? "bgi D3D9 initial texture sequence"
+                                                                                                                                          : timeGetTimeEnabled
+                                                                                                                                            ? "bgi WinMM timeGetTime"
+                                                                                                                                            : d3d9SurfaceGetDcEnabled
+                                                                                                                                              ? "bgi D3D9 surface GetDC fill and ReleaseDC"
+                                                                                                                                              : d3d9GetSurfaceLevelEnabled
+                                                                                                                                                ? "bgi D3D9 GetSurfaceLevel"
+                                                                                                                                                : d3d9CreateTextureEnabled
+                                                                                                                                                  ? "bgi D3D9 CreateTexture"
+                                                                                                                                                  : d3d9CreateDeviceEnabled
+                                                                                                                                                    ? "bgi D3D9 CreateDevice"
+                                                                                                                                                    : d3d9GetAdapterMonitorEnabled
+                                                                                                                                                      ? "bgi D3D9 GetAdapterMonitor"
+                                                                                                                                                      : d3d9GetAdapterCountEnabled
+                                                                                                                                                        ? "bgi D3D9 GetAdapterCount"
+                                                                                                                                                        : monitorFromWindowEnabled
+                                                                                                                                                          ? "bgi MonitorFromWindow logical primary lookup"
+                                                                                                                                                          : setWindowPosActivationEnabled
+                                                                                                                                                            ? "bgi SetWindowPos same-geometry activation"
+                                                                                                                                                            : setWindowLongAEnabled
+                                                                                                                                                              ? "bgi SetWindowLongA GWL_STYLE"
+                                                                                                                                                              : windowDcFillEnabled
+                                                                                                                                                                ? "bgi window DC fill"
+                                                                                                                                                                : getClientRectEnabled
+                                                                                                                                                                  ? "bgi GetClientRect"
+                                                                                                                                                                  : loadLibraryAEnabled
+                                                                                                                                                                    ? "bgi LoadLibraryA runtime-system module"
+                                                                                                                                                                    : d3d9CheckDeviceFormatEnabled
+                                                                                                                                                                      ? "bgi D3D9 CheckDeviceFormat"
+                                                                                                                                                                      : d3d9CheckDeviceTypeEnabled
+                                                                                                                                                                        ? "bgi D3D9 CheckDeviceType"
+                                                                                                                                                                        : d3d9GetDeviceCapsEnabled
+                                                                                                                                                                          ? "bgi D3D9 GetDeviceCaps"
+                                                                                                                                                                          : d3d9GetAdapterIdentifierEnabled
+                                                                                                                                                                            ? "bgi D3D9 GetAdapterIdentifier"
+                                                                                                                                                                            : d3d9GetAdapterDisplayModeEnabled
+                                                                                                                                                                              ? "bgi D3D9 GetAdapterDisplayMode"
+                                                                                                                                                                              : d3d9RootFactoryEnabled
+                                                                                                                                                                                ? "bgi D3D9 root factory and identity"
+                                                                                                                                                                                : setWindowPosInitialPlacementEnabled
+                                                                                                                                                                                  ? "bgi SetWindowPos initial placement"
+                                                                                                                                                                                  : sendMessageASmallIconEnabled
+                                                                                                                                                                                    ? "bgi SendMessageA small icon"
+                                                                                                                                                                                    : loadImageASmallIconEnabled
+                                                                                                                                                                                      ? "bgi LoadImageA small icon"
+                                                                                                                                                                                      : getSystemMetricsSmallIconWidthEnabled
+                                                                                                                                                                                        ? "bgi GetSystemMetrics small icon width"
+                                                                                                                                                                                        : getSystemMetricsSmallIconHeightEnabled
+                                                                                                                                                                                          ? "bgi GetSystemMetrics small icon height"
+                                                                                                                                                                                          : createWindowExAEnabled
+                                                                                                                                                                                            ? "bgi CreateWindowExA"
+                                                                                                                                                                                            : sourceFileReadEnabled
+                                                                                                                                                                                              ? "bgi source file read"
+                                                                                                                                                                                              : largeHeapAllocationEnabled
+                                                                                                                                                                                                ? "bgi large HeapAlloc"
+                                                                                                                                                                                                : getSystemMetricsEnabled
+                                                                                                                                                                                                  ? "bgi GetSystemMetrics"
+                                                                                                                                                                                                  : registerClassExAEnabled
+                                                                                                                                                                                                    ? "bgi RegisterClassExA"
+                                                                                                                                                                                                    : loadCursorAEnabled
+                                                                                                                                                                                                      ? "bgi LoadCursorA"
+                                                                                                                                                                                                      : loadIconAEnabled
+                                                                                                                                                                                                        ? "bgi LoadIconA"
+                                                                                                                                                                                                        : createWaitableTimerAEnabled
+                                                                                                                                                                                                          ? "bgi CreateWaitableTimerA"
+                                                                                                                                                                                                          : getVersionExAEnabled
+                                                                                                                                                                                                            ? "bgi GetVersionExA"
+                                                                                                                                                                                                            : timeBeginPeriodEnabled
+                                                                                                                                                                                                              ? "bgi timeBeginPeriod"
+                                                                                                                                                                                                              : timeGetDevCapsEnabled
+                                                                                                                                                                                                                ? "bgi timeGetDevCaps"
+                                                                                                                                                                                                                : swapMouseButtonEnabled
+                                                                                                                                                                                                                  ? "bgi SwapMouseButton"
+                                                                                                                                                                                                                  : getDriveTypeAEnabled
+                                                                                                                                                                                                                    ? "bgi GetDriveTypeA"
+                                                                                                                                                                                                                    : getSystemDefaultLangIdEnabled
+                                                                                                                                                                                                                      ? "bgi GetSystemDefaultLangID"
+                                                                                                                                                                                                                      : coInitializeEnabled
+                                                                                                                                                                                                                        ? "bgi CoInitialize"
+                                                                                                                                                                                                                        : enumDisplayMonitorsEnabled
+                                                                                                                                                                                                                          ? "bgi EnumDisplayMonitors"
+                                                                                                                                                                                                                          : getSystemInfoEnabled
+                                                                                                                                                                                                                            ? "bgi GetSystemInfo"
+                                                                                                                                                                                                                            : setThreadAffinityMaskEnabled
+                                                                                                                                                                                                                              ? "bgi SetThreadAffinityMask"
+                                                                                                                                                                                                                              : getCurrentThreadEnabled
+                                                                                                                                                                                                                                ? "bgi GetCurrentThread"
+                                                                                                                                                                                                                                : createMutexAEnabled
+                                                                                                                                                                                                                                  ? "bgi CreateMutexA"
+                                                                                                                                                                                                                                  : setCurrentDirectoryAEnabled
+                                                                                                                                                                                                                                    ? "bgi SetCurrentDirectoryA"
+                                                                                                                                                                                                                                    : multiByteToWideCharCpAcpEnabled
+                                                                                                                                                                                                                                      ? "bgi MultiByteToWideChar CP_ACP"
+                                                                                                                                                                                                                                      : initializeCriticalSectionEnabled
+                                                                                                                                                                                                                                        ? "bgi InitializeCriticalSection"
+                                                                                                                                                                                                                                        : heapSizeEnabled
+                                                                                                                                                                                                                                          ? "bgi HeapSize"
+                                                                                                                                                                                                                                          : setUnhandledExceptionFilterEnabled
+                                                                                                                                                                                                                                            ? "bgi SetUnhandledExceptionFilter"
+                                                                                                                                                                                                                                            : isProcessorFeaturePresentEnabled
+                                                                                                                                                                                                                                              ? "bgi IsProcessorFeaturePresent"
+                                                                                                                                                                                                                                              : privateHeapSize128Enabled
+                                                                                                                                                                                                                                                ? "bgi private-heap size-128 allocation"
+                                                                                                                                                                                                                                                : privateHeapFreeSize1Enabled
+                                                                                                                                                                                                                                                  ? "bgi private-heap size-1 free"
+                                                                                                                                                                                                                                                  : privateHeapSize4Enabled
+                                                                                                                                                                                                                                                    ? "bgi private-heap size-4 allocation"
+                                                                                                                                                                                                                                                    : privateHeapSize16Enabled
+                                                                                                                                                                                                                                                      ? "bgi private-heap size-16 allocation"
+                                                                                                                                                                                                                                                      : getModuleFileNameAEnabled
+                                                                                                                                                                                                                                                        ? "bgi GetModuleFileNameA"
+                                                                                                                                                                                                                                                        : interlockedDecrementEnabled
+                                                                                                                                                                                                                                                          ? "bgi InterlockedDecrement"
+                                                                                                                                                                                                                                                          : lcMapStringWEnabled
+                                                                                                                                                                                                                                                            ? "bgi LCMapStringW"
+                                                                                                                                                                                                                                                            : getStringTypeWEnabled
+                                                                                                                                                                                                                                                              ? "bgi GetStringTypeW"
+                                                                                                                                                                                                                                                              : multiByteToWideCharEnabled
+                                                                                                                                                                                                                                                                ? "bgi MultiByteToWideChar"
+                                                                                                                                                                                                                                                                : getCpInfoEnabled
+                                                                                                                                                                                                                                                                  ? "bgi GetCPInfo"
+                                                                                                                                                                                                                                                                  : privateHeapSize544Enabled
+                                                                                                                                                                                                                                                                    ? "bgi private-heap size-544 allocation"
+                                                                                                                                                                                                                                                                    : getAcpEnabled
+                                                                                                                                                                                                                                                                      ? "bgi GetACP"
+                                                                                                                                                                                                                                                                      : setLastErrorEnabled
+                                                                                                                                                                                                                                                                        ? "bgi SetLastError"
+                                                                                                                                                                                                                                                                        : flsGetValueEnabled
+                                                                                                                                                                                                                                                                          ? "bgi FlsGetValue"
+                                                                                                                                                                                                                                                                          : tlsGetValueEnabled
+                                                                                                                                                                                                                                                                            ? "bgi TlsGetValue"
+                                                                                                                                                                                                                                                                            : getLastErrorEnabled
+                                                                                                                                                                                                                                                                              ? "bgi GetLastError"
+                                                                                                                                                                                                                                                                              : privateHeapSize1Enabled
+                                                                                                                                                                                                                                                                                ? "bgi private-heap size-1 allocation"
+                                                                                                                                                                                                                                                                                : wideCharToMultiByteEnabled
+                                                                                                                                                                                                                                                                                  ? "bgi WideCharToMultiByte"
+                                                                                                                                                                                                                                                                                  : environmentStringsWEnabled
+                                                                                                                                                                                                                                                                                    ? "bgi environment strings W"
+                                                                                                                                                                                                                                                                                    : commandLineAEnabled
+                                                                                                                                                                                                                                                                                      ? "bgi command line A"
+                                                                                                                                                                                                                                                                                      : setHandleCountEnabled
+                                                                                                                                                                                                                                                                                        ? "bgi set handle count"
+                                                                                                                                                                                                                                                                                        : standardErrorFileTypeEnabled
+                                                                                                                                                                                                                                                                                          ? "bgi standard error file type"
+                                                                                                                                                                                                                                                                                          : standardErrorHandleEnabled
+                                                                                                                                                                                                                                                                                            ? "bgi standard error handle"
+                                                                                                                                                                                                                                                                                            : standardOutputFileTypeEnabled
+                                                                                                                                                                                                                                                                                              ? "bgi standard output file type"
+                                                                                                                                                                                                                                                                                              : standardOutputHandleEnabled
+                                                                                                                                                                                                                                                                                                ? "bgi standard output handle"
+                                                                                                                                                                                                                                                                                                : fileTypeEnabled
+                                                                                                                                                                                                                                                                                                  ? "bgi file type"
+                                                                                                                                                                                                                                                                                                  : standardInputHandleEnabled
+                                                                                                                                                                                                                                                                                                    ? "bgi standard input handle"
+                                                                                                                                                                                                                                                                                                    : privateHeapSecondAllocationEnabled
+                                                                                                                                                                                                                                                                                                      ? "bgi private-heap second allocation"
+                                                                                                                                                                                                                                                                                                      : interlockedIncrementEnabled
+                                                                                                                                                                                                                                                                                                        ? "bgi interlocked increment"
+                                                                                                                                                                                                                                                                                                        : fiberLocalStorageValueEnabled
+                                                                                                                                                                                                                                                                                                          ? "bgi fiber-local-storage value"
+                                                                                                                                                                                                                                                                                                          : privateHeapAllocationEnabled
+                                                                                                                                                                                                                                                                                                            ? "bgi private-heap allocation"
+                                                                                                                                                                                                                                                                                                            : fiberLocalStorageAllocationEnabled
+                                                                                                                                                                                                                                                                                                              ? "bgi fiber-local-storage allocation"
+                                                                                                                                                                                                                                                                                                              : genericRuntimeCapability ===
+                                                                                                                                                                                                                                                                                                                  "kernel32-pointer-decoding"
+                                                                                                                                                                                                                                                                                                                ? "bgi pointer decoding"
+                                                                                                                                                                                                                                                                                                                : "bgi critical-section synchronization";
       console.log(
         `${checkpointLabel} passed: ${genericResult.supportedCalls.length} generic calls, ` +
           (genericResult.checkpointCompletion === undefined
@@ -6203,40 +6204,42 @@ async function run() {
             : genericResult.checkpointCompletion.capability ===
                 "user32-async-key-state-initial-scan"
               ? `${genericResult.checkpointCompletion.completionCount} no-input async-key scan queries completed after ${genericResult.checkpointCompletion.leadingCallCount} leading polls`
-            : genericResult.checkpointCompletion.capability ===
-                "user32-async-key-state-input-continuation"
-              ? `${genericResult.checkpointCompletion.completionCount} controlled async-key queries completed`
-            : genericResult.checkpointCompletion.capability ===
-                "user32-async-key-state-input"
-              ? `${genericResult.checkpointCompletion.completionCount} controlled async-key query completed`
               : genericResult.checkpointCompletion.capability ===
-                "kernel32-leave-critical-section"
-              ? `${genericResult.checkpointCompletion.completionCount} critical-section release completed`
-              : genericResult.checkpointCompletion.capability ===
-                  "kernel32-leave-critical-section-continuation"
-                ? `${genericResult.checkpointCompletion.completionCount} critical-section continuation release completed`
+                  "user32-async-key-state-input-continuation"
+                ? `${genericResult.checkpointCompletion.completionCount} controlled async-key queries completed`
                 : genericResult.checkpointCompletion.capability ===
-                    "kernel32-enter-critical-section-continuation"
-                  ? `${genericResult.checkpointCompletion.completionCount} critical-section continuation acquisition completed`
+                    "user32-async-key-state-input"
+                  ? `${genericResult.checkpointCompletion.completionCount} controlled async-key query completed`
                   : genericResult.checkpointCompletion.capability ===
-                      "primary-main-loop-continuation"
-                    ? `${genericResult.checkpointCompletion.completionCount} scheduler selections completed`
+                      "kernel32-leave-critical-section"
+                    ? `${genericResult.checkpointCompletion.completionCount} critical-section release completed`
                     : genericResult.checkpointCompletion.capability ===
-                        "primary-main-loop-progression"
-                      ? `${genericResult.checkpointCompletion.completionCount} scheduler selections completed`
+                        "kernel32-leave-critical-section-continuation"
+                      ? `${genericResult.checkpointCompletion.completionCount} critical-section continuation release completed`
                       : genericResult.checkpointCompletion.capability ===
-                          "kernel32-enter-critical-section"
-                        ? `${genericResult.checkpointCompletion.completionCount} balanced critical-section acquisitions completed`
+                          "kernel32-enter-critical-section-continuation"
+                        ? `${genericResult.checkpointCompletion.completionCount} critical-section continuation acquisition completed`
                         : genericResult.checkpointCompletion.capability ===
-                            "d3d9-end-scene"
-                          ? `${genericResult.checkpointCompletion.completionCount} scene lifecycle close completed`
+                            "primary-main-loop-continuation"
+                          ? `${genericResult.checkpointCompletion.completionCount} scheduler selections completed`
                           : genericResult.checkpointCompletion.capability ===
-                              "d3d9-post-end-scene-raster-status"
-                            ? `${genericResult.checkpointCompletion.completionCount} post-scene raster-status sample completed`
+                              "primary-main-loop-progression"
+                            ? `${genericResult.checkpointCompletion.completionCount} scheduler selections completed`
                             : genericResult.checkpointCompletion.capability ===
-                                "d3d9-post-raster-status-waitable-timer"
-                              ? `${genericResult.checkpointCompletion.completionCount} post-scene timer arm/wait cycle completed`
-                              : `${genericResult.checkpointCompletion.completionCount} recurring waits completed`),
+                                "kernel32-enter-critical-section"
+                              ? `${genericResult.checkpointCompletion.completionCount} balanced critical-section acquisitions completed`
+                              : genericResult.checkpointCompletion
+                                    .capability === "d3d9-end-scene"
+                                ? `${genericResult.checkpointCompletion.completionCount} scene lifecycle close completed`
+                                : genericResult.checkpointCompletion
+                                      .capability ===
+                                    "d3d9-post-end-scene-raster-status"
+                                  ? `${genericResult.checkpointCompletion.completionCount} post-scene raster-status sample completed`
+                                  : genericResult.checkpointCompletion
+                                        .capability ===
+                                      "d3d9-post-raster-status-waitable-timer"
+                                    ? `${genericResult.checkpointCompletion.completionCount} post-scene timer arm/wait cycle completed`
+                                    : `${genericResult.checkpointCompletion.completionCount} recurring waits completed`),
       );
       console.log(
         `reflection sha256 ${offer.reflection.contentSha256}; report: ` +
@@ -6714,41 +6717,42 @@ async function runGenericRuntimeReentry({
             : checkpointCompletion.capability ===
                 "user32-async-key-state-initial-scan"
               ? "user32-async-key-state-initial-scan-checkpoint-complete"
-            : checkpointCompletion.capability ===
-                "user32-async-key-state-initial-scan-continuation"
-              ? "user32-async-key-state-initial-scan-continuation-checkpoint-complete"
-            : checkpointCompletion.capability ===
-                "user32-async-key-state-input-continuation"
-              ? "user32-async-key-state-input-continuation-checkpoint-complete"
-            : checkpointCompletion.capability ===
-                "user32-async-key-state-input"
-              ? "user32-async-key-state-input-checkpoint-complete"
-            : checkpointCompletion.capability === "d3d9-end-scene"
-              ? "d3d9-end-scene-checkpoint-complete"
               : checkpointCompletion.capability ===
-                  "d3d9-post-end-scene-raster-status"
-                ? "d3d9-post-end-scene-raster-status-checkpoint-complete"
+                  "user32-async-key-state-initial-scan-continuation"
+                ? "user32-async-key-state-initial-scan-continuation-checkpoint-complete"
                 : checkpointCompletion.capability ===
-                    "d3d9-post-raster-status-waitable-timer"
-                  ? "d3d9-post-raster-status-waitable-timer-checkpoint-complete"
+                    "user32-async-key-state-input-continuation"
+                  ? "user32-async-key-state-input-continuation-checkpoint-complete"
                   : checkpointCompletion.capability ===
-                      "d3d9-post-scene-present-gateway"
-                    ? "d3d9-post-scene-present-gateway-checkpoint-complete"
-                  : checkpointCompletion.capability === "d3d9-first-present"
-                    ? "d3d9-first-present-checkpoint-complete"
-                  : checkpointCompletion.capability ===
-                      "kernel32-leave-critical-section-continuation"
-                    ? "kernel32-leave-critical-section-continuation-checkpoint-complete"
-                    : checkpointCompletion.capability ===
-                        "kernel32-enter-critical-section-continuation"
-                      ? "kernel32-enter-critical-section-continuation-checkpoint-complete"
+                      "user32-async-key-state-input"
+                    ? "user32-async-key-state-input-checkpoint-complete"
+                    : checkpointCompletion.capability === "d3d9-end-scene"
+                      ? "d3d9-end-scene-checkpoint-complete"
                       : checkpointCompletion.capability ===
-                          "primary-main-loop-progression"
-                        ? "primary-main-loop-progression-checkpoint-complete"
+                          "d3d9-post-end-scene-raster-status"
+                        ? "d3d9-post-end-scene-raster-status-checkpoint-complete"
                         : checkpointCompletion.capability ===
-                            "kernel32-enter-critical-section"
-                          ? "kernel32-enter-critical-section-checkpoint-complete"
-                          : "kernel32-wait-for-single-object-ex-checkpoint-complete",
+                            "d3d9-post-raster-status-waitable-timer"
+                          ? "d3d9-post-raster-status-waitable-timer-checkpoint-complete"
+                          : checkpointCompletion.capability ===
+                              "d3d9-post-scene-present-gateway"
+                            ? "d3d9-post-scene-present-gateway-checkpoint-complete"
+                            : checkpointCompletion.capability ===
+                                "d3d9-first-present"
+                              ? "d3d9-first-present-checkpoint-complete"
+                              : checkpointCompletion.capability ===
+                                  "kernel32-leave-critical-section-continuation"
+                                ? "kernel32-leave-critical-section-continuation-checkpoint-complete"
+                                : checkpointCompletion.capability ===
+                                    "kernel32-enter-critical-section-continuation"
+                                  ? "kernel32-enter-critical-section-continuation-checkpoint-complete"
+                                  : checkpointCompletion.capability ===
+                                      "primary-main-loop-progression"
+                                    ? "primary-main-loop-progression-checkpoint-complete"
+                                    : checkpointCompletion.capability ===
+                                        "kernel32-enter-critical-section"
+                                      ? "kernel32-enter-critical-section-checkpoint-complete"
+                                      : "kernel32-wait-for-single-object-ex-checkpoint-complete",
       });
       checkpointCompletion.instructionCount = continuation.instructionCount;
       checkpointCompletion.nextEndpoint = {
@@ -7685,8 +7689,7 @@ async function runGenericRuntimeReentry({
       if (d3d9PostScenePresentGatewayCheckpointEnabled) {
         checkpointCompletion = {
           capability: "d3d9-post-scene-present-gateway",
-          implementationId:
-            "d3d9.get-raster-status.last-visible-sample.v2",
+          implementationId: "d3d9.get-raster-status.last-visible-sample.v2",
           requiredCompletions: 1,
           completionCount: 1,
           lastCompletionSequence: sequence,
@@ -22300,10 +22303,7 @@ function validateD3d9PresentResult(result, validateCheckpoint = true) {
   const checkpoint = result.checkpointCompletion;
   assert(checkpoint, "first Present checkpoint is missing");
   assert.equal(checkpoint.capability, "d3d9-first-present");
-  assert.equal(
-    checkpoint.implementationId,
-    "d3d9.present.discard-snapshot.v1",
-  );
+  assert.equal(checkpoint.implementationId, "d3d9.present.discard-snapshot.v1");
   assert.equal(checkpoint.requiredCompletions, 1);
   assert.equal(checkpoint.completionCount, 1);
   assert.equal(checkpoint.lastCompletionSequence, call.sequence);
@@ -22319,7 +22319,10 @@ function validateD3d9PresentResult(result, validateCheckpoint = true) {
 function validateD3d9PostPresentContinuationResult(result) {
   validateD3d9PresentResult(result, false);
   assert.equal(result.checkpointCompletion, undefined);
-  assert(result.fault, "post-Present continuation did not reach a structured stop");
+  assert(
+    result.fault,
+    "post-Present continuation did not reach a structured stop",
+  );
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.supportedCalls.length, 127_690);
   assert.equal(result.callbackEvents.length, 60);
@@ -22518,23 +22521,30 @@ function validateUser32AsyncKeyStateInitialScanResult(result) {
   const cursorOutput = getCursorPosCall.arguments[0];
   assert.deepEqual(getWindowRectCall.result, { action: "set", value: 1 });
   assert.equal(getWindowRectCall.returnAddress, 0x1008_8558);
-  assert.equal(getWindowRectCall.stackPointerAfter, getWindowRectCall.stackPointerBefore + 12);
+  assert.equal(
+    getWindowRectCall.stackPointerAfter,
+    getWindowRectCall.stackPointerBefore + 12,
+  );
   assert.equal(getWindowRectCall.lastError, 0);
   assert.equal(getWindowRectCall.guestWrites.length, 1);
   assert.equal(getWindowRectCall.guestWrites[0].address, rectOutput);
-  assert.deepEqual(getWindowRectCall.guestWrites[0].bytes, [
-    0x3d, 0x01, 0, 0, 0x9a, 0, 0, 0, 0x43, 0x06, 0, 0, 0x87, 0x03,
-    0, 0,
-  ]);
+  assert.deepEqual(
+    getWindowRectCall.guestWrites[0].bytes,
+    [0x3d, 0x01, 0, 0, 0x9a, 0, 0, 0, 0x43, 0x06, 0, 0, 0x87, 0x03, 0, 0],
+  );
   assert.deepEqual(getCursorPosCall.result, { action: "set", value: 1 });
   assert.equal(getCursorPosCall.returnAddress, 0x1008_8563);
-  assert.equal(getCursorPosCall.stackPointerAfter, getCursorPosCall.stackPointerBefore + 8);
+  assert.equal(
+    getCursorPosCall.stackPointerAfter,
+    getCursorPosCall.stackPointerBefore + 8,
+  );
   assert.equal(getCursorPosCall.lastError, 0);
   assert.equal(getCursorPosCall.guestWrites.length, 1);
   assert.equal(getCursorPosCall.guestWrites[0].address, cursorOutput);
-  assert.deepEqual(getCursorPosCall.guestWrites[0].bytes, [
-    0xc0, 0x03, 0, 0, 0x1c, 0x02, 0, 0,
-  ]);
+  assert.deepEqual(
+    getCursorPosCall.guestWrites[0].bytes,
+    [0xc0, 0x03, 0, 0, 0x1c, 0x02, 0, 0],
+  );
   const checkpoint = result.checkpointCompletion;
   assert(checkpoint, "GetAsyncKeyState initial scan checkpoint is missing");
   const calls = result.supportedCalls.filter(
@@ -22687,13 +22697,10 @@ function validateUser32AsyncKeyStateInitialScanContinuationResult(result) {
   assert(textureLock, "initial-scan continuation omitted LockRect completion");
   assert.equal(textureLock.sequence, 148_198);
   assert.equal(textureLock.trapInstructionCount, 147_769_351);
-  assert.deepEqual(textureLock.arguments, [
-    0x0102_0004,
-    0,
-    0x006f_f8c4,
-    0x006f_f8cc,
-    0x8000,
-  ]);
+  assert.deepEqual(
+    textureLock.arguments,
+    [0x0102_0004, 0, 0x006f_f8c4, 0x006f_f8cc, 0x8000],
+  );
   assert.deepEqual(textureLock.result, { kind: "h-result", value: 0 });
   assert.equal(textureLock.returnAddress, 0x1004_154c);
   assert.equal(textureLock.guestWrites.length, 1);
@@ -22724,7 +22731,10 @@ function validateUser32AsyncKeyStateInitialScanContinuationResult(result) {
       call.arguments[0] === textureLock.arguments[0] &&
       call.sequence > textureLock.sequence,
   );
-  assert(textureUnlock, "initial-scan continuation omitted matching UnlockRect");
+  assert(
+    textureUnlock,
+    "initial-scan continuation omitted matching UnlockRect",
+  );
   assert.deepEqual(textureUnlock.arguments, [0x0102_0004, 0]);
   assert.deepEqual(textureUnlock.result, { kind: "h-result", value: 0 });
   assert.equal(textureUnlock.graphicsTexture.activeLock, undefined);
@@ -22764,7 +22774,48 @@ function validateUser32AsyncKeyStateInitialScanContinuationResult(result) {
     partialTextureUpdate.graphicsTextureUpdate.destination.content.pixelSource,
     partialTextureUpdate.graphicsTextureUpdate.source.content.pixelSource,
   );
+  const cooperativeLevel = result.supportedCalls.find(
+    (call) =>
+      call.interface === "IDirect3DDevice9" &&
+      call.vtableSlot === 3 &&
+      call.symbol === "IDirect3DDevice9.TestCooperativeLevel",
+  );
+  assert(
+    cooperativeLevel,
+    "initial-scan continuation omitted TestCooperativeLevel completion",
+  );
+  assert.equal(cooperativeLevel.sequence, 148_293);
+  assert.equal(cooperativeLevel.trapInstructionCount, 148_744_443);
+  assert.deepEqual(cooperativeLevel.arguments, [0x0101_0004]);
+  assert.deepEqual(cooperativeLevel.result, { kind: "h-result", value: 0 });
+  assert.equal(cooperativeLevel.returnAddress, 0x1005_adcd);
+  assert.equal(cooperativeLevel.referenceCount, 5);
+  assert.equal(cooperativeLevel.objectRetired, false);
+  assert.deepEqual(cooperativeLevel.guestWrites, []);
+  assert.equal(result.supportedCalls.length, 148_295);
   assert(result.fault, "initial-scan continuation omitted its structured stop");
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.terminal.instructionCount, 148_744_543);
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.fault.endpoint.endpoint.id, 164);
+  assert.equal(result.fault.endpoint.endpoint.address, 0x7f00_0a30);
+  assert.equal(
+    result.fault.endpoint.endpoint.module.toLowerCase(),
+    "user32.dll",
+  );
+  assert.deepEqual(result.fault.endpoint.endpoint.symbol, {
+    kind: "name",
+    name: "PeekMessageA",
+  });
+  assert.equal(result.fault.endpoint.endpoint.iatAddress, 0x100d_1368);
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1009_378b);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 6),
+    [0x006f_f8e8, 0, 0, 0, 1],
+  );
 }
 
 function validateArchiveSourceReadResult(result) {
@@ -27208,16 +27259,15 @@ function buildGenericRuntimeReentryReport({
           "kernel32.set-waitable-timer.relative-one-shot.v1",
       )
     : [];
-  const d3d9PostScenePacingCycleCount =
-    user32AsyncKeyStateInitialScanEnabled
-      ? setWaitableTimerCalls.length - 9_187
+  const d3d9PostScenePacingCycleCount = user32AsyncKeyStateInitialScanEnabled
+    ? setWaitableTimerCalls.length - 9_187
     : user32AsyncKeyStateInputContinuationCheckpointEnabled
       ? 45
-    : d3d9PostPresentContinuationEnabled
-      ? 18
-      : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
-        ? 1
-        : 0;
+      : d3d9PostPresentContinuationEnabled
+        ? 18
+        : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
+          ? 1
+          : 0;
   if (
     d3d9PostRasterStatusWaitableTimerEnabled ||
     d3d9PostPresentContinuationEnabled
@@ -27314,19 +27364,20 @@ function buildGenericRuntimeReentryReport({
       waitForSingleObjectExCalls.length,
       "WaitForSingleObjectEx pacing request count differs from its API completions",
     );
+    const timerArmGenerations = new Map();
     for (const [index, pacing] of genericResult.timerPacing.entries()) {
       assert.equal(pacing.sequence, waitForSingleObjectExCalls[index].sequence);
       assert.equal(pacing.delayMilliseconds, 1);
       assert.equal(pacing.registrationId, String(index + 1));
-      const postScenePacing =
-        d3d9PostRasterStatusWaitableTimerEnabled && index >= 9_186;
-      assert.equal(pacing.timerId, postScenePacing ? "1" : "2");
+      assert(
+        pacing.timerId === "1" || pacing.timerId === "2",
+        `unexpected waitable timer identity ${pacing.timerId}`,
+      );
+      const armGeneration = (timerArmGenerations.get(pacing.timerId) ?? 0) + 1;
+      timerArmGenerations.set(pacing.timerId, armGeneration);
       assert.equal(pacing.targetTime100ns, String((index + 1) * 5_000));
       assert.equal(pacing.timerClockGeneration, String(index));
-      assert.equal(
-        pacing.armGeneration,
-        String(postScenePacing ? index - 9_185 : index + 1),
-      );
+      assert.equal(pacing.armGeneration, String(armGeneration));
       assert.equal(pacing.outcome, "object-signaled");
       assert.equal(pacing.pacing, "deterministic-node-ack");
     }
@@ -27556,8 +27607,16 @@ function buildGenericRuntimeReentryReport({
         ? "post-Present continuation requires one balanced WM_PAINT callback"
         : "UpdateWindow report summary requires one active WM_PAINT callback",
     );
-    assertSummaryCompletionCount(beginPaintCalls, 1, "BeginPaint report count changed");
-    assertSummaryCompletionCount(endPaintCalls, 1, "EndPaint report count changed");
+    assertSummaryCompletionCount(
+      beginPaintCalls,
+      1,
+      "BeginPaint report count changed",
+    );
+    assertSummaryCompletionCount(
+      endPaintCalls,
+      1,
+      "EndPaint report count changed",
+    );
   }
   const d3d9ClearCalls = d3d9ClearCheckpointEnabled
     ? genericResult.supportedCalls.filter(
@@ -27656,8 +27715,28 @@ function buildGenericRuntimeReentryReport({
     assert(d3d9TextureLockRectCall.graphicsTexture?.backing);
     assert(d3d9TextureLockRectCall.graphicsTexture?.activeLock);
     assert(d3d9TextureUnlockRectCall.graphicsTexture?.backing);
-    assert.equal(d3d9TextureUnlockRectCall.graphicsTexture?.activeLock, undefined);
+    assert.equal(
+      d3d9TextureUnlockRectCall.graphicsTexture?.activeLock,
+      undefined,
+    );
     assert(d3d9TextureUnlockRectCall.graphicsTexture?.content.pixelSource);
+  }
+  const d3d9TestCooperativeLevelCalls =
+    user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
+      ? genericResult.supportedCalls.filter(
+          (call) =>
+            call.interface === "IDirect3DDevice9" &&
+            call.vtableSlot === 3 &&
+            call.symbol === "IDirect3DDevice9.TestCooperativeLevel",
+        )
+      : [];
+  const d3d9TestCooperativeLevelCall = d3d9TestCooperativeLevelCalls[0] ?? null;
+  if (user32AsyncKeyStateInitialScanContinuationCheckpointEnabled) {
+    assertSummaryCompletionCount(
+      d3d9TestCooperativeLevelCalls,
+      1,
+      "D3D9 TestCooperativeLevel report summary requires one completion",
+    );
   }
   const d3d9UpdateTextureCalls = d3d9UpdateTextureCheckpointEnabled
     ? genericResult.supportedCalls.filter(
@@ -27860,13 +27939,13 @@ function buildGenericRuntimeReentryReport({
     assert(d3d9PresentCall.graphicsDevice?.presentedFrame);
   }
   const postPresentTimeGetTimeCall = d3d9PostPresentContinuationEnabled
-    ? genericResult.supportedCalls.find(
+    ? (genericResult.supportedCalls.find(
         (call) =>
           call.sequence === d3d9PresentCall?.sequence + 1 &&
           call.module.toLowerCase() === "winmm.dll" &&
           call.symbol === "timeGetTime" &&
           call.implementationId === "winmm.time-get-time.v1",
-      ) ?? null
+      ) ?? null)
     : null;
   if (d3d9PostPresentContinuationEnabled) {
     assert(
@@ -27874,16 +27953,15 @@ function buildGenericRuntimeReentryReport({
       "post-Present report summary requires the following timeGetTime completion",
     );
   }
-  const postPresentGetForegroundWindowCall =
-    d3d9PostPresentContinuationEnabled
-      ? genericResult.supportedCalls.find(
-          (call) =>
-            call.sequence === postPresentTimeGetTimeCall?.sequence + 1 &&
-            call.module.toLowerCase() === "user32.dll" &&
-            call.symbol === "GetForegroundWindow" &&
-            call.implementationId === "user32.get-foreground-window.v1",
-        ) ?? null
-      : null;
+  const postPresentGetForegroundWindowCall = d3d9PostPresentContinuationEnabled
+    ? (genericResult.supportedCalls.find(
+        (call) =>
+          call.sequence === postPresentTimeGetTimeCall?.sequence + 1 &&
+          call.module.toLowerCase() === "user32.dll" &&
+          call.symbol === "GetForegroundWindow" &&
+          call.implementationId === "user32.get-foreground-window.v1",
+      ) ?? null)
+    : null;
   if (d3d9PostPresentContinuationEnabled) {
     assert(
       postPresentGetForegroundWindowCall,
@@ -27917,8 +27995,14 @@ function buildGenericRuntimeReentryReport({
         .at(-1) ?? null)
     : null;
   if (user32AsyncKeyStateInitialScanEnabled) {
-    assert(getWindowRectCall, "initial-scan report summary has no GetWindowRect call");
-    assert(getCursorPosCall, "initial-scan report summary has no GetCursorPos call");
+    assert(
+      getWindowRectCall,
+      "initial-scan report summary has no GetWindowRect call",
+    );
+    assert(
+      getCursorPosCall,
+      "initial-scan report summary has no GetCursorPos call",
+    );
   }
   if (user32AsyncKeyStateGatewayEnabled) {
     assert(
@@ -27947,10 +28031,9 @@ function buildGenericRuntimeReentryReport({
     assert(Number.isSafeInteger(getAsyncKeyStateInitialScanLeadingCallCount));
     assert(getAsyncKeyStateInitialScanLeadingCallCount > 0);
   }
-  const getAsyncKeyStateInitialScanCalls =
-    user32AsyncKeyStateInitialScanEnabled
-      ? getAsyncKeyStateCalls.slice(getAsyncKeyStateInitialScanLeadingCallCount)
-      : [];
+  const getAsyncKeyStateInitialScanCalls = user32AsyncKeyStateInitialScanEnabled
+    ? getAsyncKeyStateCalls.slice(getAsyncKeyStateInitialScanLeadingCallCount)
+    : [];
   const initialScanContinuationCalls =
     user32AsyncKeyStateInitialScanContinuationCheckpointEnabled &&
     genericResult.initialAsyncKeyStateScan?.lastCall !== undefined
@@ -27970,7 +28053,10 @@ function buildGenericRuntimeReentryReport({
       initialScanContinuationCalls[0].sequence,
       scanLastCall.sequence + 1,
     );
-    assert.equal(initialScanContinuationCalls[0].module.toLowerCase(), "winmm.dll");
+    assert.equal(
+      initialScanContinuationCalls[0].module.toLowerCase(),
+      "winmm.dll",
+    );
     assert.equal(initialScanContinuationCalls[0].symbol, "timeGetTime");
     assert.equal(
       initialScanContinuationCalls[0].implementationId,
@@ -27980,7 +28066,10 @@ function buildGenericRuntimeReentryReport({
       initialScanContinuationCalls[1].sequence,
       scanLastCall.sequence + 2,
     );
-    assert.equal(initialScanContinuationCalls[1].module.toLowerCase(), "user32.dll");
+    assert.equal(
+      initialScanContinuationCalls[1].module.toLowerCase(),
+      "user32.dll",
+    );
     assert.equal(initialScanContinuationCalls[1].symbol, "SetRect");
     assert.equal(
       initialScanContinuationCalls[1].implementationId,
@@ -28102,302 +28191,303 @@ function buildGenericRuntimeReentryReport({
         ? "vine.v86-bgi-generic-runtime-reentry"
         : user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
           ? "vine.v86-bgi-user32-async-key-state-initial-scan-continuation"
-        : user32AsyncKeyStateInitialScanCheckpointEnabled
-          ? "vine.v86-bgi-user32-async-key-state-initial-scan"
-        : user32AsyncKeyStateInputContinuationCheckpointEnabled
-          ? "vine.v86-bgi-user32-async-key-state-input-continuation"
-        : user32AsyncKeyStateInputCheckpointEnabled
-          ? "vine.v86-bgi-user32-async-key-state-input"
-        : d3d9PostPresentContinuationEnabled
-          ? "vine.v86-bgi-d3d9-post-present-continuation"
-          : d3d9PresentCheckpointEnabled
-          ? "vine.v86-bgi-d3d9-first-present"
-          : d3d9PostScenePresentGatewayCheckpointEnabled
-            ? "vine.v86-bgi-d3d9-post-scene-present-gateway"
-          : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
-            ? "vine.v86-bgi-d3d9-post-raster-status-waitable-timer"
-          : d3d9PostEndSceneRasterStatusCheckpointEnabled
-            ? "vine.v86-bgi-d3d9-post-end-scene-raster-status"
-            : d3d9EndSceneCheckpointEnabled
-              ? "vine.v86-bgi-d3d9-end-scene"
-              : d3d9DrawPrimitiveCheckpointEnabled
-                ? "vine.v86-bgi-d3d9-draw-primitive"
-                : d3d9SetStreamSourceCheckpointEnabled
-                  ? "vine.v86-bgi-d3d9-set-stream-source"
-                  : d3d9SetFvfCheckpointEnabled
-                    ? "vine.v86-bgi-d3d9-set-fvf"
-                    : d3d9SetTextureCheckpointEnabled
-                      ? "vine.v86-bgi-d3d9-set-texture"
-                      : d3d9InitialTextureStageStatesCheckpointEnabled
-                        ? "vine.v86-bgi-d3d9-initial-texture-stage-states"
-                        : d3d9InitialSamplerStatesCheckpointEnabled
-                          ? "vine.v86-bgi-d3d9-initial-sampler-states"
-                          : d3d9BeginSceneCheckpointEnabled
-                            ? "vine.v86-bgi-d3d9-begin-scene"
-                            : d3d9UpdateTextureCheckpointEnabled
-                              ? "vine.v86-bgi-d3d9-update-texture"
-                              : d3d9AddDirtyRectCheckpointEnabled
-                                ? "vine.v86-bgi-d3d9-add-dirty-rect"
-                                : setRectCheckpointEnabled
-                                  ? "vine.v86-bgi-user32-set-rect"
-                                  : d3d9ClearCheckpointEnabled
-                                    ? "vine.v86-bgi-d3d9-clear"
-                                    : updateWindowCheckpointEnabled
-                                      ? "vine.v86-bgi-user32-update-window"
-                                      : showWindowNormalCheckpointEnabled
-                                        ? "vine.v86-bgi-user32-show-window-normal"
-                                        : setWindowPosFrameChangeMoveCheckpointEnabled
-                                          ? "vine.v86-bgi-user32-set-window-pos-frame-change-move"
-                                          : d3d9RecreatedTexturesCheckpointEnabled
-                                            ? "vine.v86-bgi-d3d9-recreated-textures"
-                                            : setWindowPosRepeatActivationCheckpointEnabled
-                                              ? "vine.v86-bgi-user32-set-window-pos-repeat-activation"
-                                              : createDirectoryACheckpointEnabled
-                                                ? "vine.v86-bgi-kernel32-create-directory-a"
-                                                : getFileAttributesACheckpointEnabled
-                                                  ? "vine.v86-bgi-kernel32-get-file-attributes-a"
-                                                  : globalMemoryStatusCheckpointEnabled
-                                                    ? "vine.v86-bgi-kernel32-global-memory-status"
-                                                    : sleepZeroCheckpointEnabled
-                                                      ? "vine.v86-bgi-kernel32-sleep-zero"
-                                                      : archiveSourceReadEnabled
-                                                        ? "vine.v86-bgi-kernel32-archive-source-read"
-                                                        : dragAcceptFilesEnabled
-                                                          ? "vine.v86-bgi-shell32-drag-accept-files"
-                                                          : primaryMainLoopContinuationEnabled
-                                                            ? "vine.v86-bgi-primary-main-loop-continuation"
-                                                            : leaveCriticalSectionContinuationEnabled
-                                                              ? "vine.v86-bgi-kernel32-leave-critical-section-continuation"
-                                                              : enterCriticalSectionContinuationEnabled
-                                                                ? "vine.v86-bgi-kernel32-enter-critical-section-continuation"
-                                                                : leaveCriticalSectionCheckpointEnabled
-                                                                  ? "vine.v86-bgi-kernel32-leave-critical-section"
-                                                                  : mainLoopProgressionEnabled
-                                                                    ? "vine.v86-bgi-primary-main-loop-progression"
-                                                                    : enterCriticalSectionEnabled
-                                                                      ? "vine.v86-bgi-kernel32-enter-critical-section"
-                                                                      : waitForSingleObjectExEnabled
-                                                                        ? "vine.v86-bgi-kernel32-wait-for-single-object-ex"
-                                                                        : setWaitableTimerEnabled
-                                                                          ? "vine.v86-bgi-kernel32-set-waitable-timer"
-                                                                          : imm32ContextEnabled
-                                                                            ? "vine.v86-bgi-imm32-default-ime-context"
-                                                                            : virtualAllocEnabled
-                                                                              ? "vine.v86-bgi-kernel32-virtual-alloc"
-                                                                              : gdiplusStartupEnabled
-                                                                                ? "vine.v86-bgi-gdiplus-startup"
-                                                                                : textRasterEnabled
-                                                                                  ? "vine.v86-bgi-gdi-text-raster"
-                                                                                  : outlineTextMetricsEnabled
-                                                                                    ? "vine.v86-bgi-gdi-outline-text-metrics"
-                                                                                    : dibLifecycleEnabled
-                                                                                      ? "vine.v86-bgi-gdi-dib-lifecycle"
-                                                                                      : compatibleDcEnabled
-                                                                                        ? "vine.v86-bgi-gdi-compatible-dc"
-                                                                                        : fontCreationEnabled
-                                                                                          ? "vine.v86-bgi-gdi-font-creation"
-                                                                                          : fontEnumerationEnabled
-                                                                                            ? "vine.v86-bgi-gdi-font-enumeration"
-                                                                                            : screenDcEnabled
-                                                                                              ? "vine.v86-bgi-gdi-screen-dc"
-                                                                                              : setThreadPriorityEnabled
-                                                                                                ? "vine.v86-bgi-kernel32-set-thread-priority"
-                                                                                                : createThreadEnabled
-                                                                                                  ? "vine.v86-bgi-kernel32-create-thread"
-                                                                                                  : setTimerEnabled
-                                                                                                    ? "vine.v86-bgi-user32-set-timer"
-                                                                                                    : dsoundBufferTransferEnabled
-                                                                                                      ? "vine.v86-bgi-dsound-buffer-lock-unlock-play"
-                                                                                                      : dsoundInitialBuffersEnabled
-                                                                                                        ? "vine.v86-bgi-dsound-initial-buffers"
-                                                                                                        : dsoundRootEnabled
-                                                                                                          ? "vine.v86-bgi-dsound-root-and-cooperative-level"
-                                                                                                          : dinput8EnumDevicesEnabled
-                                                                                                            ? "vine.v86-bgi-dinput8-enum-devices"
-                                                                                                            : dinput8FactoryEnabled
-                                                                                                              ? "vine.v86-bgi-dinput8-api-contract"
-                                                                                                              : getMonitorInfoAEnabled
-                                                                                                                ? "vine.v86-bgi-get-monitor-info-a"
-                                                                                                                : queryPerformanceFrequencyEnabled
-                                                                                                                  ? "vine.v86-bgi-query-performance-frequency"
-                                                                                                                  : d3d9RasterStatusEnabled
-                                                                                                                    ? "vine.v86-bgi-d3d9-raster-status"
-                                                                                                                    : d3d9InitialRenderStatesEnabled
-                                                                                                                      ? "vine.v86-bgi-d3d9-initial-render-states"
-                                                                                                                      : d3d9InitialVertexBufferEnabled
-                                                                                                                        ? "vine.v86-bgi-d3d9-initial-vertex-buffer"
-                                                                                                                        : d3d9InitialTexturesEnabled
-                                                                                                                          ? "vine.v86-bgi-d3d9-initial-textures"
-                                                                                                                          : timeGetTimeEnabled
-                                                                                                                            ? "vine.v86-bgi-time-get-time"
-                                                                                                                            : d3d9SurfaceGetDcEnabled
-                                                                                                                              ? "vine.v86-bgi-d3d9-surface-get-dc"
-                                                                                                                              : d3d9GetSurfaceLevelEnabled
-                                                                                                                                ? "vine.v86-bgi-d3d9-get-surface-level"
-                                                                                                                                : d3d9CreateTextureEnabled
-                                                                                                                                  ? "vine.v86-bgi-d3d9-create-texture"
-                                                                                                                                  : d3d9CreateDeviceEnabled
-                                                                                                                                    ? "vine.v86-bgi-d3d9-create-device"
-                                                                                                                                    : d3d9GetAdapterMonitorEnabled
-                                                                                                                                      ? "vine.v86-bgi-d3d9-get-adapter-monitor"
-                                                                                                                                      : d3d9GetAdapterCountEnabled
-                                                                                                                                        ? "vine.v86-bgi-d3d9-get-adapter-count"
-                                                                                                                                        : monitorFromWindowEnabled
-                                                                                                                                          ? "vine.v86-bgi-monitor-from-window"
-                                                                                                                                          : setWindowPosActivationEnabled
-                                                                                                                                            ? "vine.v86-bgi-set-window-pos-activation"
-                                                                                                                                            : setWindowLongAEnabled
-                                                                                                                                              ? "vine.v86-bgi-set-window-long-a"
-                                                                                                                                              : windowDcFillEnabled
-                                                                                                                                                ? "vine.v86-bgi-window-dc-fill"
-                                                                                                                                                : getClientRectEnabled
-                                                                                                                                                  ? "vine.v86-bgi-get-client-rect"
-                                                                                                                                                  : loadLibraryAEnabled
-                                                                                                                                                    ? "vine.v86-bgi-load-library-a"
-                                                                                                                                                    : d3d9CheckDeviceFormatEnabled
-                                                                                                                                                      ? "vine.v86-bgi-d3d9-check-device-format"
-                                                                                                                                                      : d3d9CheckDeviceTypeEnabled
-                                                                                                                                                        ? "vine.v86-bgi-d3d9-check-device-type"
-                                                                                                                                                        : d3d9GetDeviceCapsEnabled
-                                                                                                                                                          ? "vine.v86-bgi-d3d9-get-device-caps"
-                                                                                                                                                          : d3d9GetAdapterIdentifierEnabled
-                                                                                                                                                            ? "vine.v86-bgi-d3d9-get-adapter-identifier"
-                                                                                                                                                            : d3d9GetAdapterDisplayModeEnabled
-                                                                                                                                                              ? "vine.v86-bgi-d3d9-get-adapter-display-mode"
-                                                                                                                                                              : d3d9RootFactoryEnabled
-                                                                                                                                                                ? "vine.v86-bgi-d3d9-root-factory-and-identity"
-                                                                                                                                                                : setWindowPosInitialPlacementEnabled
-                                                                                                                                                                  ? "vine.v86-bgi-set-window-pos-initial-placement"
-                                                                                                                                                                  : sendMessageASmallIconEnabled
-                                                                                                                                                                    ? "vine.v86-bgi-send-message-a-small-icon"
-                                                                                                                                                                    : loadImageASmallIconEnabled
-                                                                                                                                                                      ? "vine.v86-bgi-load-image-a-small-icon"
-                                                                                                                                                                      : getSystemMetricsSmallIconWidthEnabled
-                                                                                                                                                                        ? "vine.v86-bgi-get-system-metrics-small-icon-width"
-                                                                                                                                                                        : getSystemMetricsSmallIconHeightEnabled
-                                                                                                                                                                          ? "vine.v86-bgi-get-system-metrics-small-icon-height"
-                                                                                                                                                                          : createWindowExAEnabled
-                                                                                                                                                                            ? "vine.v86-bgi-create-window-ex-a"
-                                                                                                                                                                            : sourceFileReadEnabled
-                                                                                                                                                                              ? "vine.v86-bgi-source-file-read"
-                                                                                                                                                                              : largeHeapAllocationEnabled
-                                                                                                                                                                                ? "vine.v86-bgi-large-heap-allocation"
-                                                                                                                                                                                : getSystemMetricsEnabled
-                                                                                                                                                                                  ? "vine.v86-bgi-get-system-metrics"
-                                                                                                                                                                                  : registerClassExAEnabled
-                                                                                                                                                                                    ? "vine.v86-bgi-register-class-ex-a"
-                                                                                                                                                                                    : loadCursorAEnabled
-                                                                                                                                                                                      ? "vine.v86-bgi-load-cursor-a"
-                                                                                                                                                                                      : loadIconAEnabled
-                                                                                                                                                                                        ? "vine.v86-bgi-load-icon-a"
-                                                                                                                                                                                        : createWaitableTimerAEnabled
-                                                                                                                                                                                          ? "vine.v86-bgi-create-waitable-timer-a"
-                                                                                                                                                                                          : getVersionExAEnabled
-                                                                                                                                                                                            ? "vine.v86-bgi-get-version-ex-a"
-                                                                                                                                                                                            : timeBeginPeriodEnabled
-                                                                                                                                                                                              ? "vine.v86-bgi-time-begin-period"
-                                                                                                                                                                                              : timeGetDevCapsEnabled
-                                                                                                                                                                                                ? "vine.v86-bgi-time-get-dev-caps"
-                                                                                                                                                                                                : swapMouseButtonEnabled
-                                                                                                                                                                                                  ? "vine.v86-bgi-swap-mouse-button"
-                                                                                                                                                                                                  : getDriveTypeAEnabled
-                                                                                                                                                                                                    ? "vine.v86-bgi-get-drive-type-a"
-                                                                                                                                                                                                    : getSystemDefaultLangIdEnabled
-                                                                                                                                                                                                      ? "vine.v86-bgi-get-system-default-lang-id"
-                                                                                                                                                                                                      : coInitializeEnabled
-                                                                                                                                                                                                        ? "vine.v86-bgi-co-initialize"
-                                                                                                                                                                                                        : enumDisplayMonitorsEnabled
-                                                                                                                                                                                                          ? "vine.v86-bgi-enum-display-monitors"
-                                                                                                                                                                                                          : getSystemInfoEnabled
-                                                                                                                                                                                                            ? "vine.v86-bgi-get-system-info"
-                                                                                                                                                                                                            : setThreadAffinityMaskEnabled
-                                                                                                                                                                                                              ? "vine.v86-bgi-set-thread-affinity-mask"
-                                                                                                                                                                                                              : getCurrentThreadEnabled
-                                                                                                                                                                                                                ? "vine.v86-bgi-get-current-thread"
-                                                                                                                                                                                                                : createMutexAEnabled
-                                                                                                                                                                                                                  ? "vine.v86-bgi-create-mutex-a"
-                                                                                                                                                                                                                  : setCurrentDirectoryAEnabled
-                                                                                                                                                                                                                    ? "vine.v86-bgi-set-current-directory-a"
-                                                                                                                                                                                                                    : multiByteToWideCharCpAcpEnabled
-                                                                                                                                                                                                                      ? "vine.v86-bgi-multi-byte-to-wide-char-cp-acp"
-                                                                                                                                                                                                                      : initializeCriticalSectionEnabled
-                                                                                                                                                                                                                        ? "vine.v86-bgi-initialize-critical-section"
-                                                                                                                                                                                                                        : heapSizeEnabled
-                                                                                                                                                                                                                          ? "vine.v86-bgi-heap-size"
-                                                                                                                                                                                                                          : setUnhandledExceptionFilterEnabled
-                                                                                                                                                                                                                            ? "vine.v86-bgi-set-unhandled-exception-filter"
-                                                                                                                                                                                                                            : isProcessorFeaturePresentEnabled
-                                                                                                                                                                                                                              ? "vine.v86-bgi-is-processor-feature-present"
-                                                                                                                                                                                                                              : privateHeapSize128Enabled
-                                                                                                                                                                                                                                ? "vine.v86-bgi-private-heap-size-128"
-                                                                                                                                                                                                                                : privateHeapFreeSize1Enabled
-                                                                                                                                                                                                                                  ? "vine.v86-bgi-private-heap-free-size-1"
-                                                                                                                                                                                                                                  : privateHeapSize4Enabled
-                                                                                                                                                                                                                                    ? "vine.v86-bgi-private-heap-size-4"
-                                                                                                                                                                                                                                    : privateHeapSize16Enabled
-                                                                                                                                                                                                                                      ? "vine.v86-bgi-private-heap-size-16"
-                                                                                                                                                                                                                                      : getModuleFileNameAEnabled
-                                                                                                                                                                                                                                        ? "vine.v86-bgi-get-module-file-name-a"
-                                                                                                                                                                                                                                        : interlockedDecrementEnabled
-                                                                                                                                                                                                                                          ? "vine.v86-bgi-interlocked-decrement"
-                                                                                                                                                                                                                                          : lcMapStringWEnabled
-                                                                                                                                                                                                                                            ? "vine.v86-bgi-lc-map-string-w"
-                                                                                                                                                                                                                                            : getStringTypeWEnabled
-                                                                                                                                                                                                                                              ? "vine.v86-bgi-get-string-type-w"
-                                                                                                                                                                                                                                              : multiByteToWideCharEnabled
-                                                                                                                                                                                                                                                ? "vine.v86-bgi-multi-byte-to-wide-char"
-                                                                                                                                                                                                                                                : getCpInfoEnabled
-                                                                                                                                                                                                                                                  ? "vine.v86-bgi-get-cp-info"
-                                                                                                                                                                                                                                                  : privateHeapSize544Enabled
-                                                                                                                                                                                                                                                    ? "vine.v86-bgi-private-heap-size-544"
-                                                                                                                                                                                                                                                    : getAcpEnabled
-                                                                                                                                                                                                                                                      ? "vine.v86-bgi-get-acp"
-                                                                                                                                                                                                                                                      : setLastErrorEnabled
-                                                                                                                                                                                                                                                        ? "vine.v86-bgi-set-last-error"
-                                                                                                                                                                                                                                                        : flsGetValueEnabled
-                                                                                                                                                                                                                                                          ? "vine.v86-bgi-fls-get-value"
-                                                                                                                                                                                                                                                          : tlsGetValueEnabled
-                                                                                                                                                                                                                                                            ? "vine.v86-bgi-tls-get-value"
-                                                                                                                                                                                                                                                            : getLastErrorEnabled
-                                                                                                                                                                                                                                                              ? "vine.v86-bgi-get-last-error"
-                                                                                                                                                                                                                                                              : privateHeapSize1Enabled
-                                                                                                                                                                                                                                                                ? "vine.v86-bgi-private-heap-size-1"
-                                                                                                                                                                                                                                                                : wideCharToMultiByteEnabled
-                                                                                                                                                                                                                                                                  ? "vine.v86-bgi-wide-char-to-multi-byte"
-                                                                                                                                                                                                                                                                  : environmentStringsWEnabled
-                                                                                                                                                                                                                                                                    ? "vine.v86-bgi-environment-strings-w"
-                                                                                                                                                                                                                                                                    : commandLineAEnabled
-                                                                                                                                                                                                                                                                      ? "vine.v86-bgi-command-line-a"
-                                                                                                                                                                                                                                                                      : setHandleCountEnabled
-                                                                                                                                                                                                                                                                        ? "vine.v86-bgi-set-handle-count"
-                                                                                                                                                                                                                                                                        : standardErrorFileTypeEnabled
-                                                                                                                                                                                                                                                                          ? "vine.v86-bgi-standard-error-file-type"
-                                                                                                                                                                                                                                                                          : standardErrorHandleEnabled
-                                                                                                                                                                                                                                                                            ? "vine.v86-bgi-standard-error-handle"
-                                                                                                                                                                                                                                                                            : standardOutputFileTypeEnabled
-                                                                                                                                                                                                                                                                              ? "vine.v86-bgi-standard-output-file-type"
-                                                                                                                                                                                                                                                                              : standardOutputHandleEnabled
-                                                                                                                                                                                                                                                                                ? "vine.v86-bgi-standard-output-handle"
-                                                                                                                                                                                                                                                                                : fileTypeEnabled
-                                                                                                                                                                                                                                                                                  ? "vine.v86-bgi-file-type"
-                                                                                                                                                                                                                                                                                  : standardInputHandleEnabled
-                                                                                                                                                                                                                                                                                    ? "vine.v86-bgi-standard-input-handle"
-                                                                                                                                                                                                                                                                                    : privateHeapSecondAllocationEnabled
-                                                                                                                                                                                                                                                                                      ? "vine.v86-bgi-private-heap-second-allocation"
-                                                                                                                                                                                                                                                                                      : interlockedIncrementEnabled
-                                                                                                                                                                                                                                                                                        ? "vine.v86-bgi-interlocked-increment"
-                                                                                                                                                                                                                                                                                        : fiberLocalStorageValueEnabled
-                                                                                                                                                                                                                                                                                          ? "vine.v86-bgi-fiber-local-storage-value"
-                                                                                                                                                                                                                                                                                          : privateHeapAllocationEnabled
-                                                                                                                                                                                                                                                                                            ? "vine.v86-bgi-private-heap-allocation"
-                                                                                                                                                                                                                                                                                            : fiberLocalStorageAllocationEnabled
-                                                                                                                                                                                                                                                                                              ? "vine.v86-bgi-fiber-local-storage-allocation"
-                                                                                                                                                                                                                                                                                              : genericRuntimeCapability ===
-                                                                                                                                                                                                                                                                                                  "kernel32-pointer-decoding"
-                                                                                                                                                                                                                                                                                                ? "vine.v86-bgi-pointer-decoding"
-                                                                                                                                                                                                                                                                                                : "vine.v86-bgi-critical-section-synchronization",
-    schemaVersion:
-      user32AsyncKeyStateInitialScanContinuationCheckpointEnabled ? 4 : 2,
+          : user32AsyncKeyStateInitialScanCheckpointEnabled
+            ? "vine.v86-bgi-user32-async-key-state-initial-scan"
+            : user32AsyncKeyStateInputContinuationCheckpointEnabled
+              ? "vine.v86-bgi-user32-async-key-state-input-continuation"
+              : user32AsyncKeyStateInputCheckpointEnabled
+                ? "vine.v86-bgi-user32-async-key-state-input"
+                : d3d9PostPresentContinuationEnabled
+                  ? "vine.v86-bgi-d3d9-post-present-continuation"
+                  : d3d9PresentCheckpointEnabled
+                    ? "vine.v86-bgi-d3d9-first-present"
+                    : d3d9PostScenePresentGatewayCheckpointEnabled
+                      ? "vine.v86-bgi-d3d9-post-scene-present-gateway"
+                      : d3d9PostRasterStatusWaitableTimerCheckpointEnabled
+                        ? "vine.v86-bgi-d3d9-post-raster-status-waitable-timer"
+                        : d3d9PostEndSceneRasterStatusCheckpointEnabled
+                          ? "vine.v86-bgi-d3d9-post-end-scene-raster-status"
+                          : d3d9EndSceneCheckpointEnabled
+                            ? "vine.v86-bgi-d3d9-end-scene"
+                            : d3d9DrawPrimitiveCheckpointEnabled
+                              ? "vine.v86-bgi-d3d9-draw-primitive"
+                              : d3d9SetStreamSourceCheckpointEnabled
+                                ? "vine.v86-bgi-d3d9-set-stream-source"
+                                : d3d9SetFvfCheckpointEnabled
+                                  ? "vine.v86-bgi-d3d9-set-fvf"
+                                  : d3d9SetTextureCheckpointEnabled
+                                    ? "vine.v86-bgi-d3d9-set-texture"
+                                    : d3d9InitialTextureStageStatesCheckpointEnabled
+                                      ? "vine.v86-bgi-d3d9-initial-texture-stage-states"
+                                      : d3d9InitialSamplerStatesCheckpointEnabled
+                                        ? "vine.v86-bgi-d3d9-initial-sampler-states"
+                                        : d3d9BeginSceneCheckpointEnabled
+                                          ? "vine.v86-bgi-d3d9-begin-scene"
+                                          : d3d9UpdateTextureCheckpointEnabled
+                                            ? "vine.v86-bgi-d3d9-update-texture"
+                                            : d3d9AddDirtyRectCheckpointEnabled
+                                              ? "vine.v86-bgi-d3d9-add-dirty-rect"
+                                              : setRectCheckpointEnabled
+                                                ? "vine.v86-bgi-user32-set-rect"
+                                                : d3d9ClearCheckpointEnabled
+                                                  ? "vine.v86-bgi-d3d9-clear"
+                                                  : updateWindowCheckpointEnabled
+                                                    ? "vine.v86-bgi-user32-update-window"
+                                                    : showWindowNormalCheckpointEnabled
+                                                      ? "vine.v86-bgi-user32-show-window-normal"
+                                                      : setWindowPosFrameChangeMoveCheckpointEnabled
+                                                        ? "vine.v86-bgi-user32-set-window-pos-frame-change-move"
+                                                        : d3d9RecreatedTexturesCheckpointEnabled
+                                                          ? "vine.v86-bgi-d3d9-recreated-textures"
+                                                          : setWindowPosRepeatActivationCheckpointEnabled
+                                                            ? "vine.v86-bgi-user32-set-window-pos-repeat-activation"
+                                                            : createDirectoryACheckpointEnabled
+                                                              ? "vine.v86-bgi-kernel32-create-directory-a"
+                                                              : getFileAttributesACheckpointEnabled
+                                                                ? "vine.v86-bgi-kernel32-get-file-attributes-a"
+                                                                : globalMemoryStatusCheckpointEnabled
+                                                                  ? "vine.v86-bgi-kernel32-global-memory-status"
+                                                                  : sleepZeroCheckpointEnabled
+                                                                    ? "vine.v86-bgi-kernel32-sleep-zero"
+                                                                    : archiveSourceReadEnabled
+                                                                      ? "vine.v86-bgi-kernel32-archive-source-read"
+                                                                      : dragAcceptFilesEnabled
+                                                                        ? "vine.v86-bgi-shell32-drag-accept-files"
+                                                                        : primaryMainLoopContinuationEnabled
+                                                                          ? "vine.v86-bgi-primary-main-loop-continuation"
+                                                                          : leaveCriticalSectionContinuationEnabled
+                                                                            ? "vine.v86-bgi-kernel32-leave-critical-section-continuation"
+                                                                            : enterCriticalSectionContinuationEnabled
+                                                                              ? "vine.v86-bgi-kernel32-enter-critical-section-continuation"
+                                                                              : leaveCriticalSectionCheckpointEnabled
+                                                                                ? "vine.v86-bgi-kernel32-leave-critical-section"
+                                                                                : mainLoopProgressionEnabled
+                                                                                  ? "vine.v86-bgi-primary-main-loop-progression"
+                                                                                  : enterCriticalSectionEnabled
+                                                                                    ? "vine.v86-bgi-kernel32-enter-critical-section"
+                                                                                    : waitForSingleObjectExEnabled
+                                                                                      ? "vine.v86-bgi-kernel32-wait-for-single-object-ex"
+                                                                                      : setWaitableTimerEnabled
+                                                                                        ? "vine.v86-bgi-kernel32-set-waitable-timer"
+                                                                                        : imm32ContextEnabled
+                                                                                          ? "vine.v86-bgi-imm32-default-ime-context"
+                                                                                          : virtualAllocEnabled
+                                                                                            ? "vine.v86-bgi-kernel32-virtual-alloc"
+                                                                                            : gdiplusStartupEnabled
+                                                                                              ? "vine.v86-bgi-gdiplus-startup"
+                                                                                              : textRasterEnabled
+                                                                                                ? "vine.v86-bgi-gdi-text-raster"
+                                                                                                : outlineTextMetricsEnabled
+                                                                                                  ? "vine.v86-bgi-gdi-outline-text-metrics"
+                                                                                                  : dibLifecycleEnabled
+                                                                                                    ? "vine.v86-bgi-gdi-dib-lifecycle"
+                                                                                                    : compatibleDcEnabled
+                                                                                                      ? "vine.v86-bgi-gdi-compatible-dc"
+                                                                                                      : fontCreationEnabled
+                                                                                                        ? "vine.v86-bgi-gdi-font-creation"
+                                                                                                        : fontEnumerationEnabled
+                                                                                                          ? "vine.v86-bgi-gdi-font-enumeration"
+                                                                                                          : screenDcEnabled
+                                                                                                            ? "vine.v86-bgi-gdi-screen-dc"
+                                                                                                            : setThreadPriorityEnabled
+                                                                                                              ? "vine.v86-bgi-kernel32-set-thread-priority"
+                                                                                                              : createThreadEnabled
+                                                                                                                ? "vine.v86-bgi-kernel32-create-thread"
+                                                                                                                : setTimerEnabled
+                                                                                                                  ? "vine.v86-bgi-user32-set-timer"
+                                                                                                                  : dsoundBufferTransferEnabled
+                                                                                                                    ? "vine.v86-bgi-dsound-buffer-lock-unlock-play"
+                                                                                                                    : dsoundInitialBuffersEnabled
+                                                                                                                      ? "vine.v86-bgi-dsound-initial-buffers"
+                                                                                                                      : dsoundRootEnabled
+                                                                                                                        ? "vine.v86-bgi-dsound-root-and-cooperative-level"
+                                                                                                                        : dinput8EnumDevicesEnabled
+                                                                                                                          ? "vine.v86-bgi-dinput8-enum-devices"
+                                                                                                                          : dinput8FactoryEnabled
+                                                                                                                            ? "vine.v86-bgi-dinput8-api-contract"
+                                                                                                                            : getMonitorInfoAEnabled
+                                                                                                                              ? "vine.v86-bgi-get-monitor-info-a"
+                                                                                                                              : queryPerformanceFrequencyEnabled
+                                                                                                                                ? "vine.v86-bgi-query-performance-frequency"
+                                                                                                                                : d3d9RasterStatusEnabled
+                                                                                                                                  ? "vine.v86-bgi-d3d9-raster-status"
+                                                                                                                                  : d3d9InitialRenderStatesEnabled
+                                                                                                                                    ? "vine.v86-bgi-d3d9-initial-render-states"
+                                                                                                                                    : d3d9InitialVertexBufferEnabled
+                                                                                                                                      ? "vine.v86-bgi-d3d9-initial-vertex-buffer"
+                                                                                                                                      : d3d9InitialTexturesEnabled
+                                                                                                                                        ? "vine.v86-bgi-d3d9-initial-textures"
+                                                                                                                                        : timeGetTimeEnabled
+                                                                                                                                          ? "vine.v86-bgi-time-get-time"
+                                                                                                                                          : d3d9SurfaceGetDcEnabled
+                                                                                                                                            ? "vine.v86-bgi-d3d9-surface-get-dc"
+                                                                                                                                            : d3d9GetSurfaceLevelEnabled
+                                                                                                                                              ? "vine.v86-bgi-d3d9-get-surface-level"
+                                                                                                                                              : d3d9CreateTextureEnabled
+                                                                                                                                                ? "vine.v86-bgi-d3d9-create-texture"
+                                                                                                                                                : d3d9CreateDeviceEnabled
+                                                                                                                                                  ? "vine.v86-bgi-d3d9-create-device"
+                                                                                                                                                  : d3d9GetAdapterMonitorEnabled
+                                                                                                                                                    ? "vine.v86-bgi-d3d9-get-adapter-monitor"
+                                                                                                                                                    : d3d9GetAdapterCountEnabled
+                                                                                                                                                      ? "vine.v86-bgi-d3d9-get-adapter-count"
+                                                                                                                                                      : monitorFromWindowEnabled
+                                                                                                                                                        ? "vine.v86-bgi-monitor-from-window"
+                                                                                                                                                        : setWindowPosActivationEnabled
+                                                                                                                                                          ? "vine.v86-bgi-set-window-pos-activation"
+                                                                                                                                                          : setWindowLongAEnabled
+                                                                                                                                                            ? "vine.v86-bgi-set-window-long-a"
+                                                                                                                                                            : windowDcFillEnabled
+                                                                                                                                                              ? "vine.v86-bgi-window-dc-fill"
+                                                                                                                                                              : getClientRectEnabled
+                                                                                                                                                                ? "vine.v86-bgi-get-client-rect"
+                                                                                                                                                                : loadLibraryAEnabled
+                                                                                                                                                                  ? "vine.v86-bgi-load-library-a"
+                                                                                                                                                                  : d3d9CheckDeviceFormatEnabled
+                                                                                                                                                                    ? "vine.v86-bgi-d3d9-check-device-format"
+                                                                                                                                                                    : d3d9CheckDeviceTypeEnabled
+                                                                                                                                                                      ? "vine.v86-bgi-d3d9-check-device-type"
+                                                                                                                                                                      : d3d9GetDeviceCapsEnabled
+                                                                                                                                                                        ? "vine.v86-bgi-d3d9-get-device-caps"
+                                                                                                                                                                        : d3d9GetAdapterIdentifierEnabled
+                                                                                                                                                                          ? "vine.v86-bgi-d3d9-get-adapter-identifier"
+                                                                                                                                                                          : d3d9GetAdapterDisplayModeEnabled
+                                                                                                                                                                            ? "vine.v86-bgi-d3d9-get-adapter-display-mode"
+                                                                                                                                                                            : d3d9RootFactoryEnabled
+                                                                                                                                                                              ? "vine.v86-bgi-d3d9-root-factory-and-identity"
+                                                                                                                                                                              : setWindowPosInitialPlacementEnabled
+                                                                                                                                                                                ? "vine.v86-bgi-set-window-pos-initial-placement"
+                                                                                                                                                                                : sendMessageASmallIconEnabled
+                                                                                                                                                                                  ? "vine.v86-bgi-send-message-a-small-icon"
+                                                                                                                                                                                  : loadImageASmallIconEnabled
+                                                                                                                                                                                    ? "vine.v86-bgi-load-image-a-small-icon"
+                                                                                                                                                                                    : getSystemMetricsSmallIconWidthEnabled
+                                                                                                                                                                                      ? "vine.v86-bgi-get-system-metrics-small-icon-width"
+                                                                                                                                                                                      : getSystemMetricsSmallIconHeightEnabled
+                                                                                                                                                                                        ? "vine.v86-bgi-get-system-metrics-small-icon-height"
+                                                                                                                                                                                        : createWindowExAEnabled
+                                                                                                                                                                                          ? "vine.v86-bgi-create-window-ex-a"
+                                                                                                                                                                                          : sourceFileReadEnabled
+                                                                                                                                                                                            ? "vine.v86-bgi-source-file-read"
+                                                                                                                                                                                            : largeHeapAllocationEnabled
+                                                                                                                                                                                              ? "vine.v86-bgi-large-heap-allocation"
+                                                                                                                                                                                              : getSystemMetricsEnabled
+                                                                                                                                                                                                ? "vine.v86-bgi-get-system-metrics"
+                                                                                                                                                                                                : registerClassExAEnabled
+                                                                                                                                                                                                  ? "vine.v86-bgi-register-class-ex-a"
+                                                                                                                                                                                                  : loadCursorAEnabled
+                                                                                                                                                                                                    ? "vine.v86-bgi-load-cursor-a"
+                                                                                                                                                                                                    : loadIconAEnabled
+                                                                                                                                                                                                      ? "vine.v86-bgi-load-icon-a"
+                                                                                                                                                                                                      : createWaitableTimerAEnabled
+                                                                                                                                                                                                        ? "vine.v86-bgi-create-waitable-timer-a"
+                                                                                                                                                                                                        : getVersionExAEnabled
+                                                                                                                                                                                                          ? "vine.v86-bgi-get-version-ex-a"
+                                                                                                                                                                                                          : timeBeginPeriodEnabled
+                                                                                                                                                                                                            ? "vine.v86-bgi-time-begin-period"
+                                                                                                                                                                                                            : timeGetDevCapsEnabled
+                                                                                                                                                                                                              ? "vine.v86-bgi-time-get-dev-caps"
+                                                                                                                                                                                                              : swapMouseButtonEnabled
+                                                                                                                                                                                                                ? "vine.v86-bgi-swap-mouse-button"
+                                                                                                                                                                                                                : getDriveTypeAEnabled
+                                                                                                                                                                                                                  ? "vine.v86-bgi-get-drive-type-a"
+                                                                                                                                                                                                                  : getSystemDefaultLangIdEnabled
+                                                                                                                                                                                                                    ? "vine.v86-bgi-get-system-default-lang-id"
+                                                                                                                                                                                                                    : coInitializeEnabled
+                                                                                                                                                                                                                      ? "vine.v86-bgi-co-initialize"
+                                                                                                                                                                                                                      : enumDisplayMonitorsEnabled
+                                                                                                                                                                                                                        ? "vine.v86-bgi-enum-display-monitors"
+                                                                                                                                                                                                                        : getSystemInfoEnabled
+                                                                                                                                                                                                                          ? "vine.v86-bgi-get-system-info"
+                                                                                                                                                                                                                          : setThreadAffinityMaskEnabled
+                                                                                                                                                                                                                            ? "vine.v86-bgi-set-thread-affinity-mask"
+                                                                                                                                                                                                                            : getCurrentThreadEnabled
+                                                                                                                                                                                                                              ? "vine.v86-bgi-get-current-thread"
+                                                                                                                                                                                                                              : createMutexAEnabled
+                                                                                                                                                                                                                                ? "vine.v86-bgi-create-mutex-a"
+                                                                                                                                                                                                                                : setCurrentDirectoryAEnabled
+                                                                                                                                                                                                                                  ? "vine.v86-bgi-set-current-directory-a"
+                                                                                                                                                                                                                                  : multiByteToWideCharCpAcpEnabled
+                                                                                                                                                                                                                                    ? "vine.v86-bgi-multi-byte-to-wide-char-cp-acp"
+                                                                                                                                                                                                                                    : initializeCriticalSectionEnabled
+                                                                                                                                                                                                                                      ? "vine.v86-bgi-initialize-critical-section"
+                                                                                                                                                                                                                                      : heapSizeEnabled
+                                                                                                                                                                                                                                        ? "vine.v86-bgi-heap-size"
+                                                                                                                                                                                                                                        : setUnhandledExceptionFilterEnabled
+                                                                                                                                                                                                                                          ? "vine.v86-bgi-set-unhandled-exception-filter"
+                                                                                                                                                                                                                                          : isProcessorFeaturePresentEnabled
+                                                                                                                                                                                                                                            ? "vine.v86-bgi-is-processor-feature-present"
+                                                                                                                                                                                                                                            : privateHeapSize128Enabled
+                                                                                                                                                                                                                                              ? "vine.v86-bgi-private-heap-size-128"
+                                                                                                                                                                                                                                              : privateHeapFreeSize1Enabled
+                                                                                                                                                                                                                                                ? "vine.v86-bgi-private-heap-free-size-1"
+                                                                                                                                                                                                                                                : privateHeapSize4Enabled
+                                                                                                                                                                                                                                                  ? "vine.v86-bgi-private-heap-size-4"
+                                                                                                                                                                                                                                                  : privateHeapSize16Enabled
+                                                                                                                                                                                                                                                    ? "vine.v86-bgi-private-heap-size-16"
+                                                                                                                                                                                                                                                    : getModuleFileNameAEnabled
+                                                                                                                                                                                                                                                      ? "vine.v86-bgi-get-module-file-name-a"
+                                                                                                                                                                                                                                                      : interlockedDecrementEnabled
+                                                                                                                                                                                                                                                        ? "vine.v86-bgi-interlocked-decrement"
+                                                                                                                                                                                                                                                        : lcMapStringWEnabled
+                                                                                                                                                                                                                                                          ? "vine.v86-bgi-lc-map-string-w"
+                                                                                                                                                                                                                                                          : getStringTypeWEnabled
+                                                                                                                                                                                                                                                            ? "vine.v86-bgi-get-string-type-w"
+                                                                                                                                                                                                                                                            : multiByteToWideCharEnabled
+                                                                                                                                                                                                                                                              ? "vine.v86-bgi-multi-byte-to-wide-char"
+                                                                                                                                                                                                                                                              : getCpInfoEnabled
+                                                                                                                                                                                                                                                                ? "vine.v86-bgi-get-cp-info"
+                                                                                                                                                                                                                                                                : privateHeapSize544Enabled
+                                                                                                                                                                                                                                                                  ? "vine.v86-bgi-private-heap-size-544"
+                                                                                                                                                                                                                                                                  : getAcpEnabled
+                                                                                                                                                                                                                                                                    ? "vine.v86-bgi-get-acp"
+                                                                                                                                                                                                                                                                    : setLastErrorEnabled
+                                                                                                                                                                                                                                                                      ? "vine.v86-bgi-set-last-error"
+                                                                                                                                                                                                                                                                      : flsGetValueEnabled
+                                                                                                                                                                                                                                                                        ? "vine.v86-bgi-fls-get-value"
+                                                                                                                                                                                                                                                                        : tlsGetValueEnabled
+                                                                                                                                                                                                                                                                          ? "vine.v86-bgi-tls-get-value"
+                                                                                                                                                                                                                                                                          : getLastErrorEnabled
+                                                                                                                                                                                                                                                                            ? "vine.v86-bgi-get-last-error"
+                                                                                                                                                                                                                                                                            : privateHeapSize1Enabled
+                                                                                                                                                                                                                                                                              ? "vine.v86-bgi-private-heap-size-1"
+                                                                                                                                                                                                                                                                              : wideCharToMultiByteEnabled
+                                                                                                                                                                                                                                                                                ? "vine.v86-bgi-wide-char-to-multi-byte"
+                                                                                                                                                                                                                                                                                : environmentStringsWEnabled
+                                                                                                                                                                                                                                                                                  ? "vine.v86-bgi-environment-strings-w"
+                                                                                                                                                                                                                                                                                  : commandLineAEnabled
+                                                                                                                                                                                                                                                                                    ? "vine.v86-bgi-command-line-a"
+                                                                                                                                                                                                                                                                                    : setHandleCountEnabled
+                                                                                                                                                                                                                                                                                      ? "vine.v86-bgi-set-handle-count"
+                                                                                                                                                                                                                                                                                      : standardErrorFileTypeEnabled
+                                                                                                                                                                                                                                                                                        ? "vine.v86-bgi-standard-error-file-type"
+                                                                                                                                                                                                                                                                                        : standardErrorHandleEnabled
+                                                                                                                                                                                                                                                                                          ? "vine.v86-bgi-standard-error-handle"
+                                                                                                                                                                                                                                                                                          : standardOutputFileTypeEnabled
+                                                                                                                                                                                                                                                                                            ? "vine.v86-bgi-standard-output-file-type"
+                                                                                                                                                                                                                                                                                            : standardOutputHandleEnabled
+                                                                                                                                                                                                                                                                                              ? "vine.v86-bgi-standard-output-handle"
+                                                                                                                                                                                                                                                                                              : fileTypeEnabled
+                                                                                                                                                                                                                                                                                                ? "vine.v86-bgi-file-type"
+                                                                                                                                                                                                                                                                                                : standardInputHandleEnabled
+                                                                                                                                                                                                                                                                                                  ? "vine.v86-bgi-standard-input-handle"
+                                                                                                                                                                                                                                                                                                  : privateHeapSecondAllocationEnabled
+                                                                                                                                                                                                                                                                                                    ? "vine.v86-bgi-private-heap-second-allocation"
+                                                                                                                                                                                                                                                                                                    : interlockedIncrementEnabled
+                                                                                                                                                                                                                                                                                                      ? "vine.v86-bgi-interlocked-increment"
+                                                                                                                                                                                                                                                                                                      : fiberLocalStorageValueEnabled
+                                                                                                                                                                                                                                                                                                        ? "vine.v86-bgi-fiber-local-storage-value"
+                                                                                                                                                                                                                                                                                                        : privateHeapAllocationEnabled
+                                                                                                                                                                                                                                                                                                          ? "vine.v86-bgi-private-heap-allocation"
+                                                                                                                                                                                                                                                                                                          : fiberLocalStorageAllocationEnabled
+                                                                                                                                                                                                                                                                                                            ? "vine.v86-bgi-fiber-local-storage-allocation"
+                                                                                                                                                                                                                                                                                                            : genericRuntimeCapability ===
+                                                                                                                                                                                                                                                                                                                "kernel32-pointer-decoding"
+                                                                                                                                                                                                                                                                                                              ? "vine.v86-bgi-pointer-decoding"
+                                                                                                                                                                                                                                                                                                              : "vine.v86-bgi-critical-section-synchronization",
+    schemaVersion: user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
+      ? 5
+      : 2,
     source: offer.source,
     sourceSnapshot: {
       immutableAcrossRun: true,
@@ -28679,7 +28769,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9RecreatedTextures: {
             calls: d3d9RecreatedTextureSequence,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+            compatibilityPolicyId: d3d9CompatibilityPolicyId,
             createTextureProfileId:
               "primary-initial-and-recreated-x8r8g8b8-textures-v2",
             getSurfaceLevelProfileId:
@@ -28695,7 +28785,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9Clear: {
             call: d3d9ClearCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+            compatibilityPolicyId: d3d9CompatibilityPolicyId,
             clearProfileId: "primary-full-render-target-black-v1",
             targetAuthority: "rust-runtime-graphics-logical-device-back-buffer",
             targetScope: "full-presentation-back-buffer",
@@ -28725,7 +28815,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9AddDirtyRect: {
             call: d3d9AddDirtyRectCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+            compatibilityPolicyId: d3d9CompatibilityPolicyId,
             addDirtyRectProfileId:
               "primary-recreated-system-memory-texture-dirty-rect-v1",
             textureAuthority: "rust-runtime-graphics-logical-texture",
@@ -28744,7 +28834,7 @@ function buildGenericRuntimeReentryReport({
             lock: d3d9TextureLockRectCall,
             unlock: d3d9TextureUnlockRectCall,
             hostDelta: d3d9TextureLockRectDelta,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+            compatibilityPolicyId: d3d9CompatibilityPolicyId,
             lockRectProfileId:
               "primary-recreated-system-memory-presentation-lock-v1",
             textureAuthority: "rust-runtime-graphics-logical-texture",
@@ -28769,7 +28859,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9UpdateTexture: {
             call: d3d9UpdateTextureCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+            compatibilityPolicyId: d3d9CompatibilityPolicyId,
             updateTextureProfileId:
               "primary-recreated-system-memory-to-static-default-texture-update-v2",
             contentAuthority: "rust-runtime-graphics-logical-texture",
@@ -28792,7 +28882,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9PartialUpdateTexture: {
             call: d3d9PartialUpdateTextureCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+            compatibilityPolicyId: d3d9CompatibilityPolicyId,
             updateTextureProfileId:
               "primary-recreated-system-memory-to-static-default-texture-update-v2",
             dirtyRegion: { left: 0, top: 0, right: 1_280, bottom: 720 },
@@ -28808,11 +28898,32 @@ function buildGenericRuntimeReentryReport({
           },
         }
       : {}),
+    ...(user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
+      ? {
+          d3d9TestCooperativeLevel: {
+            call: d3d9TestCooperativeLevelCall,
+            instructionCount: d3d9TestCooperativeLevelCall.trapInstructionCount,
+            compatibilityPolicyId: d3d9CompatibilityPolicyId,
+            profileId: "primary-live-operational-device-query-v1",
+            stateAuthority: "rust-runtime-graphics-live-device-association",
+            queryResult: "operational-s-ok",
+            mutation: "none",
+            lastErrorPolicy: "preserve",
+            guestMemoryMutation: false,
+            referenceCountMutation: false,
+            failureAtomicity: true,
+            deviceLostStateImplemented: false,
+            deviceNotResetStateImplemented: false,
+            resetImplemented: false,
+            browserContextLossImported: false,
+          },
+        }
+      : {}),
     ...(d3d9BeginSceneCheckpointEnabled
       ? {
           d3d9BeginScene: {
             call: d3d9BeginSceneCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+            compatibilityPolicyId: d3d9CompatibilityPolicyId,
             beginSceneProfileId: "primary-first-frame-scene-begin-v1",
             sceneAuthority: "rust-runtime-graphics-logical-device",
             lifecycle: "inactive-to-active",
@@ -28830,7 +28941,7 @@ function buildGenericRuntimeReentryReport({
             calls: d3d9InitialSamplerStateCalls.slice(0, 2),
             postSamplerRenderStateRejections:
               d3d9PostSamplerRenderStateRejections,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+            compatibilityPolicyId: d3d9CompatibilityPolicyId,
             samplerStateProfileId:
               "primary-first-frame-linear-sampler-states-v1",
             stateAuthority:
@@ -28847,7 +28958,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9InitialTextureStageStates: {
             calls: d3d9InitialTextureStageStateCalls.slice(0, 6),
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+            compatibilityPolicyId: d3d9CompatibilityPolicyId,
             textureStageStateProfileId:
               "primary-first-frame-fixed-function-texture-stage-zero-v1",
             stateAuthority:
@@ -28864,7 +28975,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9SetTexture: {
             call: d3d9SetTextureCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+            compatibilityPolicyId: d3d9CompatibilityPolicyId,
             textureBindingProfileId:
               "primary-first-frame-static-default-texture-stage-zero-v1",
             stateAuthority:
@@ -28883,7 +28994,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9SetFvf: {
             call: d3d9SetFvfCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+            compatibilityPolicyId: d3d9CompatibilityPolicyId,
             flexibleVertexFormatProfileId:
               "primary-first-frame-transformed-diffuse-textured-fvf-v1",
             stateAuthority:
@@ -28900,7 +29011,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9SetStreamSource: {
             call: d3d9SetStreamSourceCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+            compatibilityPolicyId: d3d9CompatibilityPolicyId,
             streamSourceProfileId:
               "primary-first-frame-transformed-diffuse-textured-stream-zero-v1",
             stateAuthority:
@@ -28922,7 +29033,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9DrawPrimitive: {
             call: d3d9DrawPrimitiveCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+            compatibilityPolicyId: d3d9CompatibilityPolicyId,
             drawPrimitiveProfileId:
               "primary-first-frame-triangle-strip-quad-draw-v1",
             stateAuthority:
@@ -28947,7 +29058,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9EndScene: {
             call: d3d9EndSceneCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+            compatibilityPolicyId: d3d9CompatibilityPolicyId,
             endSceneProfileId: "primary-first-frame-scene-end-v1",
             sceneAuthority: "rust-runtime-graphics-logical-device-active-scene",
             lifecycle: "active-to-inactive",
@@ -28964,9 +29075,8 @@ function buildGenericRuntimeReentryReport({
       ? {
           d3d9Present: {
             call: d3d9PresentCall,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
-            presentProfileId:
-              "primary-first-frame-full-back-buffer-present-v1",
+            compatibilityPolicyId: d3d9CompatibilityPolicyId,
+            presentProfileId: "primary-first-frame-full-back-buffer-present-v1",
             frameAuthority:
               "rust-runtime-graphics-logical-device-presented-frame",
             browserResourceAuthority: "typescript-browser-resource-table",
@@ -29002,8 +29112,7 @@ function buildGenericRuntimeReentryReport({
             call: getAsyncKeyStateCall,
             compatibilityPolicyId:
               "user32-single-monitor-window-frame-change-show-update-paint-input-v28",
-            keyboardProfileId:
-              "foreground-focused-virtual-key-state-v1",
+            keyboardProfileId: "foreground-focused-virtual-key-state-v1",
             inputEvent: runtimeReady.initialKeyboardEventReceipt,
             initialKeyboardState: runtimeReady.keyboardState,
             stateAuthority: "rust-runtime-input-keyboard",
@@ -29045,8 +29154,7 @@ function buildGenericRuntimeReentryReport({
               "user32-single-monitor-window-frame-change-show-update-paint-input-v28",
             cursorPosition: runtimeReady.cursorPosition,
             cursorStateAuthority: "rust-runtime-input-cursor-position",
-            keyboardProfileId:
-              "foreground-focused-virtual-key-state-v1",
+            keyboardProfileId: "foreground-focused-virtual-key-state-v1",
             inputEventCount: 0,
             stateAuthority: "rust-runtime-input-keyboard",
             browserSourceAuthority: "typescript-browser-input-adapter",
@@ -29087,8 +29195,9 @@ function buildGenericRuntimeReentryReport({
               present: d3d9PresentCalls.length,
               textureLockRect: d3d9TextureLockRectCalls.length,
               textureUnlockRect: d3d9TextureUnlockRectCalls.length,
+              testCooperativeLevel: d3d9TestCooperativeLevelCalls.length,
             },
-            nextSubsystemGateway: "d3d9-device-test-cooperative-level",
+            nextSubsystemGateway: "user32-peek-message-a",
           },
         }
       : {}),
@@ -29097,9 +29206,10 @@ function buildGenericRuntimeReentryReport({
           d3d9PostEndSceneRasterStatus: {
             call: d3d9PostEndSceneRasterStatusCall,
             cumulativeCompletions: d3d9PostEndSceneRasterStatusCalls.filter(
-              (call) => call.sequence <= d3d9PostEndSceneRasterStatusCall.sequence,
+              (call) =>
+                call.sequence <= d3d9PostEndSceneRasterStatusCall.sequence,
             ).length,
-            compatibilityPolicyId: "d3d9-primary-virtual-adapter-v31",
+            compatibilityPolicyId: d3d9CompatibilityPolicyId,
             rasterStatusProfileId: "primary-stable-last-visible-scanline-v2",
             displayProfileId: "single-monitor-1920x1080-work-1920x1032-v2",
             stateAuthority: "rust-d3d9-compatibility-policy",
@@ -29281,40 +29391,44 @@ function buildGenericRuntimeReentryReport({
               genericResult.checkpointCompletion.capability ===
               "user32-async-key-state-initial-scan"
                 ? "BGI completed the native-derived 38-key initial GetAsyncKeyState scan without injected input and stopped before the next owned endpoint"
-              : genericResult.checkpointCompletion.capability ===
-              "user32-async-key-state-input-continuation"
-                ? "BGI observed pressed-bit consumption across two controlled held-key GetAsyncKeyState queries and stopped before the next owned endpoint"
-              : genericResult.checkpointCompletion.capability ===
-                "user32-async-key-state-input"
-                ? "BGI consumed one controlled side-specific keyboard event through GetAsyncKeyState and stopped before the next owned endpoint"
-                : genericResult.checkpointCompletion.capability === "d3d9-end-scene"
-                ? "BGI completed the first-frame EndScene lifecycle close and stopped before the next owned endpoint"
                 : genericResult.checkpointCompletion.capability ===
-                    "d3d9-post-end-scene-raster-status"
-                  ? "BGI completed the first post-EndScene raster-status sample and stopped before the next owned endpoint"
+                    "user32-async-key-state-input-continuation"
+                  ? "BGI observed pressed-bit consumption across two controlled held-key GetAsyncKeyState queries and stopped before the next owned endpoint"
                   : genericResult.checkpointCompletion.capability ===
-                      "d3d9-post-raster-status-waitable-timer"
-                    ? "BGI completed one post-scene waitable-timer arm/wait pacing cycle and stopped before the next owned endpoint"
+                      "user32-async-key-state-input"
+                    ? "BGI consumed one controlled side-specific keyboard event through GetAsyncKeyState and stopped before the next owned endpoint"
                     : genericResult.checkpointCompletion.capability ===
-                        "kernel32-leave-critical-section"
-                      ? "BGI completed the main-thread critical-section release and stopped before the next owned endpoint"
+                        "d3d9-end-scene"
+                      ? "BGI completed the first-frame EndScene lifecycle close and stopped before the next owned endpoint"
                       : genericResult.checkpointCompletion.capability ===
-                          "kernel32-leave-critical-section-continuation"
-                        ? "BGI completed the LeaveCriticalSection continuation after the main-thread reacquisition and stopped before the next owned endpoint"
+                          "d3d9-post-end-scene-raster-status"
+                        ? "BGI completed the first post-EndScene raster-status sample and stopped before the next owned endpoint"
                         : genericResult.checkpointCompletion.capability ===
-                            "kernel32-enter-critical-section-continuation"
-                          ? "BGI completed the EnterCriticalSection continuation after the main-thread release and stopped before the next owned endpoint"
+                            "d3d9-post-raster-status-waitable-timer"
+                          ? "BGI completed one post-scene waitable-timer arm/wait pacing cycle and stopped before the next owned endpoint"
                           : genericResult.checkpointCompletion.capability ===
-                              "primary-main-loop-continuation"
-                            ? "BGI completed the next scheduler quantum and stopped before the next owned endpoint"
+                              "kernel32-leave-critical-section"
+                            ? "BGI completed the main-thread critical-section release and stopped before the next owned endpoint"
                             : genericResult.checkpointCompletion.capability ===
-                                "primary-main-loop-progression"
-                              ? "BGI completed one API-boundary scheduler roundtrip and stopped before dispatching the reselected main thread"
+                                "kernel32-leave-critical-section-continuation"
+                              ? "BGI completed the LeaveCriticalSection continuation after the main-thread reacquisition and stopped before the next owned endpoint"
                               : genericResult.checkpointCompletion
                                     .capability ===
-                                  "kernel32-enter-critical-section"
-                                ? "BGI completed the next three balanced primary critical-section acquisitions and stopped at the idle-cycle boundary"
-                                : "BGI completed three recurring finite alertable waits and stopped before dispatching the next owned endpoint",
+                                  "kernel32-enter-critical-section-continuation"
+                                ? "BGI completed the EnterCriticalSection continuation after the main-thread release and stopped before the next owned endpoint"
+                                : genericResult.checkpointCompletion
+                                      .capability ===
+                                    "primary-main-loop-continuation"
+                                  ? "BGI completed the next scheduler quantum and stopped before the next owned endpoint"
+                                  : genericResult.checkpointCompletion
+                                        .capability ===
+                                      "primary-main-loop-progression"
+                                    ? "BGI completed one API-boundary scheduler roundtrip and stopped before dispatching the reselected main thread"
+                                    : genericResult.checkpointCompletion
+                                          .capability ===
+                                        "kernel32-enter-critical-section"
+                                      ? "BGI completed the next three balanced primary critical-section acquisitions and stopped at the idle-cycle boundary"
+                                      : "BGI completed three recurring finite alertable waits and stopped before dispatching the next owned endpoint",
           },
   };
 }

@@ -1345,7 +1345,16 @@ sequence 148,198／instruction 147,769,351、output `0020000000100044`、allocat
 Destinationがsourceの直前generationを表すprecondition、full authoritative backing publication、source dirty consumption、
 two-texture failure atomicityを固定し、arbitrary partial historyとdynamic destinationはclaimしない。Workerはdraw時にのみ
 execution mirrorからchecked byte copyし、Node／Chromeは二回目のscene／draw／Presentまで同順序で完了して、次の
-`IDirect3DDevice9::TestCooperativeLevel()` slot 3で停止する。
+`IDirect3DDevice9::TestCooperativeLevel()` slot 3へ進む。
+
+同じ機能群のcooperative-level acceptanceは、generic native traceの998 callがすべて`D3D_OK`でLastErrorを保持し、
+callerが`D3DERR_DEVICELOST`／`D3DERR_DEVICENOTRESET`を実際に分岐判定することを固定する。Focused二runは
+最大API depth 3かつbalancedであり、controlled live-device oracleはLastError sentinel `0x11223344`／`0x55667788`を
+保持して`D3D_OK`を返す。Rust model／dispatcher testはlive graphics-device associationをauthorityとし、成功時の
+graphics／COM／guest memory／runtime generation不変と、missing／retired／wrong-kind failure atomicityを固定する。
+Node／Chromeはsequence 148,293／instruction 148,744,443、device `0x01010004`、`D3D_OK`、reference count 5、
+zero guest writesを一致させる。Device lost／not-reset transition、Reset、browser context loss連携、recoveryはclaimせず、
+その後のUser32 message-queue subsystem gateway identityはcurrent manifestだけを正本とする。
 
 続く`BeginScene` leafは、focused primary trace二runがcaller RVA `0x5B048`、zero explicit arguments、`D3D_OK`、
 LastError 0 preserve、直後の`test eax,eax; js` consumerを一致させることをoracleとする。Controlled PE32/i386

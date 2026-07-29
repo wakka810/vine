@@ -14,7 +14,7 @@ backing retirement use the generic COM plan／commit path.
 at slot 14, `GetAdapterMonitor` at slot 15, and `CreateDevice` at slot 16
 delegate through a version-neutral COM gateway to the D3D9 semantic handler.
 `CreateDevice` publishes a complete 119-slot `IDirect3DDevice9` interface.
-Its IUnknown methods, slot 17 `Present`, slot 23 `CreateTexture`, slot 26 `CreateVertexBuffer`,
+Its IUnknown methods, slot 3 `TestCooperativeLevel`, slot 17 `Present`, slot 23 `CreateTexture`, slot 26 `CreateVertexBuffer`,
 slot 31 `UpdateTexture`, slot 41 `BeginScene`, slot 42 `EndScene`, slot 43 `Clear`, slot 65
 `SetTexture`, slot 67 `SetTextureStageState`, slot 69 `SetSamplerState`, slot
 81 `DrawPrimitive`, slot 89 `SetFVF`, and slot 100 `SetStreamSource`
@@ -42,9 +42,11 @@ live texture at `0x01020004`. It publishes pitch 8,192 and Rust-owned guest
 backing address `0x44001000`; slot 20 `UnlockRect` later closes that exact lock,
 and the second bounded `UpdateTexture` publishes the resulting pixel source to
 the destination texture. Node and Chrome then complete the second scene,
-draw, and Present cycle before stopping at `IDirect3DDevice9` slot 3
-`TestCooperativeLevel` at instruction 148,744,443. Device-loss and recovery
-semantics remain unclaimed at that gateway.
+draw, and Present cycle plus the mutation-free `IDirect3DDevice9` slot 3
+`TestCooperativeLevel` query at instruction 148,744,443. After one more timer
+arm／wait pair, both stop before mutation at instruction 148,744,543 on
+`USER32.dll!PeekMessageA`. Device-loss, reset, and recovery semantics remain
+unclaimed.
 
 The two-page COM backing is Rust-owned guest memory. Its data page finishes
 read-only and its endpoint page finishes read／execute. The endpoint bytes are
@@ -687,9 +689,36 @@ when materializing a draw submission, converts B8G8R8X8 bytes for WebGL2, and
 does not retain a second Windows texture, lock, or byte authority. Canonical
 Node and Chrome evidence agrees on lock sequence 148,198, unlock sequence
 148,203, partial update sequence 148,272, content generation 2, and two complete
-draw／Present cycles. The next structured gateway is
-`IDirect3DDevice9::TestCooperativeLevel`; readable title pixels, other mip
-levels／formats／lock flags, resize, device loss, and recovery are not claimed.
+draw／Present cycles. The following cooperative-level query also completes, and
+the next structured gateway is `USER32.dll!PeekMessageA`; readable title
+pixels, other mip levels／formats／lock flags, resize, device loss, reset, and
+recovery are not claimed.
+
+## Bounded device cooperative-level query
+
+Version 32 adds `primary-live-operational-device-query-v1` for device slot 3.
+`RuntimeGraphics` remains the sole authority for whether the COM device has a
+live logical graphics-device association. A live device returns `D3D_OK`
+without changing graphics state, COM reference counts, runtime generation,
+guest memory, LastError, or browser resources. A missing, retired, or
+wrong-kind object is rejected before mutation through the existing COM and
+graphics validation boundary.
+
+The generic native trace contains 998 completed calls over 8,348 ms from caller
+RVA `0x0005ADCD`; every result is `D3D_OK`, with observed entry LastError values
+0 and 3 preserved. The caller compares the result first with
+`D3DERR_DEVICELOST`, then with `D3DERR_DEVICENOTRESET`, and finally normalizes
+the HRESULT sign. Two focused runs are balanced at maximum API depth 3. A
+controlled live-device oracle returns `D3D_OK` while preserving LastError
+sentinels `0x11223344` and `0x55667788`.
+
+Canonical Node and Chrome each complete the query once at sequence 148,293／
+instruction 148,744,443 with device pointer `0x01010004`, result `D3D_OK`,
+return address `0x1005ADCD`, stack movement `0x006FF8F4` to `0x006FF8FC`,
+reference count 5, and zero guest writes. This profile claims only the reached
+operational state. It does not synthesize device-lost／not-reset transitions,
+map browser context loss into Windows state, implement `Reset`, or claim
+recovery. The next structured gateway is `USER32.dll!PeekMessageA`.
 
 ## Bounded device scene lifecycle
 

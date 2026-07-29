@@ -2404,11 +2404,7 @@ assert.throws(
   /violates its caller, tuple, result, LastError, or consumer contract/,
 );
 
-const setTextureImmediateConsumer = makeInstructionWindow(
-  0x0045_b27c,
-  128,
-  8,
-);
+const setTextureImmediateConsumer = makeInstructionWindow(0x0045_b27c, 128, 8);
 setFixtureInstruction(
   setTextureImmediateConsumer,
   0,
@@ -2552,19 +2548,16 @@ const d3d9SetTextureSummary = summarizeTrace(
   encode(d3d9SetTextureEvents),
   "d3d9-set-texture-fixture.jsonl",
 );
-assert.deepEqual(
-  d3d9SetTextureSummary.d3d9.setTextureObservations[0].call,
-  {
-    sequence: 4,
-    caller: { module: "BGI.exe", rva: 0x5b27c },
-    stage: 0,
-    texture: "0x650000",
-    result: "0x0",
-    lastErrorBefore: 0,
-    lastError: 0,
-    immediateConsumer: setTextureImmediateConsumer,
-  },
-);
+assert.deepEqual(d3d9SetTextureSummary.d3d9.setTextureObservations[0].call, {
+  sequence: 4,
+  caller: { module: "BGI.exe", rva: 0x5b27c },
+  stage: 0,
+  texture: "0x650000",
+  result: "0x0",
+  lastErrorBefore: 0,
+  lastError: 0,
+  immediateConsumer: setTextureImmediateConsumer,
+});
 const missingSetTextureCompletion = d3d9SetTextureEvents.filter(
   (event) => event.kind !== "d3d9-set-texture-complete",
 );
@@ -2906,8 +2899,7 @@ const d3d9SetStreamSourceEvents = [
     sequence: 6,
     threadId: 20,
     kind: "d3d9-set-stream-source-complete",
-    profile:
-      "x86-bgi-first-frame-transformed-diffuse-textured-stream-zero-v1",
+    profile: "x86-bgi-first-frame-transformed-diffuse-textured-stream-zero-v1",
     device: "0x490000",
     mainModuleCall: setStreamSourceCompletionCall,
   },
@@ -2946,9 +2938,7 @@ assert.throws(
   () => summarizeTrace(encode(missingSetStreamSourceCompletion)),
   /requires exactly one structured completion/,
 );
-const changedSetStreamSourceStride = structuredClone(
-  d3d9SetStreamSourceEvents,
-);
+const changedSetStreamSourceStride = structuredClone(d3d9SetStreamSourceEvents);
 changedSetStreamSourceStride.find(
   (event) => event.kind === "api-leave" && event.callId === 1,
 ).d3d9SetStreamSource.stride = 24;
@@ -3158,11 +3148,7 @@ assert.throws(
   /violates its caller, topology, result, LastError, or immediate EndScene contract/,
 );
 
-const endSceneImmediateConsumer = makeInstructionWindow(
-  0x0045_b43b,
-  128,
-  8,
-);
+const endSceneImmediateConsumer = makeInstructionWindow(0x0045_b43b, 128, 8);
 setFixtureInstruction(
   endSceneImmediateConsumer,
   0,
@@ -3275,11 +3261,7 @@ assert.throws(
   /violates its caller, result, LastError, ignored HRESULT, or post-scene consumer contract/,
 );
 
-const presentImmediateConsumer = makeInstructionWindow(
-  0x0045_b7b1,
-  128,
-  3,
-);
+const presentImmediateConsumer = makeInstructionWindow(0x0045_b7b1, 128, 3);
 setFixtureInstruction(presentImmediateConsumer, 0, "test", "eax, eax");
 setFixtureInstruction(presentImmediateConsumer, 1, "js", "0x45b7cd");
 setFixtureInstruction(presentImmediateConsumer, 2, "call", "0x481eb0");
@@ -3351,9 +3333,8 @@ const presentCompletion = d3d9PresentEvents.find(
 presentCompletion.kind = "d3d9-present-complete";
 presentCompletion.profile = "x86-bgi-first-frame-present-v1";
 presentCompletion.mainModuleCall = presentCompletionCall;
-d3d9PresentEvents.find(
-  (event) => event.kind === "trace-stop",
-).reason = "event-d3d9-present-complete-kill";
+d3d9PresentEvents.find((event) => event.kind === "trace-stop").reason =
+  "event-d3d9-present-complete-kill";
 const d3d9PresentSummary = summarizeTrace(
   encode(d3d9PresentEvents),
   "d3d9-present-fixture.jsonl",
@@ -3392,6 +3373,244 @@ changedPresentDestination.find(
 assert.throws(
   () => summarizeTrace(encode(changedPresentDestination)),
   /violates its caller, full-frame arguments, result, LastError, or HRESULT consumer contract/,
+);
+
+const testCooperativeLevelImmediateConsumer = makeInstructionWindow(
+  0x0045_adcd,
+  128,
+  7,
+);
+setFixtureInstruction(
+  testCooperativeLevelImmediateConsumer,
+  0,
+  "cmp",
+  "eax, 0x88760868",
+);
+setFixtureInstruction(
+  testCooperativeLevelImmediateConsumer,
+  1,
+  "je",
+  "0x45ae66",
+);
+setFixtureInstruction(
+  testCooperativeLevelImmediateConsumer,
+  2,
+  "cmp",
+  "eax, 0x88760869",
+);
+setFixtureInstruction(
+  testCooperativeLevelImmediateConsumer,
+  3,
+  "je",
+  "0x45ade4",
+);
+setFixtureInstruction(testCooperativeLevelImmediateConsumer, 4, "neg", "eax");
+setFixtureInstruction(
+  testCooperativeLevelImmediateConsumer,
+  5,
+  "sbb",
+  "eax, eax",
+);
+setFixtureInstruction(testCooperativeLevelImmediateConsumer, 6, "ret", "");
+const testCooperativeLevelCaller = {
+  address: "0x45adcd",
+  module: "BGI.exe",
+  rva: 0x5adcd,
+};
+const testCooperativeLevelObservation = {
+  lastErrorBefore: 3,
+  immediateConsumer: testCooperativeLevelImmediateConsumer,
+  result: 0,
+  resultU32: 0,
+  lastErrorAfter: 3,
+};
+const testCooperativeLevelCompletionCall = {
+  callId: 1,
+  api: "TestCooperativeLevel",
+  interface: "IDirect3DDevice9",
+  vtableSlot: 3,
+  object: "0x490000",
+  arguments: [],
+  result: 0,
+  resultU32: 0,
+  lastErrorBefore: 3,
+  lastError: 3,
+  immediateConsumer: testCooperativeLevelImmediateConsumer,
+  caller: testCooperativeLevelCaller,
+};
+const testCooperativeLevelOracleCalls = [
+  [2, "first-operational-query", 0x11223344],
+  [3, "repeated-operational-query", 0x55667788],
+].map(([callId, phase, sentinel]) => ({
+  phase,
+  sentinel,
+  systemResult: 0,
+  systemResultU32: 0,
+  systemLastError: sentinel,
+  hook: {
+    callId,
+    api: "TestCooperativeLevel",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 3,
+    object: "0x490000",
+    arguments: [],
+    result: 0,
+    resultU32: 0,
+    lastErrorBefore: sentinel,
+    lastError: sentinel,
+    caller: {
+      address: "0x70012345",
+      module: "frida-agent.dll",
+      rva: 0x12345,
+    },
+  },
+  hookResultMatches: true,
+  hookAndSystemLastErrorMatch: true,
+  lastErrorPreserved: true,
+}));
+const testCooperativeLevelOracleEvidence = {
+  profile: "x86-live-device-operational-query-v1",
+  calls: testCooperativeLevelOracleCalls,
+  allResultsSOk: true,
+  allResultsMatchHooks: true,
+  allLastErrorsMatchHooks: true,
+  allPreserveLastError: true,
+};
+const d3d9TestCooperativeLevelEvents = structuredClone(d3d9PresentEvents);
+const testCooperativeLevelTraceStart = d3d9TestCooperativeLevelEvents.find(
+  (event) => event.kind === "trace-start",
+);
+testCooperativeLevelTraceStart.arguments.stopOnEvent =
+  "d3d9-test-cooperative-level-complete";
+testCooperativeLevelTraceStart.arguments.observations = [
+  "d3d9-test-cooperative-level",
+];
+d3d9TestCooperativeLevelEvents.find(
+  (event) => event.kind === "agent-ready",
+).selectedObservations = ["d3d9-test-cooperative-level"];
+const testCooperativeLevelEnter = d3d9TestCooperativeLevelEvents.find(
+  (event) => event.kind === "api-enter" && event.callId === 1,
+);
+testCooperativeLevelEnter.caller = testCooperativeLevelCaller;
+testCooperativeLevelEnter.api = "TestCooperativeLevel";
+testCooperativeLevelEnter.vtableSlot = 3;
+testCooperativeLevelEnter.arguments = [];
+const testCooperativeLevelLeave = d3d9TestCooperativeLevelEvents.find(
+  (event) => event.kind === "api-leave" && event.callId === 1,
+);
+testCooperativeLevelLeave.caller = testCooperativeLevelCaller;
+testCooperativeLevelLeave.api = "TestCooperativeLevel";
+testCooperativeLevelLeave.vtableSlot = 3;
+testCooperativeLevelLeave.lastError = 3;
+delete testCooperativeLevelLeave.d3d9Present;
+testCooperativeLevelLeave.d3d9TestCooperativeLevel =
+  testCooperativeLevelObservation;
+const testCooperativeLevelCompletion = d3d9TestCooperativeLevelEvents.find(
+  (event) => event.kind === "d3d9-present-complete",
+);
+testCooperativeLevelCompletion.kind = "d3d9-test-cooperative-level-complete";
+testCooperativeLevelCompletion.threadId = 20;
+testCooperativeLevelCompletion.profile = "x86-bgi-operational-device-query-v1";
+testCooperativeLevelCompletion.mainModuleCall =
+  testCooperativeLevelCompletionCall;
+testCooperativeLevelCompletion.oracle = testCooperativeLevelOracleEvidence;
+const testCooperativeLevelCompletionIndex =
+  d3d9TestCooperativeLevelEvents.indexOf(testCooperativeLevelCompletion);
+const oracleEvents = testCooperativeLevelOracleCalls.flatMap((call) => [
+  {
+    schema,
+    threadId: 20,
+    kind: "api-enter",
+    callId: call.hook.callId,
+    parentCallId: null,
+    caller: call.hook.caller,
+    module: "d3d9.dll",
+    api: "TestCooperativeLevel",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 3,
+    object: "0x490000",
+    arguments: [],
+  },
+  {
+    schema,
+    threadId: 20,
+    kind: "api-leave",
+    callId: call.hook.callId,
+    parentCallId: null,
+    caller: call.hook.caller,
+    lastError: call.sentinel,
+    durationMs: 0,
+    module: "d3d9.dll",
+    api: "TestCooperativeLevel",
+    interface: "IDirect3DDevice9",
+    vtableSlot: 3,
+    object: "0x490000",
+    result: "0x0",
+    d3d9TestCooperativeLevel: {
+      lastErrorBefore: call.sentinel,
+      immediateConsumer: null,
+      result: 0,
+      resultU32: 0,
+      lastErrorAfter: call.sentinel,
+    },
+  },
+]);
+d3d9TestCooperativeLevelEvents.splice(
+  testCooperativeLevelCompletionIndex,
+  0,
+  ...oracleEvents,
+  {
+    schema,
+    threadId: 20,
+    kind: "d3d9-test-cooperative-level-oracle",
+    ...testCooperativeLevelOracleEvidence,
+  },
+);
+let testCooperativeLevelSequence = 0;
+for (const event of d3d9TestCooperativeLevelEvents) {
+  if (event.kind !== "trace-start" && event.kind !== "trace-stop") {
+    event.sequence = testCooperativeLevelSequence;
+    testCooperativeLevelSequence += 1;
+  }
+}
+d3d9TestCooperativeLevelEvents.find(
+  (event) => event.kind === "trace-stop",
+).reason = "event-d3d9-test-cooperative-level-complete-kill";
+const d3d9TestCooperativeLevelSummary = summarizeTrace(
+  encode(d3d9TestCooperativeLevelEvents),
+  "d3d9-test-cooperative-level-fixture.jsonl",
+);
+assert.deepEqual(
+  d3d9TestCooperativeLevelSummary.d3d9.testCooperativeLevelObservations[0].call,
+  {
+    sequence: 4,
+    caller: { module: "BGI.exe", rva: 0x5adcd },
+    result: "0x0",
+    lastErrorBefore: 3,
+    lastError: 3,
+    hresultConsumed: true,
+    immediateConsumer: testCooperativeLevelImmediateConsumer,
+  },
+);
+const missingTestCooperativeLevelOracle = structuredClone(
+  d3d9TestCooperativeLevelEvents,
+);
+missingTestCooperativeLevelOracle.find(
+  (event) => event.kind === "d3d9-test-cooperative-level-oracle",
+).kind = "d3d9-test-cooperative-level-oracle-missing";
+assert.throws(
+  () => summarizeTrace(encode(missingTestCooperativeLevelOracle)),
+  /requires exactly one oracle and structured completion/,
+);
+const changedTestCooperativeLevelSentinel = structuredClone(
+  d3d9TestCooperativeLevelEvents,
+);
+changedTestCooperativeLevelSentinel.find(
+  (event) => event.kind === "d3d9-test-cooperative-level-oracle",
+).calls[1].systemLastError = 0;
+assert.throws(
+  () => summarizeTrace(encode(changedTestCooperativeLevelSentinel)),
+  /oracle call 1 violates its repeated operational query contract/,
 );
 
 const d3d9InitialTextureStageStateEvents = [
@@ -3580,8 +3799,7 @@ assert.deepEqual(
 );
 const missingInitialTextureStageStateCompletion =
   d3d9InitialTextureStageStateEvents.filter(
-    (event) =>
-      event.kind !== "d3d9-initial-texture-stage-states-complete",
+    (event) => event.kind !== "d3d9-initial-texture-stage-states-complete",
   );
 assert.throws(
   () => summarizeTrace(encode(missingInitialTextureStageStateCompletion)),
@@ -4453,18 +4671,16 @@ const getForegroundWindowConsumer = {
     ],
   },
 };
-const getForegroundWindowOracleCalls = [0, 87, 0x1234_5678].map(
-  (sentinel) => ({
-    sentinel,
-    systemResult: "0x52010001",
-    hookResult: "0x52010001",
-    hookLastErrorAfter: sentinel,
-    systemLastError: sentinel,
-    hookResultMatches: true,
-    hookPreservesLastError: true,
-    systemPreservesLastError: true,
-  }),
-);
+const getForegroundWindowOracleCalls = [0, 87, 0x1234_5678].map((sentinel) => ({
+  sentinel,
+  systemResult: "0x52010001",
+  hookResult: "0x52010001",
+  hookLastErrorAfter: sentinel,
+  systemLastError: sentinel,
+  hookResultMatches: true,
+  hookPreservesLastError: true,
+  systemPreservesLastError: true,
+}));
 const getForegroundWindowEvents = [
   {
     schema,
@@ -4623,8 +4839,8 @@ const getForegroundWindowSummary = summarizeTrace(
 );
 assert.equal(getForegroundWindowSummary.user32.getForegroundWindow.length, 1);
 assert.equal(
-  getForegroundWindowSummary.user32.getForegroundWindow[0].mainModuleCall
-    .caller.rva,
+  getForegroundWindowSummary.user32.getForegroundWindow[0].mainModuleCall.caller
+    .rva,
   0x9390e,
 );
 assert.equal(
@@ -4654,8 +4870,7 @@ for (const event of invalidGetForegroundWindowConsumer) {
         ? event.mainModuleCalls[0].immediateConsumer
         : null;
   if (consumer !== null && consumer !== undefined) {
-    consumer.instructions.instructions[1].opStr =
-      "eax, dword ptr [0x551fd8]";
+    consumer.instructions.instructions[1].opStr = "eax, dword ptr [0x551fd8]";
   }
 }
 assert.throws(
@@ -4683,9 +4898,8 @@ assert.throws(
 );
 
 const getAsyncKeyStateScanVirtualKeys = [
-  14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99,
-  52, 100, 53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17,
-  1, 2, 4, 5, 6,
+  14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99, 52, 100,
+  53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17, 1, 2, 4, 5, 6,
 ];
 const getAsyncKeyStateConsumer = {
   instructions: {
@@ -4839,14 +5053,11 @@ assert.deepEqual(
   getAsyncKeyStateSummary.user32.getAsyncKeyState[0].scanVirtualKeys,
   getAsyncKeyStateScanVirtualKeys,
 );
-assert.deepEqual(
-  getAsyncKeyStateSummary.user32.getAsyncKeyState[0].consumer,
-  {
-    profile: "sign-extend-and-optional-or-full-short-v1",
-    usesCurrentDownBit: true,
-    preservesPressedSinceLastQueryBit: true,
-  },
-);
+assert.deepEqual(getAsyncKeyStateSummary.user32.getAsyncKeyState[0].consumer, {
+  profile: "sign-extend-and-optional-or-full-short-v1",
+  usesCurrentDownBit: true,
+  preservesPressedSinceLastQueryBit: true,
+});
 
 const invalidGetAsyncKeyStateKey = structuredClone(getAsyncKeyStateEvents);
 invalidGetAsyncKeyStateKey.find(
@@ -4857,9 +5068,7 @@ assert.throws(
   /scan call 0 does not match/,
 );
 
-const invalidGetAsyncKeyStateConsumer = structuredClone(
-  getAsyncKeyStateEvents,
-);
+const invalidGetAsyncKeyStateConsumer = structuredClone(getAsyncKeyStateEvents);
 invalidGetAsyncKeyStateConsumer.find(
   (event) => event.kind === "get-async-key-state-complete",
 ).mainModuleCalls[0].immediateConsumer.instructions.instructions[0].opStr =
@@ -6019,14 +6228,10 @@ d3d9TextureLockRectSelection[0].arguments.observations = [
 d3d9TextureLockRectSelection.find(
   (event) => event.kind === "agent-ready",
 ).selectedObservations = ["d3d9-texture-lock-rect"];
-assert.doesNotThrow(() =>
-  summarizeTrace(encode(d3d9TextureLockRectSelection)),
-);
+assert.doesNotThrow(() => summarizeTrace(encode(d3d9TextureLockRectSelection)));
 
 const d3d9UpdateTextureSelection = structuredClone(events);
-d3d9UpdateTextureSelection[0].arguments.observations = [
-  "d3d9-update-texture",
-];
+d3d9UpdateTextureSelection[0].arguments.observations = ["d3d9-update-texture"];
 d3d9UpdateTextureSelection.find(
   (event) => event.kind === "agent-ready",
 ).selectedObservations = ["d3d9-update-texture"];
@@ -6060,20 +6265,14 @@ d3d9SetStreamSourceSelection[0].arguments.observations = [
 d3d9SetStreamSourceSelection.find(
   (event) => event.kind === "agent-ready",
 ).selectedObservations = ["d3d9-set-stream-source"];
-assert.doesNotThrow(() =>
-  summarizeTrace(encode(d3d9SetStreamSourceSelection)),
-);
+assert.doesNotThrow(() => summarizeTrace(encode(d3d9SetStreamSourceSelection)));
 
 const d3d9DrawPrimitiveSelection = structuredClone(events);
-d3d9DrawPrimitiveSelection[0].arguments.observations = [
-  "d3d9-draw-primitive",
-];
+d3d9DrawPrimitiveSelection[0].arguments.observations = ["d3d9-draw-primitive"];
 d3d9DrawPrimitiveSelection.find(
   (event) => event.kind === "agent-ready",
 ).selectedObservations = ["d3d9-draw-primitive"];
-assert.doesNotThrow(() =>
-  summarizeTrace(encode(d3d9DrawPrimitiveSelection)),
-);
+assert.doesNotThrow(() => summarizeTrace(encode(d3d9DrawPrimitiveSelection)));
 
 const d3d9EndSceneSelection = structuredClone(events);
 d3d9EndSceneSelection[0].arguments.observations = ["d3d9-end-scene"];
