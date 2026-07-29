@@ -192,7 +192,11 @@ export function validateCurrentCheckpoint(manifest) {
   const postClockCriticalSectionActive =
     root.activeRuntimeCheckpoint?.profile ===
       "kernel32-enter-critical-section-post-clock";
+  const postTimerRearmWaitCriticalSectionActive =
+    root.activeRuntimeCheckpoint?.profile ===
+      "kernel32-enter-critical-section-post-timer-rearm-wait-batch";
   const postTimerWaitCriticalSectionActive =
+    postTimerRearmWaitCriticalSectionActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "kernel32-enter-critical-section-post-timer-wait-batch";
   const postWaitCriticalSectionActive =
@@ -395,7 +399,7 @@ export function validateCurrentCheckpoint(manifest) {
       ? "15954287,16290526"
       : "15953766,16290005";
   const timerCycleCount =
-    postTimerRearmWaitActive
+    postTimerRearmWaitCriticalSectionActive || postTimerRearmWaitActive
     ? 11_208
     : postTimerArmWaitActive ||
     postTimerWaitCriticalSectionActive ||
@@ -431,7 +435,9 @@ export function validateCurrentCheckpoint(manifest) {
                   ? 7
                   : 3;
   const timerArmCount =
-    postTimerRearmWaitActive || postTimerWaitSetWaitableTimerActive
+    postTimerRearmWaitCriticalSectionActive ||
+    postTimerRearmWaitActive ||
+    postTimerWaitSetWaitableTimerActive
     ? 11_208
     : postCriticalSectionSetWaitableTimerActive ||
     postTimerArmWaitActive ||
@@ -453,7 +459,9 @@ export function validateCurrentCheckpoint(manifest) {
       ? 9_187
       : timerCycleCount;
   const timerSetSequences =
-    postTimerRearmWaitActive || postTimerWaitSetWaitableTimerActive
+    postTimerRearmWaitCriticalSectionActive ||
+    postTimerRearmWaitActive ||
+    postTimerWaitSetWaitableTimerActive
     ? "18681,158123"
     : postCriticalSectionSetWaitableTimerActive ||
     postTimerArmWaitActive ||
@@ -487,7 +495,9 @@ export function validateCurrentCheckpoint(manifest) {
                   ? "18681,18689,18697,18705,18713,18721,18729"
                   : "18681,18689,18697";
   const timerSetInstructionCounts =
-    postTimerRearmWaitActive || postTimerWaitSetWaitableTimerActive
+    postTimerRearmWaitCriticalSectionActive ||
+    postTimerRearmWaitActive ||
+    postTimerWaitSetWaitableTimerActive
     ? "11974074,276361338"
     : postCriticalSectionSetWaitableTimerActive ||
     postTimerArmWaitActive ||
@@ -521,7 +531,7 @@ export function validateCurrentCheckpoint(manifest) {
                   ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
                   : "11973553,11973700,11973847";
   const timerWaitSequences =
-    postTimerRearmWaitActive
+    postTimerRearmWaitCriticalSectionActive || postTimerRearmWaitActive
     ? "18682,158124"
     : postTimerArmWaitActive ||
     postTimerWaitCriticalSectionActive ||
@@ -557,7 +567,7 @@ export function validateCurrentCheckpoint(manifest) {
                   ? "18682,18690,18698,18706,18714,18722,18730"
                   : "18682,18690,18698";
   const timerWaitInstructionCounts =
-    postTimerRearmWaitActive
+    postTimerRearmWaitCriticalSectionActive || postTimerRearmWaitActive
     ? "11974080,276361344"
     : postTimerArmWaitActive ||
     postTimerWaitCriticalSectionActive ||
@@ -593,7 +603,7 @@ export function validateCurrentCheckpoint(manifest) {
                   ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
                   : "11973559,11973706,11973853";
   const timerGenerations =
-    postTimerRearmWaitActive
+    postTimerRearmWaitCriticalSectionActive || postTimerRearmWaitActive
     ? "1,11204"
     : postTimerArmWaitActive ||
     postTimerWaitCriticalSectionActive ||
@@ -629,7 +639,7 @@ export function validateCurrentCheckpoint(manifest) {
                   ? "1,2,3,4,5,6,7"
                   : "1,2,3";
   const timerClockGenerations =
-    postTimerRearmWaitActive
+    postTimerRearmWaitCriticalSectionActive || postTimerRearmWaitActive
     ? "1,11208"
     : postTimerArmWaitActive ||
     postTimerWaitCriticalSectionActive ||
@@ -651,7 +661,7 @@ export function validateCurrentCheckpoint(manifest) {
     ? "1,9187"
     : timerGenerations;
   const timerDeadlines =
-    postTimerRearmWaitActive
+    postTimerRearmWaitCriticalSectionActive || postTimerRearmWaitActive
     ? "5000,56085000"
     : postTimerArmWaitActive ||
     postTimerWaitCriticalSectionActive ||
@@ -687,7 +697,7 @@ export function validateCurrentCheckpoint(manifest) {
                   ? "5000,10000,15000,20000,25000,30000,35000"
                   : "5000,10000,15000";
   const timerPacingRequestIds =
-    postTimerRearmWaitActive
+    postTimerRearmWaitCriticalSectionActive || postTimerRearmWaitActive
     ? "3,11295"
     : postTimerArmWaitActive ||
     postTimerWaitCriticalSectionActive ||
@@ -723,7 +733,7 @@ export function validateCurrentCheckpoint(manifest) {
                   ? "3,4,5,6,7,8,9"
                   : "3,4,5";
   const timerPacingRegistrationIds =
-    postTimerRearmWaitActive
+    postTimerRearmWaitCriticalSectionActive || postTimerRearmWaitActive
     ? "1,11208"
     : postTimerArmWaitActive ||
     postTimerWaitCriticalSectionActive ||
@@ -759,7 +769,7 @@ export function validateCurrentCheckpoint(manifest) {
                   ? "1,2,3,4,5,6,7"
                   : "1,2,3";
   const timerPacingClockGenerations =
-    postTimerRearmWaitActive
+    postTimerRearmWaitCriticalSectionActive || postTimerRearmWaitActive
     ? "0,11207"
     : postTimerArmWaitActive ||
     postTimerWaitCriticalSectionActive ||
@@ -795,7 +805,7 @@ export function validateCurrentCheckpoint(manifest) {
                   ? "0,1,2,3,4,5,6"
                   : "0,1,2";
   const timerNextRegistrationIds =
-    postTimerRearmWaitActive
+    postTimerRearmWaitCriticalSectionActive || postTimerRearmWaitActive
     ? "2,11209"
     : postTimerArmWaitActive ||
     postTimerWaitCriticalSectionActive ||
@@ -899,36 +909,59 @@ export function validateCurrentCheckpoint(manifest) {
     : postWaitCriticalSectionActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: postTimerWaitCriticalSectionActive
-          ? 125_756
-          : 125_750,
-        browserMappingDirtyPages: postTimerWaitCriticalSectionActive
-          ? 145_861
-          : 145_855,
-        browserSuccessExecutionTransitions: postTimerWaitCriticalSectionActive
-          ? 567_686
-          : 567_659,
-        latestSchema: postTimerWaitCriticalSectionActive
-          ? "vine.v86-bgi-kernel32-enter-critical-section-post-timer-wait-batch"
-          : "vine.v86-bgi-kernel32-enter-critical-section-post-wait",
-        latestWritebackBatches: postTimerWaitCriticalSectionActive
-          ? 161_082
-          : 161_074,
-        latestWritebackDirtyPages: postTimerWaitCriticalSectionActive
-          ? 236_722
-          : 236_711,
-        latestWritebackChangedBytes: postTimerWaitCriticalSectionActive
-          ? 36_243_617
-          : 36_243_510,
-        latestHostDeltaBatches: postTimerWaitCriticalSectionActive
-          ? 125_756
-          : 125_750,
-        latestFinalMemoryGeneration: postTimerWaitCriticalSectionActive
-          ? 289_926
-          : 289_912,
-        semanticCallDigestSha256: postTimerWaitCriticalSectionActive
-          ? "c90b7e833362576c3c31209a78321fd27d3786386621e986d5a52a74ee94ccdf"
-          : "63091c71ceb92caa0a781fe23ddd1925b800daaf03d48e82263fb618a992f5de",
+        browserMappingDeltas: postTimerRearmWaitCriticalSectionActive
+          ? 125_762
+          : postTimerWaitCriticalSectionActive
+            ? 125_756
+            : 125_750,
+        browserMappingDirtyPages: postTimerRearmWaitCriticalSectionActive
+          ? 145_867
+          : postTimerWaitCriticalSectionActive
+            ? 145_861
+            : 145_855,
+        browserSuccessExecutionTransitions:
+          postTimerRearmWaitCriticalSectionActive
+            ? 567_713
+            : postTimerWaitCriticalSectionActive
+              ? 567_686
+              : 567_659,
+        latestSchema: postTimerRearmWaitCriticalSectionActive
+          ? "vine.v86-bgi-kernel32-enter-critical-section-post-timer-rearm-wait-batch"
+          : postTimerWaitCriticalSectionActive
+            ? "vine.v86-bgi-kernel32-enter-critical-section-post-timer-wait-batch"
+            : "vine.v86-bgi-kernel32-enter-critical-section-post-wait",
+        latestWritebackBatches: postTimerRearmWaitCriticalSectionActive
+          ? 161_090
+          : postTimerWaitCriticalSectionActive
+            ? 161_082
+            : 161_074,
+        latestWritebackDirtyPages: postTimerRearmWaitCriticalSectionActive
+          ? 236_733
+          : postTimerWaitCriticalSectionActive
+            ? 236_722
+            : 236_711,
+        latestWritebackChangedBytes:
+          postTimerRearmWaitCriticalSectionActive
+            ? 36_243_724
+            : postTimerWaitCriticalSectionActive
+              ? 36_243_617
+              : 36_243_510,
+        latestHostDeltaBatches: postTimerRearmWaitCriticalSectionActive
+          ? 125_762
+          : postTimerWaitCriticalSectionActive
+            ? 125_756
+            : 125_750,
+        latestFinalMemoryGeneration:
+          postTimerRearmWaitCriticalSectionActive
+            ? 289_940
+            : postTimerWaitCriticalSectionActive
+              ? 289_926
+              : 289_912,
+        semanticCallDigestSha256: postTimerRearmWaitCriticalSectionActive
+          ? "21e5a69577524da6333f51fca63cf338e8b3636f0f6c6dc0d6668be3267ee4aa"
+          : postTimerWaitCriticalSectionActive
+            ? "c90b7e833362576c3c31209a78321fd27d3786386621e986d5a52a74ee94ccdf"
+            : "63091c71ceb92caa0a781fe23ddd1925b800daaf03d48e82263fb618a992f5de",
         memoryContentSha256:
           "bd92a619b4ee428eab13238b769afd60f326ce22fcf86d22f3a46fc11df56700",
       }
@@ -2116,9 +2149,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v66") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v67") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v66",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v67",
     );
   }
   if (
@@ -2902,7 +2935,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (postTimerRearmWaitActive
+      (postTimerRearmWaitCriticalSectionActive
+        ? 35
+        : postTimerRearmWaitActive
         ? 34
         : postTimerWaitSetWaitableTimerActive
         ? 33
@@ -19808,7 +19843,9 @@ export function validateCurrentCheckpoint(manifest) {
         : postCriticalSectionSetWaitableTimerActive
         ? "Rust-owned recurring relative one-shot waitable-timer arm through RuntimeTimers and RuntimeObjectTable with joint preflight and targeted commit"
         : postWaitCriticalSectionActive
-        ? "Rust-owned three-roundtrip critical-section batch through RuntimeSynchronization with atomic guest-state publication and scheduler handoff"
+        ? postTimerRearmWaitCriticalSectionActive
+          ? "Rust-owned recurring balanced critical-section batch through RuntimeSynchronization with failure-atomic 24-byte guest publication and non-owning browser evidence"
+          : "Rust-owned three-roundtrip critical-section batch through RuntimeSynchronization with atomic guest-state publication and scheduler handoff"
         : postCriticalSectionWaitActive
         ? "Rust-owned finite alertable waitable-timer completion through RuntimeTimers, RuntimeWaits, and the scheduler with deterministic browser pacing acknowledgement"
         : postClockCriticalSectionActive
@@ -22868,25 +22905,40 @@ export function validateCurrentCheckpoint(manifest) {
     }
   }
   if (postWaitCriticalSectionActive) {
-    const profile = postTimerWaitCriticalSectionActive
-      ? "kernel32-enter-critical-section-post-timer-wait-batch"
-      : "kernel32-enter-critical-section-post-wait";
-    const nextCheckpoint = postTimerWaitCriticalSectionActive
-      ? "kernel32-set-waitable-timer-post-timer-wait-batch"
-      : "kernel32-set-waitable-timer-post-critical-section-batch";
-    const firstCompletionSequence = postTimerWaitCriticalSectionActive
-      ? 158_117
-      : 158_109;
-    const firstCompletionInstructionCount = postTimerWaitCriticalSectionActive
-      ? 276_361_222
-      : 276_361_075;
+    const profile = postTimerRearmWaitCriticalSectionActive
+      ? "kernel32-enter-critical-section-post-timer-rearm-wait-batch"
+      : postTimerWaitCriticalSectionActive
+        ? "kernel32-enter-critical-section-post-timer-wait-batch"
+        : "kernel32-enter-critical-section-post-wait";
+    const nextCheckpoint = postTimerRearmWaitCriticalSectionActive
+      ? "kernel32-set-waitable-timer-post-timer-rearm-wait-batch"
+      : postTimerWaitCriticalSectionActive
+        ? "kernel32-set-waitable-timer-post-timer-wait-batch"
+        : "kernel32-set-waitable-timer-post-critical-section-batch";
+    const firstCompletionSequence = postTimerRearmWaitCriticalSectionActive
+      ? 158_125
+      : postTimerWaitCriticalSectionActive
+        ? 158_117
+        : 158_109;
+    const firstCompletionInstructionCount =
+      postTimerRearmWaitCriticalSectionActive
+        ? 276_361_369
+        : postTimerWaitCriticalSectionActive
+          ? 276_361_222
+          : 276_361_075;
     const lastCompletionSequence = firstCompletionSequence + 5;
-    const lastCompletionInstructionCount = postTimerWaitCriticalSectionActive
-      ? 276_361_303
-      : 276_361_156;
-    const checkpointInstructionCount = postTimerWaitCriticalSectionActive
-      ? 276_361_338
-      : 276_361_191;
+    const lastCompletionInstructionCount =
+      postTimerRearmWaitCriticalSectionActive
+        ? 276_361_450
+        : postTimerWaitCriticalSectionActive
+          ? 276_361_303
+          : 276_361_156;
+    const checkpointInstructionCount =
+      postTimerRearmWaitCriticalSectionActive
+        ? 276_361_485
+        : postTimerWaitCriticalSectionActive
+          ? 276_361_338
+          : 276_361_191;
     const expectedCompletion = currentStop.completion ?? {};
     const expectedEndpoint = currentStop.nextEndpoint ?? {};
     if (
@@ -22927,16 +22979,25 @@ export function validateCurrentCheckpoint(manifest) {
     ) {
       errors.push("post-wait critical-section checkpoint stop is invalid");
     }
-    const expectedCalls = postTimerWaitCriticalSectionActive
+    const expectedCalls = postTimerRearmWaitCriticalSectionActive
       ? [
+          [158_125, 276_361_369, 51_340, "EnterCriticalSection", "0x1014c8d0", "0x10091796", "0x500fff70,0x500fff78", "fffffffffeffffff010000000120000000000000d0070002"],
+          [158_126, 276_361_374, 51_340, "LeaveCriticalSection", "0x1014c8d0", "0x100917aa", "0x500fff70,0x500fff78", "ffffffffffffffff000000000000000000000000d0070002"],
+          [158_127, 276_361_410, 51_341, "EnterCriticalSection", "0x1014c8d0", "0x10091966", "0x500fff70,0x500fff78", "fffffffffeffffff010000000120000000000000d0070002"],
+          [158_128, 276_361_415, 51_341, "LeaveCriticalSection", "0x1014c8d0", "0x1009197a", "0x500fff70,0x500fff78", "ffffffffffffffff000000000000000000000000d0070002"],
+          [158_129, 276_361_441, 51_342, "EnterCriticalSection", "0x100ff820", "0x100010db", "0x500fff90,0x500fff98", "fffffffffeffffff010000000120000000000000d0070002"],
+          [158_130, 276_361_450, 51_342, "LeaveCriticalSection", "0x100ff820", "0x100010eb", "0x500fff90,0x500fff98", "ffffffffffffffff000000000000000000000000d0070002"],
+        ]
+      : postTimerWaitCriticalSectionActive
+        ? [
           [158_117, 276_361_222, 51_337, "EnterCriticalSection", "0x1014c8d0", "0x10091796", "0x500fff70,0x500fff78", "fffffffffeffffff010000000120000000000000d0070002"],
           [158_118, 276_361_227, 51_337, "LeaveCriticalSection", "0x1014c8d0", "0x100917aa", "0x500fff70,0x500fff78", "ffffffffffffffff000000000000000000000000d0070002"],
           [158_119, 276_361_263, 51_338, "EnterCriticalSection", "0x1014c8d0", "0x10091966", "0x500fff70,0x500fff78", "fffffffffeffffff010000000120000000000000d0070002"],
           [158_120, 276_361_268, 51_338, "LeaveCriticalSection", "0x1014c8d0", "0x1009197a", "0x500fff70,0x500fff78", "ffffffffffffffff000000000000000000000000d0070002"],
           [158_121, 276_361_294, 51_339, "EnterCriticalSection", "0x100ff820", "0x100010db", "0x500fff90,0x500fff98", "fffffffffeffffff010000000120000000000000d0070002"],
           [158_122, 276_361_303, 51_339, "LeaveCriticalSection", "0x100ff820", "0x100010eb", "0x500fff90,0x500fff98", "ffffffffffffffff000000000000000000000000d0070002"],
-        ]
-      : [
+          ]
+        : [
           [158_109, 276_361_075, 51_334, "EnterCriticalSection", "0x1014c8d0", "0x10091796", "0x500fff70,0x500fff78", "fffffffffeffffff010000000120000000000000d0070002"],
           [158_110, 276_361_080, 51_334, "LeaveCriticalSection", "0x1014c8d0", "0x100917aa", "0x500fff70,0x500fff78", "ffffffffffffffff000000000000000000000000d0070002"],
           [158_111, 276_361_116, 51_335, "EnterCriticalSection", "0x1014c8d0", "0x10091966", "0x500fff70,0x500fff78", "fffffffffeffffff010000000120000000000000d0070002"],
@@ -25491,7 +25552,9 @@ export function renderReadmeStatus(manifest) {
                                     : next.completion.capability ===
                                           "kernel32-enter-critical-section-post-wait" ||
                                         next.completion.capability ===
-                                          "kernel32-enter-critical-section-post-timer-wait-batch"
+                                          "kernel32-enter-critical-section-post-timer-wait-batch" ||
+                                        next.completion.capability ===
+                                          "kernel32-enter-critical-section-post-timer-rearm-wait-batch"
                                       ? "balanced critical-section calls"
                                     : next.completion.capability ===
                                         "kernel32-wait-for-single-object-ex-post-critical-section"

@@ -1042,6 +1042,13 @@ preserve、24-byte locked／unlocked publication、最終balanced state、termin
 Workerはnon-owning evidenceだけを保持する。次のtimer arm dispatch前で停止し、contention／fairness／
 abandonment／APC semanticsや新しいperformance baselineを拡張しない。
 
+Post-timer-rearm wait直後のcritical-section recurrenceも、同じ6 call／3 roundtrip contractで
+再検査する。Node／Chromeはthread `8193`、2個のguest identity、call順序、EAX／LastError preserve、
+各callのfailure-atomicな24-byte locked／unlocked publication、最終balanced state、terminal memory、
+次の6引数`SetWaitableTimer` frameを一致させる。Rust `RuntimeSynchronization`だけがWindows-visible
+stateを所有し、Workerはnon-owning evidenceだけを保持する。timer arm dispatch前で停止し、contention、
+fairness、abandonment、APC semanticsや新しいperformance baselineを拡張しない。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

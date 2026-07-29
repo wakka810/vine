@@ -279,6 +279,21 @@ balanced unlocked state until the next profile dispatches this acquisition.
 The active recurrence and exact stop identity remain in
 [current-checkpoint.json](current-checkpoint.json).
 
+The `kernel32-enter-critical-section-post-timer-rearm-wait-batch` profile now
+consumes that reached acquisition through the same contiguous six-call
+contract. Controlled thread `8193` performs two balanced roundtrips on
+`0x1014C8D0` and one on `0x100FF820`; every call preserves EAX and LastError
+and publishes exactly one failure-atomic 24-byte locked or unlocked update.
+Node and Chrome agree on ordered calls, owner thread, guest identities, final
+balanced state, terminal memory, and the following six-argument
+`SetWaitableTimer` frame.
+
+This recurrence adds no synchronization collection, allocator, or browser
+authority. `RuntimeSynchronization` remains the sole Windows-visible owner,
+and the Worker retains only non-owning evidence. The profile stops before the
+next timer arm transaction. Exact positions, aggregate counts, artifact
+identities, and the next profile remain manifest-owned.
+
 ## Historical next structured stop
 
 After the fourteenth initialization returns, BGI reaches instruction 575 at:

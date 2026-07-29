@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `kernel32-wait-for-single-object-ex-post-timer-rearm-batch`: 158124 calls across 128 endpoint contracts / 126 APIs, memory generation 289928 |
+| Runtime diagnostics | `kernel32-enter-critical-section-post-timer-rearm-wait-batch`: 158130 calls across 128 endpoint contracts / 126 APIs, memory generation 289940 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `kernel32-wait-for-single-object-ex-post-timer-rearm-batch` completed 1 recurring waits by instruction 276361344; verification stopped at `KERNEL32.dll!EnterCriticalSection` on instruction 276361369 (`kernel32-wait-for-single-object-ex-post-timer-rearm-batch-checkpoint-complete`) |
+| Next structured stop | `kernel32-enter-critical-section-post-timer-rearm-wait-batch` completed 6 balanced critical-section calls by instruction 276361450; verification stopped at `KERNEL32.dll!SetWaitableTimer` on instruction 276361485 (`kernel32-enter-critical-section-post-timer-rearm-wait-batch-checkpoint-complete`) |
 
-The active semantic report is 2,862,868 bytes with SHA-256
-`de985e1078979b89fee7eec3dbd3af44c02e8bf9383c6b0ca94546cd450dbedf`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 2,869,856 bytes with SHA-256
+`e0c79e7e32d294c33c6e8f2d9b4090c040ef59d3de4f507329dc20a3462f7e16`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

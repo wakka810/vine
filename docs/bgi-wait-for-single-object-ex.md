@@ -238,6 +238,14 @@ it remains non-owning evidence rather than a Windows wait authority. The next
 critical-section recurrence and all exact occurrence, generation, deadline,
 and artifact values remain manifest-owned.
 
+The following
+`kernel32-enter-critical-section-post-timer-rearm-wait-batch` profile has now
+consumed the complete balanced six-call synchronization block and reached the
+next timer-arm frame. That continuation does not modify the completed wait,
+timer clock, registration, or result and creates no second scheduler or
+browser authority. Its stable ownership and publication contract is recorded
+in [bgi-critical-section-synchronization.md](bgi-critical-section-synchronization.md).
+
 ## Non-claims
 
 - Alertable mode is accepted, but APC delivery and `WAIT_IO_COMPLETION` are not

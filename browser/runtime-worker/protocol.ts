@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 66 as const;
+export const protocolVersion = 67 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -58,6 +58,7 @@ export type BgiCapabilityProfile =
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
+  | "kernel32-enter-critical-section-post-timer-rearm-wait-batch"
   | "kernel32-wait-for-single-object-ex-post-critical-section";
 
 export type RuntimeKeyboardSourceEventKind =
@@ -1717,7 +1718,9 @@ export interface SessionReport {
         memoryContentSha256: string;
       }
     | {
-        capability: "kernel32-enter-critical-section-post-timer-wait-batch";
+        capability:
+          | "kernel32-enter-critical-section-post-timer-wait-batch"
+          | "kernel32-enter-critical-section-post-timer-rearm-wait-batch";
         implementationId: "kernel32.critical-section-balanced-batch.v1";
         requiredCompletions: 6;
         completionCount: 6;

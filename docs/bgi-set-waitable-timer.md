@@ -166,6 +166,13 @@ generations, deadlines, report identities, and the next critical-section
 checkpoint remain authoritative only in
 [current-checkpoint.json](current-checkpoint.json).
 
+The post-rearm-wait critical-section recurrence has now consumed its balanced
+six-call block and reached another `SetWaitableTimer` frame. It stops before
+dispatching the arm, so it does not advance the timer generation, change the
+object wait state, or create a browser timer. The next structured stop in the
+manifest identifies the exact frame that must reuse this same relative
+one-shot preflight and targeted-commit transaction.
+
 ## Non-claims
 
 - This arm transaction does not itself expire or signal the timer, choose a

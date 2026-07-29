@@ -14464,6 +14464,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
                 | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
                 | "kernel32-enter-critical-section-post-timer-wait-batch"
+                | "kernel32-enter-critical-section-post-timer-rearm-wait-batch"
                 | "kernel32-wait-for-single-object-ex-post-critical-section" => {
                     GenericRuntimeCapability::User32AsyncKeyStateInitialScan
                 }

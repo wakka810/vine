@@ -448,10 +448,22 @@ function isPostWaitCriticalSectionCheckpoint(
   return profile === "kernel32-enter-critical-section-post-wait";
 }
 
+function isPostTimerRearmWaitCriticalSectionCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile ===
+    "kernel32-enter-critical-section-post-timer-rearm-wait-batch"
+  );
+}
+
 function isPostTimerWaitCriticalSectionCheckpoint(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "kernel32-enter-critical-section-post-timer-wait-batch";
+  return (
+    isPostTimerRearmWaitCriticalSectionCheckpoint(profile) ||
+    profile === "kernel32-enter-critical-section-post-timer-wait-batch"
+  );
 }
 
 function isBalancedCriticalSectionBatchCheckpoint(
@@ -461,6 +473,69 @@ function isBalancedCriticalSectionBatchCheckpoint(
     isPostWaitCriticalSectionCheckpoint(profile) ||
     isPostTimerWaitCriticalSectionCheckpoint(profile)
   );
+}
+
+function balancedCriticalSectionBatchExpectation(
+  profile: SessionConfiguration["capabilityProfile"],
+) {
+  return isPostTimerRearmWaitCriticalSectionCheckpoint(profile)
+    ? ({
+        capability:
+          "kernel32-enter-critical-section-post-timer-rearm-wait-batch",
+        supportedCallCount: 158_130,
+        semanticDigest:
+          "21e5a69577524da6333f51fca63cf338e8b3636f0f6c6dc0d6668be3267ee4aa",
+        firstSequence: 158_125,
+        instructionCounts:
+          "276361369,276361374,276361410,276361415,276361441,276361450",
+        firstInstructionCount: 276_361_369,
+        lastInstructionCount: 276_361_450,
+        terminalInstructionCount: 276_361_485,
+        finalGeneration: 305_890n,
+        writebackBatches: 177_146,
+        writebackPages: 269_387,
+        mappingDeltas: 125_762,
+        mappingDirtyPages: 145_867,
+        waitCompletions: 11_208,
+      } as const)
+    : isPostTimerWaitCriticalSectionCheckpoint(profile)
+      ? ({
+          capability:
+            "kernel32-enter-critical-section-post-timer-wait-batch",
+          supportedCallCount: 158_122,
+          semanticDigest:
+            "c90b7e833362576c3c31209a78321fd27d3786386621e986d5a52a74ee94ccdf",
+          firstSequence: 158_117,
+          instructionCounts:
+            "276361222,276361227,276361263,276361268,276361294,276361303",
+          firstInstructionCount: 276_361_222,
+          lastInstructionCount: 276_361_303,
+          terminalInstructionCount: 276_361_338,
+          finalGeneration: 305_876n,
+          writebackBatches: 177_138,
+          writebackPages: 269_376,
+          mappingDeltas: 125_756,
+          mappingDirtyPages: 145_861,
+          waitCompletions: 11_207,
+        } as const)
+      : ({
+          capability: "kernel32-enter-critical-section-post-wait",
+          supportedCallCount: 158_114,
+          semanticDigest:
+            "63091c71ceb92caa0a781fe23ddd1925b800daaf03d48e82263fb618a992f5de",
+          firstSequence: 158_109,
+          instructionCounts:
+            "276361075,276361080,276361116,276361121,276361147,276361156",
+          firstInstructionCount: 276_361_075,
+          lastInstructionCount: 276_361_156,
+          terminalInstructionCount: 276_361_191,
+          finalGeneration: 305_862n,
+          writebackBatches: 177_130,
+          writebackPages: 269_365,
+          mappingDeltas: 125_750,
+          mappingDirtyPages: 145_855,
+          waitCompletions: 11_206,
+        } as const);
 }
 
 function isPostCriticalSectionSetWaitableTimerCheckpoint(
@@ -945,7 +1020,11 @@ type PostWaitCriticalSectionCheckpoint = Extract<
 
 type PostTimerWaitCriticalSectionCheckpoint = Extract<
   NonNullable<SessionReport["checkpointCompletion"]>,
-  { capability: "kernel32-enter-critical-section-post-timer-wait-batch" }
+  {
+    capability:
+      | "kernel32-enter-critical-section-post-timer-wait-batch"
+      | "kernel32-enter-critical-section-post-timer-rearm-wait-batch";
+  }
 >;
 
 interface AppliedHostDeltaEvidence {
@@ -3422,11 +3501,9 @@ class BrowserRuntimeSession {
                 "balanced critical-section checkpoint lost its bounded batch evidence",
               );
               this.#report.checkpointCompletion = {
-                capability: isPostTimerWaitCriticalSectionCheckpoint(
+                capability: balancedCriticalSectionBatchExpectation(
                   this.#configuration.capabilityProfile,
-                )
-                  ? "kernel32-enter-critical-section-post-timer-wait-batch"
-                  : "kernel32-enter-critical-section-post-wait",
+                ).capability,
                 implementationId:
                   "kernel32.critical-section-balanced-batch.v1",
                 requiredCompletions: 6,
@@ -4395,6 +4472,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "kernel32-enter-critical-section-post-timer-wait-batch" ||
           checkpoint.capability ===
+            "kernel32-enter-critical-section-post-timer-rearm-wait-batch" ||
+          checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -4467,6 +4546,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "kernel32-enter-critical-section-post-timer-wait-batch" ||
       checkpoint.capability ===
+        "kernel32-enter-critical-section-post-timer-rearm-wait-batch" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -4496,7 +4577,9 @@ class BrowserRuntimeSession {
               : checkpoint.capability ===
                     "kernel32-enter-critical-section-post-wait" ||
                   checkpoint.capability ===
-                    "kernel32-enter-critical-section-post-timer-wait-batch"
+                    "kernel32-enter-critical-section-post-timer-wait-batch" ||
+                  checkpoint.capability ===
+                    "kernel32-enter-critical-section-post-timer-rearm-wait-batch"
                 ? [
                     this.#requireEngine().readGuestU32(stackPointer + 4),
                     this.#requireEngine().readGuestU32(stackPointer + 8),
@@ -4536,6 +4619,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "kernel32-enter-critical-section-post-timer-wait-batch" ||
       checkpoint.capability ===
+        "kernel32-enter-critical-section-post-timer-rearm-wait-batch" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -4568,6 +4653,9 @@ class BrowserRuntimeSession {
                 : checkpoint.capability ===
                     "kernel32-enter-critical-section-post-timer-wait-batch"
                   ? "Post-timer-wait critical-section batch checkpoint completed"
+                : checkpoint.capability ===
+                    "kernel32-enter-critical-section-post-timer-rearm-wait-batch"
+                  ? "Post-timer-rearm-wait critical-section batch checkpoint completed"
                 : checkpoint.capability ===
                     "kernel32-set-waitable-timer-post-timer-wait-batch"
                   ? "Post-timer-wait waitable-timer arm checkpoint completed"
@@ -5744,7 +5832,9 @@ class BrowserRuntimeSession {
         (isPostTimerWaitCriticalSectionCheckpoint(
           this.#configuration.capabilityProfile,
         )
-          ? 158_117
+          ? balancedCriticalSectionBatchExpectation(
+              this.#configuration.capabilityProfile,
+            ).firstSequence
           : isPostWaitCriticalSectionCheckpoint(
                 this.#configuration.capabilityProfile,
               )
@@ -5770,7 +5860,9 @@ class BrowserRuntimeSession {
       const firstSequence = isPostTimerWaitCriticalSectionCheckpoint(
         this.#configuration.capabilityProfile,
       )
-        ? 158_117
+        ? balancedCriticalSectionBatchExpectation(
+            this.#configuration.capabilityProfile,
+          ).firstSequence
         : balancedBatch
           ? 158_109
           : 158_106;
@@ -11530,13 +11622,11 @@ class BrowserRuntimeSession {
         ) &&
         terminal.outcome === "checkpoint-complete"
       ) {
-        const postTimerWait = isPostTimerWaitCriticalSectionCheckpoint(
+        const batchExpectation = balancedCriticalSectionBatchExpectation(
           this.#configuration.capabilityProfile,
         );
-        const capability = postTimerWait
-          ? "kernel32-enter-critical-section-post-timer-wait-batch"
-          : "kernel32-enter-critical-section-post-wait";
-        const firstSequence = postTimerWait ? 158_117 : 158_109;
+        const capability = batchExpectation.capability;
+        const firstSequence = batchExpectation.firstSequence;
         const checkpoint = this.#report.checkpointCompletion;
         const completions =
           checkpoint?.capability === capability
@@ -11626,18 +11716,11 @@ class BrowserRuntimeSession {
           );
         });
         const pacing = this.#timerPacing.metrics();
-        const expectedInstructionCounts = postTimerWait
-          ? "276361222,276361227,276361263,276361268,276361294,276361303"
-          : "276361075,276361080,276361116,276361121,276361147,276361156";
-        const terminalInstructionCount = postTimerWait
-          ? 276_361_338
-          : 276_361_191;
         invariant(
-          this.#report.supportedCallCount === (postTimerWait ? 158_122 : 158_114) &&
+          this.#report.supportedCallCount ===
+              batchExpectation.supportedCallCount &&
             this.#report.supportedCallSemanticsSha256 ===
-              (postTimerWait
-                ? "c90b7e833362576c3c31209a78321fd27d3786386621e986d5a52a74ee94ccdf"
-                : "63091c71ceb92caa0a781fe23ddd1925b800daaf03d48e82263fb618a992f5de") &&
+              batchExpectation.semanticDigest &&
             this.#report.firstUnsupported === null &&
             checkpoint?.capability === capability &&
             checkpoint.implementationId ===
@@ -11646,10 +11729,10 @@ class BrowserRuntimeSession {
             checkpoint.completionCount === 6 &&
             checkpoint.firstCompletionSequence === firstSequence &&
             checkpoint.firstCompletionInstructionCount ===
-              (postTimerWait ? 276_361_222 : 276_361_075) &&
+              batchExpectation.firstInstructionCount &&
             checkpoint.lastCompletionSequence === firstSequence + 5 &&
             checkpoint.lastCompletionInstructionCount ===
-              (postTimerWait ? 276_361_303 : 276_361_156) &&
+              batchExpectation.lastInstructionCount &&
             checkpoint.roundtripCount === 3 &&
             checkpoint.criticalSectionAddresses.join(",") ===
               "269797584,269797584,269482016" &&
@@ -11658,8 +11741,9 @@ class BrowserRuntimeSession {
             completions.length === 6 &&
             completionsMatch &&
             this.#postCheckpointCriticalSectionInstructionCounts.join(",") ===
-              expectedInstructionCounts &&
-            checkpoint.instructionCount === terminalInstructionCount &&
+              batchExpectation.instructionCounts &&
+            checkpoint.instructionCount ===
+              batchExpectation.terminalInstructionCount &&
             checkpoint.nextEndpoint.id === 118 &&
             checkpoint.nextEndpoint.address === 0x7f00_0750 &&
             checkpoint.nextEndpoint.disposition ===
@@ -11674,16 +11758,17 @@ class BrowserRuntimeSession {
             checkpoint.nextStackPointer === 0x500f_ff7c &&
             checkpoint.memoryContentSha256 ===
               "bd92a619b4ee428eab13238b769afd60f326ce22fcf86d22f3a46fc11df56700" &&
-            this.#report.instructions === terminalInstructionCount &&
-            this.#generation === (postTimerWait ? 305_876n : 305_862n) &&
+            this.#report.instructions ===
+              batchExpectation.terminalInstructionCount &&
+            this.#generation === batchExpectation.finalGeneration &&
             this.#report.writebackBatches ===
-              (postTimerWait ? 177_138 : 177_130) &&
+              batchExpectation.writebackBatches &&
             this.#report.writebackPages ===
-              (postTimerWait ? 269_376 : 269_365) &&
+              batchExpectation.writebackPages &&
             this.#report.mappingDeltas ===
-              (postTimerWait ? 125_756 : 125_750) &&
+              batchExpectation.mappingDeltas &&
             this.#report.mappingDirtyPages ===
-              (postTimerWait ? 145_861 : 145_855) &&
+              batchExpectation.mappingDirtyPages &&
             this.#report.contextSwitches === 2_457 &&
             this.#report.stackGrowths.length === 11 &&
             this.#report.heapPageMaterializations?.length === 2_918 &&
@@ -11692,7 +11777,7 @@ class BrowserRuntimeSession {
               (read) => read.request.sourceId === 1,
             ).length === 82 &&
             this.#waitForSingleObjectExCompletions ===
-              (postTimerWait ? 11_207 : 11_206) &&
+              batchExpectation.waitCompletions &&
             pacing.requests === this.#waitForSingleObjectExCompletions &&
             pacing.completions === this.#waitForSingleObjectExCompletions &&
             pacing.pending === 0,
