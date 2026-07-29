@@ -49,6 +49,7 @@ const supportedObservations = new Set([
   "update-window",
   "get-foreground-window",
   "get-async-key-state",
+  "peek-message-a",
   "load-cursor-a",
   "register-class-ex-a",
   "get-system-metrics",
@@ -5138,6 +5139,271 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     },
   );
 
+  const peekMessageAOracleEvents = events.filter(
+    (event) => event.kind === "peek-message-a-oracle",
+  );
+  const peekMessageACompletionEvents = events.filter(
+    (event) => event.kind === "peek-message-a-complete",
+  );
+  const requiresPeekMessageACompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "peek-message-a" &&
+    traceStart.arguments?.stopOnEvent === "peek-message-a-complete";
+  if (
+    peekMessageAOracleEvents.length > 1 ||
+    peekMessageACompletionEvents.length > 1 ||
+    (requiresPeekMessageACompletion &&
+      (peekMessageAOracleEvents.length !== 1 ||
+        peekMessageACompletionEvents.length !== 1))
+  ) {
+    throw new Error(
+      "peek-message-a observation requires exactly one oracle and structured completion",
+    );
+  }
+  const peekMessageA = peekMessageACompletionEvents.map((completion) => {
+    const oracle = peekMessageAOracleEvents[0];
+    const snapshot = completion.mainModuleCall;
+    const mainPair = pairsByCallId.get(snapshot?.callId);
+    const executableModule = path.win32
+      .basename(traceStart.executable)
+      .toLowerCase();
+    const isU32 = (value) =>
+      Number.isInteger(value) && value >= 0 && value <= 0xffff_ffff;
+    const isI32 = (value) =>
+      Number.isInteger(value) && value >= -0x8000_0000 && value <= 0x7fff_ffff;
+    const validMessageSnapshot = (value, pointer) =>
+      value?.profile === "x86-msg-a-v1" &&
+      value.raw?.pointer?.toLowerCase() === pointer.toLowerCase() &&
+      value.raw.requestedBytes === 28 &&
+      value.raw.maximumBytes === 28 &&
+      Array.isArray(value.raw.bytes) &&
+      value.raw.bytes.length === 28 &&
+      value.raw.bytes.every(
+        (byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0xff,
+      ) &&
+      isU32(value.fields?.hwnd) &&
+      isU32(value.fields?.message) &&
+      isU32(value.fields?.wParam) &&
+      isU32(value.fields?.lParam) &&
+      isU32(value.fields?.time) &&
+      isI32(value.fields?.point?.x) &&
+      isI32(value.fields?.point?.y);
+    const instructions = snapshot?.immediateConsumer?.instructions;
+    if (
+      oracle === undefined ||
+      oracle.profile !== "x86-thread-message-empty-peek-remove-v1" ||
+      completion.profile !== "x86-bgi-first-message-poll-v1" ||
+      completion.oracle?.profile !== oracle.profile ||
+      JSON.stringify(completion.oracle?.postedMessage) !==
+        JSON.stringify(oracle.postedMessage) ||
+      JSON.stringify(completion.oracle?.calls) !== JSON.stringify(oracle.calls) ||
+      oracle.allResultsMatchHooks !== true ||
+      oracle.allLastErrorsMatchHooks !== true ||
+      mainPair === undefined ||
+      mainPair.enter.parentCallId !== null ||
+      mainPair.enter.module?.toLowerCase() !== "user32.dll" ||
+      mainPair.enter.api !== "PeekMessageA" ||
+      mainPair.enter.caller?.module?.toLowerCase() !== executableModule ||
+      mainPair.enter.caller?.rva !== 0x9378b ||
+      snapshot.callerRva !== 0x9378b ||
+      snapshot.returnAddress?.toLowerCase() !==
+        mainPair.enter.caller.address?.toLowerCase() ||
+      !Array.isArray(mainPair.enter.arguments) ||
+      mainPair.enter.arguments.length !== 5 ||
+      JSON.stringify(snapshot.arguments) !==
+        JSON.stringify(mainPair.enter.arguments) ||
+      mainPair.enter.arguments[1] !== 0 ||
+      mainPair.enter.arguments[2] !== 0 ||
+      mainPair.enter.arguments[3] !== 0 ||
+      mainPair.enter.arguments[4] !== 1 ||
+      !validMessageSnapshot(
+        snapshot.outputBefore,
+        mainPair.enter.arguments[0],
+      ) ||
+      !validMessageSnapshot(snapshot.outputAfter, mainPair.enter.arguments[0]) ||
+      JSON.stringify(snapshot.outputBefore) !==
+        JSON.stringify(mainPair.enter.peekMessageA?.outputBefore) ||
+      JSON.stringify(snapshot.outputAfter) !==
+        JSON.stringify(mainPair.leave.peekMessageA?.outputAfter) ||
+      snapshot.result !== 1 ||
+      snapshot.succeeded !== true ||
+      BigInt(mainPair.leave.result) !== 1n ||
+      mainPair.leave.peekMessageA?.result !== 1 ||
+      mainPair.leave.peekMessageA?.succeeded !== true ||
+      snapshot.outputAfter.fields.hwnd === 0 ||
+      snapshot.outputAfter.fields.message !== 0x031f ||
+      snapshot.outputAfter.fields.wParam !== 1 ||
+      snapshot.outputAfter.fields.lParam !== 0 ||
+      snapshot.lastErrorBefore !== snapshot.lastError ||
+      mainPair.enter.lastErrorBefore !== snapshot.lastErrorBefore ||
+      mainPair.leave.lastError !== snapshot.lastError ||
+      JSON.stringify(snapshot.immediateConsumer) !==
+        JSON.stringify(mainPair.enter.peekMessageA?.immediateConsumer) ||
+      !Array.isArray(instructions) ||
+      instructions.length < 6 ||
+      instructions[0]?.mnemonic !== "test" ||
+      instructions[0]?.opStr?.toLowerCase() !== "eax, eax" ||
+      instructions[1]?.mnemonic !== "je" ||
+      instructions[4]?.mnemonic !== "cmp" ||
+      instructions[4]?.opStr?.toLowerCase() !==
+        "dword ptr [ebp - 0x18], 0x12" ||
+      instructions[5]?.mnemonic !== "je"
+    ) {
+      throw new Error(
+        "peek-message-a primary completion violates its unfiltered remove, MSG, LastError, or caller-consumer contract",
+      );
+    }
+    const expectedCalls = [
+      ["empty-before-post", 0x1122_3344, 1, 0, 0xa5],
+      ["posted-no-remove", 0x5566_7788, 0, 1, 0xb6],
+      ["posted-remove", 0x99aa_bbcc, 1, 1, 0xc7],
+      ["empty-after-remove", 0xddee_ff00, 1, 0, 0xd8],
+    ];
+    if (
+      oracle.postedMessage?.message !== 0x8001 ||
+      oracle.postedMessage?.wParam !== 0x2233_4455 ||
+      oracle.postedMessage?.lParam !== 0x6677_8899 ||
+      oracle.postedMessage?.result !== 1 ||
+      !Array.isArray(oracle.calls) ||
+      oracle.calls.length !== expectedCalls.length
+    ) {
+      throw new Error(
+        "peek-message-a oracle has an invalid controlled posted-message shape",
+      );
+    }
+    const oracleCalls = oracle.calls.map((call, index) => {
+      const [id, sentinel, removeMessage, result, fill] = expectedCalls[index];
+      const matchingPairs = apiPairing.pairs.filter(
+        (pair) =>
+          pair.enter.api === "PeekMessageA" &&
+          pair.enter.caller?.module?.toLowerCase() === "frida-agent.dll" &&
+          pair.enter.arguments?.[0]?.toLowerCase() === call.output?.toLowerCase() &&
+          pair.enter.sequence > mainPair.leave.sequence,
+      );
+      const pair = matchingPairs.find(
+        (candidate) => candidate.enter.lastErrorBefore === sentinel,
+      );
+      const beforeBytes = call.outputBefore?.raw?.bytes;
+      const afterBytes = call.outputAfter?.raw?.bytes;
+      const expectedBefore = Array(28).fill(fill);
+      const expectedArguments = [call.output, 0, 0x8001, 0x8001, removeMessage];
+      if (
+        call.id !== id ||
+        call.sentinel !== sentinel ||
+        call.window !== 0 ||
+        call.minimumMessage !== 0x8001 ||
+        call.maximumMessage !== 0x8001 ||
+        call.removeMessage !== removeMessage ||
+        call.systemResult !== result ||
+        call.succeeded !== (result !== 0) ||
+        call.systemLastError !== sentinel ||
+        call.hookResult !== result ||
+        call.hookLastErrorAfter !== sentinel ||
+        call.hookResultMatches !== true ||
+        call.hookAndSystemLastErrorMatch !== true ||
+        !validMessageSnapshot(call.outputBefore, call.output) ||
+        !validMessageSnapshot(call.outputAfter, call.output) ||
+        JSON.stringify(beforeBytes) !== JSON.stringify(expectedBefore) ||
+        JSON.stringify(call.hookOutputBefore) !==
+          JSON.stringify(call.outputBefore) ||
+        JSON.stringify(call.hookOutputAfter) !==
+          JSON.stringify(call.outputAfter) ||
+        pair === undefined ||
+        pair.enter.parentCallId !== null ||
+        pair.enter.threadId !== oracle.threadId ||
+        pair.leave.threadId !== oracle.threadId ||
+        pair.enter.module?.toLowerCase() !== "user32.dll" ||
+        JSON.stringify(pair.enter.arguments) !== JSON.stringify(expectedArguments) ||
+        pair.enter.lastErrorBefore !== sentinel ||
+        BigInt(pair.leave.result) !== BigInt(result) ||
+        pair.leave.lastError !== sentinel ||
+        JSON.stringify(pair.enter.peekMessageA?.outputBefore) !==
+          JSON.stringify(call.outputBefore) ||
+        JSON.stringify(pair.leave.peekMessageA?.outputAfter) !==
+          JSON.stringify(call.outputAfter)
+      ) {
+        throw new Error(
+          `peek-message-a oracle call ${index} violates its empty, output, remove, or LastError contract`,
+        );
+      }
+      if (
+        result === 0 &&
+        JSON.stringify(afterBytes) !== JSON.stringify(expectedBefore)
+      ) {
+        throw new Error(
+          `peek-message-a oracle call ${index} changed an empty output buffer`,
+        );
+      }
+      if (
+        result === 1 &&
+        (call.outputAfter.fields.hwnd !== 0 ||
+          call.outputAfter.fields.message !== oracle.postedMessage.message ||
+          call.outputAfter.fields.wParam !== oracle.postedMessage.wParam ||
+          call.outputAfter.fields.lParam !== oracle.postedMessage.lParam)
+      ) {
+        throw new Error(
+          `peek-message-a oracle call ${index} returned the wrong posted message`,
+        );
+      }
+      return {
+        sequence: pair.enter.sequence,
+        leaveSequence: pair.leave.sequence,
+        id,
+        sentinel,
+        removeMessage,
+        result,
+        lastError: pair.leave.lastError,
+        outputBefore: call.outputBefore,
+        outputAfter: call.outputAfter,
+      };
+    });
+    if (
+      JSON.stringify(oracleCalls[1].outputAfter.raw.bytes) !==
+        JSON.stringify(oracleCalls[2].outputAfter.raw.bytes) ||
+      oracleCalls.some(
+        (call, index) =>
+          index > 0 && call.sequence <= oracleCalls[index - 1].leaveSequence,
+      ) ||
+      oracle.sequence <= oracleCalls.at(-1).leaveSequence ||
+      completion.sequence <= oracle.sequence ||
+      completion.threadId !== oracle.threadId
+    ) {
+      throw new Error(
+        "peek-message-a completion violates PM_NOREMOVE identity, ordering, or oracle-thread ownership",
+      );
+    }
+    return {
+      sequence: completion.sequence,
+      profile: completion.profile,
+      mainModuleCall: {
+        sequence: mainPair.enter.sequence,
+        callId: mainPair.enter.callId,
+        threadId: mainPair.enter.threadId,
+        caller: {
+          module: mainPair.enter.caller.module,
+          rva: mainPair.enter.caller.rva,
+        },
+        arguments: [...mainPair.enter.arguments],
+        result: snapshot.result,
+        lastErrorBefore: snapshot.lastErrorBefore,
+        lastError: snapshot.lastError,
+        message: { ...snapshot.outputAfter.fields },
+        consumer: {
+          profile: "bool-loop-with-wm-quit-branch-v1",
+          consumesBoolean: true,
+          checksQuitMessage: true,
+        },
+      },
+      oracle: {
+        sequence: oracle.sequence,
+        profile: oracle.profile,
+        threadId: oracle.threadId,
+        postedMessage: { ...oracle.postedMessage },
+        calls: oracleCalls,
+      },
+    };
+  });
+
   const timeGetTimeOracleEvents = events.filter(
     (event) => event.kind === "time-get-time-oracle",
   );
@@ -5618,6 +5884,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       getMonitorInfoA,
       getForegroundWindow,
       getAsyncKeyState,
+      peekMessageA,
     },
     d3d9: {
       adapterIdentifiers,

@@ -29,8 +29,8 @@ use crate::runtime::{
     RuntimeGdiObject, RuntimeGdiTextRasterResult, RuntimeGdiTextRasterTarget,
     RuntimeGdiplusSession, RuntimeGdiplusStartupRequest, RuntimeGetDcResult, RuntimeGuestImport,
     RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation,
-    RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimePaintSession,
-    RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
+    RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeMessagePeekDisposition,
+    RuntimePaintSession, RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
     RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
     RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeState,
     RuntimeStateError, RuntimeStateErrorClass, RuntimeUpdateWindowCallbackAction,
@@ -1139,6 +1139,15 @@ impl<'a> ExecutionSession<'a> {
     ) -> Result<(RuntimePaintSession, RuntimeGetDcResult, GuestWriteResult), RuntimeStateError>
     {
         self.runtime.begin_window_paint(self.memory, request)
+    }
+
+    pub fn peek_current_thread_message(
+        &mut self,
+        output: GuestAddress,
+        remove: bool,
+    ) -> Result<(RuntimeMessagePeekDisposition, Option<GuestWriteResult>), RuntimeStateError> {
+        self.runtime
+            .peek_current_thread_message(self.memory, output, remove)
     }
 
     pub fn end_window_paint(

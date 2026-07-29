@@ -131,8 +131,11 @@ use super::input::{
     RuntimeKeyboardEventReceipt, RuntimeKeyboardSourceEvent, RuntimeKeyboardState,
     RuntimeMouseButtonMapping, RuntimeSwapMouseButtonResult,
 };
-use super::messages::{RuntimeMessageClearPlan, RuntimeMessageReceivePlan, RuntimeMessages};
-use super::messages::{RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeThreadMessage};
+use super::messages::{
+    RuntimeMessageClearPlan, RuntimeMessagePeekDisposition, RuntimeMessagePeekPlan,
+    RuntimeMessageReceiveDisposition, RuntimeMessageReceivePlan, RuntimeMessageWake,
+    RuntimeMessages, RuntimeThreadMessage,
+};
 #[cfg(test)]
 use super::modules::LOGICAL_LOADED_MODULE_NAMESPACE;
 use super::modules::{
@@ -3567,6 +3570,16 @@ impl RuntimeKernel {
             ));
         }
         let source_thread_id = self.current_thread_id();
+        let cursor = self.input.cursor_position().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-message",
+                "message-cursor-position-unconfigured",
+                "message posting requires a configured logical cursor position for MSG metadata",
+            )
+        })?;
+        let message_time = self.process.clock().tick_count;
+        let point_x = cursor.screen_x;
+        let point_y = cursor.screen_y;
         let target_thread = self.thread_state(target_thread_id)?;
         let target_scheduler_state = self.scheduler_state_for_thread(target_thread_id)?;
         if target_thread.lifecycle != RuntimeThreadLifecycleState::Running
@@ -3592,6 +3605,9 @@ impl RuntimeKernel {
             message,
             w_param,
             l_param,
+            message_time,
+            point_x,
+            point_y,
             target_scheduler_state == SchedulerThreadState::WaitingMessage,
         )?;
         let posted = plan.message;
@@ -3639,6 +3655,41 @@ impl RuntimeKernel {
             .plan_transition(thread_id, SchedulerThreadState::WaitingMessage)?;
         self.scheduler.commit_lane(scheduler_plan);
         Ok(RuntimeMessageReceiveDisposition::Blocked)
+    }
+
+    pub(crate) fn peek_current_thread_message(
+        &mut self,
+        memory: &mut GuestMemory,
+        output: GuestAddress,
+        remove: bool,
+    ) -> Result<(RuntimeMessagePeekDisposition, Option<GuestWriteResult>), RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || self.scheduler_state()? != SchedulerThreadState::Runnable
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-message",
+                "message-peek-thread-state-invalid",
+                "message peek requires a running process and runnable owner thread",
+            ));
+        }
+        let plan = self.messages.plan_peek(self.current_thread_id(), remove)?;
+        let RuntimeMessagePeekPlan::Message { message, .. } = plan else {
+            self.messages.preflight_peek(&plan)?;
+            return Ok((self.messages.commit_preflighted_peek(plan), None));
+        };
+        let bytes = message.to_x86_msg_bytes();
+        memory
+            .validate_access(output, bytes.len(), MemoryAccess::Write)
+            .map_err(RuntimeStateError::from_memory)?;
+        let mut transaction = memory.begin_transaction();
+        let write = transaction
+            .write(output, &bytes)
+            .map_err(RuntimeStateError::from_memory)?;
+        self.messages.preflight_peek(&plan)?;
+        let disposition = self.messages.commit_preflighted_peek(plan);
+        transaction.commit_transaction();
+        Ok((disposition, Some(write)))
     }
 
     pub fn queued_thread_messages(

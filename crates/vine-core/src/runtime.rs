@@ -184,7 +184,8 @@ pub use input::{
 };
 pub use kernel::*;
 pub use messages::{
-    RuntimeMessageId, RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeThreadMessage,
+    RuntimeMessageId, RuntimeMessagePeekDisposition, RuntimeMessageReceiveDisposition,
+    RuntimeMessageWake, RuntimeThreadMessage,
 };
 pub use modules::{
     DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH, DLL_PROCESS_STATIC_RESERVED,

@@ -20,6 +20,24 @@ pub struct RuntimeThreadMessage {
     pub message: u32,
     pub w_param: u32,
     pub l_param: u32,
+    pub time: u32,
+    pub point_x: i32,
+    pub point_y: i32,
+}
+
+impl RuntimeThreadMessage {
+    pub fn to_x86_msg_bytes(self) -> Vec<u8> {
+        [
+            self.hwnd.to_le_bytes(),
+            self.message.to_le_bytes(),
+            self.w_param.to_le_bytes(),
+            self.l_param.to_le_bytes(),
+            self.time.to_le_bytes(),
+            self.point_x.to_le_bytes(),
+            self.point_y.to_le_bytes(),
+        ]
+        .concat()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -35,6 +53,16 @@ pub struct RuntimeMessageWake {
 pub enum RuntimeMessageReceiveDisposition {
     Message { message: RuntimeThreadMessage },
     Blocked,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "outcome", rename_all = "kebab-case")]
+pub enum RuntimeMessagePeekDisposition {
+    Empty,
+    Message {
+        message: RuntimeThreadMessage,
+        removed: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -55,6 +83,17 @@ pub(super) struct RuntimeMessagePostPlan {
 pub(super) enum RuntimeMessageReceivePlan {
     Message { message: RuntimeThreadMessage },
     Blocked,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) enum RuntimeMessagePeekPlan {
+    Empty {
+        thread_id: RuntimeThreadId,
+    },
+    Message {
+        message: RuntimeThreadMessage,
+        remove: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -102,6 +141,9 @@ impl RuntimeMessages {
         message: u32,
         w_param: u32,
         l_param: u32,
+        time: u32,
+        point_x: i32,
+        point_y: i32,
         wake_target: bool,
     ) -> Result<RuntimeMessagePostPlan, RuntimeStateError> {
         let queue = self.queue(target_thread_id)?;
@@ -136,6 +178,9 @@ impl RuntimeMessages {
                 message,
                 w_param,
                 l_param,
+                time,
+                point_x,
+                point_y,
             },
             next_message_id,
             queue_depth: queue.len() + 1,
@@ -175,6 +220,58 @@ impl RuntimeMessages {
             .expect("message receive owner was preflighted");
         debug_assert_eq!(queue.front().map(|message| message.id), Some(expected));
         queue.pop_front();
+    }
+
+    pub(super) fn plan_peek(
+        &self,
+        thread_id: RuntimeThreadId,
+        remove: bool,
+    ) -> Result<RuntimeMessagePeekPlan, RuntimeStateError> {
+        Ok(match self.queue(thread_id)?.front().copied() {
+            Some(message) => RuntimeMessagePeekPlan::Message { message, remove },
+            None => RuntimeMessagePeekPlan::Empty { thread_id },
+        })
+    }
+
+    pub(super) fn preflight_peek(
+        &self,
+        plan: &RuntimeMessagePeekPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let (thread_id, expected) = match plan {
+            RuntimeMessagePeekPlan::Empty { thread_id } => (*thread_id, None),
+            RuntimeMessagePeekPlan::Message { message, .. } => {
+                (message.target_thread_id, Some(message.id))
+            }
+        };
+        if self.queue(thread_id)?.front().map(|message| message.id) != expected {
+            return Err(RuntimeStateError::conflict(
+                "runtime-message",
+                "message-peek-plan-stale",
+                "message queue head changed after PeekMessage was planned",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_preflighted_peek(
+        &mut self,
+        plan: RuntimeMessagePeekPlan,
+    ) -> RuntimeMessagePeekDisposition {
+        match plan {
+            RuntimeMessagePeekPlan::Empty { .. } => RuntimeMessagePeekDisposition::Empty,
+            RuntimeMessagePeekPlan::Message { message, remove } => {
+                if remove {
+                    self.queues
+                        .get_mut(&message.target_thread_id)
+                        .expect("message peek owner was preflighted")
+                        .pop_front();
+                }
+                RuntimeMessagePeekDisposition::Message {
+                    message,
+                    removed: remove,
+                }
+            }
+        }
     }
 
     pub(super) fn plan_clear(
@@ -235,14 +332,16 @@ mod tests {
         messages.commit_register_thread(SOURCE);
 
         let before_plan = messages.clone();
-        let first = messages.plan_post(SOURCE, OWNER, 3, 4, 5, 6, true).unwrap();
+        let first = messages
+            .plan_post(SOURCE, OWNER, 3, 4, 5, 6, 7, 8, 9, true)
+            .unwrap();
         assert_eq!(messages, before_plan);
         assert_eq!(first.message.id, RuntimeMessageId(1));
         assert_eq!(first.queue_depth, 1);
         messages.commit_post(first);
 
         let second = messages
-            .plan_post(SOURCE, OWNER, 7, 8, 9, 10, false)
+            .plan_post(SOURCE, OWNER, 10, 11, 12, 13, 14, 15, 16, false)
             .unwrap();
         messages.commit_post(second);
         assert_eq!(
@@ -250,6 +349,7 @@ mod tests {
             vec![first.message, second.message]
         );
 
+        let stale_peek = messages.plan_peek(OWNER, true).unwrap();
         let receive = messages.plan_receive(OWNER).unwrap();
         assert!(matches!(
             receive,
@@ -257,6 +357,40 @@ mod tests {
         ));
         messages.commit_receive(OWNER, first.message.id);
         assert_eq!(messages.snapshot(OWNER).unwrap(), vec![second.message]);
+        assert_eq!(
+            messages.preflight_peek(&stale_peek).unwrap_err().code,
+            "message-peek-plan-stale"
+        );
+        assert_eq!(messages.snapshot(OWNER).unwrap(), vec![second.message]);
+
+        let no_remove = messages.plan_peek(OWNER, false).unwrap();
+        messages.preflight_peek(&no_remove).unwrap();
+        assert_eq!(
+            messages.commit_preflighted_peek(no_remove),
+            RuntimeMessagePeekDisposition::Message {
+                message: second.message,
+                removed: false,
+            }
+        );
+        assert_eq!(messages.snapshot(OWNER).unwrap(), vec![second.message]);
+
+        let remove = messages.plan_peek(OWNER, true).unwrap();
+        messages.preflight_peek(&remove).unwrap();
+        assert_eq!(
+            messages.commit_preflighted_peek(remove),
+            RuntimeMessagePeekDisposition::Message {
+                message: second.message,
+                removed: true,
+            }
+        );
+        assert!(messages.snapshot(OWNER).unwrap().is_empty());
+
+        let empty = messages.plan_peek(OWNER, true).unwrap();
+        messages.preflight_peek(&empty).unwrap();
+        assert_eq!(
+            messages.commit_preflighted_peek(empty),
+            RuntimeMessagePeekDisposition::Empty
+        );
     }
 
     #[test]
@@ -265,7 +399,7 @@ mod tests {
         let before = messages.clone();
         assert_eq!(
             messages
-                .plan_post(SOURCE, RuntimeThreadId(99), 0, 0, 0, 0, false)
+                .plan_post(SOURCE, RuntimeThreadId(99), 0, 0, 0, 0, 0, 0, 0, false)
                 .unwrap_err()
                 .code,
             "message-thread-queue-missing"

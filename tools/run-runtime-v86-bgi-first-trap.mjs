@@ -235,6 +235,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-async-key-state-input-continuation",
         "user32-async-key-state-initial-scan",
         "user32-async-key-state-initial-scan-continuation",
+        "user32-peek-message-a",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -390,6 +391,7 @@ assert(
       "user32-async-key-state-input-continuation",
       "user32-async-key-state-initial-scan",
       "user32-async-key-state-initial-scan-continuation",
+      "user32-peek-message-a",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -423,7 +425,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "user32-async-key-state-input-continuation" ||
     genericRuntimeCapability === "user32-async-key-state-initial-scan" ||
     genericRuntimeCapability ===
-      "user32-async-key-state-initial-scan-continuation"
+      "user32-async-key-state-initial-scan-continuation" ||
+    genericRuntimeCapability === "user32-peek-message-a"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -736,9 +739,12 @@ const user32AsyncKeyStateInputContinuationCheckpointEnabled =
   genericRuntimeCapability === "user32-async-key-state-input-continuation";
 const user32AsyncKeyStateInitialScanCheckpointEnabled =
   genericRuntimeCapability === "user32-async-key-state-initial-scan";
+const user32PeekMessageACheckpointEnabled =
+  genericRuntimeCapability === "user32-peek-message-a";
 const user32AsyncKeyStateInitialScanContinuationCheckpointEnabled =
   genericRuntimeCapability ===
-  "user32-async-key-state-initial-scan-continuation";
+    "user32-async-key-state-initial-scan-continuation" ||
+  user32PeekMessageACheckpointEnabled;
 const user32AsyncKeyStateInitialScanEnabled =
   user32AsyncKeyStateInitialScanCheckpointEnabled ||
   user32AsyncKeyStateInitialScanContinuationCheckpointEnabled;
@@ -1180,7 +1186,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? user32AsyncKeyStateInitialScanCheckpointEnabled
+    ? user32PeekMessageACheckpointEnabled
+      ? "v86-bgi-peek-message-a"
+      : user32AsyncKeyStateInitialScanCheckpointEnabled
       ? "v86-bgi-async-key-state-initial-scan"
       : user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
         ? "v86-bgi-async-key-state-initial-scan-continuation"
@@ -5604,6 +5612,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (user32PeekMessageACheckpointEnabled) {
+        validateUser32PeekMessageAResult(genericResult);
       } else if (user32AsyncKeyStateInitialScanContinuationCheckpointEnabled) {
         validateUser32AsyncKeyStateInitialScanContinuationResult(genericResult);
       } else if (user32AsyncKeyStateInitialScanCheckpointEnabled) {
@@ -5901,7 +5911,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
+          : user32PeekMessageACheckpointEnabled
+            ? "bgi PeekMessageA current-thread queue probe"
+            : user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
             ? "bgi GetAsyncKeyState initial no-input scan continuation"
             : user32AsyncKeyStateInitialScanCheckpointEnabled
               ? "bgi GetAsyncKeyState initial no-input scan"
@@ -8770,6 +8782,7 @@ function validateGenericRuntimeReady(ready, offer) {
     declaredDispatches.length +
       6 +
       (user32AsyncKeyStateInitialScanEnabled ? 2 : 0) +
+      (user32PeekMessageACheckpointEnabled ? 1 : 0) +
       (setRectCheckpointEnabled ? 1 : 0) +
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
@@ -8957,7 +8970,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-window-frame-change-show-update-paint-input-v28",
+      "user32-single-monitor-window-frame-change-show-update-paint-message-v29",
     );
     assert.equal(
       ready.displayProfileId,
@@ -22818,6 +22831,48 @@ function validateUser32AsyncKeyStateInitialScanContinuationResult(result) {
   );
 }
 
+function validateUser32PeekMessageAResult(result) {
+  assert.equal(result.checkpointCompletion, undefined);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert(
+    result.initialAsyncKeyStateScan,
+    "PeekMessageA checkpoint omitted its prerequisite no-input scan",
+  );
+  const calls = result.supportedCalls.filter(
+    (call) => call.implementationId === "user32.peek-message-a.current-thread.v1",
+  );
+  assert.equal(calls.length, 1);
+  const call = calls[0];
+  assert.equal(result.supportedCalls.length, 148_304);
+  assert.equal(call.sequence, 148_296);
+  assert.equal(call.trapInstructionCount, 148_744_543);
+  assert.equal(call.module.toLowerCase(), "user32.dll");
+  assert.equal(call.symbol, "PeekMessageA");
+  assert.deepEqual(call.arguments, [0x006f_f8e8, 0, 0, 0, 1]);
+  assert.equal(call.returnAddress, 0x1009_378b);
+  assert.equal(call.stackPointerAfter, call.stackPointerBefore + 24);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.deepEqual(call.result, { action: "set", value: 0 });
+  assert(result.fault, "PeekMessageA checkpoint omitted its structured stop");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+  assert.equal(result.terminal.instructionCount, 148_745_317);
+  assert.deepEqual(result.fault.endpoint.endpoint, {
+    id: 183,
+    address: 0x7f00_0b60,
+    module: "user32.dll",
+    symbol: { kind: "name", name: "IsIconic" },
+    iatAddress: 0x100d_13b4,
+    disposition: "declared-runtime-export",
+  });
+  assert.equal(result.terminal.terminal.returnAddress, 0x1008_89c4);
+  assert.equal(result.terminal.terminal.stackWords[1], 0x4801_0001);
+}
+
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -27738,6 +27793,15 @@ function buildGenericRuntimeReentryReport({
       "D3D9 TestCooperativeLevel report summary requires one completion",
     );
   }
+  const peekMessageACall = user32PeekMessageACheckpointEnabled
+    ? (genericResult.supportedCalls.find(
+        (call) =>
+          call.implementationId === "user32.peek-message-a.current-thread.v1",
+      ) ?? null)
+    : null;
+  if (user32PeekMessageACheckpointEnabled) {
+    assert(peekMessageACall, "PeekMessageA report summary has no completion");
+  }
   const d3d9UpdateTextureCalls = d3d9UpdateTextureCheckpointEnabled
     ? genericResult.supportedCalls.filter(
         (call) =>
@@ -28189,7 +28253,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
+        : user32PeekMessageACheckpointEnabled
+          ? "vine.v86-bgi-user32-peek-message-a"
+          : user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
           ? "vine.v86-bgi-user32-async-key-state-initial-scan-continuation"
           : user32AsyncKeyStateInitialScanCheckpointEnabled
             ? "vine.v86-bgi-user32-async-key-state-initial-scan"
@@ -28485,7 +28551,9 @@ function buildGenericRuntimeReentryReport({
                                                                                                                                                                                                                                                                                                                 "kernel32-pointer-decoding"
                                                                                                                                                                                                                                                                                                               ? "vine.v86-bgi-pointer-decoding"
                                                                                                                                                                                                                                                                                                               : "vine.v86-bgi-critical-section-synchronization",
-    schemaVersion: user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
+    schemaVersion: user32PeekMessageACheckpointEnabled
+      ? 1
+      : user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
       ? 5
       : 2,
     source: offer.source,
@@ -29111,7 +29179,7 @@ function buildGenericRuntimeReentryReport({
           getAsyncKeyState: {
             call: getAsyncKeyStateCall,
             compatibilityPolicyId:
-              "user32-single-monitor-window-frame-change-show-update-paint-input-v28",
+              "user32-single-monitor-window-frame-change-show-update-paint-message-v29",
             keyboardProfileId: "foreground-focused-virtual-key-state-v1",
             inputEvent: runtimeReady.initialKeyboardEventReceipt,
             initialKeyboardState: runtimeReady.keyboardState,
@@ -29151,7 +29219,7 @@ function buildGenericRuntimeReentryReport({
             firstCall: getAsyncKeyStateInitialScanCalls[0],
             lastCall: getAsyncKeyStateInitialScanCalls.at(-1),
             compatibilityPolicyId:
-              "user32-single-monitor-window-frame-change-show-update-paint-input-v28",
+              "user32-single-monitor-window-frame-change-show-update-paint-message-v29",
             cursorPosition: runtimeReady.cursorPosition,
             cursorStateAuthority: "rust-runtime-input-cursor-position",
             keyboardProfileId: "foreground-focused-virtual-key-state-v1",
@@ -29197,7 +29265,28 @@ function buildGenericRuntimeReentryReport({
               textureUnlockRect: d3d9TextureUnlockRectCalls.length,
               testCooperativeLevel: d3d9TestCooperativeLevelCalls.length,
             },
-            nextSubsystemGateway: "user32-peek-message-a",
+            nextSubsystemGateway: user32PeekMessageACheckpointEnabled
+              ? null
+              : "user32-peek-message-a",
+          },
+        }
+      : {}),
+    ...(user32PeekMessageACheckpointEnabled
+      ? {
+          peekMessageA: {
+            call: peekMessageACall,
+            instructionCount: peekMessageACall.trapInstructionCount,
+            compatibilityPolicyId:
+              "user32-single-monitor-window-frame-change-show-update-paint-message-v29",
+            profileId: "current-thread-unfiltered-peek-message-a-v1",
+            queueAuthority: "rust-runtime-thread-message-queue",
+            emptyQueueResult: false,
+            outputMutation: "none-on-empty",
+            removal: "none-on-empty",
+            lastErrorPolicy: "preserve",
+            failureAtomicity: true,
+            filteredRetrievalImplemented: false,
+            crossThreadRetrievalImplemented: false,
           },
         }
       : {}),

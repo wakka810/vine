@@ -41,6 +41,9 @@ const focusedGetForegroundWindowObservation =
 const focusedGetAsyncKeyStateObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("get-async-key-state");
+const focusedPeekMessageAObservation =
+  selectedObservations.size === 1 &&
+  selectedObservations.has("peek-message-a");
 const focusedSetWindowPosStateObservation =
   focusedSetWindowPosSizeObservation ||
   focusedSetWindowPosFrameChangeMoveObservation;
@@ -532,6 +535,12 @@ let getCursorPosOracleComplete = false;
 let getCursorPosOracleEvidence = null;
 let getCursorPosCompletionRecorded = false;
 const getCursorPosMainModuleCalls = [];
+let peekMessageAOracleScheduled = false;
+let peekMessageAOracleCall = null;
+let peekMessageAOracleComplete = false;
+let peekMessageAOracleEvidence = null;
+let peekMessageACompletionRecorded = false;
+const peekMessageAMainModuleCalls = [];
 let setRectOracleScheduled = false;
 let setRectOracleCall = null;
 let setRectOracleComplete = false;
@@ -1675,6 +1684,36 @@ function snapshotPoint(pointer) {
   } catch (error) {
     return {
       profile: "x86-point-v1",
+      raw,
+      error: error.message,
+    };
+  }
+}
+
+function snapshotMessageA(pointer) {
+  const raw = snapshotBoundedRawBytes(pointer, 28, 28);
+  if (raw.error !== undefined) {
+    return { profile: "x86-msg-a-v1", raw };
+  }
+  try {
+    return {
+      profile: "x86-msg-a-v1",
+      raw,
+      fields: {
+        hwnd: pointer.readU32(),
+        message: pointer.add(4).readU32(),
+        wParam: pointer.add(8).readU32(),
+        lParam: pointer.add(12).readU32(),
+        time: pointer.add(16).readU32(),
+        point: {
+          x: pointer.add(20).readS32(),
+          y: pointer.add(24).readS32(),
+        },
+      },
+    };
+  } catch (error) {
+    return {
+      profile: "x86-msg-a-v1",
       raw,
       error: error.message,
     };
@@ -11847,6 +11886,299 @@ function maybeCompleteGetCursorPosObservation() {
     oracle: getCursorPosOracleEvidence,
   });
   if (stopOnEvent === "get-cursor-pos-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function attachPeekMessageAHook(module) {
+  const name = "PeekMessageA";
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error("PeekMessageA export is unavailable");
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        callerModule === Process.mainModule.name.toLowerCase() &&
+        caller.rva === 0x9378b;
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" && peekMessageAOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      this.output = args[0];
+      this.window = args[1].toUInt32();
+      this.minimumMessage = args[2].toUInt32();
+      this.maximumMessage = args[3].toUInt32();
+      this.removeMessage = args[4].toUInt32();
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = peekMessageAOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.outputBefore = snapshotMessageA(this.output);
+      this.immediateConsumer =
+        isMainModuleCaller && peekMessageAMainModuleCalls.length === 0
+          ? snapshotInstructions(this.returnAddress, 96)
+          : null;
+      if (isOracleCaller) {
+        peekMessageAOracleCall.hookOutputBefore = this.outputBefore;
+      }
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [
+            this.output.toString(),
+            this.window,
+            this.minimumMessage,
+            this.maximumMessage,
+            this.removeMessage,
+          ],
+          lastErrorBefore: this.lastErrorBefore,
+          peekMessageA: {
+            outputBefore: this.outputBefore,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const resultValue = result.toUInt32();
+      const lastError = Number(this.lastError) >>> 0;
+      const outputAfter = snapshotMessageA(this.output);
+      if (this.oracleCaller) {
+        peekMessageAOracleCall.hookResult = resultValue;
+        peekMessageAOracleCall.hookLastErrorAfter = lastError;
+        peekMessageAOracleCall.hookOutputAfter = outputAfter;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          peekMessageA: {
+            result: resultValue,
+            succeeded: resultValue !== 0,
+            outputAfter,
+          },
+        },
+        this.lastError,
+      );
+      if (this.mainModuleCaller && !peekMessageACompletionRecorded) {
+        peekMessageAMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          callerRva: this.traceFrame.caller.rva,
+          arguments: [
+            this.output.toString(),
+            this.window,
+            this.minimumMessage,
+            this.maximumMessage,
+            this.removeMessage,
+          ],
+          outputBefore: this.outputBefore,
+          outputAfter,
+          result: resultValue,
+          succeeded: resultValue !== 0,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        schedulePeekMessageAOracle(module);
+        setImmediate(maybeCompletePeekMessageAObservation);
+      }
+    },
+  });
+}
+
+function schedulePeekMessageAOracle(module) {
+  if (peekMessageAOracleScheduled) {
+    return;
+  }
+  peekMessageAOracleScheduled = true;
+  setImmediate(() => {
+    try {
+      const peekAddress = findExport(module, "PeekMessageA");
+      const postAddress = findExport(module, "PostThreadMessageA");
+      const kernel32 = Process.getModuleByName("kernel32.dll");
+      const threadIdAddress = findExport(kernel32, "GetCurrentThreadId");
+      if (
+        peekAddress === null ||
+        postAddress === null ||
+        threadIdAddress === null
+      ) {
+        throw new Error("PeekMessageA oracle exports are unavailable");
+      }
+      const peekMessageA = new SystemFunction(
+        peekAddress,
+        "int32",
+        ["pointer", "pointer", "uint32", "uint32", "uint32"],
+        "stdcall",
+      );
+      const postThreadMessageA = new SystemFunction(
+        postAddress,
+        "int32",
+        ["uint32", "uint32", "uint32", "uint32"],
+        "stdcall",
+      );
+      const getCurrentThreadId = new NativeFunction(
+        threadIdAddress,
+        "uint32",
+        [],
+        "stdcall",
+      );
+      const message = 0x8001;
+      const invoke = ({ id, removeMessage, sentinel, fill }) => {
+        const output = Memory.alloc(28);
+        output.writeByteArray(Array(28).fill(fill));
+        const outputBefore = snapshotMessageA(output);
+        peekMessageAOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+          hookOutputBefore: null,
+          hookOutputAfter: null,
+        };
+        try {
+          const outcome = peekMessageA(
+            output,
+            ptr(0),
+            message,
+            message,
+            removeMessage,
+          );
+          const systemResult = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            peekMessageAOracleCall.hookResult === null ||
+            peekMessageAOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error("PeekMessageA oracle did not pass through the hook");
+          }
+          const outputAfter = snapshotMessageA(output);
+          return {
+            id,
+            output: output.toString(),
+            sentinel,
+            window: 0,
+            minimumMessage: message,
+            maximumMessage: message,
+            removeMessage,
+            systemResult,
+            succeeded: systemResult !== 0,
+            systemLastError,
+            outputBefore,
+            outputAfter,
+            hookResult: peekMessageAOracleCall.hookResult,
+            hookLastErrorAfter: peekMessageAOracleCall.hookLastErrorAfter,
+            hookOutputBefore: peekMessageAOracleCall.hookOutputBefore,
+            hookOutputAfter: peekMessageAOracleCall.hookOutputAfter,
+            hookResultMatches:
+              peekMessageAOracleCall.hookResult === systemResult,
+            hookAndSystemLastErrorMatch:
+              peekMessageAOracleCall.hookLastErrorAfter === systemLastError,
+          };
+        } finally {
+          peekMessageAOracleCall = null;
+        }
+      };
+      const emptyBeforePost = invoke({
+        id: "empty-before-post",
+        removeMessage: 1,
+        sentinel: 0x11223344,
+        fill: 0xa5,
+      });
+      const threadId = getCurrentThreadId();
+      const postOutcome = postThreadMessageA(
+        threadId,
+        message,
+        0x22334455,
+        0x66778899,
+      );
+      const postResult = Number(postOutcome.value) >>> 0;
+      const postLastError = Number(postOutcome.lastError) >>> 0;
+      if (postResult === 0) {
+        throw new Error(`PostThreadMessageA oracle failed with ${postLastError}`);
+      }
+      const noRemove = invoke({
+        id: "posted-no-remove",
+        removeMessage: 0,
+        sentinel: 0x55667788,
+        fill: 0xb6,
+      });
+      const remove = invoke({
+        id: "posted-remove",
+        removeMessage: 1,
+        sentinel: 0x99aabbcc,
+        fill: 0xc7,
+      });
+      const emptyAfterRemove = invoke({
+        id: "empty-after-remove",
+        removeMessage: 1,
+        sentinel: 0xddeeff00,
+        fill: 0xd8,
+      });
+      const calls = [emptyBeforePost, noRemove, remove, emptyAfterRemove];
+      peekMessageAOracleEvidence = {
+        profile: "x86-thread-message-empty-peek-remove-v1",
+        threadId,
+        postedMessage: {
+          message,
+          wParam: 0x22334455,
+          lParam: 0x66778899,
+          result: postResult,
+          lastError: postLastError,
+        },
+        calls,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+      };
+      peekMessageAOracleComplete = true;
+      emit("peek-message-a-oracle", peekMessageAOracleEvidence);
+      maybeCompletePeekMessageAObservation();
+    } catch (error) {
+      emit("peek-message-a-oracle-error", { error: error.message });
+    }
+  });
+}
+
+function maybeCompletePeekMessageAObservation() {
+  if (
+    peekMessageACompletionRecorded ||
+    !peekMessageAOracleComplete ||
+    peekMessageAMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompletePeekMessageAObservation, 10);
+    return;
+  }
+  peekMessageACompletionRecorded = true;
+  emit("peek-message-a-complete", {
+    profile: "x86-bgi-first-message-poll-v1",
+    mainModuleCall: peekMessageAMainModuleCalls[0],
+    oracle: peekMessageAOracleEvidence,
+  });
+  if (stopOnEvent === "peek-message-a-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }
@@ -26847,6 +27179,20 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "GetCursorPos",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("peek-message-a")
+    ) {
+      try {
+        attachPeekMessageAHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "PeekMessageA",
           error: error.message,
         });
       }

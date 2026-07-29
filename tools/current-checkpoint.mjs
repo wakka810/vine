@@ -180,9 +180,12 @@ export function validateCurrentCheckpoint(manifest) {
     user32AsyncKeyStateInputContinuationActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-async-key-state-input";
+  const user32PeekMessageAActive =
+    root.activeRuntimeCheckpoint?.profile === "user32-peek-message-a";
   const user32AsyncKeyStateInitialScanContinuationActive =
+    user32PeekMessageAActive ||
     root.activeRuntimeCheckpoint?.profile ===
-    "user32-async-key-state-initial-scan-continuation";
+      "user32-async-key-state-initial-scan-continuation";
   const user32AsyncKeyStateInitialScanActive =
     user32AsyncKeyStateInitialScanContinuationActive ||
     root.activeRuntimeCheckpoint?.profile ===
@@ -599,7 +602,24 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "2,3,4,5,6,7,8"
                   : "2,3,4";
-  const profileExpectations = user32AsyncKeyStateInitialScanContinuationActive
+  const profileExpectations = user32PeekMessageAActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 119_293,
+        browserMappingDirtyPages: 132_399,
+        browserSuccessExecutionTransitions: 509_691,
+        latestSchema: "vine.v86-bgi-user32-peek-message-a",
+        latestWritebackBatches: 150_026,
+        latestWritebackDirtyPages: 216_024,
+        latestWritebackChangedBytes: 19_887_745,
+        latestHostDeltaBatches: 119_293,
+        latestFinalMemoryGeneration: 271_299,
+        semanticCallDigestSha256:
+          "89c5dfa0e7f5914c8161576c62a67f09c3829258ab36aeec88782af07f83b3dd",
+        memoryContentSha256:
+          "027687ed1dac984d97137c0c01d3016ceb0a2728f67856cf013faf796225cb5a",
+      }
+    : user32AsyncKeyStateInitialScanContinuationActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 119_291,
@@ -1623,9 +1643,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v51") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v52") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v51",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v52",
     );
   }
   if (
@@ -2409,7 +2429,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (user32AsyncKeyStateInitialScanContinuationActive
+      (user32PeekMessageAActive
+        ? 20
+        : user32AsyncKeyStateInitialScanContinuationActive
         ? 19
         : user32AsyncKeyStateInitialScanActive
         ? 16
@@ -12010,10 +12032,35 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.runtimeMessageQueue",
     errors,
   );
+  const messagePeekVariants = requireStringArray(
+    messages.peekVariants,
+    "activeRuntimeCheckpoint.runtimeMessageQueue.peekVariants",
+    errors,
+  );
   if (
-    messages.schema !== "vine.runtime-message-queue.v2" ||
+    messages.schema !== "vine.runtime-message-queue.v3" ||
+    messages.stateOwner !== "runtime/messages.rs::RuntimeMessages" ||
     messages.mutableCollectionVisibility !== "private" ||
-    messages.crossSubsystemMutation !== "plan-preflight-commit"
+    messages.readInspection !==
+      "copy-snapshot-and-mutation-free-head-plan" ||
+    messages.crossSubsystemMutation !==
+      "queue-plan-memory-preflight-queue-revalidation-targeted-commit" ||
+    messages.subsystemTests < 2 ||
+    messages.crossSubsystemAtomicTests < 3 ||
+    messages.postMetadataAuthority !==
+      "runtime-clock-and-input-cursor-snapshotted-before-queue-plan" ||
+    messages.x86MsgBytes !== 28 ||
+    messagePeekVariants.join(",") !==
+      "current-thread-unfiltered-no-remove,current-thread-unfiltered-remove" ||
+    messages.emptyPeekResult !== "false-without-output-write" ||
+    messages.messagePeekResult !== "true-with-atomic-msg-publication" ||
+    messages.stalePeekPlanRejected !== true ||
+    messages.failedGuestWritePreservesQueue !== true ||
+    messages.filteredPeekImplemented !== false ||
+    messages.crossThreadPeekImplemented !== false ||
+    messages.postClonesWholeQueue !== false ||
+    messages.capacityFailurePreservesAggregateState !== true ||
+    messages.wholeRuntimeStateClone !== false
   ) {
     errors.push("active runtime message subsystem boundary is invalid");
   }
@@ -12648,6 +12695,11 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.user32CompatibilityPolicy.getAsyncKeyStateVariants",
     errors,
   );
+  const peekMessageAVariants = requireStringArray(
+    user32Policy.peekMessageAVariants,
+    "activeRuntimeCheckpoint.user32CompatibilityPolicy.peekMessageAVariants",
+    errors,
+  );
   const loadIconVariants = requireStringArray(
     user32Policy.loadIconVariants,
     "activeRuntimeCheckpoint.user32CompatibilityPolicy.loadIconVariants",
@@ -12730,11 +12782,11 @@ export function validateCurrentCheckpoint(manifest) {
   );
   if (
     user32Policy.schema !== "vine.user32-compatibility-policy" ||
-    user32Policy.schemaVersion !== 28 ||
+    user32Policy.schemaVersion !== 29 ||
     user32Policy.id !==
-      "user32-single-monitor-window-frame-change-show-update-paint-input-v28" ||
+      "user32-single-monitor-window-frame-change-show-update-paint-message-v29" ||
     user32Policy.source !==
-      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v28" ||
+      "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v29" ||
     user32Policy.handlerDispatch !==
       "single-semantic-implementation-id-with-policy" ||
     user32Policy.logicalMonitorAuthority !==
@@ -12829,6 +12881,28 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.getAsyncKeyStateLastErrorPolicy !== "preserve" ||
     user32Policy.browserKeyboardInputImported !== true ||
     user32Policy.keyboardFailureAtomicity !== true ||
+    user32Policy.peekMessageAProfileId !==
+      "current-thread-unfiltered-peek-message-a-v1" ||
+    peekMessageAVariants.join(",") !==
+      "current-thread-unfiltered-no-remove,current-thread-unfiltered-remove" ||
+    user32Policy.peekMessageAWindowHandle !== 0 ||
+    user32Policy.peekMessageAMinimumMessage !== 0 ||
+    user32Policy.peekMessageAMaximumMessage !== 0 ||
+    user32Policy.peekMessageANoRemoveFlag !== 0 ||
+    user32Policy.peekMessageARemoveFlag !== 1 ||
+    user32Policy.peekMessageAX86MsgBytes !== 28 ||
+    user32Policy.peekMessageAStateAuthority !==
+      "runtime/messages.rs::RuntimeMessages" ||
+    user32Policy.peekMessageAEmptyReturn !==
+      "false-without-output-write" ||
+    user32Policy.peekMessageAMessageReturn !==
+      "true-with-atomic-msg-publication" ||
+    user32Policy.peekMessageAMutation !==
+      "message-owner-plan-memory-preflight-stale-check-targeted-commit" ||
+    user32Policy.peekMessageALastErrorPolicy !== "preserve" ||
+    user32Policy.peekMessageAFailureAtomicity !== true ||
+    user32Policy.peekMessageAFilteredRetrievalImplemented !== false ||
+    user32Policy.peekMessageACrossThreadRetrievalImplemented !== false ||
     user32Policy.getWindowRectVariants?.join(",") !==
       "created-logical-window-outer-screen-rect" ||
     user32Policy.getWindowRectStateAuthority !==
@@ -14597,7 +14671,7 @@ export function validateCurrentCheckpoint(manifest) {
       setWindowPosImplementationId ||
     latestEvidence.setWindowPosResizePolicySchemaVersion !== 23 ||
     latestEvidence.setWindowPosResizePolicyId !==
-      "user32-single-monitor-window-frame-change-show-update-paint-input-v28" ||
+      "user32-single-monitor-window-frame-change-show-update-paint-message-v29" ||
     latestEvidence.setWindowPosResizeProfileId !==
       "initial-offscreen-show-hide-same-geometry-activation-resize-frame-change-move-v4" ||
     latestEvidence.setWindowPosResizeCallbackFrameIds?.join(",") !==
@@ -19183,7 +19257,9 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (user32AsyncKeyStateInitialScanContinuationActive
+      (user32PeekMessageAActive
+        ? "Rust-owned current-thread unfiltered PeekMessageA queue inspection with failure-atomic guest MSG publication and optional removal"
+        : user32AsyncKeyStateInitialScanContinuationActive
         ? "Rust-owned zero-input startup continuation through two D3D9 frame cycles and a mutation-free live-device cooperative-level query to the USER32 PeekMessageA gateway"
         : user32AsyncKeyStateInitialScanActive
         ? "Rust-owned bounded second ordinary heap backing plus logical window geometry, cursor position, and zero-input GetAsyncKeyState startup scan"
@@ -21986,7 +22062,7 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.getAsyncKeyStateImplementationId !==
         "user32.get-async-key-state.v1" ||
       bgiBrowserEvidence.getAsyncKeyStateCompatibilityPolicyId !==
-        "user32-single-monitor-window-frame-change-show-update-paint-input-v28" ||
+        "user32-single-monitor-window-frame-change-show-update-paint-message-v29" ||
       bgiBrowserEvidence.getAsyncKeyStateStateAuthority !==
         "runtime/input.rs::RuntimeInput" ||
       bgiBrowserEvidence.getAsyncKeyStateNodeCompletions !== 89 ||
@@ -22136,7 +22212,9 @@ export function validateCurrentCheckpoint(manifest) {
           textureUnlockRect: 1,
           testCooperativeLevel: 1,
         },
-        nextSubsystemGateway: "user32-peek-message-a",
+        nextSubsystemGateway: user32PeekMessageAActive
+          ? null
+          : "user32-peek-message-a",
         nodeChromeOrderedSemanticsMatched: true,
       };
       if (
@@ -22191,7 +22269,120 @@ export function validateCurrentCheckpoint(manifest) {
       ) {
         errors.push("TestCooperativeLevel completion counts are invalid");
       }
-      if (
+      if (user32PeekMessageAActive) {
+        for (const [label, evidence] of [
+          ["browser BGI", bgiBrowserEvidence],
+          ["latest", latestEvidence],
+        ]) {
+          if (
+            evidence.peekMessageAImplemented !== true ||
+            evidence.peekMessageASequence !== 148_296 ||
+            evidence.peekMessageAInstructionCount !== 148_744_543 ||
+            evidence.peekMessageAArguments?.join(",") !==
+              "0x006ff8e8,0x00000000,0x00000000,0x00000000,0x00000001" ||
+            evidence.peekMessageAResult !== 0 ||
+            evidence.peekMessageAReturnAddress !== "0x1009378b" ||
+            evidence.peekMessageAStackPointers?.join(",") !==
+              "0x006ff8c8,0x006ff8e0" ||
+            evidence.peekMessageALastError !== 0 ||
+            evidence.peekMessageAGuestWriteBytes !== 0 ||
+            evidence.peekMessageAImplementationId !==
+              "user32.peek-message-a.current-thread.v1" ||
+            evidence.peekMessageACompatibilityPolicyId !==
+              "user32-single-monitor-window-frame-change-show-update-paint-message-v29" ||
+            evidence.peekMessageAProfileId !==
+              "current-thread-unfiltered-peek-message-a-v1" ||
+            evidence.peekMessageAQueueAuthority !==
+              "rust-runtime-thread-message-queue" ||
+            evidence.peekMessageAEmptyQueueResult !== false ||
+            evidence.peekMessageAOutputMutation !== "none-on-empty" ||
+            evidence.peekMessageARemoval !== "none-on-empty" ||
+            evidence.peekMessageALastErrorPolicy !== "preserve" ||
+            evidence.peekMessageAFailureAtomicity !== true ||
+            evidence.peekMessageAFilteredRetrievalImplemented !== false ||
+            evidence.peekMessageACrossThreadRetrievalImplemented !== false ||
+            evidence.peekMessageANodeCompletions !== 1 ||
+            evidence.peekMessageAChromeCompletions !== 1 ||
+            evidence.peekMessageANodeChromeOrderedSemanticsMatched !== true
+          ) {
+            errors.push(`${label} PeekMessageA evidence is invalid`);
+          }
+        }
+        if (
+          latestEvidence.nativePeekMessageAPrimaryTraceBytes !== 804_513 ||
+          latestEvidence.nativePeekMessageAPrimaryTraceLines !== 2_476 ||
+          latestEvidence.nativePeekMessageAPrimaryTraceSha256 !==
+            "3a2c6599307e02d9e2fcee80323b473d178e80a16508ae53a23c4074f2462fc2" ||
+          latestEvidence.nativePeekMessageAPrimarySummaryBytes !== 65_729 ||
+          latestEvidence.nativePeekMessageAPrimarySummaryLines !== 2_961 ||
+          latestEvidence.nativePeekMessageAPrimarySummarySha256 !==
+            "52ab5979b3b7f16d4cc39b88e4c27ed044f6a459ff1ff10bced3c11fdf7ccd00" ||
+          latestEvidence.nativePeekMessageAConfirmationTraceBytes !==
+            818_796 ||
+          latestEvidence.nativePeekMessageAConfirmationTraceLines !== 2_523 ||
+          latestEvidence.nativePeekMessageAConfirmationTraceSha256 !==
+            "71a31735a39fb09cabcf5f7fc691976829d23bce6e113e47bca7f393438b7bdd" ||
+          latestEvidence.nativePeekMessageAConfirmationSummaryBytes !==
+            65_904 ||
+          latestEvidence.nativePeekMessageAConfirmationSummaryLines !==
+            2_969 ||
+          latestEvidence.nativePeekMessageAConfirmationSummarySha256 !==
+            "347b3c2849b22c339992f1cb31afcce52cb796e1126f45f8dd2065241321040e" ||
+          latestEvidence.nativePeekMessageATraceDiagnostics !== 0 ||
+          latestEvidence.nativePeekMessageAProfile !==
+            "x86-bgi-first-message-poll-v1" ||
+          latestEvidence.nativePeekMessageACallerRva !== "0x0009378b" ||
+          latestEvidence.nativePeekMessageAArgumentsProfile !==
+            "current-thread-unfiltered-remove-v1" ||
+          latestEvidence.nativePeekMessageAMainResult !== 1 ||
+          latestEvidence.nativePeekMessageAMainMessage !== 799 ||
+          latestEvidence.nativePeekMessageAMainWParam !== 1 ||
+          latestEvidence.nativePeekMessageAMainLParam !== 0 ||
+          latestEvidence.nativePeekMessageAMainLastErrorPreserved !== true ||
+          latestEvidence.nativePeekMessageAConsumerProfile !==
+            "bool-loop-with-wm-quit-branch-v1" ||
+          latestEvidence.nativePeekMessageAConsumerChecksQuitMessage !== true ||
+          latestEvidence.nativePeekMessageAOracleProfile !==
+            "x86-thread-message-empty-peek-remove-v1" ||
+          latestEvidence.nativePeekMessageAX86MsgBytes !== 28 ||
+          latestEvidence.nativePeekMessageAOraclePostedMessage !== 32_769 ||
+          latestEvidence.nativePeekMessageAOraclePostedWParam !== 573_785_173 ||
+          latestEvidence.nativePeekMessageAOraclePostedLParam !==
+            1_719_109_785 ||
+          latestEvidence.nativePeekMessageAOracleEmptyResults?.join(",") !==
+            "0,0" ||
+          latestEvidence.nativePeekMessageAOracleEmptyOutputsPreserved !==
+            true ||
+          latestEvidence.nativePeekMessageAOracleNoRemoveAndRemoveResults?.join(
+            ",",
+          ) !== "1,1" ||
+          latestEvidence.nativePeekMessageAOracleNoRemoveAndRemoveOutputsEqual !==
+            true ||
+          latestEvidence.nativePeekMessageAOracleLastErrorPreserved !== true ||
+          latestEvidence.nativePeekMessageAOracleEmptyAfterRemove !== true ||
+          latestEvidence.nativePeekMessageAExecutableHashUnchanged !== true
+        ) {
+          errors.push("native PeekMessageA evidence is invalid");
+        }
+        if (
+          currentStop.kind !== "api-endpoint" ||
+          currentStop.nextCheckpoint !== "user32-is-iconic" ||
+          currentStop.pausedHistoricalCheckpoint !==
+            "user32-peek-message-a" ||
+          currentStop.instructionCount !== 148_745_317 ||
+          currentStop.capabilityCluster !== "user32-api-contract" ||
+          currentStop.reason !== "endpoint-contract-missing" ||
+          currentStop.endpointKind !== "runtime-system-export" ||
+          currentStop.endpointId !== 183 ||
+          currentStop.api !== "USER32.dll!IsIconic" ||
+          currentStop.arguments?.join(",") !== "0x48010001" ||
+          currentStop.endpointAddress !== "0x7f000b60" ||
+          currentStop.iatAddress !== "0x100d13b4" ||
+          currentStop.returnAddress !== "0x100889c4"
+        ) {
+          errors.push("PeekMessageA continuation IsIconic stop is invalid");
+        }
+      } else if (
         currentStop.kind !== "api-endpoint" ||
         currentStop.nextCheckpoint !== "user32-peek-message-a" ||
         currentStop.pausedHistoricalCheckpoint !==

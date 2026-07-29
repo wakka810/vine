@@ -32,9 +32,10 @@ use vine_core::{
     get_system_metrics_contract, get_window_rect_contract, imm_associate_context_contract,
     imm_get_default_ime_wnd_contract, load_cursor_a_contract, load_icon_a_contract,
     load_image_a_contract, materialize_pe32_image, monitor_from_window_contract,
-    register_class_ex_a_contract, release_dc_contract, send_message_a_contract, set_rect_contract,
-    set_timer_contract, set_window_long_a_contract, set_window_pos_contract, show_window_contract,
-    swap_mouse_button_contract, update_window_contract, user32_contract_for_endpoint,
+    peek_message_a_contract, register_class_ex_a_contract, release_dc_contract,
+    send_message_a_contract, set_rect_contract, set_timer_contract, set_window_long_a_contract,
+    set_window_pos_contract, show_window_contract, swap_mouse_button_contract,
+    update_window_contract, user32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -141,6 +142,11 @@ const GET_CURSOR_POS_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 11
 const GET_CURSOR_POS_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x22e0;
 const GET_CURSOR_POS_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8563);
 const CURSOR_POSITION_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2e30);
+const PEEK_MESSAGE_A_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0a30);
+const PEEK_MESSAGE_A_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 116);
+const PEEK_MESSAGE_A_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2f80;
+const PEEK_MESSAGE_A_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_378b);
+const PEEK_MESSAGE_A_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2e60);
 const GET_DC_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0ee0);
 const GET_STOCK_OBJECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_3100);
 const FILL_RECT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0e90);
@@ -249,7 +255,7 @@ impl EnumFixture {
             enum_display_monitors_contract(endpoint.clone()).expect("EnumDisplayMonitors contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v28();
+        let policy = User32CompatibilityPolicy::controlled_v29();
         let mut runtime = controlled_runtime();
         runtime
             .configure_display_profile(policy.display_profile().expect("display profile"))
@@ -340,7 +346,7 @@ impl SwapFixture {
             swap_mouse_button_contract(endpoint.clone()).expect("SwapMouseButton contract");
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("User32 dispatcher");
-        let mut policy = User32CompatibilityPolicy::controlled_v28();
+        let mut policy = User32CompatibilityPolicy::controlled_v29();
         policy.input.initial_mouse_buttons_swapped = initial_swapped;
         let mut runtime = controlled_runtime();
         runtime
@@ -433,7 +439,7 @@ impl MetricsFixture {
             get_system_metrics_contract(endpoint.clone()).expect("GetSystemMetrics contract");
         let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract])
             .expect("GetSystemMetrics dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v28();
+        let policy = User32CompatibilityPolicy::controlled_v29();
         let mut runtime = controlled_runtime();
         if configure_display {
             runtime
@@ -524,7 +530,7 @@ impl SetRectFixture {
             runtime: controlled_runtime(),
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v28(),
+            policy: User32CompatibilityPolicy::controlled_v29(),
         }
     }
 
@@ -696,7 +702,7 @@ impl InvalidMenuFixture {
             dispatcher,
             get_system_menu_endpoint,
             enable_menu_item_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v28(),
+            policy: User32CompatibilityPolicy::controlled_v29(),
         }
     }
 
@@ -942,7 +948,7 @@ impl IconFixture {
             dispatcher,
             endpoint,
             image_endpoint,
-            policy: User32CompatibilityPolicy::controlled_v28(),
+            policy: User32CompatibilityPolicy::controlled_v29(),
         }
     }
 
@@ -1143,7 +1149,7 @@ impl CursorFixture {
             runtime,
             dispatcher,
             endpoint,
-            policy: User32CompatibilityPolicy::controlled_v28(),
+            policy: User32CompatibilityPolicy::controlled_v29(),
         }
     }
 
@@ -1195,6 +1201,7 @@ struct RegisterClassFixture {
     get_client_rect_endpoint: ApiEndpointIdentity,
     get_window_rect_endpoint: ApiEndpointIdentity,
     get_cursor_pos_endpoint: ApiEndpointIdentity,
+    peek_message_a_endpoint: ApiEndpointIdentity,
     get_dc_endpoint: ApiEndpointIdentity,
     get_stock_object_endpoint: ApiEndpointIdentity,
     fill_rect_endpoint: ApiEndpointIdentity,
@@ -1311,6 +1318,7 @@ impl RegisterClassFixture {
                 GET_WINDOW_RECT_ENDPOINT_ADDRESS,
             ),
             (GET_CURSOR_POS_IAT_ADDRESS, GET_CURSOR_POS_ENDPOINT_ADDRESS),
+            (PEEK_MESSAGE_A_IAT_ADDRESS, PEEK_MESSAGE_A_ENDPOINT_ADDRESS),
             (GET_DC_IAT_ADDRESS, GET_DC_ENDPOINT_ADDRESS),
             (
                 GET_STOCK_OBJECT_IAT_ADDRESS,
@@ -1844,6 +1852,21 @@ impl RegisterClassFixture {
                 name_rva: vine_core::Rva(0),
             },
         });
+        let peek_message_a_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(164),
+            address: PEEK_MESSAGE_A_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1368),
+            iat_address: PEEK_MESSAGE_A_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "PeekMessageA".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
         let get_dc_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
             id: ImportThunkId(239),
             address: GET_DC_ENDPOINT_ADDRESS,
@@ -2015,6 +2038,7 @@ impl RegisterClassFixture {
                 get_client_rect_endpoint.clone(),
                 get_window_rect_endpoint.clone(),
                 get_cursor_pos_endpoint.clone(),
+                peek_message_a_endpoint.clone(),
                 get_dc_endpoint.clone(),
                 get_stock_object_endpoint.clone(),
                 fill_rect_endpoint.clone(),
@@ -2058,6 +2082,8 @@ impl RegisterClassFixture {
                     .expect("window rectangle contract"),
                 get_cursor_pos_contract(get_cursor_pos_endpoint.clone())
                     .expect("cursor position contract"),
+                peek_message_a_contract(peek_message_a_endpoint.clone())
+                    .expect("message peek contract"),
                 get_dc_contract(get_dc_endpoint.clone()).expect("GetDC contract"),
                 get_stock_object_contract(get_stock_object_endpoint.clone())
                     .expect("GetStockObject contract"),
@@ -2077,7 +2103,7 @@ impl RegisterClassFixture {
             ],
         )
         .expect("class dispatcher");
-        let policy = User32CompatibilityPolicy::controlled_v28();
+        let policy = User32CompatibilityPolicy::controlled_v29();
         let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
         if configure_display {
             runtime
@@ -2110,6 +2136,7 @@ impl RegisterClassFixture {
             get_client_rect_endpoint,
             get_window_rect_endpoint,
             get_cursor_pos_endpoint,
+            peek_message_a_endpoint,
             get_dc_endpoint,
             get_stock_object_endpoint,
             fill_rect_endpoint,
@@ -2618,6 +2645,36 @@ impl RegisterClassFixture {
             self.get_cursor_pos_endpoint.clone(),
             GuestAddress(GET_CURSOR_POS_STACK_POINTER),
             GET_CURSOR_POS_RETURN_ADDRESS,
+        )
+    }
+
+    fn configure_peek_message_a(
+        &mut self,
+        output: GuestAddress,
+        window: u32,
+        minimum_message: u32,
+        maximum_message: u32,
+        remove_message: u32,
+    ) {
+        self.write_live_words(
+            GuestAddress(PEEK_MESSAGE_A_STACK_POINTER),
+            &[
+                PEEK_MESSAGE_A_RETURN_ADDRESS.0,
+                output.0,
+                window,
+                minimum_message,
+                maximum_message,
+                remove_message,
+            ],
+        );
+        self.acknowledge_pending_delta();
+    }
+
+    fn dispatch_peek_message_a(&mut self) -> DispatchOutcome {
+        self.dispatch_endpoint(
+            self.peek_message_a_endpoint.clone(),
+            GuestAddress(PEEK_MESSAGE_A_STACK_POINTER),
+            PEEK_MESSAGE_A_RETURN_ADDRESS,
         )
     }
 
@@ -3694,6 +3751,47 @@ fn get_cursor_pos_contract_is_one_argument_stdcall_with_nullable_point_output() 
 }
 
 #[test]
+fn peek_message_a_contract_is_five_argument_stdcall_with_conditional_msg_output() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(164),
+        address: PEEK_MESSAGE_A_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_1368),
+        iat_address: PEEK_MESSAGE_A_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "PeekMessageA".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = peek_message_a_contract(endpoint).expect("PeekMessageA contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 5);
+    assert_eq!(contract.abi.arguments[0].direction, ApiDirection::Out);
+    assert!(matches!(
+        &contract.abi.arguments[0].value,
+        ApiValueSchema::Pointer { constraint }
+            if !constraint.nullable
+                && constraint.alignment == 4
+                && constraint.byte_length == 28
+                && constraint.write_requirement == ApiWriteRequirement::Optional
+                && matches!(
+                    &constraint.pointee,
+                    ApiPointeeSchema::Struct { type_id } if type_id == "MSG32"
+                )
+    ));
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
 fn set_rect_contract_is_five_argument_stdcall_with_nullable_rect_output() {
     let (_, owner) = initialized_memory();
     let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
@@ -4636,6 +4734,133 @@ fn get_cursor_pos_reads_logical_screen_point_and_preserves_failure_atomicity() {
     assert_eq!(pointer_fault.code, "guest-page-fault");
     assert_eq!(fixture.runtime, pointer_fault_runtime);
     assert_eq!(fixture.memory.stats(), pointer_fault_memory);
+}
+
+#[test]
+fn peek_message_a_preserves_empty_output_and_commits_remove_with_guest_write_atomically() {
+    let mut fixture = RegisterClassFixture::new();
+    fixture
+        .memory
+        .write(PEEK_MESSAGE_A_OUTPUT_ADDRESS, &[0xa5; 28])
+        .expect("seed PeekMessageA output");
+    fixture.acknowledge_pending_delta();
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 1);
+    let sentinel = 0x1122_3344;
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed PeekMessageA LastError");
+    let empty = match fixture.dispatch_peek_message_a() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected empty PeekMessageA completion, got {other:?}"),
+    };
+    assert_eq!(empty.eax, RegisterUpdate::Set(0));
+    assert_eq!(empty.last_error, sentinel);
+    assert!(empty.guest_writes.is_empty());
+    assert_eq!(
+        fixture
+            .memory
+            .read(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 28)
+            .expect("read preserved empty PeekMessageA output"),
+        [0xa5; 28]
+    );
+
+    let posted = fixture
+        .runtime
+        .post_thread_message(
+            RuntimeThreadId(THREAD_ID),
+            0,
+            0x8001,
+            0x2233_4455,
+            0x6677_8899,
+        )
+        .expect("post controlled thread message");
+    let expected_bytes = posted.to_x86_msg_bytes();
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 0);
+    let no_remove = match fixture.dispatch_peek_message_a() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected PM_NOREMOVE completion, got {other:?}"),
+    };
+    assert_eq!(no_remove.eax, RegisterUpdate::Set(1));
+    assert_eq!(no_remove.last_error, sentinel);
+    assert_eq!(no_remove.guest_writes.len(), 1);
+    assert_eq!(no_remove.guest_writes[0].write.bytes, expected_bytes);
+    assert_eq!(
+        fixture
+            .runtime
+            .queued_thread_messages(RuntimeThreadId(THREAD_ID))
+            .expect("inspect retained message"),
+        vec![posted]
+    );
+    fixture.acknowledge_pending_delta();
+
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 1);
+    let remove = match fixture.dispatch_peek_message_a() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected PM_REMOVE completion, got {other:?}"),
+    };
+    assert_eq!(remove.eax, RegisterUpdate::Set(1));
+    assert_eq!(remove.last_error, sentinel);
+    assert_eq!(remove.guest_writes.len(), 1);
+    assert_eq!(remove.guest_writes[0].write.bytes, expected_bytes);
+    fixture.acknowledge_pending_delta();
+    assert_eq!(
+        fixture
+            .memory
+            .read(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 28)
+            .expect("read committed MSG output"),
+        expected_bytes
+    );
+    assert!(
+        fixture
+            .runtime
+            .queued_thread_messages(RuntimeThreadId(THREAD_ID))
+            .expect("inspect consumed message")
+            .is_empty()
+    );
+
+    let rejected_message = fixture
+        .runtime
+        .post_thread_message(RuntimeThreadId(THREAD_ID), 0, 0x8002, 1, 2)
+        .expect("post message for rejected variants");
+    let output_before_rejection = fixture
+        .memory
+        .read(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 28)
+        .expect("read output before rejection");
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 1, 0, 0, 1);
+    let filter_fault = match fixture.dispatch_peek_message_a() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected PeekMessageA filter fault, got {other:?}"),
+    };
+    assert_eq!(filter_fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(filter_fault.code, "peek-message-a-variant-unsupported");
+    assert_eq!(
+        fixture
+            .runtime
+            .queued_thread_messages(RuntimeThreadId(THREAD_ID))
+            .expect("inspect message after filter rejection"),
+        vec![rejected_message]
+    );
+    assert_eq!(
+        fixture
+            .memory
+            .read(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 28)
+            .expect("read output after filter rejection"),
+        output_before_rejection
+    );
+
+    let unmapped_output = GuestAddress(MEMORY_BASE.0 + 0x3000);
+    fixture.configure_peek_message_a(unmapped_output, 0, 0, 0, 1);
+    let runtime_before_pointer_fault = fixture.runtime.clone();
+    let memory_before_pointer_fault = fixture.memory.stats();
+    let pointer_fault = match fixture.dispatch_peek_message_a() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected PeekMessageA pointer fault, got {other:?}"),
+    };
+    assert_eq!(pointer_fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(pointer_fault.code, "guest-page-fault");
+    assert_eq!(fixture.runtime, runtime_before_pointer_fault);
+    assert_eq!(fixture.memory.stats(), memory_before_pointer_fault);
 }
 
 #[test]

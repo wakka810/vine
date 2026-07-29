@@ -44,7 +44,8 @@ const d3d9Canvas =
   capabilityProfile === "user32-async-key-state-input" ||
   capabilityProfile === "user32-async-key-state-input-continuation" ||
   capabilityProfile === "user32-async-key-state-initial-scan" ||
-  capabilityProfile === "user32-async-key-state-initial-scan-continuation"
+  capabilityProfile === "user32-async-key-state-initial-scan-continuation" ||
+  capabilityProfile === "user32-peek-message-a"
     ? requiredElement<HTMLCanvasElement>("#surface").transferControlToOffscreen()
     : undefined;
 const sessionId = 1;
@@ -130,7 +131,8 @@ const startMessage = {
         ? 1
         : capabilityProfile === "user32-async-key-state-initial-scan" ||
             capabilityProfile ===
-              "user32-async-key-state-initial-scan-continuation"
+              "user32-async-key-state-initial-scan-continuation" ||
+            capabilityProfile === "user32-peek-message-a"
           ? 180_000_000
         : capabilityProfile === "kernel32-create-directory-a" ||
             capabilityProfile === "user32-set-window-pos-repeat-activation" ||
@@ -161,7 +163,8 @@ const startMessage = {
           : 20_000_000,
     watchdogWallMilliseconds:
       capabilityProfile === "user32-async-key-state-initial-scan" ||
-      capabilityProfile === "user32-async-key-state-initial-scan-continuation"
+      capabilityProfile === "user32-async-key-state-initial-scan-continuation" ||
+      capabilityProfile === "user32-peek-message-a"
         ? 600_000
         : capabilityProfile === "kernel32-sleep-zero" ||
       capabilityProfile === "kernel32-global-memory-status" ||
@@ -301,7 +304,8 @@ function parseCapabilityProfile(
     value === "user32-async-key-state-input" ||
     value === "user32-async-key-state-input-continuation" ||
     value === "user32-async-key-state-initial-scan" ||
-    value === "user32-async-key-state-initial-scan-continuation"
+    value === "user32-async-key-state-initial-scan-continuation" ||
+    value === "user32-peek-message-a"
     ? value
     : undefined;
 }

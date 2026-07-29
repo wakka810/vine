@@ -374,7 +374,16 @@ function isUser32AsyncKeyStateInitialScan(
 function isUser32AsyncKeyStateInitialScanContinuation(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "user32-async-key-state-initial-scan-continuation";
+  return (
+    profile === "user32-async-key-state-initial-scan-continuation" ||
+    isUser32PeekMessageA(profile)
+  );
+}
+
+function isUser32PeekMessageA(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "user32-peek-message-a";
 }
 
 function d3d9CompatibilityPolicyId(
@@ -1142,6 +1151,7 @@ class BrowserRuntimeSession {
     getAsyncKeyStateInitialScan:
       null as SessionReport["getAsyncKeyStateInitialScan"],
     initialScanContinuation: null as SessionReport["initialScanContinuation"],
+    peekMessageA: null as SessionReport["peekMessageA"],
     d3d9RecreatedTextures: null as SessionReport["d3d9RecreatedTextures"],
     d3d9Clear: null as SessionReport["d3d9Clear"],
     d3d9AddDirtyRect: null as SessionReport["d3d9AddDirtyRect"],
@@ -1390,7 +1400,7 @@ class BrowserRuntimeSession {
         const cursor = preparedOutput.metadata.runtime.cursorPosition;
         invariant(
           preparedOutput.metadata.runtime.user32Policy ===
-            "user32-single-monitor-window-frame-change-show-update-paint-input-v28" &&
+            "user32-single-monitor-window-frame-change-show-update-paint-message-v29" &&
             cursor?.profileId === "primary-display-center-cursor-v1" &&
             cursor.screenX === 960 &&
             cursor.screenY === 540 &&
@@ -3485,6 +3495,30 @@ class BrowserRuntimeSession {
   }
 
   #recordCompletedCallEvidence(call: RuntimeSupportedCallSnapshot): void {
+    if (
+      isUser32PeekMessageA(this.#configuration.capabilityProfile) &&
+      call.implementationId === "user32.peek-message-a.current-thread.v1"
+    ) {
+      invariant(
+        this.#report.peekMessageA === null,
+        "PeekMessageA report observed more than one bounded completion",
+      );
+      this.#report.peekMessageA = {
+        call: structuredClone(call),
+        instructionCount: this.#report.instructions,
+        compatibilityPolicyId:
+          "user32-single-monitor-window-frame-change-show-update-paint-message-v29",
+        profileId: "current-thread-unfiltered-peek-message-a-v1",
+        queueAuthority: "rust-runtime-thread-message-queue",
+        emptyQueueResult: false,
+        outputMutation: "none-on-empty",
+        removal: "none-on-empty",
+        lastErrorPolicy: "preserve",
+        failureAtomicity: true,
+        filteredRetrievalImplemented: false,
+        crossThreadRetrievalImplemented: false,
+      };
+    }
     if (
       isUser32AsyncKeyStateInitialScanContinuation(
         this.#configuration.capabilityProfile,
@@ -6586,7 +6620,7 @@ class BrowserRuntimeSession {
         this.#report.getAsyncKeyState = {
           call: structuredClone(call),
           compatibilityPolicyId:
-            "user32-single-monitor-window-frame-change-show-update-paint-input-v28",
+            "user32-single-monitor-window-frame-change-show-update-paint-message-v29",
           keyboardProfileId: "foreground-focused-virtual-key-state-v1",
           inputEvent: structuredClone(inputEvent),
           stateAuthority: "rust-runtime-input-keyboard",
@@ -6856,7 +6890,7 @@ class BrowserRuntimeSession {
       firstCall: structuredClone(firstCall.call),
       lastCall: structuredClone(lastCall.call),
       compatibilityPolicyId:
-        "user32-single-monitor-window-frame-change-show-update-paint-input-v28",
+        "user32-single-monitor-window-frame-change-show-update-paint-message-v29",
       cursorPosition: structuredClone(cursor),
       cursorStateAuthority: "rust-runtime-input-cursor-position",
       keyboardProfileId: "foreground-focused-virtual-key-state-v1",
@@ -7014,7 +7048,11 @@ class BrowserRuntimeSession {
         prerequisiteScanCompletionInstructionCount: 147_769_226,
         calls: structuredClone(this.#initialScanContinuationCalls),
         renderCompletionCounts: structuredClone(this.#renderCompletionCounts),
-        nextSubsystemGateway: "user32-peek-message-a",
+        nextSubsystemGateway: isUser32PeekMessageA(
+          this.#configuration.capabilityProfile,
+        )
+          ? null
+          : "user32-peek-message-a",
       };
     }
     this.#cancelAndFinish(
@@ -9137,6 +9175,7 @@ class BrowserRuntimeSession {
         isUser32AsyncKeyStateInitialScanContinuation(
           this.#configuration.capabilityProfile,
         ) &&
+        !isUser32PeekMessageA(this.#configuration.capabilityProfile) &&
         terminal.outcome === "structured-stop"
       ) {
         const scan = this.#report.getAsyncKeyStateInitialScan;
@@ -9301,6 +9340,75 @@ class BrowserRuntimeSession {
               pacing,
             },
           )}`,
+        );
+      }
+      if (
+        isUser32PeekMessageA(this.#configuration.capabilityProfile) &&
+        terminal.outcome === "structured-stop"
+      ) {
+        const peek = this.#report.peekMessageA;
+        const continuation = this.#report.initialScanContinuation;
+        const stop = this.#report.firstUnsupported;
+        const endpoint = stop?.endpoint as
+          | {
+              id?: number;
+              address?: number;
+              module?: string;
+              symbol?: { kind?: string; name?: string };
+              iatAddress?: number;
+            }
+          | undefined;
+        const fault = stop?.fault as
+          | { class?: string; stage?: string; code?: string }
+          | undefined;
+        const pacing = this.#timerPacing.metrics();
+        invariant(
+          this.#report.supportedCallCount === 148_304 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "89c5dfa0e7f5914c8161576c62a67f09c3829258ab36aeec88782af07f83b3dd" &&
+            this.#report.checkpointCompletion === null &&
+            continuation?.nextSubsystemGateway === null &&
+            peek?.call.sequence === 148_296 &&
+            peek.instructionCount === 148_744_543 &&
+            peek.call.arguments.join(",") === "7338216,0,0,0,1" &&
+            "action" in peek.call.result &&
+            peek.call.result.action === "set" &&
+            peek.call.result.value === 0 &&
+            peek.call.returnAddress === 0x1009_378b &&
+            peek.call.stackPointerBefore === 0x006f_f8c8 &&
+            peek.call.stackPointerAfter === 0x006f_f8e0 &&
+            peek.call.lastError === 0 &&
+            peek.call.guestWrites.length === 0 &&
+            stop?.instructionCount === 148_745_317 &&
+            stop.memoryContentSha256 ===
+              "027687ed1dac984d97137c0c01d3016ceb0a2728f67856cf013faf796225cb5a" &&
+            stop.capabilityCluster === "user32-api-contract" &&
+            endpoint?.id === 183 &&
+            endpoint.address === 0x7f00_0b60 &&
+            endpoint.module?.toLowerCase() === "user32.dll" &&
+            endpoint.symbol?.kind === "name" &&
+            endpoint.symbol.name === "IsIconic" &&
+            endpoint.iatAddress === 0x100d_13b4 &&
+            fault?.class === "unsupported" &&
+            fault.stage === "api-dispatch" &&
+            fault.code === "endpoint-contract-missing" &&
+            this.#waitForSingleObjectExCompletions === 10_569 &&
+            pacing.requests === 10_569 &&
+            pacing.completions === 10_569 &&
+            pacing.pending === 0,
+          `PeekMessageA report or IsIconic stop changed: ${JSON.stringify({
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            continuation,
+            peek,
+            stop,
+            endpoint,
+            fault,
+            waitForSingleObjectExCompletions:
+              this.#waitForSingleObjectExCompletions,
+            pacing,
+          })}`,
         );
       }
       if (this.#configuration.evidenceLevel === "full") {
@@ -9491,6 +9599,7 @@ worker.addEventListener(
               getCursorPos: null,
               getAsyncKeyStateInitialScan: null,
               initialScanContinuation: null,
+              peekMessageA: null,
               d3d9RecreatedTextures: null,
               d3d9Clear: null,
               d3d9AddDirtyRect: null,

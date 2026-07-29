@@ -5965,3 +5965,45 @@ zero guest writes. They then complete one `SetWaitableTimer`／
 `WaitForSingleObjectEx` pair and stop at instruction 148,744,543 on
 `USER32.dll!PeekMessageA`. This establishes only the reached live operational
 state, not device loss, reset, browser context-loss mapping, or recovery.
+
+## 178. BGI first `PeekMessageA` and current-thread queue contract
+
+The focused primary trace is 804,513 bytes／2,476 lines／SHA-256
+`3a2c6599307e02d9e2fcee80323b473d178e80a16508ae53a23c4074f2462fc2`;
+its 65,729-byte／2,961-line summary has SHA-256
+`52ab5979b3b7f16d4cc39b88e4c27ed044f6a459ff1ff10bced3c11fdf7ccd00`.
+The independent confirmation is 818,796 bytes／2,523 lines／SHA-256
+`71a31735a39fb09cabcf5f7fc691976829d23bce6e113e47bca7f393438b7bdd`;
+its 65,904-byte／2,969-line summary has SHA-256
+`347b3c2849b22c339992f1cb31afcce52cb796e1126f45f8dd2065241321040e`.
+Both have diagnostics 0 and reach caller RVA `0x0009378B` with current-thread,
+unfiltered, `PM_REMOVE` arguments. The returned message is `0x031F`, with
+`wParam = 1` and `lParam = 0`; native HWND, time, point, thread ID, and output
+address vary with the host and remain artifact identity. The caller consumes
+the BOOL, branches specially on `WM_QUIT`, then calls TranslateMessage／
+DispatchMessage and loops.
+
+The controlled native oracle starts from an empty thread queue, posts message
+`0x8001` with `wParam = 0x22334455` and `lParam = 0x66778899`, then observes
+`PM_NOREMOVE` and `PM_REMOVE`. Empty calls return FALSE, leave all 28 output
+bytes unchanged, and preserve their LastError sentinels. Both nonempty calls
+return TRUE, publish identical x86 `MSG` bytes, and preserve LastError; the
+following remove leaves the queue empty. The source executable remains
+1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`.
+Raw traces and summaries remain under `.work/windows-traces/` and are not Git
+artifacts.
+
+The runtime profiles only current-thread `hWnd = 0`, message range `0..0`, and
+flags 0／1. `RuntimeMessages` owns queue order, IDs, post-time logical clock and
+cursor metadata; `GuestMemory` owns the 28 output bytes. A mutation-free queue
+plan, full memory preflight, queue-head revalidation, targeted optional pop,
+and memory commit prevent partial publication. Filtered and cross-thread
+retrieval fail before mutation. Canonical Node／Chrome agree on sequence
+148,296／instruction 148,744,543, FALSE, LastError 0, no guest writes, semantic
+digest `89c5dfa0e7f5914c8161576c62a67f09c3829258ab36aeec88782af07f83b3dd`,
+and memory digest
+`027687ed1dac984d97137c0c01d3016ceb0a2728f67856cf013faf796225cb5a`.
+They next stop at instruction 148,745,317 on `USER32.dll!IsIconic`. This does
+not claim filtering, cross-thread retrieval, `GetMessage`, synthetic input／
+paint／timer production, general queue creation, or dispatch semantics.

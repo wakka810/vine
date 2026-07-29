@@ -5086,6 +5086,340 @@ assert.throws(
   /requires exactly one structured completion/,
 );
 
+const messageSnapshot = (pointer, bytes) => {
+  const buffer = Buffer.from(bytes);
+  return {
+    profile: "x86-msg-a-v1",
+    raw: {
+      pointer,
+      requestedBytes: 28,
+      maximumBytes: 28,
+      bytes: [...buffer],
+    },
+    fields: {
+      hwnd: buffer.readUInt32LE(0),
+      message: buffer.readUInt32LE(4),
+      wParam: buffer.readUInt32LE(8),
+      lParam: buffer.readUInt32LE(12),
+      time: buffer.readUInt32LE(16),
+      point: {
+        x: buffer.readInt32LE(20),
+        y: buffer.readInt32LE(24),
+      },
+    },
+  };
+};
+const messageBytes = ({ hwnd, message, wParam, lParam, time, x, y }) => {
+  const buffer = Buffer.alloc(28);
+  buffer.writeUInt32LE(hwnd, 0);
+  buffer.writeUInt32LE(message, 4);
+  buffer.writeUInt32LE(wParam, 8);
+  buffer.writeUInt32LE(lParam, 12);
+  buffer.writeUInt32LE(time, 16);
+  buffer.writeInt32LE(x, 20);
+  buffer.writeInt32LE(y, 24);
+  return [...buffer];
+};
+const peekMessageAConsumer = {
+  address: "0x49378b",
+  maximumInstructions: 96,
+  instructions: [
+    { address: "0x49378b", mnemonic: "test", opStr: "eax, eax", size: 2 },
+    { address: "0x49378d", mnemonic: "je", opStr: "0x4937d2", size: 2 },
+    { address: "0x49378f", mnemonic: "push", opStr: "ebx", size: 1 },
+    {
+      address: "0x493790",
+      mnemonic: "mov",
+      opStr: "ebx, dword ptr [0x4d1360]",
+      size: 6,
+    },
+    {
+      address: "0x493796",
+      mnemonic: "cmp",
+      opStr: "dword ptr [ebp - 0x18], 0x12",
+      size: 4,
+    },
+    { address: "0x49379a", mnemonic: "je", opStr: "0x4937c8", size: 2 },
+  ],
+};
+const primaryMessagePointer = "0x6ff8e8";
+const primaryMessageBefore = messageSnapshot(
+  primaryMessagePointer,
+  Array(28).fill(0x7a),
+);
+const primaryMessageAfter = messageSnapshot(
+  primaryMessagePointer,
+  messageBytes({
+    hwnd: 0x0f64_03d2,
+    message: 0x031f,
+    wParam: 1,
+    lParam: 0,
+    time: 1234,
+    x: 960,
+    y: 540,
+  }),
+);
+const peekOracleSpecs = [
+  ["empty-before-post", "0x30001000", 0x1122_3344, 1, 0, 0xa5],
+  ["posted-no-remove", "0x30002000", 0x5566_7788, 0, 1, 0xb6],
+  ["posted-remove", "0x30002000", 0x99aa_bbcc, 1, 1, 0xc7],
+  ["empty-after-remove", "0x30002000", 0xddee_ff00, 1, 0, 0xd8],
+];
+const postedMessageBytes = messageBytes({
+  hwnd: 0,
+  message: 0x8001,
+  wParam: 0x2233_4455,
+  lParam: 0x6677_8899,
+  time: 2345,
+  x: 960,
+  y: 540,
+});
+const peekOracleCalls = peekOracleSpecs.map(
+  ([id, output, sentinel, removeMessage, result, fill]) => {
+    const outputBefore = messageSnapshot(output, Array(28).fill(fill));
+    const outputAfter = messageSnapshot(
+      output,
+      result === 0 ? Array(28).fill(fill) : postedMessageBytes,
+    );
+    return {
+      id,
+      output,
+      sentinel,
+      window: 0,
+      minimumMessage: 0x8001,
+      maximumMessage: 0x8001,
+      removeMessage,
+      systemResult: result,
+      succeeded: result !== 0,
+      systemLastError: sentinel,
+      outputBefore,
+      outputAfter,
+      hookResult: result,
+      hookLastErrorAfter: sentinel,
+      hookOutputBefore: structuredClone(outputBefore),
+      hookOutputAfter: structuredClone(outputAfter),
+      hookResultMatches: true,
+      hookAndSystemLastErrorMatch: true,
+    };
+  },
+);
+const peekOracleEvidence = {
+  profile: "x86-thread-message-empty-peek-remove-v1",
+  threadId: 42,
+  postedMessage: {
+    message: 0x8001,
+    wParam: 0x2233_4455,
+    lParam: 0x6677_8899,
+    result: 1,
+    lastError: 0,
+  },
+  calls: peekOracleCalls,
+  allResultsMatchHooks: true,
+  allLastErrorsMatchHooks: true,
+};
+const peekMessageAEvents = [
+  {
+    schema,
+    kind: "trace-start",
+    timestamp: "2026-07-29T00:00:00.000Z",
+    executable: "C:\\fixture\\BGI.exe",
+    executableBytes: 1_193_472,
+    executableSha256: "a".repeat(64),
+    frida: "17.15.4",
+    arguments: {
+      seconds: 90,
+      killAfter: true,
+      stopOnEvent: "peek-message-a-complete",
+      vtables: [],
+      observations: ["peek-message-a"],
+    },
+  },
+  {
+    schema,
+    sequence: 0,
+    kind: "module-load",
+    module: "BGI.exe",
+    path: "C:\\fixture\\BGI.exe",
+  },
+  {
+    schema,
+    sequence: 1,
+    kind: "module-load",
+    module: "USER32.dll",
+    path: "C:\\Windows\\System32\\USER32.dll",
+  },
+  {
+    schema,
+    sequence: 2,
+    kind: "agent-ready",
+    architecture: "ia32",
+    pointerSize: 4,
+    processId: 456,
+    selectedVtables: [],
+    selectedObservations: ["peek-message-a"],
+  },
+  {
+    schema,
+    sequence: 3,
+    threadId: 31,
+    kind: "api-enter",
+    callId: 1,
+    parentCallId: null,
+    caller: { address: "0x49378b", module: "BGI.exe", rva: 0x9378b },
+    module: "USER32.dll",
+    api: "PeekMessageA",
+    arguments: [primaryMessagePointer, 0, 0, 0, 1],
+    lastErrorBefore: 0,
+    peekMessageA: {
+      outputBefore: primaryMessageBefore,
+      immediateConsumer: peekMessageAConsumer,
+    },
+  },
+  {
+    schema,
+    sequence: 4,
+    threadId: 31,
+    kind: "api-leave",
+    callId: 1,
+    parentCallId: null,
+    caller: { address: "0x49378b", module: "BGI.exe", rva: 0x9378b },
+    module: "USER32.dll",
+    api: "PeekMessageA",
+    result: "0x1",
+    durationMs: 0,
+    lastError: 0,
+    peekMessageA: {
+      result: 1,
+      succeeded: true,
+      outputAfter: primaryMessageAfter,
+    },
+  },
+  ...peekOracleCalls.flatMap((call, index) => [
+    {
+      schema,
+      sequence: 5 + index * 2,
+      threadId: 42,
+      kind: "api-enter",
+      callId: index + 2,
+      parentCallId: null,
+      caller: {
+        address: `0x7000${index}000`,
+        module: "frida-agent.dll",
+        rva: 0x1000 + index,
+      },
+      module: "USER32.dll",
+      api: "PeekMessageA",
+      arguments: [call.output, 0, 0x8001, 0x8001, call.removeMessage],
+      lastErrorBefore: call.sentinel,
+      peekMessageA: {
+        outputBefore: structuredClone(call.outputBefore),
+        immediateConsumer: null,
+      },
+    },
+    {
+      schema,
+      sequence: 6 + index * 2,
+      threadId: 42,
+      kind: "api-leave",
+      callId: index + 2,
+      parentCallId: null,
+      caller: {
+        address: `0x7000${index}000`,
+        module: "frida-agent.dll",
+        rva: 0x1000 + index,
+      },
+      module: "USER32.dll",
+      api: "PeekMessageA",
+      result: `0x${call.systemResult.toString(16)}`,
+      durationMs: 0,
+      lastError: call.sentinel,
+      peekMessageA: {
+        result: call.systemResult,
+        succeeded: call.succeeded,
+        outputAfter: structuredClone(call.outputAfter),
+      },
+    },
+  ]),
+  {
+    schema,
+    sequence: 13,
+    threadId: 42,
+    kind: "peek-message-a-oracle",
+    ...structuredClone(peekOracleEvidence),
+  },
+  {
+    schema,
+    sequence: 14,
+    threadId: 42,
+    kind: "peek-message-a-complete",
+    profile: "x86-bgi-first-message-poll-v1",
+    mainModuleCall: {
+      callId: 1,
+      returnAddress: "0x49378b",
+      callerRva: 0x9378b,
+      arguments: [primaryMessagePointer, 0, 0, 0, 1],
+      outputBefore: structuredClone(primaryMessageBefore),
+      outputAfter: structuredClone(primaryMessageAfter),
+      result: 1,
+      succeeded: true,
+      lastErrorBefore: 0,
+      lastError: 0,
+      immediateConsumer: structuredClone(peekMessageAConsumer),
+    },
+    oracle: structuredClone(peekOracleEvidence),
+  },
+  {
+    schema,
+    kind: "trace-stop",
+    timestamp: "2026-07-29T00:00:01.000Z",
+    reason: "event-peek-message-a-complete-kill",
+    detachedReason: "process-terminated",
+    crash: null,
+  },
+];
+const peekMessageASummary = summarizeTrace(
+  encode(peekMessageAEvents),
+  "peek-message-a-fixture.jsonl",
+);
+assert.equal(peekMessageASummary.user32.peekMessageA.length, 1);
+assert.deepEqual(
+  peekMessageASummary.user32.peekMessageA[0].oracle.calls.map((call) => [
+    call.id,
+    call.removeMessage,
+    call.result,
+  ]),
+  [
+    ["empty-before-post", 1, 0],
+    ["posted-no-remove", 0, 1],
+    ["posted-remove", 1, 1],
+    ["empty-after-remove", 1, 0],
+  ],
+);
+assert.deepEqual(
+  peekMessageASummary.user32.peekMessageA[0].mainModuleCall.consumer,
+  {
+    profile: "bool-loop-with-wm-quit-branch-v1",
+    consumesBoolean: true,
+    checksQuitMessage: true,
+  },
+);
+const missingPeekMessageAOracle = structuredClone(peekMessageAEvents);
+missingPeekMessageAOracle.find(
+  (event) => event.kind === "peek-message-a-oracle",
+).kind = "peek-message-a-oracle-missing";
+assert.throws(
+  () => summarizeTrace(encode(missingPeekMessageAOracle)),
+  /requires exactly one oracle and structured completion/,
+);
+const changedPeekMessageAPrimaryMessage = structuredClone(peekMessageAEvents);
+changedPeekMessageAPrimaryMessage.find(
+  (event) => event.kind === "peek-message-a-complete",
+).mainModuleCall.outputAfter.fields.message = 0x031e;
+assert.throws(
+  () => summarizeTrace(encode(changedPeekMessageAPrimaryMessage)),
+  /primary completion violates/,
+);
+
 const largeIntegerSnapshot = (pointer, value) => {
   const bytes = Buffer.alloc(8);
   bytes.writeBigUInt64LE(BigInt(value));

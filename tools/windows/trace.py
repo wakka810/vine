@@ -62,6 +62,7 @@ SUPPORTED_OBSERVATIONS = (
     "get-client-rect",
     "get-window-rect",
     "get-cursor-pos",
+    "peek-message-a",
     "set-rect",
     "get-monitor-info-a",
     "set-timer",

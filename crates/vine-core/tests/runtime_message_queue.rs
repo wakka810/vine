@@ -1,8 +1,9 @@
 use vine_core::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, ProcessAddressSpaceLayout, RuntimeBootstrap,
-    RuntimeClockState, RuntimeMessageId, RuntimeMessageReceiveDisposition, RuntimeMessageWake,
-    RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
-    RuntimeThreadMessage, SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeClockState, RuntimeCursorPositionProfile, RuntimeInputProfile, RuntimeMessageId,
+    RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeProcessId, RuntimeSchedulerEvent,
+    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeThreadMessage, SchedulerThreadState,
+    X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 const PROCESS_ID: u32 = 4096;
@@ -137,6 +138,9 @@ fn message_queue_preserves_fifo_owner_and_wakes_only_on_empty_transition() {
             message: 0x0501,
             w_param: 1,
             l_param: 2,
+            time: 3_600_000,
+            point_x: 960,
+            point_y: 540,
         },
         RuntimeThreadMessage {
             id: RuntimeMessageId(2),
@@ -146,6 +150,9 @@ fn message_queue_preserves_fifo_owner_and_wakes_only_on_empty_transition() {
             message: 0x0502,
             w_param: 3,
             l_param: 4,
+            time: 3_600_000,
+            point_x: 960,
+            point_y: 540,
         },
     ];
     for expected in queued {
@@ -250,5 +257,17 @@ fn running_runtime() -> RuntimeState {
     })
     .expect("initialized controlled runtime");
     runtime.start_initial_thread().unwrap();
+    runtime
+        .configure_input_profile(RuntimeInputProfile {
+            id: "runtime-message-queue-input-v1".to_owned(),
+            initial_mouse_buttons_swapped: false,
+            keyboard: None,
+            cursor_position: Some(RuntimeCursorPositionProfile {
+                id: "runtime-message-queue-cursor-v1".to_owned(),
+                initial_screen_x: 960,
+                initial_screen_y: 540,
+            }),
+        })
+        .expect("configure controlled MSG cursor metadata");
     runtime
 }
