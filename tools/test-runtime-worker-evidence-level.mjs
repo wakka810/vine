@@ -12,7 +12,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 52 as const/u);
+assert.match(protocol, /protocolVersion = 53 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -69,6 +69,7 @@ assert.match(protocol, /getAsyncKeyState:/u);
 assert.match(protocol, /getAsyncKeyStateInitialScan:/u);
 assert.match(protocol, /initialScanContinuation:/u);
 assert.match(protocol, /peekMessageA:/u);
+assert.match(protocol, /isIconic:/u);
 assert.match(protocol, /d3d9TestCooperativeLevel:/u);
 
 assert.match(

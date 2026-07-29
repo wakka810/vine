@@ -5295,6 +5295,10 @@ impl RuntimeKernel {
         self.user32.window(handle)
     }
 
+    pub fn window_is_iconic(&self, handle: u32) -> Result<bool, RuntimeStateError> {
+        self.user32.window_is_iconic(handle)
+    }
+
     pub fn window_by_id(&self, id: RuntimeWindowId) -> Result<&RuntimeWindow, RuntimeStateError> {
         self.user32.window_by_id(id)
     }

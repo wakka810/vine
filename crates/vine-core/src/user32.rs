@@ -17,26 +17,26 @@ use crate::runtime::{
     LOGICAL_WINDOW_HANDLE_NAMESPACE, RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
     RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS, RUNTIME_WINDOW_CLASS_NAME_A_ENCODING,
     RUNTIME_WINDOW_CLASS_NAME_A_LIMIT, RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
-    RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RUNTIME_WINDOW_STYLE_VISIBLE,
-    RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH, RuntimeBeginPaintRequest, RuntimeCursorPositionProfile,
-    RuntimeCursorResource, RuntimeCursorSource, RuntimeDisplayProfile, RuntimeEndPaintRequest,
-    RuntimeIconResource, RuntimeImeStatusWindowRequest, RuntimeInputProfile,
-    RuntimeKeyboardProfile, RuntimeMessagePeekDisposition, RuntimeRect,
-    RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
-    RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
-    RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest,
-    RuntimeSetWindowPosVariant, RuntimeStateErrorClass, RuntimeSystemCursorKind,
-    RuntimeUpdateWindowCallbackAction, RuntimeUpdateWindowOperation, RuntimeUpdateWindowRequest,
-    RuntimeWindow, RuntimeWindowClassCursorReference, RuntimeWindowClassIconReference,
-    RuntimeWindowClassModule, RuntimeWindowClassNameA, RuntimeWindowClassReference,
-    RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
-    RuntimeWindowCreationMessage, RuntimeWindowCreationRequest, RuntimeWindowGeometry,
-    RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
-    RuntimeWindowProcedureCallingConvention,
+    RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RUNTIME_WINDOW_STYLE_MINIMIZED,
+    RUNTIME_WINDOW_STYLE_VISIBLE, RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH, RuntimeBeginPaintRequest,
+    RuntimeCursorPositionProfile, RuntimeCursorResource, RuntimeCursorSource,
+    RuntimeDisplayProfile, RuntimeEndPaintRequest, RuntimeIconResource,
+    RuntimeImeStatusWindowRequest, RuntimeInputProfile, RuntimeKeyboardProfile,
+    RuntimeMessagePeekDisposition, RuntimeRect, RuntimeSetWindowPosCallbackAction,
+    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
+    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosDefaultOperation,
+    RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowPosVariant,
+    RuntimeStateErrorClass, RuntimeSystemCursorKind, RuntimeUpdateWindowCallbackAction,
+    RuntimeUpdateWindowOperation, RuntimeUpdateWindowRequest, RuntimeWindow,
+    RuntimeWindowClassCursorReference, RuntimeWindowClassIconReference, RuntimeWindowClassModule,
+    RuntimeWindowClassNameA, RuntimeWindowClassReference, RuntimeWindowClassRegistration,
+    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
+    RuntimeWindowCreationRequest, RuntimeWindowGeometry, RuntimeWindowLifecycle,
+    RuntimeWindowNameA, RuntimeWindowProcedure, RuntimeWindowProcedureCallingConvention,
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 29;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 30;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const MONITOR_FROM_WINDOW_IMPLEMENTATION: &str = "user32.monitor-from-window.v1";
 pub const GET_MONITOR_INFO_A_IMPLEMENTATION: &str = "user32.get-monitor-info-a.v1";
@@ -58,6 +58,7 @@ pub const GET_CLIENT_RECT_IMPLEMENTATION: &str = "user32.get-client-rect.v1";
 pub const GET_WINDOW_RECT_IMPLEMENTATION: &str = "user32.get-window-rect.v1";
 pub const GET_CURSOR_POS_IMPLEMENTATION: &str = "user32.get-cursor-pos.v1";
 pub const PEEK_MESSAGE_A_IMPLEMENTATION: &str = "user32.peek-message-a.current-thread.v1";
+pub const IS_ICONIC_IMPLEMENTATION: &str = "user32.is-iconic.logical-window-style.v1";
 pub const GET_FOREGROUND_WINDOW_IMPLEMENTATION: &str = "user32.get-foreground-window.v1";
 pub const GET_ASYNC_KEY_STATE_IMPLEMENTATION: &str = "user32.get-async-key-state.v1";
 pub const SET_RECT_IMPLEMENTATION: &str = "user32.set-rect.v1";
@@ -201,6 +202,13 @@ pub struct User32ShowWindowPolicy {
     pub require_active: bool,
     pub require_focused: bool,
     pub require_foreground: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct User32IsIconicPolicy {
+    pub profile_id: String,
+    pub minimized_style_mask: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -364,6 +372,7 @@ pub struct User32CompatibilityPolicy {
     pub swap_mouse_button: Option<User32SwapMouseButtonPolicy>,
     pub get_async_key_state: Option<User32GetAsyncKeyStatePolicy>,
     pub peek_message_a: Option<User32PeekMessageAPolicy>,
+    pub is_iconic: Option<User32IsIconicPolicy>,
     pub load_icon_a: Option<User32LoadIconAPolicy>,
     pub load_image_a: Option<User32LoadImageAPolicy>,
     pub send_message_a: Option<User32SendMessageAPolicy>,
@@ -384,11 +393,11 @@ pub struct User32CompatibilityPolicy {
 }
 
 impl User32CompatibilityPolicy {
-    pub fn controlled_v29() -> Self {
+    pub fn controlled_v30() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
-            id: "user32-single-monitor-window-frame-change-show-update-paint-message-v29"
+            id: "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
                 id: "single-monitor-1920x1080-work-1920x1032-v2".to_owned(),
@@ -440,6 +449,10 @@ impl User32CompatibilityPolicy {
                 no_remove_flag: PM_NOREMOVE,
                 remove_flag: PM_REMOVE,
                 message_byte_length: X86_MSG_BYTE_LENGTH,
+            }),
+            is_iconic: Some(User32IsIconicPolicy {
+                profile_id: "logical-window-effective-style-is-iconic-v1".to_owned(),
+                minimized_style_mask: RUNTIME_WINDOW_STYLE_MINIMIZED,
             }),
             load_icon_a: Some(User32LoadIconAPolicy {
                 profile_id: "module-shared-large-icon-32x32-v1".to_owned(),
@@ -711,6 +724,16 @@ impl User32CompatibilityPolicy {
                 "user32-compatibility-policy",
                 "user32-peek-message-a-profile-invalid",
                 "User32 PeekMessageA policy requires the reached current-thread unfiltered PM_NOREMOVE/PM_REMOVE MSG profile",
+            ));
+        }
+        if let Some(profile) = self.is_iconic.as_ref()
+            && (!valid_profile_id(&profile.profile_id)
+                || profile.minimized_style_mask != RUNTIME_WINDOW_STYLE_MINIMIZED)
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-is-iconic-profile-invalid",
+                "User32 IsIconic policy requires the x86 WS_MINIMIZE effective-style bit",
             ));
         }
         if let Some(profile) = self.load_icon_a.as_ref()
@@ -1278,6 +1301,10 @@ pub fn dispatch_user32_api_with_policy(
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
         }
+        IS_ICONIC_IMPLEMENTATION => match handle_is_iconic(policy, contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
         GET_FOREGROUND_WINDOW_IMPLEMENTATION => {
             match handle_get_foreground_window(contract, session) {
                 Ok(immediate) => ApiHandlerResult::Immediate(immediate),
@@ -1791,6 +1818,46 @@ fn handle_peek_message_a(
                 })
                 .with_last_error(preserved_last_error))
         }
+    }
+}
+
+fn handle_is_iconic(
+    policy: &User32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let profile = policy.is_iconic.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-windows",
+            "is-iconic-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable logical iconic-state queries",
+                policy.id
+            ),
+        )
+    })?;
+    if profile.minimized_style_mask != RUNTIME_WINDOW_STYLE_MINIMIZED {
+        return Err(ApiFault::runtime_defect(
+            "user32-windows",
+            "is-iconic-style-mask-invalid",
+            "validated IsIconic policy changed its minimized style bit",
+        ));
+    }
+    let window_handle = required_argument(contract, frame, 0, "window handle")?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match session.runtime().window_is_iconic(window_handle) {
+        Ok(iconic) => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(iconic))
+                .with_last_error(preserved_last_error))
+        }
+        Err(error) if error.code == "window-handle-unknown" => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(ERROR_INVALID_WINDOW_HANDLE))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
     }
 }
 
@@ -6294,6 +6361,7 @@ pub fn user32_contract_for_endpoint(
         "GetWindowRect" => Ok(Some(get_window_rect_contract(endpoint)?)),
         "GetCursorPos" => Ok(Some(get_cursor_pos_contract(endpoint)?)),
         "PeekMessageA" => Ok(Some(peek_message_a_contract(endpoint)?)),
+        "IsIconic" => Ok(Some(is_iconic_contract(endpoint)?)),
         "GetForegroundWindow" => Ok(Some(get_foreground_window_contract(endpoint)?)),
         "GetAsyncKeyState" => Ok(Some(get_async_key_state_contract(endpoint)?)),
         "SetRect" => Ok(Some(set_rect_contract(endpoint)?)),
@@ -6701,6 +6769,23 @@ pub fn peek_message_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: PEEK_MESSAGE_A_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn is_iconic_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![logical_window_handle_argument("window", false)],
+            return_value: ApiReturnSchema::Bool32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: IS_ICONIC_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -7177,7 +7262,7 @@ mod tests {
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {
-        let policy = User32CompatibilityPolicy::controlled_v29();
+        let policy = User32CompatibilityPolicy::controlled_v30();
         policy.validate().unwrap();
         let profile = policy.display_profile().unwrap();
         assert_eq!(profile.primary_monitor_rect.right, 1920);
@@ -7246,6 +7331,15 @@ mod tests {
         assert_eq!(peek_message_a.no_remove_flag, PM_NOREMOVE);
         assert_eq!(peek_message_a.remove_flag, PM_REMOVE);
         assert_eq!(peek_message_a.message_byte_length, X86_MSG_BYTE_LENGTH);
+        let is_iconic = policy.is_iconic.as_ref().unwrap();
+        assert_eq!(
+            is_iconic.profile_id,
+            "logical-window-effective-style-is-iconic-v1"
+        );
+        assert_eq!(
+            is_iconic.minimized_style_mask,
+            RUNTIME_WINDOW_STYLE_MINIMIZED
+        );
 
         let mut invalid = policy;
         invalid
@@ -7259,7 +7353,7 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_work = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_work = User32CompatibilityPolicy::controlled_v30();
         invalid_work
             .enum_display_monitors
             .as_mut()
@@ -7271,14 +7365,14 @@ mod tests {
             "user32-monitor-profile-invalid"
         );
 
-        let mut invalid_input = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_input = User32CompatibilityPolicy::controlled_v30();
         invalid_input.input.id.clear();
         assert_eq!(
             invalid_input.validate().unwrap_err().code,
             "user32-input-profile-invalid"
         );
 
-        let mut invalid_cursor_position = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_cursor_position = User32CompatibilityPolicy::controlled_v30();
         invalid_cursor_position
             .input
             .cursor_position
@@ -7290,7 +7384,7 @@ mod tests {
             "user32-cursor-position-profile-invalid"
         );
 
-        let mut invalid_keyboard = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_keyboard = User32CompatibilityPolicy::controlled_v30();
         invalid_keyboard
             .input
             .keyboard
@@ -7302,7 +7396,7 @@ mod tests {
             "user32-get-async-key-state-profile-invalid"
         );
 
-        let mut invalid_async_key = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_async_key = User32CompatibilityPolicy::controlled_v30();
         invalid_async_key
             .get_async_key_state
             .as_mut()
@@ -7313,7 +7407,7 @@ mod tests {
             "user32-get-async-key-state-profile-invalid"
         );
 
-        let mut invalid_peek_message = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_peek_message = User32CompatibilityPolicy::controlled_v30();
         invalid_peek_message
             .peek_message_a
             .as_mut()
@@ -7324,7 +7418,18 @@ mod tests {
             "user32-peek-message-a-profile-invalid"
         );
 
-        let mut invalid_icon = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_is_iconic = User32CompatibilityPolicy::controlled_v30();
+        invalid_is_iconic
+            .is_iconic
+            .as_mut()
+            .unwrap()
+            .minimized_style_mask = 0;
+        assert_eq!(
+            invalid_is_iconic.validate().unwrap_err().code,
+            "user32-is-iconic-profile-invalid"
+        );
+
+        let mut invalid_icon = User32CompatibilityPolicy::controlled_v30();
         invalid_icon
             .load_icon_a
             .as_mut()
@@ -7335,28 +7440,28 @@ mod tests {
             "user32-load-icon-profile-invalid"
         );
 
-        let mut invalid_image = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_image = User32CompatibilityPolicy::controlled_v30();
         invalid_image.load_image_a.as_mut().unwrap().flags = 0;
         assert_eq!(
             invalid_image.validate().unwrap_err().code,
             "user32-load-image-profile-invalid"
         );
 
-        let mut invalid_message = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_message = User32CompatibilityPolicy::controlled_v30();
         invalid_message.send_message_a.as_mut().unwrap().message = 0x0081;
         assert_eq!(
             invalid_message.validate().unwrap_err().code,
             "user32-send-message-a-profile-invalid"
         );
 
-        let mut invalid_update = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_update = User32CompatibilityPolicy::controlled_v30();
         invalid_update.update_window.as_mut().unwrap().paint_message = WM_PAINT + 1;
         assert_eq!(
             invalid_update.validate().unwrap_err().code,
             "user32-update-window-profile-invalid"
         );
 
-        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_window_style = User32CompatibilityPolicy::controlled_v30();
         invalid_window_style
             .set_window_long_a
             .as_mut()
@@ -7367,7 +7472,7 @@ mod tests {
             "user32-set-window-long-a-profile-invalid"
         );
 
-        let mut invalid_timer = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_timer = User32CompatibilityPolicy::controlled_v30();
         invalid_timer
             .set_timer
             .as_mut()
@@ -7378,14 +7483,14 @@ mod tests {
             "user32-set-timer-profile-invalid"
         );
 
-        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_monitor = User32CompatibilityPolicy::controlled_v30();
         invalid_monitor.monitor_from_window.as_mut().unwrap().flags = 2;
         assert_eq!(
             invalid_monitor.validate().unwrap_err().code,
             "user32-monitor-from-window-profile-invalid"
         );
 
-        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_monitor_info = User32CompatibilityPolicy::controlled_v30();
         invalid_monitor_info
             .get_monitor_info_a
             .as_mut()
@@ -7396,7 +7501,7 @@ mod tests {
             "user32-get-monitor-info-a-profile-invalid"
         );
 
-        let mut invalid_screen_dc = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_screen_dc = User32CompatibilityPolicy::controlled_v30();
         invalid_screen_dc
             .screen_dc
             .as_mut()
@@ -7407,7 +7512,7 @@ mod tests {
             "user32-screen-dc-profile-invalid"
         );
 
-        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_cursor = User32CompatibilityPolicy::controlled_v30();
         invalid_cursor
             .load_cursor_a
             .as_mut()
@@ -7418,7 +7523,7 @@ mod tests {
             "user32-load-cursor-profile-invalid"
         );
 
-        let mut invalid_class = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_class = User32CompatibilityPolicy::controlled_v30();
         invalid_class
             .register_class_ex_a
             .as_mut()
@@ -7430,7 +7535,7 @@ mod tests {
             "user32-register-class-ex-a-profile-invalid"
         );
 
-        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_metrics = User32CompatibilityPolicy::controlled_v30();
         invalid_metrics
             .get_system_metrics
             .as_mut()
@@ -7441,7 +7546,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_small_icon_width = User32CompatibilityPolicy::controlled_v30();
         invalid_small_icon_width
             .get_system_metrics
             .as_mut()
@@ -7452,7 +7557,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_small_icon = User32CompatibilityPolicy::controlled_v30();
         invalid_small_icon
             .get_system_metrics
             .as_mut()
@@ -7463,7 +7568,7 @@ mod tests {
             "user32-system-metrics-profile-invalid"
         );
 
-        let mut invalid_menu = User32CompatibilityPolicy::controlled_v29();
+        let mut invalid_menu = User32CompatibilityPolicy::controlled_v30();
         invalid_menu.system_menu.as_mut().unwrap().item = 0xf061;
         assert_eq!(
             invalid_menu.validate().unwrap_err().code,

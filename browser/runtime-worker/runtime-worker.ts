@@ -383,7 +383,13 @@ function isUser32AsyncKeyStateInitialScanContinuation(
 function isUser32PeekMessageA(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "user32-peek-message-a";
+  return profile === "user32-peek-message-a" || isUser32IsIconic(profile);
+}
+
+function isUser32IsIconic(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "user32-is-iconic";
 }
 
 function d3d9CompatibilityPolicyId(
@@ -1013,7 +1019,10 @@ class BrowserRuntimeSession {
     call: RuntimeSupportedCallSnapshot;
     instructionCount: number;
   }> = [];
-  readonly #initialScanContinuationCalls: RuntimeSupportedCallSnapshot[] = [];
+  readonly #initialScanContinuationCalls: Array<{
+    call: RuntimeSupportedCallSnapshot;
+    instructionCount: number;
+  }> = [];
   readonly #renderCompletionCounts: NonNullable<
     SessionReport["initialScanContinuation"]
   >["renderCompletionCounts"] = {
@@ -1152,6 +1161,7 @@ class BrowserRuntimeSession {
       null as SessionReport["getAsyncKeyStateInitialScan"],
     initialScanContinuation: null as SessionReport["initialScanContinuation"],
     peekMessageA: null as SessionReport["peekMessageA"],
+    isIconic: null as SessionReport["isIconic"],
     d3d9RecreatedTextures: null as SessionReport["d3d9RecreatedTextures"],
     d3d9Clear: null as SessionReport["d3d9Clear"],
     d3d9AddDirtyRect: null as SessionReport["d3d9AddDirtyRect"],
@@ -1400,7 +1410,7 @@ class BrowserRuntimeSession {
         const cursor = preparedOutput.metadata.runtime.cursorPosition;
         invariant(
           preparedOutput.metadata.runtime.user32Policy ===
-            "user32-single-monitor-window-frame-change-show-update-paint-message-v29" &&
+            "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30" &&
             cursor?.profileId === "primary-display-center-cursor-v1" &&
             cursor.screenX === 960 &&
             cursor.screenY === 540 &&
@@ -2981,6 +2991,13 @@ class BrowserRuntimeSession {
           threadId: this.#currentThreadId,
         });
         if (slice.stop.fault === "page-fault") {
+          if (
+            isUser32IsIconic(this.#configuration.capabilityProfile) &&
+            this.#report.isIconic?.calls.length === 3
+          ) {
+            this.#completeExecutionStructuredStop(slice.stop, slice.context);
+            continue;
+          }
           const pageFaultResolution = this.#servicePageFault(slice.stop);
           if (pageFaultResolution !== null) {
             this.#execution.transition(
@@ -3499,25 +3516,52 @@ class BrowserRuntimeSession {
       isUser32PeekMessageA(this.#configuration.capabilityProfile) &&
       call.implementationId === "user32.peek-message-a.current-thread.v1"
     ) {
-      invariant(
-        this.#report.peekMessageA === null,
-        "PeekMessageA report observed more than one bounded completion",
+      if (this.#report.peekMessageA === null) {
+        this.#report.peekMessageA = {
+          calls: [],
+          instructionCounts: [],
+          compatibilityPolicyId:
+            "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
+          profileId: "current-thread-unfiltered-peek-message-a-v1",
+          queueAuthority: "rust-runtime-thread-message-queue",
+          emptyQueueResult: false,
+          outputMutation: "none-on-empty",
+          removal: "none-on-empty",
+          lastErrorPolicy: "preserve",
+          failureAtomicity: true,
+          filteredRetrievalImplemented: false,
+          crossThreadRetrievalImplemented: false,
+        };
+      }
+      this.#report.peekMessageA.calls.push(structuredClone(call));
+      this.#report.peekMessageA.instructionCounts.push(
+        this.#report.instructions,
       );
-      this.#report.peekMessageA = {
-        call: structuredClone(call),
-        instructionCount: this.#report.instructions,
-        compatibilityPolicyId:
-          "user32-single-monitor-window-frame-change-show-update-paint-message-v29",
-        profileId: "current-thread-unfiltered-peek-message-a-v1",
-        queueAuthority: "rust-runtime-thread-message-queue",
-        emptyQueueResult: false,
-        outputMutation: "none-on-empty",
-        removal: "none-on-empty",
-        lastErrorPolicy: "preserve",
-        failureAtomicity: true,
-        filteredRetrievalImplemented: false,
-        crossThreadRetrievalImplemented: false,
-      };
+    }
+    if (
+      isUser32IsIconic(this.#configuration.capabilityProfile) &&
+      call.implementationId === "user32.is-iconic.logical-window-style.v1"
+    ) {
+      if (this.#report.isIconic === null) {
+        this.#report.isIconic = {
+          calls: [],
+          instructionCounts: [],
+          compatibilityPolicyId:
+            "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
+          profileId: "logical-window-effective-style-is-iconic-v1",
+          windowStateAuthority: "rust-runtime-user32-logical-window",
+          minimizedStyleMask: 0x2000_0000,
+          normalWindowResult: false,
+          validLastErrorPolicy: "preserve",
+          invalidWindowLastError: 1400,
+          guestMemoryMutation: false,
+          runtimeStateMutation: false,
+          failureAtomicity: true,
+          minimizeTransitionImplemented: false,
+        };
+      }
+      this.#report.isIconic.calls.push(structuredClone(call));
+      this.#report.isIconic.instructionCounts.push(this.#report.instructions);
     }
     if (
       isUser32AsyncKeyStateInitialScanContinuation(
@@ -3585,7 +3629,10 @@ class BrowserRuntimeSession {
         (call.sequence === scan.lastCall.sequence + 1 ||
           call.sequence === scan.lastCall.sequence + 2)
       ) {
-        this.#initialScanContinuationCalls.push(structuredClone(call));
+        this.#initialScanContinuationCalls.push({
+          call: structuredClone(call),
+          instructionCount: this.#report.instructions,
+        });
         invariant(
           this.#initialScanContinuationCalls.length <= 2,
           "initial-scan continuation exceeded its bounded call evidence",
@@ -5485,9 +5532,24 @@ class BrowserRuntimeSession {
     ) {
       return;
     }
+    if (this.#report.d3d9TestCooperativeLevel !== null) {
+      invariant(
+        call.symbol === "IDirect3DDevice9.TestCooperativeLevel" &&
+          call.arguments.join(",") === "16842756" &&
+          "kind" in call.result &&
+          call.result.kind === "h-result" &&
+          call.result.value === 0 &&
+          call.returnAddress === 0x1005_adcd &&
+          call.stackPointerAfter === call.stackPointerBefore + 8 &&
+          call.referenceCount === 5 &&
+          call.objectRetired === false &&
+          call.guestWrites.length === 0,
+        `repeated D3D9 TestCooperativeLevel query changed: ${JSON.stringify(call)}`,
+      );
+      return;
+    }
     invariant(
-      this.#report.d3d9TestCooperativeLevel === null &&
-        call.sequence === 148_293 &&
+      call.sequence === 148_293 &&
         this.#report.instructions === 148_744_443 &&
         call.symbol === "IDirect3DDevice9.TestCooperativeLevel" &&
         call.arguments.join(",") === "16842756" &&
@@ -6620,7 +6682,7 @@ class BrowserRuntimeSession {
         this.#report.getAsyncKeyState = {
           call: structuredClone(call),
           compatibilityPolicyId:
-            "user32-single-monitor-window-frame-change-show-update-paint-message-v29",
+            "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
           keyboardProfileId: "foreground-focused-virtual-key-state-v1",
           inputEvent: structuredClone(inputEvent),
           stateAuthority: "rust-runtime-input-keyboard",
@@ -6845,6 +6907,9 @@ class BrowserRuntimeSession {
         call.guestWrites.length === 0,
       `GetAsyncKeyState initial-scan call changed: ${JSON.stringify(call)}`,
     );
+    if (this.#report.getAsyncKeyStateInitialScan !== null) {
+      return;
+    }
     this.#getAsyncKeyStateInitialScanCalls.push({
       call: structuredClone(call),
       instructionCount: this.#report.instructions,
@@ -6890,7 +6955,7 @@ class BrowserRuntimeSession {
       firstCall: structuredClone(firstCall.call),
       lastCall: structuredClone(lastCall.call),
       compatibilityPolicyId:
-        "user32-single-monitor-window-frame-change-show-update-paint-message-v29",
+        "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
       cursorPosition: structuredClone(cursor),
       cursorStateAuthority: "rust-runtime-input-cursor-position",
       keyboardProfileId: "foreground-focused-virtual-key-state-v1",
@@ -7033,28 +7098,7 @@ class BrowserRuntimeSession {
       instructionCount: this.#report.instructions,
       memoryContentSha256: metadata.memoryContentSha256,
     };
-    if (
-      isUser32AsyncKeyStateInitialScanContinuation(
-        this.#configuration.capabilityProfile,
-      )
-    ) {
-      const scan = this.#report.getAsyncKeyStateInitialScan;
-      invariant(
-        scan !== null && this.#initialScanContinuationCalls.length === 2,
-        "initial-scan continuation omitted its bounded prerequisite evidence",
-      );
-      this.#report.initialScanContinuation = {
-        prerequisiteScanCompletionSequence: scan.lastCall.sequence,
-        prerequisiteScanCompletionInstructionCount: 147_769_226,
-        calls: structuredClone(this.#initialScanContinuationCalls),
-        renderCompletionCounts: structuredClone(this.#renderCompletionCounts),
-        nextSubsystemGateway: isUser32PeekMessageA(
-          this.#configuration.capabilityProfile,
-        )
-          ? null
-          : "user32-peek-message-a",
-      };
-    }
+    this.#completeInitialScanContinuationReport();
     this.#cancelAndFinish(
       "structured-stop",
       "Structured stop retired the private runtime",
@@ -7298,11 +7342,43 @@ class BrowserRuntimeSession {
       instructionCount: this.#report.instructions,
       memoryContentSha256: reflection.contentSha256,
     };
+    this.#completeInitialScanContinuationReport();
     this.#cancelAndFinish(
       "structured-stop",
       "Execution stop retired the private runtime",
       null,
     );
+  }
+
+  #completeInitialScanContinuationReport(): void {
+    if (
+      !isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      return;
+    }
+    const scan = this.#report.getAsyncKeyStateInitialScan;
+    invariant(
+      scan !== null && this.#initialScanContinuationCalls.length === 2,
+      "initial-scan continuation omitted its bounded prerequisite evidence",
+    );
+    this.#report.initialScanContinuation = {
+      prerequisiteScanCompletionSequence: scan.lastCall.sequence,
+      prerequisiteScanCompletionInstructionCount: 147_769_226,
+      calls: this.#initialScanContinuationCalls.map(({ call }) =>
+        structuredClone(call),
+      ),
+      instructionCounts: this.#initialScanContinuationCalls.map(
+        ({ instructionCount }) => instructionCount,
+      ),
+      renderCompletionCounts: structuredClone(this.#renderCompletionCounts),
+      nextSubsystemGateway: isUser32PeekMessageA(
+        this.#configuration.capabilityProfile,
+      )
+        ? null
+        : "user32-peek-message-a",
+    };
   }
 
   #completeCallback(result: number): void {
@@ -8766,7 +8842,9 @@ class BrowserRuntimeSession {
             update.endPaint.paint.livePaintSessions === 0 &&
             update.endPaint.paint.liveDeviceContexts === 0 &&
             firstUnsupported?.capabilityCluster ===
-              (isUser32AsyncKeyStateInitialScanContinuation(
+              (isUser32IsIconic(this.#configuration.capabilityProfile)
+                ? "guest-memory-page-fault"
+                : isUser32AsyncKeyStateInitialScanContinuation(
                 this.#configuration.capabilityProfile,
               )
                 ? "user32-api-contract"
@@ -9344,9 +9422,11 @@ class BrowserRuntimeSession {
       }
       if (
         isUser32PeekMessageA(this.#configuration.capabilityProfile) &&
+        !isUser32IsIconic(this.#configuration.capabilityProfile) &&
         terminal.outcome === "structured-stop"
       ) {
         const peek = this.#report.peekMessageA;
+        const firstPeek = peek?.calls[0];
         const continuation = this.#report.initialScanContinuation;
         const stop = this.#report.firstUnsupported;
         const endpoint = stop?.endpoint as
@@ -9359,8 +9439,7 @@ class BrowserRuntimeSession {
             }
           | undefined;
         const fault = stop?.fault as
-          | { class?: string; stage?: string; code?: string }
-          | undefined;
+          { class?: string; stage?: string; code?: string } | undefined;
         const pacing = this.#timerPacing.metrics();
         invariant(
           this.#report.supportedCallCount === 148_304 &&
@@ -9368,17 +9447,18 @@ class BrowserRuntimeSession {
               "89c5dfa0e7f5914c8161576c62a67f09c3829258ab36aeec88782af07f83b3dd" &&
             this.#report.checkpointCompletion === null &&
             continuation?.nextSubsystemGateway === null &&
-            peek?.call.sequence === 148_296 &&
-            peek.instructionCount === 148_744_543 &&
-            peek.call.arguments.join(",") === "7338216,0,0,0,1" &&
-            "action" in peek.call.result &&
-            peek.call.result.action === "set" &&
-            peek.call.result.value === 0 &&
-            peek.call.returnAddress === 0x1009_378b &&
-            peek.call.stackPointerBefore === 0x006f_f8c8 &&
-            peek.call.stackPointerAfter === 0x006f_f8e0 &&
-            peek.call.lastError === 0 &&
-            peek.call.guestWrites.length === 0 &&
+            peek?.calls.length === 1 &&
+            firstPeek?.sequence === 148_296 &&
+            peek.instructionCounts[0] === 148_744_543 &&
+            firstPeek.arguments.join(",") === "7338216,0,0,0,1" &&
+            "action" in firstPeek.result &&
+            firstPeek.result.action === "set" &&
+            firstPeek.result.value === 0 &&
+            firstPeek.returnAddress === 0x1009_378b &&
+            firstPeek.stackPointerBefore === 0x006f_f8c8 &&
+            firstPeek.stackPointerAfter === 0x006f_f8e0 &&
+            firstPeek.lastError === 0 &&
+            firstPeek.guestWrites.length === 0 &&
             stop?.instructionCount === 148_745_317 &&
             stop.memoryContentSha256 ===
               "027687ed1dac984d97137c0c01d3016ceb0a2728f67856cf013faf796225cb5a" &&
@@ -9405,6 +9485,85 @@ class BrowserRuntimeSession {
             stop,
             endpoint,
             fault,
+            waitForSingleObjectExCompletions:
+              this.#waitForSingleObjectExCompletions,
+            pacing,
+          })}`,
+        );
+      }
+      if (
+        isUser32IsIconic(this.#configuration.capabilityProfile) &&
+        terminal.outcome === "structured-stop"
+      ) {
+        const peek = this.#report.peekMessageA;
+        const iconic = this.#report.isIconic;
+        const continuation = this.#report.initialScanContinuation;
+        const stop = this.#report.firstUnsupported;
+        const fault = stop?.fault as
+          | {
+              class?: string;
+              stage?: string;
+              code?: string;
+              instructionPointer?: number;
+              previousInstructionPointer?: number;
+              faultAddress?: number;
+              pageFaultErrorCode?: number;
+            }
+          | undefined;
+        const pacing = this.#timerPacing.metrics();
+        const firstPeek = peek?.calls[0];
+        const firstIconic = iconic?.calls[0];
+        invariant(
+          this.#report.supportedCallCount === 148_523 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "10e5637f27a2404ee6ec5e29d36b2372914b2995725046460d5bbe5fb60e8b52" &&
+            this.#report.checkpointCompletion === null &&
+            continuation?.nextSubsystemGateway === null &&
+            peek?.calls.length === 3 &&
+            firstPeek?.sequence === 148_296 &&
+            peek.calls[1]?.sequence === 148_353 &&
+            peek.calls[2]?.sequence === 148_474 &&
+            peek.instructionCounts.join(",") ===
+              "148744543,148749108,148770786" &&
+            iconic?.calls.length === 3 &&
+            firstIconic?.sequence === 148_305 &&
+            iconic.calls[1]?.sequence === 148_426 &&
+            iconic.calls[2]?.sequence === 148_483 &&
+            iconic.instructionCounts.join(",") ===
+              "148745317,148766995,148771560" &&
+            firstIconic.arguments.join(",") === "1208025089" &&
+            "action" in firstIconic.result &&
+            firstIconic.result.action === "set" &&
+            firstIconic.result.value === 0 &&
+            firstIconic.returnAddress === 0x1008_89c4 &&
+            firstIconic.stackPointerAfter ===
+              firstIconic.stackPointerBefore + 8 &&
+            firstIconic.lastError === 0 &&
+            firstIconic.guestWrites.length === 0 &&
+            stop?.instructionCount === 148_787_159 &&
+            stop.memoryContentSha256 ===
+              "320a6ba1fb4c97573b11f977b63158f9f85deb265c70610e46a241101389495b" &&
+            stop.capabilityCluster === "guest-memory-page-fault" &&
+            stop.endpoint === null &&
+            fault?.class === "fault" &&
+            fault.stage === "guest-execution" &&
+            fault.code === "page-fault" &&
+            fault.instructionPointer === 0x100a_47a9 &&
+            fault.previousInstructionPointer === 0x100a_47a7 &&
+            fault.faultAddress === 0x500f_e000 &&
+            fault.pageFaultErrorCode === 4 &&
+            this.#waitForSingleObjectExCompletions === 10_571 &&
+            pacing.requests === this.#waitForSingleObjectExCompletions &&
+            pacing.completions === this.#waitForSingleObjectExCompletions &&
+            pacing.pending === 0,
+          `IsIconic report or next stop changed: ${JSON.stringify({
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            continuation,
+            peek,
+            iconic,
+            stop,
             waitForSingleObjectExCompletions:
               this.#waitForSingleObjectExCompletions,
             pacing,
@@ -9600,6 +9759,7 @@ worker.addEventListener(
               getAsyncKeyStateInitialScan: null,
               initialScanContinuation: null,
               peekMessageA: null,
+              isIconic: null,
               d3d9RecreatedTextures: null,
               d3d9Clear: null,
               d3d9AddDirtyRect: null,

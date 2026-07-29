@@ -34,7 +34,8 @@ const executionEngineProfile = JSON.parse(
 const benchmark = checkpoint.browserCheckpoint.bgiBenchmarkEvidence;
 const executionEngineArtifact = executionEngineProfile.artifacts.find(
   ({ bytes, sha256 }) =>
-    bytes === benchmark.v86AdapterWasmBytes && sha256 === benchmark.v86AdapterWasmSha256,
+    bytes === benchmark.v86AdapterWasmBytes &&
+    sha256 === benchmark.v86AdapterWasmSha256,
 );
 assert(
   executionEngineArtifact !== undefined,
@@ -59,7 +60,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 20);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 21);
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
 const lastPacingRequest = { requestId: "4708", sequence: 89_218 };
@@ -161,14 +162,19 @@ function validEvidence() {
   const policy = checkpoint.activeRuntimeCheckpoint.kernel32CompatibilityPolicy;
   const capabilityCheckpoint =
     checkpoint.nextStructuredStop.kind === "capability-checkpoint";
-  const outcome = capabilityCheckpoint ? "checkpoint-complete" : "structured-stop";
+  const outcome = capabilityCheckpoint
+    ? "checkpoint-complete"
+    : "structured-stop";
   const checkpointCompletion = capabilityCheckpoint
     ? (() => {
         const endpointIdentity = formatManifestRuntimeEndpointIdentity(
           checkpoint.nextStructuredStop.nextEndpoint,
         );
         const separator = endpointIdentity.indexOf("!");
-        assert(separator > 0, "checkpoint endpoint identity must include a module");
+        assert(
+          separator > 0,
+          "checkpoint endpoint identity must include a module",
+        );
         return {
           ...structuredClone(checkpoint.nextStructuredStop.completion),
           instructionCount: checkpoint.nextStructuredStop.instructionCount,
@@ -205,7 +211,8 @@ function validEvidence() {
     },
     command: {
       canonical: "npm run check:private-target",
-      invocation: "npm run check:private-target -- --allow-dirty \"local-notes.md\"",
+      invocation:
+        'npm run check:private-target -- --allow-dirty "local-notes.md"',
       semanticGate: "required",
       performanceGate: "separate-observation",
     },
@@ -217,7 +224,8 @@ function validEvidence() {
     profile: {
       currentCheckpointSchema: checkpoint.schema,
       currentCheckpointSchemaVersion: checkpoint.schemaVersion,
-      runtimeCheckpoint: checkpoint.activeRuntimeCheckpoint.runtimeKernelCheckpoint,
+      runtimeCheckpoint:
+        checkpoint.activeRuntimeCheckpoint.runtimeKernelCheckpoint,
       runtimeProfile: checkpoint.activeRuntimeCheckpoint.profile,
       policySchema: policy.schema,
       policySchemaVersion: policy.schemaVersion,
@@ -225,8 +233,10 @@ function validEvidence() {
       policySource: policy.source,
       nodeReportSchema: "vine.test-private-target",
       nodeReportSchemaVersion: 1,
-      browserRuntimeProtocol: checkpoint.browserCheckpoint.browserRuntimeProtocol,
-      executionEngineProfile: checkpoint.browserCheckpoint.executionEngineProfile,
+      browserRuntimeProtocol:
+        checkpoint.browserCheckpoint.browserRuntimeProtocol,
+      executionEngineProfile:
+        checkpoint.browserCheckpoint.executionEngineProfile,
     },
     environment: {
       platform: "win32-test",
@@ -255,7 +265,9 @@ function validEvidence() {
         outcome,
         implementedApiContracts:
           checkpoint.activeRuntimeCheckpoint.genericDispatcherContractCount,
-        supportedCalls: checkpoint.activeRuntimeCheckpoint.genericDispatcherCallOccurrenceCount,
+        supportedCalls:
+          checkpoint.activeRuntimeCheckpoint
+            .genericDispatcherCallOccurrenceCount,
         callSemanticsSha256: browser.callSemanticsSha256,
         instructions: checkpoint.nextStructuredStop.instructionCount,
         finalGeneration: browser.nodeFinalGeneration,
@@ -270,7 +282,9 @@ function validEvidence() {
       },
       browser: {
         outcome,
-        supportedCalls: checkpoint.activeRuntimeCheckpoint.genericDispatcherCallOccurrenceCount,
+        supportedCalls:
+          checkpoint.activeRuntimeCheckpoint
+            .genericDispatcherCallOccurrenceCount,
         callSemanticsSha256: browser.callSemanticsSha256,
         instructions: checkpoint.nextStructuredStop.instructionCount,
         finalGeneration: browser.finalGeneration,
@@ -281,7 +295,8 @@ function validEvidence() {
         wasmBridgeCalls: 1,
         executionStateMachine: structuredClone(browser.executionStateMachine),
         executionEngine: structuredClone(executionEngineIdentity),
-        executionEngineLinearMemoryBytes: browser.executionEngineLinearMemoryBytes,
+        executionEngineLinearMemoryBytes:
+          browser.executionEngineLinearMemoryBytes,
       },
       memoryEquivalent: true,
       nextStructuredStop: structuredClone(checkpoint.nextStructuredStop),
@@ -339,7 +354,10 @@ function mutated(mutate) {
   return finalizePrivateTargetEvidence(evidence);
 }
 
-assert.deepEqual(validatePrivateTargetEvidence(validEvidence(), checkpoint), []);
+assert.deepEqual(
+  validatePrivateTargetEvidence(validEvidence(), checkpoint),
+  [],
+);
 assert.deepEqual(
   validatePrivateTargetEvidenceDescendantPaths([
     "docs/private-target-evidence.json",
@@ -417,7 +435,9 @@ for (const [label, evidence, expected] of [
     "dirty execution input",
     mutated((value) => {
       value.repository.executionInputsClean = false;
-      value.repository.disallowedDirtyPaths = ["crates/vine-core/src/runtime.rs"];
+      value.repository.disallowedDirtyPaths = [
+        "crates/vine-core/src/runtime.rs",
+      ];
     }),
     "executionInputsClean",
   ],
@@ -431,14 +451,16 @@ for (const [label, evidence, expected] of [
   [
     "unfinished browser execution lane",
     mutated((value) => {
-      value.semantic.browser.executionStateMachine.success.finalState = "running";
+      value.semantic.browser.executionStateMachine.success.finalState =
+        "running";
     }),
     "executionStateMachine.success.finalState",
   ],
   [
     "missing watchdog context",
     mutated((value) => {
-      value.semantic.browser.executionStateMachine.watchdog.watchdogContext = null;
+      value.semantic.browser.executionStateMachine.watchdog.watchdogContext =
+        null;
     }),
     "watchdogContext",
   ],

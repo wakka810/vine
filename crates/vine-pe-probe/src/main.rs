@@ -3839,7 +3839,7 @@ fn run_v86_generic_runtime_session(
     );
     let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
     imm32_policy.validate().map_err(api_fault)?;
-    let mut user32_policy = User32CompatibilityPolicy::controlled_v29();
+    let mut user32_policy = User32CompatibilityPolicy::controlled_v30();
     if !matches!(
         user32_capability,
         Some(
@@ -14282,9 +14282,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "user32-async-key-state-initial-scan"
                 | "user32-async-key-state-initial-scan-continuation"
-                | "user32-peek-message-a" => {
-                    GenericRuntimeCapability::User32AsyncKeyStateInitialScan
-                }
+                | "user32-peek-message-a"
+                | "user32-is-iconic" => GenericRuntimeCapability::User32AsyncKeyStateInitialScan,
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

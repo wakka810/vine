@@ -63,6 +63,7 @@ SUPPORTED_OBSERVATIONS = (
     "get-window-rect",
     "get-cursor-pos",
     "peek-message-a",
+    "is-iconic",
     "set-rect",
     "get-monitor-info-a",
     "set-timer",

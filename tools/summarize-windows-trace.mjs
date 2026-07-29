@@ -50,6 +50,7 @@ const supportedObservations = new Set([
   "get-foreground-window",
   "get-async-key-state",
   "peek-message-a",
+  "is-iconic",
   "load-cursor-a",
   "register-class-ex-a",
   "get-system-metrics",
@@ -5404,6 +5405,164 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
     };
   });
 
+  const isIconicOracleEvents = events.filter(
+    (event) => event.kind === "is-iconic-oracle",
+  );
+  const isIconicCompletionEvents = events.filter(
+    (event) => event.kind === "is-iconic-controlled-complete",
+  );
+  const requiresIsIconicCompletion =
+    selectedObservations.length === 1 &&
+    selectedObservations[0] === "is-iconic" &&
+    traceStart.arguments?.stopOnEvent === "is-iconic-controlled-complete";
+  if (
+    isIconicOracleEvents.length > 1 ||
+    isIconicCompletionEvents.length > 1 ||
+    (requiresIsIconicCompletion &&
+      (isIconicOracleEvents.length !== 1 ||
+        isIconicCompletionEvents.length !== 1))
+  ) {
+    throw new Error(
+      "is-iconic observation requires exactly one controlled oracle and structured completion",
+    );
+  }
+  const isIconic = isIconicCompletionEvents.map((completion) => {
+    const oracle = isIconicOracleEvents[0];
+    const expectedCalls = [
+      ["normal", 0x1122_3344, 0, false, null],
+      ["minimized", 0x5566_7788, 1, true, null],
+      ["restored", 0x99aa_bbcc, 0, false, null],
+      ["invalid", 0xddee_ff00, 0, false, 1400],
+    ];
+    const oraclePayload =
+      oracle === undefined
+        ? null
+        : {
+            profile: oracle.profile,
+            windowHandle: oracle.windowHandle,
+            creation: oracle.creation,
+            transitions: oracle.transitions,
+            calls: oracle.calls,
+            allResultsMatchHooks: oracle.allResultsMatchHooks,
+            allLastErrorsMatchHooks: oracle.allLastErrorsMatchHooks,
+          };
+    if (
+      oracle === undefined ||
+      oracle.profile !== "x86-controlled-window-iconic-state-transition-v1" ||
+      completion.profile !== oracle.profile ||
+      JSON.stringify(completion.oracle) !== JSON.stringify(oraclePayload) ||
+      oracle.creation?.className !== "STATIC" ||
+      oracle.creation?.style !== 0x10cf_0000 ||
+      oracle.creation?.width !== 160 ||
+      oracle.creation?.height !== 120 ||
+      oracle.creation?.lastError !== 0 ||
+      oracle.transitions?.minimizeCommand !== 2 ||
+      oracle.transitions?.restoreCommand !== 9 ||
+      !Number.isInteger(oracle.transitions?.minimizeResult) ||
+      oracle.transitions.minimizeResult === 0 ||
+      !Number.isInteger(oracle.transitions?.restoreResult) ||
+      oracle.transitions.restoreResult === 0 ||
+      oracle.transitions?.minimizeLastError !== 0 ||
+      oracle.transitions?.restoreLastError !== 0 ||
+      !/^0x[0-9a-f]+$/iu.test(oracle.windowHandle ?? "") ||
+      oracle.windowHandle === "0x0" ||
+      !Array.isArray(oracle.calls) ||
+      oracle.calls.length !== expectedCalls.length ||
+      oracle.allResultsMatchHooks !== true ||
+      oracle.allLastErrorsMatchHooks !== true
+    ) {
+      throw new Error(
+        "is-iconic controlled completion has an invalid window-state transition oracle",
+      );
+    }
+    const oracleCalls = oracle.calls.map((call, index) => {
+      const [id, sentinel, expectedResult, expectedIconic, forcedLastError] =
+        expectedCalls[index];
+      const expectedWindow = id === "invalid" ? "0x1234" : oracle.windowHandle;
+      const expectedLastError = forcedLastError ?? sentinel;
+      const pair = apiPairing.pairs.find(
+        (candidate) =>
+          candidate.enter.api === "IsIconic" &&
+          candidate.enter.caller?.module?.toLowerCase() === "frida-agent.dll" &&
+          candidate.enter.arguments?.[0]?.toLowerCase() ===
+            expectedWindow.toLowerCase() &&
+          candidate.enter.lastErrorBefore === sentinel,
+      );
+      if (
+        call.id !== id ||
+        call.windowHandle?.toLowerCase() !== expectedWindow.toLowerCase() ||
+        call.sentinel !== sentinel ||
+        call.systemResult !== expectedResult ||
+        call.iconic !== expectedIconic ||
+        call.systemLastError !== expectedLastError ||
+        call.hookResult !== expectedResult ||
+        call.hookLastErrorAfter !== expectedLastError ||
+        call.hookResultMatches !== true ||
+        call.hookAndSystemLastErrorMatch !== true ||
+        pair === undefined ||
+        pair.enter.parentCallId !== null ||
+        pair.enter.threadId !== oracle.threadId ||
+        pair.leave.threadId !== oracle.threadId ||
+        pair.enter.module?.toLowerCase() !== "user32.dll" ||
+        pair.enter.arguments?.length !== 1 ||
+        pair.enter.isIconic?.windowHandle?.toLowerCase() !==
+          expectedWindow.toLowerCase() ||
+        pair.enter.isIconic?.immediateConsumer !== null ||
+        BigInt(pair.leave.result) !== BigInt(expectedResult) ||
+        pair.leave.lastError !== expectedLastError ||
+        pair.leave.isIconic?.result !== expectedResult ||
+        pair.leave.isIconic?.iconic !== expectedIconic
+      ) {
+        throw new Error(
+          `is-iconic oracle call ${index} violates its BOOL, LastError, handle, or hook contract`,
+        );
+      }
+      return {
+        sequence: pair.enter.sequence,
+        leaveSequence: pair.leave.sequence,
+        id,
+        window: id === "invalid" ? "invalid" : "controlled",
+        result: expectedResult,
+        iconic: expectedIconic,
+        lastErrorBefore: sentinel,
+        lastError: expectedLastError,
+      };
+    });
+    if (
+      oracleCalls.some(
+        (call, index) =>
+          index > 0 && call.sequence <= oracleCalls[index - 1].leaveSequence,
+      ) ||
+      oracle.sequence <= oracleCalls.at(-1).leaveSequence ||
+      completion.sequence <= oracle.sequence ||
+      completion.threadId !== oracle.threadId
+    ) {
+      throw new Error(
+        "is-iconic controlled completion violates call, oracle, or thread ordering",
+      );
+    }
+    return {
+      sequence: completion.sequence,
+      profile: completion.profile,
+      threadId: completion.threadId,
+      controlledWindow: {
+        className: oracle.creation.className,
+        style: oracle.creation.style,
+        width: oracle.creation.width,
+        height: oracle.creation.height,
+      },
+      transitions: {
+        minimizeCommand: oracle.transitions.minimizeCommand,
+        minimizePreviousVisibilityResultNonzero:
+          oracle.transitions.minimizeResult !== 0,
+        restoreCommand: oracle.transitions.restoreCommand,
+        restorePreviousVisibilityResultNonzero:
+          oracle.transitions.restoreResult !== 0,
+      },
+      calls: oracleCalls,
+    };
+  });
+
   const timeGetTimeOracleEvents = events.filter(
     (event) => event.kind === "time-get-time-oracle",
   );
@@ -5885,6 +6044,7 @@ export const summarizeTrace = (buffer, sourcePath = null) => {
       getForegroundWindow,
       getAsyncKeyState,
       peekMessageA,
+      isIconic,
     },
     d3d9: {
       adapterIdentifiers,

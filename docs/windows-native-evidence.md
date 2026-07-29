@@ -6007,3 +6007,44 @@ and memory digest
 They next stop at instruction 148,745,317 on `USER32.dll!IsIconic`. This does
 not claim filtering, cross-thread retrieval, `GetMessage`, synthetic input／
 paint／timer production, general queue creation, or dispatch semantics.
+
+## 179. BGI `IsIconic` and logical-window minimized-state query
+
+The controlled primary trace is 23,800 bytes／84 lines／SHA-256
+`88a28933ecf8c868f5a7858bccae73ca3d5d1ca692d0c776a9fa09f631bf24cb`;
+its 22,336-byte／1,047-line summary has SHA-256
+`5ddeec1622be9bafa286e385e1c225eefa2832a0a1024fe8fa4d2301a2902854`.
+The independent confirmation is 23,800 bytes／84 lines／SHA-256
+`2cbb697e9730f1d4728c59507be9958705fe9b55919c828bfe5f0ac1d7ba0a99`;
+its 22,341-byte／1,047-line summary has SHA-256
+`08030283a8e44feae1ebab342784a4429c4ba56b1718c77092ea13a6192b8aa`.
+Both contain 82 contiguous events, 14 balanced API pairs, maximum depth 3,
+and diagnostics 0. A short-lived top-level `STATIC` window returns FALSE in
+normal state, TRUE after `SW_SHOWMINIMIZED`, and FALSE after `SW_RESTORE`,
+while preserving three distinct LastError sentinels. Invalid HWND `0x1234`
+returns FALSE and sets `ERROR_INVALID_WINDOW_HANDLE` (1400). The source
+executable remains 1,193,472 bytes／SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`.
+
+An unattended 90-second diagnostic trace is 2,707,444 bytes／8,561 lines／
+SHA-256
+`1c8e9b2fb52650aed879ad5f9a2b9a5ad39c35f7ed983fc691ecd778550c3c7e`
+and observes no BGI-origin `IsIconic` completion before the title enters its
+archive polling path. Static i386 caller evidence closes that dynamic coverage
+gap: RVA `0x000889B7` loads the stored HWND, pushes it, calls IAT RVA
+`0x000D13B4`, then `test eax,eax` at return RVA `0x000889C4`; the TRUE and
+FALSE results lead to distinct branches. Raw traces and summaries remain under
+`.work/windows-traces/` and are not Git artifacts.
+
+The runtime derives `IsIconic` solely from `RuntimeUser32`'s created logical
+window `effective_style` and `WS_MINIMIZE` bit. It creates no duplicate
+minimized-state authority and performs no mutation. Valid handles preserve
+LastError; unknown handles return FALSE／1400 before mutation. Canonical Node
+records three normal-window FALSE completions at sequences 148,305／148,426／
+148,483 and instructions 148,745,317／148,766,995／148,771,560, each for HWND
+`0x48010001`, with stack cleanup 8, LastError 0, and no guest writes. The same
+slice contains three empty `PeekMessageA` completions and reaches 148,523
+supported calls before a user-mode read page fault on the second thread's
+stack guard at `0x500FE000` while executing `0x100A47A9`. This checkpoint does
+not implement minimize／restore transitions, browser visibility mapping,
+activation-driven iconification, or other show-state transitions.

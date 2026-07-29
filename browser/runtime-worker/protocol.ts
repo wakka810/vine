@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 52 as const;
+export const protocolVersion = 53 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -44,7 +44,8 @@ export type BgiCapabilityProfile =
   | "user32-async-key-state-input-continuation"
   | "user32-async-key-state-initial-scan"
   | "user32-async-key-state-initial-scan-continuation"
-  | "user32-peek-message-a";
+  | "user32-peek-message-a"
+  | "user32-is-iconic";
 
 export type RuntimeKeyboardSourceEventKind =
   "focus-gained" | "focus-lost" | "key-down" | "key-up";
@@ -1098,7 +1099,7 @@ export interface SessionReport {
   } | null;
   getAsyncKeyState: {
     call: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "user32-single-monitor-window-frame-change-show-update-paint-message-v29";
+    compatibilityPolicyId: "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30";
     keyboardProfileId: "foreground-focused-virtual-key-state-v1";
     inputEvent: RuntimeKeyboardEventReceipt;
     stateAuthority: "rust-runtime-input-keyboard";
@@ -1131,7 +1132,7 @@ export interface SessionReport {
     scanVirtualKeys: number[];
     firstCall: RuntimeSupportedCallSnapshot;
     lastCall: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "user32-single-monitor-window-frame-change-show-update-paint-message-v29";
+    compatibilityPolicyId: "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30";
     cursorPosition: RuntimeCursorPositionSnapshot;
     cursorStateAuthority: "rust-runtime-input-cursor-position";
     keyboardProfileId: "foreground-focused-virtual-key-state-v1";
@@ -1151,6 +1152,7 @@ export interface SessionReport {
     prerequisiteScanCompletionSequence: number;
     prerequisiteScanCompletionInstructionCount: number;
     calls: RuntimeSupportedCallSnapshot[];
+    instructionCounts: number[];
     renderCompletionCounts: {
       clear: number;
       setRect: number;
@@ -1172,9 +1174,9 @@ export interface SessionReport {
     nextSubsystemGateway: "user32-peek-message-a" | null;
   } | null;
   peekMessageA: {
-    call: RuntimeSupportedCallSnapshot;
-    instructionCount: number;
-    compatibilityPolicyId: "user32-single-monitor-window-frame-change-show-update-paint-message-v29";
+    calls: RuntimeSupportedCallSnapshot[];
+    instructionCounts: number[];
+    compatibilityPolicyId: "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30";
     profileId: "current-thread-unfiltered-peek-message-a-v1";
     queueAuthority: "rust-runtime-thread-message-queue";
     emptyQueueResult: false;
@@ -1184,6 +1186,21 @@ export interface SessionReport {
     failureAtomicity: true;
     filteredRetrievalImplemented: false;
     crossThreadRetrievalImplemented: false;
+  } | null;
+  isIconic: {
+    calls: RuntimeSupportedCallSnapshot[];
+    instructionCounts: number[];
+    compatibilityPolicyId: "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30";
+    profileId: "logical-window-effective-style-is-iconic-v1";
+    windowStateAuthority: "rust-runtime-user32-logical-window";
+    minimizedStyleMask: 536870912;
+    normalWindowResult: false;
+    validLastErrorPolicy: "preserve";
+    invalidWindowLastError: 1400;
+    guestMemoryMutation: false;
+    runtimeStateMutation: false;
+    failureAtomicity: true;
+    minimizeTransitionImplemented: false;
   } | null;
   d3d9RecreatedTextures: {
     calls: RuntimeSupportedCallSnapshot[];

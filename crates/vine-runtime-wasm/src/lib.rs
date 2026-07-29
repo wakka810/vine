@@ -496,7 +496,7 @@ impl BrowserRuntime {
         let second_thread_entry = direct_fixture_export_address(&plan, "fixture_thread_entry")?;
         let second_thread_marker = direct_fixture_export_address(&plan, "fixture_thread_marker")?;
         let mut runtime = controlled_runtime_state()?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v29();
+        let user32_policy = User32CompatibilityPolicy::controlled_v30();
         user32_policy.validate().map_err(api_fault_string)?;
         runtime
             .configure_display_profile(
@@ -689,7 +689,7 @@ impl BrowserRuntime {
             .runtime
             .register_writable_profile(writable_profile)
             .map_err(error_string)?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v29();
+        let user32_policy = User32CompatibilityPolicy::controlled_v30();
         user32_policy.validate().map_err(api_fault_string)?;
         let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v6();
         gdi32_policy.validate().map_err(api_fault_string)?;

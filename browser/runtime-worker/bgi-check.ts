@@ -45,8 +45,11 @@ const d3d9Canvas =
   capabilityProfile === "user32-async-key-state-input-continuation" ||
   capabilityProfile === "user32-async-key-state-initial-scan" ||
   capabilityProfile === "user32-async-key-state-initial-scan-continuation" ||
-  capabilityProfile === "user32-peek-message-a"
-    ? requiredElement<HTMLCanvasElement>("#surface").transferControlToOffscreen()
+  capabilityProfile === "user32-peek-message-a" ||
+  capabilityProfile === "user32-is-iconic"
+    ? requiredElement<HTMLCanvasElement>(
+        "#surface",
+      ).transferControlToOffscreen()
     : undefined;
 const sessionId = 1;
 const pageLifecycle = observePageLifecycle((lifecycle) => {
@@ -132,9 +135,47 @@ const startMessage = {
         : capabilityProfile === "user32-async-key-state-initial-scan" ||
             capabilityProfile ===
               "user32-async-key-state-initial-scan-continuation" ||
-            capabilityProfile === "user32-peek-message-a"
+            capabilityProfile === "user32-peek-message-a" ||
+            capabilityProfile === "user32-is-iconic"
           ? 180_000_000
-        : capabilityProfile === "kernel32-create-directory-a" ||
+          : capabilityProfile === "kernel32-create-directory-a" ||
+              capabilityProfile === "user32-set-window-pos-repeat-activation" ||
+              capabilityProfile === "d3d9-recreated-textures" ||
+              capabilityProfile === "user32-set-window-pos-frame-change-move" ||
+              capabilityProfile === "user32-show-window-normal" ||
+              capabilityProfile === "user32-update-window" ||
+              capabilityProfile === "d3d9-clear" ||
+              capabilityProfile === "user32-set-rect" ||
+              capabilityProfile === "d3d9-add-dirty-rect" ||
+              capabilityProfile === "d3d9-update-texture" ||
+              capabilityProfile === "d3d9-begin-scene" ||
+              capabilityProfile === "d3d9-initial-sampler-states" ||
+              capabilityProfile === "d3d9-initial-texture-stage-states" ||
+              capabilityProfile === "d3d9-set-texture" ||
+              capabilityProfile === "d3d9-set-fvf" ||
+              capabilityProfile === "d3d9-set-stream-source" ||
+              capabilityProfile === "d3d9-draw-primitive" ||
+              capabilityProfile === "d3d9-end-scene" ||
+              capabilityProfile === "d3d9-post-end-scene-raster-status" ||
+              capabilityProfile === "d3d9-post-raster-status-waitable-timer" ||
+              capabilityProfile === "d3d9-post-scene-present-gateway" ||
+              capabilityProfile === "d3d9-first-present" ||
+              capabilityProfile === "d3d9-post-present-continuation" ||
+              capabilityProfile === "user32-async-key-state-input" ||
+              capabilityProfile === "user32-async-key-state-input-continuation"
+            ? 35_000_000
+            : 20_000_000,
+    watchdogWallMilliseconds:
+      capabilityProfile === "user32-async-key-state-initial-scan" ||
+      capabilityProfile ===
+        "user32-async-key-state-initial-scan-continuation" ||
+      capabilityProfile === "user32-peek-message-a" ||
+      capabilityProfile === "user32-is-iconic"
+        ? 600_000
+        : capabilityProfile === "kernel32-sleep-zero" ||
+            capabilityProfile === "kernel32-global-memory-status" ||
+            capabilityProfile === "kernel32-get-file-attributes-a" ||
+            capabilityProfile === "kernel32-create-directory-a" ||
             capabilityProfile === "user32-set-window-pos-repeat-activation" ||
             capabilityProfile === "d3d9-recreated-textures" ||
             capabilityProfile === "user32-set-window-pos-frame-change-move" ||
@@ -159,46 +200,11 @@ const startMessage = {
             capabilityProfile === "d3d9-post-present-continuation" ||
             capabilityProfile === "user32-async-key-state-input" ||
             capabilityProfile === "user32-async-key-state-input-continuation"
-          ? 35_000_000
-          : 20_000_000,
-    watchdogWallMilliseconds:
-      capabilityProfile === "user32-async-key-state-initial-scan" ||
-      capabilityProfile === "user32-async-key-state-initial-scan-continuation" ||
-      capabilityProfile === "user32-peek-message-a"
-        ? 600_000
-        : capabilityProfile === "kernel32-sleep-zero" ||
-      capabilityProfile === "kernel32-global-memory-status" ||
-      capabilityProfile === "kernel32-get-file-attributes-a" ||
-      capabilityProfile === "kernel32-create-directory-a" ||
-      capabilityProfile === "user32-set-window-pos-repeat-activation" ||
-      capabilityProfile === "d3d9-recreated-textures" ||
-      capabilityProfile === "user32-set-window-pos-frame-change-move" ||
-      capabilityProfile === "user32-show-window-normal" ||
-      capabilityProfile === "user32-update-window" ||
-      capabilityProfile === "d3d9-clear" ||
-      capabilityProfile === "user32-set-rect" ||
-      capabilityProfile === "d3d9-add-dirty-rect" ||
-      capabilityProfile === "d3d9-update-texture" ||
-      capabilityProfile === "d3d9-begin-scene" ||
-      capabilityProfile === "d3d9-initial-sampler-states" ||
-      capabilityProfile === "d3d9-initial-texture-stage-states" ||
-      capabilityProfile === "d3d9-set-texture" ||
-      capabilityProfile === "d3d9-set-fvf" ||
-      capabilityProfile === "d3d9-set-stream-source" ||
-      capabilityProfile === "d3d9-draw-primitive" ||
-      capabilityProfile === "d3d9-end-scene" ||
-      capabilityProfile === "d3d9-post-end-scene-raster-status" ||
-      capabilityProfile === "d3d9-post-raster-status-waitable-timer" ||
-      capabilityProfile === "d3d9-post-scene-present-gateway" ||
-      capabilityProfile === "d3d9-first-present" ||
-      capabilityProfile === "d3d9-post-present-continuation" ||
-      capabilityProfile === "user32-async-key-state-input" ||
-      capabilityProfile === "user32-async-key-state-input-continuation"
-        ? 300_000
-        : capabilityProfile === "shell32-drag-accept-files" ||
-            capabilityProfile === "kernel32-archive-source-read"
-          ? 180_000
-          : 20_000,
+          ? 300_000
+          : capabilityProfile === "shell32-drag-accept-files" ||
+              capabilityProfile === "kernel32-archive-source-read"
+            ? 180_000
+            : 20_000,
     pageLifecycle: pageLifecycle.snapshot(),
   },
   ...(d3d9Canvas === undefined ? {} : { d3d9Canvas }),
@@ -305,7 +311,8 @@ function parseCapabilityProfile(
     value === "user32-async-key-state-input-continuation" ||
     value === "user32-async-key-state-initial-scan" ||
     value === "user32-async-key-state-initial-scan-continuation" ||
-    value === "user32-peek-message-a"
+    value === "user32-peek-message-a" ||
+    value === "user32-is-iconic"
     ? value
     : undefined;
 }

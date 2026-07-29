@@ -341,15 +341,18 @@ level 0, a writable `D3DLOCKED_RECT`, the full rectangle, and flags `0x8000`.
 Rust lazily publishes the 8 MiB GuestMemory backing with pitch 8,192; the later
 `UnlockRect`, bounded partial `UpdateTexture`, second scene／draw／Present cycle,
 and browser byte materialization also complete. Both engines then complete the
-mutation-free live-device `IDirect3DDevice9::TestCooperativeLevel` query at
+mutation-free live-device `IDirect3DDevice9::TestCooperativeLevel` first query at
 sequence 148,293／instruction 148,744,443 with `D3D_OK`, unchanged reference
 count 5, preserved LastError, and zero guest writes. Ordered call semantics,
-all 63 immutable source reads, terminal memory content, cursor／rectangle
-writes, scan order, render completion counts, and the query result are
-equivalent. After one timer arm／wait pair, both stop at instruction
-148,744,543 on `USER32.dll!PeekMessageA`. Generations, report hashes, timing,
-and exact artifact identities remain manifest-owned evidence rather than guest
-semantics.
+all 64 immutable source reads, terminal memory content, cursor／rectangle
+writes, scan order, render completion counts, and the repeated query results are
+equivalent. The polling loop then completes three current-thread unfiltered
+empty-queue `PeekMessageA` calls and three `IsIconic` calls against logical HWND
+`0x48010001`; each returns false, preserves LastError, and writes no guest
+bytes. Both engines next stop at instruction 148,787,159 on a read page fault
+at `0x500FE000` while the API-created thread reaches its stack guard.
+Generations, report hashes, timing, and exact artifact identities remain
+manifest-owned evidence rather than guest semantics.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource

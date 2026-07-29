@@ -87,7 +87,9 @@ const user32AsyncKeyStateInputProfile =
   user32AsyncKeyStateInputContinuationProfile;
 const user32AsyncKeyStateInitialScanCheckpointProfile =
   bgiProfile === "user32-async-key-state-initial-scan";
-const user32PeekMessageAProfile = bgiProfile === "user32-peek-message-a";
+const user32IsIconicProfile = bgiProfile === "user32-is-iconic";
+const user32PeekMessageAProfile =
+  bgiProfile === "user32-peek-message-a" || user32IsIconicProfile;
 const user32AsyncKeyStateInitialScanContinuationProfile =
   bgiProfile === "user32-async-key-state-initial-scan-continuation" ||
   user32PeekMessageAProfile;
@@ -162,7 +164,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v52";
+const runtimeProtocol = "vine.browser-runtime-worker.v53";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -821,6 +823,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-async-key-state-initial-scan",
         "user32-async-key-state-initial-scan-continuation",
         "user32-peek-message-a",
+        "user32-is-iconic",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -869,6 +872,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-async-key-state-initial-scan",
         "user32-async-key-state-initial-scan-continuation",
         "user32-peek-message-a",
+        "user32-is-iconic",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -917,10 +921,13 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-async-key-state-initial-scan",
         "user32-async-key-state-initial-scan-continuation",
         "user32-peek-message-a",
+        "user32-is-iconic",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
-            ? 2_314
+            ? user32IsIconicProfile
+              ? 2_317
+              : 2_314
             : 2_312
           : user32AsyncKeyStateInputContinuationProfile
             ? 2_020
@@ -1011,7 +1018,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       ) {
         const pacingCount = user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
-            ? 10_569
+            ? user32IsIconicProfile
+              ? 10_571
+              : 10_569
             : 10_567
           : user32AsyncKeyStateInputContinuationProfile
             ? 9_232
@@ -1108,7 +1117,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         if (user32AsyncKeyStateInitialScanProfile) {
           assert.equal(
             archiveReads.length,
-            59,
+            user32IsIconicProfile ? 60 : 59,
             "Chrome Worker initial scan changed the reached archive-read count",
           );
           assert(
@@ -2784,7 +2793,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         });
         assert.equal(
           asyncKey.compatibilityPolicyId,
-          "user32-single-monitor-window-frame-change-show-update-paint-message-v29",
+          "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
         );
         assert.equal(
           asyncKey.keyboardProfileId,
@@ -2891,7 +2900,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.deepEqual(scan.lastCall.result, { action: "set", value: 0 });
         assert.equal(
           scan.compatibilityPolicyId,
-          "user32-single-monitor-window-frame-change-show-update-paint-message-v29",
+          "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
         );
         assert.deepEqual(scan.cursorPosition, getCursorPos.cursorPosition);
         assert.equal(
@@ -2980,7 +2989,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           present: 2,
           textureLockRect: 1,
           textureUnlockRect: 1,
-          testCooperativeLevel: 1,
+          testCooperativeLevel: user32IsIconicProfile ? 3 : 1,
         });
         assert.equal(
           continuation.nextSubsystemGateway,
@@ -3049,18 +3058,30 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       if (user32PeekMessageAProfile) {
         const peek = evidence.report.peekMessageA;
         assert(peek !== null, "Chrome Worker omitted PeekMessageA evidence");
+        assert.equal(peek.calls.length, user32IsIconicProfile ? 3 : 1);
+        assert.deepEqual(
+          peek.calls.map((call) => call.sequence),
+          user32IsIconicProfile ? [148_296, 148_353, 148_474] : [148_296],
+        );
+        assert.deepEqual(
+          peek.instructionCounts,
+          user32IsIconicProfile
+            ? [148_744_543, 148_749_108, 148_770_786]
+            : [148_744_543],
+        );
+        const firstPeek = peek.calls[0];
         assert.deepEqual(
           {
-            sequence: peek.call.sequence,
-            instructionCount: peek.instructionCount,
-            arguments: peek.call.arguments,
-            result: peek.call.result,
-            implementationId: peek.call.implementationId,
-            returnAddress: peek.call.returnAddress,
-            stackPointerBefore: peek.call.stackPointerBefore,
-            stackPointerAfter: peek.call.stackPointerAfter,
-            lastError: peek.call.lastError,
-            guestWrites: peek.call.guestWrites,
+            sequence: firstPeek.sequence,
+            instructionCount: peek.instructionCounts[0],
+            arguments: firstPeek.arguments,
+            result: firstPeek.result,
+            implementationId: firstPeek.implementationId,
+            returnAddress: firstPeek.returnAddress,
+            stackPointerBefore: firstPeek.stackPointerBefore,
+            stackPointerAfter: firstPeek.stackPointerAfter,
+            lastError: firstPeek.lastError,
+            guestWrites: firstPeek.guestWrites,
           },
           {
             sequence: 148_296,
@@ -3075,9 +3096,23 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
             guestWrites: [],
           },
         );
+        for (const completion of peek.calls) {
+          assert.deepEqual(completion.arguments, [0x006f_f8e8, 0, 0, 0, 1]);
+          assert.deepEqual(completion.result, { action: "set", value: 0 });
+          assert.equal(
+            completion.implementationId,
+            "user32.peek-message-a.current-thread.v1",
+          );
+          assert.equal(
+            completion.stackPointerAfter,
+            completion.stackPointerBefore + 24,
+          );
+          assert.equal(completion.lastError, 0);
+          assert.deepEqual(completion.guestWrites, []);
+        }
         assert.equal(
           peek.compatibilityPolicyId,
-          "user32-single-monitor-window-frame-change-show-update-paint-message-v29",
+          "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
         );
         assert.equal(
           peek.profileId,
@@ -3093,6 +3128,82 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(peek.crossThreadRetrievalImplemented, false);
       } else {
         assert.equal(evidence.report.peekMessageA, null);
+      }
+      if (user32IsIconicProfile) {
+        const iconic = evidence.report.isIconic;
+        assert(iconic !== null, "Chrome Worker omitted IsIconic evidence");
+        assert.equal(iconic.calls.length, 3);
+        assert.deepEqual(
+          iconic.calls.map((call) => call.sequence),
+          [148_305, 148_426, 148_483],
+        );
+        assert.deepEqual(
+          iconic.instructionCounts,
+          [148_745_317, 148_766_995, 148_771_560],
+        );
+        const firstIconic = iconic.calls[0];
+        assert.deepEqual(
+          {
+            sequence: firstIconic.sequence,
+            instructionCount: iconic.instructionCounts[0],
+            arguments: firstIconic.arguments,
+            result: firstIconic.result,
+            implementationId: firstIconic.implementationId,
+            returnAddress: firstIconic.returnAddress,
+            stackPointerBefore: firstIconic.stackPointerBefore,
+            stackPointerAfter: firstIconic.stackPointerAfter,
+            lastError: firstIconic.lastError,
+            guestWrites: firstIconic.guestWrites,
+          },
+          {
+            sequence: 148_305,
+            instructionCount: 148_745_317,
+            arguments: [0x4801_0001],
+            result: { action: "set", value: 0 },
+            implementationId: "user32.is-iconic.logical-window-style.v1",
+            returnAddress: 0x1008_89c4,
+            stackPointerBefore: 0x006f_f8d8,
+            stackPointerAfter: 0x006f_f8e0,
+            lastError: 0,
+            guestWrites: [],
+          },
+        );
+        for (const completion of iconic.calls) {
+          assert.deepEqual(completion.arguments, [0x4801_0001]);
+          assert.deepEqual(completion.result, { action: "set", value: 0 });
+          assert.equal(
+            completion.implementationId,
+            "user32.is-iconic.logical-window-style.v1",
+          );
+          assert.equal(
+            completion.stackPointerAfter,
+            completion.stackPointerBefore + 8,
+          );
+          assert.equal(completion.lastError, 0);
+          assert.deepEqual(completion.guestWrites, []);
+        }
+        assert.equal(
+          iconic.compatibilityPolicyId,
+          "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
+        );
+        assert.equal(
+          iconic.profileId,
+          "logical-window-effective-style-is-iconic-v1",
+        );
+        assert.equal(
+          iconic.windowStateAuthority,
+          "rust-runtime-user32-logical-window",
+        );
+        assert.equal(iconic.minimizedStyleMask, 0x2000_0000);
+        assert.equal(iconic.normalWindowResult, false);
+        assert.equal(iconic.validLastErrorPolicy, "preserve");
+        assert.equal(iconic.invalidWindowLastError, 1400);
+        assert.equal(iconic.guestMemoryMutation, false);
+        assert.equal(iconic.runtimeStateMutation, false);
+        assert.equal(iconic.failureAtomicity, true);
+        assert.equal(iconic.minimizeTransitionImplemented, false);
+      } else {
+        assert.equal(evidence.report.isIconic, null);
       }
       if (d3d9RecreatedTexturesProfile) {
         const recreated = evidence.report.d3d9RecreatedTextures;
@@ -4173,6 +4284,9 @@ function normalizeInitialScanContinuation(snapshot) {
       ...normalizeSemanticCall(call),
       implementationId: call.implementationId,
     })),
+    instructionCounts:
+      snapshot.instructionCounts ??
+      snapshot.calls.map((call) => call.trapInstructionCount),
     renderCompletionCounts: snapshot.renderCompletionCounts,
     nextSubsystemGateway: snapshot.nextSubsystemGateway,
   };
@@ -4183,12 +4297,10 @@ function normalizePeekMessageA(snapshot) {
     return null;
   }
   return {
-    call: {
-      ...normalizeSemanticCall(snapshot.call),
-      implementationId: snapshot.call.implementationId,
-    },
-    instructionCount:
-      snapshot.instructionCount ?? snapshot.call.trapInstructionCount,
+    calls: snapshot.calls.map((call) => ({
+      ...normalizeSemanticCall(call),
+      implementationId: call.implementationId,
+    })),
     compatibilityPolicyId: snapshot.compatibilityPolicyId,
     profileId: snapshot.profileId,
     queueAuthority: snapshot.queueAuthority,
@@ -4199,6 +4311,32 @@ function normalizePeekMessageA(snapshot) {
     failureAtomicity: snapshot.failureAtomicity,
     filteredRetrievalImplemented: snapshot.filteredRetrievalImplemented,
     crossThreadRetrievalImplemented: snapshot.crossThreadRetrievalImplemented,
+  };
+}
+
+function normalizeIsIconic(snapshot) {
+  if (snapshot === null || snapshot === undefined) {
+    return null;
+  }
+  return {
+    calls: snapshot.calls.map((call) => ({
+      ...normalizeSemanticCall(call),
+      implementationId: call.implementationId,
+    })),
+    instructionCounts:
+      snapshot.instructionCounts ??
+      snapshot.calls.map((call) => call.trapInstructionCount),
+    compatibilityPolicyId: snapshot.compatibilityPolicyId,
+    profileId: snapshot.profileId,
+    windowStateAuthority: snapshot.windowStateAuthority,
+    minimizedStyleMask: snapshot.minimizedStyleMask,
+    normalWindowResult: snapshot.normalWindowResult,
+    validLastErrorPolicy: snapshot.validLastErrorPolicy,
+    invalidWindowLastError: snapshot.invalidWindowLastError,
+    guestMemoryMutation: snapshot.guestMemoryMutation,
+    runtimeStateMutation: snapshot.runtimeStateMutation,
+    failureAtomicity: snapshot.failureAtomicity,
+    minimizeTransitionImplemented: snapshot.minimizeTransitionImplemented,
   };
 }
 
@@ -4749,6 +4887,11 @@ function validateBgiEquivalence(browser, oracle) {
     normalizePeekMessageA(browser.report.peekMessageA),
     normalizePeekMessageA(oracle.peekMessageA),
     "Chrome Worker PeekMessageA evidence differs from the Node oracle",
+  );
+  assert.deepEqual(
+    normalizeIsIconic(browser.report.isIconic),
+    normalizeIsIconic(oracle.isIconic),
+    "Chrome Worker IsIconic evidence differs from the Node oracle",
   );
   assert.deepEqual(
     normalizeD3d9RecreatedTextures(browser.report.d3d9RecreatedTextures),

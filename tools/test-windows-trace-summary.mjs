@@ -5420,6 +5420,200 @@ assert.throws(
   /primary completion violates/,
 );
 
+const controlledIsIconicWindow = "0x48010001";
+const isIconicOracleCalls = [
+  ["normal", controlledIsIconicWindow, 0x1122_3344, 0, false, 0x1122_3344],
+  ["minimized", controlledIsIconicWindow, 0x5566_7788, 1, true, 0x5566_7788],
+  ["restored", controlledIsIconicWindow, 0x99aa_bbcc, 0, false, 0x99aa_bbcc],
+  ["invalid", "0x1234", 0xddee_ff00, 0, false, 1400],
+].map(([id, windowHandle, sentinel, result, iconic, lastError]) => ({
+  id,
+  windowHandle,
+  sentinel,
+  systemResult: result,
+  iconic,
+  systemLastError: lastError,
+  hookResult: result,
+  hookLastErrorAfter: lastError,
+  hookResultMatches: true,
+  hookAndSystemLastErrorMatch: true,
+}));
+const isIconicOracleEvidence = {
+  profile: "x86-controlled-window-iconic-state-transition-v1",
+  windowHandle: controlledIsIconicWindow,
+  creation: {
+    className: "STATIC",
+    style: 0x10cf_0000,
+    width: 160,
+    height: 120,
+    lastError: 0,
+  },
+  transitions: {
+    minimizeCommand: 2,
+    minimizeResult: 24,
+    minimizeLastError: 0,
+    restoreCommand: 9,
+    restoreResult: 24,
+    restoreLastError: 0,
+  },
+  calls: isIconicOracleCalls,
+  allResultsMatchHooks: true,
+  allLastErrorsMatchHooks: true,
+};
+const isIconicEvents = [
+  {
+    schema,
+    kind: "trace-start",
+    timestamp: "2026-07-29T00:00:00.000Z",
+    executable: "C:\\fixture\\BGI.exe",
+    executableBytes: 1_193_472,
+    executableSha256: "a".repeat(64),
+    frida: "17.15.4",
+    arguments: {
+      seconds: 30,
+      killAfter: true,
+      stopOnEvent: "is-iconic-controlled-complete",
+      vtables: [],
+      observations: ["is-iconic"],
+    },
+  },
+  {
+    schema,
+    sequence: 0,
+    kind: "module-load",
+    module: "BGI.exe",
+    path: "C:\\fixture\\BGI.exe",
+  },
+  {
+    schema,
+    sequence: 1,
+    kind: "module-load",
+    module: "USER32.dll",
+    path: "C:\\Windows\\System32\\USER32.dll",
+  },
+  {
+    schema,
+    sequence: 2,
+    kind: "agent-ready",
+    architecture: "ia32",
+    pointerSize: 4,
+    processId: 456,
+    selectedVtables: [],
+    selectedObservations: ["is-iconic"],
+  },
+  ...isIconicOracleCalls.flatMap((call, index) => [
+    {
+      schema,
+      sequence: 3 + index * 2,
+      threadId: 42,
+      kind: "api-enter",
+      callId: index + 1,
+      parentCallId: null,
+      caller: {
+        address: `0x7000${index}000`,
+        module: "frida-agent.dll",
+        rva: 0x1000 + index,
+      },
+      module: "USER32.dll",
+      api: "IsIconic",
+      arguments: [call.windowHandle],
+      lastErrorBefore: call.sentinel,
+      isIconic: {
+        windowHandle: call.windowHandle,
+        immediateConsumer: null,
+      },
+    },
+    {
+      schema,
+      sequence: 4 + index * 2,
+      threadId: 42,
+      kind: "api-leave",
+      callId: index + 1,
+      parentCallId: null,
+      caller: {
+        address: `0x7000${index}000`,
+        module: "frida-agent.dll",
+        rva: 0x1000 + index,
+      },
+      module: "USER32.dll",
+      api: "IsIconic",
+      result: `0x${call.systemResult.toString(16)}`,
+      durationMs: 0,
+      lastError: call.systemLastError,
+      isIconic: {
+        result: call.systemResult,
+        iconic: call.iconic,
+      },
+    },
+  ]),
+  {
+    schema,
+    sequence: 11,
+    threadId: 42,
+    kind: "is-iconic-oracle",
+    ...structuredClone(isIconicOracleEvidence),
+  },
+  {
+    schema,
+    sequence: 12,
+    threadId: 42,
+    kind: "is-iconic-controlled-complete",
+    profile: "x86-controlled-window-iconic-state-transition-v1",
+    oracle: structuredClone(isIconicOracleEvidence),
+  },
+  {
+    schema,
+    kind: "trace-stop",
+    timestamp: "2026-07-29T00:00:01.000Z",
+    reason: "event-is-iconic-controlled-complete-kill",
+    detachedReason: "process-terminated",
+    crash: null,
+  },
+];
+const isIconicSummary = summarizeTrace(
+  encode(isIconicEvents),
+  "is-iconic-fixture.jsonl",
+);
+assert.deepEqual(
+  isIconicSummary.user32.isIconic[0].calls.map((call) => [
+    call.id,
+    call.result,
+    call.iconic,
+    call.lastError,
+  ]),
+  [
+    ["normal", 0, false, 0x1122_3344],
+    ["minimized", 1, true, 0x5566_7788],
+    ["restored", 0, false, 0x99aa_bbcc],
+    ["invalid", 0, false, 1400],
+  ],
+);
+const missingIsIconicOracle = structuredClone(isIconicEvents);
+missingIsIconicOracle.find(
+  (event) => event.kind === "is-iconic-oracle",
+).kind = "is-iconic-oracle-missing";
+assert.throws(
+  () => summarizeTrace(encode(missingIsIconicOracle)),
+  /requires exactly one controlled oracle and structured completion/,
+);
+const changedIsIconicMinimizedResult = structuredClone(isIconicEvents);
+for (const evidence of [
+  changedIsIconicMinimizedResult.find(
+    (event) => event.kind === "is-iconic-oracle",
+  ),
+  changedIsIconicMinimizedResult.find(
+    (event) => event.kind === "is-iconic-controlled-complete",
+  ).oracle,
+]) {
+  evidence.calls[1].systemResult = 0;
+  evidence.calls[1].iconic = false;
+  evidence.calls[1].hookResult = 0;
+}
+assert.throws(
+  () => summarizeTrace(encode(changedIsIconicMinimizedResult)),
+  /oracle call 1 violates/,
+);
+
 const largeIntegerSnapshot = (pointer, value) => {
   const bytes = Buffer.alloc(8);
   bytes.writeBigUInt64LE(BigInt(value));

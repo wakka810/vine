@@ -166,15 +166,22 @@ assert.ok(
 );
 
 const incompleteEndpointIdentity = structuredClone(manifest);
-const endpointIdentity =
-  incompleteEndpointIdentity.nextStructuredStop.kind === "capability-checkpoint"
-    ? incompleteEndpointIdentity.nextStructuredStop.nextEndpoint
-    : incompleteEndpointIdentity.nextStructuredStop;
-delete endpointIdentity.endpointKind;
+const structuredStop = incompleteEndpointIdentity.nextStructuredStop;
+if (structuredStop.kind === "execution-fault") {
+  delete structuredStop.fault.class;
+} else {
+  const endpointIdentity =
+    structuredStop.kind === "capability-checkpoint"
+      ? structuredStop.nextEndpoint
+      : structuredStop;
+  delete endpointIdentity.endpointKind;
+}
 assert.ok(
   validateCurrentCheckpoint(incompleteEndpointIdentity).some((error) =>
     error.includes(
-      manifest.nextStructuredStop.kind === "capability-checkpoint"
+      manifest.nextStructuredStop.kind === "execution-fault"
+        ? "nextStructuredStop.fault.class"
+        : manifest.nextStructuredStop.kind === "capability-checkpoint"
         ? "nextStructuredStop.nextEndpoint.endpointKind"
         : "nextStructuredStop.endpointKind",
     ),

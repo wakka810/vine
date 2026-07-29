@@ -44,6 +44,8 @@ const focusedGetAsyncKeyStateObservation =
 const focusedPeekMessageAObservation =
   selectedObservations.size === 1 &&
   selectedObservations.has("peek-message-a");
+const focusedIsIconicObservation =
+  selectedObservations.size === 1 && selectedObservations.has("is-iconic");
 const focusedSetWindowPosStateObservation =
   focusedSetWindowPosSizeObservation ||
   focusedSetWindowPosFrameChangeMoveObservation;
@@ -541,6 +543,12 @@ let peekMessageAOracleComplete = false;
 let peekMessageAOracleEvidence = null;
 let peekMessageACompletionRecorded = false;
 const peekMessageAMainModuleCalls = [];
+let isIconicOracleScheduled = false;
+let isIconicOracleCall = null;
+let isIconicOracleComplete = false;
+let isIconicOracleEvidence = null;
+let isIconicCompletionRecorded = false;
+const isIconicMainModuleCalls = [];
 let setRectOracleScheduled = false;
 let setRectOracleCall = null;
 let setRectOracleComplete = false;
@@ -12179,6 +12187,333 @@ function maybeCompletePeekMessageAObservation() {
     oracle: peekMessageAOracleEvidence,
   });
   if (stopOnEvent === "peek-message-a-complete") {
+    recv("vine-trace-stop", () => {}).wait();
+  }
+}
+
+function attachIsIconicHook(module) {
+  const name = "IsIconic";
+  const address = findExport(module, name);
+  if (address === null) {
+    throw new Error("IsIconic export is unavailable");
+  }
+  const key = address.toString();
+  if (attached.has(key)) {
+    return;
+  }
+  attached.add(key);
+
+  Interceptor.attach(address, {
+    onEnter(args) {
+      const caller = describeCaller(this.returnAddress);
+      const callerModule = caller.module?.toLowerCase() ?? null;
+      const isMainModuleCaller =
+        focusedIsIconicObservation &&
+        callerModule === Process.mainModule.name.toLowerCase() &&
+        isIconicMainModuleCalls.length === 0;
+      const isOracleCaller =
+        callerModule === "frida-agent.dll" && isIconicOracleCall !== null;
+      if (!isMainModuleCaller && !isOracleCaller) {
+        this.traceFrame = null;
+        return;
+      }
+      this.windowHandlePointer = args[0];
+      this.windowHandle = args[0].toString();
+      this.mainModuleCaller = isMainModuleCaller;
+      this.oracleCaller = isOracleCaller;
+      if (isOracleCaller) {
+        this.lastError = isIconicOracleCall.sentinel;
+      }
+      this.lastErrorBefore = Number(this.lastError) >>> 0;
+      this.immediateConsumer = isMainModuleCaller
+        ? snapshotInstructions(this.returnAddress, 96)
+        : null;
+      this.traceFrame = beginCall(
+        {
+          module: module.name,
+          api: name,
+          arguments: [this.windowHandle],
+          lastErrorBefore: this.lastErrorBefore,
+          isIconic: {
+            windowHandle: this.windowHandle,
+            immediateConsumer: this.immediateConsumer,
+          },
+        },
+        this.returnAddress,
+      );
+    },
+    onLeave(result) {
+      if (this.traceFrame === null) {
+        return;
+      }
+      const resultValue = result.toUInt32();
+      const lastError = Number(this.lastError) >>> 0;
+      if (this.oracleCaller) {
+        isIconicOracleCall.hookResult = resultValue;
+        isIconicOracleCall.hookLastErrorAfter = lastError;
+      }
+      finishCall(
+        this.traceFrame,
+        {
+          module: module.name,
+          api: name,
+          result: result.toString(),
+          isIconic: {
+            result: resultValue,
+            iconic: resultValue !== 0,
+          },
+        },
+        this.lastError,
+      );
+      if (this.mainModuleCaller && !isIconicCompletionRecorded) {
+        isIconicMainModuleCalls.push({
+          callId: this.traceFrame.callId,
+          returnAddress: this.returnAddress.toString(),
+          callerRva: this.traceFrame.caller.rva,
+          windowHandle: this.windowHandle,
+          result: resultValue,
+          iconic: resultValue !== 0,
+          lastErrorBefore: this.lastErrorBefore,
+          lastError,
+          immediateConsumer: this.immediateConsumer,
+        });
+        scheduleIsIconicOracle(module, this.windowHandlePointer);
+        setImmediate(maybeCompleteIsIconicObservation);
+      }
+    },
+  });
+  if (focusedIsIconicObservation) {
+    scheduleIsIconicOracle(module, null);
+  }
+}
+
+function scheduleIsIconicOracle(module, windowHandle) {
+  if (isIconicOracleScheduled) {
+    return;
+  }
+  isIconicOracleScheduled = true;
+  setImmediate(() => {
+    let restoreWindow = null;
+    let restoreRequired = false;
+    let destroyWindow = null;
+    let ownedWindow = null;
+    try {
+      const isIconicAddress = findExport(module, "IsIconic");
+      const showWindowAddress = findExport(module, "ShowWindow");
+      const createWindowAddress = findExport(module, "CreateWindowExA");
+      const destroyWindowAddress = findExport(module, "DestroyWindow");
+      if (
+        isIconicAddress === null ||
+        showWindowAddress === null ||
+        (windowHandle === null &&
+          (createWindowAddress === null || destroyWindowAddress === null))
+      ) {
+        throw new Error("IsIconic oracle exports are unavailable");
+      }
+      const isIconic = new SystemFunction(
+        isIconicAddress,
+        "int32",
+        ["pointer"],
+        "stdcall",
+      );
+      const showWindow = new SystemFunction(
+        showWindowAddress,
+        "int32",
+        ["pointer", "int32"],
+        "stdcall",
+      );
+      restoreWindow = showWindow;
+      let targetWindow = windowHandle;
+      let creation = null;
+      if (targetWindow === null) {
+        const createWindowExA = new SystemFunction(
+          createWindowAddress,
+          "pointer",
+          [
+            "uint32",
+            "pointer",
+            "pointer",
+            "uint32",
+            "int32",
+            "int32",
+            "int32",
+            "int32",
+            "pointer",
+            "pointer",
+            "pointer",
+            "pointer",
+          ],
+          "stdcall",
+        );
+        destroyWindow = new SystemFunction(
+          destroyWindowAddress,
+          "int32",
+          ["pointer"],
+          "stdcall",
+        );
+        const className = Memory.allocUtf8String("STATIC");
+        const windowName = Memory.allocUtf8String("Vine IsIconic oracle");
+        const createOutcome = createWindowExA(
+          0,
+          className,
+          windowName,
+          0x10cf0000,
+          0,
+          0,
+          160,
+          120,
+          ptr(0),
+          ptr(0),
+          ptr(0),
+          ptr(0),
+        );
+        targetWindow = createOutcome.value;
+        if (targetWindow.isNull()) {
+          throw new Error(
+            `IsIconic oracle window creation failed with ${Number(createOutcome.lastError) >>> 0}`,
+          );
+        }
+        ownedWindow = targetWindow;
+        creation = {
+          className: "STATIC",
+          style: 0x10cf0000,
+          width: 160,
+          height: 120,
+          lastError: Number(createOutcome.lastError) >>> 0,
+        };
+      }
+      const invoke = ({ id, target, sentinel }) => {
+        isIconicOracleCall = {
+          sentinel,
+          hookResult: null,
+          hookLastErrorAfter: null,
+        };
+        try {
+          const outcome = isIconic(target);
+          const systemResult = Number(outcome.value) >>> 0;
+          const systemLastError = Number(outcome.lastError) >>> 0;
+          if (
+            isIconicOracleCall.hookResult === null ||
+            isIconicOracleCall.hookLastErrorAfter === null
+          ) {
+            throw new Error("IsIconic oracle did not pass through the hook");
+          }
+          return {
+            id,
+            windowHandle: target.toString(),
+            sentinel,
+            systemResult,
+            iconic: systemResult !== 0,
+            systemLastError,
+            hookResult: isIconicOracleCall.hookResult,
+            hookLastErrorAfter: isIconicOracleCall.hookLastErrorAfter,
+            hookResultMatches: isIconicOracleCall.hookResult === systemResult,
+            hookAndSystemLastErrorMatch:
+              isIconicOracleCall.hookLastErrorAfter === systemLastError,
+          };
+        } finally {
+          isIconicOracleCall = null;
+        }
+      };
+      const normal = invoke({
+        id: "normal",
+        target: targetWindow,
+        sentinel: 0x11223344,
+      });
+      const minimizeOutcome = showWindow(targetWindow, 2);
+      restoreRequired = true;
+      const minimized = invoke({
+        id: "minimized",
+        target: targetWindow,
+        sentinel: 0x55667788,
+      });
+      const restoreOutcome = showWindow(targetWindow, 9);
+      restoreRequired = false;
+      const restored = invoke({
+        id: "restored",
+        target: targetWindow,
+        sentinel: 0x99aabbcc,
+      });
+      const invalid = invoke({
+        id: "invalid",
+        target: ptr("0x1234"),
+        sentinel: 0xddeeff00,
+      });
+      const calls = [normal, minimized, restored, invalid];
+      isIconicOracleEvidence = {
+        profile:
+          windowHandle === null
+            ? "x86-controlled-window-iconic-state-transition-v1"
+            : "x86-live-window-iconic-state-transition-v1",
+        windowHandle: targetWindow.toString(),
+        creation,
+        transitions: {
+          minimizeCommand: 2,
+          minimizeResult: Number(minimizeOutcome.value) >>> 0,
+          minimizeLastError: Number(minimizeOutcome.lastError) >>> 0,
+          restoreCommand: 9,
+          restoreResult: Number(restoreOutcome.value) >>> 0,
+          restoreLastError: Number(restoreOutcome.lastError) >>> 0,
+        },
+        calls,
+        allResultsMatchHooks: calls.every((call) => call.hookResultMatches),
+        allLastErrorsMatchHooks: calls.every(
+          (call) => call.hookAndSystemLastErrorMatch,
+        ),
+      };
+      isIconicOracleComplete = true;
+      emit("is-iconic-oracle", isIconicOracleEvidence);
+      if (isIconicMainModuleCalls.length === 0) {
+        emit("is-iconic-controlled-complete", {
+          profile: "x86-controlled-window-iconic-state-transition-v1",
+          oracle: isIconicOracleEvidence,
+        });
+        if (stopOnEvent === "is-iconic-controlled-complete") {
+          recv("vine-trace-stop", () => {}).wait();
+        }
+      } else {
+        maybeCompleteIsIconicObservation();
+      }
+    } catch (error) {
+      emit("is-iconic-oracle-error", { error: error.message });
+    } finally {
+      if (restoreRequired && restoreWindow !== null && ownedWindow !== null) {
+        try {
+          restoreWindow(ownedWindow, 9);
+        } catch (_) {
+          // The process is terminated after focused capture completion.
+        }
+      }
+      if (ownedWindow !== null && destroyWindow !== null) {
+        try {
+          destroyWindow(ownedWindow);
+        } catch (_) {
+          // The process is terminated after focused capture completion.
+        }
+      }
+    }
+  });
+}
+
+function maybeCompleteIsIconicObservation() {
+  if (
+    isIconicCompletionRecorded ||
+    !isIconicOracleComplete ||
+    isIconicMainModuleCalls.length === 0
+  ) {
+    return;
+  }
+  if (activeCallsByThread.size !== 0) {
+    setTimeout(maybeCompleteIsIconicObservation, 10);
+    return;
+  }
+  isIconicCompletionRecorded = true;
+  emit("is-iconic-complete", {
+    profile: "x86-bgi-normal-window-is-iconic-v1",
+    mainModuleCall: isIconicMainModuleCalls[0],
+    oracle: isIconicOracleEvidence,
+  });
+  if (stopOnEvent === "is-iconic-complete") {
     recv("vine-trace-stop", () => {}).wait();
   }
 }
@@ -27193,6 +27528,20 @@ Process.attachModuleObserver({
         emit("hook-error", {
           module: module.name,
           api: "PeekMessageA",
+          error: error.message,
+        });
+      }
+    }
+    if (
+      module.name.toLowerCase() === "user32.dll" &&
+      selectedObservations.has("is-iconic")
+    ) {
+      try {
+        attachIsIconicHook(module);
+      } catch (error) {
+        emit("hook-error", {
+          module: module.name,
+          api: "IsIconic",
           error: error.message,
         });
       }

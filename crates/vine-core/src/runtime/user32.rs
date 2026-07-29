@@ -34,6 +34,7 @@ pub const RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES: u32 = 16;
 pub const RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH: usize = 64;
 pub const RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES: u32 = 0x0000_0010;
 pub const RUNTIME_WINDOW_STYLE_VISIBLE: u32 = 0x1000_0000;
+pub const RUNTIME_WINDOW_STYLE_MINIMIZED: u32 = 0x2000_0000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -2609,6 +2610,18 @@ impl RuntimeUser32 {
                 "logical HWND index does not resolve to a live window",
             )
         })
+    }
+
+    pub fn window_is_iconic(&self, handle: u32) -> Result<bool, RuntimeStateError> {
+        let window = self.window(handle)?;
+        if window.lifecycle != RuntimeWindowLifecycle::Created {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "window-iconic-lifecycle-state-invalid",
+                "logical iconic-state queries require a created window",
+            ));
+        }
+        Ok(window.creation.effective_style & RUNTIME_WINDOW_STYLE_MINIMIZED != 0)
     }
 
     pub fn ime_window(&self, handle: u32) -> Result<&RuntimeImeWindow, RuntimeStateError> {
@@ -6221,6 +6234,41 @@ mod tests {
             .unwrap();
         assert_eq!(user32.commit_window_small_icon(icon_plan).unwrap(), 0);
         (user32, created.handle, small_icon.handle)
+    }
+
+    #[test]
+    fn iconic_state_queries_use_effective_style_without_mutating_window_authority() {
+        let (mut user32, window_handle, _) = created_window_with_small_icon();
+        let before_normal = user32.clone();
+        assert!(!user32.window_is_iconic(window_handle).unwrap());
+        assert_eq!(user32, before_normal);
+
+        let window_id = user32.window_handle_index[&window_handle];
+        user32
+            .windows
+            .get_mut(&window_id)
+            .unwrap()
+            .creation
+            .effective_style |= RUNTIME_WINDOW_STYLE_MINIMIZED;
+        let before_minimized = user32.clone();
+        assert!(user32.window_is_iconic(window_handle).unwrap());
+        assert_eq!(user32, before_minimized);
+
+        user32.windows.get_mut(&window_id).unwrap().lifecycle = RuntimeWindowLifecycle::Creating {
+            message: RuntimeWindowCreationMessage::Move,
+        };
+        let before_creating = user32.clone();
+        assert_eq!(
+            user32.window_is_iconic(window_handle).unwrap_err().code,
+            "window-iconic-lifecycle-state-invalid"
+        );
+        assert_eq!(user32, before_creating);
+
+        assert_eq!(
+            user32.window_is_iconic(0x1234).unwrap_err().code,
+            "window-handle-unknown"
+        );
+        assert_eq!(user32, before_creating);
     }
 
     #[test]
