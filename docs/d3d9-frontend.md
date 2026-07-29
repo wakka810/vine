@@ -34,6 +34,14 @@ class. In particular, slots 11, 21, and 22 are `void`, while slot 80 returns a
 32-bit floating value through x87 `ST(0)`; those methods remain unsupported and
 therefore do not yet require a completion transport for those return classes.
 
+The current private continuation reaches `IDirect3DTexture9` slot 19
+`LockRect` at instruction 147,769,351 with level 0, output pointer
+`0x006FF8C4`, full-texture RECT pointer `0x006FF8CC`, and flags `0x8000` on the
+live texture at `0x01020004`. Dispatch rejects it as an explicit COM structured
+stop before graphics or guest-memory mutation. This fixes the next subsystem
+gateway only; locked bytes, pitch publication, lock ownership, nested-lock
+rejection, and `UnlockRect` remain unclaimed.
+
 The two-page COM backing is Rust-owned guest memory. Its data page finishes
 read-only and its endpoint page finishes read／execute. The endpoint bytes are
 an execution marker for the replaceable CPU adapter; they are not a title

@@ -319,25 +319,29 @@ a visible gameplay response; no zero-input counterfactual is part of this
 profile. Exact occurrence, instruction, digest, report identity, and next-stop
 values remain in the current manifest.
 
-The current zero-input startup profile
-`user32-async-key-state-initial-scan` advances browser runtime transport to
-`vine.browser-runtime-worker.v46`, the main／Worker message protocol to version
-48, and browser BGI report schema to version 16. The main adapter transfers the
-same `OffscreenCanvas` but queues no keyboard input. Rust extends one growable
-private heap with a second bounded 16 MiB ordinary backing and remains the sole
-authority for both segments. Execution then reaches two same-consumer
-`GetWindowRect`／`GetCursorPos` pairs. Node and Chrome agree on the final logical
-outer window rectangle `[317,154,1603,903]` and the deterministic Rust-owned
-screen cursor `[960,540]`; neither value is imported from browser geometry or a
-host pointer.
+The current zero-input startup continuation profile
+`user32-async-key-state-initial-scan-continuation` advances browser runtime
+transport to `vine.browser-runtime-worker.v47`, the main／Worker message
+protocol to version 49, and browser BGI report schema to version 17. The main
+adapter transfers the same `OffscreenCanvas` but queues no keyboard input. Rust
+extends one growable private heap with a second bounded 16 MiB ordinary backing
+and remains the sole authority for both segments. Execution reaches two
+same-consumer `GetWindowRect`／`GetCursorPos` pairs. Node and Chrome agree on the
+final logical outer window rectangle `[317,154,1603,903]` and the deterministic
+Rust-owned screen cursor `[960,540]`; neither value is imported from browser
+geometry or a host pointer.
 
 After 51 leading zero `VK_CONTROL` polls, both engines complete the exact
 native-derived 38-key scan with no input receipt and a zero signed SHORT for
-every query. The bounded checkpoint completes at instruction 147,769,286 after
-148,195 supported calls and stops before the existing
-`WINMM.dll!timeGetTime` endpoint. Ordered call semantics, all 63 immutable source
-reads, terminal memory content, cursor／rectangle writes, and scan order are
-equivalent. Generations, report hashes, timing, and exact artifact identities
+every query. The continuation then completes the existing deterministic
+`WINMM.dll!timeGetTime` and `USER32.dll!SetRect` contracts at sequences 148,196
+and 148,197. The latter atomically publishes `[0,0,1280,720]`. Node and Chrome
+stop at the same instruction 147,769,351 `IDirect3DTexture9::LockRect` call with
+level 0, a writable `D3DLOCKED_RECT`, the full rectangle, and flags `0x8000`.
+Ordered call semantics, all 63 immutable source reads, terminal memory content,
+cursor／rectangle writes, scan order, render completion counts, and the COM stop
+identity are equivalent. Texture locking itself is not implemented by this
+profile. Generations, report hashes, timing, and exact artifact identities
 remain manifest-owned evidence rather than guest semantics.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
@@ -371,6 +375,9 @@ fingerprint before and after execution.
 - Unsupported behavior remains an explicit structured stop. A normal capability
   completion requires a versioned count and next-endpoint contract; reaching a
   later API by itself does not establish subsystem completeness.
+- The reached `IDirect3DTexture9::LockRect` is a subsystem gateway, not a
+  successful texture lock. No locked pitch／bits output, texture byte mutation,
+  lock lifetime, or matching `UnlockRect` is claimed by this checkpoint.
 - `DragAcceptFiles` changes only the logical acceptance bit. Browser drag
   events, `HDROP`, `WM_DROPFILES`, file permission, and VFS import remain
   unimplemented.

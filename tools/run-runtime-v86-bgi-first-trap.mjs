@@ -234,6 +234,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-async-key-state-input",
         "user32-async-key-state-input-continuation",
         "user32-async-key-state-initial-scan",
+        "user32-async-key-state-initial-scan-continuation",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -388,6 +389,7 @@ assert(
       "user32-async-key-state-input",
       "user32-async-key-state-input-continuation",
       "user32-async-key-state-initial-scan",
+      "user32-async-key-state-initial-scan-continuation",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -419,7 +421,9 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-post-present-continuation" ||
     genericRuntimeCapability === "user32-async-key-state-input" ||
     genericRuntimeCapability === "user32-async-key-state-input-continuation" ||
-    genericRuntimeCapability === "user32-async-key-state-initial-scan"
+    genericRuntimeCapability === "user32-async-key-state-initial-scan" ||
+    genericRuntimeCapability ===
+      "user32-async-key-state-initial-scan-continuation"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -732,12 +736,18 @@ const user32AsyncKeyStateInputContinuationCheckpointEnabled =
   genericRuntimeCapability === "user32-async-key-state-input-continuation";
 const user32AsyncKeyStateInitialScanCheckpointEnabled =
   genericRuntimeCapability === "user32-async-key-state-initial-scan";
+const user32AsyncKeyStateInitialScanContinuationCheckpointEnabled =
+  genericRuntimeCapability ===
+  "user32-async-key-state-initial-scan-continuation";
+const user32AsyncKeyStateInitialScanEnabled =
+  user32AsyncKeyStateInitialScanCheckpointEnabled ||
+  user32AsyncKeyStateInitialScanContinuationCheckpointEnabled;
 const user32AsyncKeyStateInputEnabled =
   user32AsyncKeyStateInputCheckpointEnabled ||
   user32AsyncKeyStateInputContinuationCheckpointEnabled;
 const user32AsyncKeyStateGatewayEnabled =
   user32AsyncKeyStateInputEnabled ||
-  user32AsyncKeyStateInitialScanCheckpointEnabled;
+  user32AsyncKeyStateInitialScanEnabled;
 const user32AsyncKeyStateInitialScanVirtualKeys = [
   14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99,
   52, 100, 53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17, 1,
@@ -830,7 +840,7 @@ const primaryMainLoopContinuationWorkloadEnabled =
   dragAcceptFilesEnabled ||
   archiveSourceReadEnabled;
 const primaryMainLoopContinuationTrapLimit =
-  user32AsyncKeyStateInitialScanCheckpointEnabled ? 196_608 : 131_072;
+  user32AsyncKeyStateInitialScanEnabled ? 196_608 : 131_072;
 const mainLoopProgressionEnabled =
   mainLoopProgressionCheckpointEnabled ||
   primaryMainLoopContinuationWorkloadEnabled ||
@@ -1169,8 +1179,10 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? user32AsyncKeyStateInitialScanCheckpointEnabled
+  ? user32AsyncKeyStateInitialScanCheckpointEnabled
       ? "v86-bgi-async-key-state-initial-scan"
+      : user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
+        ? "v86-bgi-async-key-state-initial-scan-continuation"
       : user32AsyncKeyStateInputContinuationCheckpointEnabled
       ? "v86-bgi-async-key-state-input-continuation"
       : user32AsyncKeyStateInputCheckpointEnabled
@@ -5591,6 +5603,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (user32AsyncKeyStateInitialScanContinuationCheckpointEnabled) {
+        validateUser32AsyncKeyStateInitialScanContinuationResult(genericResult);
       } else if (user32AsyncKeyStateInitialScanCheckpointEnabled) {
         validateUser32AsyncKeyStateInitialScanResult(genericResult);
       } else if (user32AsyncKeyStateInputContinuationCheckpointEnabled) {
@@ -5886,6 +5900,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
+            ? "bgi GetAsyncKeyState initial no-input scan continuation"
           : user32AsyncKeyStateInitialScanCheckpointEnabled
             ? "bgi GetAsyncKeyState initial no-input scan"
           : user32AsyncKeyStateInputContinuationCheckpointEnabled
@@ -6459,6 +6475,7 @@ async function runGenericRuntimeReentry({
   let enterCriticalSectionAcquisition = null;
   const enterCriticalSectionRoundtrips = [];
   let checkpointCompletion = null;
+  let initialAsyncKeyStateScan = null;
   let d3d9PostEndSceneSequence = null;
   let d3d9PostEndSceneRasterStatusSequence = null;
   let d3d9PostRasterStatusTimerArm = null;
@@ -6698,6 +6715,9 @@ async function runGenericRuntimeReentry({
                 "user32-async-key-state-initial-scan"
               ? "user32-async-key-state-initial-scan-checkpoint-complete"
             : checkpointCompletion.capability ===
+                "user32-async-key-state-initial-scan-continuation"
+              ? "user32-async-key-state-initial-scan-continuation-checkpoint-complete"
+            : checkpointCompletion.capability ===
                 "user32-async-key-state-input-continuation"
               ? "user32-async-key-state-input-continuation-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -6762,6 +6782,9 @@ async function runGenericRuntimeReentry({
         ...primaryContinuationSnapshot(),
         finalGeneration: generation,
         fault: null,
+        ...(initialAsyncKeyStateScan === null
+          ? {}
+          : { initialAsyncKeyStateScan }),
         checkpointCompletion,
         terminal: continuation,
       };
@@ -7298,6 +7321,9 @@ async function runGenericRuntimeReentry({
         threadExecution: threadExecutionSnapshot(),
         ...primaryContinuationSnapshot(),
         finalGeneration: generation,
+        ...(initialAsyncKeyStateScan === null
+          ? {}
+          : { initialAsyncKeyStateScan }),
         fault: {
           schema: "vine.v86-generic-runtime-execution-fault",
           schemaVersion: 1,
@@ -7499,6 +7525,9 @@ async function runGenericRuntimeReentry({
         threadExecution: threadExecutionSnapshot(),
         ...primaryContinuationSnapshot(),
         finalGeneration: generation,
+        ...(initialAsyncKeyStateScan === null
+          ? {}
+          : { initialAsyncKeyStateScan }),
         fault,
         terminal: continuation,
       };
@@ -7697,58 +7726,69 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
-      user32AsyncKeyStateInitialScanCheckpointEnabled &&
+      user32AsyncKeyStateInitialScanEnabled &&
       call.implementationId === "user32.get-async-key-state.v1"
     ) {
-      const asyncKeyCalls = supportedCalls.filter(
-        (candidate) =>
-          candidate.implementationId === "user32.get-async-key-state.v1",
-      );
-      const scanCallCount = user32AsyncKeyStateInitialScanVirtualKeys.length;
-      const scanCalls = asyncKeyCalls.slice(-scanCallCount);
-      if (
-        scanCalls.length === scanCallCount &&
-        scanCalls.every(
-          (candidate, index) =>
-            candidate.arguments[0] ===
-            user32AsyncKeyStateInitialScanVirtualKeys[index],
-        )
-      ) {
-        const leadingCalls = asyncKeyCalls.slice(0, -scanCallCount);
-        assert(
-          leadingCalls.length > 0,
-          "initial async-key scan omitted its leading control polling phase",
+      if (initialAsyncKeyStateScan === null) {
+        const asyncKeyCalls = supportedCalls.filter(
+          (candidate) =>
+            candidate.implementationId === "user32.get-async-key-state.v1",
         );
-        for (const candidate of leadingCalls) {
-          assert.deepEqual(candidate.arguments, [0x11]);
-          assert.deepEqual(candidate.result, { action: "set", value: 0 });
-          assert.equal(candidate.lastError, 0);
-          assert.deepEqual(candidate.guestWrites, []);
+        const scanCallCount = user32AsyncKeyStateInitialScanVirtualKeys.length;
+        const scanCalls = asyncKeyCalls.slice(-scanCallCount);
+        if (
+          scanCalls.length === scanCallCount &&
+          scanCalls.every(
+            (candidate, index) =>
+              candidate.arguments[0] ===
+              user32AsyncKeyStateInitialScanVirtualKeys[index],
+          )
+        ) {
+          const leadingCalls = asyncKeyCalls.slice(0, -scanCallCount);
+          assert(
+            leadingCalls.length > 0,
+            "initial async-key scan omitted its leading control polling phase",
+          );
+          for (const candidate of leadingCalls) {
+            assert.deepEqual(candidate.arguments, [0x11]);
+            assert.deepEqual(candidate.result, { action: "set", value: 0 });
+            assert.equal(candidate.lastError, 0);
+            assert.deepEqual(candidate.guestWrites, []);
+          }
+          for (const candidate of scanCalls) {
+            assert.deepEqual(candidate.result, { action: "set", value: 0 });
+            assert.equal(candidate.lastError, 0);
+            assert.deepEqual(candidate.guestWrites, []);
+          }
+          const firstScanCall = scanCalls[0];
+          initialAsyncKeyStateScan = {
+            leadingCallCount: leadingCalls.length,
+            scanVirtualKeys: [...user32AsyncKeyStateInitialScanVirtualKeys],
+            firstCall: structuredClone(firstScanCall),
+            lastCall: structuredClone(call),
+          };
+          if (user32AsyncKeyStateInitialScanCheckpointEnabled) {
+            checkpointCompletion = {
+              capability: "user32-async-key-state-initial-scan",
+              implementationId: "user32.get-async-key-state.v1",
+              requiredCompletions: scanCallCount,
+              completionCount: scanCallCount,
+              leadingCallCount: leadingCalls.length,
+              firstCompletionSequence: firstScanCall.sequence,
+              firstCompletionInstructionCount:
+                firstScanCall.trapInstructionCount,
+              lastCompletionSequence: call.sequence,
+              lastCompletionInstructionCount: continuation.instructionCount,
+              scanVirtualKeys: [...user32AsyncKeyStateInitialScanVirtualKeys],
+              result: structuredClone(call.result),
+              lastError: call.lastError,
+              guestWriteBytes: 0,
+              instructionCount: 0,
+              nextEndpoint: null,
+              memoryContentSha256: "",
+            };
+          }
         }
-        for (const candidate of scanCalls) {
-          assert.deepEqual(candidate.result, { action: "set", value: 0 });
-          assert.equal(candidate.lastError, 0);
-          assert.deepEqual(candidate.guestWrites, []);
-        }
-        const firstScanCall = scanCalls[0];
-        checkpointCompletion = {
-          capability: "user32-async-key-state-initial-scan",
-          implementationId: "user32.get-async-key-state.v1",
-          requiredCompletions: scanCallCount,
-          completionCount: scanCallCount,
-          leadingCallCount: leadingCalls.length,
-          firstCompletionSequence: firstScanCall.sequence,
-          firstCompletionInstructionCount: firstScanCall.trapInstructionCount,
-          lastCompletionSequence: call.sequence,
-          lastCompletionInstructionCount: continuation.instructionCount,
-          scanVirtualKeys: [...user32AsyncKeyStateInitialScanVirtualKeys],
-          result: structuredClone(call.result),
-          lastError: call.lastError,
-          guestWriteBytes: 0,
-          instructionCount: 0,
-          nextEndpoint: null,
-          memoryContentSha256: "",
-        };
       }
     }
     if (
@@ -8724,7 +8764,7 @@ function validateGenericRuntimeReady(ready, offer) {
     ready.implementedApiContracts,
     declaredDispatches.length +
       6 +
-      (user32AsyncKeyStateInitialScanCheckpointEnabled ? 2 : 0) +
+      (user32AsyncKeyStateInitialScanEnabled ? 2 : 0) +
       (setRectCheckpointEnabled ? 1 : 0) +
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
@@ -8973,7 +9013,7 @@ function validateGenericRuntimeReady(ready, offer) {
         },
       ],
     });
-  } else if (user32AsyncKeyStateInitialScanCheckpointEnabled) {
+  } else if (user32AsyncKeyStateInitialScanEnabled) {
     assert.deepEqual(ready.keyboardState, {
       profileId: "foreground-focused-virtual-key-state-v1",
       sourceFocused: true,
@@ -8996,7 +9036,7 @@ function validateGenericRuntimeReady(ready, offer) {
     assert.equal(ready.keyboardState, undefined);
     assert.equal(ready.initialKeyboardEventReceipt, undefined);
   }
-  if (!user32AsyncKeyStateInitialScanCheckpointEnabled) {
+  if (!user32AsyncKeyStateInitialScanEnabled) {
     assert.equal(ready.cursorPosition, undefined);
   }
   if (fontEnumerationEnabled) {
@@ -22552,6 +22592,112 @@ function validateUser32AsyncKeyStateInitialScanResult(result) {
   assert.match(checkpoint.memoryContentSha256, /^[0-9a-f]{64}$/u);
 }
 
+function validateUser32AsyncKeyStateInitialScanContinuationResult(result) {
+  assert.equal(result.checkpointCompletion, undefined);
+  assert.equal(result.activeCallbackDepth, 0);
+  const scan = result.initialAsyncKeyStateScan;
+  assert(scan, "GetAsyncKeyState continuation omitted its prerequisite scan");
+  assert.equal(scan.leadingCallCount, 51);
+  assert.deepEqual(
+    scan.scanVirtualKeys,
+    user32AsyncKeyStateInitialScanVirtualKeys,
+  );
+  const calls = result.supportedCalls.filter(
+    (call) => call.implementationId === "user32.get-async-key-state.v1",
+  );
+  assert.equal(
+    calls.length,
+    scan.leadingCallCount + user32AsyncKeyStateInitialScanVirtualKeys.length,
+  );
+  assert.equal(result.supportedCalls.length, 148_197);
+  assert.equal(scan.firstCall.sequence, 148_153);
+  assert.equal(scan.firstCall.trapInstructionCount, 147_765_769);
+  assert.equal(scan.lastCall.sequence, 148_195);
+  assert.equal(scan.lastCall.trapInstructionCount, 147_769_226);
+  assert.deepEqual(calls.at(-1), scan.lastCall);
+  const continuationCalls = result.supportedCalls.slice(-2);
+  assert.deepEqual(
+    continuationCalls.map((call) => ({
+      sequence: call.sequence,
+      module: call.module.toLowerCase(),
+      symbol: call.symbol,
+      trapInstructionCount: call.trapInstructionCount,
+      arguments: call.arguments,
+      result: call.result,
+      implementationId: call.implementationId,
+      returnAddress: call.returnAddress,
+      stackPointerBefore: call.stackPointerBefore,
+      stackPointerAfter: call.stackPointerAfter,
+      lastError: call.lastError,
+      guestWrites: call.guestWrites.map(({ address, bytes }) => ({
+        address,
+        bytes,
+      })),
+    })),
+    [
+      {
+        sequence: 148_196,
+        module: "winmm.dll",
+        symbol: "timeGetTime",
+        trapInstructionCount: 147_769_286,
+        arguments: [],
+        result: { action: "set", value: 3_601_112 },
+        implementationId: "winmm.time-get-time.v1",
+        returnAddress: 0x1009_1ebf,
+        stackPointerBefore: 0x006f_f8f8,
+        stackPointerAfter: 0x006f_f8fc,
+        lastError: 0,
+        guestWrites: [],
+      },
+      {
+        sequence: 148_197,
+        module: "user32.dll",
+        symbol: "SetRect",
+        trapInstructionCount: 147_769_339,
+        arguments: [0x006f_f8cc, 0, 0, 1_280, 720],
+        result: { action: "set", value: 1 },
+        implementationId: "user32.set-rect.v1",
+        returnAddress: 0x1004_1533,
+        stackPointerBefore: 0x006f_f8a8,
+        stackPointerAfter: 0x006f_f8c0,
+        lastError: 0,
+        guestWrites: [
+          {
+            address: 0x006f_f8cc,
+            bytes: [0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 208, 2, 0, 0],
+          },
+        ],
+      },
+    ],
+  );
+  assert(result.fault, "initial-scan continuation omitted its structured stop");
+  assert.equal(result.fault.capabilityCluster, "d3d9-idirect3dtexture9-method");
+  assert.equal(result.fault.endpoint.kind, "com-method");
+  assert.equal(result.fault.endpoint.target.interface.name, "IDirect3DTexture9");
+  assert.equal(result.fault.endpoint.target.method.slot, 19);
+  assert.equal(result.fault.endpoint.target.method.name, "LockRect");
+  assert.equal(result.fault.endpoint.target.method.endpoint, 0x0102_1160);
+  assert.equal(result.fault.endpoint.target.method.implementation, "unsupported");
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "com-dispatch");
+  assert.equal(result.fault.fault.code, "com-method-unsupported");
+  assert.equal(result.fault.fault.callSite, 0x1004_154c);
+  assert.equal(result.terminal.instructionCount, 147_769_351);
+  assert.equal(result.fault.memory.generation, 271_169);
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "2bcf1e3ac756a55317ed8edd5a4145f7f431f583608ae5705026a59badcb31c9",
+  );
+  assert.deepEqual(result.terminal.terminal.stackWords, [
+    0x1004_154c,
+    0x0102_0004,
+    0,
+    0x006f_f8c4,
+    0x006f_f8cc,
+    0x8000,
+  ]);
+}
+
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -26784,6 +26930,16 @@ function buildGenericRuntimeReentryReport({
   }
   assert.equal(semanticCallDigest.count(), completedSupportedCalls.length);
   const supportedCallSemanticsSha256 = semanticCallDigest.digestHex();
+  const assertSummaryCompletionCount = (calls, expected, message) => {
+    if (user32AsyncKeyStateInitialScanContinuationCheckpointEnabled) {
+      assert(
+        calls.length >= expected,
+        `${message}; expected at least ${expected}, received ${calls.length}`,
+      );
+      return;
+    }
+    assert.equal(calls.length, expected, message);
+  };
   const totalDirtyPages = genericResult.writebacks.reduce(
     (total, writeback) => total + writeback.dirtyPages.length,
     0,
@@ -26984,7 +27140,7 @@ function buildGenericRuntimeReentryReport({
       )
     : [];
   const d3d9PostScenePacingCycleCount =
-    user32AsyncKeyStateInitialScanCheckpointEnabled
+    user32AsyncKeyStateInitialScanEnabled
       ? setWaitableTimerCalls.length - 9_187
     : user32AsyncKeyStateInputContinuationCheckpointEnabled
       ? 45
@@ -27276,8 +27432,8 @@ function buildGenericRuntimeReentryReport({
     : [];
   const showWindowNormalCall = showWindowNormalCalls[0] ?? null;
   if (showWindowNormalCheckpointEnabled) {
-    assert.equal(
-      showWindowNormalCalls.length,
+    assertSummaryCompletionCount(
+      showWindowNormalCalls,
       1,
       "ShowWindow report summary requires one completion",
     );
@@ -27319,8 +27475,8 @@ function buildGenericRuntimeReentryReport({
   const beginPaintCall = beginPaintCalls[0] ?? null;
   const endPaintCall = endPaintCalls[0] ?? null;
   if (updateWindowCheckpointEnabled) {
-    assert.equal(
-      updateWindowCalls.length,
+    assertSummaryCompletionCount(
+      updateWindowCalls,
       1,
       "UpdateWindow report summary requires one callback entry",
     );
@@ -27331,8 +27487,8 @@ function buildGenericRuntimeReentryReport({
         ? "post-Present continuation requires one balanced WM_PAINT callback"
         : "UpdateWindow report summary requires one active WM_PAINT callback",
     );
-    assert.equal(beginPaintCalls.length, 1);
-    assert.equal(endPaintCalls.length, 1);
+    assertSummaryCompletionCount(beginPaintCalls, 1, "BeginPaint report count changed");
+    assertSummaryCompletionCount(endPaintCalls, 1, "EndPaint report count changed");
   }
   const d3d9ClearCalls = d3d9ClearCheckpointEnabled
     ? genericResult.supportedCalls.filter(
@@ -27344,8 +27500,8 @@ function buildGenericRuntimeReentryReport({
     : [];
   const d3d9ClearCall = d3d9ClearCalls[0] ?? null;
   if (d3d9ClearCheckpointEnabled) {
-    assert.equal(
-      d3d9ClearCalls.length,
+    assertSummaryCompletionCount(
+      d3d9ClearCalls,
       1,
       "D3D9 Clear report summary requires one completion",
     );
@@ -27361,8 +27517,8 @@ function buildGenericRuntimeReentryReport({
     : [];
   const setRectCall = setRectCalls[0] ?? null;
   if (setRectCheckpointEnabled) {
-    assert.equal(
-      setRectCalls.length,
+    assertSummaryCompletionCount(
+      setRectCalls,
       1,
       "SetRect report summary requires one completion",
     );
@@ -27377,8 +27533,8 @@ function buildGenericRuntimeReentryReport({
     : [];
   const d3d9AddDirtyRectCall = d3d9AddDirtyRectCalls[0] ?? null;
   if (d3d9AddDirtyRectCheckpointEnabled) {
-    assert.equal(
-      d3d9AddDirtyRectCalls.length,
+    assertSummaryCompletionCount(
+      d3d9AddDirtyRectCalls,
       1,
       "D3D9 AddDirtyRect report summary requires one completion",
     );
@@ -27394,8 +27550,8 @@ function buildGenericRuntimeReentryReport({
     : [];
   const d3d9UpdateTextureCall = d3d9UpdateTextureCalls[0] ?? null;
   if (d3d9UpdateTextureCheckpointEnabled) {
-    assert.equal(
-      d3d9UpdateTextureCalls.length,
+    assertSummaryCompletionCount(
+      d3d9UpdateTextureCalls,
       1,
       "D3D9 UpdateTexture report summary requires one completion",
     );
@@ -27411,8 +27567,8 @@ function buildGenericRuntimeReentryReport({
     : [];
   const d3d9BeginSceneCall = d3d9BeginSceneCalls[0] ?? null;
   if (d3d9BeginSceneCheckpointEnabled) {
-    assert.equal(
-      d3d9BeginSceneCalls.length,
+    assertSummaryCompletionCount(
+      d3d9BeginSceneCalls,
       1,
       "D3D9 BeginScene report summary requires one completion",
     );
@@ -27427,8 +27583,8 @@ function buildGenericRuntimeReentryReport({
       )
     : [];
   if (d3d9InitialSamplerStatesCheckpointEnabled) {
-    assert.equal(
-      d3d9InitialSamplerStateCalls.length,
+    assertSummaryCompletionCount(
+      d3d9InitialSamplerStateCalls,
       2,
       "D3D9 sampler-state report summary requires two completions",
     );
@@ -27462,8 +27618,8 @@ function buildGenericRuntimeReentryReport({
         )
       : [];
   if (d3d9InitialTextureStageStatesCheckpointEnabled) {
-    assert.equal(
-      d3d9InitialTextureStageStateCalls.length,
+    assertSummaryCompletionCount(
+      d3d9InitialTextureStageStateCalls,
       6,
       "D3D9 texture-stage-state report summary requires six completions",
     );
@@ -27481,8 +27637,8 @@ function buildGenericRuntimeReentryReport({
     : [];
   const d3d9SetTextureCall = d3d9SetTextureCalls[0] ?? null;
   if (d3d9SetTextureCheckpointEnabled) {
-    assert.equal(
-      d3d9SetTextureCalls.length,
+    assertSummaryCompletionCount(
+      d3d9SetTextureCalls,
       1,
       "D3D9 SetTexture report summary requires one completion",
     );
@@ -27498,8 +27654,8 @@ function buildGenericRuntimeReentryReport({
     : [];
   const d3d9SetFvfCall = d3d9SetFvfCalls[0] ?? null;
   if (d3d9SetFvfCheckpointEnabled) {
-    assert.equal(
-      d3d9SetFvfCalls.length,
+    assertSummaryCompletionCount(
+      d3d9SetFvfCalls,
       1,
       "D3D9 SetFVF report summary requires one completion",
     );
@@ -27515,8 +27671,8 @@ function buildGenericRuntimeReentryReport({
     : [];
   const d3d9SetStreamSourceCall = d3d9SetStreamSourceCalls[0] ?? null;
   if (d3d9SetStreamSourceCheckpointEnabled) {
-    assert.equal(
-      d3d9SetStreamSourceCalls.length,
+    assertSummaryCompletionCount(
+      d3d9SetStreamSourceCalls,
       1,
       "D3D9 SetStreamSource report summary requires one completion",
     );
@@ -27532,8 +27688,8 @@ function buildGenericRuntimeReentryReport({
     : [];
   const d3d9DrawPrimitiveCall = d3d9DrawPrimitiveCalls[0] ?? null;
   if (d3d9DrawPrimitiveCheckpointEnabled) {
-    assert.equal(
-      d3d9DrawPrimitiveCalls.length,
+    assertSummaryCompletionCount(
+      d3d9DrawPrimitiveCalls,
       1,
       "D3D9 DrawPrimitive report summary requires one completion",
     );
@@ -27549,8 +27705,8 @@ function buildGenericRuntimeReentryReport({
     : [];
   const d3d9EndSceneCall = d3d9EndSceneCalls[0] ?? null;
   if (d3d9EndSceneEnabled) {
-    assert.equal(
-      d3d9EndSceneCalls.length,
+    assertSummaryCompletionCount(
+      d3d9EndSceneCalls,
       1,
       "D3D9 EndScene report summary requires one completion",
     );
@@ -27566,8 +27722,8 @@ function buildGenericRuntimeReentryReport({
     : [];
   const d3d9PresentCall = d3d9PresentCalls[0] ?? null;
   if (d3d9PresentEnabled) {
-    assert.equal(
-      d3d9PresentCalls.length,
+    assertSummaryCompletionCount(
+      d3d9PresentCalls,
       1,
       "D3D9 Present report summary requires one completion",
     );
@@ -27612,7 +27768,7 @@ function buildGenericRuntimeReentryReport({
       )
     : [];
   const getAsyncKeyStateCall = getAsyncKeyStateCalls[0] ?? null;
-  const getWindowRectCall = user32AsyncKeyStateInitialScanCheckpointEnabled
+  const getWindowRectCall = user32AsyncKeyStateInitialScanEnabled
     ? (genericResult.supportedCalls
         .filter(
           (call) =>
@@ -27621,7 +27777,7 @@ function buildGenericRuntimeReentryReport({
         )
         .at(-1) ?? null)
     : null;
-  const getCursorPosCall = user32AsyncKeyStateInitialScanCheckpointEnabled
+  const getCursorPosCall = user32AsyncKeyStateInitialScanEnabled
     ? (genericResult.supportedCalls
         .filter(
           (call) =>
@@ -27630,7 +27786,7 @@ function buildGenericRuntimeReentryReport({
         )
         .at(-1) ?? null)
     : null;
-  if (user32AsyncKeyStateInitialScanCheckpointEnabled) {
+  if (user32AsyncKeyStateInitialScanEnabled) {
     assert(getWindowRectCall, "initial-scan report summary has no GetWindowRect call");
     assert(getCursorPosCall, "initial-scan report summary has no GetCursorPos call");
   }
@@ -27639,28 +27795,61 @@ function buildGenericRuntimeReentryReport({
       getAsyncKeyStateCall,
       "async-key report summary requires one GetAsyncKeyState completion",
     );
-    assert.equal(
-      getAsyncKeyStateCalls.at(-1)?.sequence,
-      genericResult.checkpointCompletion?.lastCompletionSequence,
-      `async-key checkpoint did not end at the last query: ${JSON.stringify({
-        checkpoint: genericResult.checkpointCompletion ?? null,
-        virtualKeys: getAsyncKeyStateCalls.map((call) => call.arguments[0]),
-        fault: genericResult.fault,
-      })}`,
-    );
+    if (user32AsyncKeyStateInitialScanContinuationCheckpointEnabled) {
+      assert.equal(genericResult.checkpointCompletion, undefined);
+    } else {
+      assert.equal(
+        getAsyncKeyStateCalls.at(-1)?.sequence,
+        genericResult.checkpointCompletion?.lastCompletionSequence,
+        `async-key checkpoint did not end at the last query: ${JSON.stringify({
+          checkpoint: genericResult.checkpointCompletion ?? null,
+          virtualKeys: getAsyncKeyStateCalls.map((call) => call.arguments[0]),
+          fault: genericResult.fault,
+        })}`,
+      );
+    }
   }
   const getAsyncKeyStateInitialScanLeadingCallCount =
-    user32AsyncKeyStateInitialScanCheckpointEnabled
-      ? genericResult.checkpointCompletion?.leadingCallCount
+    user32AsyncKeyStateInitialScanEnabled
+      ? genericResult.initialAsyncKeyStateScan?.leadingCallCount
       : null;
-  if (user32AsyncKeyStateInitialScanCheckpointEnabled) {
+  if (user32AsyncKeyStateInitialScanEnabled) {
     assert(Number.isSafeInteger(getAsyncKeyStateInitialScanLeadingCallCount));
     assert(getAsyncKeyStateInitialScanLeadingCallCount > 0);
   }
   const getAsyncKeyStateInitialScanCalls =
-    user32AsyncKeyStateInitialScanCheckpointEnabled
+    user32AsyncKeyStateInitialScanEnabled
       ? getAsyncKeyStateCalls.slice(getAsyncKeyStateInitialScanLeadingCallCount)
       : [];
+  const initialScanContinuationCalls =
+    user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
+      ? completedSupportedCalls.slice(-2)
+      : [];
+  if (user32AsyncKeyStateInitialScanContinuationCheckpointEnabled) {
+    const scanLastCall = genericResult.initialAsyncKeyStateScan?.lastCall;
+    assert(scanLastCall);
+    assert.equal(initialScanContinuationCalls.length, 2);
+    assert.equal(
+      initialScanContinuationCalls[0].sequence,
+      scanLastCall.sequence + 1,
+    );
+    assert.equal(initialScanContinuationCalls[0].module.toLowerCase(), "winmm.dll");
+    assert.equal(initialScanContinuationCalls[0].symbol, "timeGetTime");
+    assert.equal(
+      initialScanContinuationCalls[0].implementationId,
+      "winmm.time-get-time.v1",
+    );
+    assert.equal(
+      initialScanContinuationCalls[1].sequence,
+      scanLastCall.sequence + 2,
+    );
+    assert.equal(initialScanContinuationCalls[1].module.toLowerCase(), "user32.dll");
+    assert.equal(initialScanContinuationCalls[1].symbol, "SetRect");
+    assert.equal(
+      initialScanContinuationCalls[1].implementationId,
+      "user32.set-rect.v1",
+    );
+  }
   const d3d9PostEndSceneRasterStatusCalls = d3d9PostEndSceneRasterStatusEnabled
     ? genericResult.supportedCalls.filter(
         (call) =>
@@ -27767,6 +27956,8 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
+        : user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
+          ? "vine.v86-bgi-user32-async-key-state-initial-scan-continuation"
         : user32AsyncKeyStateInitialScanCheckpointEnabled
           ? "vine.v86-bgi-user32-async-key-state-initial-scan"
         : user32AsyncKeyStateInputContinuationCheckpointEnabled
@@ -28061,7 +28252,8 @@ function buildGenericRuntimeReentryReport({
                                                                                                                                                                                                                                                                                                   "kernel32-pointer-decoding"
                                                                                                                                                                                                                                                                                                 ? "vine.v86-bgi-pointer-decoding"
                                                                                                                                                                                                                                                                                                 : "vine.v86-bgi-critical-section-synchronization",
-    schemaVersion: 2,
+    schemaVersion:
+      user32AsyncKeyStateInitialScanContinuationCheckpointEnabled ? 3 : 2,
     source: offer.source,
     sourceSnapshot: {
       immutableAcrossRun: true,
@@ -28634,7 +28826,7 @@ function buildGenericRuntimeReentryReport({
           },
         }
       : {}),
-    ...(user32AsyncKeyStateInitialScanCheckpointEnabled
+    ...(user32AsyncKeyStateInitialScanEnabled
       ? {
           getWindowRect: {
             call: getWindowRectCall,
@@ -28673,6 +28865,34 @@ function buildGenericRuntimeReentryReport({
             lastErrorPolicy: "preserve",
             guestMemoryMutation: false,
             failureAtomicity: true,
+          },
+        }
+      : {}),
+    ...(user32AsyncKeyStateInitialScanContinuationCheckpointEnabled
+      ? {
+          initialScanContinuation: {
+            prerequisiteScanCompletionSequence:
+              genericResult.initialAsyncKeyStateScan.lastCall.sequence,
+            prerequisiteScanCompletionInstructionCount:
+              genericResult.initialAsyncKeyStateScan.lastCall
+                .trapInstructionCount,
+            calls: initialScanContinuationCalls,
+            renderCompletionCounts: {
+              clear: d3d9ClearCalls.length,
+              setRect: setRectCalls.length,
+              addDirtyRect: d3d9AddDirtyRectCalls.length,
+              updateTexture: d3d9UpdateTextureCalls.length,
+              beginScene: d3d9BeginSceneCalls.length,
+              samplerState: d3d9InitialSamplerStateCalls.length,
+              textureStageState: d3d9InitialTextureStageStateCalls.length,
+              setTexture: d3d9SetTextureCalls.length,
+              setFvf: d3d9SetFvfCalls.length,
+              setStreamSource: d3d9SetStreamSourceCalls.length,
+              drawPrimitive: d3d9DrawPrimitiveCalls.length,
+              endScene: d3d9EndSceneCalls.length,
+              present: d3d9PresentCalls.length,
+            },
+            nextSubsystemGateway: "d3d9-texture-lock-rect",
           },
         }
       : {}),
@@ -35462,7 +35682,7 @@ function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
     ? 256
     : guest.instructionBudget;
   const maximumExecuteStops = sourceFileReadEnabled
-    ? user32AsyncKeyStateInitialScanCheckpointEnabled
+    ? user32AsyncKeyStateInitialScanEnabled
       ? 156_250
       : 39_063
     : guest.maximumExecuteStops;

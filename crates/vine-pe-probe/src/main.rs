@@ -14273,7 +14273,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-async-key-state-input" | "user32-async-key-state-input-continuation" => {
                     GenericRuntimeCapability::User32AsyncKeyStateInput
                 }
-                "user32-async-key-state-initial-scan" => {
+                "user32-async-key-state-initial-scan"
+                | "user32-async-key-state-initial-scan-continuation" => {
                     GenericRuntimeCapability::User32AsyncKeyStateInitialScan
                 }
                 "kernel32-leave-critical-section" => {

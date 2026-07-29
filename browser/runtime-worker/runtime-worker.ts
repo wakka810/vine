@@ -333,7 +333,7 @@ function isD3d9Present(
     profile === "d3d9-post-present-continuation" ||
     profile === "user32-async-key-state-input" ||
     profile === "user32-async-key-state-input-continuation" ||
-    profile === "user32-async-key-state-initial-scan"
+    isUser32AsyncKeyStateInitialScan(profile)
   );
 }
 
@@ -344,7 +344,7 @@ function isD3d9PostPresentContinuation(
     profile === "d3d9-post-present-continuation" ||
     profile === "user32-async-key-state-input" ||
     profile === "user32-async-key-state-input-continuation" ||
-    profile === "user32-async-key-state-initial-scan"
+    isUser32AsyncKeyStateInitialScan(profile)
   );
 }
 
@@ -366,7 +366,16 @@ function isUser32AsyncKeyStateInputContinuation(
 function isUser32AsyncKeyStateInitialScan(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "user32-async-key-state-initial-scan";
+  return (
+    profile === "user32-async-key-state-initial-scan" ||
+    isUser32AsyncKeyStateInitialScanContinuation(profile)
+  );
+}
+
+function isUser32AsyncKeyStateInitialScanContinuation(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "user32-async-key-state-initial-scan-continuation";
 }
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
@@ -985,6 +994,24 @@ class BrowserRuntimeSession {
     call: RuntimeSupportedCallSnapshot;
     instructionCount: number;
   }> = [];
+  readonly #initialScanContinuationCalls: RuntimeSupportedCallSnapshot[] = [];
+  readonly #renderCompletionCounts: NonNullable<
+    SessionReport["initialScanContinuation"]
+  >["renderCompletionCounts"] = {
+    clear: 0,
+    setRect: 0,
+    addDirtyRect: 0,
+    updateTexture: 0,
+    beginScene: 0,
+    samplerState: 0,
+    textureStageState: 0,
+    setTexture: 0,
+    setFvf: 0,
+    setStreamSource: 0,
+    drawPrimitive: 0,
+    endScene: 0,
+    present: 0,
+  };
   readonly #semanticCallDigest = new SemanticCallDigest();
   #waitForSingleObjectExCompletions = 0;
   #d3d9PostRasterStatusTimerArm: {
@@ -1101,6 +1128,8 @@ class BrowserRuntimeSession {
     getCursorPos: null as SessionReport["getCursorPos"],
     getAsyncKeyStateInitialScan:
       null as SessionReport["getAsyncKeyStateInitialScan"],
+    initialScanContinuation:
+      null as SessionReport["initialScanContinuation"],
     d3d9RecreatedTextures: null as SessionReport["d3d9RecreatedTextures"],
     d3d9Clear: null as SessionReport["d3d9Clear"],
     d3d9AddDirtyRect: null as SessionReport["d3d9AddDirtyRect"],
@@ -3422,6 +3451,68 @@ class BrowserRuntimeSession {
     this.#recordD3d9EndSceneCall(call);
     this.#recordD3d9PostEndSceneRasterStatusCall(call);
     this.#recordD3d9PresentCall(call);
+    this.#recordCompletedCallEvidence(call);
+  }
+
+  #recordCompletedCallEvidence(call: RuntimeSupportedCallSnapshot): void {
+    if (
+      isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      const counts = this.#renderCompletionCounts;
+      if (call.implementationId === "user32.set-rect.v1") {
+        counts.setRect += 1;
+      } else if (call.interface === "IDirect3DTexture9") {
+        if (call.vtableSlot === 21) {
+          counts.addDirtyRect += 1;
+        }
+      } else if (call.interface === "IDirect3DDevice9") {
+        switch (call.vtableSlot) {
+          case 17:
+            counts.present += 1;
+            break;
+          case 31:
+            counts.updateTexture += 1;
+            break;
+          case 41:
+            counts.beginScene += 1;
+            break;
+          case 42:
+            counts.endScene += 1;
+            break;
+          case 43:
+            counts.clear += 1;
+            break;
+          case 65:
+            counts.setTexture += 1;
+            break;
+          case 67:
+            counts.textureStageState += 1;
+            break;
+          case 69:
+            counts.samplerState += 1;
+            break;
+          case 81:
+            counts.drawPrimitive += 1;
+            break;
+          case 89:
+            counts.setFvf += 1;
+            break;
+          case 100:
+            counts.setStreamSource += 1;
+            break;
+        }
+      }
+      const scan = this.#report.getAsyncKeyStateInitialScan;
+      if (scan !== null && call.sequence > scan.lastCall.sequence) {
+        this.#initialScanContinuationCalls.push(structuredClone(call));
+        invariant(
+          this.#initialScanContinuationCalls.length <= 2,
+          "initial-scan continuation exceeded its bounded call evidence",
+        );
+      }
+    }
     this.#semanticCallDigest.update(call);
     this.#report.supportedCallCount += 1;
     if (this.#configuration.evidenceLevel === "full") {
@@ -4560,11 +4651,7 @@ class BrowserRuntimeSession {
       }
     }
     this.#recordPostPresentContinuationCall(call);
-    this.#semanticCallDigest.update(call);
-    this.#report.supportedCallCount += 1;
-    if (this.#configuration.evidenceLevel === "full") {
-      this.#report.supportedCalls.push(call);
-    }
+    this.#recordCompletedCallEvidence(call);
     if (
       isD3d9PostRasterStatusWaitableTimer(
         this.#configuration.capabilityProfile,
@@ -6326,6 +6413,13 @@ class BrowserRuntimeSession {
       guestMemoryMutation: false,
       failureAtomicity: true,
     };
+    if (
+      isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      return;
+    }
     this.#report.checkpointCompletion = {
       capability: "user32-async-key-state-initial-scan",
       implementationId: "user32.get-async-key-state.v1",
@@ -6354,9 +6448,33 @@ class BrowserRuntimeSession {
     ) {
       return;
     }
+    if (this.#report.setRect !== null) {
+      invariant(
+        isUser32AsyncKeyStateInitialScanContinuation(
+          this.#configuration.capabilityProfile,
+        ) &&
+          call.sequence === 148_197 &&
+          this.#report.instructions === 147_769_339 &&
+          call.module.toLowerCase() === "user32.dll" &&
+          call.symbol === "SetRect" &&
+          call.arguments.join(",") === "7338188,0,0,1280,720" &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 1 &&
+          call.returnAddress === 0x1004_1533 &&
+          call.stackPointerBefore === 0x006f_f8a8 &&
+          call.stackPointerAfter === 0x006f_f8c0 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 1 &&
+          call.guestWrites[0]?.address === 0x006f_f8cc &&
+          call.guestWrites[0]?.bytes.join(",") ===
+            "0,0,0,0,0,0,0,0,0,5,0,0,208,2,0,0",
+        `initial-scan continuation SetRect ABI changed: ${JSON.stringify(call)}`,
+      );
+      return;
+    }
     invariant(
-      this.#report.setRect === null &&
-        call.sequence === 127_356 &&
+      call.sequence === 127_356 &&
         call.module.toLowerCase() === "user32.dll" &&
         call.symbol === "SetRect" &&
         call.arguments.length === 5 &&
@@ -6414,6 +6532,24 @@ class BrowserRuntimeSession {
       instructionCount: this.#report.instructions,
       memoryContentSha256: metadata.memoryContentSha256,
     };
+    if (
+      isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      const scan = this.#report.getAsyncKeyStateInitialScan;
+      invariant(
+        scan !== null && this.#initialScanContinuationCalls.length === 2,
+        "initial-scan continuation omitted its bounded prerequisite evidence",
+      );
+      this.#report.initialScanContinuation = {
+        prerequisiteScanCompletionSequence: scan.lastCall.sequence,
+        prerequisiteScanCompletionInstructionCount: 147_769_226,
+        calls: structuredClone(this.#initialScanContinuationCalls),
+        renderCompletionCounts: structuredClone(this.#renderCompletionCounts),
+        nextSubsystemGateway: "d3d9-texture-lock-rect",
+      };
+    }
     this.#cancelAndFinish(
       "structured-stop",
       "Structured stop retired the private runtime",
@@ -8126,7 +8262,11 @@ class BrowserRuntimeSession {
           update.endPaint.paint.livePaintSessions === 0 &&
           update.endPaint.paint.liveDeviceContexts === 0 &&
           firstUnsupported?.capabilityCluster ===
-            (isD3d9PostPresentContinuation(
+            (isUser32AsyncKeyStateInitialScanContinuation(
+              this.#configuration.capabilityProfile,
+            )
+              ? "d3d9-idirect3dtexture9-method"
+              : isD3d9PostPresentContinuation(
               this.#configuration.capabilityProfile,
             )
               ? "user32-api-contract"
@@ -8296,9 +8436,8 @@ class BrowserRuntimeSession {
       );
     }
     if (
-      isD3d9PostPresentContinuation(
-        this.#configuration.capabilityProfile,
-      ) &&
+      this.#configuration.capabilityProfile ===
+        "d3d9-post-present-continuation" &&
       terminal.outcome === "structured-stop"
     ) {
       const continuation = this.#report.postPresentContinuation;
@@ -8519,6 +8658,134 @@ class BrowserRuntimeSession {
         )}`,
       );
     }
+    if (
+      isUser32AsyncKeyStateInitialScanContinuation(
+        this.#configuration.capabilityProfile,
+      ) && terminal.outcome === "structured-stop"
+    ) {
+      const scan = this.#report.getAsyncKeyStateInitialScan;
+      const continuation = this.#report.initialScanContinuation;
+      const calls = continuation?.calls;
+      const timeGetTime = calls?.[0];
+      const setRect = calls?.[1];
+      const stop = this.#report.firstUnsupported;
+      const endpoint = stop?.endpoint as
+        | {
+            kind?: string;
+            endpointAddress?: number;
+            target?: {
+              interface?: string;
+              vtableSlot?: number;
+              method?: string;
+              endpointAddress?: number;
+            };
+          }
+        | undefined;
+      const fault = stop?.fault as
+        | {
+            class?: string;
+            stage?: string;
+            code?: string;
+            callSite?: number;
+            target?: {
+              interface?: string;
+              vtableSlot?: number;
+              method?: string;
+              endpointAddress?: number;
+            };
+          }
+        | undefined;
+      const pacing = this.#timerPacing.metrics();
+      invariant(
+        this.#report.supportedCallCount === 148_197 &&
+          this.#report.supportedCallSemanticsSha256 ===
+            "28ac402efe494bcf4649576b0fcd790dc1601528455178c728a197283cd77035" &&
+          this.#report.checkpointCompletion === null &&
+          this.#report.keyboardInput.receivedMessages === 0 &&
+          this.#report.keyboardInput.receipts.length === 0 &&
+          this.#getAsyncKeyStateInitialScanCalls.length === 89 &&
+          scan?.leadingCallCount === 51 &&
+          scan.firstCall.sequence === 148_153 &&
+          scan.lastCall.sequence === 148_195 &&
+          continuation?.prerequisiteScanCompletionSequence === 148_195 &&
+          continuation.prerequisiteScanCompletionInstructionCount ===
+            147_769_226 &&
+          continuation.nextSubsystemGateway === "d3d9-texture-lock-rect" &&
+          calls?.length === 2 &&
+          timeGetTime?.sequence === 148_196 &&
+          timeGetTime.module.toLowerCase() === "winmm.dll" &&
+          timeGetTime.symbol === "timeGetTime" &&
+          timeGetTime.arguments.length === 0 &&
+          "action" in timeGetTime.result &&
+          timeGetTime.result.action === "set" &&
+          timeGetTime.result.value === 3_601_112 &&
+          timeGetTime.implementationId === "winmm.time-get-time.v1" &&
+          timeGetTime.returnAddress === 0x1009_1ebf &&
+          timeGetTime.stackPointerBefore === 0x006f_f8f8 &&
+          timeGetTime.stackPointerAfter === 0x006f_f8fc &&
+          timeGetTime.lastError === 0 &&
+          timeGetTime.guestWrites.length === 0 &&
+          setRect?.sequence === 148_197 &&
+          setRect.implementationId === "user32.set-rect.v1" &&
+          setRect.returnAddress === 0x1004_1533 &&
+          setRect.stackPointerBefore === 0x006f_f8a8 &&
+          setRect.stackPointerAfter === 0x006f_f8c0 &&
+          setRect.guestWrites[0]?.address === 0x006f_f8cc &&
+          setRect.guestWrites[0].bytes.join(",") ===
+            "0,0,0,0,0,0,0,0,0,5,0,0,208,2,0,0" &&
+          JSON.stringify(continuation.renderCompletionCounts) ===
+            JSON.stringify({
+              clear: 1,
+              setRect: 2,
+              addDirtyRect: 1,
+              updateTexture: 1,
+              beginScene: 1,
+              samplerState: 2,
+              textureStageState: 6,
+              setTexture: 1,
+              setFvf: 1,
+              setStreamSource: 1,
+              drawPrimitive: 1,
+              endScene: 1,
+              present: 1,
+            }) &&
+          stop?.instructionCount === 147_769_351 &&
+          stop.memoryContentSha256 ===
+            "2bcf1e3ac756a55317ed8edd5a4145f7f431f583608ae5705026a59badcb31c9" &&
+          stop.capabilityCluster === "d3d9-idirect3dtexture9-method" &&
+          endpoint?.kind === "com-method" &&
+          endpoint.endpointAddress === 0x0102_1160 &&
+          endpoint.target?.interface === "IDirect3DTexture9" &&
+          endpoint.target.vtableSlot === 19 &&
+          endpoint.target.method === "LockRect" &&
+          endpoint.target.endpointAddress === 0x0102_1160 &&
+          fault?.class === "unsupported" &&
+          fault.stage === "com-dispatch" &&
+          fault.code === "com-method-unsupported" &&
+          fault.callSite === 0x1004_154c &&
+          fault.target?.interface === "IDirect3DTexture9" &&
+          fault.target.vtableSlot === 19 &&
+          fault.target.method === "LockRect" &&
+          fault.target.endpointAddress === 0x0102_1160 &&
+          this.#waitForSingleObjectExCompletions === 10_567 &&
+          pacing.requests === 10_567 &&
+          pacing.completions === 10_567 &&
+          pacing.pending === 0,
+        `initial-scan continuation or LockRect stop changed: ${JSON.stringify({
+          supportedCallCount: this.#report.supportedCallCount,
+          supportedCallSemanticsSha256:
+            this.#report.supportedCallSemanticsSha256,
+          scan,
+          continuation,
+          stop,
+          endpoint,
+          fault,
+          waitForSingleObjectExCompletions:
+            this.#waitForSingleObjectExCompletions,
+          pacing,
+        })}`,
+      );
+    }
     if (this.#configuration.evidenceLevel === "full") {
       invariant(
         this.#report.supportedCalls.length === this.#report.supportedCallCount,
@@ -8705,6 +8972,7 @@ worker.addEventListener(
               getWindowRect: null,
               getCursorPos: null,
               getAsyncKeyStateInitialScan: null,
+              initialScanContinuation: null,
               d3d9RecreatedTextures: null,
               d3d9Clear: null,
               d3d9AddDirtyRect: null,

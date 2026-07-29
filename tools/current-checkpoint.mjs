@@ -180,9 +180,13 @@ export function validateCurrentCheckpoint(manifest) {
     user32AsyncKeyStateInputContinuationActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-async-key-state-input";
-  const user32AsyncKeyStateInitialScanActive =
+  const user32AsyncKeyStateInitialScanContinuationActive =
     root.activeRuntimeCheckpoint?.profile ===
-    "user32-async-key-state-initial-scan";
+    "user32-async-key-state-initial-scan-continuation";
+  const user32AsyncKeyStateInitialScanActive =
+    user32AsyncKeyStateInitialScanContinuationActive ||
+    root.activeRuntimeCheckpoint?.profile ===
+      "user32-async-key-state-initial-scan";
   const d3d9PostPresentStructuredStopActive =
     root.activeRuntimeCheckpoint?.profile ===
     "d3d9-post-present-continuation";
@@ -595,7 +599,25 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "2,3,4,5,6,7,8"
                   : "2,3,4";
-  const profileExpectations = user32AsyncKeyStateInitialScanActive
+  const profileExpectations = user32AsyncKeyStateInitialScanContinuationActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 119_274,
+        browserMappingDirtyPages: 130_333,
+        browserSuccessExecutionTransitions: 509_185,
+        latestSchema:
+          "vine.v86-bgi-user32-async-key-state-initial-scan-continuation",
+        latestWritebackBatches: 149_918,
+        latestWritebackDirtyPages: 214_434,
+        latestWritebackChangedBytes: 19_882_786,
+        latestHostDeltaBatches: 119_274,
+        latestFinalMemoryGeneration: 271_169,
+        semanticCallDigestSha256:
+          "28ac402efe494bcf4649576b0fcd790dc1601528455178c728a197283cd77035",
+        memoryContentSha256:
+          "2bcf1e3ac756a55317ed8edd5a4145f7f431f583608ae5705026a59badcb31c9",
+      }
+    : user32AsyncKeyStateInitialScanActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 119_273,
@@ -1601,9 +1623,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v46") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v47") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v46",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v47",
     );
   }
   if (
@@ -2387,7 +2409,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (user32AsyncKeyStateInitialScanActive
+      (user32AsyncKeyStateInitialScanContinuationActive
+        ? 17
+        : user32AsyncKeyStateInitialScanActive
         ? 16
         : user32AsyncKeyStateInputContinuationActive
         ? 15
@@ -18762,7 +18786,9 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (user32AsyncKeyStateInitialScanActive
+      (user32AsyncKeyStateInitialScanContinuationActive
+        ? "Rust-owned zero-input GetAsyncKeyState startup scan continuation through deterministic timeGetTime and SetRect to the D3D9 texture LockRect gateway"
+        : user32AsyncKeyStateInitialScanActive
         ? "Rust-owned bounded second ordinary heap backing plus logical window geometry, cursor position, and zero-input GetAsyncKeyState startup scan"
         : user32AsyncKeyStateInputContinuationActive
         ? "Rust-owned held-key GetAsyncKeyState continuation with one-shot pressed-bit consumption across repeated primary polling"
@@ -21607,58 +21633,141 @@ export function validateCurrentCheckpoint(manifest) {
     ) {
       errors.push("latest initial GetAsyncKeyState scan evidence is invalid");
     }
-    for (const [label, completion] of [
-      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
-      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
-    ]) {
+    if (!user32AsyncKeyStateInitialScanContinuationActive) {
+      for (const [label, completion] of [
+        ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+        ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+      ]) {
+        if (
+          completion.capability !== "user32-async-key-state-initial-scan" ||
+          completion.implementationId !== "user32.get-async-key-state.v1" ||
+          completion.requiredCompletions !== 38 ||
+          completion.completionCount !== 38 ||
+          completion.leadingCallCount !== 51 ||
+          completion.firstCompletionSequence !== 148_153 ||
+          completion.firstCompletionInstructionCount !== 147_765_769 ||
+          completion.lastCompletionSequence !== 148_195 ||
+          completion.lastCompletionInstructionCount !== 147_769_226 ||
+          completion.scanVirtualKeys?.join(",") !== scanVirtualKeyCsv ||
+          completion.result !== "0x00000000" ||
+          completion.lastError !== 0 ||
+          completion.guestWriteBytes !== 0 ||
+          completion.instructionCount !== 147_769_286 ||
+          completion.nextEndpoint?.endpointId !== 8 ||
+          completion.nextEndpoint?.endpointAddress !== "0x7f000070" ||
+          completion.nextEndpoint?.api !== "WINMM.dll!timeGetTime" ||
+          completion.memoryContentSha256 !==
+            "ea8b7752bc8c4424ae5d901958330b09fb7e8af3bf4a506bbeb0f9aeba8fff86"
+        ) {
+          errors.push(`${label} initial scan checkpoint evidence is invalid`);
+        }
+      }
       if (
-        completion.capability !== "user32-async-key-state-initial-scan" ||
-        completion.implementationId !== "user32.get-async-key-state.v1" ||
-        completion.requiredCompletions !== 38 ||
-        completion.completionCount !== 38 ||
-        completion.leadingCallCount !== 51 ||
-        completion.firstCompletionSequence !== 148_153 ||
-        completion.firstCompletionInstructionCount !== 147_765_769 ||
-        completion.lastCompletionSequence !== 148_195 ||
-        completion.lastCompletionInstructionCount !== 147_769_226 ||
-        completion.scanVirtualKeys?.join(",") !== scanVirtualKeyCsv ||
-        completion.result !== "0x00000000" ||
-        completion.lastError !== 0 ||
-        completion.guestWriteBytes !== 0 ||
-        completion.instructionCount !== 147_769_286 ||
-        completion.nextEndpoint?.endpointId !== 8 ||
-        completion.nextEndpoint?.endpointAddress !== "0x7f000070" ||
-        completion.nextEndpoint?.api !== "WINMM.dll!timeGetTime" ||
-        completion.memoryContentSha256 !==
-          "ea8b7752bc8c4424ae5d901958330b09fb7e8af3bf4a506bbeb0f9aeba8fff86"
+        currentStop.kind !== "capability-checkpoint" ||
+        currentStop.nextCheckpoint !==
+          "user32-async-key-state-initial-scan-continuation" ||
+        currentStop.pausedHistoricalCheckpoint !==
+          "user32-async-key-state-initial-scan" ||
+        currentStop.instructionCount !== 147_769_286 ||
+        currentStop.capabilityCluster !==
+          "user32-async-key-state-initial-scan-continuation" ||
+        currentStop.reason !==
+          "user32-async-key-state-initial-scan-checkpoint-complete" ||
+        currentStop.completion?.capability !==
+          "user32-async-key-state-initial-scan" ||
+        currentStop.completion?.completionCount !== 38 ||
+        currentStop.completion?.leadingCallCount !== 51 ||
+        currentStop.completion?.scanVirtualKeys?.join(",") !==
+          scanVirtualKeyCsv ||
+        currentStop.nextEndpoint?.endpointKind !== "runtime-system-export" ||
+        currentStop.nextEndpoint?.endpointId !== 8 ||
+        currentStop.nextEndpoint?.api !== "WINMM.dll!timeGetTime" ||
+        currentStop.nextEndpoint?.endpointAddress !== "0x7f000070" ||
+        currentStop.nextEndpoint?.observedModule !== "WINMM.dll" ||
+        currentStop.nextEndpoint?.observedSymbol !== "timeGetTime"
       ) {
-        errors.push(`${label} initial scan checkpoint evidence is invalid`);
+        errors.push("initial GetAsyncKeyState scan next checkpoint is invalid");
       }
     }
-    if (
-      currentStop.kind !== "capability-checkpoint" ||
-      currentStop.nextCheckpoint !==
-        "user32-async-key-state-initial-scan-continuation" ||
-      currentStop.pausedHistoricalCheckpoint !==
-        "user32-async-key-state-initial-scan" ||
-      currentStop.instructionCount !== 147_769_286 ||
-      currentStop.capabilityCluster !==
-        "user32-async-key-state-initial-scan-continuation" ||
-      currentStop.reason !==
-        "user32-async-key-state-initial-scan-checkpoint-complete" ||
-      currentStop.completion?.capability !==
-        "user32-async-key-state-initial-scan" ||
-      currentStop.completion?.completionCount !== 38 ||
-      currentStop.completion?.leadingCallCount !== 51 ||
-      currentStop.completion?.scanVirtualKeys?.join(",") !== scanVirtualKeyCsv ||
-      currentStop.nextEndpoint?.endpointKind !== "runtime-system-export" ||
-      currentStop.nextEndpoint?.endpointId !== 8 ||
-      currentStop.nextEndpoint?.api !== "WINMM.dll!timeGetTime" ||
-      currentStop.nextEndpoint?.endpointAddress !== "0x7f000070" ||
-      currentStop.nextEndpoint?.observedModule !== "WINMM.dll" ||
-      currentStop.nextEndpoint?.observedSymbol !== "timeGetTime"
-    ) {
-      errors.push("initial GetAsyncKeyState scan next checkpoint is invalid");
+    if (user32AsyncKeyStateInitialScanContinuationActive) {
+      const expectedContinuation = {
+        prerequisiteScanCompletionSequence: 148_195,
+        prerequisiteScanCompletionInstructionCount: 147_769_226,
+        timeGetTime: {
+          sequence: 148_196,
+          instructionCount: 147_769_286,
+          result: 3_601_112,
+          implementationId: "winmm.time-get-time.v1",
+          returnAddress: "0x10091ebf",
+          stackPointers: ["0x006ff8f8", "0x006ff8fc"],
+          lastError: 0,
+          guestWriteBytes: 0,
+        },
+        setRect: {
+          sequence: 148_197,
+          instructionCount: 147_769_339,
+          arguments: [
+            "0x006ff8cc",
+            "0x00000000",
+            "0x00000000",
+            "0x00000500",
+            "0x000002d0",
+          ],
+          result: 1,
+          implementationId: "user32.set-rect.v1",
+          returnAddress: "0x10041533",
+          stackPointers: ["0x006ff8a8", "0x006ff8c0"],
+          lastError: 0,
+          guestWriteBytes: 16,
+          outputHex: "000000000000000000050000d0020000",
+        },
+        renderCompletionCounts: {
+          clear: 1,
+          setRect: 2,
+          addDirtyRect: 1,
+          updateTexture: 1,
+          beginScene: 1,
+          samplerState: 2,
+          textureStageState: 6,
+          setTexture: 1,
+          setFvf: 1,
+          setStreamSource: 1,
+          drawPrimitive: 1,
+          endScene: 1,
+          present: 1,
+        },
+        nextSubsystemGateway: "d3d9-texture-lock-rect",
+        nodeChromeOrderedSemanticsMatched: true,
+      };
+      if (
+        JSON.stringify(bgiBrowserEvidence.initialScanContinuation) !==
+          JSON.stringify(expectedContinuation) ||
+        JSON.stringify(latestEvidence.initialScanContinuation) !==
+          JSON.stringify(expectedContinuation)
+      ) {
+        errors.push("initial-scan continuation evidence is invalid");
+      }
+      if (
+        currentStop.kind !== "com-method" ||
+        currentStop.nextCheckpoint !== "d3d9-texture-lock-rect" ||
+        currentStop.pausedHistoricalCheckpoint !==
+          "user32-async-key-state-initial-scan-continuation" ||
+        currentStop.instructionCount !== 147_769_351 ||
+        currentStop.capabilityCluster !==
+          "d3d9-idirect3dtexture9-method" ||
+        currentStop.reason !== "com-method-unsupported" ||
+        currentStop.endpointKind !== "com-method" ||
+        currentStop.interface !== "IDirect3DTexture9" ||
+        currentStop.vtableSlot !== 19 ||
+        currentStop.method !== "LockRect" ||
+        currentStop.arguments?.join(",") !==
+          "0x00000000,0x006ff8c4,0x006ff8cc,0x00008000" ||
+        currentStop.thisPointer !== "0x01020004" ||
+        currentStop.endpointAddress !== "0x01021160" ||
+        currentStop.returnAddress !== "0x1004154c"
+      ) {
+        errors.push("initial-scan continuation LockRect stop is invalid");
+      }
     }
     if (
       latestEvidence.nativeGetWindowRectPrimaryTraceBytes !== 813_844 ||

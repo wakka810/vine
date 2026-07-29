@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 48 as const;
+export const protocolVersion = 49 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -42,7 +42,8 @@ export type BgiCapabilityProfile =
   | "d3d9-post-present-continuation"
   | "user32-async-key-state-input"
   | "user32-async-key-state-input-continuation"
-  | "user32-async-key-state-initial-scan";
+  | "user32-async-key-state-initial-scan"
+  | "user32-async-key-state-initial-scan-continuation";
 
 export type RuntimeKeyboardSourceEventKind =
   | "focus-gained"
@@ -1125,6 +1126,27 @@ export interface SessionReport {
     lastErrorPolicy: "preserve";
     guestMemoryMutation: false;
     failureAtomicity: true;
+  } | null;
+  initialScanContinuation: {
+    prerequisiteScanCompletionSequence: number;
+    prerequisiteScanCompletionInstructionCount: number;
+    calls: RuntimeSupportedCallSnapshot[];
+    renderCompletionCounts: {
+      clear: number;
+      setRect: number;
+      addDirtyRect: number;
+      updateTexture: number;
+      beginScene: number;
+      samplerState: number;
+      textureStageState: number;
+      setTexture: number;
+      setFvf: number;
+      setStreamSource: number;
+      drawPrimitive: number;
+      endScene: number;
+      present: number;
+    };
+    nextSubsystemGateway: "d3d9-texture-lock-rect";
   } | null;
   d3d9RecreatedTextures: {
     calls: RuntimeSupportedCallSnapshot[];

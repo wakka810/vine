@@ -5836,17 +5836,21 @@ call、input receipt、result、semantic／memory digestを一致させ、次end
 `WINMM.dll!timeGetTime`として記録する。これは一件のprimary DOM／Worker／Wasm／Rust input consumptionを示すが、
 gameplay response、message input、pointer consumption、DirectInput keyboard device、IME text inputはclaimしない。
 
-The later zero-input continuation queues no browser event and reaches the same
+The later zero-input profile queues no browser event and reaches the same
 38-key order after 51 leading `VK_CONTROL` polls. Node and Chrome complete the
 scan from sequence 148,153／instruction 147,765,769 through sequence 148,195／
 instruction 147,769,226 with every signed SHORT zero, LastError 0, and zero guest
-writes. The checkpoint ends at instruction 147,769,286 before
-`WINMM.dll!timeGetTime`. Both engines agree on semantic digest
-`807a700fa699f6a8ec3d83954a534960243ec27d203d7f68f499356254910950`
+writes. The follow-on continuation completes sequence 148,196
+`WINMM.dll!timeGetTime` with deterministic result 3,601,112 and sequence 148,197
+`USER32.dll!SetRect` with output `[0,0,1280,720]`, then stops before mutation at
+instruction 147,769,351 on `IDirect3DTexture9::LockRect` slot 19. Both engines
+agree on semantic digest
+`28ac402efe494bcf4649576b0fcd790dc1601528455178c728a197283cd77035`
 and memory digest
-`ea8b7752bc8c4424ae5d901958330b09fb7e8af3bf4a506bbeb0f9aeba8fff86`.
-This is a no-synthesized-input counterfactual, not evidence of visible gameplay
-response.
+`2bcf1e3ac756a55317ed8edd5a4145f7f431f583608ae5705026a59badcb31c9`.
+This is a no-synthesized-input counterfactual and an exact graphics-gateway
+identity, not evidence of visible gameplay response or a successful texture
+lock.
 
 ## 174. BGI `GetWindowRect` logical outer geometry
 
@@ -5887,3 +5891,18 @@ Chrome agree on sequence 148,187／instruction 147,768,691, implementation
 `user32.get-cursor-pos.v1`, output `[960,540]`, LastError 0, and zero state
 mutation. This does not claim pointer-event ingestion, cursor movement, capture,
 or general multi-display coordinate behavior.
+
+## 176. BGI post-scan texture `LockRect` gateway
+
+The exact reached x86 COM call uses live `IDirect3DTexture9` pointer
+`0x01020004`, slot 19 endpoint `0x01021160`, level 0, locked-rectangle output
+`0x006FF8C4`, full-texture RECT `[0,0,1280,720]` at `0x006FF8CC`, flags
+`0x8000`, and return address `0x1004154C`. Node and Chrome stop on the same
+`com-method-unsupported` fault at instruction 147,769,351 with identical
+terminal memory content. Existing controlled native evidence establishes that
+surface `LockRect` rejects a live DC and succeeds after release, but it does not
+by itself define the reached texture pool／usage／flag variant. The call is
+therefore classified as a subsystem gateway: implementation must establish
+texture byte authority, pitch and output publication, lock lifetime,
+`UnlockRect`, wrong-owner／nested-lock rejection, and failure atomicity before
+claiming completion.

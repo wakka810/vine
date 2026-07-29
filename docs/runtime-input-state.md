@@ -66,6 +66,12 @@ that the same Worker／Wasm／Rust path does not synthesize keyboard state in th
 absence of input; it does not prove a visible gameplay response. Key-up and
 DirectInput keyboard-device state also remain outside this checkpoint.
 
+The continuation preserves that completed zero-input scan while advancing two
+already implemented non-input calls, `timeGetTime` and `SetRect`, to the next
+`IDirect3DTexture9::LockRect` subsystem gateway. It imports no additional input
+receipt and does not change `RuntimeInput`; reaching a graphics call after the
+scan is ordering evidence, not evidence that keyboard input caused rendering.
+
 ## Cursor position
 
 `RuntimeInput` also owns one configure-once logical screen position under
