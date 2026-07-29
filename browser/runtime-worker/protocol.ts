@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 53 as const;
+export const protocolVersion = 54 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -45,7 +45,8 @@ export type BgiCapabilityProfile =
   | "user32-async-key-state-initial-scan"
   | "user32-async-key-state-initial-scan-continuation"
   | "user32-peek-message-a"
-  | "user32-is-iconic";
+  | "user32-is-iconic"
+  | "runtime-thread-stack-growth";
 
 export type RuntimeKeyboardSourceEventKind =
   "focus-gained" | "focus-lost" | "key-down" | "key-up";
@@ -790,7 +791,7 @@ export interface RuntimeSupportedCallSnapshot {
   stackPointerBefore: number;
   stackPointerAfter: number;
   lastError?: number;
-  guestWrites: Array<{ address: number; bytes: number[] }>;
+  guestWrites: RuntimeGuestWriteSnapshot[];
   executionBoundary?: "yield-current-thread";
   interface?: string;
   vtableSlot?: number;
@@ -817,6 +818,10 @@ export interface RuntimeSupportedCallSnapshot {
   graphicsTextureUpdate?: RuntimeGraphicsTextureUpdateSnapshot;
   browserPresentation?: RuntimeBrowserPresentationReceipt;
 }
+
+export type RuntimeGuestWriteSnapshot =
+  | { address: number; bytes: number[] }
+  | { address: number; byteLength: number; contentSha256: string };
 
 export interface RuntimeBrowserPresentationReceipt {
   backend: "webgl2-offscreen-canvas";
@@ -905,6 +910,7 @@ export interface SessionReport {
   writebackPages: number;
   stackGrowths: Array<{
     instructionCount: number;
+    threadId: number;
     faultAddress: number;
     pageFaultErrorCode: number;
     addressAllocationId: number;

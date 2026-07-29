@@ -46,9 +46,11 @@ draw, and Present cycle plus the mutation-free `IDirect3DDevice9` slot 3
 `TestCooperativeLevel` query first at instruction 148,744,443. The following
 polling loop completes three empty current-thread `PeekMessageA` calls, three
 false `IsIconic` calls for the live logical window, and repeated
-cooperative-level checks before both engines stop on the API-created thread's
-stack guard page fault at instruction 148,787,159. Device-loss, reset, and
-recovery semantics remain unclaimed.
+cooperative-level checks before reaching the API-created thread's first stack
+guard fault. The generic per-thread service now grows that Rust-owned stack and
+continues beyond the fault; the current continuation stop is recorded only in
+the checkpoint manifest. Device-loss, reset, and recovery semantics remain
+unclaimed.
 
 The two-page COM backing is Rust-owned guest memory. Its data page finishes
 read-only and its endpoint page finishes read／execute. The endpoint bytes are
@@ -691,9 +693,10 @@ when materializing a draw submission, converts B8G8R8X8 bytes for WebGL2, and
 does not retain a second Windows texture, lock, or byte authority. Canonical
 Node and Chrome evidence agrees on lock sequence 148,198, unlock sequence
 148,203, partial update sequence 148,272, content generation 2, and two complete
-draw／Present cycles. The following cooperative-level, empty-message, and
-minimized-window queries also complete; the next structured stop is the
-API-created thread's stack guard page fault. Readable title pixels, other mip
+draw／Present cycles. The following cooperative-level, empty-message,
+minimized-window, and API-created-thread stack-growth operations also complete;
+the next structured stop is recorded in the current checkpoint manifest.
+Readable title pixels, other mip
 levels／formats／lock flags, resize, device loss, reset, and recovery are not
 claimed.
 
@@ -721,8 +724,9 @@ return address `0x1005ADCD`, stack movement `0x006FF8F4` to `0x006FF8FC`,
 reference count 5, and zero guest writes. This profile claims only the reached
 operational state. It does not synthesize device-lost／not-reset transitions,
 map browser context loss into Windows state, implement `Reset`, or claim
-recovery. The subsequent bounded `PeekMessageA` and `IsIconic` queries complete;
-the next structured stop is API-created-thread stack growth.
+recovery. The subsequent bounded `PeekMessageA` and `IsIconic` queries and the
+following API-created-thread stack growth complete. The current next structured
+stop remains manifest-owned.
 
 ## Bounded device scene lifecycle
 

@@ -29,17 +29,17 @@ mod win32;
 mod winmm;
 
 pub use api::{
-    AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDeferredCall,
-    ApiDirection, ApiDispatcher, ApiDynamicPointerConstraint, ApiEndpointBinding,
-    ApiEndpointIdentity, ApiFault, ApiFaultClass, ApiGuestCallbackCall, ApiGuestWrite,
-    ApiGuestWriteReceipt, ApiHandlerResult, ApiImmediate, ApiImmediateCompletion, ApiOwnedTrap,
-    ApiPointeeSchema, ApiPointerConstraint, ApiReturnSchema, ApiReturnValue,
-    ApiScalarOrPointerConstraint, ApiStringEncoding, ApiSymbol, ApiTrap, ApiValueSchema,
-    ApiWriteRequirement, CallbackPolicy, CallingConvention, DecodedApiArgument, DispatchOutcome,
-    ExecutionSession, GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest,
-    GuestCallbackScratchPointerRelocation, HostCompletion, HostRequest, LastErrorPolicy,
-    PreparedGuestCallback, ReentrancyPolicy, RegisterUpdate, RuntimeGuestCallbackSemanticAction,
-    StackCleanup,
+    API_GUEST_WRITE_INLINE_SERIALIZATION_MAX_BYTES, AbiSchema, ApiArgumentSchema, ApiBehavior,
+    ApiCallFrame, ApiContract, ApiDeferredCall, ApiDirection, ApiDispatcher,
+    ApiDynamicPointerConstraint, ApiEndpointBinding, ApiEndpointIdentity, ApiFault, ApiFaultClass,
+    ApiGuestCallbackCall, ApiGuestWrite, ApiGuestWriteReceipt, ApiHandlerResult, ApiImmediate,
+    ApiImmediateCompletion, ApiOwnedTrap, ApiPointeeSchema, ApiPointerConstraint, ApiReturnSchema,
+    ApiReturnValue, ApiScalarOrPointerConstraint, ApiStringEncoding, ApiSymbol, ApiTrap,
+    ApiValueSchema, ApiWriteRequirement, CallbackPolicy, CallingConvention, DecodedApiArgument,
+    DispatchOutcome, ExecutionSession, GuestCallbackArgument, GuestCallbackCompletionPolicy,
+    GuestCallbackRequest, GuestCallbackScratchPointerRelocation, HostCompletion, HostRequest,
+    LastErrorPolicy, PreparedGuestCallback, ReentrancyPolicy, RegisterUpdate,
+    RuntimeGuestCallbackSemanticAction, StackCleanup,
 };
 
 pub use bootstrap::{

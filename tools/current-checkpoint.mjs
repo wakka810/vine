@@ -180,8 +180,12 @@ export function validateCurrentCheckpoint(manifest) {
     user32AsyncKeyStateInputContinuationActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-async-key-state-input";
-  const user32IsIconicActive =
+  const runtimeThreadStackGrowthActive =
+    root.activeRuntimeCheckpoint?.profile === "runtime-thread-stack-growth";
+  const user32IsIconicCheckpointActive =
     root.activeRuntimeCheckpoint?.profile === "user32-is-iconic";
+  const user32IsIconicActive =
+    user32IsIconicCheckpointActive || runtimeThreadStackGrowthActive;
   const user32PeekMessageACheckpointActive =
     root.activeRuntimeCheckpoint?.profile === "user32-peek-message-a";
   const user32PeekMessageAActive =
@@ -333,7 +337,9 @@ export function validateCurrentCheckpoint(manifest) {
     : createDirectoryAActive
       ? "15954287,16290526"
       : "15953766,16290005";
-  const timerCycleCount = user32IsIconicActive
+  const timerCycleCount = runtimeThreadStackGrowthActive
+    ? 11_205
+    : user32IsIconicActive
     ? 10_571
     : user32AsyncKeyStateInitialScanActive
     ? 10_569
@@ -358,7 +364,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? 7
                   : 3;
-  const timerArmCount = user32IsIconicActive
+  const timerArmCount = runtimeThreadStackGrowthActive
+    ? 11_206
+    : user32IsIconicActive
     ? 10_571
     : user32AsyncKeyStateInitialScanActive
     ? 10_569
@@ -371,7 +379,9 @@ export function validateCurrentCheckpoint(manifest) {
     : d3d9RecreatedTexturesActive
       ? 9_187
       : timerCycleCount;
-  const timerSetSequences = user32IsIconicActive
+  const timerSetSequences = runtimeThreadStackGrowthActive
+    ? "18681,158042"
+    : user32IsIconicActive
     ? "18681,148472"
     : user32AsyncKeyStateInitialScanActive
     ? "18681,148294"
@@ -396,7 +406,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "18681,18689,18697,18705,18713,18721,18729"
                   : "18681,18689,18697";
-  const timerSetInstructionCounts = user32IsIconicActive
+  const timerSetInstructionCounts = runtimeThreadStackGrowthActive
+    ? "11974074,225662147"
+    : user32IsIconicActive
     ? "11974074,148770732"
     : user32AsyncKeyStateInitialScanActive
     ? "11974074,148744489"
@@ -421,7 +433,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
                   : "11973553,11973700,11973847";
-  const timerWaitSequences = user32IsIconicActive
+  const timerWaitSequences = runtimeThreadStackGrowthActive
+    ? "18682,158035"
+    : user32IsIconicActive
     ? "18682,148473"
     : user32AsyncKeyStateInitialScanActive
     ? "18682,148295"
@@ -446,7 +460,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "18682,18690,18698,18706,18714,18722,18730"
                   : "18682,18690,18698";
-  const timerWaitInstructionCounts = user32IsIconicActive
+  const timerWaitInstructionCounts = runtimeThreadStackGrowthActive
+    ? "11974080,225662006"
+    : user32IsIconicActive
     ? "11974080,148770738"
     : user32AsyncKeyStateInitialScanActive
     ? "11974080,148744495"
@@ -471,7 +487,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
                   : "11973559,11973706,11973853";
-  const timerGenerations = user32IsIconicActive
+  const timerGenerations = runtimeThreadStackGrowthActive
+    ? "1,11201"
+    : user32IsIconicActive
     ? "1,3"
     : user32AsyncKeyStateInitialScanActive
     ? "1,1"
@@ -496,7 +514,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "1,2,3,4,5,6,7"
                   : "1,2,3";
-  const timerClockGenerations = user32IsIconicActive
+  const timerClockGenerations = runtimeThreadStackGrowthActive
+    ? "1,11205"
+    : user32IsIconicActive
     ? "1,10571"
     : user32AsyncKeyStateInitialScanActive
     ? "1,10569"
@@ -507,7 +527,9 @@ export function validateCurrentCheckpoint(manifest) {
     : d3d9PostRasterStatusWaitableTimerActive
     ? "1,9187"
     : timerGenerations;
-  const timerDeadlines = user32IsIconicActive
+  const timerDeadlines = runtimeThreadStackGrowthActive
+    ? "5000,56070000"
+    : user32IsIconicActive
     ? "5000,52885000"
     : user32AsyncKeyStateInitialScanActive
     ? "5000,52845000"
@@ -532,7 +554,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "5000,10000,15000,20000,25000,30000,35000"
                   : "5000,10000,15000";
-  const timerPacingRequestIds = user32IsIconicActive
+  const timerPacingRequestIds = runtimeThreadStackGrowthActive
+    ? "3,11291"
+    : user32IsIconicActive
     ? "3,10635"
     : user32AsyncKeyStateInitialScanActive
     ? "3,10633"
@@ -557,7 +581,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "3,4,5,6,7,8,9"
                   : "3,4,5";
-  const timerPacingRegistrationIds = user32IsIconicActive
+  const timerPacingRegistrationIds = runtimeThreadStackGrowthActive
+    ? "1,11205"
+    : user32IsIconicActive
     ? "1,10571"
     : user32AsyncKeyStateInitialScanActive
     ? "1,10569"
@@ -582,7 +608,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "1,2,3,4,5,6,7"
                   : "1,2,3";
-  const timerPacingClockGenerations = user32IsIconicActive
+  const timerPacingClockGenerations = runtimeThreadStackGrowthActive
+    ? "0,11204"
+    : user32IsIconicActive
     ? "0,10570"
     : user32AsyncKeyStateInitialScanActive
     ? "0,10568"
@@ -607,7 +635,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "0,1,2,3,4,5,6"
                   : "0,1,2";
-  const timerNextRegistrationIds = user32IsIconicActive
+  const timerNextRegistrationIds = runtimeThreadStackGrowthActive
+    ? "2,11206"
+    : user32IsIconicActive
     ? "2,10572"
     : user32AsyncKeyStateInitialScanActive
     ? "2,10570"
@@ -632,7 +662,24 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "2,3,4,5,6,7,8"
                   : "2,3,4";
-  const profileExpectations = user32IsIconicActive
+  const profileExpectations = runtimeThreadStackGrowthActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 125_061,
+        browserMappingDirtyPages: 143_721,
+        browserSuccessExecutionTransitions: 563_892,
+        latestSchema: "vine.v86-bgi-runtime-thread-stack-growth",
+        latestWritebackBatches: 160_383,
+        latestWritebackDirtyPages: 235_270,
+        latestWritebackChangedBytes: 30_501_184,
+        latestHostDeltaBatches: 125_061,
+        latestFinalMemoryGeneration: 287_857,
+        semanticCallDigestSha256:
+          "c795f34a0a893523c0e92382635fd51c5a386ff51ff9f614d90b642581559fce",
+        memoryContentSha256:
+          "0719c6c7b1019e1b61eca9811ab475cef68130698bf1ea36499f8f8ca7024e7f",
+      }
+    : user32IsIconicActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 119_327,
@@ -1324,7 +1371,9 @@ export function validateCurrentCheckpoint(manifest) {
   const timerEvidenceEntries =
     dragAcceptFilesActive || archiveSourceReadActive ? 2 : timerCycleCount;
   const timerRepeatedOnes = Array(timerEvidenceEntries).fill(1).join(",");
-  const timerPacingDelayMilliseconds = user32IsIconicActive
+  const timerPacingDelayMilliseconds = runtimeThreadStackGrowthActive
+    ? "1,1"
+    : user32IsIconicActive
     ? "1,2"
     : timerRepeatedOnes;
   const timerRepeatedTwos = d3d9PostRasterStatusWaitableTimerActive
@@ -1693,9 +1742,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v53") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v54") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v53",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v54",
     );
   }
   if (
@@ -2479,7 +2528,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (user32IsIconicActive
+      (runtimeThreadStackGrowthActive
+        ? 22
+        : user32IsIconicActive
         ? 21
         : user32PeekMessageAActive
         ? 20
@@ -2497,7 +2548,9 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.nodeOracleReportBytes > 4 * 1024 * 1024 ||
     bgiBrowserEvidence.browserReportBytes > 4 * 1024 * 1024 ||
     bgiMappingOperations.reserve !==
-      (user32AsyncKeyStateInitialScanActive
+      (runtimeThreadStackGrowthActive
+        ? 113
+        : user32AsyncKeyStateInitialScanActive
         ? 91
         : user32AsyncKeyStateInputContinuationActive
         ? 39
@@ -2507,7 +2560,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 29
             : 21) ||
     bgiMappingOperations.commit !==
-      (user32IsIconicActive
+      (runtimeThreadStackGrowthActive
+        ? 2_439
+        : user32IsIconicActive
         ? 1_810
         : user32AsyncKeyStateInitialScanActive
         ? 1_809
@@ -2532,7 +2587,9 @@ export function validateCurrentCheckpoint(manifest) {
           : 28) ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !==
-      (user32AsyncKeyStateInitialScanActive
+      (runtimeThreadStackGrowthActive
+        ? 93
+        : user32AsyncKeyStateInitialScanActive
         ? 71
         : user32AsyncKeyStateInputContinuationActive
         ? 22
@@ -2555,7 +2612,9 @@ export function validateCurrentCheckpoint(manifest) {
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     bgiBrowserEvidence.contextSwitches !==
-      (user32IsIconicActive
+      (runtimeThreadStackGrowthActive
+        ? 2_456
+        : user32IsIconicActive
         ? 2_317
         : user32AsyncKeyStateInitialScanActive
         ? 2_314
@@ -2583,7 +2642,9 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.processLifecycleAfterCleanup !== "exited" ||
     bgiBrowserEvidence.dllLifecycleAfterCleanup !== "process-detached" ||
     bgiBrowserEvidence.largeHeapPageMaterializations !==
-      (user32IsIconicActive
+      (runtimeThreadStackGrowthActive
+        ? 2_243
+        : user32IsIconicActive
         ? 1_685
         : user32AsyncKeyStateInitialScanActive
           ? 1_684
@@ -2603,7 +2664,9 @@ export function validateCurrentCheckpoint(manifest) {
       1_487 ||
     bgiBrowserEvidence.largeHeapBrowserMaterializationGeneration !== 1_489 ||
     bgiBrowserEvidence.sourceReadCompletions !==
-      (user32IsIconicActive
+      (runtimeThreadStackGrowthActive
+        ? 86
+        : user32IsIconicActive
         ? 64
         : user32AsyncKeyStateInitialScanActive
         ? 63
@@ -4426,7 +4489,11 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.waitForSingleObjectExImplementationId !==
       "kernel32.wait-for-single-object-ex.waitable-timer.v1" ||
     bgiBrowserEvidence.waitForSingleObjectExTimerId !==
-      (user32AsyncKeyStateInitialScanContinuationActive ? 1 : 2) ||
+      (runtimeThreadStackGrowthActive
+        ? 2
+        : user32AsyncKeyStateInitialScanContinuationActive
+          ? 1
+          : 2) ||
     bgiBrowserEvidence.waitForSingleObjectExManualReset !== true ||
     bgiBrowserEvidence.waitForSingleObjectExArmGenerations?.join(",") !==
       timerGenerations ||
@@ -4458,9 +4525,11 @@ export function validateCurrentCheckpoint(manifest) {
       ",",
     ) !== timerPacingDelayMilliseconds ||
     bgiBrowserEvidence.waitForSingleObjectExPacingTimerIds?.join(",") !==
-      (user32AsyncKeyStateInitialScanContinuationActive
-        ? "2,1"
-        : timerRepeatedTwos) ||
+      (runtimeThreadStackGrowthActive
+        ? "2,2"
+        : user32AsyncKeyStateInitialScanContinuationActive
+          ? "2,1"
+          : timerRepeatedTwos) ||
     bgiBrowserEvidence.waitForSingleObjectExPacingTargetTimes100ns?.join(
       ",",
     ) !== timerDeadlines ||
@@ -19330,7 +19399,9 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (user32IsIconicActive
+      (runtimeThreadStackGrowthActive
+        ? "Rust-owned current-selected-thread stack guard growth with per-thread identity validation and failure-atomic guest-memory commit"
+        : user32IsIconicActive
         ? "Rust-owned IsIconic query derived from the logical window effective style without duplicating minimized-state authority"
         : user32PeekMessageAActive
         ? "Rust-owned current-thread unfiltered PeekMessageA queue inspection with failure-atomic guest MSG publication and optional removal"
@@ -22285,7 +22356,11 @@ export function validateCurrentCheckpoint(manifest) {
           present: 2,
           textureLockRect: 1,
           textureUnlockRect: 1,
-          testCooperativeLevel: user32IsIconicActive ? 3 : 1,
+          testCooperativeLevel: runtimeThreadStackGrowthActive
+            ? 4
+            : user32IsIconicActive
+              ? 3
+              : 1,
         },
         nextSubsystemGateway: user32PeekMessageAActive
           ? null
@@ -22339,11 +22414,23 @@ export function validateCurrentCheckpoint(manifest) {
       }
       if (
         bgiBrowserEvidence.d3d9TestCooperativeLevelCompletions !==
-          (user32IsIconicActive ? 3 : 1) ||
+          (runtimeThreadStackGrowthActive
+            ? 4
+            : user32IsIconicActive
+              ? 3
+              : 1) ||
         latestEvidence.d3d9TestCooperativeLevelNodeCompletions !==
-          (user32IsIconicActive ? 3 : 1) ||
+          (runtimeThreadStackGrowthActive
+            ? 4
+            : user32IsIconicActive
+              ? 3
+              : 1) ||
         latestEvidence.d3d9TestCooperativeLevelChromeCompletions !==
-          (user32IsIconicActive ? 3 : 1)
+          (runtimeThreadStackGrowthActive
+            ? 4
+            : user32IsIconicActive
+              ? 3
+              : 1)
       ) {
         errors.push("TestCooperativeLevel completion counts are invalid");
       }
@@ -22380,9 +22467,17 @@ export function validateCurrentCheckpoint(manifest) {
             evidence.peekMessageAFilteredRetrievalImplemented !== false ||
             evidence.peekMessageACrossThreadRetrievalImplemented !== false ||
             evidence.peekMessageANodeCompletions !==
-              (user32IsIconicActive ? 3 : 1) ||
+              (runtimeThreadStackGrowthActive
+                ? 4
+                : user32IsIconicActive
+                  ? 3
+                  : 1) ||
             evidence.peekMessageAChromeCompletions !==
-              (user32IsIconicActive ? 3 : 1) ||
+              (runtimeThreadStackGrowthActive
+                ? 4
+                : user32IsIconicActive
+                  ? 3
+                  : 1) ||
             evidence.peekMessageANodeChromeOrderedSemanticsMatched !== true
           ) {
             errors.push(`${label} PeekMessageA evidence is invalid`);
@@ -22528,7 +22623,80 @@ export function validateCurrentCheckpoint(manifest) {
           ) {
             errors.push("native IsIconic evidence is invalid");
           }
-          if (
+          if (runtimeThreadStackGrowthActive) {
+            for (const [label, evidence] of [
+              ["browser BGI", bgiBrowserEvidence],
+              ["latest", latestEvidence],
+            ]) {
+              if (
+                evidence.threadStackGrowthAuthority !==
+                  "rust-runtime-thread-registry-and-guest-memory" ||
+                evidence.threadStackGrowthSelection !==
+                  "current-scheduler-thread" ||
+                evidence.threadStackGrowthKind !== "thread-stack-growth" ||
+                evidence.threadStackGrowthCount !== 11 ||
+                evidence.initialThreadStackGrowths !== 6 ||
+                evidence.apiCreatedThreadStackGrowths !== 5 ||
+                evidence.apiCreatedThreadId !== 8_193 ||
+                evidence.apiCreatedThreadStackAddressAllocationId !== 57 ||
+                evidence.apiCreatedThreadStackMemoryOwner !== 27 ||
+                evidence.apiCreatedThreadStackGrowthInstructionCounts?.join(",") !==
+                  "148787159,148787164,148787169,148787174,148787206" ||
+                evidence.apiCreatedThreadStackCommittedPages?.join(",") !==
+                  "2,3,4,5,6" ||
+                evidence.apiCreatedThreadStackFaultAddresses?.join(",") !==
+                  "0x500fe000,0x500fd000,0x500fc000,0x500fb000,0x500fa000" ||
+                evidence.apiCreatedThreadStackNextGuardPage !==
+                  "0x500f9000" ||
+                evidence.threadStackGrowthFailureAtomicity !== true ||
+                evidence.threadStackGrowthWrongThreadRejectedBeforeMutation !==
+                  true ||
+                evidence.threadStackGrowthStaleGuardRejectedBeforeMutation !==
+                  true ||
+                evidence.threadStackGrowthUnsynchronizedMemoryRejectedBeforeMutation !==
+                  true ||
+                evidence.threadStackGrowthBrowserIdentityAuthority !==
+                  "non-owning-rust-correlation" ||
+                evidence.apiGuestWriteInlineSerializationMaxBytes !== 65_536 ||
+                evidence.largeReadSequence !== 158_093 ||
+                evidence.largeReadSourceId !== 1 ||
+                evidence.largeReadObjectId !== 3 ||
+                evidence.largeReadOffset !== 3_354_636 ||
+                evidence.largeReadRequestedBytes !== 385_924 ||
+                evidence.largeReadTransferredBytes !== 385_924 ||
+                evidence.largeReadGuestAddress !== "0x3f794e78" ||
+                evidence.largeReadContentSha256 !==
+                  "5fa61ad41f6084a78d3be10ce8e6f5a3835ae6a856b2bc93946bb5ba0bdc36de" ||
+                evidence.largeReadCompactGuestWrite !== true ||
+                evidence.largeReadControlFrameWithinBounds !== true ||
+                evidence.apiGuestWriteSemanticBytesRetainedInRust !== true ||
+                evidence.apiGuestWriteBinaryDeltaAuthority !==
+                  "rust-guest-memory-binary-delta"
+              ) {
+                errors.push(`${label} current-thread stack-growth evidence is invalid`);
+              }
+            }
+            if (
+              currentStop.kind !== "execution-budget" ||
+              currentStop.nextCheckpoint !==
+                "runtime-trapless-execution-budget" ||
+              currentStop.pausedHistoricalCheckpoint !==
+                "runtime-thread-stack-growth" ||
+              currentStop.instructionCount !== 266_703_249 ||
+              currentStop.capabilityCluster !==
+                "guest-execution-instruction-budget" ||
+              currentStop.reason !== "instruction-budget-exhausted" ||
+              currentStop.endpoint !== null ||
+              currentStop.fault?.class !== "resource-limit" ||
+              currentStop.fault?.stage !== "guest-execution" ||
+              currentStop.fault?.code !== "instruction-budget-exhausted" ||
+              currentStop.fault?.instructionPointer !== "0x1005f640" ||
+              currentStop.fault?.previousInstructionPointer !== "0x1005f64d" ||
+              currentStop.fault?.maximumAdditionalInstructions !== 40_000_000
+            ) {
+              errors.push("current-thread stack-growth continuation stop is invalid");
+            }
+          } else if (
             currentStop.kind !== "execution-fault" ||
             currentStop.nextCheckpoint !== "runtime-thread-stack-growth" ||
             currentStop.pausedHistoricalCheckpoint !== "user32-is-iconic" ||
@@ -23550,6 +23718,38 @@ export function validateCurrentCheckpoint(manifest) {
     if (next.endpointKind !== "com-method" || next.vtableSlot < 0) {
       errors.push("nextStructuredStop COM method identity is inconsistent");
     }
+  } else if (next.kind === "execution-budget") {
+    if (next.endpoint !== null) {
+      errors.push(
+        "nextStructuredStop.endpoint must be null for an execution budget stop",
+      );
+    }
+    const fault = requireRecord(next.fault, "nextStructuredStop.fault", errors);
+    for (const field of ["class", "stage", "code"]) {
+      requireString(fault[field], `nextStructuredStop.fault.${field}`, errors);
+    }
+    for (const field of ["instructionPointer", "previousInstructionPointer"]) {
+      if (typeof fault[field] !== "string" || !HEX32.test(fault[field])) {
+        errors.push(
+          `nextStructuredStop.fault.${field} must be a 32-bit hex string`,
+        );
+      }
+    }
+    requireInteger(
+      fault.maximumAdditionalInstructions,
+      "nextStructuredStop.fault.maximumAdditionalInstructions",
+      errors,
+      1,
+    );
+    if (
+      fault.class !== "resource-limit" ||
+      fault.stage !== "guest-execution" ||
+      fault.code !== next.reason
+    ) {
+      errors.push(
+        "nextStructuredStop execution budget identity is inconsistent",
+      );
+    }
   } else if (next.kind === "execution-fault") {
     if (next.endpoint !== null) {
       errors.push(
@@ -23587,7 +23787,7 @@ export function validateCurrentCheckpoint(manifest) {
     }
   } else {
     errors.push(
-      "nextStructuredStop.kind must be capability-checkpoint, api-endpoint, com-method, or execution-fault",
+      "nextStructuredStop.kind must be capability-checkpoint, api-endpoint, com-method, execution-budget, or execution-fault",
     );
   }
 
@@ -23615,6 +23815,24 @@ export function validateCurrentCheckpoint(manifest) {
     ) {
       errors.push(
         "browser BGI execution-fault summary must match nextStructuredStop",
+      );
+    }
+  }
+  if (next.kind === "execution-budget") {
+    const expectedFault = next.fault ?? {};
+    if (
+      bgiBrowserEvidence.nextEndpoint !== null ||
+      bgiBrowserEvidence.nextInstructionPointer !==
+        expectedFault.instructionPointer ||
+      bgiBrowserEvidence.nextPreviousInstructionPointer !==
+        expectedFault.previousInstructionPointer ||
+      bgiBrowserEvidence.nextFaultAddress !== null ||
+      bgiBrowserEvidence.nextPageFaultErrorCode !== null ||
+      bgiBrowserEvidence.nextMaximumAdditionalInstructions !==
+        expectedFault.maximumAdditionalInstructions
+    ) {
+      errors.push(
+        "browser BGI execution-budget summary must match nextStructuredStop",
       );
     }
   }
@@ -23690,6 +23908,10 @@ export function renderReadmeStatus(manifest) {
         `by instruction ${next.completion.lastCompletionInstructionCount}; verification stopped at ` +
         `\`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +
         `(\`${next.reason}\`)`
+      : next.kind === "execution-budget"
+        ? `\`${next.capabilityCluster}\` at instruction ${next.instructionCount}: ` +
+          `\`${next.reason}\` at EIP \`${next.fault.instructionPointer}\` after ` +
+          `${next.fault.maximumAdditionalInstructions.toLocaleString("en-US")} bounded instructions`
       : next.kind === "execution-fault"
         ? `\`${next.capabilityCluster}\` at instruction ${next.instructionCount}: ` +
           `\`${next.reason}\` at \`${next.fault.faultAddress}\``

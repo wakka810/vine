@@ -70,6 +70,7 @@ import {
   type BridgeOutput,
   type CpuResume,
   type PreparedMetadata,
+  type RuntimeThreadStackMetadata,
   RuntimeBridge,
 } from "./runtime-bridge.js";
 import {
@@ -88,6 +89,7 @@ const worker = self as DedicatedWorkerGlobalScope;
 const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
 const BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 64;
 const MAX_PENDING_KEYBOARD_EVENTS = 256;
+const RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS = 40_000_000;
 const USER32_ASYNC_KEY_STATE_INITIAL_SCAN_VIRTUAL_KEYS = [
   14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99, 52, 100,
   53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17, 1, 2, 4, 5, 6,
@@ -389,7 +391,13 @@ function isUser32PeekMessageA(
 function isUser32IsIconic(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "user32-is-iconic";
+  return profile === "user32-is-iconic" || isRuntimeThreadStackGrowth(profile);
+}
+
+function isRuntimeThreadStackGrowth(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "runtime-thread-stack-growth";
 }
 
 function d3d9CompatibilityPolicyId(
@@ -475,9 +483,16 @@ interface CreatedThreadMetadata {
     id: number;
     lifecycle: { state: "running" };
     stack?: {
-      threadId: number;
-      initialStackPointer: number;
-      returnSentinel: number;
+      threadId: RuntimeThreadStackMetadata["threadId"];
+      addressAllocationId: RuntimeThreadStackMetadata["addressAllocationId"];
+      memoryOwner: RuntimeThreadStackMetadata["memoryOwner"];
+      reservedRange: RuntimeThreadStackMetadata["reservedRange"];
+      committedRange: RuntimeThreadStackMetadata["committedRange"];
+      guardPage?: RuntimeThreadStackMetadata["guardPage"];
+      committedPages: RuntimeThreadStackMetadata["committedPages"];
+      stackTop: RuntimeThreadStackMetadata["stackTop"];
+      initialStackPointer: RuntimeThreadStackMetadata["initialStackPointer"];
+      returnSentinel: RuntimeThreadStackMetadata["returnSentinel"];
     };
     environment?: {
       threadId: number;
@@ -735,8 +750,8 @@ interface CallbackCompletionMetadata {
   resumedThread?: ResumedThreadMetadata;
 }
 
-interface InitialThreadStackGrowthMetadata {
-  kind: "initial-thread-stack-growth";
+interface ThreadStackGrowthMetadata {
+  kind: "thread-stack-growth";
   growth: {
     threadId: number;
     addressAllocationId: number;
@@ -758,8 +773,8 @@ interface PageFaultResolvedMetadata {
   kind: "page-fault-resolved";
   resolution:
     | {
-        kind: "initial-thread-stack-growth";
-        growth: InitialThreadStackGrowthMetadata["growth"];
+        kind: "thread-stack-growth";
+        growth: ThreadStackGrowthMetadata["growth"];
       }
     | {
         kind: "private-heap-page-materialization";
@@ -960,7 +975,9 @@ class BrowserRuntimeSession {
   #initialThreadId = 0;
   #currentThreadId = 0;
   #liveThreadId: number | null = null;
+  #instructionsSinceOwnedStop = 0;
   readonly #threadContexts = new Map<number, ExecutionCpuContext>();
+  readonly #threadStacks = new Map<number, RuntimeThreadStackMetadata>();
   readonly #threadResumeStates = new Map<number, "ready" | "guest-callback">();
   readonly #threadExecutionStates = new Map<
     number,
@@ -1474,6 +1491,7 @@ class BrowserRuntimeSession {
             !allocation.executable,
           "BGI process stack allocation policy mismatch",
         );
+        this.#threadStacks.set(stack.threadId, structuredClone(stack));
       }
       const reflection = decodeReflection(
         preparedOutput.control,
@@ -2941,17 +2959,41 @@ class BrowserRuntimeSession {
       }
       const sliceState = this.#execution.state();
       const sliceStartedAt = performance.now();
-      const slice = engine.executeBudget(this.#configuration.instructionBudget);
+      const createdThreadStackGrowthObserved = this.#report.stackGrowths.some(
+        ({ threadId }) => threadId !== this.#initialThreadId,
+      );
+      const remainingTraplessInstructions =
+        isRuntimeThreadStackGrowth(this.#configuration.capabilityProfile) &&
+        createdThreadStackGrowthObserved
+          ? RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS -
+            this.#instructionsSinceOwnedStop
+          : this.#configuration.instructionBudget;
+      const slice = engine.executeBudget(
+        Math.min(
+          this.#configuration.instructionBudget,
+          remainingTraplessInstructions,
+        ),
+      );
       this.#report.maximumSliceMilliseconds = Math.max(
         this.#report.maximumSliceMilliseconds,
         performance.now() - sliceStartedAt,
       );
       this.#report.instructions += slice.instructions;
+      this.#instructionsSinceOwnedStop += slice.instructions;
       this.#report.slices += 1;
       this.#reconcileDirtyPages();
       this.#checkWatchdog();
 
       if (slice.stop.kind === "budget-yield") {
+        if (
+          isRuntimeThreadStackGrowth(this.#configuration.capabilityProfile) &&
+          createdThreadStackGrowthObserved &&
+          this.#instructionsSinceOwnedStop ===
+            RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS
+        ) {
+          this.#completeInstructionBudgetStructuredStop(slice.context);
+          continue;
+        }
         const resumeState =
           sliceState === "running" ? "ready" : "guest-callback";
         this.#execution.transition("budget-yield", {
@@ -2976,6 +3018,7 @@ class BrowserRuntimeSession {
         });
         continue;
       }
+      this.#instructionsSinceOwnedStop = 0;
 
       if (
         slice.stop.kind === "fault" &&
@@ -2992,7 +3035,7 @@ class BrowserRuntimeSession {
         });
         if (slice.stop.fault === "page-fault") {
           if (
-            isUser32IsIconic(this.#configuration.capabilityProfile) &&
+            this.#configuration.capabilityProfile === "user32-is-iconic" &&
             this.#report.isIconic?.calls.length === 3
           ) {
             this.#completeExecutionStructuredStop(slice.stop, slice.context);
@@ -3953,10 +3996,15 @@ class BrowserRuntimeSession {
       stackPointerBefore: frame.stackPointer,
       stackPointerAfter: completion.stackPointer,
       lastError: completion.lastError,
-      guestWrites: guestWrites.map(({ write }) => ({
-        address: write.address,
-        bytes: write.bytes,
-      })),
+      guestWrites: guestWrites.map(({ write }) =>
+        "bytes" in write
+          ? { address: write.address, bytes: write.bytes }
+          : {
+              address: write.address,
+              byteLength: write.byteLength,
+              contentSha256: write.contentSha256,
+            },
+      ),
       ...(completion.executionBoundary === undefined
         ? {}
         : { executionBoundary: completion.executionBoundary }),
@@ -4306,6 +4354,7 @@ class BrowserRuntimeSession {
           completion.lastError === 0 &&
           call.guestWrites.length === 1 &&
           paintWrite?.address === paintStructAddress &&
+          "bytes" in paintWrite &&
           paintWrite.bytes.length ===
             BGI_UPDATE_WINDOW_PAINT_STRUCT_BYTES.length &&
           paintWrite.bytes.every(
@@ -4616,6 +4665,7 @@ class BrowserRuntimeSession {
           completion.lastError === 0 &&
           guestWrites.length === 1 &&
           guestWrites[0]?.write.address === output &&
+          "bytes" in guestWrites[0].write &&
           guestWrites[0].write.bytes.length === expectedBytes.length &&
           guestWrites[0].write.bytes.every(
             (byte, index) => byte === expectedBytes[index],
@@ -5617,6 +5667,7 @@ class BrowserRuntimeSession {
           call.objectRetired === false &&
           call.guestWrites.length === 1 &&
           call.guestWrites[0]?.address === 0x006f_f8c4 &&
+          "bytes" in call.guestWrites[0] &&
           call.guestWrites[0].bytes.join(",") === "0,32,0,0,0,16,0,68" &&
           texture?.id === 7 &&
           texture.namespace === "vine.logical-graphics-texture.v1" &&
@@ -6417,6 +6468,7 @@ class BrowserRuntimeSession {
         call.objectRetired === false &&
         call.guestWrites.length === 1 &&
         write?.address === call.arguments[2] &&
+        "bytes" in write &&
         write.bytes.length === 8 &&
         write.bytes.every(
           (byte, index) => byte === [0, 0, 0, 0, 0x37, 0x04, 0, 0][index],
@@ -6844,6 +6896,7 @@ class BrowserRuntimeSession {
           call.lastError === 0 &&
           call.guestWrites.length === 1 &&
           call.guestWrites[0]?.address === output &&
+          "bytes" in call.guestWrites[0] &&
           byteArraysEqual(call.guestWrites[0].bytes, expectedBytes),
         `GetWindowRect initial-scan prerequisite changed: ${JSON.stringify(call)}`,
       );
@@ -6877,6 +6930,7 @@ class BrowserRuntimeSession {
           call.lastError === 0 &&
           call.guestWrites.length === 1 &&
           call.guestWrites[0]?.address === output &&
+          "bytes" in call.guestWrites[0] &&
           byteArraysEqual(call.guestWrites[0].bytes, expectedBytes) &&
           cursor !== undefined,
         `GetCursorPos initial-scan prerequisite changed: ${JSON.stringify({ call, cursor })}`,
@@ -7033,6 +7087,7 @@ class BrowserRuntimeSession {
           call.lastError === 0 &&
           call.guestWrites.length === 1 &&
           call.guestWrites[0]?.address === 0x006f_f8cc &&
+          "bytes" in call.guestWrites[0] &&
           call.guestWrites[0]?.bytes.join(",") ===
             "0,0,0,0,0,0,0,0,0,5,0,0,208,2,0,0",
         `initial-scan continuation SetRect ABI changed: ${JSON.stringify(call)}`,
@@ -7058,6 +7113,7 @@ class BrowserRuntimeSession {
         call.lastError === 0 &&
         call.guestWrites.length === 1 &&
         call.guestWrites[0]?.address === 0x006f_f29c &&
+        "bytes" in call.guestWrites[0] &&
         call.guestWrites[0]?.bytes.join(",") ===
           "0,0,0,0,0,0,0,0,0,5,0,0,208,2,0,0",
       "SetRect ABI or atomic RECT output changed",
@@ -7108,7 +7164,7 @@ class BrowserRuntimeSession {
 
   #servicePageFault(
     stop: Extract<ExecutionStop, { kind: "fault" }>,
-  ): "initial-stack-growth" | "private-heap-page-materialization" | null {
+  ): "thread-stack-growth" | "private-heap-page-materialization" | null {
     invariant(
       stop.fault === "page-fault",
       "page-fault service requires a page fault",
@@ -7144,7 +7200,7 @@ class BrowserRuntimeSession {
 
     const resolution = metadata.resolution;
     const resolvedFault =
-      resolution.kind === "initial-thread-stack-growth"
+      resolution.kind === "thread-stack-growth"
         ? resolution.growth
         : resolution.materialization;
     invariant(
@@ -7208,20 +7264,27 @@ class BrowserRuntimeSession {
       "page-fault page ownership or protection mismatch",
     );
 
-    if (resolution.kind === "initial-thread-stack-growth") {
+    let grownThreadStack: RuntimeThreadStackMetadata | undefined;
+    if (resolution.kind === "thread-stack-growth") {
       const growth = resolution.growth;
       invariant(
         growth.threadId === this.#currentThreadId,
         "stack growth belongs to the wrong thread",
       );
-      const preparedStack = this.#requirePrepared().initialThreadStack;
+      const currentStack = this.#threadStacks.get(this.#currentThreadId);
       invariant(
-        preparedStack !== undefined,
-        "prepared stack identity is unavailable",
+        currentStack !== undefined,
+        "current thread stack identity is unavailable",
       );
       invariant(
-        growth.addressAllocationId === preparedStack.addressAllocationId &&
-          growth.memoryOwner === preparedStack.memoryOwner,
+        growth.addressAllocationId === currentStack.addressAllocationId &&
+          growth.memoryOwner === currentStack.memoryOwner &&
+          currentStack.guardPage !== undefined &&
+          growth.committedPage.start === currentStack.guardPage.start &&
+          growth.committedPage.byteLength === currentStack.guardPage.byteLength &&
+          growth.previousGuardPage.start === currentStack.guardPage.start &&
+          growth.previousGuardPage.byteLength === currentStack.guardPage.byteLength &&
+          growth.committedPages === currentStack.committedPages + 1,
         "stack growth authority identity changed",
       );
       invariant(
@@ -7230,6 +7293,7 @@ class BrowserRuntimeSession {
       );
       this.#report.stackGrowths.push({
         instructionCount: this.#report.instructions,
+        threadId: growth.threadId,
         faultAddress: growth.faultAddress,
         pageFaultErrorCode: growth.pageFaultErrorCode,
         addressAllocationId: growth.addressAllocationId,
@@ -7243,6 +7307,19 @@ class BrowserRuntimeSession {
         fromGeneration: metadata.fromGeneration,
         generation: metadata.generation,
       });
+      grownThreadStack = {
+        ...currentStack,
+        committedRange: {
+          start: growth.committedPage.start,
+          byteLength:
+            currentStack.committedRange.byteLength +
+            growth.committedPage.byteLength,
+        },
+        ...(growth.nextGuardPage === undefined
+          ? { guardPage: undefined }
+          : { guardPage: growth.nextGuardPage }),
+        committedPages: growth.committedPages,
+      };
     } else {
       const materialization = resolution.materialization;
       invariant(
@@ -7269,8 +7346,11 @@ class BrowserRuntimeSession {
     this.#report.mappingOperations.commit += 1;
     this.#report.mappingDirtyPages += 1;
     this.#applyAuthoritativeDelta(delta);
-    return resolution.kind === "initial-thread-stack-growth"
-      ? "initial-stack-growth"
+    if (grownThreadStack !== undefined) {
+      this.#threadStacks.set(grownThreadStack.threadId, grownThreadStack);
+    }
+    return resolution.kind === "thread-stack-growth"
+      ? "thread-stack-growth"
       : "private-heap-page-materialization";
   }
 
@@ -7291,23 +7371,23 @@ class BrowserRuntimeSession {
       stop.faultAddress !== undefined,
       "execution fault omitted its guest address",
     );
+    const currentStack = this.#threadStacks.get(this.#currentThreadId);
     const stackRegion =
       stop.fault === "page-fault"
-        ? prepared.regions.find(
-            ({ kind, range }) =>
-              kind === "stack" &&
-              ((stop.faultAddress! >= range.start &&
-                stop.faultAddress! < range.start + range.byteLength) ||
-                (range.start >= 0x1000 &&
-                  stop.faultAddress === range.start - 0x1000)),
-          )
+        ? currentStack !== undefined &&
+          stop.faultAddress >= currentStack.reservedRange.start &&
+          stop.faultAddress <
+            currentStack.reservedRange.start +
+              currentStack.reservedRange.byteLength
+          ? currentStack
+          : undefined
         : undefined;
     const capabilityCluster =
       stop.fault === "execute-protection"
         ? "guest-memory-execute-protection"
         : stackRegion === undefined
           ? "guest-memory-page-fault"
-          : "initial-thread-stack-growth";
+          : "thread-stack-growth";
     const reflection =
       this.#requireBridge().currentReflection<CurrentReflectionMetadata>()
         .metadata;
@@ -7346,6 +7426,55 @@ class BrowserRuntimeSession {
     this.#cancelAndFinish(
       "structured-stop",
       "Execution stop retired the private runtime",
+      null,
+    );
+  }
+
+  #completeInstructionBudgetStructuredStop(
+    context: ExecutionCpuContext,
+  ): void {
+    invariant(
+      this.#requirePrepared().workload === "private-bgi" &&
+        isRuntimeThreadStackGrowth(this.#configuration.capabilityProfile) &&
+        this.#report.stackGrowths.some(
+          ({ threadId }) => threadId !== this.#initialThreadId,
+        ) &&
+        this.#instructionsSinceOwnedStop ===
+          RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS,
+      "instruction-budget stop occurred outside current-thread stack continuation",
+    );
+    const reflection =
+      this.#requireBridge().currentReflection<CurrentReflectionMetadata>()
+        .metadata;
+    invariant(
+      reflection.kind === "current-reflection" &&
+        reflection.generation === Number(this.#generation) &&
+        reflection.acknowledgedGeneration === Number(this.#generation) &&
+        /^[0-9a-f]{64}$/.test(reflection.contentSha256),
+      "instruction-budget stop memory evidence is invalid",
+    );
+    this.#report.firstUnsupported = {
+      capabilityCluster: "guest-execution-instruction-budget",
+      endpoint: null,
+      fault: {
+        class: "resource-limit",
+        stage: "guest-execution",
+        code: "instruction-budget-exhausted",
+        message:
+          `guest execution reached the bounded ${RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS}-instruction ` +
+          `window at 0x${context.instructionPointer.toString(16)}`,
+        instructionPointer: context.instructionPointer,
+        previousInstructionPointer: context.previousInstructionPointer,
+        maximumAdditionalInstructions:
+          RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS,
+      },
+      instructionCount: this.#report.instructions,
+      memoryContentSha256: reflection.contentSha256,
+    };
+    this.#completeInitialScanContinuationReport();
+    this.#cancelAndFinish(
+      "structured-stop",
+      "Instruction-budget stop retired the private runtime",
       null,
     );
   }
@@ -7521,6 +7650,19 @@ class BrowserRuntimeSession {
         environment !== undefined &&
         bootstrap !== undefined &&
         stack.threadId === thread.id &&
+        Number.isInteger(stack.addressAllocationId) &&
+        stack.addressAllocationId > 0 &&
+        Number.isInteger(stack.memoryOwner) &&
+        stack.memoryOwner > 0 &&
+        stack.reservedRange.start + stack.reservedRange.byteLength ===
+          stack.stackTop &&
+        stack.committedRange.start + stack.committedRange.byteLength ===
+          stack.stackTop &&
+        stack.guardPage !== undefined &&
+        stack.guardPage.start + stack.guardPage.byteLength ===
+          stack.committedRange.start &&
+        stack.committedRange.byteLength === stack.committedPages * 0x1000 &&
+        !this.#threadStacks.has(thread.id) &&
         environment.threadId === thread.id &&
         bootstrap.threadId === thread.id &&
         bootstrap.initialStackPointer === stack.initialStackPointer &&
@@ -7542,6 +7684,7 @@ class BrowserRuntimeSession {
         fsBase: bootstrap.fsBase,
       }),
     );
+    this.#threadStacks.set(thread.id, structuredClone(stack));
     this.#threadExecutionStates.set(thread.id, "ready");
     this.#report.registeredThreadIds.push(thread.id);
   }
@@ -7723,6 +7866,7 @@ class BrowserRuntimeSession {
           }),
     });
     this.#threadContexts.delete(threadId);
+    this.#threadStacks.delete(threadId);
     this.#threadResumeStates.delete(threadId);
     this.#threadExecutionStates.delete(threadId);
     this.#liveThreadId = null;
@@ -8842,8 +8986,12 @@ class BrowserRuntimeSession {
             update.endPaint.paint.livePaintSessions === 0 &&
             update.endPaint.paint.liveDeviceContexts === 0 &&
             firstUnsupported?.capabilityCluster ===
-              (isUser32IsIconic(this.#configuration.capabilityProfile)
-                ? "guest-memory-page-fault"
+              (isRuntimeThreadStackGrowth(
+                this.#configuration.capabilityProfile,
+              )
+                ? "guest-execution-instruction-budget"
+                : isUser32IsIconic(this.#configuration.capabilityProfile)
+                  ? "guest-memory-page-fault"
                 : isUser32AsyncKeyStateInitialScanContinuation(
                 this.#configuration.capabilityProfile,
               )
@@ -9324,6 +9472,7 @@ class BrowserRuntimeSession {
             setRect.stackPointerBefore === 0x006f_f8a8 &&
             setRect.stackPointerAfter === 0x006f_f8c0 &&
             setRect.guestWrites[0]?.address === 0x006f_f8cc &&
+            "bytes" in setRect.guestWrites[0] &&
             setRect.guestWrites[0].bytes.join(",") ===
               "0,0,0,0,0,0,0,0,0,5,0,0,208,2,0,0" &&
             JSON.stringify(continuation.renderCompletionCounts) ===
@@ -9492,7 +9641,7 @@ class BrowserRuntimeSession {
         );
       }
       if (
-        isUser32IsIconic(this.#configuration.capabilityProfile) &&
+        this.#configuration.capabilityProfile === "user32-is-iconic" &&
         terminal.outcome === "structured-stop"
       ) {
         const peek = this.#report.peekMessageA;
@@ -9568,6 +9717,113 @@ class BrowserRuntimeSession {
               this.#waitForSingleObjectExCompletions,
             pacing,
           })}`,
+        );
+      }
+      if (
+        isRuntimeThreadStackGrowth(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "structured-stop"
+      ) {
+        const peek = this.#report.peekMessageA;
+        const iconic = this.#report.isIconic;
+        const continuation = this.#report.initialScanContinuation;
+        const createdThreadGrowths = this.#report.stackGrowths.filter(
+          (growth) => growth.threadId === 8_193,
+        );
+        const firstGrowth = createdThreadGrowths[0];
+        const lastGrowth = createdThreadGrowths.at(-1);
+        const sourceReads = this.#report.sourceReads;
+        const lastSourceRead = sourceReads.at(-1);
+        const stop = this.#report.firstUnsupported;
+        const fault = stop?.fault as
+          | {
+              class?: string;
+              stage?: string;
+              code?: string;
+              instructionPointer?: number;
+              previousInstructionPointer?: number;
+              maximumAdditionalInstructions?: number;
+            }
+          | undefined;
+        const pacing = this.#timerPacing.metrics();
+        invariant(
+          this.#report.supportedCallCount === 158_098 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "c795f34a0a893523c0e92382635fd51c5a386ff51ff9f614d90b642581559fce" &&
+            this.#report.checkpointCompletion === null &&
+            continuation?.nextSubsystemGateway === null &&
+            continuation.renderCompletionCounts.testCooperativeLevel === 4 &&
+            peek?.calls.length === 4 &&
+            peek.calls.map((call) => call.sequence).join(",") ===
+              "148296,148353,148474,148599" &&
+            iconic?.calls.length === 3 &&
+            iconic.calls.map((call) => call.sequence).join(",") ===
+              "148305,148426,148483" &&
+            createdThreadGrowths.length === 5 &&
+            createdThreadGrowths
+              .map((growth) => growth.instructionCount)
+              .join(",") ===
+              "148787159,148787164,148787169,148787174,148787206" &&
+            createdThreadGrowths.every(
+              (growth) =>
+                growth.addressAllocationId === 57 &&
+                growth.memoryOwner === 27 &&
+                growth.generation === growth.fromGeneration + 1,
+            ) &&
+            firstGrowth?.faultAddress === 0x500f_e000 &&
+            firstGrowth.committedPage.start === 0x500f_e000 &&
+            firstGrowth.nextGuardPage?.start === 0x500f_d000 &&
+            firstGrowth.committedPages === 2 &&
+            lastGrowth?.faultAddress === 0x500f_a000 &&
+            lastGrowth.committedPage.start === 0x500f_a000 &&
+            lastGrowth.nextGuardPage?.start === 0x500f_9000 &&
+            lastGrowth.committedPages === 6 &&
+            sourceReads.length === 86 &&
+            sourceReads.filter((read) => read.request.sourceId === 1).length ===
+              82 &&
+            lastSourceRead?.request.sourceId === 1 &&
+            lastSourceRead.request.objectId === 3 &&
+            lastSourceRead.request.offset === 3_354_636 &&
+            lastSourceRead.request.requestedBytes === 385_924 &&
+            lastSourceRead.succeeded === true &&
+            lastSourceRead.transferredBytes === 385_924 &&
+            lastSourceRead.cursorAfter === 3_740_560 &&
+            lastSourceRead.contentSha256 ===
+              "5fa61ad41f6084a78d3be10ce8e6f5a3835ae6a856b2bc93946bb5ba0bdc36de" &&
+            stop?.instructionCount === 266_703_249 &&
+            stop.memoryContentSha256 ===
+              "0719c6c7b1019e1b61eca9811ab475cef68130698bf1ea36499f8f8ca7024e7f" &&
+            stop.capabilityCluster ===
+              "guest-execution-instruction-budget" &&
+            stop.endpoint === null &&
+            fault?.class === "resource-limit" &&
+            fault.stage === "guest-execution" &&
+            fault.code === "instruction-budget-exhausted" &&
+            fault.instructionPointer === 0x1005_f640 &&
+            fault.previousInstructionPointer === 0x1005_f64d &&
+            fault.maximumAdditionalInstructions === 40_000_000 &&
+            this.#waitForSingleObjectExCompletions === 11_205 &&
+            pacing.requests === this.#waitForSingleObjectExCompletions &&
+            pacing.completions === this.#waitForSingleObjectExCompletions &&
+            pacing.pending === 0,
+          `current-thread stack growth or instruction-budget stop changed: ${JSON.stringify(
+            {
+              supportedCallCount: this.#report.supportedCallCount,
+              supportedCallSemanticsSha256:
+                this.#report.supportedCallSemanticsSha256,
+              continuation,
+              peek,
+              iconic,
+              createdThreadGrowths,
+              sourceReadCount: sourceReads.length,
+              lastSourceRead,
+              stop,
+              waitForSingleObjectExCompletions:
+                this.#waitForSingleObjectExCompletions,
+              pacing,
+            },
+          )}`,
         );
       }
       if (this.#configuration.evidenceLevel === "full") {

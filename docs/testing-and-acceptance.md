@@ -247,8 +247,13 @@ controlled thread registryの代表Rust contractはsecond TID／typed handle、d
 full state不変、LastError／TLS／callback／scheduler laneの分離、TLS／FLS／callback allocator ownership、
 process／root serialization compatibility、explicit selection、thread-only exit、2 laneのpending work cleanup、
 TID昇順thread signal＋process-last signalを固定する。
-これはCPU context／stack／TEB、guest `CreateThread`、wait queue、last-thread semantics、DLL thread
-callbackの代用ではない。詳細は[runtime-thread-registry.md](runtime-thread-registry.md)を正とする。
+このcontrolled second-thread fixture単独はCPU context／stack／TEB、guest `CreateThread`の代用ではないが、
+別のguest-thread contractがreached `CreateThread`のTID／typed object／stack／TEB／FS／entry frame／suspend-resumeを
+全owner preflight後にpublishする。Per-thread stack contractはcurrent scheduler threadだけを対象に、non-present
+guard faultをzeroed RW／NX commitとthread-local guard movementへ一括適用し、wrong-thread、present PFEC、stale guard、
+unacknowledged memoryをobservable mutation前に拒否する。Node／ChromeはRustのTID／allocation／ownerをnon-owningに
+correlateし、別のWindows stack authorityを持たない。Wait queue、last-thread semantics、DLL thread callback、stack
+overflow／SEH deliveryはなお別contractである。詳細は[runtime-thread-registry.md](runtime-thread-registry.md)を正とする。
 
 Scheduler／wait subsystem unit contractsはprivate lane／event／host-request／request ID allocator and
 registration／object-index／registration ID allocator collections、mutation-free

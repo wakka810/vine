@@ -87,7 +87,7 @@ The version 6 result records:
 The required command uses summary evidence. Node and Chrome independently hash
 the complete guest-visible call stream after sequence ordering, while detailed
 call／writeback／host-delta payloads are retained only by an explicit full
-diagnostic run. Each committed semantic report must remain at or below 2 MiB.
+diagnostic run. Each committed semantic report must remain at or below 4 MiB.
 
 Source fingerprint mismatch, protected dirty input, Node／Chrome semantic digest
 divergence, an oversized summary report, a different structured stop, pending

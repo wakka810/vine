@@ -2,8 +2,8 @@ use vine_core::{
     ExecutionSession, GUEST_PAGE_SIZE, GuestAddress, GuestMemory, MappingOperation, MemoryLimits,
     MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressAllocationPurpose,
     ProcessAddressSpaceLayout, RuntimeBootstrap, RuntimeClockState, RuntimeCreateThreadRequest,
-    RuntimeCurrentDirectoryA, RuntimeHandle, RuntimeObjectKind, RuntimeProcessId,
-    RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
+    RuntimeCurrentDirectoryA, RuntimeHandle, RuntimeObjectKind, RuntimePageFaultResolution,
+    RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
     RuntimeThreadPriority, RuntimeWaitState, SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH,
     install_initial_thread_stack, install_runtime_return_sentinels,
 };
@@ -258,6 +258,120 @@ fn suspended_guest_thread_materializes_stack_teb_handle_and_resumes() {
         retired_stack_address
     );
     assert_eq!(replacement.environment.teb_address, retired_teb_address);
+}
+
+#[test]
+fn current_api_created_thread_grows_only_its_own_stack_guard_atomically() {
+    let (mut memory, mut runtime) = prepared_runtime();
+    let initial_stack = runtime.thread_stack(INITIAL_THREAD_ID).unwrap().clone();
+    let created = runtime
+        .create_guest_thread(
+            &mut memory,
+            RuntimeCreateThreadRequest {
+                stack_reserve_bytes: 0x0010_0000,
+                stack_commit_bytes: GUEST_PAGE_SIZE,
+                entry_point: ENTRY,
+                parameter: 0,
+                thread_id_output: None,
+                initial_suspend_count: 0,
+            },
+        )
+        .expect("create runnable guest thread");
+    let creation_generation = memory
+        .pending_delta()
+        .expect("guest thread creation delta")
+        .generation;
+    memory.acknowledge_delta(creation_generation).unwrap();
+    let guard = created.stack.guard_page.expect("created thread guard page");
+
+    let runtime_before_wrong_thread = runtime.clone();
+    let memory_before_wrong_thread = memory.current_reflection().unwrap();
+    let wrong_thread = runtime
+        .service_page_fault(&mut memory, guard.start(), 4)
+        .expect_err("another thread may not consume the created stack guard");
+    assert_eq!(wrong_thread.code, "guest-page-fault-unhandled");
+    assert_eq!(runtime, runtime_before_wrong_thread);
+    assert_eq!(
+        memory.current_reflection().unwrap(),
+        memory_before_wrong_thread
+    );
+
+    runtime
+        .select_thread(created.thread_id)
+        .expect("select API-created thread");
+    let runtime_before_protection_fault = runtime.clone();
+    let memory_before_protection_fault = memory.current_reflection().unwrap();
+    let protection_fault = runtime
+        .service_page_fault(&mut memory, guard.start(), 5)
+        .expect_err("present-page fault must not grow the stack");
+    assert_eq!(protection_fault.code, "thread-stack-protection-fault");
+    assert_eq!(runtime, runtime_before_protection_fault);
+    assert_eq!(
+        memory.current_reflection().unwrap(),
+        memory_before_protection_fault
+    );
+
+    let growth = match runtime
+        .service_page_fault(&mut memory, GuestAddress(guard.start().0 + 0xd94), 4)
+        .expect("grow the selected API-created thread stack")
+    {
+        RuntimePageFaultResolution::ThreadStackGrowth { growth } => growth,
+        other => panic!("unexpected page-fault resolution: {other:?}"),
+    };
+    assert_eq!(growth.thread_id, created.thread_id);
+    assert_eq!(
+        growth.address_allocation_id,
+        created.stack.address_allocation_id
+    );
+    assert_eq!(growth.memory_owner, created.stack.memory_owner);
+    assert_eq!(growth.committed_page, guard);
+    assert_eq!(growth.previous_guard_page, guard);
+    assert_eq!(growth.committed_pages, 2);
+    assert_eq!(
+        runtime.thread_stack(INITIAL_THREAD_ID).unwrap(),
+        &initial_stack
+    );
+    let grown = runtime.thread_stack(created.thread_id).unwrap();
+    assert_eq!(grown.committed_range.start(), guard.start());
+    assert_eq!(grown.committed_range.byte_length(), 2 * GUEST_PAGE_SIZE);
+    assert_eq!(grown.guard_page, growth.next_guard_page);
+
+    let delta = memory.pending_delta().expect("created thread growth delta");
+    assert_eq!(delta.mapping_operations.len(), 1);
+    assert_eq!(delta.dirty_pages.len(), 1);
+    assert_eq!(delta.dirty_pages[0].address, guard.start());
+    assert_eq!(delta.dirty_pages[0].owner, created.stack.memory_owner);
+    assert!(delta.dirty_pages[0].bytes.iter().all(|byte| *byte == 0));
+    let growth_generation = delta.generation;
+
+    let runtime_before_unsynchronized = runtime.clone();
+    let memory_before_unsynchronized = memory.current_reflection().unwrap();
+    let next_guard = growth.next_guard_page.expect("remaining stack guard");
+    let unsynchronized = runtime
+        .grow_current_thread_stack(&mut memory, next_guard.start(), 4)
+        .expect_err("unacknowledged memory must reject another growth");
+    assert_eq!(
+        unsynchronized.code,
+        "thread-stack-growth-memory-unsynchronized"
+    );
+    assert_eq!(runtime, runtime_before_unsynchronized);
+    assert_eq!(
+        memory.current_reflection().unwrap(),
+        memory_before_unsynchronized
+    );
+    memory.acknowledge_delta(growth_generation).unwrap();
+
+    let runtime_before_stale_guard = runtime.clone();
+    let memory_before_stale_guard = memory.current_reflection().unwrap();
+    let stale_guard = runtime
+        .service_page_fault(&mut memory, guard.start(), 4)
+        .expect_err("a committed former guard must be stale");
+    assert_eq!(stale_guard.code, "guest-page-fault-unhandled");
+    assert_eq!(runtime, runtime_before_stale_guard);
+    assert_eq!(
+        memory.current_reflection().unwrap(),
+        memory_before_stale_guard
+    );
 }
 
 #[test]

@@ -1242,50 +1242,6 @@ impl BrowserRuntime {
         }))
     }
 
-    fn grow_initial_thread_stack(
-        &mut self,
-        fault_address: GuestAddress,
-        page_fault_error_code: u32,
-    ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
-        if !matches!(self.target, BrowserRuntimeTarget::Bgi { .. }) {
-            return Err(
-                "initial thread stack growth is available only to the BGI runtime".to_owned(),
-            );
-        }
-        let growth = match self.runtime.grow_initial_thread_stack(
-            &mut self.memory,
-            fault_address,
-            page_fault_error_code,
-        ) {
-            Ok(growth) => growth,
-            Err(error) => {
-                let stats = self.memory.stats();
-                return Ok((
-                    json!({
-                        "kind": "initial-thread-stack-growth-rejected",
-                        "faultAddress": fault_address.0,
-                        "pageFaultErrorCode": page_fault_error_code,
-                        "error": error,
-                        "memory": stats,
-                    }),
-                    None,
-                ));
-            }
-        };
-        let delta = self.memory.pending_delta().map_err(error_string)?;
-        let metadata = json!({
-            "kind": "initial-thread-stack-growth",
-            "growth": growth,
-            "fromGeneration": delta.from_generation,
-            "generation": delta.generation,
-            "mappingOperations": delta.mapping_operations.iter().map(mapping_operation_name).collect::<Vec<_>>(),
-            "dirtyPages": delta.dirty_pages.len(),
-            "cacheEffects": delta.cache_effects,
-        });
-        let buffers = delta.encode_binary().map_err(error_string)?;
-        Ok((metadata, Some(buffers)))
-    }
-
     fn service_page_fault(
         &mut self,
         fault_address: GuestAddress,
@@ -4472,22 +4428,6 @@ pub extern "C" fn vine_bridge_current_memory_summary() -> u32 {
     run_bridge(|bridge| {
         let metadata = bridge.runtime_mut()?.current_memory_summary()?;
         bridge.set_output(metadata, Vec::new(), Vec::new())
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_grow_initial_thread_stack(
-    fault_address: u32,
-    page_fault_error_code: u32,
-) -> u32 {
-    run_bridge(|bridge| {
-        let (metadata, delta) = bridge
-            .runtime_mut()?
-            .grow_initial_thread_stack(GuestAddress(fault_address), page_fault_error_code)?;
-        let (control, payload) = delta
-            .map(|buffers| (buffers.control, buffers.page_bytes))
-            .unwrap_or_default();
-        bridge.set_output(metadata, control, payload)
     })
 }
 

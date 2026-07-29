@@ -89,6 +89,25 @@ Dynamic threadがentry return sentinelへ到達すると、Rustはexit／signal�
 mappingとaddress allocationをreleaseする。Workerはreturned mapping deltaをmirrorへ適用してCPU contextをretireする。
 Handle closeはobject identityのlast referenceをretireし、released stack／TEB addressは後続creationで再利用できる。
 
+## Per-thread guard growth
+
+Initial threadと`CreateThread`で作られたthreadは同じstack-growth contractを使う。
+`RuntimeKernel::service_page_fault`はRust schedulerのcurrent-thread selectorからstack recordを取得し、
+faultをそのrecordのcurrent guard pageだけに分類する。TID、process address allocation ID、
+GuestMemory owner、reserved range、committed range、guard、generationはRustのthread registry／address
+allocator／GuestMemoryがauthorityであり、fault addressやWorker側のCPU contextから別threadのstackを推測しない。
+
+Growthはrunning lifecycle、non-present PFEC、guard-page membership、allocation／memory-region identity、
+fully acknowledged memory、one-page capacityを全てpreflightする。成功時だけcurrent guardをzeroed RW／NX pageとして
+GuestMemory transactionへcommitし、thread-local committed range／page count／next guardをstale-checked planで更新する。
+Present-page protection fault、wrong-thread guard、stale guard、unsynchronized memory、reserve exhaustionはthread metadata、
+mapping、generationを変更しない。結果はTIDとallocation／owner identityを含む`thread-stack-growth`として返る。
+
+Runtime WorkerのTID-keyed stack mapはRust resultとmapping deltaのcorrelation／diagnostic viewだけである。
+Authoritative deltaをmirrorへ適用した後に同じTID、allocation、owner、guard transitionを確認し、Windows stack stateや
+guard lifetimeの第二の正本にはしない。Stack overflow exception、guard exception delivery、SEH dispatchはこのcontractに
+含まれない。
+
 Reached `GetCurrentThread` uses this same selector. The aggregate verifies the
 selected `RuntimeThreadState` and its `RuntimeObjectKey::Thread`, then returns
 Win32 pseudo value `0xFFFFFFFE` without opening a new typed handle. Selecting the
@@ -98,7 +117,7 @@ the pseudo value and handle-table cardinality. The contract is documented in
 
 ## Thread-local ownership
 
-LastError、logical TLS／FLS value、callback frame stack、initial-thread stack metadata、
+LastError、logical TLS／FLS value、callback frame stack、per-thread stack metadata、
 optional logical affinity mask、optional COM apartment model／successful initialization countは
 TIDごとに分離する。Scheduler stateとpending host requestもTIDへ帰属し、private
 `RuntimeScheduler`が同じplan／commit境界で所有する。
@@ -112,8 +131,8 @@ Collision、limit、ID overflow、scheduler preflight failureはcollection／all
 
 Process-owned clock、startup info、module graph、heapはprocess-wideである。Dynamic endpointとencoded pointer
 identityはprivate `RuntimeRegistries`、TLS／FLS slot identityとcallback-frame IDはprivate `RuntimeThreads`が
-所有する。Initial-thread reserve／commit／guard
-metadataはthread recordへ接続する。CPU register／FPU stateのbinary layoutはexecution-engine adapterに閉じ、
+所有する。Initial-threadとAPI-created-threadのreserve／commit／guard metadataはそれぞれのthread recordへ
+接続する。CPU register／FPU stateのbinary layoutはexecution-engine adapterに閉じ、
 RustのWindows stateへ複製しない。
 
 An unset affinity mask resolves to the compatibility policy's virtual process
@@ -184,7 +203,8 @@ cargo test -p vine-core --test kernel32_thread_dispatcher --locked
 Subsystem unit tests fix mutation-free planning、per-thread value／affinity／COM-apartment isolation、callback／exit ordering、
 TLS／FLS／callback allocator co-commit、collision／limit／overflow rollback、duplicate／zero identity rejection.
 Scheduler tests add thread-scoped host start／completion／cancellation plans. Aggregate tests fix
-object／scheduler／message／wait atomicity、initial-stack GuestMemory coordination and the existing process／root
+object／scheduler／message／wait atomicity、per-thread stack GuestMemory coordination、wrong-thread／stale-guard／
+unsynchronized-memory rejection and the existing process／root
 serialization compatibility view. Current Node／Chrome result、runtime artifact、benchmark、
 next structured stopはこのhistorical foundation文書へ複製せず
 [current checkpoint manifest](current-checkpoint.json)だけを正とする。

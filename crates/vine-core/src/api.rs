@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 
-use serde::Serialize;
+use serde::{Serialize, Serializer, ser::SerializeStruct};
+use sha2::{Digest, Sha256};
 
 use crate::callbacks::{
     CALLBACK_SCRATCH_ARENA_BASE, CALLBACK_SCRATCH_ARENA_SIZE, CALLBACK_SCRATCH_SLOT_SIZE,
@@ -530,11 +532,38 @@ pub enum ApiReturnValue {
     LogicalHandle { namespace: String, value: u32 },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+pub const API_GUEST_WRITE_INLINE_SERIALIZATION_MAX_BYTES: usize = 64 * 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApiGuestWrite {
     pub address: GuestAddress,
     pub bytes: Vec<u8>,
+}
+
+impl Serialize for ApiGuestWrite {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if self.bytes.len() <= API_GUEST_WRITE_INLINE_SERIALIZATION_MAX_BYTES {
+            let mut state = serializer.serialize_struct("ApiGuestWrite", 2)?;
+            state.serialize_field("address", &self.address)?;
+            state.serialize_field("bytes", &self.bytes)?;
+            return state.end();
+        }
+
+        let digest = Sha256::digest(&self.bytes);
+        let mut content_sha256 = String::with_capacity(64);
+        for byte in digest {
+            write!(&mut content_sha256, "{byte:02x}")
+                .expect("writing SHA-256 bytes to a String cannot fail");
+        }
+        let mut state = serializer.serialize_struct("ApiGuestWrite", 3)?;
+        state.serialize_field("address", &self.address)?;
+        state.serialize_field("byteLength", &self.bytes.len())?;
+        state.serialize_field("contentSha256", &content_sha256)?;
+        state.end()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

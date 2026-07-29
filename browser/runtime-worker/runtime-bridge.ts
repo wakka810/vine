@@ -31,8 +31,23 @@ export interface ApiCompletion extends CpuResume {
   readonly lastError: number;
   executionBoundary?: "yield-current-thread";
   guestWrites?: Array<{
-    write: { address: number; bytes: number[] };
+    write:
+      | { address: number; bytes: number[] }
+      | { address: number; byteLength: number; contentSha256: string };
   }>;
+}
+
+export interface RuntimeThreadStackMetadata {
+  threadId: number;
+  addressAllocationId: number;
+  memoryOwner: number;
+  reservedRange: { start: number; byteLength: number };
+  committedRange: { start: number; byteLength: number };
+  guardPage?: { start: number; byteLength: number };
+  committedPages: number;
+  stackTop: number;
+  initialStackPointer: number;
+  returnSentinel: number;
 }
 
 export interface PreparedMetadata {
@@ -44,16 +59,7 @@ export interface PreparedMetadata {
   generation: number;
   stackTop: number;
   initialStackPointer: number;
-  initialThreadStack?: {
-    threadId: number;
-    addressAllocationId: number;
-    memoryOwner: number;
-    reservedRange: { start: number; byteLength: number };
-    committedRange: { start: number; byteLength: number };
-    guardPage?: { start: number; byteLength: number };
-    committedPages: number;
-    stackTop: number;
-  };
+  initialThreadStack?: RuntimeThreadStackMetadata;
   initialStackAddressAllocation?: {
     id: number;
     purpose: { kind: "thread-stack" };
@@ -203,7 +209,6 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   vine_bridge_advance_mapping_fixture(stage: number): number;
   vine_bridge_current_reflection(): number;
   vine_bridge_current_memory_summary(): number;
-  vine_bridge_grow_initial_thread_stack(faultAddress: number, errorCode: number): number;
   vine_bridge_service_page_fault(faultAddress: number, errorCode: number): number;
   vine_bridge_dispatch(endpoint: number, stackPointer: number, returnAddress: number): number;
   vine_bridge_resolve_com_endpoint(endpoint: number): number;
@@ -411,15 +416,6 @@ export class RuntimeBridge {
 
   currentMemorySummary<T = Record<string, unknown>>(): BridgeOutput<T> {
     return this.#invoke(() => this.#exports.vine_bridge_current_memory_summary());
-  }
-
-  growInitialThreadStack<T = Record<string, unknown>>(
-    faultAddress: number,
-    errorCode: number,
-  ): BridgeOutput<T> {
-    return this.#invoke(() =>
-      this.#exports.vine_bridge_grow_initial_thread_stack(faultAddress, errorCode),
-    );
   }
 
   servicePageFault<T = Record<string, unknown>>(

@@ -65,6 +65,16 @@ contiguous page payload. `VINEFR01` bounds the two buffers on the session
 transport. JSON page-byte arrays are no longer part of the production memory
 path; JSON remains an evidence format.
 
+Immediate API completion keeps its semantic guest writes as Rust-owned
+`ApiGuestWrite { address, bytes }` values and applies them through the same
+GuestMemory transaction／binary delta path. Its compatibility JSON view inlines
+`bytes` only through 64 KiB. A larger write serializes `address`, `byteLength`,
+and `contentSha256`; it does not duplicate the payload into the bounded control
+frame. Node／Worker semantic normalization accepts both shapes, while the binary
+delta remains the only transport that can mutate the execution mirror. The
+compact JSON record is an integrity／evidence projection and cannot become a
+second byte authority or reconstruct a missing delta.
+
 ## Transaction model
 
 `GuestMemory::begin_transaction()` now creates an empty changed-state journal;
@@ -112,10 +122,18 @@ before-image payload, not process RSS or allocator bookkeeping.
 Reproduction:
 
 ```powershell
+cargo test -p vine-core --test api_guest_write_transport --locked
 npm run prepare:engine
 npm run check:runtime:memory-delta
 npm run check:runtime:memory-writeback
 ```
+
+The serialization contract keeps a small write's legacy byte array unchanged,
+switches the first over-limit write to exact length／SHA-256 metadata, and proves
+that the original Rust byte vector is still intact. Private target continuation
+also exercises a source-file read larger than the inline limit without exceeding
+the Worker control-frame bound; exact current occurrence and artifact identity
+remain in [the current checkpoint manifest](current-checkpoint.json).
 
 The public session reflects code, data, and a two-page execute-gate fixture.
 After initial acknowledgement, Rust writes little-endian bytes for

@@ -102,6 +102,39 @@ assert.equal(
   "direct semantic-call streaming changed optional-field or guest-write normalization",
 );
 
+const compactWriteCall = {
+  ...comCall,
+  guestWrites: [
+    {
+      address: 0x3000,
+      byteLength: 65_537,
+      contentSha256:
+        "a3253bfa7d790dc6f5d41b75421bcc2c606e8043f9fad4331e8aae0a6c504cfa",
+      internal: "ignored",
+    },
+  ],
+};
+const expectedCompactWriteLine = expectedComLine.replace(
+  '{"address":12288,"bytes":[1,2,3,4]}',
+  '{"address":12288,"byteLength":65537,"contentSha256":' +
+    '"a3253bfa7d790dc6f5d41b75421bcc2c606e8043f9fad4331e8aae0a6c504cfa"}',
+);
+assert.deepEqual(normalizeSemanticCall(compactWriteCall).guestWrites, [
+  {
+    address: 0x3000,
+    byteLength: 65_537,
+    contentSha256:
+      "a3253bfa7d790dc6f5d41b75421bcc2c606e8043f9fad4331e8aae0a6c504cfa",
+  },
+]);
+const compactWriteDigest = new SemanticCallDigest();
+compactWriteDigest.update(compactWriteCall);
+assert.equal(
+  compactWriteDigest.digestHex(),
+  crypto.createHash("sha256").update(expectedCompactWriteLine).digest("hex"),
+  "compact guest-write metadata changed semantic-call normalization",
+);
+
 const unicodeSymbol = "\u30c6\u30b9\u30c8";
 const unicodeCall = { ...call, symbol: unicodeSymbol };
 const unicodeDigest = new SemanticCallDigest();

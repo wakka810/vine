@@ -5104,7 +5104,7 @@ fn run_v86_generic_runtime_session(
             }
             let growth = process
                 .runtime
-                .grow_initial_thread_stack(
+                .grow_current_thread_stack(
                     memory,
                     GuestAddress(request.fault_address),
                     request.page_fault_error_code,
@@ -7925,7 +7925,13 @@ fn read_runtime_frame(input: &mut impl Read) -> Result<RuntimeFrame, LoaderError
         return Err(LoaderError::resource_limit(
             "runtime-reentry",
             "runtime-frame-size-exceeded",
-            "generic runtime frame exceeds its bounded transport size",
+            format!(
+                "generic runtime frame kind {kind} has {} control bytes and {} payload bytes; bounds are {} and {}",
+                control_bytes,
+                payload_bytes,
+                RUNTIME_FRAME_MAX_CONTROL_BYTES,
+                RUNTIME_FRAME_MAX_PAYLOAD_BYTES,
+            ),
         ));
     }
     let mut control = vec![0; control_bytes];
@@ -8012,7 +8018,13 @@ fn write_runtime_frame(kind: u32, control: &[u8], payload: &[u8]) -> Result<(), 
         return Err(LoaderError::resource_limit(
             "runtime-reentry",
             "runtime-frame-size-exceeded",
-            "generic runtime frame exceeds its bounded transport size",
+            format!(
+                "generic runtime frame kind {kind} has {} control bytes and {} payload bytes; bounds are {} and {}",
+                control.len(),
+                payload.len(),
+                RUNTIME_FRAME_MAX_CONTROL_BYTES,
+                RUNTIME_FRAME_MAX_PAYLOAD_BYTES,
+            ),
         ));
     }
     let control_bytes = u32::try_from(control.len()).map_err(|_| {
@@ -14283,7 +14295,10 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-async-key-state-initial-scan"
                 | "user32-async-key-state-initial-scan-continuation"
                 | "user32-peek-message-a"
-                | "user32-is-iconic" => GenericRuntimeCapability::User32AsyncKeyStateInitialScan,
+                | "user32-is-iconic"
+                | "runtime-thread-stack-growth" => {
+                    GenericRuntimeCapability::User32AsyncKeyStateInitialScan
+                }
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

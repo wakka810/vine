@@ -89,7 +89,15 @@ function emitCanonicalSemanticCall(call, emit) {
   const guestWrites =
     call.guestWrites.length === 0
       ? call.guestWrites
-      : call.guestWrites.map(({ address, bytes }) => ({ address, bytes }));
+      : call.guestWrites.map((write) =>
+          write.bytes === undefined
+            ? {
+                address: write.address,
+                byteLength: write.byteLength,
+                contentSha256: write.contentSha256,
+              }
+            : { address: write.address, bytes: write.bytes },
+        );
   let first = true;
   emit("{");
   first = emitCanonicalField('"arguments":', call.arguments, emit, first);
@@ -286,7 +294,15 @@ export function normalizeSemanticCall(call) {
     stackPointerBefore: call.stackPointerBefore,
     stackPointerAfter: call.stackPointerAfter,
     lastError: call.lastError,
-    guestWrites: call.guestWrites.map(({ address, bytes }) => ({ address, bytes })),
+    guestWrites: call.guestWrites.map((write) =>
+      write.bytes === undefined
+        ? {
+            address: write.address,
+            byteLength: write.byteLength,
+            contentSha256: write.contentSha256,
+          }
+        : { address: write.address, bytes: write.bytes },
+    ),
     currentDirectory: call.currentDirectory ?? null,
     mutex: call.mutex ?? null,
     waitableTimer: call.waitableTimer ?? null,

@@ -237,7 +237,7 @@ pub struct RuntimeBootstrap {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum RuntimePageFaultResolution {
-    InitialThreadStackGrowth {
+    ThreadStackGrowth {
         growth: RuntimeThreadStackGrowth,
     },
     PrivateHeapPageMaterialization {
@@ -2190,7 +2190,7 @@ impl RuntimeKernel {
         self.thread_stack(thread_id)
     }
 
-    pub fn grow_initial_thread_stack(
+    pub fn grow_current_thread_stack(
         &mut self,
         memory: &mut GuestMemory,
         fault_address: GuestAddress,
@@ -2202,7 +2202,7 @@ impl RuntimeKernel {
             return Err(RuntimeStateError::conflict(
                 "runtime-thread-stack",
                 "thread-stack-growth-lifecycle-state-invalid",
-                "initial thread stack growth requires a running process and thread",
+                "thread stack growth requires a running process and current thread",
             ));
         }
         let thread_id = self.current_thread_id();
@@ -2211,7 +2211,7 @@ impl RuntimeKernel {
             RuntimeStateError::resource_limit(
                 "runtime-thread-stack",
                 "thread-stack-reserve-exhausted",
-                "initial thread stack has committed its entire reserved range",
+                "current thread stack has committed its entire reserved range",
             )
         })?;
         let fault_page = GuestAddress(fault_address.0 & !(GUEST_PAGE_SIZE as u32 - 1));
@@ -2219,14 +2219,14 @@ impl RuntimeKernel {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-thread-stack",
                 "thread-stack-fault-outside-guard",
-                "page fault does not fall within the current initial-thread stack guard page",
+                "page fault does not fall within the current thread stack guard page",
             ));
         }
         if page_fault_error_code & 1 != 0 {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-thread-stack",
                 "thread-stack-protection-fault",
-                "present-page protection faults cannot grow the initial thread stack",
+                "present-page protection faults cannot grow the current thread stack",
             ));
         }
         let stats = memory.stats();
@@ -2235,7 +2235,7 @@ impl RuntimeKernel {
             return Err(RuntimeStateError::conflict(
                 "runtime-thread-stack",
                 "thread-stack-growth-memory-unsynchronized",
-                "initial thread stack growth requires fully acknowledged guest memory",
+                "thread stack growth requires fully acknowledged guest memory",
             ));
         }
         validate_runtime_thread_stack_allocation(&self.address_space_allocator, &stack)?;
@@ -2263,7 +2263,7 @@ impl RuntimeKernel {
                 RuntimeStateError::runtime_defect(
                     "runtime-thread-stack",
                     "thread-stack-committed-size-overflow",
-                    "initial thread stack committed size overflowed",
+                    "current thread stack committed size overflowed",
                 )
             })?;
         let committed_range = GuestRange::new(guard_page.start(), next_committed_byte_length)
@@ -2279,7 +2279,7 @@ impl RuntimeKernel {
                         RuntimeStateError::runtime_defect(
                             "runtime-thread-stack",
                             "thread-stack-next-guard-underflow",
-                            "initial thread stack guard underflowed its reserved range",
+                            "current thread stack guard underflowed its reserved range",
                         )
                     })
             })
@@ -2292,7 +2292,7 @@ impl RuntimeKernel {
             RuntimeStateError::resource_limit(
                 "runtime-thread-stack",
                 "thread-stack-committed-page-count-overflow",
-                "initial thread stack committed page count overflowed host accounting",
+                "current thread stack committed page count overflowed host accounting",
             )
         })?;
         let mut next_stack = stack.clone();
@@ -2344,8 +2344,8 @@ impl RuntimeKernel {
             .is_some_and(|guard| guard.start() == fault_page);
         if stack_guard_matches {
             return self
-                .grow_initial_thread_stack(memory, fault_address, page_fault_error_code)
-                .map(|growth| RuntimePageFaultResolution::InitialThreadStackGrowth { growth });
+                .grow_current_thread_stack(memory, fault_address, page_fault_error_code)
+                .map(|growth| RuntimePageFaultResolution::ThreadStackGrowth { growth });
         }
         if self.heaps.large_allocation_contains(fault_address) {
             return self

@@ -87,7 +87,10 @@ const user32AsyncKeyStateInputProfile =
   user32AsyncKeyStateInputContinuationProfile;
 const user32AsyncKeyStateInitialScanCheckpointProfile =
   bgiProfile === "user32-async-key-state-initial-scan";
-const user32IsIconicProfile = bgiProfile === "user32-is-iconic";
+const runtimeThreadStackGrowthProfile =
+  bgiProfile === "runtime-thread-stack-growth";
+const user32IsIconicProfile =
+  bgiProfile === "user32-is-iconic" || runtimeThreadStackGrowthProfile;
 const user32PeekMessageAProfile =
   bgiProfile === "user32-peek-message-a" || user32IsIconicProfile;
 const user32AsyncKeyStateInitialScanContinuationProfile =
@@ -164,7 +167,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v53";
+const runtimeProtocol = "vine.browser-runtime-worker.v54";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -824,6 +827,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-async-key-state-initial-scan-continuation",
         "user32-peek-message-a",
         "user32-is-iconic",
+        "runtime-thread-stack-growth",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -873,6 +877,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-async-key-state-initial-scan-continuation",
         "user32-peek-message-a",
         "user32-is-iconic",
+        "runtime-thread-stack-growth",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -922,11 +927,14 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-async-key-state-initial-scan-continuation",
         "user32-peek-message-a",
         "user32-is-iconic",
+        "runtime-thread-stack-growth",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
-            ? user32IsIconicProfile
-              ? 2_317
+            ? runtimeThreadStackGrowthProfile
+              ? 2_456
+              : user32IsIconicProfile
+                ? 2_317
               : 2_314
             : 2_312
           : user32AsyncKeyStateInputContinuationProfile
@@ -1018,8 +1026,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       ) {
         const pacingCount = user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
-            ? user32IsIconicProfile
-              ? 10_571
+            ? runtimeThreadStackGrowthProfile
+              ? 11_205
+              : user32IsIconicProfile
+                ? 10_571
               : 10_569
             : 10_567
           : user32AsyncKeyStateInputContinuationProfile
@@ -1117,7 +1127,11 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         if (user32AsyncKeyStateInitialScanProfile) {
           assert.equal(
             archiveReads.length,
-            user32IsIconicProfile ? 60 : 59,
+            runtimeThreadStackGrowthProfile
+              ? 82
+              : user32IsIconicProfile
+                ? 60
+                : 59,
             "Chrome Worker initial scan changed the reached archive-read count",
           );
           assert(
@@ -2989,7 +3003,11 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           present: 2,
           textureLockRect: 1,
           textureUnlockRect: 1,
-          testCooperativeLevel: user32IsIconicProfile ? 3 : 1,
+          testCooperativeLevel: runtimeThreadStackGrowthProfile
+            ? 4
+            : user32IsIconicProfile
+              ? 3
+              : 1,
         });
         assert.equal(
           continuation.nextSubsystemGateway,
@@ -3058,16 +3076,29 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       if (user32PeekMessageAProfile) {
         const peek = evidence.report.peekMessageA;
         assert(peek !== null, "Chrome Worker omitted PeekMessageA evidence");
-        assert.equal(peek.calls.length, user32IsIconicProfile ? 3 : 1);
+        assert.equal(
+          peek.calls.length,
+          runtimeThreadStackGrowthProfile
+            ? 4
+            : user32IsIconicProfile
+              ? 3
+              : 1,
+        );
         assert.deepEqual(
           peek.calls.map((call) => call.sequence),
-          user32IsIconicProfile ? [148_296, 148_353, 148_474] : [148_296],
+          runtimeThreadStackGrowthProfile
+            ? [148_296, 148_353, 148_474, 148_599]
+            : user32IsIconicProfile
+              ? [148_296, 148_353, 148_474]
+              : [148_296],
         );
         assert.deepEqual(
           peek.instructionCounts,
-          user32IsIconicProfile
-            ? [148_744_543, 148_749_108, 148_770_786]
-            : [148_744_543],
+          runtimeThreadStackGrowthProfile
+            ? [148_744_543, 148_749_108, 148_770_786, 153_196_320]
+            : user32IsIconicProfile
+              ? [148_744_543, 148_749_108, 148_770_786]
+              : [148_744_543],
         );
         const firstPeek = peek.calls[0];
         assert.deepEqual(
@@ -3843,6 +3874,7 @@ function normalizeCurrentDirectorySnapshot(snapshot) {
 function normalizeStackGrowth(growth) {
   return {
     instructionCount: growth.instructionCount,
+    threadId: growth.threadId,
     faultAddress: growth.faultAddress,
     pageFaultErrorCode: growth.pageFaultErrorCode,
     addressAllocationId: growth.addressAllocationId,

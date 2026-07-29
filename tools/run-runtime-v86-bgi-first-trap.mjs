@@ -237,6 +237,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-async-key-state-initial-scan-continuation",
         "user32-peek-message-a",
         "user32-is-iconic",
+        "runtime-thread-stack-growth",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -394,6 +395,7 @@ assert(
       "user32-async-key-state-initial-scan-continuation",
       "user32-peek-message-a",
       "user32-is-iconic",
+      "runtime-thread-stack-growth",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -429,7 +431,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability ===
       "user32-async-key-state-initial-scan-continuation" ||
     genericRuntimeCapability === "user32-peek-message-a" ||
-    genericRuntimeCapability === "user32-is-iconic"
+    genericRuntimeCapability === "user32-is-iconic" ||
+    genericRuntimeCapability === "runtime-thread-stack-growth"
       ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
@@ -746,8 +749,12 @@ const user32PeekMessageACheckpointEnabled =
   genericRuntimeCapability === "user32-peek-message-a";
 const user32IsIconicCheckpointEnabled =
   genericRuntimeCapability === "user32-is-iconic";
+const runtimeThreadStackGrowthCheckpointEnabled =
+  genericRuntimeCapability === "runtime-thread-stack-growth";
+const user32IsIconicEnabled =
+  user32IsIconicCheckpointEnabled || runtimeThreadStackGrowthCheckpointEnabled;
 const user32PeekMessageAEnabled =
-  user32PeekMessageACheckpointEnabled || user32IsIconicCheckpointEnabled;
+  user32PeekMessageACheckpointEnabled || user32IsIconicEnabled;
 const user32AsyncKeyStateInitialScanContinuationCheckpointEnabled =
   genericRuntimeCapability ===
     "user32-async-key-state-initial-scan-continuation" ||
@@ -1193,7 +1200,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? user32IsIconicCheckpointEnabled
+    ? runtimeThreadStackGrowthCheckpointEnabled
+      ? "v86-bgi-runtime-thread-stack-growth"
+      : user32IsIconicCheckpointEnabled
       ? "v86-bgi-is-iconic"
       : user32PeekMessageACheckpointEnabled
         ? "v86-bgi-peek-message-a"
@@ -5621,6 +5630,8 @@ async function run() {
         validatePointerDecodingResult(genericResult);
       } else if (leaveCriticalSectionContinuationEnabled) {
         validateLeaveCriticalSectionContinuationResult(genericResult);
+      } else if (runtimeThreadStackGrowthCheckpointEnabled) {
+        validateRuntimeThreadStackGrowthResult(genericResult);
       } else if (user32IsIconicCheckpointEnabled) {
         validateUser32IsIconicResult(genericResult);
       } else if (user32PeekMessageACheckpointEnabled) {
@@ -5922,7 +5933,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : user32IsIconicCheckpointEnabled
+          : runtimeThreadStackGrowthCheckpointEnabled
+            ? "bgi current-thread stack growth"
+            : user32IsIconicCheckpointEnabled
             ? "bgi IsIconic logical-window state query"
             : user32PeekMessageACheckpointEnabled
               ? "bgi PeekMessageA current-thread queue probe"
@@ -6512,11 +6525,12 @@ async function runGenericRuntimeReentry({
   let primaryMainLoopWorkerCycle = null;
   let primaryMainLoopSelectedThreadCycle = null;
   let frozenSemanticCalls = 0;
-  let currentStackGuard =
-    runtimeReady.initialThreadStack.guardPage?.start ?? null;
   let currentThreadId = runtimeReady.currentThreadId;
   const threadContexts = new Map([
     [currentThreadId, saveGenericCpuContext(context)],
+  ]);
+  const threadStacks = new Map([
+    [currentThreadId, structuredClone(runtimeReady.initialThreadStack)],
   ]);
   const registeredThreadIds = [currentThreadId];
   const executedThreadIds = [currentThreadId];
@@ -6598,6 +6612,7 @@ async function runGenericRuntimeReentry({
   const registerCreatedThread = (created) => {
     const { thread, schedulerState } = created;
     const bootstrap = thread?.guestBootstrap;
+    const stack = thread?.stack;
     assert(
       Number.isInteger(created.handle) &&
         created.handle > 0 &&
@@ -6606,9 +6621,21 @@ async function runGenericRuntimeReentry({
         !threadContexts.has(thread.id) &&
         thread.lifecycle?.state === "running" &&
         bootstrap?.threadId === thread.id &&
-        bootstrap.initialStackPointer === thread.stack?.initialStackPointer &&
+        stack?.threadId === thread.id &&
+        Number.isInteger(stack.addressAllocationId) &&
+        stack.addressAllocationId > 0 &&
+        Number.isInteger(stack.memoryOwner) &&
+        stack.memoryOwner > 0 &&
+        stack.reservedRange?.start + stack.reservedRange?.byteLength ===
+          stack.stackTop &&
+        stack.committedRange?.start + stack.committedRange?.byteLength ===
+          stack.stackTop &&
+        stack.guardPage?.start + stack.guardPage?.byteLength ===
+          stack.committedRange?.start &&
+        stack.committedRange?.byteLength === stack.committedPages * page.size &&
+        bootstrap.initialStackPointer === stack.initialStackPointer &&
         bootstrap.fsBase === thread.environment?.tebAddress &&
-        bootstrap.returnSentinel === thread.stack?.returnSentinel &&
+        bootstrap.returnSentinel === stack.returnSentinel &&
         (schedulerState?.state === "runnable" ||
           (schedulerState?.state === "suspended" && schedulerState.count > 0)),
       "CreateThread returned inconsistent CPU bootstrap metadata",
@@ -6617,6 +6644,7 @@ async function runGenericRuntimeReentry({
       thread.id,
       createGenericThreadCpuContext(context.threadContextTemplate, bootstrap),
     );
+    threadStacks.set(thread.id, structuredClone(stack));
     registeredThreadIds.push(thread.id);
   };
   const selectThread = (selection, saveCurrent) => {
@@ -6664,7 +6692,9 @@ async function runGenericRuntimeReentry({
         callbackReturnTerminal ||
           (threadReturnTerminal &&
             currentThreadId !== runtimeReady.currentThreadId) ||
-          (initializeCriticalSectionEnabled && terminal.kind === "page-fault"),
+          (initializeCriticalSectionEnabled && terminal.kind === "page-fault") ||
+          (runtimeThreadStackGrowthCheckpointEnabled &&
+            terminal.kind === "instruction-budget"),
         `generic runtime reached non-owned terminal at call ${sequence}, ` +
           `instruction ${continuation.instructionCount}: ${JSON.stringify(terminal)}`,
       );
@@ -7048,6 +7078,7 @@ async function runGenericRuntimeReentry({
       assert.equal(completion.memory.generation, generation);
       assert.equal(completion.memory.acknowledgedGeneration, generation);
       threadContexts.delete(exitedThreadId);
+      threadStacks.delete(exitedThreadId);
       threadExits.push({ threadId: exitedThreadId, exitCode });
       assert(
         completion.threadSelection,
@@ -7189,6 +7220,8 @@ async function runGenericRuntimeReentry({
         );
         continue;
       }
+      const currentThreadStack = threadStacks.get(currentThreadId);
+      const currentStackGuard = currentThreadStack?.guardPage?.start ?? null;
       const stackGrowthCandidate =
         terminal.kind === "page-fault" &&
         terminal.faultAddress - (terminal.faultAddress % page.size) ===
@@ -7205,7 +7238,7 @@ async function runGenericRuntimeReentry({
         const deltaFrame = await readRuntimeFrame(
           protocolReader,
           runtimeFrame.hostDelta,
-          "initial thread stack growth delta",
+          "current thread stack growth delta",
         );
         const delta = decodeRuntimeHostDelta(
           deltaFrame.control,
@@ -7237,7 +7270,7 @@ async function runGenericRuntimeReentry({
         generation = delta.generation;
         hostDeltas.push({
           sequence,
-          source: "initial-thread-stack-growth",
+          source: "thread-stack-growth",
           fromGeneration: delta.fromGeneration,
           generation: delta.generation,
           mappingOperations: delta.mappingOperations.length,
@@ -7259,7 +7292,7 @@ async function runGenericRuntimeReentry({
         const completionFrame = await readRuntimeFrame(
           protocolReader,
           runtimeFrame.stackGrowthCompletion,
-          "initial thread stack growth completion",
+          "current thread stack growth completion",
         );
         assert.equal(completionFrame.payload.length, 0);
         const completion = JSON.parse(completionFrame.control.toString("utf8"));
@@ -7268,14 +7301,15 @@ async function runGenericRuntimeReentry({
           "vine.v86-generic-runtime-stack-growth-completion",
         );
         assert.equal(completion.schemaVersion, 1);
-        assert.equal(completion.growth.threadId, runtimeReady.currentThreadId);
+        assert.equal(completion.growth.threadId, currentThreadId);
+        assert(currentThreadStack !== undefined);
         assert.equal(
           completion.growth.addressAllocationId,
-          runtimeReady.initialThreadStack.addressAllocationId,
+          currentThreadStack.addressAllocationId,
         );
         assert.equal(
           completion.growth.memoryOwner,
-          runtimeReady.initialThreadStack.memoryOwner,
+          currentThreadStack.memoryOwner,
         );
         assert.equal(completion.growth.faultAddress, terminal.faultAddress);
         assert.equal(
@@ -7288,6 +7322,10 @@ async function runGenericRuntimeReentry({
           completion.growth.previousGuardPage,
           completion.growth.committedPage,
         );
+        assert.equal(
+          completion.growth.committedPages,
+          currentThreadStack.committedPages + 1,
+        );
         assert.equal(completion.memory.generation, generation);
         assert.equal(completion.memory.acknowledgedGeneration, generation);
         assert.equal(completion.memory.pendingInvalidation, undefined);
@@ -7298,7 +7336,18 @@ async function runGenericRuntimeReentry({
           generation: delta.generation,
           payloadSha256: sha256(deltaFrame.payload),
         });
-        currentStackGuard = completion.growth.nextGuardPage?.start ?? null;
+        threadStacks.set(currentThreadId, {
+          ...currentThreadStack,
+          committedRange: {
+            start: completion.growth.committedPage.start,
+            byteLength:
+              currentThreadStack.committedRange.byteLength + page.size,
+          },
+          ...(completion.growth.nextGuardPage === undefined
+            ? { guardPage: undefined }
+            : { guardPage: completion.growth.nextGuardPage }),
+          committedPages: completion.growth.committedPages,
+        });
         continuation = executeToNextOwnedTrap(
           offer,
           context,
@@ -7307,11 +7356,14 @@ async function runGenericRuntimeReentry({
         continue;
       }
 
-      const stackRange = runtimeReady.initialThreadStack.reservedRange;
+      const stackRange = currentThreadStack?.reservedRange;
       const reason =
+        terminal.kind === "instruction-budget"
+          ? "guest-execution-instruction-budget"
+          : stackRange !== undefined &&
         terminal.faultAddress >= stackRange.start &&
         terminal.faultAddress < stackRange.start + stackRange.byteLength
-          ? "initial-thread-stack-fault"
+          ? "thread-stack-fault"
           : "guest-memory-page-fault";
       await writeRuntimeJsonFrame(child.stdin, runtimeFrame.sessionStop, {
         schema: "vine.v86-generic-runtime-session-stop",
@@ -7358,18 +7410,34 @@ async function runGenericRuntimeReentry({
           schemaVersion: 1,
           capabilityCluster: reason,
           endpoint: null,
-          fault: {
-            class: "fault",
-            stage: "guest-execution",
-            code: "page-fault",
-            message:
-              `guest page fault at 0x${terminal.faultAddress.toString(16)} ` +
-              `while executing 0x${terminal.instructionPointer.toString(16)}`,
-            instructionPointer: terminal.instructionPointer,
-            previousInstructionPointer: terminal.previousInstructionPointer,
-            faultAddress: terminal.faultAddress,
-            pageFaultErrorCode: terminal.pageFaultErrorCode,
-          },
+          fault:
+            terminal.kind === "instruction-budget"
+              ? {
+                  class: "resource-limit",
+                  stage: "guest-execution",
+                  code: "instruction-budget-exhausted",
+                  message:
+                    `guest execution reached the bounded ${terminal.maximumAdditionalInstructions}-instruction ` +
+                    `window at 0x${terminal.instructionPointer.toString(16)}`,
+                  instructionPointer: terminal.instructionPointer,
+                  previousInstructionPointer:
+                    terminal.previousInstructionPointer,
+                  maximumAdditionalInstructions:
+                    terminal.maximumAdditionalInstructions,
+                }
+              : {
+                  class: "fault",
+                  stage: "guest-execution",
+                  code: "page-fault",
+                  message:
+                    `guest page fault at 0x${terminal.faultAddress.toString(16)} ` +
+                    `while executing 0x${terminal.instructionPointer.toString(16)}`,
+                  instructionPointer: terminal.instructionPointer,
+                  previousInstructionPointer:
+                    terminal.previousInstructionPointer,
+                  faultAddress: terminal.faultAddress,
+                  pageFaultErrorCode: terminal.pageFaultErrorCode,
+                },
           memory: stopped.memory,
           memoryContentSha256: stopped.memoryContentSha256,
         },
@@ -7453,7 +7521,7 @@ async function runGenericRuntimeReentry({
       response = await readRuntimeFrame(
         protocolReader,
         null,
-        "generic API completion",
+        `generic API completion for sequence ${sequence} ${endpoint.module}!${endpoint.symbol}`,
       );
     }
 
@@ -8636,7 +8704,12 @@ function buildGenericCallRecord(
     guestWrites: completionFrame.completion.guestWrites.map(
       ({ write, result }) => ({
         address: write.address,
-        bytes: write.bytes,
+        ...(write.bytes === undefined
+          ? {
+              byteLength: write.byteLength,
+              contentSha256: write.contentSha256,
+            }
+          : { bytes: write.bytes }),
         result,
       }),
     ),
@@ -8796,7 +8869,7 @@ function validateGenericRuntimeReady(ready, offer) {
       6 +
       (user32AsyncKeyStateInitialScanEnabled ? 2 : 0) +
       (user32PeekMessageAEnabled ? 1 : 0) +
-      (user32IsIconicCheckpointEnabled ? 1 : 0) +
+      (user32IsIconicEnabled ? 1 : 0) +
       (setRectCheckpointEnabled ? 1 : 0) +
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
@@ -22990,6 +23063,51 @@ function validateUser32IsIconicResult(result) {
   });
 }
 
+function validateRuntimeThreadStackGrowthResult(result) {
+  assert.equal(result.checkpointCompletion, undefined);
+  assert.equal(result.activeCallbackDepth, 0);
+  const peekCalls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId === "user32.peek-message-a.current-thread.v1",
+  );
+  const isIconicCalls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId === "user32.is-iconic.logical-window-style.v1",
+  );
+  assert.equal(peekCalls.length, 4);
+  assert.equal(isIconicCalls.length, 3);
+  const createdThreadGrowths = result.stackGrowths.filter(
+    (growth) => growth.threadId === 8193,
+  );
+  assert(
+    createdThreadGrowths.length >= 1,
+    "current-thread stack checkpoint did not grow the API-created thread",
+  );
+  const firstGrowth = createdThreadGrowths[0];
+  assert.equal(firstGrowth.addressAllocationId, 57);
+  assert.equal(firstGrowth.memoryOwner, 27);
+  assert.equal(firstGrowth.faultAddress, 0x500f_e000);
+  assert.equal(firstGrowth.pageFaultErrorCode, 4);
+  assert.deepEqual(firstGrowth.committedPage, {
+    start: 0x500f_e000,
+    byteLength: page.size,
+  });
+  assert.deepEqual(firstGrowth.previousGuardPage, firstGrowth.committedPage);
+  assert.deepEqual(firstGrowth.nextGuardPage, {
+    start: 0x500f_d000,
+    byteLength: page.size,
+  });
+  assert.equal(firstGrowth.committedPages, 2);
+  assert(
+    result.terminal.instructionCount > 148_787_159,
+    "current-thread stack checkpoint did not resume past the former stop",
+  );
+  assert(
+    result.fault !== undefined,
+    "current-thread stack checkpoint omitted its next structured stop",
+  );
+}
+
 function validateArchiveSourceReadResult(result) {
   assert.equal(result.frozenSemanticCalls, 17);
   assert.equal(result.activeCallbackDepth, 0);
@@ -27507,7 +27625,10 @@ function buildGenericRuntimeReentryReport({
                 d3d9PostPresentContinuationEnabled
                 ? 9_186 +
                   d3d9PostScenePacingCycleCount +
-                  (d3d9PostPresentContinuationEnabled ? 1 : 0)
+                  (d3d9PostPresentContinuationEnabled &&
+                  !runtimeThreadStackGrowthCheckpointEnabled
+                    ? 1
+                    : 0)
                 : 9_186
               : createDirectoryACheckpointEnabled
                 ? 6_974
@@ -27540,7 +27661,7 @@ function buildGenericRuntimeReentryReport({
     let previousTargetTime100ns = 0n;
     for (const [index, pacing] of genericResult.timerPacing.entries()) {
       assert.equal(pacing.sequence, waitForSingleObjectExCalls[index].sequence);
-      if (user32IsIconicCheckpointEnabled) {
+      if (user32IsIconicEnabled) {
         assert(
           pacing.delayMilliseconds === 1 || pacing.delayMilliseconds === 2,
           `unexpected IsIconic continuation pacing delay ${pacing.delayMilliseconds}`,
@@ -27556,7 +27677,7 @@ function buildGenericRuntimeReentryReport({
       const armGeneration = (timerArmGenerations.get(pacing.timerId) ?? 0) + 1;
       timerArmGenerations.set(pacing.timerId, armGeneration);
       const targetTime100ns = BigInt(pacing.targetTime100ns);
-      if (user32IsIconicCheckpointEnabled) {
+      if (user32IsIconicEnabled) {
         const targetIncrement100ns = targetTime100ns - previousTargetTime100ns;
         assert(
           targetIncrement100ns === 5_000n || targetIncrement100ns === 20_000n,
@@ -27937,17 +28058,17 @@ function buildGenericRuntimeReentryReport({
   if (user32PeekMessageAEnabled) {
     assertSummaryCompletionCount(
       peekMessageACalls,
-      user32IsIconicCheckpointEnabled ? 3 : 1,
+      user32IsIconicEnabled ? 3 : 1,
       "PeekMessageA report summary has an unexpected completion count",
     );
   }
-  const isIconicCalls = user32IsIconicCheckpointEnabled
+  const isIconicCalls = user32IsIconicEnabled
     ? genericResult.supportedCalls.filter(
         (call) =>
           call.implementationId === "user32.is-iconic.logical-window-style.v1",
       )
     : [];
-  if (user32IsIconicCheckpointEnabled) {
+  if (user32IsIconicEnabled) {
     assertSummaryCompletionCount(
       isIconicCalls,
       3,
@@ -28409,7 +28530,9 @@ function buildGenericRuntimeReentryReport({
     schema:
       genericRuntimeCapability === null
         ? "vine.v86-bgi-generic-runtime-reentry"
-        : user32IsIconicCheckpointEnabled
+        : runtimeThreadStackGrowthCheckpointEnabled
+          ? "vine.v86-bgi-runtime-thread-stack-growth"
+          : user32IsIconicCheckpointEnabled
           ? "vine.v86-bgi-user32-is-iconic"
           : user32PeekMessageACheckpointEnabled
             ? "vine.v86-bgi-user32-peek-message-a"
@@ -28709,7 +28832,9 @@ function buildGenericRuntimeReentryReport({
                                                                                                                                                                                                                                                                                                                     "kernel32-pointer-decoding"
                                                                                                                                                                                                                                                                                                                   ? "vine.v86-bgi-pointer-decoding"
                                                                                                                                                                                                                                                                                                                   : "vine.v86-bgi-critical-section-synchronization",
-    schemaVersion: user32IsIconicCheckpointEnabled
+    schemaVersion: runtimeThreadStackGrowthCheckpointEnabled
+      ? 1
+      : user32IsIconicCheckpointEnabled
       ? 1
       : user32PeekMessageACheckpointEnabled
         ? 1
@@ -29452,7 +29577,7 @@ function buildGenericRuntimeReentryReport({
           },
         }
       : {}),
-    ...(user32IsIconicCheckpointEnabled
+    ...(user32IsIconicEnabled
       ? {
           isIconic: {
             calls: isIconicCalls,
@@ -36307,12 +36432,20 @@ function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
     );
     break;
   }
-  assert(
-    terminal,
-    `BGI continuation exhausted its bounded ${instructionBudget * maximumExecuteStops}-instruction ` +
-      `window at 0x${finalState.instructionPointer.toString(16)} after ` +
-      `${finalState.instructionCount - initialInstructionCount} instructions`,
-  );
+  if (terminal === null) {
+    assert(
+      runtimeThreadStackGrowthCheckpointEnabled,
+      `BGI continuation exhausted its bounded ${instructionBudget * maximumExecuteStops}-instruction ` +
+        `window at 0x${finalState.instructionPointer.toString(16)} after ` +
+        `${finalState.instructionCount - initialInstructionCount} instructions`,
+    );
+    terminal = {
+      kind: "instruction-budget",
+      instructionPointer: finalState.instructionPointer,
+      previousInstructionPointer: finalState.previousInstructionPointer,
+      maximumAdditionalInstructions: instructionBudget * maximumExecuteStops,
+    };
+  }
   return {
     instructionBudget,
     maximumExecuteStops,

@@ -38,7 +38,7 @@ is the exact sequence gate.
 Normal private-target runs retain the digest, aggregate synchronization counts,
 important lifecycle events, final state, and failure neighborhood. Detailed call,
 writeback, and host-delta arrays require explicit `full` diagnostic evidence.
-Commit-bound Node and browser summary reports are each limited to 2 MiB, so a
+Commit-bound Node and browser summary reports are each limited to 4 MiB, so a
 report-size regression fails before evidence publication.
 
 Scheduler timing uses a partial order. Independent request lanes may be

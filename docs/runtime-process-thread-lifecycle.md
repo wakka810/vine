@@ -176,7 +176,7 @@ Current Node／Chrome semantic result、artifact identity、benchmark、next str
 
 ## Non-claims and next dependency
 
-This checkpoint does not implement guest-created threads, per-thread CPU context、second-thread
+The original lifecycle foundation by itself does not implement guest-created threads, per-thread CPU context、second-thread
 stack／TEB allocation,
 thread handle creation APIs, current-thread switching, natural last-thread process exit, process
 termination across multiple lanes, suspend／resume, priorities, TLS／FLS cleanup callbacks, DLL
@@ -198,7 +198,9 @@ This does not turn the browser delay into lifecycle or clock authority. See
 
 The controlled multi-thread registry dependency is now implemented in
 [runtime-thread-registry.md](runtime-thread-registry.md): one additional logical thread preserves
-per-thread state and typed object lifetime, and all lanes terminate deterministically. The controlled
+per-thread state and typed object lifetime, reached `CreateThread` adds a dedicated stack／TEB／CPU bootstrap,
+and current-thread page-fault service grows initial or API-created guard pages without moving authority to the Worker.
+All lanes terminate deterministically. The controlled
 wait registration／wake dependency is implemented in [runtime-wait-queue.md](runtime-wait-queue.md).
 Per-thread message ownership and empty-queue wake are implemented in
 [runtime-message-queue.md](runtime-message-queue.md). Controlled private-heap backing and the

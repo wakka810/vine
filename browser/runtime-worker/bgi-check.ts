@@ -46,7 +46,8 @@ const d3d9Canvas =
   capabilityProfile === "user32-async-key-state-initial-scan" ||
   capabilityProfile === "user32-async-key-state-initial-scan-continuation" ||
   capabilityProfile === "user32-peek-message-a" ||
-  capabilityProfile === "user32-is-iconic"
+  capabilityProfile === "user32-is-iconic" ||
+  capabilityProfile === "runtime-thread-stack-growth"
     ? requiredElement<HTMLCanvasElement>(
         "#surface",
       ).transferControlToOffscreen()
@@ -132,7 +133,9 @@ const startMessage = {
     watchdogInstructionLimit:
       scenario === "watchdog"
         ? 1
-        : capabilityProfile === "user32-async-key-state-initial-scan" ||
+        : capabilityProfile === "runtime-thread-stack-growth"
+          ? 300_000_000
+          : capabilityProfile === "user32-async-key-state-initial-scan" ||
             capabilityProfile ===
               "user32-async-key-state-initial-scan-continuation" ||
             capabilityProfile === "user32-peek-message-a" ||
@@ -170,7 +173,8 @@ const startMessage = {
       capabilityProfile ===
         "user32-async-key-state-initial-scan-continuation" ||
       capabilityProfile === "user32-peek-message-a" ||
-      capabilityProfile === "user32-is-iconic"
+      capabilityProfile === "user32-is-iconic" ||
+      capabilityProfile === "runtime-thread-stack-growth"
         ? 600_000
         : capabilityProfile === "kernel32-sleep-zero" ||
             capabilityProfile === "kernel32-global-memory-status" ||
@@ -312,7 +316,8 @@ function parseCapabilityProfile(
     value === "user32-async-key-state-initial-scan" ||
     value === "user32-async-key-state-initial-scan-continuation" ||
     value === "user32-peek-message-a" ||
-    value === "user32-is-iconic"
+    value === "user32-is-iconic" ||
+    value === "runtime-thread-stack-growth"
     ? value
     : undefined;
 }

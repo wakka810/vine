@@ -83,7 +83,7 @@ fn initial_thread_stack_reserves_registers_and_grows_one_guard_page_atomically()
         .service_page_fault(&mut memory, INITIAL_GUARD, 4)
         .unwrap()
     {
-        RuntimePageFaultResolution::InitialThreadStackGrowth { growth } => growth,
+        RuntimePageFaultResolution::ThreadStackGrowth { growth } => growth,
         other => panic!("unexpected page-fault resolution: {other:?}"),
     };
     assert_eq!(growth.thread_id, thread_id);
@@ -145,7 +145,7 @@ fn initial_thread_stack_reserves_registers_and_grows_one_guard_page_atomically()
     let (mut exhausted_memory, mut exhausted_runtime) =
         prepared_runtime_stack(2 * GUEST_PAGE_SIZE, GUEST_PAGE_SIZE);
     let exhausted_growth = exhausted_runtime
-        .grow_initial_thread_stack(
+        .grow_current_thread_stack(
             &mut exhausted_memory,
             GuestAddress(INITIAL_GUARD.0 + 0xd94),
             6,
@@ -201,7 +201,7 @@ fn assert_rejected_without_mutation(
     let stats_before = memory.stats();
     let content_before = memory.current_reflection().unwrap().content_sha256;
     let error = runtime
-        .grow_initial_thread_stack(memory, address, error_code)
+        .grow_current_thread_stack(memory, address, error_code)
         .unwrap_err();
     assert_eq!(error.code, expected_code);
     assert_eq!(*runtime, runtime_before);
