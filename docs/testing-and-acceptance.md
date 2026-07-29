@@ -1035,6 +1035,13 @@ terminal memory、次の`EnterCriticalSection(0x1014c8d0)` frameを一致させ�
 requestをacknowledgeしてpending／stale callbackを残さず、Windows timer、clock、result、thread resumeの
 authorityにならない。APC delivery、general timeout、cross-thread waiter、performance baselineは拡張しない。
 
+その直後のcritical-section recurrenceは、異種owned endpointまでの6 callを同じ3組のbalanced batch
+contractで再検査する。Node／Chromeはthread `8193`、2個のguest identity、call順序、EAX／LastError
+preserve、24-byte locked／unlocked publication、最終balanced state、terminal memory、次の6引数
+`SetWaitableTimer` frameを一致させる。Rust `RuntimeSynchronization`だけがWindows-visible stateを所有し、
+Workerはnon-owning evidenceだけを保持する。次のtimer arm dispatch前で停止し、contention／fairness／
+abandonment／APC semanticsや新しいperformance baselineを拡張しない。
+
 Reached `GetVersionExA`の代表contractはdynamic in/out pointerのminimum 4-byte
 preflight、accepted 148／156-byte full-span read、policy-field merge、single atomic write、
 BOOLとhandler-owned LastErrorを固定する。Dispatcher fixtureはbase／extended layout、native-unwritten

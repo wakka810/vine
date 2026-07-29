@@ -211,6 +211,12 @@ resume. This is another reached recurrence of the existing semantic leaf, so
 it does not broaden APC, general timeout, cross-thread waiter, or performance
 claims. Exact counts and artifact identities remain manifest-owned.
 
+The following post-timer-wait critical-section profile consumes the complete
+balanced six-call batch and reaches the next timer-arm frame. That continuation
+does not alter the wait result or create another timer, wait, scheduler, or
+browser authority; its stable synchronization contract is documented in
+[bgi-critical-section-synchronization.md](bgi-critical-section-synchronization.md).
+
 ## Non-claims
 
 - Alertable mode is accepted, but APC delivery and `WAIT_IO_COMPLETION` are not

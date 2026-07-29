@@ -12,7 +12,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 63 as const/u);
+assert.match(protocol, /protocolVersion = 64 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -85,6 +85,10 @@ assert.match(protocol, /kernel32-enter-critical-section-post-clock/u);
 assert.match(protocol, /kernel32-enter-critical-section-post-wait/u);
 assert.match(
   protocol,
+  /kernel32-enter-critical-section-post-timer-wait-batch/u,
+);
+assert.match(
+  protocol,
   /kernel32-set-waitable-timer-post-critical-section-batch/u,
 );
 assert.match(
@@ -106,6 +110,10 @@ assert.match(
 assert.match(
   protocol,
   /capability: "kernel32-enter-critical-section-post-wait"/u,
+);
+assert.match(
+  protocol,
+  /capability: "kernel32-enter-critical-section-post-timer-wait-batch"/u,
 );
 assert.match(
   protocol,
@@ -163,6 +171,7 @@ assert.match(
 assert.match(worker, /kernel32-enter-critical-section-continuation/u);
 assert.match(worker, /kernel32-leave-critical-section-continuation/u);
 assert.match(worker, /isPostTimerArmWaitCheckpoint/u);
+assert.match(worker, /isPostTimerWaitCriticalSectionCheckpoint/u);
 assert.match(worker, /shell32-drag-accept-files/u);
 assert.match(
   worker,

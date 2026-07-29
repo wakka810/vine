@@ -248,6 +248,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-wait-for-single-object-ex-post-critical-section",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-enter-critical-section-post-wait",
+        "kernel32-enter-critical-section-post-timer-wait-batch",
         "kernel32-leave-critical-section",
       ].includes(genericRuntimeCapability),
       "unsupported --runtime-capability value",
@@ -416,6 +417,7 @@ assert(
       "kernel32-wait-for-single-object-ex-post-critical-section",
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
       "kernel32-enter-critical-section-post-wait",
+      "kernel32-enter-critical-section-post-timer-wait-batch",
       "kernel32-leave-critical-section",
     ].includes(genericRuntimeCapability),
   "--source-manifest is reserved for source-reading capabilities",
@@ -459,6 +461,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "winmm-time-get-time-post-heap-reuse" ||
     genericRuntimeCapability === "kernel32-enter-critical-section-post-clock" ||
     genericRuntimeCapability === "kernel32-enter-critical-section-post-wait" ||
+    genericRuntimeCapability ===
+      "kernel32-enter-critical-section-post-timer-wait-batch" ||
     genericRuntimeCapability ===
       "kernel32-set-waitable-timer-post-critical-section-batch" ||
     genericRuntimeCapability ===
@@ -795,9 +799,13 @@ const postClockCriticalSectionCheckpointEnabled =
   genericRuntimeCapability === "kernel32-enter-critical-section-post-clock";
 const postWaitCriticalSectionCheckpointEnabled =
   genericRuntimeCapability === "kernel32-enter-critical-section-post-wait";
+const postTimerWaitCriticalSectionCheckpointEnabled =
+  genericRuntimeCapability ===
+  "kernel32-enter-critical-section-post-timer-wait-batch";
 const postCheckpointCriticalSectionRoundtripEnabled =
   postClockCriticalSectionCheckpointEnabled ||
-  postWaitCriticalSectionCheckpointEnabled;
+  postWaitCriticalSectionCheckpointEnabled ||
+  postTimerWaitCriticalSectionCheckpointEnabled;
 const postCriticalSectionWaitCheckpointEnabled =
   genericRuntimeCapability ===
   "kernel32-wait-for-single-object-ex-post-critical-section";
@@ -1279,6 +1287,8 @@ const outputDirectory = path.join(
               ? "v86-bgi-enter-critical-section-post-clock"
               : postWaitCriticalSectionCheckpointEnabled
                 ? "v86-bgi-enter-critical-section-post-wait"
+              : postTimerWaitCriticalSectionCheckpointEnabled
+                ? "v86-bgi-enter-critical-section-post-timer-wait-batch"
               : postCriticalSectionSetWaitableTimerCheckpointEnabled
                 ? "v86-bgi-set-waitable-timer-post-critical-section-batch"
               : postTimerArmWaitCheckpointEnabled
@@ -5726,6 +5736,8 @@ async function run() {
         validatePostClockCriticalSectionResult(genericResult);
       } else if (postWaitCriticalSectionCheckpointEnabled) {
         validatePostWaitCriticalSectionResult(genericResult);
+      } else if (postTimerWaitCriticalSectionCheckpointEnabled) {
+        validatePostTimerWaitCriticalSectionResult(genericResult);
       } else if (postCriticalSectionSetWaitableTimerCheckpointEnabled) {
         validatePostCriticalSectionSetWaitableTimerResult(genericResult);
       } else if (postTimerArmWaitCheckpointEnabled) {
@@ -6048,6 +6060,8 @@ async function run() {
                     ? "bgi post-clock critical-section batch"
                     : postWaitCriticalSectionCheckpointEnabled
                       ? "bgi post-wait critical-section batch"
+                    : postTimerWaitCriticalSectionCheckpointEnabled
+                      ? "bgi post-timer-wait critical-section batch"
                     : postCriticalSectionSetWaitableTimerCheckpointEnabled
                       ? "bgi post-critical-section waitable-timer arm"
                     : postTimerArmWaitCheckpointEnabled
@@ -6382,7 +6396,9 @@ async function run() {
                         : genericResult.checkpointCompletion.capability ===
                               "kernel32-enter-critical-section-post-clock" ||
                             genericResult.checkpointCompletion.capability ===
-                              "kernel32-enter-critical-section-post-wait"
+                              "kernel32-enter-critical-section-post-wait" ||
+                            genericResult.checkpointCompletion.capability ===
+                              "kernel32-enter-critical-section-post-timer-wait-batch"
                           ? `${genericResult.checkpointCompletion.completionCount} balanced critical-section calls completed`
                         : genericResult.checkpointCompletion.capability ===
                             "kernel32-set-waitable-timer-post-critical-section-batch"
@@ -6931,7 +6947,9 @@ async function runGenericRuntimeReentry({
       checkpointCompletion = {
         capability: postClockCriticalSectionCheckpointEnabled
           ? "kernel32-enter-critical-section-post-clock"
-          : "kernel32-enter-critical-section-post-wait",
+          : postTimerWaitCriticalSectionCheckpointEnabled
+            ? "kernel32-enter-critical-section-post-timer-wait-batch"
+            : "kernel32-enter-critical-section-post-wait",
         implementationId: postClockCriticalSectionCheckpointEnabled
           ? "kernel32.critical-section-roundtrip.v1"
           : "kernel32.critical-section-balanced-batch.v1",
@@ -7076,6 +7094,9 @@ async function runGenericRuntimeReentry({
           "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
             ? "kernel32-wait-for-single-object-ex-post-timer-arm-batch-checkpoint-complete"
             : checkpointCompletion.capability ===
+                "kernel32-enter-critical-section-post-timer-wait-batch"
+              ? "kernel32-enter-critical-section-post-timer-wait-batch-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "kernel32-wait-for-single-object-ex-post-critical-section"
             ? "kernel32-wait-for-single-object-ex-post-critical-section-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -7181,7 +7202,7 @@ async function runGenericRuntimeReentry({
       } else if (postCheckpointCriticalSectionRoundtripEnabled) {
         checkpointCompletion.nextArguments = terminal.stackWords.slice(
           1,
-          postWaitCriticalSectionCheckpointEnabled ? 7 : 4,
+          postClockCriticalSectionCheckpointEnabled ? 4 : 7,
         );
         checkpointCompletion.nextReturnAddress = terminal.returnAddress;
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
@@ -8107,7 +8128,12 @@ async function runGenericRuntimeReentry({
     }
     if (
       postCheckpointCriticalSectionRoundtripEnabled &&
-      sequence >= (postWaitCriticalSectionCheckpointEnabled ? 158_109 : 158_106) &&
+      sequence >=
+        (postTimerWaitCriticalSectionCheckpointEnabled
+          ? 158_117
+          : postWaitCriticalSectionCheckpointEnabled
+            ? 158_109
+            : 158_106) &&
       (call.implementationId === "kernel32.enter-critical-section.v1" ||
         call.implementationId === "kernel32.leave-critical-section.v1")
     ) {
@@ -24403,6 +24429,203 @@ function validatePostWaitCriticalSectionResult(result) {
   assert.equal(result.finalGeneration, 289_912);
 }
 
+function validatePostTimerWaitCriticalSectionResult(result) {
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 158_122);
+  const checkpoint = result.checkpointCompletion;
+  assert.equal(
+    checkpoint?.capability,
+    "kernel32-enter-critical-section-post-timer-wait-batch",
+  );
+  assert.equal(
+    checkpoint.implementationId,
+    "kernel32.critical-section-balanced-batch.v1",
+  );
+  assert.equal(checkpoint.requiredCompletions, 6);
+  assert.equal(checkpoint.completionCount, 6);
+  assert.equal(checkpoint.completions.length, 6);
+  assert.equal(checkpoint.firstCompletionSequence, 158_117);
+  assert.equal(checkpoint.firstCompletionInstructionCount, 276_361_222);
+  assert.equal(checkpoint.lastCompletionSequence, 158_122);
+  assert.equal(checkpoint.lastCompletionInstructionCount, 276_361_303);
+  assert.equal(checkpoint.threadId, 8_193);
+  assert.equal(checkpoint.balanced, true);
+  assert.equal(checkpoint.roundtripCount, 3);
+  assert.deepEqual(checkpoint.criticalSectionAddresses, [
+    0x1014_c8d0,
+    0x1014_c8d0,
+    0x100f_f820,
+  ]);
+  assert.deepEqual(
+    checkpoint.completions.map((call) => ({
+      sequence: call.sequence,
+      symbol: call.symbol,
+      occurrence: call.occurrence,
+      instructionCount: call.trapInstructionCount,
+      address: call.arguments[0],
+      returnAddress: call.returnAddress,
+      stackPointerBefore: call.stackPointerBefore,
+      stackPointerAfter: call.stackPointerAfter,
+      generation: call.guestWrites[0]?.result.invalidation.generation,
+    })),
+    [
+      {
+        sequence: 158_117,
+        symbol: "EnterCriticalSection",
+        occurrence: 51_337,
+        instructionCount: 276_361_222,
+        address: 0x1014_c8d0,
+        returnAddress: 0x1009_1796,
+        stackPointerBefore: 0x500f_ff70,
+        stackPointerAfter: 0x500f_ff78,
+        generation: 289_915,
+      },
+      {
+        sequence: 158_118,
+        symbol: "LeaveCriticalSection",
+        occurrence: 51_337,
+        instructionCount: 276_361_227,
+        address: 0x1014_c8d0,
+        returnAddress: 0x1009_17aa,
+        stackPointerBefore: 0x500f_ff70,
+        stackPointerAfter: 0x500f_ff78,
+        generation: 289_917,
+      },
+      {
+        sequence: 158_119,
+        symbol: "EnterCriticalSection",
+        occurrence: 51_338,
+        instructionCount: 276_361_263,
+        address: 0x1014_c8d0,
+        returnAddress: 0x1009_1966,
+        stackPointerBefore: 0x500f_ff70,
+        stackPointerAfter: 0x500f_ff78,
+        generation: 289_919,
+      },
+      {
+        sequence: 158_120,
+        symbol: "LeaveCriticalSection",
+        occurrence: 51_338,
+        instructionCount: 276_361_268,
+        address: 0x1014_c8d0,
+        returnAddress: 0x1009_197a,
+        stackPointerBefore: 0x500f_ff70,
+        stackPointerAfter: 0x500f_ff78,
+        generation: 289_921,
+      },
+      {
+        sequence: 158_121,
+        symbol: "EnterCriticalSection",
+        occurrence: 51_339,
+        instructionCount: 276_361_294,
+        address: 0x100f_f820,
+        returnAddress: 0x1000_10db,
+        stackPointerBefore: 0x500f_ff90,
+        stackPointerAfter: 0x500f_ff98,
+        generation: 289_923,
+      },
+      {
+        sequence: 158_122,
+        symbol: "LeaveCriticalSection",
+        occurrence: 51_339,
+        instructionCount: 276_361_303,
+        address: 0x100f_f820,
+        returnAddress: 0x1000_10eb,
+        stackPointerBefore: 0x500f_ff90,
+        stackPointerAfter: 0x500f_ff98,
+        generation: 289_925,
+      },
+    ],
+  );
+  const acquisitionBytes = [
+    0xff, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0x01, 0x00, 0x00,
+    0x00, 0x01, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xd0, 0x07,
+    0x00, 0x02,
+  ];
+  const releaseBytes = [
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xd0, 0x07,
+    0x00, 0x02,
+  ];
+  for (const [index, call] of checkpoint.completions.entries()) {
+    const acquisition = index % 2 === 0;
+    assert.equal(call.module.toLowerCase(), "kernel32.dll");
+    assert.equal(
+      call.symbol,
+      acquisition ? "EnterCriticalSection" : "LeaveCriticalSection",
+    );
+    assert.deepEqual(call.result, { action: "preserve" });
+    assert.equal(
+      call.implementationId,
+      acquisition
+        ? "kernel32.enter-critical-section.v1"
+        : "kernel32.leave-critical-section.v1",
+    );
+    assert.equal(call.lastError, 0);
+    assert.equal(call.guestWrites.length, 1);
+    assert.equal(call.guestWrites[0].address, call.arguments[0]);
+    assert.deepEqual(
+      call.guestWrites[0].bytes,
+      acquisition ? acquisitionBytes : releaseBytes,
+    );
+    assert.equal(call.guestWrites[0].result.bytesWritten, 24);
+    assert.equal(call.guestWrites[0].result.dirtyPages, 1);
+    assert.equal(call.guestWrites[0].result.invalidation.dataTlb, false);
+    assert.equal(call.guestWrites[0].result.invalidation.instructionFetch, false);
+    assert.equal(call.guestWrites[0].result.invalidation.generatedCode, false);
+  }
+  const digest = new SemanticCallDigest();
+  for (const call of result.supportedCalls) {
+    digest.update(call);
+  }
+  assert.equal(
+    digest.digestHex(),
+    "c90b7e833362576c3c31209a78321fd27d3786386621e986d5a52a74ee94ccdf",
+  );
+  assert.equal(checkpoint.instructionCount, 276_361_338);
+  assert.equal(result.terminal.instructionCount, 276_361_338);
+  assert.deepEqual(checkpoint.nextEndpoint, {
+    id: 118,
+    address: 0x7f00_0750,
+    module: "KERNEL32.dll",
+    symbol: { kind: "name", name: "SetWaitableTimer" },
+    disposition: "declared-runtime-export",
+    iatAddress: 0x100d_1280,
+  });
+  assert.deepEqual(checkpoint.nextArguments, [
+    0x5701_0002,
+    0x500f_ff98,
+    0,
+    0,
+    0,
+    0,
+  ]);
+  assert.equal(checkpoint.nextReturnAddress, 0x1005_0607);
+  assert.equal(checkpoint.nextStackPointer, 0x500f_ff7c);
+  assert.equal(
+    checkpoint.memoryContentSha256,
+    "bd92a619b4ee428eab13238b769afd60f326ce22fcf86d22f3a46fc11df56700",
+  );
+  assert.equal(result.writebacks.length, 161_082);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    236_722,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    36_243_617,
+  );
+  assert.equal(result.hostDeltas.length, 125_756);
+  assert.equal(result.finalGeneration, 289_926);
+}
+
 function validatePostCriticalSectionSetWaitableTimerResult(result) {
   assert.equal(result.fault, null);
   assert.equal(result.activeCallbackDepth, 0);
@@ -29233,7 +29456,8 @@ function buildGenericRuntimeReentryReport({
         if (sleepZeroCheckpointEnabled) {
           assert.equal(
             waitForSingleObjectExCalls.length,
-            postTimerArmWaitCheckpointEnabled
+            postTimerArmWaitCheckpointEnabled ||
+              postTimerWaitCriticalSectionCheckpointEnabled
               ? 11_207
               : postCriticalSectionWaitCheckpointEnabled ||
                   postWaitCriticalSectionCheckpointEnabled
@@ -29973,6 +30197,8 @@ function buildGenericRuntimeReentryReport({
             ? "kernel32-enter-critical-section-post-clock"
             : postWaitCriticalSectionCheckpointEnabled
               ? "kernel32-enter-critical-section-post-wait"
+            : postTimerWaitCriticalSectionCheckpointEnabled
+              ? "kernel32-enter-critical-section-post-timer-wait-batch"
             : postCriticalSectionSetWaitableTimerCheckpointEnabled
               ? "kernel32-set-waitable-timer-post-critical-section-batch"
             : postTimerArmWaitCheckpointEnabled
@@ -30180,6 +30406,8 @@ function buildGenericRuntimeReentryReport({
                   ? "vine.v86-bgi-kernel32-enter-critical-section-post-clock"
                   : postWaitCriticalSectionCheckpointEnabled
                     ? "vine.v86-bgi-kernel32-enter-critical-section-post-wait"
+                  : postTimerWaitCriticalSectionCheckpointEnabled
+                    ? "vine.v86-bgi-kernel32-enter-critical-section-post-timer-wait-batch"
                   : postCriticalSectionSetWaitableTimerCheckpointEnabled
                     ? "vine.v86-bgi-kernel32-set-waitable-timer-post-critical-section-batch"
                   : postTimerArmWaitCheckpointEnabled
@@ -31461,6 +31689,9 @@ function buildGenericRuntimeReentryReport({
                         : genericResult.checkpointCompletion.capability ===
                             "kernel32-enter-critical-section-post-wait"
                           ? "BGI completed the reached post-wait critical-section batch and stopped before the next owned endpoint"
+                        : genericResult.checkpointCompletion.capability ===
+                            "kernel32-enter-critical-section-post-timer-wait-batch"
+                          ? "BGI completed the reached post-timer-wait critical-section batch and stopped before the next owned endpoint"
                         : genericResult.checkpointCompletion.capability ===
                             "kernel32-set-waitable-timer-post-critical-section-batch"
                           ? "BGI completed the reached post-critical-section waitable-timer arm and stopped before the next owned endpoint"

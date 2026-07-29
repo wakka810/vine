@@ -249,6 +249,21 @@ arguments, and report identities remain manifest-owned.
 This evidence does not add cross-thread critical-section blocking, fairness,
 abandonment, timeout, or APC semantics.
 
+The later `kernel32-enter-critical-section-post-timer-wait-batch` profile
+reaches the same contiguous six-call shape after one more timer arm and wait
+cycle. Controlled thread `8193` again performs two balanced roundtrips on
+`0x1014C8D0` and one on `0x100FF820`. Node and Chrome agree on the ordered
+calls, locked and unlocked guest bytes, owner thread, final balanced state,
+terminal memory, and the following six-argument `SetWaitableTimer` frame.
+
+This recurrence is intentionally handled by the same
+`kernel32.critical-section-balanced-batch.v1` checkpoint contract. It neither
+adds a collection nor changes the synchronization transaction: Rust remains
+the sole owner, each call publishes one failure-atomic 24-byte update, and the
+Worker retains non-owning evidence only. The profile stops before dispatching
+the following timer arm. Exact positions, aggregate counts, report identities,
+and the next profile remain manifest-owned.
+
 ## Historical next structured stop
 
 After the fourteenth initialization returns, BGI reaches instruction 575 at:

@@ -99,6 +99,8 @@ const postClockCriticalSectionProfile =
   bgiProfile === "kernel32-enter-critical-section-post-clock";
 const postWaitCriticalSectionProfile =
   bgiProfile === "kernel32-enter-critical-section-post-wait";
+const postTimerWaitCriticalSectionProfile =
+  bgiProfile === "kernel32-enter-critical-section-post-timer-wait-batch";
 const postCriticalSectionSetWaitableTimerProfile =
   bgiProfile ===
   "kernel32-set-waitable-timer-post-critical-section-batch";
@@ -110,6 +112,7 @@ const postHeapTimeGetTimeEvidenceProfile =
   postHeapTimeGetTimeProfile ||
   postClockCriticalSectionProfile ||
   postWaitCriticalSectionProfile ||
+  postTimerWaitCriticalSectionProfile ||
   postCriticalSectionSetWaitableTimerProfile ||
   postTimerArmWaitProfile ||
   postCriticalSectionWaitProfile;
@@ -197,7 +200,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v63";
+const runtimeProtocol = "vine.browser-runtime-worker.v64";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -864,6 +867,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "winmm-time-get-time-post-heap-reuse",
         "kernel32-enter-critical-section-post-clock",
         "kernel32-enter-critical-section-post-wait",
+        "kernel32-enter-critical-section-post-timer-wait-batch",
         "kernel32-set-waitable-timer-post-critical-section-batch",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-critical-section",
@@ -923,6 +927,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "winmm-time-get-time-post-heap-reuse",
         "kernel32-enter-critical-section-post-clock",
         "kernel32-enter-critical-section-post-wait",
+        "kernel32-enter-critical-section-post-timer-wait-batch",
         "kernel32-set-waitable-timer-post-critical-section-batch",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-critical-section",
@@ -982,6 +987,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "winmm-time-get-time-post-heap-reuse",
         "kernel32-enter-critical-section-post-clock",
         "kernel32-enter-critical-section-post-wait",
+        "kernel32-enter-critical-section-post-timer-wait-batch",
         "kernel32-set-waitable-timer-post-critical-section-batch",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-critical-section",
@@ -991,6 +997,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
             ? runtimeThreadStackGrowthProfile
               ? postClockCriticalSectionProfile ||
                 postWaitCriticalSectionProfile ||
+                postTimerWaitCriticalSectionProfile ||
                 postCriticalSectionSetWaitableTimerProfile ||
                 postTimerArmWaitProfile ||
                 postCriticalSectionWaitProfile
@@ -1056,6 +1063,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         postHeapTimeGetTimeProfile ||
         postClockCriticalSectionProfile ||
         postWaitCriticalSectionProfile ||
+        postTimerWaitCriticalSectionProfile ||
         postCriticalSectionSetWaitableTimerProfile ||
         postTimerArmWaitProfile ||
         postCriticalSectionWaitProfile ||
@@ -1105,7 +1113,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         const pacingCount = user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
             ? runtimeThreadStackGrowthProfile
-              ? postTimerArmWaitProfile
+              ? postTimerArmWaitProfile || postTimerWaitCriticalSectionProfile
                 ? 11_207
                 : postCriticalSectionWaitProfile ||
                 postWaitCriticalSectionProfile ||
@@ -5446,7 +5454,9 @@ function validateBgiEquivalence(browser, oracle) {
     }
     if (
       oracleCheckpoint.capability ===
-      "kernel32-enter-critical-section-post-wait"
+        "kernel32-enter-critical-section-post-wait" ||
+      oracleCheckpoint.capability ===
+        "kernel32-enter-critical-section-post-timer-wait-batch"
     ) {
       const normalizeCriticalSectionCall = (call) => ({
         ...normalizeSemanticCall(call),
@@ -5491,7 +5501,7 @@ function validateBgiEquivalence(browser, oracle) {
             normalizeCriticalSectionCall,
           ),
         },
-        "Chrome Worker post-wait critical-section batch differs from the Node oracle",
+        "Chrome Worker balanced critical-section batch differs from the Node oracle",
       );
     }
     if (

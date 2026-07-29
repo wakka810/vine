@@ -57,6 +57,8 @@ const d3d9Canvas =
   capabilityProfile === "kernel32-enter-critical-section-post-clock" ||
   capabilityProfile === "kernel32-enter-critical-section-post-wait" ||
   capabilityProfile ===
+    "kernel32-enter-critical-section-post-timer-wait-batch" ||
+  capabilityProfile ===
     "kernel32-set-waitable-timer-post-critical-section-batch" ||
   capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
@@ -162,6 +164,8 @@ const startMessage = {
             capabilityProfile === "kernel32-enter-critical-section-post-clock" ||
             capabilityProfile === "kernel32-enter-critical-section-post-wait" ||
             capabilityProfile ===
+              "kernel32-enter-critical-section-post-timer-wait-batch" ||
+            capabilityProfile ===
               "kernel32-set-waitable-timer-post-critical-section-batch" ||
             capabilityProfile ===
               "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
@@ -216,6 +220,8 @@ const startMessage = {
       capabilityProfile === "winmm-time-get-time-post-heap-reuse" ||
       capabilityProfile === "kernel32-enter-critical-section-post-clock" ||
       capabilityProfile === "kernel32-enter-critical-section-post-wait" ||
+      capabilityProfile ===
+        "kernel32-enter-critical-section-post-timer-wait-batch" ||
       capabilityProfile ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       capabilityProfile ===
@@ -373,6 +379,7 @@ function parseCapabilityProfile(
     value === "winmm-time-get-time-post-heap-reuse" ||
     value === "kernel32-enter-critical-section-post-clock" ||
     value === "kernel32-enter-critical-section-post-wait" ||
+    value === "kernel32-enter-critical-section-post-timer-wait-batch" ||
     value === "kernel32-set-waitable-timer-post-critical-section-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-critical-section"

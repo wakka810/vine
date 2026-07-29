@@ -143,6 +143,13 @@ the existing semantic leaves, so it does not create a new performance
 baseline. Current counts, report identities, and the follow-on checkpoint are
 authoritative only in [current-checkpoint.json](current-checkpoint.json).
 
+After that wait completes, the reached balanced critical-section recurrence
+now arrives at another `SetWaitableTimer` frame. The critical-section
+checkpoint stops before dispatching this call, so it records no additional arm
+generation or timer mutation. The next structured stop in the manifest owns
+the exact follow-on profile and frame identity; this document continues to
+define the timer-arm transaction that profile must reuse.
+
 ## Non-claims
 
 - This arm transaction does not itself expire or signal the timer, choose a
