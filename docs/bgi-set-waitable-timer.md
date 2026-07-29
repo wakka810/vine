@@ -133,19 +133,24 @@ identity, close policy, and open-handle count are checked as one completion.
 Node and Chrome agree on the arm and object snapshots, ordered semantic digest,
 terminal memory, and the following
 `WaitForSingleObjectEx(0x57010002, 10, TRUE)` frame. The profile stops before
-that wait is dispatched. The Worker records completion evidence only: it does
-not create a browser timer, advance the logical clock, signal the object, or
-choose a wait result. This is recurrence evidence for the existing semantic
-leaf, so it does not create a new performance baseline. Current counts, report
-identities, and the follow-on checkpoint are authoritative only in
-[current-checkpoint.json](current-checkpoint.json).
+that wait is dispatched. The follow-on
+`kernel32-wait-for-single-object-ex-post-timer-arm-batch` profile consumes the
+wait through the existing Rust-owned expiration transaction and stops at the
+next `EnterCriticalSection` frame. The arm checkpoint itself creates no
+browser timer and chooses no wait result; the wait profile uses the browser
+only for a versioned pacing acknowledgement. This is recurrence evidence for
+the existing semantic leaves, so it does not create a new performance
+baseline. Current counts, report identities, and the follow-on checkpoint are
+authoritative only in [current-checkpoint.json](current-checkpoint.json).
 
 ## Non-claims
 
-- Timer expiration, signaling at a logical deadline, periodic rearm, APC
-  completion, cancellation, and resume-from-suspend are not implemented.
-- Alertable-wait semantics and the 10 ms timeout are not implemented by this
-  checkpoint.
+- This arm transaction does not itself expire or signal the timer, choose a
+  wait result, deliver an APC, or resume a waiting thread.
+- Periodic rearm, APC completion, cancellation, and resume-from-suspend remain
+  outside the active contract.
+- Alertable-wait acceptance and the reached 10 ms bounded wait belong to the
+  separate wait transaction, not this arm checkpoint.
 - The stored relative interval is guest-visible logical state, not a scheduled
   host or browser deadline.
 - Auto-reset creation remains outside the active primary policy even though the

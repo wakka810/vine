@@ -1027,6 +1027,14 @@ digest、terminal memory、直後の`WaitForSingleObjectEx(handle,10,TRUE)` fram
 wait dispatch前で停止し、clock advance、expiration、signal、wait result、browser pacing resourceを
 claimしない。既存handlerのreachability checkpointなので、新しいperformance baselineは要求しない。
 
+Post-timer-arm `WaitForSingleObjectEx` recurrenceは、同じRust-owned finite alertable wait transactionで
+timer／typed object／arm／registration／logical clock／owner thread／scheduler laneをpreflightし、logical
+expiration、`signaled` state、registration retirement、`WAIT_OBJECT_0`を一括commitする。Node／Chromeは
+arm generation、deadline、advanced clock generation、zero guest write、LastError、ordered semantic digest、
+terminal memory、次の`EnterCriticalSection(0x1014c8d0)` frameを一致させる。Workerは一件のversioned pacing
+requestをacknowledgeしてpending／stale callbackを残さず、Windows timer、clock、result、thread resumeの
+authorityにならない。APC delivery、general timeout、cross-thread waiter、performance baselineは拡張しない。
+
 Reached `GetVersionExA`の代表contractはdynamic in/out pointerのminimum 4-byte
 preflight、accepted 148／156-byte full-span read、policy-field merge、single atomic write、
 BOOLとhandler-owned LastErrorを固定する。Dispatcher fixtureはbase／extended layout、native-unwritten

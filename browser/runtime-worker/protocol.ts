@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 62 as const;
+export const protocolVersion = 63 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -54,6 +54,7 @@ export type BgiCapabilityProfile =
   | "kernel32-enter-critical-section-post-clock"
   | "kernel32-enter-critical-section-post-wait"
   | "kernel32-set-waitable-timer-post-critical-section-batch"
+  | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-critical-section";
 
 export type RuntimeKeyboardSourceEventKind =
@@ -1735,6 +1736,33 @@ export interface SessionReport {
             | { kind: "ordinal"; ordinal: number };
         };
         nextArguments: [number, number, number];
+        nextReturnAddress: number;
+        nextStackPointer: number;
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "kernel32-wait-for-single-object-ex-post-timer-arm-batch";
+        implementationId: "kernel32.wait-for-single-object-ex.waitable-timer.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        completions: [RuntimeSupportedCallSnapshot];
+        threadId: number;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          disposition: "declared-runtime-export";
+          iatAddress: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        nextArguments: [number];
         nextReturnAddress: number;
         nextStackPointer: number;
         memoryContentSha256: string;

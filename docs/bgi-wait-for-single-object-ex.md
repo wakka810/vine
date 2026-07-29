@@ -193,12 +193,23 @@ does not arm the timer in the critical-section checkpoint or create a browser
 timer authority. The balanced batch contract is documented in
 [bgi-critical-section-synchronization.md](bgi-critical-section-synchronization.md).
 
-The late `kernel32-set-waitable-timer-post-critical-section-batch` profile now
-consumes that arm and stops on the next wait frame. It validates the rearmed
-timer/object identity and deadline but does not consume the wait, request a
-browser pacing resource, expire the timer, or signal the object. Those effects
-remain owned by the existing wait transaction and are the next structured
-boundary recorded in the current manifest.
+The late `kernel32-set-waitable-timer-post-critical-section-batch` profile
+consumes that arm and stops on the next wait frame. The follow-on
+`kernel32-wait-for-single-object-ex-post-timer-arm-batch` profile now consumes
+that wait through the same Rust-owned transaction. It revalidates timer ID 2,
+logical handle `0x57010002`, object ID 24, arm generation, logical deadline,
+wait registration, owner thread, and scheduler lane before publishing the
+logical expiration and `WAIT_OBJECT_0` result. Node and Chrome agree on the
+signaled object snapshot, advanced timer clock, zero guest write, preserved
+LastError, ordered semantic digest, terminal memory, and following
+`EnterCriticalSection(0x1014c8d0)` frame.
+
+The Worker acknowledges exactly one additional `runtime.timer-delay.v1`
+request and retains no pending or stale browser callback. It remains a pacing
+adapter: Rust owns the timer, registration, logical clock, result, and thread
+resume. This is another reached recurrence of the existing semantic leaf, so
+it does not broaden APC, general timeout, cross-thread waiter, or performance
+claims. Exact counts and artifact identities remain manifest-owned.
 
 ## Non-claims
 

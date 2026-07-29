@@ -102,6 +102,8 @@ const postWaitCriticalSectionProfile =
 const postCriticalSectionSetWaitableTimerProfile =
   bgiProfile ===
   "kernel32-set-waitable-timer-post-critical-section-batch";
+const postTimerArmWaitProfile =
+  bgiProfile === "kernel32-wait-for-single-object-ex-post-timer-arm-batch";
 const postCriticalSectionWaitProfile =
   bgiProfile === "kernel32-wait-for-single-object-ex-post-critical-section";
 const postHeapTimeGetTimeEvidenceProfile =
@@ -109,6 +111,7 @@ const postHeapTimeGetTimeEvidenceProfile =
   postClockCriticalSectionProfile ||
   postWaitCriticalSectionProfile ||
   postCriticalSectionSetWaitableTimerProfile ||
+  postTimerArmWaitProfile ||
   postCriticalSectionWaitProfile;
 const runtimeThreadStackGrowthProfile =
   bgiProfile === "runtime-thread-stack-growth" ||
@@ -194,7 +197,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v62";
+const runtimeProtocol = "vine.browser-runtime-worker.v63";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -862,6 +865,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-enter-critical-section-post-clock",
         "kernel32-enter-critical-section-post-wait",
         "kernel32-set-waitable-timer-post-critical-section-batch",
+        "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-critical-section",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
@@ -920,6 +924,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-enter-critical-section-post-clock",
         "kernel32-enter-critical-section-post-wait",
         "kernel32-set-waitable-timer-post-critical-section-batch",
+        "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-critical-section",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
@@ -978,6 +983,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-enter-critical-section-post-clock",
         "kernel32-enter-critical-section-post-wait",
         "kernel32-set-waitable-timer-post-critical-section-batch",
+        "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-critical-section",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
@@ -986,6 +992,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
               ? postClockCriticalSectionProfile ||
                 postWaitCriticalSectionProfile ||
                 postCriticalSectionSetWaitableTimerProfile ||
+                postTimerArmWaitProfile ||
                 postCriticalSectionWaitProfile
                 ? 2_457
                 : 2_456
@@ -1050,6 +1057,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         postClockCriticalSectionProfile ||
         postWaitCriticalSectionProfile ||
         postCriticalSectionSetWaitableTimerProfile ||
+        postTimerArmWaitProfile ||
         postCriticalSectionWaitProfile ||
         user32AsyncKeyStateInputProfile ||
         user32AsyncKeyStateInitialScanCheckpointProfile ||
@@ -1097,7 +1105,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         const pacingCount = user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
             ? runtimeThreadStackGrowthProfile
-              ? postCriticalSectionWaitProfile ||
+              ? postTimerArmWaitProfile
+                ? 11_207
+                : postCriticalSectionWaitProfile ||
                 postWaitCriticalSectionProfile ||
                 postCriticalSectionSetWaitableTimerProfile
                 ? 11_206
@@ -5525,7 +5535,9 @@ function validateBgiEquivalence(browser, oracle) {
     }
     if (
       oracleCheckpoint.capability ===
-      "kernel32-wait-for-single-object-ex-post-critical-section"
+        "kernel32-wait-for-single-object-ex-post-critical-section" ||
+      oracleCheckpoint.capability ===
+        "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
     ) {
       const normalizeWaitCall = (call) => ({
         ...normalizeSemanticCall(call),
@@ -5559,7 +5571,7 @@ function validateBgiEquivalence(browser, oracle) {
           nextStackPointer: oracleCheckpoint.nextStackPointer,
           completions: oracleCheckpoint.completions.map(normalizeWaitCall),
         },
-        "Chrome Worker post-critical-section wait lifecycle differs from the Node oracle",
+        "Chrome Worker post-arm wait lifecycle differs from the Node oracle",
       );
     }
     if (oracleCheckpoint.capability === "kernel32-enter-critical-section") {
