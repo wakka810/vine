@@ -24226,9 +24226,9 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.nodeOracleReportBytes !== 3_027_938 ||
       bgiBrowserEvidence.nodeOracleReportSha256 !==
         "bdd56d4e78cb608dece62bbba0f2dd15daba6e2933caa7e70c0280cbdca9ac80" ||
-      bgiBrowserEvidence.browserReportBytes !== 2_732_845 ||
+      bgiBrowserEvidence.browserReportBytes !== 2_732_847 ||
       bgiBrowserEvidence.browserReportSha256 !==
-        "6d175e3e11bcdebeef9480b319e6f09ba07b109fd6369cf0cdb9eb10f8bc68b6" ||
+        "35976533332383e3ac97d8651c4404ea07ba34debed3de946591770f24c2c9fa" ||
       bgiBrowserEvidence.runtimeWorkerBytes !== 695_505 ||
       bgiBrowserEvidence.runtimeWorkerSha256 !==
         "08f484f9ec777e82f5f5a2b9f4aa220253fcbd3b5a2a297864406ae48e5a50d4" ||
@@ -24245,9 +24245,9 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.reportBytes !== 3_027_938 ||
       latestEvidence.reportSha256 !==
         "bdd56d4e78cb608dece62bbba0f2dd15daba6e2933caa7e70c0280cbdca9ac80" ||
-      latestEvidence.browserReportBytes !== 2_732_845 ||
+      latestEvidence.browserReportBytes !== 2_732_847 ||
       latestEvidence.browserReportSha256 !==
-        "6d175e3e11bcdebeef9480b319e6f09ba07b109fd6369cf0cdb9eb10f8bc68b6" ||
+        "35976533332383e3ac97d8651c4404ea07ba34debed3de946591770f24c2c9fa" ||
       latestEvidence.browserReportSchemaVersion !== 45 ||
       latestEvidence.browserRuntimeProtocol !==
         "vine.browser-runtime-worker.v78" ||
