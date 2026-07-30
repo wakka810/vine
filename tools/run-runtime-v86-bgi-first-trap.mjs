@@ -202,6 +202,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-set-waitable-timer-post-timer-rearm-wait-batch",
         "primary-main-loop-recurring-timer-cycle-batch",
         "primary-main-loop-recurring-timer-multi-cycle-batch",
+        "primary-main-loop-recurring-timer-window-batch",
         "kernel32-wait-for-single-object-ex",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -377,6 +378,7 @@ assert(
       "kernel32-set-waitable-timer-post-timer-rearm-wait-batch",
       "primary-main-loop-recurring-timer-cycle-batch",
       "primary-main-loop-recurring-timer-multi-cycle-batch",
+      "primary-main-loop-recurring-timer-window-batch",
       "kernel32-wait-for-single-object-ex",
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
       "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -487,6 +489,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
       "primary-main-loop-recurring-timer-cycle-batch" ||
     genericRuntimeCapability ===
       "primary-main-loop-recurring-timer-multi-cycle-batch" ||
+    genericRuntimeCapability ===
+      "primary-main-loop-recurring-timer-window-batch" ||
     genericRuntimeCapability ===
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     genericRuntimeCapability ===
@@ -846,6 +850,25 @@ const recurringTimerCycleCheckpointEnabled =
 const recurringTimerMultiCycleCheckpointEnabled =
   genericRuntimeCapability ===
   "primary-main-loop-recurring-timer-multi-cycle-batch";
+const recurringTimerWindowCheckpointEnabled =
+  genericRuntimeCapability ===
+  "primary-main-loop-recurring-timer-window-batch";
+const recurringTimerBoundedWindowCheckpointEnabled =
+  recurringTimerMultiCycleCheckpointEnabled ||
+  recurringTimerWindowCheckpointEnabled;
+const recurringTimerWindowConfiguration = recurringTimerWindowCheckpointEnabled
+  ? {
+      capability: "primary-main-loop-recurring-timer-window-batch",
+      implementationId: "runtime.main-loop-recurring-timer-window.v1",
+      requiredCycles: 64,
+      maximumCycles: 80,
+    }
+  : {
+      capability: "primary-main-loop-recurring-timer-multi-cycle-batch",
+      implementationId: "runtime.main-loop-recurring-timer-multi-cycle.v1",
+      requiredCycles: 16,
+      maximumCycles: 16,
+    };
 const postTimerWaitSetWaitableTimerCheckpointEnabled =
   postTimerRearmWaitSetWaitableTimerCheckpointEnabled ||
   genericRuntimeCapability ===
@@ -871,7 +894,7 @@ const runtimeTraplessExecutionBudgetEnabled =
   postCriticalSectionSetWaitableTimerCheckpointEnabled ||
   postTimerArmWaitCheckpointEnabled ||
   recurringTimerCycleCheckpointEnabled ||
-  recurringTimerMultiCycleCheckpointEnabled;
+  recurringTimerBoundedWindowCheckpointEnabled;
 const runtimeThreadStackGrowthEnabled =
   runtimeThreadStackGrowthCheckpointEnabled ||
   runtimeTraplessExecutionBudgetEnabled;
@@ -1331,8 +1354,8 @@ const outputDirectory = path.join(
           ? "v86-bgi-heap-alloc-24-byte-buffer"
           : recurringTimerCycleCheckpointEnabled
             ? "v86-bgi-primary-main-loop-recurring-timer-cycle-batch"
-          : recurringTimerMultiCycleCheckpointEnabled
-            ? "v86-bgi-primary-main-loop-recurring-timer-multi-cycle-batch"
+          : recurringTimerBoundedWindowCheckpointEnabled
+            ? `v86-bgi-${recurringTimerWindowConfiguration.capability}`
           : postHeapTimeGetTimeCheckpointEnabled
             ? "v86-bgi-time-get-time-post-heap-reuse"
             : postClockCriticalSectionCheckpointEnabled
@@ -5790,8 +5813,8 @@ async function run() {
         validateLargeHeapFreeResult(genericResult);
       } else if (heapAlloc24CheckpointEnabled) {
         validateHeapAlloc24Result(genericResult);
-      } else if (recurringTimerMultiCycleCheckpointEnabled) {
-        validateRecurringTimerMultiCycleResult(genericResult);
+      } else if (recurringTimerBoundedWindowCheckpointEnabled) {
+        validateRecurringTimerBoundedWindowResult(genericResult);
       } else if (recurringTimerCycleCheckpointEnabled) {
         validateRecurringTimerCycleResult(genericResult);
       } else if (postHeapTimeGetTimeCheckpointEnabled) {
@@ -6118,8 +6141,10 @@ async function run() {
               ? "bgi large-buffer private-heap free batch"
               : heapAlloc24CheckpointEnabled
                 ? "bgi private-heap allocation and coalesced reuse batch"
-                : recurringTimerMultiCycleCheckpointEnabled
-                  ? "bgi primary main-loop recurring timer multi-cycle batch"
+                : recurringTimerBoundedWindowCheckpointEnabled
+                  ? recurringTimerWindowCheckpointEnabled
+                    ? "bgi primary main-loop recurring timer window batch"
+                    : "bgi primary main-loop recurring timer multi-cycle batch"
                 : recurringTimerCycleCheckpointEnabled
                   ? "bgi primary main-loop recurring timer cycle batch"
                 : postHeapTimeGetTimeCheckpointEnabled
@@ -6461,7 +6486,9 @@ async function run() {
                     "user32-async-key-state-input"
                   ? `${genericResult.checkpointCompletion.completionCount} controlled async-key query completed`
                     : genericResult.checkpointCompletion.capability ===
-                        "primary-main-loop-recurring-timer-multi-cycle-batch"
+                          "primary-main-loop-recurring-timer-multi-cycle-batch" ||
+                        genericResult.checkpointCompletion.capability ===
+                          "primary-main-loop-recurring-timer-window-batch"
                       ? `${genericResult.checkpointCompletion.cycleCount} recurring timer cycles completed`
                       : genericResult.checkpointCompletion.capability ===
                           "primary-main-loop-recurring-timer-cycle-batch"
@@ -6764,6 +6791,21 @@ async function runGenericRuntimeReentry({
   let recurringTimerMultiCycleThreadId = null;
   let recurringTimerMultiCycleCurrentCycle = null;
   let recurringTimerMultiCycleFirstBoundary = null;
+  const recurringTimerWindowInterCycleCompletions = [];
+  const recurringTimerWindowInterCycleIntervals = [];
+  let recurringTimerWindowCurrentInterCycleInterval = null;
+  const recurringTimerWindowHeldCriticalSections = new Map();
+  const recurringTimerWindowCriticalSectionSnapshot = () =>
+    [...recurringTimerWindowHeldCriticalSections.entries()]
+      .filter(([, count]) => count > 0)
+      .map(([key, count]) => {
+        const [threadId, address] = key.split(":").map(Number);
+        return { threadId, address, count };
+      })
+      .sort(
+        (left, right) =>
+          left.threadId - right.threadId || left.address - right.address,
+      );
   let postCheckpointCriticalSectionThreadId = null;
   let postCriticalSectionWaitThreadId = null;
   let postCriticalSectionSetWaitableTimerThreadId = null;
@@ -7188,6 +7230,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "primary-main-loop-recurring-timer-window-batch"
+            ? "primary-main-loop-recurring-timer-window-batch-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "primary-main-loop-recurring-timer-multi-cycle-batch"
             ? "primary-main-loop-recurring-timer-multi-cycle-batch-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -7297,7 +7342,7 @@ async function runGenericRuntimeReentry({
         postTimerArmWaitCheckpointEnabled ||
         postCriticalSectionWaitCheckpointEnabled ||
         recurringTimerCycleCheckpointEnabled ||
-        recurringTimerMultiCycleCheckpointEnabled
+        recurringTimerBoundedWindowCheckpointEnabled
       ) {
         assert.equal(terminal.kind, "owned-import-thunk");
         checkpointCompletion.nextEndpoint.disposition =
@@ -7336,7 +7381,7 @@ async function runGenericRuntimeReentry({
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (
         recurringTimerCycleCheckpointEnabled ||
-        recurringTimerMultiCycleCheckpointEnabled
+        recurringTimerBoundedWindowCheckpointEnabled
       ) {
         checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 4);
         checkpointCompletion.nextReturnAddress = terminal.returnAddress;
@@ -8224,12 +8269,137 @@ async function runGenericRuntimeReentry({
       frozenSemanticCalls += 1;
     }
     supportedCalls.push(call);
-    if (recurringTimerMultiCycleCheckpointEnabled && sequence >= 158_132) {
+    if (recurringTimerBoundedWindowCheckpointEnabled && sequence >= 158_132) {
       const waitImplementationId =
         "kernel32.wait-for-single-object-ex.waitable-timer.v1";
       const timerArmImplementationId =
         "kernel32.set-waitable-timer.relative-one-shot.v1";
-      if (recurringTimerMultiCycleCurrentCycle === null) {
+      const frozenCall = {
+        ...structuredClone(call),
+        runtimeThreadId: currentThreadId,
+      };
+      recurringTimerMultiCycleCompletions.push(frozenCall);
+      const interCycleCompletion =
+        recurringTimerWindowCheckpointEnabled &&
+        recurringTimerMultiCycleCurrentCycle === null &&
+        call.implementationId !== waitImplementationId;
+      if (interCycleCompletion) {
+        const interval = recurringTimerWindowCurrentInterCycleInterval;
+        assert(
+          interval !== null,
+          "recurring timer post-arm completion has no owning interval",
+        );
+        interval.completions.push(frozenCall);
+        recurringTimerWindowInterCycleCompletions.push(frozenCall);
+        if (
+          frozenCall.implementationId ===
+          "kernel32.enter-critical-section.v1"
+        ) {
+          const address = frozenCall.arguments[0];
+          const ownershipKey = `${frozenCall.runtimeThreadId}:${address}`;
+          recurringTimerWindowHeldCriticalSections.set(
+            ownershipKey,
+            (recurringTimerWindowHeldCriticalSections.get(ownershipKey) ?? 0) +
+              1,
+          );
+        } else if (
+          frozenCall.implementationId ===
+          "kernel32.leave-critical-section.v1"
+        ) {
+          const address = frozenCall.arguments[0];
+          const ownershipKey = `${frozenCall.runtimeThreadId}:${address}`;
+          const heldCount =
+            recurringTimerWindowHeldCriticalSections.get(ownershipKey) ?? 0;
+          assert(
+            heldCount > 0,
+            `recurring timer inter-cycle interval released an unheld critical section at sequence ${frozenCall.sequence}`,
+          );
+          recurringTimerWindowHeldCriticalSections.set(
+            ownershipKey,
+            heldCount - 1,
+          );
+        }
+      } else {
+        if (recurringTimerMultiCycleCurrentCycle === null) {
+          const interval = recurringTimerWindowCurrentInterCycleInterval;
+          if (interval !== null) {
+            if (interval.completions.length > 0) {
+              const implementationCounts = Object.fromEntries(
+                [...interval.completions
+                  .reduce((counts, completion) => {
+                    counts.set(
+                      completion.implementationId,
+                      (counts.get(completion.implementationId) ?? 0) + 1,
+                    );
+                    return counts;
+                  }, new Map())
+                  .entries()].sort(([left], [right]) =>
+                  left.localeCompare(right),
+                ),
+              );
+              const participatingThreadIds = [
+                ...new Set(
+                  interval.completions.map(
+                    (completion) => completion.runtimeThreadId,
+                  ),
+                ),
+              ].sort((left, right) => left - right);
+              const threadTransitionCount = interval.completions
+                .slice(1)
+                .reduce(
+                  (count, completion, index) =>
+                    count +
+                    (completion.runtimeThreadId ===
+                    interval.completions[index].runtimeThreadId
+                      ? 0
+                      : 1),
+                  0,
+                );
+              const firstCompletion = interval.completions[0];
+              const lastCompletion = interval.completions.at(-1);
+              const criticalSectionCarryOut =
+                recurringTimerWindowCriticalSectionSnapshot();
+              recurringTimerWindowInterCycleIntervals.push({
+                afterCycleIndex: interval.afterCycleIndex,
+                completionCount: interval.completions.length,
+                firstCompletionSequence: firstCompletion.sequence,
+                firstCompletionInstructionCount:
+                  firstCompletion.trapInstructionCount,
+                lastCompletionSequence: lastCompletion.sequence,
+                lastCompletionInstructionCount:
+                  lastCompletion.trapInstructionCount,
+                implementationCounts,
+                participatingThreadIds,
+                threadTransitionCount,
+                criticalSectionAcquisitionCount:
+                  implementationCounts[
+                    "kernel32.enter-critical-section.v1"
+                  ] ?? 0,
+                criticalSectionReleaseCount:
+                  implementationCounts[
+                    "kernel32.leave-critical-section.v1"
+                  ] ?? 0,
+                criticalSectionOccurrences: interval.completions
+                  .filter(
+                    (completion) =>
+                      completion.implementationId ===
+                      "kernel32.enter-critical-section.v1",
+                  )
+                  .map((completion) => completion.occurrence),
+                criticalSectionAddresses: interval.completions
+                  .filter(
+                    (completion) =>
+                      completion.implementationId ===
+                      "kernel32.enter-critical-section.v1",
+                  )
+                  .map((completion) => completion.arguments[0]),
+                criticalSectionCarryIn: interval.criticalSectionCarryIn,
+                criticalSectionCarryOut,
+                balanced: criticalSectionCarryOut.length === 0,
+              });
+            }
+            recurringTimerWindowCurrentInterCycleInterval = null;
+          }
         assert.equal(call.implementationId, waitImplementationId);
         if (recurringTimerMultiCycleThreadId === null) {
           recurringTimerMultiCycleThreadId = currentThreadId;
@@ -8239,20 +8409,18 @@ async function runGenericRuntimeReentry({
         recurringTimerMultiCycleCurrentCycle = {
           cycleIndex: recurringTimerMultiCycleSummaries.length,
           completions: [],
+          criticalSectionCarryIn: recurringTimerWindowCheckpointEnabled
+            ? recurringTimerWindowCriticalSectionSnapshot()
+            : [],
         };
-      } else {
-        assert.notEqual(
-          call.implementationId,
-          waitImplementationId,
-          `recurring timer cycle ${recurringTimerMultiCycleCurrentCycle.cycleIndex} reached a second wait before timer rearm`,
-        );
-      }
-      const frozenCall = {
-        ...structuredClone(call),
-        runtimeThreadId: currentThreadId,
-      };
-      recurringTimerMultiCycleCompletions.push(frozenCall);
-      recurringTimerMultiCycleCurrentCycle.completions.push(frozenCall);
+        } else {
+          assert.notEqual(
+            call.implementationId,
+            waitImplementationId,
+            `recurring timer cycle ${recurringTimerMultiCycleCurrentCycle.cycleIndex} reached a second wait before timer rearm`,
+          );
+        }
+        recurringTimerMultiCycleCurrentCycle.completions.push(frozenCall);
       if (call.implementationId === timerArmImplementationId) {
         const { cycleIndex, completions } =
           recurringTimerMultiCycleCurrentCycle;
@@ -8304,10 +8472,14 @@ async function runGenericRuntimeReentry({
           11_206 + cycleIndex,
         );
 
-        const heldCriticalSections = new Map();
+        const heldCriticalSections = recurringTimerWindowCheckpointEnabled
+          ? recurringTimerWindowHeldCriticalSections
+          : new Map();
         const criticalSectionAddresses = [];
         const criticalSectionOccurrences = [];
         let criticalSectionCompletionCount = 0;
+        let criticalSectionAcquisitionCount = 0;
+        let criticalSectionReleaseCount = 0;
         let roundtripCount = 0;
         for (const completion of completions.slice(1, -1)) {
           if (
@@ -8323,6 +8495,7 @@ async function runGenericRuntimeReentry({
             criticalSectionAddresses.push(address);
             criticalSectionOccurrences.push(completion.occurrence);
             criticalSectionCompletionCount += 1;
+            criticalSectionAcquisitionCount += 1;
           } else if (
             completion.implementationId ===
             "kernel32.leave-critical-section.v1"
@@ -8336,13 +8509,19 @@ async function runGenericRuntimeReentry({
             );
             heldCriticalSections.set(ownershipKey, heldCount - 1);
             criticalSectionCompletionCount += 1;
+            criticalSectionReleaseCount += 1;
             roundtripCount += 1;
           }
         }
-        assert(
-          [...heldCriticalSections.values()].every((count) => count === 0),
-          `recurring timer cycle ${cycleIndex} ended with a held critical section`,
-        );
+        const criticalSectionCarryOut = recurringTimerWindowCheckpointEnabled
+          ? recurringTimerWindowCriticalSectionSnapshot()
+          : [];
+        if (!recurringTimerWindowCheckpointEnabled) {
+          assert(
+            [...heldCriticalSections.values()].every((count) => count === 0),
+            `recurring timer cycle ${cycleIndex} ended with a held critical section`,
+          );
+        }
         const implementationCounts = Object.fromEntries(
           [...completions
             .reduce((counts, completion) => {
@@ -8389,19 +8568,56 @@ async function runGenericRuntimeReentry({
           nextTimerDeadlineTime100ns:
             arm.waitableTimer.timer.arm.deadlineTime100ns,
           criticalSectionCompletionCount,
+          ...(recurringTimerWindowCheckpointEnabled
+            ? {
+                criticalSectionAcquisitionCount,
+                criticalSectionReleaseCount,
+                criticalSectionCarryIn:
+                  recurringTimerMultiCycleCurrentCycle.criticalSectionCarryIn,
+                criticalSectionCarryOut,
+              }
+            : {}),
           roundtripCount,
           criticalSectionOccurrences,
           criticalSectionAddresses,
           implementationCounts,
           participatingThreadIds,
           threadTransitionCount,
-          balanced: true,
+          balanced: criticalSectionCarryOut.length === 0,
         });
         if (cycleIndex === 0) {
           recurringTimerMultiCycleFirstBoundary = structuredClone(completions);
         }
+        if (recurringTimerWindowCheckpointEnabled) {
+          recurringTimerWindowCurrentInterCycleInterval = {
+            afterCycleIndex: cycleIndex,
+            criticalSectionCarryIn: criticalSectionCarryOut,
+            completions: [],
+          };
+        }
         recurringTimerMultiCycleCurrentCycle = null;
-        if (recurringTimerMultiCycleSummaries.length === 16) {
+        const completedCycleCount = recurringTimerMultiCycleSummaries.length;
+        const criticalSectionWindowBalanced =
+          recurringTimerWindowCriticalSectionSnapshot().length === 0;
+        if (
+          recurringTimerWindowCheckpointEnabled &&
+          completedCycleCount === recurringTimerWindowConfiguration.maximumCycles &&
+          !criticalSectionWindowBalanced
+        ) {
+          throw new Error(
+            `recurring timer window retained critical-section ownership after ${completedCycleCount} cycles: ${JSON.stringify(
+              recurringTimerWindowCriticalSectionSnapshot(),
+            )}`,
+          );
+        }
+        if (
+          recurringTimerMultiCycleCheckpointEnabled
+            ? completedCycleCount ===
+              recurringTimerWindowConfiguration.requiredCycles
+            : completedCycleCount >=
+                recurringTimerWindowConfiguration.requiredCycles &&
+              criticalSectionWindowBalanced
+        ) {
           assert.equal(checkpointCompletion, null);
           assert(recurringTimerMultiCycleFirstBoundary !== null);
           const firstCompletion = recurringTimerMultiCycleCompletions[0];
@@ -8411,30 +8627,59 @@ async function runGenericRuntimeReentry({
               (total, cycle) =>
                 total + cycle.criticalSectionCompletionCount,
               0,
+            ) +
+            recurringTimerWindowInterCycleIntervals.reduce(
+              (total, interval) =>
+                total +
+                interval.criticalSectionAcquisitionCount +
+                interval.criticalSectionReleaseCount,
+              0,
             );
-          const roundtripCount = recurringTimerMultiCycleSummaries.reduce(
-            (total, cycle) => total + cycle.roundtripCount,
-            0,
-          );
+          const roundtripCount =
+            recurringTimerMultiCycleSummaries.reduce(
+              (total, cycle) => total + cycle.roundtripCount,
+              0,
+            ) +
+            recurringTimerWindowInterCycleIntervals.reduce(
+              (total, interval) =>
+                total + interval.criticalSectionReleaseCount,
+              0,
+            );
           const participatingThreadIds = [
             ...new Set(
-              recurringTimerMultiCycleSummaries.flatMap(
-                (cycle) => cycle.participatingThreadIds,
+              recurringTimerMultiCycleCompletions.map(
+                (completion) => completion.runtimeThreadId,
               ),
             ),
           ].sort((left, right) => left - right);
-          const threadTransitionCount = recurringTimerMultiCycleSummaries.reduce(
-            (total, cycle) => total + cycle.threadTransitionCount,
-            0,
-          );
+          const threadTransitionCount = recurringTimerMultiCycleCompletions
+            .slice(1)
+            .reduce(
+              (total, completion, index) =>
+                total +
+                (completion.runtimeThreadId ===
+                recurringTimerMultiCycleCompletions[index].runtimeThreadId
+                  ? 0
+                  : 1),
+              0,
+            );
           checkpointCompletion = {
-            capability: "primary-main-loop-recurring-timer-multi-cycle-batch",
+            capability: recurringTimerWindowConfiguration.capability,
             implementationId:
-              "runtime.main-loop-recurring-timer-multi-cycle.v1",
-            requiredCycles: 16,
-            cycleCount: 16,
-            requiredCompletions: 32,
-            minimumRequiredCompletions: 32,
+              recurringTimerWindowConfiguration.implementationId,
+            requiredCycles: recurringTimerWindowConfiguration.requiredCycles,
+            ...(recurringTimerWindowCheckpointEnabled
+              ? {
+                  minimumRequiredCycles:
+                    recurringTimerWindowConfiguration.requiredCycles,
+                  maximumCycles: recurringTimerWindowConfiguration.maximumCycles,
+                }
+              : {}),
+            cycleCount: completedCycleCount,
+            requiredCompletions:
+              recurringTimerWindowConfiguration.requiredCycles * 2,
+            minimumRequiredCompletions:
+              recurringTimerWindowConfiguration.requiredCycles * 2,
             completionCount: recurringTimerMultiCycleCompletions.length,
             firstCompletionSequence: firstCompletion.sequence,
             firstCompletionInstructionCount:
@@ -8442,32 +8687,78 @@ async function runGenericRuntimeReentry({
             lastCompletionSequence: lastCompletion.sequence,
             lastCompletionInstructionCount:
               lastCompletion.trapInstructionCount,
-            boundaryCycleIndexes: [0, 15],
+            boundaryCycleIndexes: [
+              0,
+              completedCycleCount - 1,
+            ],
             boundaryCompletions: [
               ...recurringTimerMultiCycleFirstBoundary,
               ...structuredClone(completions),
             ],
             cycles: structuredClone(recurringTimerMultiCycleSummaries),
-            waitCompletionCount: 16,
+            ...(recurringTimerWindowCheckpointEnabled
+              ? {
+                  interCycleCompletionCount:
+                    recurringTimerWindowInterCycleCompletions.length,
+                  interCycleIntervals: structuredClone(
+                    recurringTimerWindowInterCycleIntervals,
+                  ),
+                }
+              : {}),
+            waitCompletionCount: completedCycleCount,
             criticalSectionCompletionCount,
-            timerArmCompletionCount: 16,
+            ...(recurringTimerWindowCheckpointEnabled
+              ? {
+                  criticalSectionAcquisitionCount:
+                    recurringTimerMultiCycleSummaries.reduce(
+                      (total, cycle) =>
+                        total + cycle.criticalSectionAcquisitionCount,
+                      0,
+                    ) +
+                    recurringTimerWindowInterCycleIntervals.reduce(
+                      (total, interval) =>
+                        total + interval.criticalSectionAcquisitionCount,
+                      0,
+                    ),
+                  criticalSectionReleaseCount:
+                    recurringTimerMultiCycleSummaries.reduce(
+                      (total, cycle) => total + cycle.criticalSectionReleaseCount,
+                      0,
+                    ) +
+                    recurringTimerWindowInterCycleIntervals.reduce(
+                      (total, interval) =>
+                        total + interval.criticalSectionReleaseCount,
+                      0,
+                    ),
+                  carriedCycleCount: recurringTimerMultiCycleSummaries.filter(
+                    (cycle) =>
+                      cycle.criticalSectionCarryIn.length > 0 ||
+                      cycle.criticalSectionCarryOut.length > 0,
+                  ).length,
+                }
+              : {}),
+            timerArmCompletionCount: completedCycleCount,
             roundtripCount,
             criticalSectionAddresses: [
-              ...new Set(
-                recurringTimerMultiCycleSummaries.flatMap(
+              ...new Set([
+                ...recurringTimerMultiCycleSummaries.flatMap(
                   (cycle) => cycle.criticalSectionAddresses,
                 ),
-              ),
+                ...recurringTimerWindowInterCycleIntervals.flatMap(
+                  (interval) => interval.criticalSectionAddresses,
+                ),
+              ]),
             ],
             mainLoopThreadId: recurringTimerMultiCycleThreadId,
             participatingThreadIds,
             threadTransitionCount,
-            balanced: true,
+            balanced: criticalSectionWindowBalanced,
             instructionCount: 0,
             nextEndpoint: null,
             memoryContentSha256: "",
           };
         }
+      }
       }
     }
     if (
@@ -24876,6 +25167,432 @@ function validatePostWaitCriticalSectionResult(result) {
   assert.equal(result.finalGeneration, 289_912);
 }
 
+function validateRecurringTimerBoundedWindowResult(result) {
+  if (recurringTimerMultiCycleCheckpointEnabled) {
+    validateRecurringTimerMultiCycleResult(result);
+    return;
+  }
+  validateRecurringTimerWindowResult(result);
+}
+
+function validateRecurringTimerWindowResult(result) {
+  assert(recurringTimerWindowCheckpointEnabled);
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  const checkpoint = result.checkpointCompletion;
+  assert.equal(checkpoint?.capability, recurringTimerWindowConfiguration.capability);
+  assert.equal(
+    checkpoint.implementationId,
+    recurringTimerWindowConfiguration.implementationId,
+  );
+  assert.equal(
+    checkpoint.requiredCycles,
+    recurringTimerWindowConfiguration.requiredCycles,
+  );
+  assert.equal(
+    checkpoint.minimumRequiredCycles,
+    recurringTimerWindowConfiguration.requiredCycles,
+  );
+  assert.equal(
+    checkpoint.maximumCycles,
+    recurringTimerWindowConfiguration.maximumCycles,
+  );
+  assert(
+    checkpoint.cycleCount >= recurringTimerWindowConfiguration.requiredCycles,
+  );
+  assert(checkpoint.cycleCount <= recurringTimerWindowConfiguration.maximumCycles);
+  assert.equal(checkpoint.cycleCount, 64);
+  assert.equal(
+    checkpoint.requiredCompletions,
+    recurringTimerWindowConfiguration.requiredCycles * 2,
+  );
+  assert.equal(
+    checkpoint.minimumRequiredCompletions,
+    recurringTimerWindowConfiguration.requiredCycles * 2,
+  );
+  assert.equal(checkpoint.firstCompletionSequence, 158_132);
+  assert.equal(checkpoint.firstCompletionInstructionCount, 276_361_491);
+  assert.deepEqual(checkpoint.boundaryCycleIndexes, [
+    0,
+    checkpoint.cycleCount - 1,
+  ]);
+  assert.equal(checkpoint.cycles.length, checkpoint.cycleCount);
+  assert.equal(checkpoint.waitCompletionCount, checkpoint.cycleCount);
+  assert.equal(checkpoint.timerArmCompletionCount, checkpoint.cycleCount);
+  assert.equal(checkpoint.mainLoopThreadId, 8_193);
+  assert.deepEqual(checkpoint.participatingThreadIds, [8_192, 8_193]);
+  assert.equal(checkpoint.threadTransitionCount, 14);
+  assert.equal(checkpoint.balanced, true);
+  assert.equal(checkpoint.completionCount, 962);
+  assert.equal(checkpoint.interCycleCompletionCount, 64);
+  assert.equal(checkpoint.interCycleIntervals.length, 1);
+  assert.equal(checkpoint.criticalSectionCompletionCount, 448);
+  assert.equal(checkpoint.criticalSectionAcquisitionCount, 224);
+  assert.equal(checkpoint.criticalSectionReleaseCount, 224);
+  assert.equal(checkpoint.roundtripCount, 224);
+  assert.equal(checkpoint.carriedCycleCount, 10);
+  assert.equal(
+    checkpoint.completionCount,
+    checkpoint.cycles.reduce(
+      (total, cycle) => total + cycle.completionCount,
+      0,
+    ) + checkpoint.interCycleCompletionCount,
+  );
+  assert.equal(
+    checkpoint.interCycleCompletionCount,
+    checkpoint.interCycleIntervals.reduce(
+      (total, interval) => total + interval.completionCount,
+      0,
+    ),
+  );
+  assert.equal(result.supportedCalls.length, checkpoint.lastCompletionSequence);
+  assert.equal(
+    checkpoint.lastCompletionSequence,
+    checkpoint.firstCompletionSequence + checkpoint.completionCount - 1,
+  );
+  assert.equal(
+    checkpoint.lastCompletionInstructionCount,
+    checkpoint.cycles.at(-1).lastCompletionInstructionCount,
+  );
+
+  let nextSequence = checkpoint.firstCompletionSequence;
+  let nextCriticalSectionOccurrence = 51_343;
+  let criticalSectionCompletionCount = 0;
+  let criticalSectionAcquisitionCount = 0;
+  let criticalSectionReleaseCount = 0;
+  let roundtripCount = 0;
+  let expectedCarryIn = [];
+  const interCycleIntervals = new Map(
+    checkpoint.interCycleIntervals.map((interval) => [
+      interval.afterCycleIndex,
+      interval,
+    ]),
+  );
+  assert.equal(interCycleIntervals.size, checkpoint.interCycleIntervals.length);
+  for (const [cycleIndex, cycle] of checkpoint.cycles.entries()) {
+    const expectedCompletionCount =
+      cycleIndex === 24 || cycleIndex === 51
+        ? 73
+        : [6, 15, 33, 42].includes(cycleIndex)
+          ? 72
+          : 8;
+    assert.equal(cycle.cycleIndex, cycleIndex);
+    assert.equal(cycle.completionCount, expectedCompletionCount);
+    assert.equal(cycle.firstCompletionSequence, nextSequence);
+    assert.equal(
+      cycle.lastCompletionSequence,
+      cycle.firstCompletionSequence + cycle.completionCount - 1,
+    );
+    assert(cycle.firstCompletionInstructionCount > 0);
+    assert(
+      cycle.lastCompletionInstructionCount >
+        cycle.firstCompletionInstructionCount,
+    );
+    assert.equal(cycle.waitOccurrence, 11_209 + cycleIndex);
+    assert.equal(cycle.timerArmOccurrence, 11_210 + cycleIndex);
+    assert.equal(
+      cycle.waitableTimerDeadlineTime100ns,
+      56_090_000 + cycleIndex * 5_000,
+    );
+    assert.equal(cycle.waitableTimerArmGeneration, 11_205 + cycleIndex);
+    assert.equal(cycle.waitableTimerClockGeneration, 11_209 + cycleIndex);
+    assert.equal(cycle.nextWaitRegistrationId, 11_210 + cycleIndex);
+    assert.equal(cycle.timerArmGeneration, 11_206 + cycleIndex);
+    assert.equal(
+      cycle.timerArmedAtTime100ns,
+      56_090_000 + cycleIndex * 5_000,
+    );
+    assert.equal(
+      cycle.nextTimerDeadlineTime100ns,
+      56_095_000 + cycleIndex * 5_000,
+    );
+    assert.equal(
+      cycle.criticalSectionCompletionCount,
+      cycle.criticalSectionAcquisitionCount +
+        cycle.criticalSectionReleaseCount,
+    );
+    assert.equal(cycle.roundtripCount, cycle.criticalSectionReleaseCount);
+    assert.equal(
+      cycle.criticalSectionAddresses.length,
+      cycle.criticalSectionAcquisitionCount,
+    );
+    assert.equal(
+      cycle.criticalSectionOccurrences.length,
+      cycle.criticalSectionAcquisitionCount,
+    );
+    assert.deepEqual(cycle.criticalSectionCarryIn, expectedCarryIn);
+    assert.equal(
+      cycle.balanced,
+      cycle.criticalSectionCarryOut.length === 0,
+    );
+    for (const address of cycle.criticalSectionAddresses) {
+      assert(Number.isSafeInteger(address));
+      assert(address > 0);
+    }
+    for (const occurrence of cycle.criticalSectionOccurrences) {
+      assert.equal(occurrence, nextCriticalSectionOccurrence);
+      nextCriticalSectionOccurrence += 1;
+    }
+    assert(
+      cycle.participatingThreadIds.join(",") === "8193" ||
+        cycle.participatingThreadIds.join(",") === "8192,8193",
+    );
+    if (cycle.participatingThreadIds.length === 1) {
+      assert.equal(cycle.threadTransitionCount, 0);
+    } else {
+      assert(cycle.threadTransitionCount >= 2);
+      assert.equal(cycle.threadTransitionCount % 2, 0);
+    }
+    assert.equal(
+      cycle.implementationCounts[
+        "kernel32.wait-for-single-object-ex.waitable-timer.v1"
+      ],
+      1,
+    );
+    assert.equal(
+      cycle.implementationCounts[
+        "kernel32.set-waitable-timer.relative-one-shot.v1"
+      ],
+      1,
+    );
+    assert.equal(
+      cycle.implementationCounts["kernel32.enter-critical-section.v1"],
+      cycle.criticalSectionAcquisitionCount,
+    );
+    assert.equal(
+      cycle.implementationCounts["kernel32.leave-critical-section.v1"],
+      cycle.criticalSectionReleaseCount,
+    );
+    assert.equal(
+      Object.values(cycle.implementationCounts).reduce(
+        (total, count) => total + count,
+        0,
+      ),
+      cycle.completionCount,
+    );
+    criticalSectionCompletionCount += cycle.criticalSectionCompletionCount;
+    criticalSectionAcquisitionCount += cycle.criticalSectionAcquisitionCount;
+    criticalSectionReleaseCount += cycle.criticalSectionReleaseCount;
+    roundtripCount += cycle.roundtripCount;
+    nextSequence = cycle.lastCompletionSequence + 1;
+    const interval = interCycleIntervals.get(cycleIndex);
+    if (interval === undefined) {
+      expectedCarryIn = cycle.criticalSectionCarryOut;
+      continue;
+    }
+    assert.equal(interval.firstCompletionSequence, nextSequence);
+    assert.equal(
+      interval.lastCompletionSequence,
+      interval.firstCompletionSequence + interval.completionCount - 1,
+    );
+    assert(
+      interval.lastCompletionInstructionCount >=
+        interval.firstCompletionInstructionCount,
+    );
+    assert.deepEqual(interval.criticalSectionCarryIn, cycle.criticalSectionCarryOut);
+    assert.equal(
+      interval.balanced,
+      interval.criticalSectionCarryOut.length === 0,
+    );
+    assert.equal(
+      interval.criticalSectionCompletionCount ??
+        interval.criticalSectionAcquisitionCount +
+          interval.criticalSectionReleaseCount,
+      interval.criticalSectionAcquisitionCount +
+        interval.criticalSectionReleaseCount,
+    );
+    assert.equal(
+      interval.criticalSectionAddresses.length,
+      interval.criticalSectionAcquisitionCount,
+    );
+    assert.equal(
+      interval.criticalSectionOccurrences.length,
+      interval.criticalSectionAcquisitionCount,
+    );
+    for (const address of interval.criticalSectionAddresses) {
+      assert(Number.isSafeInteger(address));
+      assert(address > 0);
+    }
+    for (const occurrence of interval.criticalSectionOccurrences) {
+      assert.equal(occurrence, nextCriticalSectionOccurrence);
+      nextCriticalSectionOccurrence += 1;
+    }
+    assert.equal(
+      Object.values(interval.implementationCounts).reduce(
+        (total, count) => total + count,
+        0,
+      ),
+      interval.completionCount,
+    );
+    criticalSectionCompletionCount +=
+      interval.criticalSectionAcquisitionCount +
+      interval.criticalSectionReleaseCount;
+    criticalSectionAcquisitionCount += interval.criticalSectionAcquisitionCount;
+    criticalSectionReleaseCount += interval.criticalSectionReleaseCount;
+    roundtripCount += interval.criticalSectionReleaseCount;
+    expectedCarryIn = interval.criticalSectionCarryOut;
+    nextSequence = interval.lastCompletionSequence + 1;
+  }
+  assert.equal(
+    checkpoint.criticalSectionCompletionCount,
+    criticalSectionCompletionCount,
+  );
+  assert.equal(checkpoint.roundtripCount, roundtripCount);
+  assert.equal(
+    checkpoint.criticalSectionAcquisitionCount,
+    criticalSectionAcquisitionCount,
+  );
+  assert.equal(
+    checkpoint.criticalSectionReleaseCount,
+    criticalSectionReleaseCount,
+  );
+  assert.equal(criticalSectionAcquisitionCount, criticalSectionReleaseCount);
+  assert.deepEqual(expectedCarryIn, []);
+  assert.equal(
+    checkpoint.carriedCycleCount,
+    checkpoint.cycles.filter(
+      (cycle) =>
+        cycle.criticalSectionCarryIn.length > 0 ||
+        cycle.criticalSectionCarryOut.length > 0,
+    ).length,
+  );
+  assert.deepEqual(
+    checkpoint.cycles
+      .filter(
+        (cycle) =>
+          cycle.criticalSectionCarryIn.length > 0 ||
+          cycle.criticalSectionCarryOut.length > 0,
+      )
+      .map((cycle) => cycle.cycleIndex),
+    [24, 25, 26, 27, 28, 29, 30, 31, 32, 33],
+  );
+  assert.deepEqual(
+    checkpoint.cycles
+      .filter((cycle) => cycle.participatingThreadIds.length > 1)
+      .map((cycle) => cycle.cycleIndex),
+    [6, 15, 24, 33, 42, 51],
+  );
+  assert.deepEqual(
+    checkpoint.participatingThreadIds,
+    [
+      ...new Set(
+        [
+          ...checkpoint.cycles,
+          ...checkpoint.interCycleIntervals,
+        ].flatMap((segment) => segment.participatingThreadIds),
+      ),
+    ].sort((left, right) => left - right),
+  );
+  assert(
+    checkpoint.threadTransitionCount >=
+      [...checkpoint.cycles, ...checkpoint.interCycleIntervals].reduce(
+        (total, segment) => total + segment.threadTransitionCount,
+        0,
+      ),
+  );
+  assert.deepEqual(checkpoint.criticalSectionAddresses, [
+    269_797_584,
+    269_482_016,
+    538_061_564,
+    538_063_348,
+    538_071_508,
+    269_503_120,
+    537_154_112,
+    537_005_648,
+    537_005_720,
+    537_005_792,
+    537_005_864,
+  ]);
+  assert.deepEqual(checkpoint.interCycleIntervals[0], {
+    afterCycleIndex: 60,
+    completionCount: 64,
+    firstCompletionSequence: 159_006,
+    firstCompletionInstructionCount: 297_143_384,
+    lastCompletionSequence: 159_069,
+    lastCompletionInstructionCount: 297_176_632,
+    implementationCounts: {
+      "kernel32.create-file-a.source.v1": 4,
+      "kernel32.fls-get-value.v1": 13,
+      "kernel32.get-last-error.v1": 17,
+      "kernel32.heap-alloc.v2": 2,
+      "kernel32.heap-free.v1": 1,
+      "kernel32.set-last-error.v1": 12,
+      "kernel32.tls-get-value.v1": 13,
+      "user32.get-async-key-state.v1": 1,
+      "winmm.time-get-time.v1": 1,
+    },
+    participatingThreadIds: [8_192],
+    threadTransitionCount: 0,
+    criticalSectionAcquisitionCount: 0,
+    criticalSectionReleaseCount: 0,
+    criticalSectionOccurrences: [],
+    criticalSectionAddresses: [],
+    criticalSectionCarryIn: [],
+    criticalSectionCarryOut: [],
+    balanced: true,
+  });
+  assert.equal(
+    checkpoint.boundaryCompletions.length,
+    checkpoint.cycles[0].completionCount +
+      checkpoint.cycles.at(-1).completionCount,
+  );
+  assert.equal(
+    checkpoint.boundaryCompletions[0].sequence,
+    checkpoint.firstCompletionSequence,
+  );
+  assert.equal(
+    checkpoint.boundaryCompletions.at(-1).sequence,
+    checkpoint.lastCompletionSequence,
+  );
+  assert.deepEqual(checkpoint.nextEndpoint, {
+    id: 122,
+    address: 0x7f00_0790,
+    module: "KERNEL32.dll",
+    symbol: { kind: "name", name: "WaitForSingleObjectEx" },
+    disposition: "declared-runtime-export",
+    iatAddress: 0x100d_1290,
+  });
+  assert.deepEqual(checkpoint.nextArguments, [0x5701_0002, 10, 1]);
+  assert.equal(checkpoint.nextReturnAddress, 0x1005_0615);
+  assert.equal(checkpoint.nextStackPointer, 0x500f_ff88);
+  assert.equal(checkpoint.lastCompletionSequence, 159_093);
+  assert.equal(checkpoint.lastCompletionInstructionCount, 297_177_073);
+  assert.equal(checkpoint.instructionCount, 297_177_079);
+  assert.equal(result.terminal.instructionCount, 297_177_079);
+  assert.equal(
+    checkpoint.memoryContentSha256,
+    "3541def87e86e92dbfcb76d807006f183ff52e733fb803007ec7566cdf2ef0bb",
+  );
+  const digest = new SemanticCallDigest();
+  for (const call of result.supportedCalls) {
+    digest.update(call);
+  }
+  assert.equal(
+    digest.digestHex(),
+    "b85bb7cf08e2382ddf85a6c59e76493aef93480b512b5a86cf546d13cc58c35f",
+  );
+  assert.equal(result.writebacks.length, 162_106);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    239_352,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    40_568_695,
+  );
+  assert.equal(result.hostDeltas.length, 126_312);
+  assert.equal(result.timerPacing.length, 11_272);
+  assert.equal(result.sourceReads.length, 88);
+  assert.equal(result.heapPageMaterializations.length, 2_971);
+  assert.equal(result.finalGeneration, 291_540);
+}
+
 function validateRecurringTimerMultiCycleResult(result) {
   assert.equal(result.fault, null);
   assert.equal(result.activeCallbackDepth, 0);
@@ -31285,8 +32002,8 @@ function buildGenericRuntimeReentryReport({
     if (runtimeTraplessExecutionBudgetEnabled) {
       assert.equal(
         genericResult.checkpointCompletion?.capability,
-        recurringTimerMultiCycleCheckpointEnabled
-          ? "primary-main-loop-recurring-timer-multi-cycle-batch"
+        recurringTimerBoundedWindowCheckpointEnabled
+          ? recurringTimerWindowConfiguration.capability
         : recurringTimerCycleCheckpointEnabled
           ? "primary-main-loop-recurring-timer-cycle-batch"
         : postHeapTimeGetTimeCheckpointEnabled
@@ -31506,8 +32223,8 @@ function buildGenericRuntimeReentryReport({
             ? "vine.v86-bgi-kernel32-heap-free-large-buffer"
             : heapAlloc24CheckpointEnabled
               ? "vine.v86-bgi-kernel32-heap-alloc-24-byte-buffer"
-              : recurringTimerMultiCycleCheckpointEnabled
-                ? "vine.v86-bgi-primary-main-loop-recurring-timer-multi-cycle-batch"
+              : recurringTimerBoundedWindowCheckpointEnabled
+                ? `vine.v86-bgi-${recurringTimerWindowConfiguration.capability}`
               : recurringTimerCycleCheckpointEnabled
                 ? "vine.v86-bgi-primary-main-loop-recurring-timer-cycle-batch"
               : postHeapTimeGetTimeCheckpointEnabled
@@ -32798,6 +33515,9 @@ function buildGenericRuntimeReentryReport({
                   : genericResult.checkpointCompletion.capability ===
                       "kernel32-heap-alloc-24-byte-buffer"
                     ? "BGI completed the reached private-heap allocation and coalesced reuse batch and stopped before the next owned endpoint"
+                    : genericResult.checkpointCompletion.capability ===
+                        "primary-main-loop-recurring-timer-window-batch"
+                      ? "BGI completed sixty-four recurring main-loop timer cycles and stopped before the next wait"
                     : genericResult.checkpointCompletion.capability ===
                         "primary-main-loop-recurring-timer-multi-cycle-batch"
                       ? "BGI completed sixteen recurring main-loop timer cycles and stopped before the next wait"

@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 70 as const;
+export const protocolVersion = 71 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -58,6 +58,7 @@ export type BgiCapabilityProfile =
   | "kernel32-set-waitable-timer-post-timer-rearm-wait-batch"
   | "primary-main-loop-recurring-timer-cycle-batch"
   | "primary-main-loop-recurring-timer-multi-cycle-batch"
+  | "primary-main-loop-recurring-timer-window-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
@@ -892,7 +893,40 @@ export interface RuntimeRecurringTimerCycleSummary {
   implementationCounts: Record<string, number>;
   participatingThreadIds: number[];
   threadTransitionCount: number;
-  balanced: true;
+  balanced: boolean;
+}
+
+export interface RuntimeCriticalSectionOwnershipSnapshot {
+  threadId: number;
+  address: number;
+  count: number;
+}
+
+export type RuntimeRecurringTimerWindowCycleSummary =
+  RuntimeRecurringTimerCycleSummary & {
+    criticalSectionAcquisitionCount: number;
+    criticalSectionReleaseCount: number;
+    criticalSectionCarryIn: RuntimeCriticalSectionOwnershipSnapshot[];
+    criticalSectionCarryOut: RuntimeCriticalSectionOwnershipSnapshot[];
+  };
+
+export interface RuntimeRecurringTimerInterCycleSummary {
+  afterCycleIndex: number;
+  completionCount: number;
+  firstCompletionSequence: number;
+  firstCompletionInstructionCount: number;
+  lastCompletionSequence: number;
+  lastCompletionInstructionCount: number;
+  implementationCounts: Record<string, number>;
+  participatingThreadIds: number[];
+  threadTransitionCount: number;
+  criticalSectionAcquisitionCount: number;
+  criticalSectionReleaseCount: number;
+  criticalSectionOccurrences: number[];
+  criticalSectionAddresses: number[];
+  criticalSectionCarryIn: RuntimeCriticalSectionOwnershipSnapshot[];
+  criticalSectionCarryOut: RuntimeCriticalSectionOwnershipSnapshot[];
+  balanced: boolean;
 }
 
 export type RuntimeGuestWriteSnapshot =
@@ -1850,6 +1884,53 @@ export interface SessionReport {
         waitCompletionCount: 16;
         criticalSectionCompletionCount: number;
         timerArmCompletionCount: 16;
+        roundtripCount: number;
+        criticalSectionAddresses: number[];
+        mainLoopThreadId: number;
+        participatingThreadIds: number[];
+        threadTransitionCount: number;
+        balanced: true;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          disposition: "declared-runtime-export";
+          iatAddress: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        nextArguments: [number, number, number];
+        nextReturnAddress: number;
+        nextStackPointer: number;
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "primary-main-loop-recurring-timer-window-batch";
+        implementationId: "runtime.main-loop-recurring-timer-window.v1";
+        requiredCycles: 64;
+        minimumRequiredCycles: 64;
+        maximumCycles: 80;
+        cycleCount: number;
+        requiredCompletions: 128;
+        minimumRequiredCompletions: 128;
+        completionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        boundaryCycleIndexes: [0, number];
+        boundaryCompletions: RuntimeThreadCallSnapshot[];
+        cycles: RuntimeRecurringTimerWindowCycleSummary[];
+        interCycleCompletionCount: number;
+        interCycleIntervals: RuntimeRecurringTimerInterCycleSummary[];
+        waitCompletionCount: number;
+        criticalSectionCompletionCount: number;
+        criticalSectionAcquisitionCount: number;
+        criticalSectionReleaseCount: number;
+        carriedCycleCount: number;
+        timerArmCompletionCount: number;
         roundtripCount: number;
         criticalSectionAddresses: number[];
         mainLoopThreadId: number;

@@ -1058,8 +1058,17 @@ Node／ChromeはBOOL／LastError、zero guest write、stack cleanup、ordered se
 全wait／rearmのidentity・generation・deadline連続性、48 balanced roundtrip、2周期で発生する
 `8193 -> 8192 -> 8193` work interval、合計4 thread transition、terminal memoryをNode／Chromeで一致させる。
 Browser pacingは引き続きnon-owning acknowledgementであり、Rustのtimer／wait／scheduler／synchronization
-authorityを複製しない。次は観測windowをさらにboundedに拡張する。unbounded loop、APC、general timeout、
-general cross-thread contention、long-run安定性はまだclaimしない。Exact値とartifact identityは
+authorityを複製しない。
+
+`primary-main-loop-recurring-timer-window-batch`は同じtimer／wait continuityを64周期、hard maximum 80の
+bounded windowで再検査する。Acceptするのは64 wait／64 arm、first-to-last cycle間962 ordered completions、
+448 critical-section completions（224 acquire／224 release）、cycle境界をまたぐ10 ownership state、
+thread `8192`を含む6周期、14 participant transition、cycle 60後の64-call worker-only interval、balanced terminal
+state、terminal memory、次のfinite alertable waitをNode／Chromeが一致させる場合だけである。Workerは
+Windows-visible timer／wait／scheduler／synchronization stateを所有せず、pacing callbackはthread、request、
+generation、lifetimeを検証してからacknowledgeする。次はtimer windowをさらに広げず、main loopが新しい
+presentation workへ進むかをbounded gatewayとして判定する。unbounded loop、APC、general timeout、general
+cross-thread contention、readable pixel、long-run安定性はまだclaimしない。Exact値とartifact identityは
 `current-checkpoint.json`だけを正本とする。
 
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。

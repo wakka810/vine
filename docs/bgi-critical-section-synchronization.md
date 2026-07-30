@@ -314,8 +314,22 @@ roundtrips over both reached identities. Two cycles include a
 on its executing thread and every 24-byte publication remains failure-atomic.
 Rust remains the sole synchronization authority and the Worker retains only
 non-owning evidence. The result does not claim general contention, fairness,
-abandonment, or unbounded-loop behavior; a larger bounded window is the next
-manifest-owned progression step.
+abandonment, or unbounded-loop behavior.
+
+The subsequent `primary-main-loop-recurring-timer-window-batch` checkpoint
+extends the same scenario to 64 completed cycles with a hard capture bound of
+80. The longer window reaches eleven critical-section identities and records
+448 ordered critical-section completions: 224 acquisitions and 224 matching
+releases. Ownership remains live across ten cycle boundaries rather than being
+artificially closed by the evidence profile, including the contiguous
+cycle-24-through-cycle-33 region, and is balanced at terminal completion. Six
+cycles run reached worker-thread work and the participant ledger records 14
+thread transitions. Node and Chrome agree on the cross-cycle ownership ledger,
+all failure-atomic guest publications, terminal memory, and next endpoint.
+Rust remains the only synchronization authority; this bounded result still
+does not claim general contention, fairness, abandonment, or long-run behavior.
+The next manifest-owned gateway asks whether execution makes new presentation
+progress instead of widening the timer window again.
 
 ## Historical next structured stop
 

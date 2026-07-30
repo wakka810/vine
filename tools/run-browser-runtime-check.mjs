@@ -91,6 +91,8 @@ const recurringTimerCycleProfile =
   bgiProfile === "primary-main-loop-recurring-timer-cycle-batch";
 const recurringTimerMultiCycleProfile =
   bgiProfile === "primary-main-loop-recurring-timer-multi-cycle-batch";
+const recurringTimerWindowProfile =
+  bgiProfile === "primary-main-loop-recurring-timer-window-batch";
 const runtimeTraplessExecutionBudgetProfile =
   bgiProfile === "runtime-trapless-execution-budget";
 const largeHeapFreeProfile =
@@ -128,6 +130,7 @@ const postCriticalSectionWaitProfile =
 const postHeapTimeGetTimeEvidenceProfile =
   recurringTimerCycleProfile ||
   recurringTimerMultiCycleProfile ||
+  recurringTimerWindowProfile ||
   postHeapTimeGetTimeProfile ||
   postClockCriticalSectionProfile ||
   postWaitCriticalSectionProfile ||
@@ -139,6 +142,7 @@ const runtimeThreadStackGrowthProfile =
   bgiProfile === "runtime-thread-stack-growth" ||
   recurringTimerCycleProfile ||
   recurringTimerMultiCycleProfile ||
+  recurringTimerWindowProfile ||
   runtimeTraplessExecutionBudgetProfile ||
   largeHeapFreeProfile ||
   heapAlloc24Profile ||
@@ -221,7 +225,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v70";
+const runtimeProtocol = "vine.browser-runtime-worker.v71";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -898,6 +902,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-wait-for-single-object-ex-post-critical-section",
         "primary-main-loop-recurring-timer-cycle-batch",
         "primary-main-loop-recurring-timer-multi-cycle-batch",
+        "primary-main-loop-recurring-timer-window-batch",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -964,6 +969,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-wait-for-single-object-ex-post-critical-section",
         "primary-main-loop-recurring-timer-cycle-batch",
         "primary-main-loop-recurring-timer-multi-cycle-batch",
+        "primary-main-loop-recurring-timer-window-batch",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1030,6 +1036,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "kernel32-wait-for-single-object-ex-post-critical-section",
         "primary-main-loop-recurring-timer-cycle-batch",
         "primary-main-loop-recurring-timer-multi-cycle-batch",
+        "primary-main-loop-recurring-timer-window-batch",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
@@ -1042,8 +1049,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
                 postCriticalSectionWaitProfile ||
                 recurringTimerCycleProfile
                 ? 2_457
-                : recurringTimerMultiCycleProfile
-                  ? 2_461
+                : recurringTimerWindowProfile
+                  ? 2_471
+                  : recurringTimerMultiCycleProfile
+                    ? 2_461
                 : 2_456
               : user32IsIconicProfile
                 ? 2_317
@@ -1101,6 +1110,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         bgiProfile === "kernel32-leave-critical-section" ||
         recurringTimerCycleProfile ||
         recurringTimerMultiCycleProfile ||
+        recurringTimerWindowProfile ||
         runtimeTraplessExecutionBudgetProfile ||
         largeHeapFreeProfile ||
         heapAlloc24Profile ||
@@ -1154,8 +1164,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         setWindowPosRepeatActivationProfile ||
         user32AsyncKeyStateInitialScanContinuationProfile
       ) {
-        const pacingCount = recurringTimerMultiCycleProfile
-          ? 11_224
+        const pacingCount = recurringTimerWindowProfile
+          ? 11_272
+          : recurringTimerMultiCycleProfile
+            ? 11_224
           : recurringTimerCycleProfile
             ? 11_209
           : user32AsyncKeyStateInitialScanProfile
@@ -1274,7 +1286,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           assert.equal(
             archiveReads.length,
             runtimeThreadStackGrowthProfile
-              ? 82
+              ? recurringTimerWindowProfile
+                ? 84
+                : 82
               : user32IsIconicProfile
                 ? 60
                 : 59,
@@ -5616,7 +5630,9 @@ function validateBgiEquivalence(browser, oracle) {
     }
     if (
       oracleCheckpoint.capability ===
-      "primary-main-loop-recurring-timer-multi-cycle-batch"
+        "primary-main-loop-recurring-timer-multi-cycle-batch" ||
+      oracleCheckpoint.capability ===
+        "primary-main-loop-recurring-timer-window-batch"
     ) {
       const normalizeCycleBoundaryCall = (call) => ({
         ...normalizeSemanticCall(call),
@@ -5627,6 +5643,8 @@ function validateBgiEquivalence(browser, oracle) {
       const normalizeMultiCycleCheckpoint = (checkpoint) => ({
         implementationId: checkpoint.implementationId,
         requiredCycles: checkpoint.requiredCycles,
+        minimumRequiredCycles: checkpoint.minimumRequiredCycles,
+        maximumCycles: checkpoint.maximumCycles,
         cycleCount: checkpoint.cycleCount,
         requiredCompletions: checkpoint.requiredCompletions,
         minimumRequiredCompletions: checkpoint.minimumRequiredCompletions,
@@ -5642,9 +5660,15 @@ function validateBgiEquivalence(browser, oracle) {
           normalizeCycleBoundaryCall,
         ),
         cycles: checkpoint.cycles,
+        interCycleCompletionCount: checkpoint.interCycleCompletionCount,
+        interCycleIntervals: checkpoint.interCycleIntervals,
         waitCompletionCount: checkpoint.waitCompletionCount,
         criticalSectionCompletionCount:
           checkpoint.criticalSectionCompletionCount,
+        criticalSectionAcquisitionCount:
+          checkpoint.criticalSectionAcquisitionCount,
+        criticalSectionReleaseCount: checkpoint.criticalSectionReleaseCount,
+        carriedCycleCount: checkpoint.carriedCycleCount,
         timerArmCompletionCount: checkpoint.timerArmCompletionCount,
         roundtripCount: checkpoint.roundtripCount,
         criticalSectionAddresses: checkpoint.criticalSectionAddresses,
@@ -5661,7 +5685,7 @@ function validateBgiEquivalence(browser, oracle) {
       assert.deepEqual(
         normalizeMultiCycleCheckpoint(browserCheckpoint),
         normalizeMultiCycleCheckpoint(oracleCheckpoint),
-        "Chrome Worker recurring timer multi-cycle batch differs from the Node oracle",
+        "Chrome Worker recurring timer bounded window differs from the Node oracle",
       );
     }
     if (

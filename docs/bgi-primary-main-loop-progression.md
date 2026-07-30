@@ -73,7 +73,21 @@ thread `8193`; the other cycles remain on `8193`. Acceptance therefore fixes
 timer-generation continuity, all 48 balanced roundtrips, four thread
 transitions, terminal memory, and Node／Chrome equivalence together. This is
 bounded recurrence evidence, not an unbounded-loop, fairness, or long-run
-stability claim. The next manifest-owned stop expands the observation window.
+stability claim.
+
+The subsequent `primary-main-loop-recurring-timer-window-batch` checkpoint
+closes 64 contiguous timer cycles with a hard maximum of 80. It preserves the
+same timer and wait identity while tracking synchronization ownership across
+cycle boundaries, rather than requiring each evidence cycle to end balanced.
+Ten cycles carry live ownership into the next cycle, six cycles contain reached
+thread-`8192` work, and one post-cycle-60 interval contains 64 worker-thread
+completions before the next wait/rearm cycle resumes. Acceptance fixes 962
+ordered completions from the first through the sixty-fourth cycle, 448
+critical-section completions, 14 participant-thread transitions, timer
+generation／deadline continuity, terminal memory, and Node／Chrome equivalence.
+This remains a bounded recurrence observation; it does not prove unbounded or
+long-run progress. The next manifest-owned subsystem gateway measures whether
+the resumed main loop reaches new presentation work.
 
 ## Ownership and invariants
 

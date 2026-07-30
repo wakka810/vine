@@ -70,6 +70,8 @@ const d3d9Canvas =
   capabilityProfile ===
     "primary-main-loop-recurring-timer-multi-cycle-batch" ||
   capabilityProfile ===
+    "primary-main-loop-recurring-timer-window-batch" ||
+  capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
   capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
@@ -189,6 +191,8 @@ const startMessage = {
             capabilityProfile ===
               "primary-main-loop-recurring-timer-multi-cycle-batch" ||
             capabilityProfile ===
+              "primary-main-loop-recurring-timer-window-batch" ||
+            capabilityProfile ===
               "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
             capabilityProfile ===
               "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
@@ -256,6 +260,8 @@ const startMessage = {
       capabilityProfile === "primary-main-loop-recurring-timer-cycle-batch" ||
       capabilityProfile ===
         "primary-main-loop-recurring-timer-multi-cycle-batch" ||
+      capabilityProfile ===
+        "primary-main-loop-recurring-timer-window-batch" ||
       capabilityProfile ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
       capabilityProfile ===
@@ -420,6 +426,7 @@ function parseCapabilityProfile(
     value === "kernel32-set-waitable-timer-post-timer-rearm-wait-batch" ||
     value === "primary-main-loop-recurring-timer-cycle-batch" ||
     value === "primary-main-loop-recurring-timer-multi-cycle-batch" ||
+    value === "primary-main-loop-recurring-timer-window-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-critical-section"

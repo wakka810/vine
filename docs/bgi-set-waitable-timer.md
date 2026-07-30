@@ -193,7 +193,18 @@ publishing the next deadline and `nonsignaled` state. Node and Chrome agree on
 the full generation／deadline chain even across the two cycles that run reached
 work on thread `8192`. The Worker still creates no Windows timer state; browser
 pacing remains part of the separate wait boundary. Exact positions, artifact
-identities, and the larger bounded follow-on window remain manifest-owned.
+identities, and subsequent profiles remain manifest-owned.
+
+The `primary-main-loop-recurring-timer-window-batch` checkpoint now extends
+that chain to 64 contiguous rearms under an 80-cycle hard bound. It verifies 64
+wait completions and 64 matching arms on the same timer and typed object, from
+logical deadline 56,090,000 through 56,405,000 with the next live deadline at
+56,410,000. A 64-call worker-only interval after cycle 60 does not create or
+rearm the timer; the following arm still advances the Rust-owned registration
+and deadline exactly once. Node and Chrome agree on the entire continuity
+ledger and next wait frame. The Worker remains a non-owning pacing and evidence
+adapter, and the bounded checkpoint does not claim a browser-clock authority or
+long-run timer behavior.
 
 ## Non-claims
 

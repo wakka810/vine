@@ -265,7 +265,20 @@ and rearm. Two cycles include reached thread-`8192` work before control returns
 to thread `8193`; Node and Chrome agree on all four transitions and leave no
 pending, cancelled, or stale pacing callback. This classifies bounded
 recurrence as scenario behavior, but it does not claim unbounded progress or
-long-run stability. The next stop extends the bounded observation window.
+long-run stability.
+
+The subsequent `primary-main-loop-recurring-timer-window-batch` checkpoint
+completes 64 finite alertable waits under an 80-cycle hard bound. Each wait
+continues to consume one independently validated live arm and return
+`WAIT_OBJECT_0`; the ledger permits synchronization ownership and reached
+worker work to span evidence-cycle boundaries without transferring authority
+to the Worker. Six cycles contain thread-`8192` work, one worker-only interval
+after cycle 60 contains 64 non-wait/non-arm completions, and all 14 participant
+transitions settle back to thread `8193`. Node and Chrome agree on every wait,
+pacing acknowledgement, arm generation, terminal memory, and the next finite
+alertable wait frame, with no pending, cancelled, duplicate, or stale callback.
+This is still bounded recurrence evidence. The next stop asks for new
+presentation progress rather than another timer-window widening.
 
 ## Non-claims
 
