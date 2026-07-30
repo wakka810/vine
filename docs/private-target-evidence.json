@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-30T00:36:40.929Z",
+  "recordedAt": "2026-07-30T02:21:03.573Z",
   "repository": {
-    "implementationCommit": "2dca0d93ec438349aff04c3480e365a2b16925e7",
-    "implementationTree": "df5040ff33358e4b63bb4134e8cf02cb1bd0ed0e",
-    "headCommit": "2dca0d93ec438349aff04c3480e365a2b16925e7",
+    "implementationCommit": "1e08ebf4d4920265722e2d9aa37c5d39b8aa2ee9",
+    "implementationTree": "5ec9cee9bf9135b3c8b2470a1bbe392d4ddf136a",
+    "headCommit": "1e08ebf4d4920265722e2d9aa37c5d39b8aa2ee9",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,15 +27,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "primary-main-loop-recurring-timer-cycle-batch",
-    "runtimeProfile": "primary-main-loop-recurring-timer-cycle-batch",
+    "runtimeCheckpoint": "primary-main-loop-recurring-timer-multi-cycle-batch",
+    "runtimeProfile": "primary-main-loop-recurring-timer-multi-cycle-batch",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-primary-main-loop-recurring-timer-cycle-batch",
+    "nodeReportSchema": "vine.v86-bgi-primary-main-loop-recurring-timer-multi-cycle-batch",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v69",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v70",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -70,21 +70,28 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 128,
-      "supportedCalls": 158139,
-      "callSemanticsSha256": "bfeee03ec768b7fe0c2e4151e0ac0d73d3d7bdeaf6c531cbcf8c07f33b016eb2",
-      "instructions": 276361638,
-      "finalGeneration": 289955,
-      "memoryContentSha256": "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf",
+      "supportedCalls": 158387,
+      "callSemanticsSha256": "2fb3c15a5989f1afac216346add8110c7f36fd1612f732d3fee416c36c231327",
+      "instructions": 287481303,
+      "finalGeneration": 290302,
+      "memoryContentSha256": "474048294afb72dcbd3d16517ed514d8771099bc3ed9c981e5fb3539dcabc625",
       "checkpointCompletion": {
-        "capability": "primary-main-loop-recurring-timer-cycle-batch",
-        "implementationId": "runtime.main-loop-recurring-timer-cycle.v1",
-        "requiredCompletions": 8,
-        "completionCount": 8,
+        "capability": "primary-main-loop-recurring-timer-multi-cycle-batch",
+        "implementationId": "runtime.main-loop-recurring-timer-multi-cycle.v1",
+        "requiredCycles": 16,
+        "cycleCount": 16,
+        "requiredCompletions": 32,
+        "minimumRequiredCompletions": 32,
+        "completionCount": 256,
         "firstCompletionSequence": 158132,
         "firstCompletionInstructionCount": 276361491,
-        "lastCompletionSequence": 158139,
-        "lastCompletionInstructionCount": 276361632,
-        "completions": [
+        "lastCompletionSequence": 158387,
+        "lastCompletionInstructionCount": 287481297,
+        "boundaryCycleIndexes": [
+          0,
+          15
+        ],
+        "boundaryCompletions": [
           {
             "sequence": 158132,
             "module": "KERNEL32.dll",
@@ -136,7 +143,8 @@
                 "generation": 11209
               },
               "nextWaitRegistrationId": 11210
-            }
+            },
+            "runtimeThreadId": 8193
           },
           {
             "sequence": 158133,
@@ -195,7 +203,8 @@
                   }
                 }
               }
-            ]
+            ],
+            "runtimeThreadId": 8193
           },
           {
             "sequence": 158134,
@@ -254,7 +263,8 @@
                   }
                 }
               }
-            ]
+            ],
+            "runtimeThreadId": 8193
           },
           {
             "sequence": 158135,
@@ -313,7 +323,8 @@
                   }
                 }
               }
-            ]
+            ],
+            "runtimeThreadId": 8193
           },
           {
             "sequence": 158136,
@@ -372,7 +383,8 @@
                   }
                 }
               }
-            ]
+            ],
+            "runtimeThreadId": 8193
           },
           {
             "sequence": 158137,
@@ -431,7 +443,8 @@
                   }
                 }
               }
-            ]
+            ],
+            "runtimeThreadId": 8193
           },
           {
             "sequence": 158138,
@@ -490,7 +503,8 @@
                   }
                 }
               }
-            ]
+            ],
+            "runtimeThreadId": 8193
           },
           {
             "sequence": 158139,
@@ -543,21 +557,2489 @@
                 },
                 "openHandles": 1
               }
-            }
+            },
+            "runtimeThreadId": 8193
+          },
+          {
+            "sequence": 158316,
+            "module": "KERNEL32.dll",
+            "symbol": "WaitForSingleObjectEx",
+            "occurrence": 11224,
+            "trapInstructionCount": 287461546,
+            "arguments": [
+              1459683330,
+              10,
+              1
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+            "returnAddress": 268764693,
+            "stackPointerBefore": 1343225736,
+            "stackPointerAfter": 1343225752,
+            "lastError": 0,
+            "guestWrites": [],
+            "waitableTimer": {
+              "handle": 1459683330,
+              "timer": {
+                "id": 2,
+                "manualReset": true,
+                "lastExpiration": {
+                  "armGeneration": 11220,
+                  "deadlineTime100ns": 56165000
+                }
+              },
+              "objectRecord": {
+                "id": 24,
+                "key": {
+                  "kind": "waitable-timer",
+                  "timer_id": 2
+                },
+                "kind": "waitable-timer",
+                "namespace": "vine.runtime-waitable-timer-object.v1",
+                "closePolicy": "close-handle",
+                "waitState": {
+                  "state": "signaled",
+                  "exit_code": 0
+                },
+                "openHandles": 1
+              },
+              "timerClock": {
+                "currentTime100ns": 56165000,
+                "generation": 11224
+              },
+              "nextWaitRegistrationId": 11225
+            },
+            "runtimeThreadId": 8193
+          },
+          {
+            "sequence": 158317,
+            "module": "KERNEL32.dll",
+            "symbol": "EnterCriticalSection",
+            "occurrence": 51388,
+            "trapInstructionCount": 287461571,
+            "arguments": [
+              269797584
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.enter-critical-section.v1",
+            "returnAddress": 269031318,
+            "stackPointerBefore": 1343225712,
+            "stackPointerAfter": 1343225720,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269797584,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  254,
+                  255,
+                  255,
+                  255,
+                  1,
+                  0,
+                  0,
+                  0,
+                  1,
+                  32,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ],
+                "result": {
+                  "bytesWritten": 24,
+                  "dirtyPages": 1,
+                  "invalidation": {
+                    "generation": 290226,
+                    "dataTlb": false,
+                    "instructionFetch": false,
+                    "generatedCode": false
+                  }
+                }
+              }
+            ],
+            "runtimeThreadId": 8193
+          },
+          {
+            "sequence": 158318,
+            "module": "KERNEL32.dll",
+            "symbol": "LeaveCriticalSection",
+            "occurrence": 51388,
+            "trapInstructionCount": 287461576,
+            "arguments": [
+              269797584
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.leave-critical-section.v1",
+            "returnAddress": 269031338,
+            "stackPointerBefore": 1343225712,
+            "stackPointerAfter": 1343225720,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269797584,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ],
+                "result": {
+                  "bytesWritten": 24,
+                  "dirtyPages": 1,
+                  "invalidation": {
+                    "generation": 290228,
+                    "dataTlb": false,
+                    "instructionFetch": false,
+                    "generatedCode": false
+                  }
+                }
+              }
+            ],
+            "runtimeThreadId": 8193
+          },
+          {
+            "sequence": 158319,
+            "module": "KERNEL32.dll",
+            "symbol": "TlsGetValue",
+            "occurrence": 2163,
+            "trapInstructionCount": 287461584,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334592,
+            "stackPointerAfter": 7334600,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158320,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "occurrence": 2161,
+            "trapInstructionCount": 287461592,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158321,
+            "module": "KERNEL32.dll",
+            "symbol": "SetLastError",
+            "occurrence": 2160,
+            "trapInstructionCount": 287461598,
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158322,
+            "module": "KERNEL32.dll",
+            "symbol": "CreateFileA",
+            "occurrence": 914,
+            "trapInstructionCount": 287464170,
+            "arguments": [
+              7335396,
+              2147483648,
+              1,
+              0,
+              3,
+              134217760,
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 4294967295
+            },
+            "implementationId": "kernel32.create-file-a.source.v1",
+            "returnAddress": 268614656,
+            "stackPointerBefore": 7335264,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158323,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 2992,
+            "trapInstructionCount": 287464175,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 268614675,
+            "stackPointerBefore": 7335292,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158324,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 2993,
+            "trapInstructionCount": 287464295,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334588,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158325,
+            "module": "KERNEL32.dll",
+            "symbol": "TlsGetValue",
+            "occurrence": 2164,
+            "trapInstructionCount": 287464303,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334572,
+            "stackPointerAfter": 7334580,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158326,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "occurrence": 2162,
+            "trapInstructionCount": 287464311,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158327,
+            "module": "KERNEL32.dll",
+            "symbol": "SetLastError",
+            "occurrence": 2161,
+            "trapInstructionCount": 287464317,
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158328,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 2994,
+            "trapInstructionCount": 287464355,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334608,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158329,
+            "module": "KERNEL32.dll",
+            "symbol": "TlsGetValue",
+            "occurrence": 2165,
+            "trapInstructionCount": 287464363,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334592,
+            "stackPointerAfter": 7334600,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158330,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "occurrence": 2163,
+            "trapInstructionCount": 287464371,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158331,
+            "module": "KERNEL32.dll",
+            "symbol": "SetLastError",
+            "occurrence": 2162,
+            "trapInstructionCount": 287464377,
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158332,
+            "module": "KERNEL32.dll",
+            "symbol": "CreateFileA",
+            "occurrence": 915,
+            "trapInstructionCount": 287466897,
+            "arguments": [
+              7335396,
+              2147483648,
+              1,
+              0,
+              3,
+              134217760,
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 4294967295
+            },
+            "implementationId": "kernel32.create-file-a.source.v1",
+            "returnAddress": 268614656,
+            "stackPointerBefore": 7335264,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158333,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 2995,
+            "trapInstructionCount": 287466902,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 268614675,
+            "stackPointerBefore": 7335292,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158334,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 2996,
+            "trapInstructionCount": 287467022,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334588,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158335,
+            "module": "KERNEL32.dll",
+            "symbol": "TlsGetValue",
+            "occurrence": 2166,
+            "trapInstructionCount": 287467030,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334572,
+            "stackPointerAfter": 7334580,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158336,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "occurrence": 2164,
+            "trapInstructionCount": 287467038,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158337,
+            "module": "KERNEL32.dll",
+            "symbol": "SetLastError",
+            "occurrence": 2163,
+            "trapInstructionCount": 287467044,
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158338,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 2997,
+            "trapInstructionCount": 287467082,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334608,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158339,
+            "module": "KERNEL32.dll",
+            "symbol": "TlsGetValue",
+            "occurrence": 2167,
+            "trapInstructionCount": 287467090,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334592,
+            "stackPointerAfter": 7334600,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158340,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "occurrence": 2165,
+            "trapInstructionCount": 287467098,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158341,
+            "module": "KERNEL32.dll",
+            "symbol": "SetLastError",
+            "occurrence": 2164,
+            "trapInstructionCount": 287467104,
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158342,
+            "module": "KERNEL32.dll",
+            "symbol": "CreateFileA",
+            "occurrence": 916,
+            "trapInstructionCount": 287470356,
+            "arguments": [
+              7335396,
+              2147483648,
+              1,
+              0,
+              3,
+              134217760,
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 4294967295
+            },
+            "implementationId": "kernel32.create-file-a.source.v1",
+            "returnAddress": 268614656,
+            "stackPointerBefore": 7335264,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158343,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 2998,
+            "trapInstructionCount": 287470361,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 268614675,
+            "stackPointerBefore": 7335292,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158344,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 2999,
+            "trapInstructionCount": 287470481,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334588,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158345,
+            "module": "KERNEL32.dll",
+            "symbol": "TlsGetValue",
+            "occurrence": 2168,
+            "trapInstructionCount": 287470489,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334572,
+            "stackPointerAfter": 7334580,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158346,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "occurrence": 2166,
+            "trapInstructionCount": 287470497,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158347,
+            "module": "KERNEL32.dll",
+            "symbol": "SetLastError",
+            "occurrence": 2165,
+            "trapInstructionCount": 287470503,
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158348,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 3000,
+            "trapInstructionCount": 287470541,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334608,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158349,
+            "module": "KERNEL32.dll",
+            "symbol": "TlsGetValue",
+            "occurrence": 2169,
+            "trapInstructionCount": 287470549,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334592,
+            "stackPointerAfter": 7334600,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158350,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "occurrence": 2167,
+            "trapInstructionCount": 287470557,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158351,
+            "module": "KERNEL32.dll",
+            "symbol": "SetLastError",
+            "occurrence": 2166,
+            "trapInstructionCount": 287470563,
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158352,
+            "module": "KERNEL32.dll",
+            "symbol": "CreateFileA",
+            "occurrence": 917,
+            "trapInstructionCount": 287473075,
+            "arguments": [
+              7335396,
+              2147483648,
+              1,
+              0,
+              3,
+              134217760,
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 4294967295
+            },
+            "implementationId": "kernel32.create-file-a.source.v1",
+            "returnAddress": 268614656,
+            "stackPointerBefore": 7335264,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158353,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 3001,
+            "trapInstructionCount": 287473080,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 268614675,
+            "stackPointerBefore": 7335292,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158354,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 3002,
+            "trapInstructionCount": 287473200,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334588,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158355,
+            "module": "KERNEL32.dll",
+            "symbol": "TlsGetValue",
+            "occurrence": 2170,
+            "trapInstructionCount": 287473208,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334572,
+            "stackPointerAfter": 7334580,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158356,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "occurrence": 2168,
+            "trapInstructionCount": 287473216,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158357,
+            "module": "KERNEL32.dll",
+            "symbol": "SetLastError",
+            "occurrence": 2167,
+            "trapInstructionCount": 287473222,
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158358,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 3003,
+            "trapInstructionCount": 287473260,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334608,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158359,
+            "module": "KERNEL32.dll",
+            "symbol": "TlsGetValue",
+            "occurrence": 2171,
+            "trapInstructionCount": 287473268,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334592,
+            "stackPointerAfter": 7334600,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158360,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "occurrence": 2169,
+            "trapInstructionCount": 287473276,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158361,
+            "module": "KERNEL32.dll",
+            "symbol": "SetLastError",
+            "occurrence": 2168,
+            "trapInstructionCount": 287473282,
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158362,
+            "module": "KERNEL32.dll",
+            "symbol": "CreateFileA",
+            "occurrence": 918,
+            "trapInstructionCount": 287475900,
+            "arguments": [
+              7335396,
+              2147483648,
+              1,
+              0,
+              3,
+              134217760,
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 4294967295
+            },
+            "implementationId": "kernel32.create-file-a.source.v1",
+            "returnAddress": 268614656,
+            "stackPointerBefore": 7335264,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158363,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 3004,
+            "trapInstructionCount": 287475905,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 268614675,
+            "stackPointerBefore": 7335292,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158364,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 3005,
+            "trapInstructionCount": 287476025,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334588,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158365,
+            "module": "KERNEL32.dll",
+            "symbol": "TlsGetValue",
+            "occurrence": 2172,
+            "trapInstructionCount": 287476033,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334572,
+            "stackPointerAfter": 7334580,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158366,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "occurrence": 2170,
+            "trapInstructionCount": 287476041,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158367,
+            "module": "KERNEL32.dll",
+            "symbol": "SetLastError",
+            "occurrence": 2169,
+            "trapInstructionCount": 287476047,
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158368,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 3006,
+            "trapInstructionCount": 287476085,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334608,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158369,
+            "module": "KERNEL32.dll",
+            "symbol": "TlsGetValue",
+            "occurrence": 2173,
+            "trapInstructionCount": 287476093,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334592,
+            "stackPointerAfter": 7334600,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158370,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "occurrence": 2171,
+            "trapInstructionCount": 287476101,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158371,
+            "module": "KERNEL32.dll",
+            "symbol": "SetLastError",
+            "occurrence": 2170,
+            "trapInstructionCount": 287476107,
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158372,
+            "module": "KERNEL32.dll",
+            "symbol": "CreateFileA",
+            "occurrence": 919,
+            "trapInstructionCount": 287478465,
+            "arguments": [
+              7335396,
+              2147483648,
+              1,
+              0,
+              3,
+              134217760,
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 4294967295
+            },
+            "implementationId": "kernel32.create-file-a.source.v1",
+            "returnAddress": 268614656,
+            "stackPointerBefore": 7335264,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158373,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 3007,
+            "trapInstructionCount": 287478470,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 268614675,
+            "stackPointerBefore": 7335292,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158374,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 3008,
+            "trapInstructionCount": 287478590,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334588,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158375,
+            "module": "KERNEL32.dll",
+            "symbol": "TlsGetValue",
+            "occurrence": 2174,
+            "trapInstructionCount": 287478598,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334572,
+            "stackPointerAfter": 7334580,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158376,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "occurrence": 2172,
+            "trapInstructionCount": 287478606,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158377,
+            "module": "KERNEL32.dll",
+            "symbol": "SetLastError",
+            "occurrence": 2171,
+            "trapInstructionCount": 287478612,
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158378,
+            "module": "KERNEL32.dll",
+            "symbol": "GetLastError",
+            "occurrence": 3009,
+            "trapInstructionCount": 287478650,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334608,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158379,
+            "module": "KERNEL32.dll",
+            "symbol": "TlsGetValue",
+            "occurrence": 2175,
+            "trapInstructionCount": 287478658,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334592,
+            "stackPointerAfter": 7334600,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158380,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "occurrence": 2173,
+            "trapInstructionCount": 287478666,
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158381,
+            "module": "KERNEL32.dll",
+            "symbol": "SetLastError",
+            "occurrence": 2172,
+            "trapInstructionCount": 287478672,
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158382,
+            "module": "KERNEL32.dll",
+            "symbol": "CreateFileA",
+            "occurrence": 920,
+            "trapInstructionCount": 287481186,
+            "arguments": [
+              7335396,
+              2147483648,
+              1,
+              0,
+              3,
+              134217760,
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 4294967295
+            },
+            "implementationId": "kernel32.create-file-a.source.v1",
+            "returnAddress": 268614656,
+            "stackPointerBefore": 7335264,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192
+          },
+          {
+            "sequence": 158383,
+            "module": "KERNEL32.dll",
+            "symbol": "EnterCriticalSection",
+            "occurrence": 51389,
+            "trapInstructionCount": 287481222,
+            "arguments": [
+              269797584
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.enter-critical-section.v1",
+            "returnAddress": 269031782,
+            "stackPointerBefore": 1343225712,
+            "stackPointerAfter": 1343225720,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269797584,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  254,
+                  255,
+                  255,
+                  255,
+                  1,
+                  0,
+                  0,
+                  0,
+                  1,
+                  32,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ],
+                "result": {
+                  "bytesWritten": 24,
+                  "dirtyPages": 1,
+                  "invalidation": {
+                    "generation": 290294,
+                    "dataTlb": false,
+                    "instructionFetch": false,
+                    "generatedCode": false
+                  }
+                }
+              }
+            ],
+            "runtimeThreadId": 8193
+          },
+          {
+            "sequence": 158384,
+            "module": "KERNEL32.dll",
+            "symbol": "LeaveCriticalSection",
+            "occurrence": 51389,
+            "trapInstructionCount": 287481227,
+            "arguments": [
+              269797584
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.leave-critical-section.v1",
+            "returnAddress": 269031802,
+            "stackPointerBefore": 1343225712,
+            "stackPointerAfter": 1343225720,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269797584,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ],
+                "result": {
+                  "bytesWritten": 24,
+                  "dirtyPages": 1,
+                  "invalidation": {
+                    "generation": 290296,
+                    "dataTlb": false,
+                    "instructionFetch": false,
+                    "generatedCode": false
+                  }
+                }
+              }
+            ],
+            "runtimeThreadId": 8193
+          },
+          {
+            "sequence": 158385,
+            "module": "KERNEL32.dll",
+            "symbol": "EnterCriticalSection",
+            "occurrence": 51390,
+            "trapInstructionCount": 287481253,
+            "arguments": [
+              269482016
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.enter-critical-section.v1",
+            "returnAddress": 268439771,
+            "stackPointerBefore": 1343225744,
+            "stackPointerAfter": 1343225752,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269482016,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  254,
+                  255,
+                  255,
+                  255,
+                  1,
+                  0,
+                  0,
+                  0,
+                  1,
+                  32,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ],
+                "result": {
+                  "bytesWritten": 24,
+                  "dirtyPages": 1,
+                  "invalidation": {
+                    "generation": 290298,
+                    "dataTlb": false,
+                    "instructionFetch": false,
+                    "generatedCode": false
+                  }
+                }
+              }
+            ],
+            "runtimeThreadId": 8193
+          },
+          {
+            "sequence": 158386,
+            "module": "KERNEL32.dll",
+            "symbol": "LeaveCriticalSection",
+            "occurrence": 51390,
+            "trapInstructionCount": 287481262,
+            "arguments": [
+              269482016
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.leave-critical-section.v1",
+            "returnAddress": 268439787,
+            "stackPointerBefore": 1343225744,
+            "stackPointerAfter": 1343225752,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269482016,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ],
+                "result": {
+                  "bytesWritten": 24,
+                  "dirtyPages": 1,
+                  "invalidation": {
+                    "generation": 290300,
+                    "dataTlb": false,
+                    "instructionFetch": false,
+                    "generatedCode": false
+                  }
+                }
+              }
+            ],
+            "runtimeThreadId": 8193
+          },
+          {
+            "sequence": 158387,
+            "module": "KERNEL32.dll",
+            "symbol": "SetWaitableTimer",
+            "occurrence": 11225,
+            "trapInstructionCount": 287481297,
+            "arguments": [
+              1459683330,
+              1343225752,
+              0,
+              0,
+              0,
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 1
+            },
+            "implementationId": "kernel32.set-waitable-timer.relative-one-shot.v1",
+            "returnAddress": 268764679,
+            "stackPointerBefore": 1343225724,
+            "stackPointerAfter": 1343225752,
+            "lastError": 0,
+            "guestWrites": [],
+            "waitableTimer": {
+              "handle": 1459683330,
+              "timer": {
+                "id": 2,
+                "manualReset": true,
+                "arm": {
+                  "relativeDueTime100ns": 5000,
+                  "armedAtTime100ns": 56165000,
+                  "deadlineTime100ns": 56170000,
+                  "periodMilliseconds": 0,
+                  "generation": 11221
+                }
+              },
+              "objectRecord": {
+                "id": 24,
+                "key": {
+                  "kind": "waitable-timer",
+                  "timer_id": 2
+                },
+                "kind": "waitable-timer",
+                "namespace": "vine.runtime-waitable-timer-object.v1",
+                "closePolicy": "close-handle",
+                "waitState": {
+                  "state": "nonsignaled"
+                },
+                "openHandles": 1
+              }
+            },
+            "runtimeThreadId": 8193
           }
         ],
-        "waitCompletionCount": 1,
-        "criticalSectionCompletionCount": 6,
-        "timerArmCompletionCount": 1,
-        "roundtripCount": 3,
+        "cycles": [
+          {
+            "cycleIndex": 0,
+            "completionCount": 8,
+            "firstCompletionSequence": 158132,
+            "firstCompletionInstructionCount": 276361491,
+            "lastCompletionSequence": 158139,
+            "lastCompletionInstructionCount": 276361632,
+            "waitOccurrence": 11209,
+            "timerArmOccurrence": 11210,
+            "waitableTimerDeadlineTime100ns": 56090000,
+            "waitableTimerArmGeneration": 11205,
+            "waitableTimerClockGeneration": 11209,
+            "nextWaitRegistrationId": 11210,
+            "timerArmGeneration": 11206,
+            "timerArmedAtTime100ns": 56090000,
+            "nextTimerDeadlineTime100ns": 56095000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51343,
+              51344,
+              51345
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 1,
+            "completionCount": 8,
+            "firstCompletionSequence": 158140,
+            "firstCompletionInstructionCount": 276361638,
+            "lastCompletionSequence": 158147,
+            "lastCompletionInstructionCount": 276361779,
+            "waitOccurrence": 11210,
+            "timerArmOccurrence": 11211,
+            "waitableTimerDeadlineTime100ns": 56095000,
+            "waitableTimerArmGeneration": 11206,
+            "waitableTimerClockGeneration": 11210,
+            "nextWaitRegistrationId": 11211,
+            "timerArmGeneration": 11207,
+            "timerArmedAtTime100ns": 56095000,
+            "nextTimerDeadlineTime100ns": 56100000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51346,
+              51347,
+              51348
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 2,
+            "completionCount": 8,
+            "firstCompletionSequence": 158148,
+            "firstCompletionInstructionCount": 276361785,
+            "lastCompletionSequence": 158155,
+            "lastCompletionInstructionCount": 276361926,
+            "waitOccurrence": 11211,
+            "timerArmOccurrence": 11212,
+            "waitableTimerDeadlineTime100ns": 56100000,
+            "waitableTimerArmGeneration": 11207,
+            "waitableTimerClockGeneration": 11211,
+            "nextWaitRegistrationId": 11212,
+            "timerArmGeneration": 11208,
+            "timerArmedAtTime100ns": 56100000,
+            "nextTimerDeadlineTime100ns": 56105000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51349,
+              51350,
+              51351
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 3,
+            "completionCount": 8,
+            "firstCompletionSequence": 158156,
+            "firstCompletionInstructionCount": 276361932,
+            "lastCompletionSequence": 158163,
+            "lastCompletionInstructionCount": 276362073,
+            "waitOccurrence": 11212,
+            "timerArmOccurrence": 11213,
+            "waitableTimerDeadlineTime100ns": 56105000,
+            "waitableTimerArmGeneration": 11208,
+            "waitableTimerClockGeneration": 11212,
+            "nextWaitRegistrationId": 11213,
+            "timerArmGeneration": 11209,
+            "timerArmedAtTime100ns": 56105000,
+            "nextTimerDeadlineTime100ns": 56110000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51352,
+              51353,
+              51354
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 4,
+            "completionCount": 8,
+            "firstCompletionSequence": 158164,
+            "firstCompletionInstructionCount": 276362079,
+            "lastCompletionSequence": 158171,
+            "lastCompletionInstructionCount": 276362220,
+            "waitOccurrence": 11213,
+            "timerArmOccurrence": 11214,
+            "waitableTimerDeadlineTime100ns": 56110000,
+            "waitableTimerArmGeneration": 11209,
+            "waitableTimerClockGeneration": 11213,
+            "nextWaitRegistrationId": 11214,
+            "timerArmGeneration": 11210,
+            "timerArmedAtTime100ns": 56110000,
+            "nextTimerDeadlineTime100ns": 56115000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51355,
+              51356,
+              51357
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 5,
+            "completionCount": 8,
+            "firstCompletionSequence": 158172,
+            "firstCompletionInstructionCount": 276362226,
+            "lastCompletionSequence": 158179,
+            "lastCompletionInstructionCount": 276362367,
+            "waitOccurrence": 11214,
+            "timerArmOccurrence": 11215,
+            "waitableTimerDeadlineTime100ns": 56115000,
+            "waitableTimerArmGeneration": 11210,
+            "waitableTimerClockGeneration": 11214,
+            "nextWaitRegistrationId": 11215,
+            "timerArmGeneration": 11211,
+            "timerArmedAtTime100ns": 56115000,
+            "nextTimerDeadlineTime100ns": 56120000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51358,
+              51359,
+              51360
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 6,
+            "completionCount": 72,
+            "firstCompletionSequence": 158180,
+            "firstCompletionInstructionCount": 276362373,
+            "lastCompletionSequence": 158251,
+            "lastCompletionInstructionCount": 287460364,
+            "waitOccurrence": 11215,
+            "timerArmOccurrence": 11216,
+            "waitableTimerDeadlineTime100ns": 56120000,
+            "waitableTimerArmGeneration": 11211,
+            "waitableTimerClockGeneration": 11215,
+            "nextWaitRegistrationId": 11216,
+            "timerArmGeneration": 11212,
+            "timerArmedAtTime100ns": 56120000,
+            "nextTimerDeadlineTime100ns": 56125000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51361,
+              51362,
+              51363
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.create-file-a.source.v1": 4,
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.fls-get-value.v1": 12,
+              "kernel32.get-last-error.v1": 17,
+              "kernel32.heap-alloc.v2": 4,
+              "kernel32.heap-free.v1": 1,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-last-error.v1": 12,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.tls-get-value.v1": 12,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1,
+              "user32.get-async-key-state.v1": 1,
+              "winmm.time-get-time.v1": 1
+            },
+            "participatingThreadIds": [
+              8192,
+              8193
+            ],
+            "threadTransitionCount": 2,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 7,
+            "completionCount": 8,
+            "firstCompletionSequence": 158252,
+            "firstCompletionInstructionCount": 287460370,
+            "lastCompletionSequence": 158259,
+            "lastCompletionInstructionCount": 287460511,
+            "waitOccurrence": 11216,
+            "timerArmOccurrence": 11217,
+            "waitableTimerDeadlineTime100ns": 56125000,
+            "waitableTimerArmGeneration": 11212,
+            "waitableTimerClockGeneration": 11216,
+            "nextWaitRegistrationId": 11217,
+            "timerArmGeneration": 11213,
+            "timerArmedAtTime100ns": 56125000,
+            "nextTimerDeadlineTime100ns": 56130000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51364,
+              51365,
+              51366
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 8,
+            "completionCount": 8,
+            "firstCompletionSequence": 158260,
+            "firstCompletionInstructionCount": 287460517,
+            "lastCompletionSequence": 158267,
+            "lastCompletionInstructionCount": 287460658,
+            "waitOccurrence": 11217,
+            "timerArmOccurrence": 11218,
+            "waitableTimerDeadlineTime100ns": 56130000,
+            "waitableTimerArmGeneration": 11213,
+            "waitableTimerClockGeneration": 11217,
+            "nextWaitRegistrationId": 11218,
+            "timerArmGeneration": 11214,
+            "timerArmedAtTime100ns": 56130000,
+            "nextTimerDeadlineTime100ns": 56135000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51367,
+              51368,
+              51369
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 9,
+            "completionCount": 8,
+            "firstCompletionSequence": 158268,
+            "firstCompletionInstructionCount": 287460664,
+            "lastCompletionSequence": 158275,
+            "lastCompletionInstructionCount": 287460805,
+            "waitOccurrence": 11218,
+            "timerArmOccurrence": 11219,
+            "waitableTimerDeadlineTime100ns": 56135000,
+            "waitableTimerArmGeneration": 11214,
+            "waitableTimerClockGeneration": 11218,
+            "nextWaitRegistrationId": 11219,
+            "timerArmGeneration": 11215,
+            "timerArmedAtTime100ns": 56135000,
+            "nextTimerDeadlineTime100ns": 56140000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51370,
+              51371,
+              51372
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 10,
+            "completionCount": 8,
+            "firstCompletionSequence": 158276,
+            "firstCompletionInstructionCount": 287460811,
+            "lastCompletionSequence": 158283,
+            "lastCompletionInstructionCount": 287460952,
+            "waitOccurrence": 11219,
+            "timerArmOccurrence": 11220,
+            "waitableTimerDeadlineTime100ns": 56140000,
+            "waitableTimerArmGeneration": 11215,
+            "waitableTimerClockGeneration": 11219,
+            "nextWaitRegistrationId": 11220,
+            "timerArmGeneration": 11216,
+            "timerArmedAtTime100ns": 56140000,
+            "nextTimerDeadlineTime100ns": 56145000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51373,
+              51374,
+              51375
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 11,
+            "completionCount": 8,
+            "firstCompletionSequence": 158284,
+            "firstCompletionInstructionCount": 287460958,
+            "lastCompletionSequence": 158291,
+            "lastCompletionInstructionCount": 287461099,
+            "waitOccurrence": 11220,
+            "timerArmOccurrence": 11221,
+            "waitableTimerDeadlineTime100ns": 56145000,
+            "waitableTimerArmGeneration": 11216,
+            "waitableTimerClockGeneration": 11220,
+            "nextWaitRegistrationId": 11221,
+            "timerArmGeneration": 11217,
+            "timerArmedAtTime100ns": 56145000,
+            "nextTimerDeadlineTime100ns": 56150000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51376,
+              51377,
+              51378
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 12,
+            "completionCount": 8,
+            "firstCompletionSequence": 158292,
+            "firstCompletionInstructionCount": 287461105,
+            "lastCompletionSequence": 158299,
+            "lastCompletionInstructionCount": 287461246,
+            "waitOccurrence": 11221,
+            "timerArmOccurrence": 11222,
+            "waitableTimerDeadlineTime100ns": 56150000,
+            "waitableTimerArmGeneration": 11217,
+            "waitableTimerClockGeneration": 11221,
+            "nextWaitRegistrationId": 11222,
+            "timerArmGeneration": 11218,
+            "timerArmedAtTime100ns": 56150000,
+            "nextTimerDeadlineTime100ns": 56155000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51379,
+              51380,
+              51381
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 13,
+            "completionCount": 8,
+            "firstCompletionSequence": 158300,
+            "firstCompletionInstructionCount": 287461252,
+            "lastCompletionSequence": 158307,
+            "lastCompletionInstructionCount": 287461393,
+            "waitOccurrence": 11222,
+            "timerArmOccurrence": 11223,
+            "waitableTimerDeadlineTime100ns": 56155000,
+            "waitableTimerArmGeneration": 11218,
+            "waitableTimerClockGeneration": 11222,
+            "nextWaitRegistrationId": 11223,
+            "timerArmGeneration": 11219,
+            "timerArmedAtTime100ns": 56155000,
+            "nextTimerDeadlineTime100ns": 56160000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51382,
+              51383,
+              51384
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 14,
+            "completionCount": 8,
+            "firstCompletionSequence": 158308,
+            "firstCompletionInstructionCount": 287461399,
+            "lastCompletionSequence": 158315,
+            "lastCompletionInstructionCount": 287461540,
+            "waitOccurrence": 11223,
+            "timerArmOccurrence": 11224,
+            "waitableTimerDeadlineTime100ns": 56160000,
+            "waitableTimerArmGeneration": 11219,
+            "waitableTimerClockGeneration": 11223,
+            "nextWaitRegistrationId": 11224,
+            "timerArmGeneration": 11220,
+            "timerArmedAtTime100ns": 56160000,
+            "nextTimerDeadlineTime100ns": 56165000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51385,
+              51386,
+              51387
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 15,
+            "completionCount": 72,
+            "firstCompletionSequence": 158316,
+            "firstCompletionInstructionCount": 287461546,
+            "lastCompletionSequence": 158387,
+            "lastCompletionInstructionCount": 287481297,
+            "waitOccurrence": 11224,
+            "timerArmOccurrence": 11225,
+            "waitableTimerDeadlineTime100ns": 56165000,
+            "waitableTimerArmGeneration": 11220,
+            "waitableTimerClockGeneration": 11224,
+            "nextWaitRegistrationId": 11225,
+            "timerArmGeneration": 11221,
+            "timerArmedAtTime100ns": 56165000,
+            "nextTimerDeadlineTime100ns": 56170000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51388,
+              51389,
+              51390
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.create-file-a.source.v1": 7,
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.fls-get-value.v1": 13,
+              "kernel32.get-last-error.v1": 18,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-last-error.v1": 13,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.tls-get-value.v1": 13,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8192,
+              8193
+            ],
+            "threadTransitionCount": 2,
+            "balanced": true
+          }
+        ],
+        "waitCompletionCount": 16,
+        "criticalSectionCompletionCount": 96,
+        "timerArmCompletionCount": 16,
+        "roundtripCount": 48,
         "criticalSectionAddresses": [
-          269797584,
           269797584,
           269482016
         ],
-        "threadId": 8193,
+        "mainLoopThreadId": 8193,
+        "participatingThreadIds": [
+          8192,
+          8193
+        ],
+        "threadTransitionCount": 4,
         "balanced": true,
-        "instructionCount": 276361638,
+        "instructionCount": 287481303,
         "nextEndpoint": {
           "id": 122,
           "address": 2130708368,
@@ -569,7 +3051,7 @@
           "disposition": "declared-runtime-export",
           "iatAddress": 269292176
         },
-        "memoryContentSha256": "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf",
+        "memoryContentSha256": "474048294afb72dcbd3d16517ed514d8771099bc3ed9c981e5fb3539dcabc625",
         "nextArguments": [
           1459683330,
           10,
@@ -578,28 +3060,35 @@
         "nextReturnAddress": 268764693,
         "nextStackPointer": 1343225736
       },
-      "writebackBatches": 161099,
-      "dirtyPages": 236745,
-      "changedBytes": 36243840,
-      "hostDeltaBatches": 125768
+      "writebackBatches": 161348,
+      "dirtyPages": 238005,
+      "changedBytes": 39922045,
+      "hostDeltaBatches": 125864
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 158139,
-      "callSemanticsSha256": "bfeee03ec768b7fe0c2e4151e0ac0d73d3d7bdeaf6c531cbcf8c07f33b016eb2",
-      "instructions": 276361638,
-      "finalGeneration": 305905,
-      "memoryContentSha256": "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf",
+      "supportedCalls": 158387,
+      "callSemanticsSha256": "2fb3c15a5989f1afac216346add8110c7f36fd1612f732d3fee416c36c231327",
+      "instructions": 287481303,
+      "finalGeneration": 306927,
+      "memoryContentSha256": "474048294afb72dcbd3d16517ed514d8771099bc3ed9c981e5fb3539dcabc625",
       "checkpointCompletion": {
-        "capability": "primary-main-loop-recurring-timer-cycle-batch",
-        "implementationId": "runtime.main-loop-recurring-timer-cycle.v1",
-        "requiredCompletions": 8,
-        "completionCount": 8,
+        "capability": "primary-main-loop-recurring-timer-multi-cycle-batch",
+        "implementationId": "runtime.main-loop-recurring-timer-multi-cycle.v1",
+        "requiredCycles": 16,
+        "cycleCount": 16,
+        "requiredCompletions": 32,
+        "minimumRequiredCompletions": 32,
+        "completionCount": 256,
         "firstCompletionSequence": 158132,
         "firstCompletionInstructionCount": 276361491,
-        "lastCompletionSequence": 158139,
-        "lastCompletionInstructionCount": 276361632,
-        "completions": [
+        "lastCompletionSequence": 158387,
+        "lastCompletionInstructionCount": 287481297,
+        "boundaryCycleIndexes": [
+          0,
+          15
+        ],
+        "boundaryCompletions": [
           {
             "sequence": 158132,
             "module": "kernel32.dll",
@@ -649,7 +3138,9 @@
                 "currentTime100ns": 56090000,
                 "generation": 11209
               }
-            }
+            },
+            "runtimeThreadId": 8193,
+            "trapInstructionCount": 276361491
           },
           {
             "sequence": 158133,
@@ -696,7 +3187,9 @@
                   2
                 ]
               }
-            ]
+            ],
+            "runtimeThreadId": 8193,
+            "trapInstructionCount": 276361516
           },
           {
             "sequence": 158134,
@@ -743,7 +3236,9 @@
                   2
                 ]
               }
-            ]
+            ],
+            "runtimeThreadId": 8193,
+            "trapInstructionCount": 276361521
           },
           {
             "sequence": 158135,
@@ -790,7 +3285,9 @@
                   2
                 ]
               }
-            ]
+            ],
+            "runtimeThreadId": 8193,
+            "trapInstructionCount": 276361557
           },
           {
             "sequence": 158136,
@@ -837,7 +3334,9 @@
                   2
                 ]
               }
-            ]
+            ],
+            "runtimeThreadId": 8193,
+            "trapInstructionCount": 276361562
           },
           {
             "sequence": 158137,
@@ -884,7 +3383,9 @@
                   2
                 ]
               }
-            ]
+            ],
+            "runtimeThreadId": 8193,
+            "trapInstructionCount": 276361588
           },
           {
             "sequence": 158138,
@@ -931,7 +3432,9 @@
                   2
                 ]
               }
-            ]
+            ],
+            "runtimeThreadId": 8193,
+            "trapInstructionCount": 276361597
           },
           {
             "sequence": 158139,
@@ -982,21 +3485,2358 @@
                 "id": 2,
                 "manualReset": true
               }
-            }
+            },
+            "runtimeThreadId": 8193,
+            "trapInstructionCount": 276361632
+          },
+          {
+            "sequence": 158316,
+            "module": "kernel32.dll",
+            "symbol": "WaitForSingleObjectEx",
+            "arguments": [
+              1459683330,
+              10,
+              1
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+            "returnAddress": 268764693,
+            "stackPointerBefore": 1343225736,
+            "stackPointerAfter": 1343225752,
+            "lastError": 0,
+            "guestWrites": [],
+            "waitableTimer": {
+              "handle": 1459683330,
+              "nextWaitRegistrationId": 11225,
+              "objectRecord": {
+                "closePolicy": "close-handle",
+                "id": 24,
+                "key": {
+                  "kind": "waitable-timer",
+                  "timer_id": 2
+                },
+                "kind": "waitable-timer",
+                "namespace": "vine.runtime-waitable-timer-object.v1",
+                "openHandles": 1,
+                "waitState": {
+                  "exit_code": 0,
+                  "state": "signaled"
+                }
+              },
+              "timer": {
+                "id": 2,
+                "lastExpiration": {
+                  "armGeneration": 11220,
+                  "deadlineTime100ns": 56165000
+                },
+                "manualReset": true
+              },
+              "timerClock": {
+                "currentTime100ns": 56165000,
+                "generation": 11224
+              }
+            },
+            "runtimeThreadId": 8193,
+            "trapInstructionCount": 287461546
+          },
+          {
+            "sequence": 158317,
+            "module": "kernel32.dll",
+            "symbol": "EnterCriticalSection",
+            "arguments": [
+              269797584
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.enter-critical-section.v1",
+            "returnAddress": 269031318,
+            "stackPointerBefore": 1343225712,
+            "stackPointerAfter": 1343225720,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269797584,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  254,
+                  255,
+                  255,
+                  255,
+                  1,
+                  0,
+                  0,
+                  0,
+                  1,
+                  32,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ]
+              }
+            ],
+            "runtimeThreadId": 8193,
+            "trapInstructionCount": 287461571
+          },
+          {
+            "sequence": 158318,
+            "module": "kernel32.dll",
+            "symbol": "LeaveCriticalSection",
+            "arguments": [
+              269797584
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.leave-critical-section.v1",
+            "returnAddress": 269031338,
+            "stackPointerBefore": 1343225712,
+            "stackPointerAfter": 1343225720,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269797584,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ]
+              }
+            ],
+            "runtimeThreadId": 8193,
+            "trapInstructionCount": 287461576
+          },
+          {
+            "sequence": 158319,
+            "module": "kernel32.dll",
+            "symbol": "TlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334592,
+            "stackPointerAfter": 7334600,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287461584
+          },
+          {
+            "sequence": 158320,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287461592
+          },
+          {
+            "sequence": 158321,
+            "module": "kernel32.dll",
+            "symbol": "SetLastError",
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287461598
+          },
+          {
+            "sequence": 158322,
+            "module": "kernel32.dll",
+            "symbol": "CreateFileA",
+            "arguments": [
+              7335396,
+              2147483648,
+              1,
+              0,
+              3,
+              134217760,
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 4294967295
+            },
+            "implementationId": "kernel32.create-file-a.source.v1",
+            "returnAddress": 268614656,
+            "stackPointerBefore": 7335264,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287464170
+          },
+          {
+            "sequence": 158323,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 268614675,
+            "stackPointerBefore": 7335292,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287464175
+          },
+          {
+            "sequence": 158324,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334588,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287464295
+          },
+          {
+            "sequence": 158325,
+            "module": "kernel32.dll",
+            "symbol": "TlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334572,
+            "stackPointerAfter": 7334580,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287464303
+          },
+          {
+            "sequence": 158326,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287464311
+          },
+          {
+            "sequence": 158327,
+            "module": "kernel32.dll",
+            "symbol": "SetLastError",
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287464317
+          },
+          {
+            "sequence": 158328,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334608,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287464355
+          },
+          {
+            "sequence": 158329,
+            "module": "kernel32.dll",
+            "symbol": "TlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334592,
+            "stackPointerAfter": 7334600,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287464363
+          },
+          {
+            "sequence": 158330,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287464371
+          },
+          {
+            "sequence": 158331,
+            "module": "kernel32.dll",
+            "symbol": "SetLastError",
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287464377
+          },
+          {
+            "sequence": 158332,
+            "module": "kernel32.dll",
+            "symbol": "CreateFileA",
+            "arguments": [
+              7335396,
+              2147483648,
+              1,
+              0,
+              3,
+              134217760,
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 4294967295
+            },
+            "implementationId": "kernel32.create-file-a.source.v1",
+            "returnAddress": 268614656,
+            "stackPointerBefore": 7335264,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287466897
+          },
+          {
+            "sequence": 158333,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 268614675,
+            "stackPointerBefore": 7335292,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287466902
+          },
+          {
+            "sequence": 158334,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334588,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287467022
+          },
+          {
+            "sequence": 158335,
+            "module": "kernel32.dll",
+            "symbol": "TlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334572,
+            "stackPointerAfter": 7334580,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287467030
+          },
+          {
+            "sequence": 158336,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287467038
+          },
+          {
+            "sequence": 158337,
+            "module": "kernel32.dll",
+            "symbol": "SetLastError",
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287467044
+          },
+          {
+            "sequence": 158338,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334608,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287467082
+          },
+          {
+            "sequence": 158339,
+            "module": "kernel32.dll",
+            "symbol": "TlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334592,
+            "stackPointerAfter": 7334600,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287467090
+          },
+          {
+            "sequence": 158340,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287467098
+          },
+          {
+            "sequence": 158341,
+            "module": "kernel32.dll",
+            "symbol": "SetLastError",
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287467104
+          },
+          {
+            "sequence": 158342,
+            "module": "kernel32.dll",
+            "symbol": "CreateFileA",
+            "arguments": [
+              7335396,
+              2147483648,
+              1,
+              0,
+              3,
+              134217760,
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 4294967295
+            },
+            "implementationId": "kernel32.create-file-a.source.v1",
+            "returnAddress": 268614656,
+            "stackPointerBefore": 7335264,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287470356
+          },
+          {
+            "sequence": 158343,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 268614675,
+            "stackPointerBefore": 7335292,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287470361
+          },
+          {
+            "sequence": 158344,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334588,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287470481
+          },
+          {
+            "sequence": 158345,
+            "module": "kernel32.dll",
+            "symbol": "TlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334572,
+            "stackPointerAfter": 7334580,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287470489
+          },
+          {
+            "sequence": 158346,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287470497
+          },
+          {
+            "sequence": 158347,
+            "module": "kernel32.dll",
+            "symbol": "SetLastError",
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287470503
+          },
+          {
+            "sequence": 158348,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334608,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287470541
+          },
+          {
+            "sequence": 158349,
+            "module": "kernel32.dll",
+            "symbol": "TlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334592,
+            "stackPointerAfter": 7334600,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287470549
+          },
+          {
+            "sequence": 158350,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287470557
+          },
+          {
+            "sequence": 158351,
+            "module": "kernel32.dll",
+            "symbol": "SetLastError",
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287470563
+          },
+          {
+            "sequence": 158352,
+            "module": "kernel32.dll",
+            "symbol": "CreateFileA",
+            "arguments": [
+              7335396,
+              2147483648,
+              1,
+              0,
+              3,
+              134217760,
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 4294967295
+            },
+            "implementationId": "kernel32.create-file-a.source.v1",
+            "returnAddress": 268614656,
+            "stackPointerBefore": 7335264,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287473075
+          },
+          {
+            "sequence": 158353,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 268614675,
+            "stackPointerBefore": 7335292,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287473080
+          },
+          {
+            "sequence": 158354,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334588,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287473200
+          },
+          {
+            "sequence": 158355,
+            "module": "kernel32.dll",
+            "symbol": "TlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334572,
+            "stackPointerAfter": 7334580,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287473208
+          },
+          {
+            "sequence": 158356,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287473216
+          },
+          {
+            "sequence": 158357,
+            "module": "kernel32.dll",
+            "symbol": "SetLastError",
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287473222
+          },
+          {
+            "sequence": 158358,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334608,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287473260
+          },
+          {
+            "sequence": 158359,
+            "module": "kernel32.dll",
+            "symbol": "TlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334592,
+            "stackPointerAfter": 7334600,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287473268
+          },
+          {
+            "sequence": 158360,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287473276
+          },
+          {
+            "sequence": 158361,
+            "module": "kernel32.dll",
+            "symbol": "SetLastError",
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287473282
+          },
+          {
+            "sequence": 158362,
+            "module": "kernel32.dll",
+            "symbol": "CreateFileA",
+            "arguments": [
+              7335396,
+              2147483648,
+              1,
+              0,
+              3,
+              134217760,
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 4294967295
+            },
+            "implementationId": "kernel32.create-file-a.source.v1",
+            "returnAddress": 268614656,
+            "stackPointerBefore": 7335264,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287475900
+          },
+          {
+            "sequence": 158363,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 268614675,
+            "stackPointerBefore": 7335292,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287475905
+          },
+          {
+            "sequence": 158364,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334588,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287476025
+          },
+          {
+            "sequence": 158365,
+            "module": "kernel32.dll",
+            "symbol": "TlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334572,
+            "stackPointerAfter": 7334580,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287476033
+          },
+          {
+            "sequence": 158366,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287476041
+          },
+          {
+            "sequence": 158367,
+            "module": "kernel32.dll",
+            "symbol": "SetLastError",
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287476047
+          },
+          {
+            "sequence": 158368,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334608,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287476085
+          },
+          {
+            "sequence": 158369,
+            "module": "kernel32.dll",
+            "symbol": "TlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334592,
+            "stackPointerAfter": 7334600,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287476093
+          },
+          {
+            "sequence": 158370,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287476101
+          },
+          {
+            "sequence": 158371,
+            "module": "kernel32.dll",
+            "symbol": "SetLastError",
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287476107
+          },
+          {
+            "sequence": 158372,
+            "module": "kernel32.dll",
+            "symbol": "CreateFileA",
+            "arguments": [
+              7335396,
+              2147483648,
+              1,
+              0,
+              3,
+              134217760,
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 4294967295
+            },
+            "implementationId": "kernel32.create-file-a.source.v1",
+            "returnAddress": 268614656,
+            "stackPointerBefore": 7335264,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287478465
+          },
+          {
+            "sequence": 158373,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 268614675,
+            "stackPointerBefore": 7335292,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287478470
+          },
+          {
+            "sequence": 158374,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334588,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287478590
+          },
+          {
+            "sequence": 158375,
+            "module": "kernel32.dll",
+            "symbol": "TlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334572,
+            "stackPointerAfter": 7334580,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287478598
+          },
+          {
+            "sequence": 158376,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287478606
+          },
+          {
+            "sequence": 158377,
+            "module": "kernel32.dll",
+            "symbol": "SetLastError",
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334584,
+            "stackPointerAfter": 7334592,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287478612
+          },
+          {
+            "sequence": 158378,
+            "module": "kernel32.dll",
+            "symbol": "GetLastError",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 2
+            },
+            "implementationId": "kernel32.get-last-error.v1",
+            "returnAddress": 269112797,
+            "stackPointerBefore": 7334608,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287478650
+          },
+          {
+            "sequence": 158379,
+            "module": "kernel32.dll",
+            "symbol": "TlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 2130837520
+            },
+            "implementationId": "kernel32.tls-get-value.v1",
+            "returnAddress": 269112480,
+            "stackPointerBefore": 7334592,
+            "stackPointerAfter": 7334600,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287478658
+          },
+          {
+            "sequence": 158380,
+            "module": "kernel32.dll",
+            "symbol": "FlsGetValue",
+            "arguments": [
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 536870912
+            },
+            "implementationId": "kernel32.fls-get-value.v1",
+            "returnAddress": 269112812,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 0,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287478666
+          },
+          {
+            "sequence": 158381,
+            "module": "kernel32.dll",
+            "symbol": "SetLastError",
+            "arguments": [
+              2
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.set-last-error.v1",
+            "returnAddress": 269112903,
+            "stackPointerBefore": 7334604,
+            "stackPointerAfter": 7334612,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287478672
+          },
+          {
+            "sequence": 158382,
+            "module": "kernel32.dll",
+            "symbol": "CreateFileA",
+            "arguments": [
+              7335396,
+              2147483648,
+              1,
+              0,
+              3,
+              134217760,
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 4294967295
+            },
+            "implementationId": "kernel32.create-file-a.source.v1",
+            "returnAddress": 268614656,
+            "stackPointerBefore": 7335264,
+            "stackPointerAfter": 7335296,
+            "lastError": 2,
+            "guestWrites": [],
+            "runtimeThreadId": 8192,
+            "trapInstructionCount": 287481186
+          },
+          {
+            "sequence": 158383,
+            "module": "kernel32.dll",
+            "symbol": "EnterCriticalSection",
+            "arguments": [
+              269797584
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.enter-critical-section.v1",
+            "returnAddress": 269031782,
+            "stackPointerBefore": 1343225712,
+            "stackPointerAfter": 1343225720,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269797584,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  254,
+                  255,
+                  255,
+                  255,
+                  1,
+                  0,
+                  0,
+                  0,
+                  1,
+                  32,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ]
+              }
+            ],
+            "runtimeThreadId": 8193,
+            "trapInstructionCount": 287481222
+          },
+          {
+            "sequence": 158384,
+            "module": "kernel32.dll",
+            "symbol": "LeaveCriticalSection",
+            "arguments": [
+              269797584
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.leave-critical-section.v1",
+            "returnAddress": 269031802,
+            "stackPointerBefore": 1343225712,
+            "stackPointerAfter": 1343225720,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269797584,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ]
+              }
+            ],
+            "runtimeThreadId": 8193,
+            "trapInstructionCount": 287481227
+          },
+          {
+            "sequence": 158385,
+            "module": "kernel32.dll",
+            "symbol": "EnterCriticalSection",
+            "arguments": [
+              269482016
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.enter-critical-section.v1",
+            "returnAddress": 268439771,
+            "stackPointerBefore": 1343225744,
+            "stackPointerAfter": 1343225752,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269482016,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  254,
+                  255,
+                  255,
+                  255,
+                  1,
+                  0,
+                  0,
+                  0,
+                  1,
+                  32,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ]
+              }
+            ],
+            "runtimeThreadId": 8193,
+            "trapInstructionCount": 287481253
+          },
+          {
+            "sequence": 158386,
+            "module": "kernel32.dll",
+            "symbol": "LeaveCriticalSection",
+            "arguments": [
+              269482016
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.leave-critical-section.v1",
+            "returnAddress": 268439787,
+            "stackPointerBefore": 1343225744,
+            "stackPointerAfter": 1343225752,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269482016,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ]
+              }
+            ],
+            "runtimeThreadId": 8193,
+            "trapInstructionCount": 287481262
+          },
+          {
+            "sequence": 158387,
+            "module": "kernel32.dll",
+            "symbol": "SetWaitableTimer",
+            "arguments": [
+              1459683330,
+              1343225752,
+              0,
+              0,
+              0,
+              0
+            ],
+            "result": {
+              "action": "set",
+              "value": 1
+            },
+            "implementationId": "kernel32.set-waitable-timer.relative-one-shot.v1",
+            "returnAddress": 268764679,
+            "stackPointerBefore": 1343225724,
+            "stackPointerAfter": 1343225752,
+            "lastError": 0,
+            "guestWrites": [],
+            "waitableTimer": {
+              "handle": 1459683330,
+              "objectRecord": {
+                "closePolicy": "close-handle",
+                "id": 24,
+                "key": {
+                  "kind": "waitable-timer",
+                  "timer_id": 2
+                },
+                "kind": "waitable-timer",
+                "namespace": "vine.runtime-waitable-timer-object.v1",
+                "openHandles": 1,
+                "waitState": {
+                  "state": "nonsignaled"
+                }
+              },
+              "timer": {
+                "arm": {
+                  "armedAtTime100ns": 56165000,
+                  "deadlineTime100ns": 56170000,
+                  "generation": 11221,
+                  "periodMilliseconds": 0,
+                  "relativeDueTime100ns": 5000
+                },
+                "id": 2,
+                "manualReset": true
+              }
+            },
+            "runtimeThreadId": 8193,
+            "trapInstructionCount": 287481297
           }
         ],
-        "waitCompletionCount": 1,
-        "criticalSectionCompletionCount": 6,
-        "timerArmCompletionCount": 1,
-        "roundtripCount": 3,
+        "cycles": [
+          {
+            "cycleIndex": 0,
+            "completionCount": 8,
+            "firstCompletionSequence": 158132,
+            "firstCompletionInstructionCount": 276361491,
+            "lastCompletionSequence": 158139,
+            "lastCompletionInstructionCount": 276361632,
+            "waitOccurrence": 11209,
+            "timerArmOccurrence": 11210,
+            "waitableTimerDeadlineTime100ns": 56090000,
+            "waitableTimerArmGeneration": 11205,
+            "waitableTimerClockGeneration": 11209,
+            "nextWaitRegistrationId": 11210,
+            "timerArmGeneration": 11206,
+            "timerArmedAtTime100ns": 56090000,
+            "nextTimerDeadlineTime100ns": 56095000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51343,
+              51344,
+              51345
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 1,
+            "completionCount": 8,
+            "firstCompletionSequence": 158140,
+            "firstCompletionInstructionCount": 276361638,
+            "lastCompletionSequence": 158147,
+            "lastCompletionInstructionCount": 276361779,
+            "waitOccurrence": 11210,
+            "timerArmOccurrence": 11211,
+            "waitableTimerDeadlineTime100ns": 56095000,
+            "waitableTimerArmGeneration": 11206,
+            "waitableTimerClockGeneration": 11210,
+            "nextWaitRegistrationId": 11211,
+            "timerArmGeneration": 11207,
+            "timerArmedAtTime100ns": 56095000,
+            "nextTimerDeadlineTime100ns": 56100000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51346,
+              51347,
+              51348
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 2,
+            "completionCount": 8,
+            "firstCompletionSequence": 158148,
+            "firstCompletionInstructionCount": 276361785,
+            "lastCompletionSequence": 158155,
+            "lastCompletionInstructionCount": 276361926,
+            "waitOccurrence": 11211,
+            "timerArmOccurrence": 11212,
+            "waitableTimerDeadlineTime100ns": 56100000,
+            "waitableTimerArmGeneration": 11207,
+            "waitableTimerClockGeneration": 11211,
+            "nextWaitRegistrationId": 11212,
+            "timerArmGeneration": 11208,
+            "timerArmedAtTime100ns": 56100000,
+            "nextTimerDeadlineTime100ns": 56105000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51349,
+              51350,
+              51351
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 3,
+            "completionCount": 8,
+            "firstCompletionSequence": 158156,
+            "firstCompletionInstructionCount": 276361932,
+            "lastCompletionSequence": 158163,
+            "lastCompletionInstructionCount": 276362073,
+            "waitOccurrence": 11212,
+            "timerArmOccurrence": 11213,
+            "waitableTimerDeadlineTime100ns": 56105000,
+            "waitableTimerArmGeneration": 11208,
+            "waitableTimerClockGeneration": 11212,
+            "nextWaitRegistrationId": 11213,
+            "timerArmGeneration": 11209,
+            "timerArmedAtTime100ns": 56105000,
+            "nextTimerDeadlineTime100ns": 56110000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51352,
+              51353,
+              51354
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 4,
+            "completionCount": 8,
+            "firstCompletionSequence": 158164,
+            "firstCompletionInstructionCount": 276362079,
+            "lastCompletionSequence": 158171,
+            "lastCompletionInstructionCount": 276362220,
+            "waitOccurrence": 11213,
+            "timerArmOccurrence": 11214,
+            "waitableTimerDeadlineTime100ns": 56110000,
+            "waitableTimerArmGeneration": 11209,
+            "waitableTimerClockGeneration": 11213,
+            "nextWaitRegistrationId": 11214,
+            "timerArmGeneration": 11210,
+            "timerArmedAtTime100ns": 56110000,
+            "nextTimerDeadlineTime100ns": 56115000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51355,
+              51356,
+              51357
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 5,
+            "completionCount": 8,
+            "firstCompletionSequence": 158172,
+            "firstCompletionInstructionCount": 276362226,
+            "lastCompletionSequence": 158179,
+            "lastCompletionInstructionCount": 276362367,
+            "waitOccurrence": 11214,
+            "timerArmOccurrence": 11215,
+            "waitableTimerDeadlineTime100ns": 56115000,
+            "waitableTimerArmGeneration": 11210,
+            "waitableTimerClockGeneration": 11214,
+            "nextWaitRegistrationId": 11215,
+            "timerArmGeneration": 11211,
+            "timerArmedAtTime100ns": 56115000,
+            "nextTimerDeadlineTime100ns": 56120000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51358,
+              51359,
+              51360
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 6,
+            "completionCount": 72,
+            "firstCompletionSequence": 158180,
+            "firstCompletionInstructionCount": 276362373,
+            "lastCompletionSequence": 158251,
+            "lastCompletionInstructionCount": 287460364,
+            "waitOccurrence": 11215,
+            "timerArmOccurrence": 11216,
+            "waitableTimerDeadlineTime100ns": 56120000,
+            "waitableTimerArmGeneration": 11211,
+            "waitableTimerClockGeneration": 11215,
+            "nextWaitRegistrationId": 11216,
+            "timerArmGeneration": 11212,
+            "timerArmedAtTime100ns": 56120000,
+            "nextTimerDeadlineTime100ns": 56125000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51361,
+              51362,
+              51363
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.create-file-a.source.v1": 4,
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.fls-get-value.v1": 12,
+              "kernel32.get-last-error.v1": 17,
+              "kernel32.heap-alloc.v2": 4,
+              "kernel32.heap-free.v1": 1,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-last-error.v1": 12,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.tls-get-value.v1": 12,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1,
+              "user32.get-async-key-state.v1": 1,
+              "winmm.time-get-time.v1": 1
+            },
+            "participatingThreadIds": [
+              8192,
+              8193
+            ],
+            "threadTransitionCount": 2,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 7,
+            "completionCount": 8,
+            "firstCompletionSequence": 158252,
+            "firstCompletionInstructionCount": 287460370,
+            "lastCompletionSequence": 158259,
+            "lastCompletionInstructionCount": 287460511,
+            "waitOccurrence": 11216,
+            "timerArmOccurrence": 11217,
+            "waitableTimerDeadlineTime100ns": 56125000,
+            "waitableTimerArmGeneration": 11212,
+            "waitableTimerClockGeneration": 11216,
+            "nextWaitRegistrationId": 11217,
+            "timerArmGeneration": 11213,
+            "timerArmedAtTime100ns": 56125000,
+            "nextTimerDeadlineTime100ns": 56130000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51364,
+              51365,
+              51366
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 8,
+            "completionCount": 8,
+            "firstCompletionSequence": 158260,
+            "firstCompletionInstructionCount": 287460517,
+            "lastCompletionSequence": 158267,
+            "lastCompletionInstructionCount": 287460658,
+            "waitOccurrence": 11217,
+            "timerArmOccurrence": 11218,
+            "waitableTimerDeadlineTime100ns": 56130000,
+            "waitableTimerArmGeneration": 11213,
+            "waitableTimerClockGeneration": 11217,
+            "nextWaitRegistrationId": 11218,
+            "timerArmGeneration": 11214,
+            "timerArmedAtTime100ns": 56130000,
+            "nextTimerDeadlineTime100ns": 56135000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51367,
+              51368,
+              51369
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 9,
+            "completionCount": 8,
+            "firstCompletionSequence": 158268,
+            "firstCompletionInstructionCount": 287460664,
+            "lastCompletionSequence": 158275,
+            "lastCompletionInstructionCount": 287460805,
+            "waitOccurrence": 11218,
+            "timerArmOccurrence": 11219,
+            "waitableTimerDeadlineTime100ns": 56135000,
+            "waitableTimerArmGeneration": 11214,
+            "waitableTimerClockGeneration": 11218,
+            "nextWaitRegistrationId": 11219,
+            "timerArmGeneration": 11215,
+            "timerArmedAtTime100ns": 56135000,
+            "nextTimerDeadlineTime100ns": 56140000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51370,
+              51371,
+              51372
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 10,
+            "completionCount": 8,
+            "firstCompletionSequence": 158276,
+            "firstCompletionInstructionCount": 287460811,
+            "lastCompletionSequence": 158283,
+            "lastCompletionInstructionCount": 287460952,
+            "waitOccurrence": 11219,
+            "timerArmOccurrence": 11220,
+            "waitableTimerDeadlineTime100ns": 56140000,
+            "waitableTimerArmGeneration": 11215,
+            "waitableTimerClockGeneration": 11219,
+            "nextWaitRegistrationId": 11220,
+            "timerArmGeneration": 11216,
+            "timerArmedAtTime100ns": 56140000,
+            "nextTimerDeadlineTime100ns": 56145000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51373,
+              51374,
+              51375
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 11,
+            "completionCount": 8,
+            "firstCompletionSequence": 158284,
+            "firstCompletionInstructionCount": 287460958,
+            "lastCompletionSequence": 158291,
+            "lastCompletionInstructionCount": 287461099,
+            "waitOccurrence": 11220,
+            "timerArmOccurrence": 11221,
+            "waitableTimerDeadlineTime100ns": 56145000,
+            "waitableTimerArmGeneration": 11216,
+            "waitableTimerClockGeneration": 11220,
+            "nextWaitRegistrationId": 11221,
+            "timerArmGeneration": 11217,
+            "timerArmedAtTime100ns": 56145000,
+            "nextTimerDeadlineTime100ns": 56150000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51376,
+              51377,
+              51378
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 12,
+            "completionCount": 8,
+            "firstCompletionSequence": 158292,
+            "firstCompletionInstructionCount": 287461105,
+            "lastCompletionSequence": 158299,
+            "lastCompletionInstructionCount": 287461246,
+            "waitOccurrence": 11221,
+            "timerArmOccurrence": 11222,
+            "waitableTimerDeadlineTime100ns": 56150000,
+            "waitableTimerArmGeneration": 11217,
+            "waitableTimerClockGeneration": 11221,
+            "nextWaitRegistrationId": 11222,
+            "timerArmGeneration": 11218,
+            "timerArmedAtTime100ns": 56150000,
+            "nextTimerDeadlineTime100ns": 56155000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51379,
+              51380,
+              51381
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 13,
+            "completionCount": 8,
+            "firstCompletionSequence": 158300,
+            "firstCompletionInstructionCount": 287461252,
+            "lastCompletionSequence": 158307,
+            "lastCompletionInstructionCount": 287461393,
+            "waitOccurrence": 11222,
+            "timerArmOccurrence": 11223,
+            "waitableTimerDeadlineTime100ns": 56155000,
+            "waitableTimerArmGeneration": 11218,
+            "waitableTimerClockGeneration": 11222,
+            "nextWaitRegistrationId": 11223,
+            "timerArmGeneration": 11219,
+            "timerArmedAtTime100ns": 56155000,
+            "nextTimerDeadlineTime100ns": 56160000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51382,
+              51383,
+              51384
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 14,
+            "completionCount": 8,
+            "firstCompletionSequence": 158308,
+            "firstCompletionInstructionCount": 287461399,
+            "lastCompletionSequence": 158315,
+            "lastCompletionInstructionCount": 287461540,
+            "waitOccurrence": 11223,
+            "timerArmOccurrence": 11224,
+            "waitableTimerDeadlineTime100ns": 56160000,
+            "waitableTimerArmGeneration": 11219,
+            "waitableTimerClockGeneration": 11223,
+            "nextWaitRegistrationId": 11224,
+            "timerArmGeneration": 11220,
+            "timerArmedAtTime100ns": 56160000,
+            "nextTimerDeadlineTime100ns": 56165000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51385,
+              51386,
+              51387
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8193
+            ],
+            "threadTransitionCount": 0,
+            "balanced": true
+          },
+          {
+            "cycleIndex": 15,
+            "completionCount": 72,
+            "firstCompletionSequence": 158316,
+            "firstCompletionInstructionCount": 287461546,
+            "lastCompletionSequence": 158387,
+            "lastCompletionInstructionCount": 287481297,
+            "waitOccurrence": 11224,
+            "timerArmOccurrence": 11225,
+            "waitableTimerDeadlineTime100ns": 56165000,
+            "waitableTimerArmGeneration": 11220,
+            "waitableTimerClockGeneration": 11224,
+            "nextWaitRegistrationId": 11225,
+            "timerArmGeneration": 11221,
+            "timerArmedAtTime100ns": 56165000,
+            "nextTimerDeadlineTime100ns": 56170000,
+            "criticalSectionCompletionCount": 6,
+            "roundtripCount": 3,
+            "criticalSectionOccurrences": [
+              51388,
+              51389,
+              51390
+            ],
+            "criticalSectionAddresses": [
+              269797584,
+              269797584,
+              269482016
+            ],
+            "implementationCounts": {
+              "kernel32.create-file-a.source.v1": 7,
+              "kernel32.enter-critical-section.v1": 3,
+              "kernel32.fls-get-value.v1": 13,
+              "kernel32.get-last-error.v1": 18,
+              "kernel32.leave-critical-section.v1": 3,
+              "kernel32.set-last-error.v1": 13,
+              "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+              "kernel32.tls-get-value.v1": 13,
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1
+            },
+            "participatingThreadIds": [
+              8192,
+              8193
+            ],
+            "threadTransitionCount": 2,
+            "balanced": true
+          }
+        ],
+        "waitCompletionCount": 16,
+        "criticalSectionCompletionCount": 96,
+        "timerArmCompletionCount": 16,
+        "roundtripCount": 48,
         "criticalSectionAddresses": [
-          269797584,
           269797584,
           269482016
         ],
-        "threadId": 8193,
+        "mainLoopThreadId": 8193,
+        "participatingThreadIds": [
+          8192,
+          8193
+        ],
+        "threadTransitionCount": 4,
         "balanced": true,
-        "instructionCount": 276361638,
+        "instructionCount": 287481303,
         "nextEndpoint": {
           "address": 2130708368,
           "disposition": "declared-runtime-export",
@@ -1015,13 +5855,13 @@
         ],
         "nextReturnAddress": 268764693,
         "nextStackPointer": 1343225736,
-        "memoryContentSha256": "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf"
+        "memoryContentSha256": "474048294afb72dcbd3d16517ed514d8771099bc3ed9c981e5fb3539dcabc625"
       },
-      "wasmBridgeCalls": 476245,
+      "wasmBridgeCalls": 477529,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 567743,
+          "transitionCount": 570564,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -1068,20 +5908,23 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "primary-main-loop-recurring-timer-multi-cycle-batch",
-      "pausedHistoricalCheckpoint": "primary-main-loop-recurring-timer-cycle-batch",
-      "instructionCount": 276361638,
-      "capabilityCluster": "primary-main-loop-recurring-timer-cycle",
-      "reason": "primary-main-loop-recurring-timer-cycle-batch-checkpoint-complete",
+      "nextCheckpoint": "primary-main-loop-recurring-timer-window-batch",
+      "pausedHistoricalCheckpoint": "primary-main-loop-recurring-timer-multi-cycle-batch",
+      "instructionCount": 287481303,
+      "capabilityCluster": "primary-main-loop-recurring-timer-window",
+      "reason": "primary-main-loop-recurring-timer-multi-cycle-batch-checkpoint-complete",
       "completion": {
-        "capability": "primary-main-loop-recurring-timer-cycle-batch",
-        "implementationId": "runtime.main-loop-recurring-timer-cycle.v1",
-        "requiredCompletions": 8,
-        "completionCount": 8,
+        "capability": "primary-main-loop-recurring-timer-multi-cycle-batch",
+        "implementationId": "runtime.main-loop-recurring-timer-multi-cycle.v1",
+        "requiredCycles": 16,
+        "cycleCount": 16,
+        "requiredCompletions": 32,
+        "minimumRequiredCompletions": 32,
+        "completionCount": 256,
         "firstCompletionSequence": 158132,
         "firstCompletionInstructionCount": 276361491,
-        "lastCompletionSequence": 158139,
-        "lastCompletionInstructionCount": 276361632
+        "lastCompletionSequence": 158387,
+        "lastCompletionInstructionCount": 287481297
       },
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
@@ -1112,14 +5955,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-primary-main-loop-recurring-timer-cycle-batch/report.json",
-      "bytes": 2872852,
-      "sha256": "2564cefc0c4b912be0ea00171b8af08c610c68de0c11322f39e261ae88303748"
+      "path": ".work/v86-bgi-primary-main-loop-recurring-timer-multi-cycle-batch/report.json",
+      "bytes": 2944155,
+      "sha256": "f0ba28e298da37a1d3a3803d6554f19dad51efb070d7fa1d258880c2557adfc7"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2585417,
-      "sha256": "ee37e7cfb85169163918d3903e4896108e90e77387f0d0bf81ee4352fb94284b"
+      "bytes": 2662484,
+      "sha256": "f2de97f3bdf6e7f070c6bd3dee7ccb8926d06bf58a62222d24a0b70a755e840d"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -1134,7 +5977,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3766,
-      "sha256": "625755db61d4c4e842fc22d2e7c3480e8514133ef631baf66eb86ebc775e41e6"
+      "sha256": "e57d1aa75d3abf7ced8e05df52c322fc3758d549b9797f081529d4f1581e4f98"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -1171,5 +6014,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "3017d8b88b57ea63d52ab06ddd6a547c61f6c6dc7c61f70058633d123f9563b9"
+  "payloadSha256": "10ce8fa7e6b31842d164e03e3f345fd28e9c8bcbd44ba366aa99046cbe71f529"
 }
