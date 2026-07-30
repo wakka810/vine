@@ -3,9 +3,9 @@
 ## Status
 
 - Status: Verified controlled fixture and private BGI semantic checkpoint
-- Date: 2026-07-28
+- Date: 2026-07-29
 - Browser: Chrome `150.0.7871.187`
-- Protocol: `vine.browser-runtime-worker` version `38`
+- Protocol: `vine.browser-runtime-worker` version `73`
 - Runtime core: Rust/Wasm, zero imports; current artifact identity is manifest-owned
 - CPU mirror: pinned source-v86 adapter in a dedicated Runtime Worker
 - Controlled PE32 fixture: `browser-vertical.exe`
@@ -224,6 +224,19 @@ request. Synchronous API-boundary yields may be coalesced only to the bounded
 cancellation, and watchdog checks retain immediate task boundaries, so this is
 a host scheduling optimization rather than a change to guest-visible time or
 thread selection.
+
+Protocol version 73 adds the bounded steady-state keyboard-ingress evidence
+profile. Two normalized keyboard messages may queue before preparation, but the
+Worker does not publish either as initial Rust state. It commits key-down only
+after the profile's completed no-input cycle boundary, validates the first
+later Rust-owned consuming `GetAsyncKeyState` completion, and commits key-up at
+the immediately following boundary. Each bridge completion must return the
+reserved input sequence, event kind, virtual key, focus fact, Rust generation,
+and affected-key snapshot expected by the profile before guest execution may
+continue. This boundary deferral is evidence orchestration only: TypeScript
+retains no current-down／pressed bit, foreground relation, or independent input
+generation, and ordinary post-prepare DOM events still enter the same bounded
+Rust authority path.
 
 ## Execution engine contract
 

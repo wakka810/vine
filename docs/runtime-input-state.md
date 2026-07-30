@@ -2,7 +2,7 @@
 
 ## Status
 
-- Status: keyboard input gateway, deterministic cursor position, and mouse-button mapping implemented
+- Status: keyboard input gateway, steady-state key-down／key-up ingestion, deterministic cursor position, and mouse-button mapping implemented
 - Authority: `runtime/input.rs::RuntimeInput`
 - Reached User32 APIs: `SwapMouseButton`, `GetCursorPos`, `GetAsyncKeyState`
 - DirectInput gateway: root identity and reached empty game-controller enumeration implemented
@@ -46,7 +46,7 @@ matching focused source and focused foreground logical window are required.
 Invalid virtual keys, an unfocused source, or a missing foreground relation
 return zero without consuming the pressed bit or mutating state.
 
-The primary checkpoint posts one deterministic `ControlLeft` key-down event
+An earlier startup-path checkpoint posts one deterministic `ControlLeft` key-down event
 through the same browser protocol used by live DOM input. Rust aggregates it to
 `VK_CONTROL`; the first primary `GetAsyncKeyState(VK_CONTROL)` consumes the
 pressed bit and returns sign-extended `0xFFFF8001`. With no second input event,
@@ -58,13 +58,30 @@ runs. Because no zero-input counterfactual was run, this records ordered source
 activity without claiming that the key event caused those reads or produced a
 visible gameplay response.
 
+The steady-state main-loop input gateway now exercises both directions of the
+same ingress path without creating a Worker-side key table. Two normalized
+messages queue before runtime preparation, but the profile defers their Rust
+commits to explicit guest boundaries. It commits `ControlLeft` key-down after
+the no-input prefix, accepts the first later
+`GetAsyncKeyState(VK_CONTROL) == 0xFFFF8001`, and then commits the matching
+key-up. The final Rust snapshot has no current-down Control bit. The queried
+generic key has consumed its pressed bit, while the side-specific
+`VK_LCONTROL` pressed bit remains armed because it was not itself queried.
+Node and Chrome agree on both receipts, generations, affected-key snapshots,
+the consuming query, terminal memory, and the following bounded main-loop
+ledger. The loop continues to its hard bound with additional
+`TestCooperativeLevel` calls but no third `Present`; this proves reached
+steady-state input transport, consumption, and release, not an actionable or
+visible gameplay response.
+
 A later zero-input profile provides that counterfactual for input state, but not
 for asset causality. It queues no browser event, completes 51 leading
 `VK_CONTROL` polls, then executes the native-derived 38-key startup scan in the
 exact observed order. Every query returns zero in Node and Chrome. This proves
 that the same Worker／Wasm／Rust path does not synthesize keyboard state in the
-absence of input; it does not prove a visible gameplay response. Key-up and
-DirectInput keyboard-device state also remain outside this checkpoint.
+absence of input; it does not prove a visible gameplay response. Key-up was
+outside that historical zero-input checkpoint; the later steady-state gateway
+now covers it. DirectInput keyboard-device state remains outside both.
 
 The continuation preserves that completed zero-input scan while advancing two
 already implemented non-input calls, `timeGetTime` and `SetRect`, to the next
@@ -169,9 +186,11 @@ side-specific state independence, key-up, invalid and unfocused queries,
 LastError preservation, zero guest writes, configured cursor publication,
 NULL／unmapped cursor outputs, and policy／authority failure atomicity.
 
-The native primary and confirmation traces, controlled two-query Node semantic
-run, and Chrome Worker run are recorded in
-[windows-native-evidence.md](windows-native-evidence.md). Mouse-mapping evidence
+The native primary and confirmation traces plus the earlier controlled
+two-query runs are recorded in
+[windows-native-evidence.md](windows-native-evidence.md). Exact identities for
+the steady-state down／query／up Node and Chrome profile remain in
+[current-checkpoint.json](current-checkpoint.json). Mouse-mapping evidence
 remains in [bgi-swap-mouse-button.md](bgi-swap-mouse-button.md).
 
 ## Non-claims
@@ -181,9 +200,9 @@ mouse translation, capture, raw input, callback-producing DirectInput variants,
 keyboard／mouse DirectInput devices, acquire／unacquire, buffered input, or
 general device state. Pointer normalization is present at the adapter boundary,
 but primary pointer-event consumption and cursor movement are not demonstrated.
-The bounded controlled Control event proves transport, one User32 consumer, and
-pressed-bit consumption across two held-key queries; the later zero-input scan
-proves absence of synthesized key state. Arbitrary live gameplay input, key
-release, IME text composition, browser shortcut suppression, and game response
-remain future scenario evidence. It does not change host OS input state, and
-TypeScript remains an adapter rather than Windows-state authority.
+The bounded controlled Control profiles prove transport, one User32 consumer,
+pressed-bit consumption across held-key queries, and steady-state key release;
+the zero-input scan proves absence of synthesized key state. Action-bearing
+gameplay input, IME text composition, browser shortcut suppression, and visible
+game response remain future scenario evidence. It does not change host OS input
+state, and TypeScript remains an adapter rather than Windows-state authority.

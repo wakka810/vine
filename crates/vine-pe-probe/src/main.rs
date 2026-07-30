@@ -124,6 +124,8 @@ const RUNTIME_FRAME_HOST_REQUEST: u32 = 18;
 const RUNTIME_FRAME_HOST_COMPLETION: u32 = 19;
 const RUNTIME_FRAME_THREAD_EXIT: u32 = 20;
 const RUNTIME_FRAME_THREAD_EXIT_COMPLETION: u32 = 21;
+const RUNTIME_FRAME_KEYBOARD_INPUT: u32 = 22;
+const RUNTIME_FRAME_KEYBOARD_INPUT_COMPLETION: u32 = 23;
 const RUNTIME_FRAME_MAX_CONTROL_BYTES: usize = 1024 * 1024;
 const RUNTIME_FRAME_MAX_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
 const GENERIC_RUNTIME_TRAP_LIMIT: usize = 32_768;
@@ -376,6 +378,33 @@ struct GenericRuntimeSessionStopped {
     reason: String,
     memory: MemoryStats,
     memory_content_sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GenericRuntimeKeyboardInputRequest {
+    schema: String,
+    schema_version: u32,
+    event: GenericRuntimeKeyboardInputEvent,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GenericRuntimeKeyboardInputEvent {
+    sequence: u64,
+    kind: String,
+    virtual_key: Option<u16>,
+    repeat: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeKeyboardInputCompletion {
+    schema: &'static str,
+    schema_version: u32,
+    receipt: RuntimeKeyboardEventReceipt,
+    keyboard: RuntimeKeyboardState,
+    memory: MemoryStats,
 }
 
 #[derive(Debug, Deserialize)]
@@ -4718,7 +4747,73 @@ fn run_v86_generic_runtime_session(
     )?;
 
     for _ in 0..trap_limit {
-        let writeback_frame = read_runtime_frame(input)?;
+        let mut writeback_frame = read_runtime_frame(input)?;
+        while writeback_frame.kind == RUNTIME_FRAME_KEYBOARD_INPUT {
+            if !writeback_frame.payload.is_empty() {
+                return Err(LoaderError::invalid_input(
+                    "runtime-reentry",
+                    "runtime-keyboard-input-payload-unexpected",
+                    "generic runtime keyboard-input frames may not contain a byte payload",
+                ));
+            }
+            let request: GenericRuntimeKeyboardInputRequest =
+                serde_json::from_slice(&writeback_frame.control).map_err(|error| {
+                    LoaderError::invalid_input(
+                        "runtime-reentry",
+                        "runtime-keyboard-input-json-invalid",
+                        format!("generic runtime keyboard-input frame is invalid JSON: {error}"),
+                    )
+                })?;
+            if request.schema != "vine.v86-generic-runtime-keyboard-input"
+                || request.schema_version != 1
+            {
+                return Err(LoaderError::invalid_input(
+                    "runtime-reentry",
+                    "runtime-keyboard-input-schema-unsupported",
+                    "generic runtime keyboard input requires schema version 1",
+                ));
+            }
+            let kind = match request.event.kind.as_str() {
+                "focus-gained" => RuntimeKeyboardSourceEventKind::FocusGained,
+                "focus-lost" => RuntimeKeyboardSourceEventKind::FocusLost,
+                "key-down" => RuntimeKeyboardSourceEventKind::KeyDown,
+                "key-up" => RuntimeKeyboardSourceEventKind::KeyUp,
+                _ => {
+                    return Err(LoaderError::invalid_input(
+                        "runtime-reentry",
+                        "runtime-keyboard-input-kind-invalid",
+                        "generic runtime keyboard input has an unknown event kind",
+                    ));
+                }
+            };
+            let receipt = process
+                .runtime
+                .ingest_keyboard_event(RuntimeKeyboardSourceEvent {
+                    sequence: request.event.sequence,
+                    kind,
+                    virtual_key: request.event.virtual_key,
+                    repeat: request.event.repeat,
+                })
+                .map_err(runtime_state_error)?;
+            let keyboard = process.runtime.keyboard_state().cloned().ok_or_else(|| {
+                LoaderError::runtime_defect(
+                    "runtime-reentry",
+                    "runtime-keyboard-input-state-missing",
+                    "keyboard event committed without an authoritative keyboard state",
+                )
+            })?;
+            write_runtime_json_frame(
+                RUNTIME_FRAME_KEYBOARD_INPUT_COMPLETION,
+                &GenericRuntimeKeyboardInputCompletion {
+                    schema: "vine.v86-generic-runtime-keyboard-input-completion",
+                    schema_version: 1,
+                    receipt,
+                    keyboard,
+                    memory: memory.stats(),
+                },
+            )?;
+            writeback_frame = read_runtime_frame(input)?;
+        }
         require_runtime_frame_kind(&writeback_frame, RUNTIME_FRAME_CPU_WRITEBACK)?;
         let writeback_receipt = memory
             .reconcile_cpu_writeback_binary(&writeback_frame.control, &writeback_frame.payload)
@@ -14466,6 +14561,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "primary-main-loop-recurring-timer-multi-cycle-batch"
                 | "primary-main-loop-recurring-timer-window-batch"
                 | "primary-main-loop-presentation-progress-gateway"
+                | "primary-main-loop-input-progress-gateway"
                 | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
                 | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
                 | "kernel32-enter-critical-section-post-timer-wait-batch"

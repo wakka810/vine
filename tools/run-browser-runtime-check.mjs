@@ -95,6 +95,10 @@ const recurringTimerWindowProfile =
   bgiProfile === "primary-main-loop-recurring-timer-window-batch";
 const presentationProgressGatewayProfile =
   bgiProfile === "primary-main-loop-presentation-progress-gateway";
+const inputProgressGatewayProfile =
+  bgiProfile === "primary-main-loop-input-progress-gateway";
+const presentationProgressEvidenceProfile =
+  presentationProgressGatewayProfile || inputProgressGatewayProfile;
 const runtimeTraplessExecutionBudgetProfile =
   bgiProfile === "runtime-trapless-execution-budget";
 const largeHeapFreeProfile = bgiProfile === "kernel32-heap-free-large-buffer";
@@ -129,7 +133,7 @@ const postHeapTimeGetTimeEvidenceProfile =
   recurringTimerCycleProfile ||
   recurringTimerMultiCycleProfile ||
   recurringTimerWindowProfile ||
-  presentationProgressGatewayProfile ||
+  presentationProgressEvidenceProfile ||
   postHeapTimeGetTimeProfile ||
   postClockCriticalSectionProfile ||
   postWaitCriticalSectionProfile ||
@@ -142,7 +146,7 @@ const runtimeThreadStackGrowthProfile =
   recurringTimerCycleProfile ||
   recurringTimerMultiCycleProfile ||
   recurringTimerWindowProfile ||
-  presentationProgressGatewayProfile ||
+  presentationProgressEvidenceProfile ||
   runtimeTraplessExecutionBudgetProfile ||
   largeHeapFreeProfile ||
   heapAlloc24Profile ||
@@ -225,7 +229,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v72";
+const runtimeProtocol = "vine.browser-runtime-worker.v73";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -904,6 +908,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-recurring-timer-multi-cycle-batch",
         "primary-main-loop-recurring-timer-window-batch",
         "primary-main-loop-presentation-progress-gateway",
+        "primary-main-loop-input-progress-gateway",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -972,6 +977,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-recurring-timer-multi-cycle-batch",
         "primary-main-loop-recurring-timer-window-batch",
         "primary-main-loop-presentation-progress-gateway",
+        "primary-main-loop-input-progress-gateway",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1040,6 +1046,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-recurring-timer-multi-cycle-batch",
         "primary-main-loop-recurring-timer-window-batch",
         "primary-main-loop-presentation-progress-gateway",
+        "primary-main-loop-input-progress-gateway",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
@@ -1052,8 +1059,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
                 postCriticalSectionWaitProfile ||
                 recurringTimerCycleProfile
                 ? 2_457
-                : presentationProgressGatewayProfile
-                  ? 2_513
+                : inputProgressGatewayProfile
+                  ? 2_527
+                  : presentationProgressGatewayProfile
+                    ? 2_513
                   : recurringTimerWindowProfile
                     ? 2_471
                     : recurringTimerMultiCycleProfile
@@ -1116,7 +1125,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         recurringTimerCycleProfile ||
         recurringTimerMultiCycleProfile ||
         recurringTimerWindowProfile ||
-        presentationProgressGatewayProfile ||
+        presentationProgressEvidenceProfile ||
         runtimeTraplessExecutionBudgetProfile ||
         largeHeapFreeProfile ||
         heapAlloc24Profile ||
@@ -1170,8 +1179,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         setWindowPosRepeatActivationProfile ||
         user32AsyncKeyStateInitialScanContinuationProfile
       ) {
-        const pacingCount = presentationProgressGatewayProfile
-          ? 11_467
+        const pacingCount = inputProgressGatewayProfile
+          ? 11_531
+          : presentationProgressGatewayProfile
+            ? 11_467
           : recurringTimerWindowProfile
             ? 11_272
             : recurringTimerMultiCycleProfile
@@ -1295,7 +1306,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           assert.equal(
             archiveReads.length,
             runtimeThreadStackGrowthProfile
-              ? presentationProgressGatewayProfile
+              ? presentationProgressEvidenceProfile
                 ? 90
                 : recurringTimerWindowProfile
                   ? 84
@@ -2940,7 +2951,55 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       } else {
         assert.equal(evidence.report.postPresentContinuation, null);
       }
-      if (user32AsyncKeyStateInputProfile) {
+      if (inputProgressGatewayProfile) {
+        assert.deepEqual(evidence.report.keyboardInput, {
+          receivedMessages: 2,
+          queuedBeforePrepare: 2,
+          receipts: [
+            {
+              sequence: 1,
+              kind: "key-down",
+              virtualKey: 0xa2,
+              repeat: false,
+              sourceFocused: true,
+              generation: 1,
+              affectedKeys: [
+                {
+                  virtualKey: 0x11,
+                  down: true,
+                  pressedSinceLastQuery: true,
+                },
+                {
+                  virtualKey: 0xa2,
+                  down: true,
+                  pressedSinceLastQuery: true,
+                },
+              ],
+            },
+            {
+              sequence: 2,
+              kind: "key-up",
+              virtualKey: 0xa2,
+              repeat: false,
+              sourceFocused: true,
+              generation: 3,
+              affectedKeys: [
+                {
+                  virtualKey: 0x11,
+                  down: false,
+                  pressedSinceLastQuery: false,
+                },
+                {
+                  virtualKey: 0xa2,
+                  down: false,
+                  pressedSinceLastQuery: true,
+                },
+              ],
+            },
+          ],
+        });
+        assert.equal(evidence.report.getAsyncKeyState, null);
+      } else if (user32AsyncKeyStateInputProfile) {
         assert.deepEqual(evidence.report.keyboardInput, {
           receivedMessages: 1,
           queuedBeforePrepare: 1,
@@ -3183,8 +3242,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           present: 2,
           textureLockRect: 1,
           textureUnlockRect: 1,
-          testCooperativeLevel: presentationProgressGatewayProfile
-            ? 8
+          testCooperativeLevel: inputProgressGatewayProfile
+            ? 16
+            : presentationProgressGatewayProfile
+              ? 8
             : runtimeThreadStackGrowthProfile
               ? 4
               : user32IsIconicProfile
@@ -3260,8 +3321,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert(peek !== null, "Chrome Worker omitted PeekMessageA evidence");
         assert.equal(
           peek.calls.length,
-          presentationProgressGatewayProfile
-            ? 8
+          inputProgressGatewayProfile
+            ? 16
+            : presentationProgressGatewayProfile
+              ? 8
             : runtimeThreadStackGrowthProfile
               ? 4
               : user32IsIconicProfile
@@ -3270,8 +3333,14 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         );
         assert.deepEqual(
           peek.calls.map((call) => call.sequence),
-          presentationProgressGatewayProfile
+          inputProgressGatewayProfile
             ? [
+                148_296, 148_353, 148_474, 148_599, 161_539, 161_670, 161_801,
+                161_932, 162_062, 162_192, 162_322, 162_452, 162_510, 162_640,
+                162_770, 162_900,
+              ]
+            : presentationProgressGatewayProfile
+              ? [
                 148_296, 148_353, 148_474, 148_599, 161_539, 161_670, 161_801,
                 161_932,
               ]
@@ -3283,8 +3352,15 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         );
         assert.deepEqual(
           peek.instructionCounts,
-          presentationProgressGatewayProfile
+          inputProgressGatewayProfile
             ? [
+                148_744_543, 148_749_108, 148_770_786, 153_196_320,
+                321_443_044, 321_448_944, 321_454_827, 321_460_734,
+                321_466_608, 321_472_482, 321_478_356, 321_484_230,
+                321_488_781, 321_494_655, 321_500_608, 321_506_482,
+              ]
+            : presentationProgressGatewayProfile
+              ? [
                 148_744_543, 148_749_108, 148_770_786, 153_196_320, 321_443_044,
                 321_448_944, 321_454_827, 321_460_736,
               ]
@@ -3359,12 +3435,22 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert(iconic !== null, "Chrome Worker omitted IsIconic evidence");
         assert.equal(
           iconic.calls.length,
-          presentationProgressGatewayProfile ? 8 : 3,
+          inputProgressGatewayProfile
+            ? 16
+            : presentationProgressGatewayProfile
+              ? 8
+              : 3,
         );
         assert.deepEqual(
           iconic.calls.map((call) => call.sequence),
-          presentationProgressGatewayProfile
+          inputProgressGatewayProfile
             ? [
+                148_305, 148_426, 148_483, 161_491, 161_622, 161_680, 161_811,
+                161_942, 162_072, 162_202, 162_332, 162_462, 162_592, 162_650,
+                162_780, 162_910,
+              ]
+            : presentationProgressGatewayProfile
+              ? [
                 148_305, 148_426, 148_483, 161_491, 161_622, 161_680, 161_811,
                 161_942,
               ]
@@ -3372,8 +3458,15 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         );
         assert.deepEqual(
           iconic.instructionCounts,
-          presentationProgressGatewayProfile
+          inputProgressGatewayProfile
             ? [
+                148_745_317, 148_766_995, 148_771_560, 321_439_253,
+                321_445_153, 321_449_704, 321_455_587, 321_461_494,
+                321_467_368, 321_473_242, 321_479_116, 321_484_990,
+                321_490_864, 321_495_494, 321_501_368, 321_507_242,
+              ]
+            : presentationProgressGatewayProfile
+              ? [
                 148_745_317, 148_766_995, 148_771_560, 321_439_253, 321_445_153,
                 321_449_704, 321_455_587, 321_461_496,
               ]
@@ -5656,15 +5749,21 @@ function validateBgiEquivalence(browser, oracle) {
       oracleCheckpoint.capability ===
         "primary-main-loop-recurring-timer-window-batch" ||
       oracleCheckpoint.capability ===
-        "primary-main-loop-presentation-progress-gateway"
+        "primary-main-loop-presentation-progress-gateway" ||
+      oracleCheckpoint.capability ===
+        "primary-main-loop-input-progress-gateway"
     ) {
+      const presentationEvidence =
+        oracleCheckpoint.capability ===
+          "primary-main-loop-presentation-progress-gateway" ||
+        oracleCheckpoint.capability ===
+          "primary-main-loop-input-progress-gateway";
       const normalizeCycleBoundaryCall = (call) => ({
         ...normalizeSemanticCall(call),
         implementationId: call.implementationId,
         runtimeThreadId: call.runtimeThreadId,
         trapInstructionCount: call.trapInstructionCount,
-        ...(oracleCheckpoint.capability ===
-        "primary-main-loop-presentation-progress-gateway"
+        ...(presentationEvidence
           ? { occurrence: call.occurrence }
           : {}),
       });
@@ -5705,7 +5804,8 @@ function validateBgiEquivalence(browser, oracle) {
         threadTransitionCount: checkpoint.threadTransitionCount,
         balanced: checkpoint.balanced,
         ...(checkpoint.capability ===
-        "primary-main-loop-presentation-progress-gateway"
+          "primary-main-loop-presentation-progress-gateway" ||
+        checkpoint.capability === "primary-main-loop-input-progress-gateway"
           ? {
               baseline: checkpoint.baseline,
               outcome: checkpoint.outcome,
@@ -5729,6 +5829,25 @@ function validateBgiEquivalence(browser, oracle) {
                       occurrence: checkpoint.presentCompletion.occurrence,
                     },
               timerLanes: checkpoint.timerLanes,
+            }
+          : {}),
+        ...(checkpoint.capability ===
+        "primary-main-loop-input-progress-gateway"
+          ? {
+              inputBaseline: checkpoint.inputBaseline,
+              inputConsumed: checkpoint.inputConsumed,
+              inputEvents: checkpoint.inputEvents.map(
+                ({ memory: _memory, ...event }) => event,
+              ),
+              inputQuery:
+                checkpoint.inputQuery === null
+                  ? null
+                  : {
+                      ...normalizeSemanticCall(checkpoint.inputQuery),
+                      runtimeThreadId: checkpoint.inputQuery.runtimeThreadId,
+                      trapInstructionCount:
+                        checkpoint.inputQuery.trapInstructionCount,
+                    },
             }
           : {}),
         instructionCount: checkpoint.instructionCount,

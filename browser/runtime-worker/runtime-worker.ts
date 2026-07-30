@@ -32,6 +32,7 @@ import {
   type RuntimeBrowserPresentationReceipt,
   type RuntimeKeyboardEventReceipt,
   type RuntimeKeyboardInputEvent,
+  type RuntimeKeyboardInputBoundaryEvidence,
   type RuntimeCursorPositionSnapshot,
   type RuntimeSetWindowPosFrameChangeMoveCallSnapshot,
   type RuntimeSetWindowPosFrameChangeMoveCallbackEvent,
@@ -636,12 +637,27 @@ function isPresentationProgressGatewayCheckpoint(
   return profile === "primary-main-loop-presentation-progress-gateway";
 }
 
+function isInputProgressGatewayCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "primary-main-loop-input-progress-gateway";
+}
+
+function hasPresentationProgressEvidence(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isPresentationProgressGatewayCheckpoint(profile) ||
+    isInputProgressGatewayCheckpoint(profile)
+  );
+}
+
 function hasRecurringTimerWindowEvidence(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isRecurringTimerWindowCheckpoint(profile) ||
-    isPresentationProgressGatewayCheckpoint(profile)
+    hasPresentationProgressEvidence(profile)
   );
 }
 
@@ -657,8 +673,15 @@ function isRecurringTimerBoundedWindowCheckpoint(
 function recurringTimerWindowConfiguration(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  return isPresentationProgressGatewayCheckpoint(profile)
+  return isInputProgressGatewayCheckpoint(profile)
     ? ({
+        capability: "primary-main-loop-input-progress-gateway",
+        implementationId: "runtime.main-loop-input-progress-gateway.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      } as const)
+    : isPresentationProgressGatewayCheckpoint(profile)
+      ? ({
         capability: "primary-main-loop-presentation-progress-gateway",
         implementationId: "runtime.main-loop-presentation-progress-gateway.v1",
         requiredCycles: 64,
@@ -764,6 +787,36 @@ function presentationProgressGatewayExpectation() {
     wasmBridgeCalls: 489_458,
     waitCompletions: 11_468,
     pacingRequests: 11_467,
+  } as const;
+}
+
+function inputProgressGatewayExpectation() {
+  return {
+    capability: "primary-main-loop-input-progress-gateway",
+    supportedCallCount: 162_962,
+    semanticDigest:
+      "592e9f78379c63292b61d12b0216833e45d2a357cc54cd63c4d39e4c493fad4b",
+    firstSequence: 158_132,
+    firstInstructionCount: 276_361_491,
+    lastSequence: 162_962,
+    lastInstructionCount: 321_509_586,
+    terminalInstructionCount: 321_509_592,
+    memoryContentSha256:
+      "48750ae580df1b33ad89384c4fc7d6fe56ae204c303829635d6c836f7260ed7b",
+    finalGeneration: 316_395n,
+    writebackBatches: 184_857,
+    writebackPages: 284_094,
+    mappingDeltas: 128_362,
+    mappingDirtyPages: 150_767,
+    contextSwitches: 2_527,
+    heapPageMaterializations: 3_108,
+    sourceReads: 94,
+    hostRequests: 11_626,
+    rustSchedulerTransitions: 14_153,
+    slices: 184_864,
+    wasmBridgeCalls: 491_898,
+    waitCompletions: 11_540,
+    pacingRequests: 11_531,
   } as const;
 }
 
@@ -1252,6 +1305,11 @@ type PresentationProgressGatewayCheckpoint = Extract<
   { capability: "primary-main-loop-presentation-progress-gateway" }
 >;
 
+type InputProgressGatewayCheckpoint = Extract<
+  NonNullable<SessionReport["checkpointCompletion"]>,
+  { capability: "primary-main-loop-input-progress-gateway" }
+>;
+
 interface AppliedHostDeltaEvidence {
   delta: ReturnType<typeof decodeHostDelta>;
   payloadBytes: number;
@@ -1277,6 +1335,8 @@ interface KeyboardEventMetadata {
     clearOnSourceFocusLoss: boolean;
     generation: number;
     lastEventSequence: number;
+    downWords: number[];
+    pressedWords: number[];
   };
 }
 
@@ -1663,6 +1723,16 @@ class BrowserRuntimeSession {
     lastCompletionInstructionCount: 297_177_073,
     presentOccurrence: 2,
   } as const;
+  readonly #inputProgressBaseline = {
+    cycleCount: 253,
+    lastCompletionSequence: 161_897,
+    lastCompletionInstructionCount: 321_458_098,
+    presentOccurrence: 2,
+    renderCompletionCount: 3,
+  } as const;
+  readonly #inputProgressKeyboardEvents: RuntimeKeyboardInputBoundaryEvidence[] =
+    [];
+  #inputProgressAsyncKeyStateQuery: RuntimeThreadCallSnapshot | null = null;
   readonly #presentationProgressRenderCompletions: RuntimeThreadCallSnapshot[] =
     [];
   #presentationProgressPresentCompletion: RuntimeThreadCallSnapshot | null =
@@ -2708,13 +2778,20 @@ class BrowserRuntimeSession {
     try {
       validateKeyboardInputEvent(message.event);
       this.#report.keyboardInput.receivedMessages += 1;
-      if (!this.#runtimePrepared) {
+      if (
+        !this.#runtimePrepared ||
+        isInputProgressGatewayCheckpoint(
+          this.#configuration.capabilityProfile,
+        )
+      ) {
         invariant(
           this.#pendingKeyboardEvents.length < MAX_PENDING_KEYBOARD_EVENTS,
           "pending keyboard input exceeded its bounded queue",
         );
         this.#pendingKeyboardEvents.push(structuredClone(message.event));
-        this.#report.keyboardInput.queuedBeforePrepare += 1;
+        if (!this.#runtimePrepared) {
+          this.#report.keyboardInput.queuedBeforePrepare += 1;
+        }
         return;
       }
       this.#commitKeyboardInput(message.event);
@@ -2724,12 +2801,17 @@ class BrowserRuntimeSession {
   }
 
   #flushPendingKeyboardEvents(): void {
+    if (
+      isInputProgressGatewayCheckpoint(this.#configuration.capabilityProfile)
+    ) {
+      return;
+    }
     for (const event of this.#pendingKeyboardEvents.splice(0)) {
       this.#commitKeyboardInput(event);
     }
   }
 
-  #commitKeyboardInput(event: RuntimeKeyboardInputEvent): void {
+  #commitKeyboardInput(event: RuntimeKeyboardInputEvent): KeyboardEventMetadata {
     const output =
       this.#requireBridge().ingestKeyboardEvent<KeyboardEventMetadata>(event);
     invariant(
@@ -2749,6 +2831,8 @@ class BrowserRuntimeSession {
         metadata.keyboard.maximumVirtualKey === 0xff &&
         metadata.keyboard.aggregateModifierKeys === true &&
         metadata.keyboard.clearOnSourceFocusLoss === true &&
+        metadata.keyboard.downWords.length === 8 &&
+        metadata.keyboard.pressedWords.length === 8 &&
         metadata.receipt.affectedKeys.every(
           (state) =>
             Number.isInteger(state.virtualKey) &&
@@ -2758,6 +2842,109 @@ class BrowserRuntimeSession {
       "Rust keyboard event receipt is inconsistent with the input protocol",
     );
     this.#report.keyboardInput.receipts.push(metadata.receipt);
+    return metadata;
+  }
+
+  #advanceInputProgressKeyboard(call: RuntimeSupportedCallSnapshot): void {
+    if (
+      !isInputProgressGatewayCheckpoint(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      return;
+    }
+    if (call.sequence === this.#inputProgressBaseline.lastCompletionSequence) {
+      invariant(
+        this.#report.instructions ===
+          this.#inputProgressBaseline.lastCompletionInstructionCount &&
+          this.#inputProgressKeyboardEvents.length === 0 &&
+          this.#inputProgressAsyncKeyStateQuery === null &&
+          this.#pendingKeyboardEvents.length === 2,
+        "input progress gateway did not retain its two-event trace until the injection boundary",
+      );
+      const event = this.#pendingKeyboardEvents.shift();
+      invariant(
+        event !== undefined &&
+          event.sequence === "1" &&
+          event.kind === "key-down" &&
+          event.virtualKey === 0xa2 &&
+          event.repeat === false,
+        "input progress gateway key-down event changed",
+      );
+      const metadata = this.#commitKeyboardInput(event);
+      this.#inputProgressKeyboardEvents.push({
+        committedAfterSequence: call.sequence,
+        committedAfterInstructionCount: this.#report.instructions,
+        event: {
+          sequence: 1,
+          kind: event.kind,
+          virtualKey: event.virtualKey,
+          repeat: event.repeat,
+        },
+        receipt: structuredClone(metadata.receipt),
+        keyboard: structuredClone(metadata.keyboard),
+      });
+      return;
+    }
+    if (
+      this.#inputProgressKeyboardEvents.length === 1 &&
+      this.#inputProgressAsyncKeyStateQuery === null &&
+      call.implementationId === "user32.get-async-key-state.v1" &&
+      call.arguments[0] === 0x11
+    ) {
+      invariant(
+        call.sequence === 161_918 &&
+          this.#report.instructions === 321_459_946 &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 0xffff_8001 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0 &&
+          this.#pendingKeyboardEvents.length === 1,
+        "input progress gateway VK_CONTROL consumer changed",
+      );
+      const event = this.#pendingKeyboardEvents.shift();
+      invariant(
+        event !== undefined &&
+          event.sequence === "2" &&
+          event.kind === "key-up" &&
+          event.virtualKey === 0xa2 &&
+          event.repeat === false,
+        "input progress gateway key-up event changed",
+      );
+      const metadata = this.#commitKeyboardInput(event);
+      invariant(
+        metadata.receipt.generation === 3 &&
+          metadata.receipt.affectedKeys.length === 2 &&
+          metadata.receipt.affectedKeys[0]?.virtualKey === 0x11 &&
+          metadata.receipt.affectedKeys[0].down === false &&
+          metadata.receipt.affectedKeys[0].pressedSinceLastQuery === false &&
+          metadata.receipt.affectedKeys[1]?.virtualKey === 0xa2 &&
+          metadata.receipt.affectedKeys[1].down === false &&
+          metadata.receipt.affectedKeys[1].pressedSinceLastQuery === true &&
+          metadata.keyboard.generation === 3 &&
+          metadata.keyboard.downWords.every((word) => word === 0) &&
+          metadata.keyboard.pressedWords.join(",") === "0,0,0,0,0,4,0,0",
+        "input progress gateway key-up did not release authoritative down state",
+      );
+      this.#inputProgressAsyncKeyStateQuery = {
+        ...structuredClone(call),
+        runtimeThreadId: this.#currentThreadId,
+        trapInstructionCount: this.#report.instructions,
+      };
+      this.#inputProgressKeyboardEvents.push({
+        committedAfterSequence: call.sequence,
+        committedAfterInstructionCount: this.#report.instructions,
+        event: {
+          sequence: 2,
+          kind: event.kind,
+          virtualKey: event.virtualKey,
+          repeat: event.repeat,
+        },
+        receipt: structuredClone(metadata.receipt),
+        keyboard: structuredClone(metadata.keyboard),
+      });
+    }
   }
 
   // Host completions must reach Rust in request-issue order: the Node oracle
@@ -4714,6 +4901,7 @@ class BrowserRuntimeSession {
     }
     this.#semanticCallDigest.update(call);
     this.#report.supportedCallCount += 1;
+    this.#advanceInputProgressKeyboard(call);
     if (this.#configuration.evidenceLevel === "full") {
       this.#report.supportedCalls.push(call);
     }
@@ -4757,6 +4945,8 @@ class BrowserRuntimeSession {
             "primary-main-loop-recurring-timer-window-batch" ||
           checkpoint.capability ===
             "primary-main-loop-presentation-progress-gateway" ||
+          checkpoint.capability ===
+            "primary-main-loop-input-progress-gateway" ||
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
@@ -4841,6 +5031,7 @@ class BrowserRuntimeSession {
         "primary-main-loop-recurring-timer-window-batch" ||
       checkpoint.capability ===
         "primary-main-loop-presentation-progress-gateway" ||
+      checkpoint.capability === "primary-main-loop-input-progress-gateway" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
@@ -4891,7 +5082,9 @@ class BrowserRuntimeSession {
                     checkpoint.capability ===
                       "primary-main-loop-recurring-timer-window-batch" ||
                     checkpoint.capability ===
-                      "primary-main-loop-presentation-progress-gateway"
+                      "primary-main-loop-presentation-progress-gateway" ||
+                    checkpoint.capability ===
+                      "primary-main-loop-input-progress-gateway"
                   ? [
                       this.#requireEngine().readGuestU32(stackPointer + 4),
                       this.#requireEngine().readGuestU32(stackPointer + 8),
@@ -4945,6 +5138,7 @@ class BrowserRuntimeSession {
         "primary-main-loop-recurring-timer-window-batch" ||
       checkpoint.capability ===
         "primary-main-loop-presentation-progress-gateway" ||
+      checkpoint.capability === "primary-main-loop-input-progress-gateway" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
@@ -4983,8 +5177,11 @@ class BrowserRuntimeSession {
                         "kernel32-enter-critical-section-post-timer-rearm-wait-batch"
                       ? "Post-timer-rearm-wait critical-section batch checkpoint completed"
                       : checkpoint.capability ===
-                          "primary-main-loop-presentation-progress-gateway"
-                        ? "Primary main-loop presentation progress gateway completed"
+                          "primary-main-loop-input-progress-gateway"
+                        ? "Primary main-loop input progress gateway completed"
+                        : checkpoint.capability ===
+                            "primary-main-loop-presentation-progress-gateway"
+                          ? "Primary main-loop presentation progress gateway completed"
                         : checkpoint.capability ===
                             "primary-main-loop-recurring-timer-window-batch"
                           ? "Primary main-loop recurring timer window checkpoint completed"
@@ -6118,7 +6315,10 @@ class BrowserRuntimeSession {
       const windowCheckpoint = hasRecurringTimerWindowEvidence(
         this.#configuration.capabilityProfile,
       );
-      const presentationCheckpoint = isPresentationProgressGatewayCheckpoint(
+      const inputCheckpoint = isInputProgressGatewayCheckpoint(
+        this.#configuration.capabilityProfile,
+      );
+      const presentationCheckpoint = hasPresentationProgressEvidence(
         this.#configuration.capabilityProfile,
       );
       const configuration = recurringTimerWindowConfiguration(
@@ -6614,11 +6814,27 @@ class BrowserRuntimeSession {
           const presentationProgressHardBoundReached =
             presentationCheckpoint &&
             completedCycleCount === configuration.maximumCycles;
-          const shouldComplete = presentationCheckpoint
+          const inputProgressConsumed =
+            this.#inputProgressAsyncKeyStateQuery !== null &&
+            this.#inputProgressKeyboardEvents.length === 2 &&
+            this.#pendingKeyboardEvents.length === 0;
+          invariant(
+            !inputCheckpoint ||
+              !presentationProgressHardBoundReached ||
+              criticalSectionWindowBalanced,
+            `input progress gateway retained critical-section ownership after ${completedCycleCount} cycles`,
+          );
+          const shouldComplete = inputCheckpoint
             ? (completedCycleCount >= configuration.requiredCycles &&
+                inputProgressConsumed &&
                 presentationProgressReached &&
                 criticalSectionWindowBalanced) ||
               presentationProgressHardBoundReached
+            : presentationCheckpoint
+              ? (completedCycleCount >= configuration.requiredCycles &&
+                  presentationProgressReached &&
+                  criticalSectionWindowBalanced) ||
+                presentationProgressHardBoundReached
             : windowCheckpoint
               ? completedCycleCount >= configuration.requiredCycles &&
                 criticalSectionWindowBalanced
@@ -6758,24 +6974,13 @@ class BrowserRuntimeSession {
                 memoryContentSha256: "",
               };
               if (presentationCheckpoint) {
-                const checkpoint: PresentationProgressGatewayCheckpoint = {
-                  capability: "primary-main-loop-presentation-progress-gateway",
-                  implementationId:
-                    "runtime.main-loop-presentation-progress-gateway.v1",
-                  requiredCycles: 64,
-                  minimumRequiredCycles: 64,
-                  maximumCycles: 256,
-                  requiredCompletions: 128,
-                  minimumRequiredCompletions: 128,
+                const presentationFields = {
                   ...commonCheckpoint,
                   cycles: structuredClone(
                     this
                       .#recurringTimerMultiCycleSummaries as RuntimePresentationProgressCycleSummary[],
                   ),
                   baseline: structuredClone(this.#presentationProgressBaseline),
-                  outcome: presentationProgressReached
-                    ? "presentation-progress-reached"
-                    : "bounded-window-exhausted",
                   hardBoundReached: presentationProgressHardBoundReached,
                   renderCompletionCount:
                     this.#presentationProgressRenderCompletions.length,
@@ -6790,7 +6995,61 @@ class BrowserRuntimeSession {
                         ),
                   timerLanes: this.#presentationProgressTimerLaneSnapshot(),
                 };
-                this.#report.checkpointCompletion = checkpoint;
+                if (inputCheckpoint) {
+                  const [down, up] = this.#inputProgressKeyboardEvents;
+                  invariant(
+                    down !== undefined &&
+                      up !== undefined &&
+                      this.#inputProgressKeyboardEvents.length === 2,
+                    "input progress gateway checkpoint lost its event boundary evidence",
+                  );
+                  const checkpoint: InputProgressGatewayCheckpoint = {
+                    capability: "primary-main-loop-input-progress-gateway",
+                    implementationId:
+                      "runtime.main-loop-input-progress-gateway.v1",
+                    requiredCycles: 253,
+                    minimumRequiredCycles: 253,
+                    maximumCycles: 320,
+                    requiredCompletions: 506,
+                    minimumRequiredCompletions: 506,
+                    ...presentationFields,
+                    inputBaseline: structuredClone(this.#inputProgressBaseline),
+                    inputConsumed: inputProgressConsumed,
+                    inputEvents: [
+                      structuredClone(down),
+                      structuredClone(up),
+                    ],
+                    inputQuery:
+                      this.#inputProgressAsyncKeyStateQuery === null
+                        ? null
+                        : structuredClone(
+                            this.#inputProgressAsyncKeyStateQuery,
+                          ),
+                    outcome: !inputProgressConsumed
+                      ? "input-not-consumed"
+                      : presentationProgressReached
+                        ? "presentation-progress-reached"
+                        : "input-consumed-no-presentation-progress",
+                  };
+                  this.#report.checkpointCompletion = checkpoint;
+                } else {
+                  const checkpoint: PresentationProgressGatewayCheckpoint = {
+                    capability:
+                      "primary-main-loop-presentation-progress-gateway",
+                    implementationId:
+                      "runtime.main-loop-presentation-progress-gateway.v1",
+                    requiredCycles: 64,
+                    minimumRequiredCycles: 64,
+                    maximumCycles: 256,
+                    requiredCompletions: 128,
+                    minimumRequiredCompletions: 128,
+                    ...presentationFields,
+                    outcome: presentationProgressReached
+                      ? "presentation-progress-reached"
+                      : "bounded-window-exhausted",
+                  };
+                  this.#report.checkpointCompletion = checkpoint;
+                }
               } else {
                 const checkpoint: RecurringTimerWindowCheckpoint = {
                   capability: "primary-main-loop-recurring-timer-window-batch",
@@ -9249,7 +9508,7 @@ class BrowserRuntimeSession {
     occurrence: number,
   ): void {
     if (
-      !isPresentationProgressGatewayCheckpoint(
+      !hasPresentationProgressEvidence(
         this.#configuration.capabilityProfile,
       ) ||
       call.sequence < 158_132
@@ -9593,6 +9852,14 @@ class BrowserRuntimeSession {
     if (call.implementationId !== "user32.get-async-key-state.v1") {
       return;
     }
+    if (
+      isInputProgressGatewayCheckpoint(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#report.getAsyncKeyStateInitialScan !== null
+    ) {
+      return;
+    }
     invariant(
       call.module.toLowerCase() === "user32.dll" &&
         call.symbol === "GetAsyncKeyState" &&
@@ -9633,12 +9900,19 @@ class BrowserRuntimeSession {
     const firstCall = scanCalls[0];
     const lastCall = scanCalls.at(-1);
     const cursor = this.#requirePrepared().runtime.cursorPosition;
+    const deferredInputTraceReady = isInputProgressGatewayCheckpoint(
+      this.#configuration.capabilityProfile,
+    )
+      ? this.#report.keyboardInput.receivedMessages === 2 &&
+        this.#report.keyboardInput.queuedBeforePrepare === 2 &&
+        this.#pendingKeyboardEvents.length === 2
+      : this.#report.keyboardInput.receivedMessages === 0;
     invariant(
       this.#report.checkpointCompletion === null &&
         this.#report.getAsyncKeyStateInitialScan === null &&
         this.#report.getWindowRect !== null &&
         this.#report.getCursorPos !== null &&
-        this.#report.keyboardInput.receivedMessages === 0 &&
+        deferredInputTraceReady &&
         this.#report.keyboardInput.receipts.length === 0 &&
         leadingCalls.length > 0 &&
         leadingCalls.every(
@@ -13384,6 +13658,262 @@ class BrowserRuntimeSession {
                     last: lane.completions.at(-1),
                   }))
                 : [],
+            hostRequests: this.#report.hostRequests,
+            rustSchedulerTransitions: this.#report.rustSchedulerTransitions,
+            slices: this.#report.slices,
+            wasmBridgeCalls: this.#bridge?.callCount(),
+            waitForSingleObjectExCompletions:
+              this.#waitForSingleObjectExCompletions,
+            pacing,
+          })}`,
+        );
+      }
+      if (
+        isInputProgressGatewayCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const expected = inputProgressGatewayExpectation();
+        const checkpoint = this.#report.checkpointCompletion;
+        const cycles =
+          checkpoint?.capability === expected.capability
+            ? checkpoint.cycles
+            : [];
+        const intervals =
+          checkpoint?.capability === expected.capability
+            ? checkpoint.interCycleIntervals
+            : [];
+        const cycleHistogram = Object.fromEntries(
+          [
+            ...cycles
+              .reduce((counts, cycle) => {
+                counts.set(
+                  cycle.completionCount,
+                  (counts.get(cycle.completionCount) ?? 0) + 1,
+                );
+                return counts;
+              }, new Map<number, number>())
+              .entries(),
+          ].sort(([left], [right]) => left - right),
+        );
+        const workerCycleIndexes = cycles
+          .filter((cycle) => cycle.participatingThreadIds.length > 1)
+          .map((cycle) => cycle.cycleIndex)
+          .join(",");
+        const cycleContractsMatch = cycles.every(
+          (cycle, cycleIndex) =>
+            cycle.cycleIndex === cycleIndex &&
+            cycle.lastCompletionSequence ===
+              cycle.firstCompletionSequence + cycle.completionCount - 1 &&
+            cycle.waitThreadId === 8_193 &&
+            cycle.timerArmThreadId === 8_193 &&
+            cycle.waitHandle === 0x5701_0002 &&
+            cycle.timerId === 2 &&
+            Object.values(cycle.implementationCounts).reduce(
+              (total, count) => total + count,
+              0,
+            ) === cycle.completionCount,
+        );
+        const mainTimerLane =
+          checkpoint?.capability === expected.capability
+            ? checkpoint.timerLanes.find((lane) => lane.handle === 0x5701_0002)
+            : undefined;
+        const workerTimerLane =
+          checkpoint?.capability === expected.capability
+            ? checkpoint.timerLanes.find((lane) => lane.handle === 0x5701_0001)
+            : undefined;
+        const mainUnpacedWaits =
+          mainTimerLane?.completions.filter(
+            (completion) => completion.kind === "wait" && !completion.paced,
+          ) ?? [];
+        const workerUnpacedWaits =
+          workerTimerLane?.completions.filter(
+            (completion) => completion.kind === "wait" && !completion.paced,
+          ) ?? [];
+        const inputQuery =
+          checkpoint?.capability === expected.capability
+            ? checkpoint.inputQuery
+            : null;
+        const inputEvents =
+          checkpoint?.capability === expected.capability
+            ? checkpoint.inputEvents
+            : [];
+        const [down, up] = inputEvents;
+        const pacing = this.#timerPacing.metrics();
+        invariant(
+          this.#report.supportedCallCount === expected.supportedCallCount &&
+            this.#report.supportedCallSemanticsSha256 ===
+              expected.semanticDigest &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability === expected.capability &&
+            checkpoint.implementationId ===
+              "runtime.main-loop-input-progress-gateway.v1" &&
+            checkpoint.requiredCycles === 253 &&
+            checkpoint.minimumRequiredCycles === 253 &&
+            checkpoint.maximumCycles === 320 &&
+            checkpoint.cycleCount === 320 &&
+            checkpoint.requiredCompletions === 506 &&
+            checkpoint.minimumRequiredCompletions === 506 &&
+            checkpoint.completionCount === 4_831 &&
+            checkpoint.firstCompletionSequence === expected.firstSequence &&
+            checkpoint.firstCompletionInstructionCount ===
+              expected.firstInstructionCount &&
+            checkpoint.lastCompletionSequence === expected.lastSequence &&
+            checkpoint.lastCompletionInstructionCount ===
+              expected.lastInstructionCount &&
+            checkpoint.boundaryCycleIndexes.join(",") === "0,319" &&
+            checkpoint.boundaryCompletions.length === 16 &&
+            cycles.length === 320 &&
+            cycleContractsMatch &&
+            JSON.stringify(cycleHistogram) ===
+              JSON.stringify({ 8: 296, 72: 14, 73: 7, 74: 3 }) &&
+            workerCycleIndexes ===
+              "6,15,24,33,42,51,70,79,88,97,106,115,134,143,152,161,170,179,198,207,216,225,234,243" &&
+            checkpoint.interCycleCompletionCount === 722 &&
+            intervals.length === 11 &&
+            intervals.map((interval) => interval.afterCycleIndex).join(",") ===
+              "60,124,188,252,261,270,279,288,297,306,315" &&
+            intervals.map((interval) => interval.completionCount).join(",") ===
+              "64,64,65,66,66,66,67,66,66,66,66" &&
+            checkpoint.waitCompletionCount === 320 &&
+            checkpoint.criticalSectionCompletionCount === 2_176 &&
+            checkpoint.criticalSectionAcquisitionCount === 1_088 &&
+            checkpoint.criticalSectionReleaseCount === 1_088 &&
+            checkpoint.timerArmCompletionCount === 320 &&
+            checkpoint.roundtripCount === 1_088 &&
+            checkpoint.carriedCycleCount === 10 &&
+            checkpoint.criticalSectionAddresses.length === 23 &&
+            checkpoint.mainLoopThreadId === 8_193 &&
+            checkpoint.participatingThreadIds.join(",") === "8192,8193" &&
+            checkpoint.threadTransitionCount === 70 &&
+            checkpoint.balanced &&
+            JSON.stringify(checkpoint.inputBaseline) ===
+              JSON.stringify({
+                cycleCount: 253,
+                lastCompletionSequence: 161_897,
+                lastCompletionInstructionCount: 321_458_098,
+                presentOccurrence: 2,
+                renderCompletionCount: 3,
+              }) &&
+            checkpoint.inputConsumed &&
+            checkpoint.outcome ===
+              "input-consumed-no-presentation-progress" &&
+            checkpoint.hardBoundReached &&
+            checkpoint.presentCompletion === null &&
+            checkpoint.renderCompletionCount === 12 &&
+            checkpoint.renderCompletions.length === 12 &&
+            checkpoint.renderCompletions
+              .map((completion) => completion.sequence)
+              .join(",") ===
+              "161536,161667,161798,161929,162059,162189,162319,162377,162507,162637,162767,162897" &&
+            checkpoint.renderCompletions.every(
+              (completion) =>
+                completion.interface === "IDirect3DDevice9" &&
+                completion.vtableSlot === 3 &&
+                completion.runtimeThreadId === 8_192 &&
+                "kind" in completion.result &&
+                completion.result.kind === "h-result" &&
+                completion.result.value === 0 &&
+                completion.referenceCount === 5 &&
+                completion.guestWrites.length === 0,
+            ) &&
+            inputEvents.length === 2 &&
+            down?.committedAfterSequence === 161_897 &&
+            down.committedAfterInstructionCount === 321_458_098 &&
+            down.event.sequence === 1 &&
+            down.event.kind === "key-down" &&
+            down.event.virtualKey === 0xa2 &&
+            down.receipt.generation === 1 &&
+            down.keyboard.downWords.join(",") === "131072,0,0,0,0,4,0,0" &&
+            down.keyboard.pressedWords.join(",") ===
+              "131072,0,0,0,0,4,0,0" &&
+            inputQuery?.sequence === 161_918 &&
+            inputQuery.trapInstructionCount === 321_459_946 &&
+            inputQuery.runtimeThreadId === 8_192 &&
+            inputQuery.implementationId ===
+              "user32.get-async-key-state.v1" &&
+            inputQuery.arguments.join(",") === "17" &&
+            "action" in inputQuery.result &&
+            inputQuery.result.action === "set" &&
+            inputQuery.result.value === 0xffff_8001 &&
+            inputQuery.lastError === 0 &&
+            inputQuery.guestWrites.length === 0 &&
+            up?.committedAfterSequence === inputQuery.sequence &&
+            up.committedAfterInstructionCount ===
+              inputQuery.trapInstructionCount &&
+            up.event.sequence === 2 &&
+            up.event.kind === "key-up" &&
+            up.event.virtualKey === 0xa2 &&
+            up.receipt.generation === 3 &&
+            up.keyboard.downWords.every((word) => word === 0) &&
+            up.keyboard.pressedWords.join(",") === "0,0,0,0,0,4,0,0" &&
+            this.#report.keyboardInput.receivedMessages === 2 &&
+            this.#report.keyboardInput.queuedBeforePrepare === 2 &&
+            this.#report.keyboardInput.receipts.length === 2 &&
+            workerTimerLane?.timerId === 1 &&
+            workerTimerLane.armCompletionCount === 12 &&
+            workerTimerLane.waitCompletionCount === 12 &&
+            workerTimerLane.completions[0]?.sequence === 161_537 &&
+            workerTimerLane.completions.at(-1)?.sequence === 162_899 &&
+            workerUnpacedWaits.map((wait) => wait.sequence).join(",") ===
+              "162451" &&
+            mainTimerLane?.timerId === 2 &&
+            mainTimerLane.armCompletionCount === 256 &&
+            mainTimerLane.waitCompletionCount === 256 &&
+            mainTimerLane.completions[0]?.sequence === 159_094 &&
+            mainTimerLane.completions.at(-1)?.sequence === 162_962 &&
+            mainUnpacedWaits.map((wait) => wait.sequence).join(",") ===
+              "161964,162102,162240,162379,162517,162655,162793,162931" &&
+            checkpoint.instructionCount === expected.terminalInstructionCount &&
+            checkpoint.nextEndpoint.id === 122 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0790 &&
+            checkpoint.nextEndpoint.disposition === "declared-runtime-export" &&
+            checkpoint.nextEndpoint.iatAddress === 0x100d_1290 &&
+            checkpoint.nextEndpoint.module?.toLowerCase() === "kernel32.dll" &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "WaitForSingleObjectEx" &&
+            checkpoint.nextArguments.join(",") === "1459683330,10,1" &&
+            checkpoint.nextReturnAddress === 0x1005_0615 &&
+            checkpoint.nextStackPointer === 0x500f_ff88 &&
+            checkpoint.memoryContentSha256 === expected.memoryContentSha256 &&
+            this.#report.instructions === expected.terminalInstructionCount &&
+            this.#generation === expected.finalGeneration &&
+            this.#report.writebackBatches === expected.writebackBatches &&
+            this.#report.writebackPages === expected.writebackPages &&
+            this.#report.mappingDeltas === expected.mappingDeltas &&
+            this.#report.mappingDirtyPages === expected.mappingDirtyPages &&
+            this.#report.contextSwitches === expected.contextSwitches &&
+            this.#report.stackGrowths.length === 11 &&
+            this.#report.heapPageMaterializations?.length ===
+              expected.heapPageMaterializations &&
+            this.#report.sourceReads.length === expected.sourceReads &&
+            this.#report.sourceReads.filter(
+              (read) => read.request.sourceId === 1,
+            ).length === 90 &&
+            this.#report.hostRequests === expected.hostRequests &&
+            this.#report.rustSchedulerTransitions ===
+              expected.rustSchedulerTransitions &&
+            this.#report.slices === expected.slices &&
+            this.#bridge?.callCount() === expected.wasmBridgeCalls &&
+            this.#waitForSingleObjectExCompletions ===
+              expected.waitCompletions &&
+            pacing.requests === expected.pacingRequests &&
+            pacing.completions === expected.pacingRequests &&
+            pacing.pending === 0,
+          `input progress gateway changed: ${JSON.stringify({
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            checkpoint,
+            cycleHistogram,
+            workerCycleIndexes,
+            finalGeneration: Number(this.#generation),
+            writebackBatches: this.#report.writebackBatches,
+            writebackPages: this.#report.writebackPages,
+            mappingDeltas: this.#report.mappingDeltas,
+            mappingDirtyPages: this.#report.mappingDirtyPages,
+            contextSwitches: this.#report.contextSwitches,
             hostRequests: this.#report.hostRequests,
             rustSchedulerTransitions: this.#report.rustSchedulerTransitions,
             slices: this.#report.slices,

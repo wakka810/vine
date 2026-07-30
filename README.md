@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `primary-main-loop-presentation-progress-gateway`: 161987 calls across 128 endpoint contracts / 126 APIs, memory generation 296365 |
+| Runtime diagnostics | `primary-main-loop-input-progress-gateway`: 162962 calls across 128 endpoint contracts / 126 APIs, memory generation 297756 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `primary-main-loop-presentation-progress-gateway` completed 3856 bounded presentation-progress calls by instruction 321463786; verification stopped at `KERNEL32.dll!WaitForSingleObjectEx` on instruction 321463792 (`primary-main-loop-presentation-progress-gateway-checkpoint-complete`) |
+| Next structured stop | `primary-main-loop-input-progress-gateway` completed 4831 recurring waits by instruction 321509586; verification stopped at `KERNEL32.dll!WaitForSingleObjectEx` on instruction 321509592 (`primary-main-loop-input-progress-gateway-checkpoint-complete`) |
 
-The active semantic report is 3,616,933 bytes with SHA-256
-`8bc91f667483b3f9f4e2610990bf0f89a6ea482ec3031f441c66470269a3185a`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 3,799,468 bytes with SHA-256
+`677f1671729324436a666d11e627b06cbcb45eace096e88b1c01b1dab3b9f90e`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

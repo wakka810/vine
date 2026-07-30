@@ -101,6 +101,20 @@ window, not proof of a deadlock or a general presentation failure. The next
 manifest-owned gateway injects bounded input at this reached steady-state loop
 and asks whether guest-visible input or presentation work advances.
 
+The `primary-main-loop-input-progress-gateway` has completed that transport and
+consumption check. It preserves the no-input prefix, commits one focused
+`ControlLeft` key-down through the versioned Worker／Wasm bridge at the selected
+Rust boundary, observes the first later generic `VK_CONTROL` query consume
+`0xFFFF8001`, and commits the matching key-up immediately afterward. Both
+receipts and the query are Rust-authoritative and match in Node and Chrome. The
+remaining bounded ledger stays balanced and reaches further repeated
+`TestCooperativeLevel` work, but no third `Present` occurs before the hard
+bound. The result is therefore `input-consumed-no-presentation-progress`: it
+closes steady-state key transport and release without claiming that Control is
+an actionable title input or that rendering is blocked. The next
+manifest-owned gateway changes the semantic input class rather than extending
+the same timer window again.
+
 ## Ownership and invariants
 
 `RuntimeScheduler` plans the selection only after the API completion has been
@@ -125,7 +139,7 @@ node tools/test-runtime-worker-evidence-level.mjs
 node tools/test-current-checkpoint.mjs
 ```
 
-## Non-claims
+## Original scheduler checkpoint non-claims
 
 - Timer expiration, message dequeue, paint invalidation, and user input are not
   implemented by this checkpoint.

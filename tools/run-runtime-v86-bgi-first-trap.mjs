@@ -204,6 +204,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "primary-main-loop-recurring-timer-multi-cycle-batch",
         "primary-main-loop-recurring-timer-window-batch",
         "primary-main-loop-presentation-progress-gateway",
+        "primary-main-loop-input-progress-gateway",
         "kernel32-wait-for-single-object-ex",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -381,6 +382,7 @@ assert(
       "primary-main-loop-recurring-timer-multi-cycle-batch",
       "primary-main-loop-recurring-timer-window-batch",
       "primary-main-loop-presentation-progress-gateway",
+      "primary-main-loop-input-progress-gateway",
       "kernel32-wait-for-single-object-ex",
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
       "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -495,6 +497,7 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
       "primary-main-loop-recurring-timer-window-batch" ||
     genericRuntimeCapability ===
       "primary-main-loop-presentation-progress-gateway" ||
+    genericRuntimeCapability === "primary-main-loop-input-progress-gateway" ||
     genericRuntimeCapability ===
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     genericRuntimeCapability ===
@@ -858,14 +861,26 @@ const recurringTimerWindowCheckpointEnabled =
 const presentationProgressGatewayCheckpointEnabled =
   genericRuntimeCapability ===
   "primary-main-loop-presentation-progress-gateway";
+const inputProgressGatewayCheckpointEnabled =
+  genericRuntimeCapability === "primary-main-loop-input-progress-gateway";
+const presentationProgressEvidenceEnabled =
+  presentationProgressGatewayCheckpointEnabled ||
+  inputProgressGatewayCheckpointEnabled;
 const recurringTimerWindowEvidenceEnabled =
   recurringTimerWindowCheckpointEnabled ||
-  presentationProgressGatewayCheckpointEnabled;
+  presentationProgressEvidenceEnabled;
 const recurringTimerBoundedWindowCheckpointEnabled =
   recurringTimerMultiCycleCheckpointEnabled ||
   recurringTimerWindowEvidenceEnabled;
 const recurringTimerWindowConfiguration =
-  presentationProgressGatewayCheckpointEnabled
+  inputProgressGatewayCheckpointEnabled
+    ? {
+        capability: "primary-main-loop-input-progress-gateway",
+        implementationId: "runtime.main-loop-input-progress-gateway.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      }
+    : presentationProgressGatewayCheckpointEnabled
     ? {
         capability: "primary-main-loop-presentation-progress-gateway",
         implementationId: "runtime.main-loop-presentation-progress-gateway.v1",
@@ -2831,6 +2846,8 @@ const runtimeFrame = {
   hostCompletion: 19,
   threadExit: 20,
   threadExitCompletion: 21,
+  keyboardInput: 22,
+  keyboardInputCompletion: 23,
 };
 const writebackFormat = {
   magic: "VINEWB01",
@@ -6158,8 +6175,10 @@ async function run() {
               : heapAlloc24CheckpointEnabled
                 ? "bgi private-heap allocation and coalesced reuse batch"
                 : recurringTimerBoundedWindowCheckpointEnabled
-                  ? presentationProgressGatewayCheckpointEnabled
-                    ? "bgi primary main-loop presentation progress gateway"
+                  ? inputProgressGatewayCheckpointEnabled
+                    ? "bgi primary main-loop input progress gateway"
+                    : presentationProgressGatewayCheckpointEnabled
+                      ? "bgi primary main-loop presentation progress gateway"
                     : recurringTimerWindowCheckpointEnabled
                       ? "bgi primary main-loop recurring timer window batch"
                       : "bgi primary main-loop recurring timer multi-cycle batch"
@@ -6834,9 +6853,18 @@ async function runGenericRuntimeReentry({
     lastCompletionInstructionCount: 297_177_073,
     presentOccurrence: 2,
   };
+  const inputProgressBaseline = {
+    cycleCount: 253,
+    lastCompletionSequence: 161_897,
+    lastCompletionInstructionCount: 321_458_098,
+    presentOccurrence: 2,
+    renderCompletionCount: 3,
+  };
   const presentationProgressRenderCompletions = [];
   let presentationProgressPresentCompletion = null;
   const presentationProgressTimerLaneCompletions = [];
+  const inputProgressKeyboardEvents = [];
+  let inputProgressAsyncKeyStateQuery = null;
   const presentationProgressTimerLaneSnapshot = () =>
     [
       ...presentationProgressTimerLaneCompletions
@@ -7046,6 +7074,12 @@ async function runGenericRuntimeReentry({
       : initializeCriticalSectionEnabled
         ? 4096
         : 256;
+  const frozenStopSequenceLimit = inputProgressGatewayCheckpointEnabled
+    ? Math.min(
+        inputProgressBaseline.lastCompletionSequence,
+        checkpointManifest.checkpoints.length,
+      )
+    : checkpointManifest.checkpoints.length;
   for (let iteration = 1; iteration <= callLimit; iteration += 1) {
     const sequence = supportedCalls.length + 1;
     if (!executedThreadIds.includes(currentThreadId)) {
@@ -7082,7 +7116,7 @@ async function runGenericRuntimeReentry({
 
     if (
       endpoint !== null &&
-      sequence <= checkpointManifest.checkpoints.length
+      sequence <= frozenStopSequenceLimit
     ) {
       const stopCheckpoint = checkpointManifest.checkpoints[sequence - 1];
       assertGenericStopMatchesCheckpoint(
@@ -7313,8 +7347,11 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
-          "primary-main-loop-presentation-progress-gateway"
-            ? "primary-main-loop-presentation-progress-gateway-checkpoint-complete"
+          "primary-main-loop-input-progress-gateway"
+            ? "primary-main-loop-input-progress-gateway-checkpoint-complete"
+            : checkpointCompletion.capability ===
+                "primary-main-loop-presentation-progress-gateway"
+              ? "primary-main-loop-presentation-progress-gateway-checkpoint-complete"
             : checkpointCompletion.capability ===
                 "primary-main-loop-recurring-timer-window-batch"
               ? "primary-main-loop-recurring-timer-window-batch-checkpoint-complete"
@@ -7487,6 +7524,9 @@ async function runGenericRuntimeReentry({
           ? {}
           : { writableDirectoryCreates }),
         ...(timerPacing.length === 0 ? {} : { timerPacing }),
+        ...(inputProgressKeyboardEvents.length === 0
+          ? {}
+          : { keyboardInputEvents: inputProgressKeyboardEvents }),
         stackGrowths,
         heapPageMaterializations,
         callbackEvents,
@@ -8358,7 +8398,7 @@ async function runGenericRuntimeReentry({
     }
     supportedCalls.push(call);
     if (
-      presentationProgressGatewayCheckpointEnabled &&
+      presentationProgressEvidenceEnabled &&
       sequence > presentationProgressBaseline.lastCompletionSequence &&
       (call.implementationId ===
         "kernel32.wait-for-single-object-ex.waitable-timer.v1" ||
@@ -8394,7 +8434,7 @@ async function runGenericRuntimeReentry({
       });
     }
     if (
-      presentationProgressGatewayCheckpointEnabled &&
+      presentationProgressEvidenceEnabled &&
       sequence > presentationProgressBaseline.lastCompletionSequence &&
       endpoint.kind === "com-method" &&
       call.interface === "IDirect3DDevice9" &&
@@ -8428,7 +8468,7 @@ async function runGenericRuntimeReentry({
       recurringTimerMultiCycleCompletions.push(frozenCall);
       const startsMainTimerCycle =
         call.implementationId === waitImplementationId &&
-        (!presentationProgressGatewayCheckpointEnabled ||
+        (!presentationProgressEvidenceEnabled ||
           call.arguments[0] === 0x5701_0002);
       const interCycleCompletion =
         recurringTimerWindowEvidenceEnabled &&
@@ -8552,7 +8592,7 @@ async function runGenericRuntimeReentry({
           assert(startsMainTimerCycle);
           if (recurringTimerMultiCycleThreadId === null) {
             recurringTimerMultiCycleThreadId = currentThreadId;
-          } else if (!presentationProgressGatewayCheckpointEnabled) {
+          } else if (!presentationProgressEvidenceEnabled) {
             assert.equal(currentThreadId, recurringTimerMultiCycleThreadId);
           }
           recurringTimerMultiCycleCurrentCycle = {
@@ -8567,7 +8607,7 @@ async function runGenericRuntimeReentry({
         } else {
           assert(
             call.implementationId !== waitImplementationId ||
-              (presentationProgressGatewayCheckpointEnabled &&
+              (presentationProgressEvidenceEnabled &&
                 call.arguments[0] !==
                   recurringTimerMultiCycleCurrentCycle.waitHandle),
             `recurring timer cycle ${recurringTimerMultiCycleCurrentCycle.cycleIndex} reached a second wait for its main timer before rearm`,
@@ -8576,7 +8616,7 @@ async function runGenericRuntimeReentry({
         recurringTimerMultiCycleCurrentCycle.completions.push(frozenCall);
         if (
           call.implementationId === timerArmImplementationId &&
-          (!presentationProgressGatewayCheckpointEnabled ||
+          (!presentationProgressEvidenceEnabled ||
             call.arguments[0] ===
               recurringTimerMultiCycleCurrentCycle.waitHandle)
         ) {
@@ -8587,7 +8627,7 @@ async function runGenericRuntimeReentry({
           assert.equal(wait.implementationId, waitImplementationId);
           assert.equal(arm.implementationId, timerArmImplementationId);
           assert.equal(wait.runtimeThreadId, waitThreadId);
-          if (!presentationProgressGatewayCheckpointEnabled) {
+          if (!presentationProgressEvidenceEnabled) {
             assert.equal(
               wait.runtimeThreadId,
               recurringTimerMultiCycleThreadId,
@@ -8600,7 +8640,7 @@ async function runGenericRuntimeReentry({
           assert(Number.isSafeInteger(arm.arguments[1]));
           assert(arm.arguments[1] > 0);
           assert.deepEqual(arm.arguments.slice(2), [0, 0, 0, 0]);
-          if (!presentationProgressGatewayCheckpointEnabled) {
+          if (!presentationProgressEvidenceEnabled) {
             assert.equal(arm.arguments[1], 0x500f_ff98);
           }
           assert.equal(wait.waitableTimer.handle, waitHandle);
@@ -8618,7 +8658,7 @@ async function runGenericRuntimeReentry({
             arm.waitableTimer.timer.arm.generation,
             wait.waitableTimer.timer.lastExpiration.armGeneration + 1,
           );
-          if (!presentationProgressGatewayCheckpointEnabled) {
+          if (!presentationProgressEvidenceEnabled) {
             assert.equal(
               wait.waitableTimer.timer.lastExpiration.armGeneration,
               11_205 + cycleIndex,
@@ -8740,7 +8780,7 @@ async function runGenericRuntimeReentry({
             lastCompletionInstructionCount: arm.trapInstructionCount,
             waitOccurrence: wait.occurrence,
             timerArmOccurrence: arm.occurrence,
-            ...(presentationProgressGatewayCheckpointEnabled
+            ...(presentationProgressEvidenceEnabled
               ? {
                   waitThreadId,
                   timerArmThreadId: arm.runtimeThreadId,
@@ -8807,14 +8847,35 @@ async function runGenericRuntimeReentry({
           const presentationProgressReached =
             presentationProgressPresentCompletion !== null;
           const presentationProgressHardBoundReached =
-            presentationProgressGatewayCheckpointEnabled &&
+            presentationProgressEvidenceEnabled &&
             completedCycleCount ===
               recurringTimerWindowConfiguration.maximumCycles;
+          const inputProgressConsumed =
+            inputProgressAsyncKeyStateQuery !== null &&
+            inputProgressKeyboardEvents.length === 2;
+          if (
+            inputProgressGatewayCheckpointEnabled &&
+            presentationProgressHardBoundReached &&
+            !criticalSectionWindowBalanced
+          ) {
+            throw new Error(
+              `input progress gateway retained critical-section ownership after ${completedCycleCount} cycles: ${JSON.stringify(
+                recurringTimerWindowCriticalSectionSnapshot(),
+              )}`,
+            );
+          }
           const recurringTimerCheckpointReady =
             recurringTimerMultiCycleCheckpointEnabled
               ? completedCycleCount ===
                 recurringTimerWindowConfiguration.requiredCycles
-              : presentationProgressGatewayCheckpointEnabled
+              : inputProgressGatewayCheckpointEnabled
+                ? (completedCycleCount >=
+                    recurringTimerWindowConfiguration.requiredCycles &&
+                    inputProgressConsumed &&
+                    presentationProgressReached &&
+                    criticalSectionWindowBalanced) ||
+                  presentationProgressHardBoundReached
+              : presentationProgressEvidenceEnabled
                 ? (completedCycleCount >=
                     recurringTimerWindowConfiguration.requiredCycles &&
                     presentationProgressReached &&
@@ -8941,12 +9002,18 @@ async function runGenericRuntimeReentry({
                     ).length,
                   }
                 : {}),
-              ...(presentationProgressGatewayCheckpointEnabled
+              ...(presentationProgressEvidenceEnabled
                 ? {
                     baseline: structuredClone(presentationProgressBaseline),
-                    outcome: presentationProgressReached
-                      ? "presentation-progress-reached"
-                      : "bounded-window-exhausted",
+                    outcome: inputProgressGatewayCheckpointEnabled
+                      ? !inputProgressConsumed
+                        ? "input-not-consumed"
+                        : presentationProgressReached
+                          ? "presentation-progress-reached"
+                          : "input-consumed-no-presentation-progress"
+                      : presentationProgressReached
+                        ? "presentation-progress-reached"
+                        : "bounded-window-exhausted",
                     hardBoundReached: presentationProgressHardBoundReached,
                     renderCompletionCount:
                       presentationProgressRenderCompletions.length,
@@ -8960,6 +9027,23 @@ async function runGenericRuntimeReentry({
                             presentationProgressPresentCompletion,
                           ),
                     timerLanes: presentationProgressTimerLaneSnapshot(),
+                    ...(inputProgressGatewayCheckpointEnabled
+                      ? {
+                          inputBaseline:
+                            structuredClone(inputProgressBaseline),
+                          inputConsumed: inputProgressConsumed,
+                          inputEvents: inputProgressKeyboardEvents.map(
+                            ({ memory: _memory, ...event }) =>
+                              structuredClone(event),
+                          ),
+                          inputQuery:
+                            inputProgressAsyncKeyStateQuery === null
+                              ? null
+                              : structuredClone(
+                                  inputProgressAsyncKeyStateQuery,
+                                ),
+                        }
+                      : {}),
                   }
                 : {}),
               timerArmCompletionCount: completedCycleCount,
@@ -9823,6 +9907,66 @@ async function runGenericRuntimeReentry({
         memoryContentSha256: "",
       };
     }
+    if (inputProgressGatewayCheckpointEnabled) {
+      if (sequence === inputProgressBaseline.lastCompletionSequence) {
+        assert.equal(inputProgressKeyboardEvents.length, 0);
+        assert.equal(inputProgressAsyncKeyStateQuery, null);
+        assert.equal(
+          continuation.instructionCount,
+          inputProgressBaseline.lastCompletionInstructionCount,
+        );
+        const event = {
+          sequence: 1,
+          kind: "key-down",
+          virtualKey: 0xa2,
+          repeat: false,
+        };
+        const completion = await ingestGenericRuntimeKeyboardInput({
+          child,
+          protocolReader,
+          generation,
+          event,
+        });
+        inputProgressKeyboardEvents.push({
+          committedAfterSequence: sequence,
+          committedAfterInstructionCount: continuation.instructionCount,
+          event,
+          ...completion,
+        });
+      } else if (
+        inputProgressKeyboardEvents.length === 1 &&
+        inputProgressAsyncKeyStateQuery === null &&
+        call.implementationId === "user32.get-async-key-state.v1" &&
+        call.arguments[0] === 0x11
+      ) {
+        assert(sequence > inputProgressBaseline.lastCompletionSequence);
+        assert.deepEqual(call.result, { action: "set", value: 0xffff_8001 });
+        assert.equal(call.lastError, 0);
+        assert.deepEqual(call.guestWrites, []);
+        inputProgressAsyncKeyStateQuery = {
+          ...structuredClone(call),
+          runtimeThreadId: currentThreadId,
+        };
+        const event = {
+          sequence: 2,
+          kind: "key-up",
+          virtualKey: 0xa2,
+          repeat: false,
+        };
+        const completion = await ingestGenericRuntimeKeyboardInput({
+          child,
+          protocolReader,
+          generation,
+          event,
+        });
+        inputProgressKeyboardEvents.push({
+          committedAfterSequence: sequence,
+          committedAfterInstructionCount: continuation.instructionCount,
+          event,
+          ...completion,
+        });
+      }
+    }
     let next;
     try {
       next = executeToNextOwnedTrap(
@@ -9886,6 +10030,53 @@ async function stopGenericRuntimeSession({
   assert.equal(stopped.memory.acknowledgedGeneration, generation);
   assert.match(stopped.memoryContentSha256, /^[0-9a-f]{64}$/u);
   return stopped;
+}
+
+async function ingestGenericRuntimeKeyboardInput({
+  child,
+  protocolReader,
+  generation,
+  event,
+}) {
+  await writeRuntimeJsonFrame(child.stdin, runtimeFrame.keyboardInput, {
+    schema: "vine.v86-generic-runtime-keyboard-input",
+    schemaVersion: 1,
+    event,
+  });
+  const completion = await readRuntimeJsonFrame(
+    protocolReader,
+    runtimeFrame.keyboardInputCompletion,
+    `generic runtime keyboard ${event.kind} completion`,
+  );
+  assert.equal(
+    completion.schema,
+    "vine.v86-generic-runtime-keyboard-input-completion",
+  );
+  assert.equal(completion.schemaVersion, 1);
+  assert.equal(completion.receipt.sequence, event.sequence);
+  assert.equal(completion.receipt.kind, event.kind);
+  assert.equal(completion.receipt.virtualKey, event.virtualKey);
+  assert.equal(completion.receipt.repeat, event.repeat);
+  assert.equal(completion.receipt.sourceFocused, true);
+  assert.equal(completion.receipt.generation, completion.keyboard.generation);
+  assert.equal(completion.keyboard.lastEventSequence, event.sequence);
+  assert.equal(
+    completion.keyboard.profileId,
+    "foreground-focused-virtual-key-state-v1",
+  );
+  assert.equal(completion.keyboard.sourceFocused, true);
+  assert.equal(completion.keyboard.maximumVirtualKey, 0xff);
+  assert.equal(completion.keyboard.aggregateModifierKeys, true);
+  assert.equal(completion.keyboard.clearOnSourceFocusLoss, true);
+  assert.equal(completion.keyboard.downWords.length, 8);
+  assert.equal(completion.keyboard.pressedWords.length, 8);
+  assert.equal(completion.memory.generation, generation);
+  assert.equal(completion.memory.acknowledgedGeneration, generation);
+  return {
+    receipt: completion.receipt,
+    keyboard: completion.keyboard,
+    memory: completion.memory,
+  };
 }
 
 async function completeStorageHostRequest({
@@ -25401,11 +25592,273 @@ function validateRecurringTimerBoundedWindowResult(result) {
     validateRecurringTimerMultiCycleResult(result);
     return;
   }
+  if (inputProgressGatewayCheckpointEnabled) {
+    validateInputProgressGatewayResult(result);
+    return;
+  }
   if (presentationProgressGatewayCheckpointEnabled) {
     validatePresentationProgressGatewayResult(result);
     return;
   }
   validateRecurringTimerWindowResult(result);
+}
+
+function validateInputProgressGatewayResult(result) {
+  assert(inputProgressGatewayCheckpointEnabled);
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  const checkpoint = result.checkpointCompletion;
+  assert.equal(
+    checkpoint?.capability,
+    "primary-main-loop-input-progress-gateway",
+  );
+  assert.equal(
+    checkpoint.implementationId,
+    "runtime.main-loop-input-progress-gateway.v1",
+  );
+  assert.equal(checkpoint.requiredCycles, 253);
+  assert.equal(checkpoint.minimumRequiredCycles, 253);
+  assert.equal(checkpoint.maximumCycles, 320);
+  assert(checkpoint.cycleCount >= 253 && checkpoint.cycleCount <= 320);
+  assert.equal(checkpoint.cycles.length, checkpoint.cycleCount);
+  assert.equal(checkpoint.waitCompletionCount, checkpoint.cycleCount);
+  assert.equal(checkpoint.timerArmCompletionCount, checkpoint.cycleCount);
+  assert.equal(checkpoint.firstCompletionSequence, 158_132);
+  assert.equal(checkpoint.firstCompletionInstructionCount, 276_361_491);
+  assert.equal(
+    checkpoint.lastCompletionSequence,
+    checkpoint.firstCompletionSequence + checkpoint.completionCount - 1,
+  );
+  assert.equal(result.supportedCalls.length, checkpoint.lastCompletionSequence);
+  assert.deepEqual(checkpoint.inputBaseline, {
+    cycleCount: 253,
+    lastCompletionSequence: 161_897,
+    lastCompletionInstructionCount: 321_458_098,
+    presentOccurrence: 2,
+    renderCompletionCount: 3,
+  });
+  assert.equal(checkpoint.inputConsumed, true);
+  assert.equal(checkpoint.inputEvents.length, 2);
+  assert.equal(result.keyboardInputEvents.length, 2);
+  assert.deepEqual(
+    result.keyboardInputEvents.map(({ memory: _memory, ...event }) => event),
+    checkpoint.inputEvents,
+  );
+  const [down, up] = checkpoint.inputEvents;
+  assert.deepEqual(down.event, {
+    sequence: 1,
+    kind: "key-down",
+    virtualKey: 0xa2,
+    repeat: false,
+  });
+  assert.equal(down.committedAfterSequence, 161_897);
+  assert.equal(down.committedAfterInstructionCount, 321_458_098);
+  assert.equal(down.receipt.generation, 1);
+  assert.deepEqual(
+    down.receipt.affectedKeys.map((state) => ({
+      virtualKey: state.virtualKey,
+      down: state.down,
+      pressedSinceLastQuery: state.pressedSinceLastQuery,
+    })),
+    [
+      { virtualKey: 0x11, down: true, pressedSinceLastQuery: true },
+      { virtualKey: 0xa2, down: true, pressedSinceLastQuery: true },
+    ],
+  );
+  assert.equal(checkpoint.inputQuery.implementationId,
+    "user32.get-async-key-state.v1");
+  assert(checkpoint.inputQuery.sequence > down.committedAfterSequence);
+  assert.deepEqual(checkpoint.inputQuery.arguments, [0x11]);
+  assert.deepEqual(checkpoint.inputQuery.result, {
+    action: "set",
+    value: 0xffff_8001,
+  });
+  assert.equal(checkpoint.inputQuery.lastError, 0);
+  assert.deepEqual(checkpoint.inputQuery.guestWrites, []);
+  assert.deepEqual(up.event, {
+    sequence: 2,
+    kind: "key-up",
+    virtualKey: 0xa2,
+    repeat: false,
+  });
+  assert.equal(up.committedAfterSequence, checkpoint.inputQuery.sequence);
+  assert.equal(
+    up.committedAfterInstructionCount,
+    checkpoint.inputQuery.trapInstructionCount,
+  );
+  assert.equal(up.receipt.generation, 3);
+  assert.deepEqual(
+    up.receipt.affectedKeys.map((state) => ({
+      virtualKey: state.virtualKey,
+      down: state.down,
+      pressedSinceLastQuery: state.pressedSinceLastQuery,
+    })),
+    [
+      { virtualKey: 0x11, down: false, pressedSinceLastQuery: false },
+      { virtualKey: 0xa2, down: false, pressedSinceLastQuery: true },
+    ],
+  );
+  assert.equal(up.keyboard.generation, 3);
+  assert.equal(up.keyboard.lastEventSequence, 2);
+  assert.equal(checkpoint.balanced, true);
+  assert.equal(
+    checkpoint.interCycleCompletionCount,
+    checkpoint.interCycleIntervals.reduce(
+      (total, interval) => total + interval.completionCount,
+      0,
+    ),
+  );
+  assert.equal(
+    checkpoint.completionCount,
+    checkpoint.cycles.reduce(
+      (total, cycle) => total + cycle.completionCount,
+      0,
+    ) + checkpoint.interCycleCompletionCount,
+  );
+  if (checkpoint.outcome === "presentation-progress-reached") {
+    assert(checkpoint.presentCompletion !== null);
+    assert.equal(checkpoint.presentCompletion.interface, "IDirect3DDevice9");
+    assert.equal(checkpoint.presentCompletion.vtableSlot, 17);
+    assert.equal(checkpoint.hardBoundReached, false);
+  } else {
+    assert.equal(
+      checkpoint.outcome,
+      "input-consumed-no-presentation-progress",
+    );
+    assert.equal(checkpoint.presentCompletion, null);
+    assert.equal(checkpoint.hardBoundReached, true);
+    assert.equal(checkpoint.cycleCount, 320);
+  }
+  assert.equal(result.supportedCalls.length, 162_962);
+  assert.equal(checkpoint.cycleCount, 320);
+  assert.equal(checkpoint.completionCount, 4_831);
+  assert.equal(checkpoint.interCycleCompletionCount, 722);
+  assert.equal(checkpoint.lastCompletionSequence, 162_962);
+  assert.equal(checkpoint.lastCompletionInstructionCount, 321_509_586);
+  assert.equal(checkpoint.instructionCount, 321_509_592);
+  assert.equal(result.terminal.instructionCount, 321_509_592);
+  assert.equal(checkpoint.criticalSectionCompletionCount, 2_176);
+  assert.equal(checkpoint.criticalSectionAcquisitionCount, 1_088);
+  assert.equal(checkpoint.criticalSectionReleaseCount, 1_088);
+  assert.equal(checkpoint.roundtripCount, 1_088);
+  assert.equal(checkpoint.carriedCycleCount, 10);
+  assert.equal(checkpoint.threadTransitionCount, 70);
+  assert.deepEqual(
+    Object.fromEntries(
+      checkpoint.cycles.reduce((counts, cycle) => {
+        counts.set(
+          cycle.completionCount,
+          (counts.get(cycle.completionCount) ?? 0) + 1,
+        );
+        return counts;
+      }, new Map()),
+    ),
+    { 8: 296, 72: 14, 73: 7, 74: 3 },
+  );
+  assert.deepEqual(
+    checkpoint.cycles
+      .filter((cycle) => cycle.participatingThreadIds.length > 1)
+      .map((cycle) => cycle.cycleIndex),
+    [
+      6, 15, 24, 33, 42, 51, 70, 79, 88, 97, 106, 115, 134, 143, 152, 161,
+      170, 179, 198, 207, 216, 225, 234, 243,
+    ],
+  );
+  assert.deepEqual(
+    checkpoint.interCycleIntervals.map((interval) => [
+      interval.afterCycleIndex,
+      interval.completionCount,
+    ]),
+    [
+      [60, 64],
+      [124, 64],
+      [188, 65],
+      [252, 66],
+      [261, 66],
+      [270, 66],
+      [279, 67],
+      [288, 66],
+      [297, 66],
+      [306, 66],
+      [315, 66],
+    ],
+  );
+  assert.deepEqual(
+    checkpoint.renderCompletions.map((completion) => completion.sequence),
+    [
+      161_536, 161_667, 161_798, 161_929, 162_059, 162_189, 162_319,
+      162_377, 162_507, 162_637, 162_767, 162_897,
+    ],
+  );
+  assert.equal(checkpoint.inputQuery.sequence, 161_918);
+  assert.equal(checkpoint.inputQuery.trapInstructionCount, 321_459_946);
+  assert.deepEqual(down.keyboard.downWords, [131_072, 0, 0, 0, 0, 4, 0, 0]);
+  assert.deepEqual(down.keyboard.pressedWords, [131_072, 0, 0, 0, 0, 4, 0, 0]);
+  assert.deepEqual(up.keyboard.downWords, [0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(up.keyboard.pressedWords, [0, 0, 0, 0, 0, 4, 0, 0]);
+  assert.deepEqual(
+    checkpoint.timerLanes.map((lane) => ({
+      handle: lane.handle,
+      timerId: lane.timerId,
+      armCompletionCount: lane.armCompletionCount,
+      waitCompletionCount: lane.waitCompletionCount,
+      firstSequence: lane.completions[0]?.sequence,
+      lastSequence: lane.completions.at(-1)?.sequence,
+      unpacedWaitSequences: lane.completions
+        .filter((completion) => completion.kind === "wait" && !completion.paced)
+        .map((completion) => completion.sequence),
+    })),
+    [
+      {
+        handle: 0x5701_0001,
+        timerId: 1,
+        armCompletionCount: 12,
+        waitCompletionCount: 12,
+        firstSequence: 161_537,
+        lastSequence: 162_899,
+        unpacedWaitSequences: [162_451],
+      },
+      {
+        handle: 0x5701_0002,
+        timerId: 2,
+        armCompletionCount: 256,
+        waitCompletionCount: 256,
+        firstSequence: 159_094,
+        lastSequence: 162_962,
+        unpacedWaitSequences: [
+          161_964, 162_102, 162_240, 162_379, 162_517, 162_655, 162_793,
+          162_931,
+        ],
+      },
+    ],
+  );
+  assert.deepEqual(checkpoint.nextEndpoint, {
+    id: 122,
+    address: 0x7f00_0790,
+    module: "KERNEL32.dll",
+    symbol: { kind: "name", name: "WaitForSingleObjectEx" },
+    disposition: "declared-runtime-export",
+    iatAddress: 0x100d_1290,
+  });
+  assert.deepEqual(checkpoint.nextArguments, [0x5701_0002, 10, 1]);
+  assert.equal(checkpoint.nextReturnAddress, 0x1005_0615);
+  assert.equal(checkpoint.nextStackPointer, 0x500f_ff88);
+  assert.equal(
+    checkpoint.memoryContentSha256,
+    "48750ae580df1b33ad89384c4fc7d6fe56ae204c303829635d6c836f7260ed7b",
+  );
+  const digest = new SemanticCallDigest();
+  for (const call of result.supportedCalls) {
+    digest.update(call);
+  }
+  assert.equal(
+    digest.digestHex(),
+    "592e9f78379c63292b61d12b0216833e45d2a357cc54cd63c4d39e4c493fad4b",
+  );
+  assert.equal(result.timerPacing.length, 11_531);
+  assert.equal(result.sourceReads.length, 94);
+  assert.equal(result.heapPageMaterializations.length, 3_108);
+  assert.equal(result.threadExecution.contextSwitches, 2_527);
 }
 
 function validatePresentationProgressGatewayResult(result) {
@@ -31887,7 +32340,7 @@ function buildGenericRuntimeReentryReport({
         "WaitForSingleObjectEx report summary requires three recurring completions",
       );
     }
-    if (presentationProgressGatewayCheckpointEnabled) {
+    if (presentationProgressEvidenceEnabled) {
       assert(
         genericResult.timerPacing.length <= waitForSingleObjectExCalls.length,
       );
@@ -34059,7 +34512,7 @@ function buildGenericRuntimeReentryReport({
             pacingService: timerPacingService,
             pacingPayloadVersion: 1,
             ...repeatedPacingEvidence,
-            ...(presentationProgressGatewayCheckpointEnabled
+            ...(presentationProgressEvidenceEnabled
               ? {
                   synchronousLogicalCompletions: repeatedCallEvidence(
                     unpacedWaitForSingleObjectExCalls,

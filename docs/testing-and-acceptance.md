@@ -1084,6 +1084,17 @@ windowの分類である。次はwindowを再拡張せず、到達済みsteady-s
 guest-visibleなinput／presentation progressを判定する。Exact値とartifact identityは
 `current-checkpoint.json`だけを正本とする。
 
+`primary-main-loop-input-progress-gateway`は、このno-input prefixを保持したまま、選択したcycle境界後に
+focused `ControlLeft` key-downをversioned Worker／Wasm bridgeからRust `RuntimeInput`へcommitする。最初の後続
+`GetAsyncKeyState(VK_CONTROL)`がsigned `0xFFFF8001`を返してgeneric pressed bitを消費した直後に、matching
+key-upを同じauthorityへcommitする。Acceptするのは、Node／Chromeが2件のreceipt、generation、side-to-generic
+modifier snapshot、query result、zero guest write、ordered semantic digest、terminal memory、balanced timer／wait／
+synchronization ledgerを一致させ、hard boundまでにthird `Present`がないため
+`input-consumed-no-presentation-progress`へ分類する場合だけである。これはsteady-state key transport、消費、releaseの
+acceptanceであり、Controlがtitle actionであること、visible response、deadlock、一般inputをclaimしない。次は同じ
+windowを延長せず、action-bearing inputでguest-visible progressを判定する。Exact値とartifact identityは
+`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

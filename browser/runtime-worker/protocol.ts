@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 72 as const;
+export const protocolVersion = 73 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -60,6 +60,7 @@ export type BgiCapabilityProfile =
   | "primary-main-loop-recurring-timer-multi-cycle-batch"
   | "primary-main-loop-recurring-timer-window-batch"
   | "primary-main-loop-presentation-progress-gateway"
+  | "primary-main-loop-input-progress-gateway"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
@@ -94,6 +95,31 @@ export interface RuntimeKeyboardInputEvidence {
   receivedMessages: number;
   queuedBeforePrepare: number;
   receipts: RuntimeKeyboardEventReceipt[];
+}
+
+export interface RuntimeKeyboardStateSnapshot {
+  profileId: string;
+  sourceFocused: boolean;
+  maximumVirtualKey: number;
+  aggregateModifierKeys: boolean;
+  clearOnSourceFocusLoss: boolean;
+  generation: number;
+  lastEventSequence: number;
+  downWords: number[];
+  pressedWords: number[];
+}
+
+export interface RuntimeKeyboardInputBoundaryEvidence {
+  committedAfterSequence: number;
+  committedAfterInstructionCount: number;
+  event: {
+    sequence: number;
+    kind: RuntimeKeyboardSourceEventKind;
+    virtualKey: number | null;
+    repeat: boolean;
+  };
+  receipt: RuntimeKeyboardEventReceipt;
+  keyboard: RuntimeKeyboardStateSnapshot;
 }
 
 export interface RuntimeCursorPositionSnapshot {
@@ -2026,6 +2052,81 @@ export interface SessionReport {
           presentOccurrence: 2;
         };
         outcome: "presentation-progress-reached" | "bounded-window-exhausted";
+        hardBoundReached: boolean;
+        renderCompletionCount: number;
+        renderCompletions: RuntimeThreadCallSnapshot[];
+        presentCompletion: RuntimeThreadCallSnapshot | null;
+        timerLanes: RuntimePresentationTimerLaneSummary[];
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          disposition: "declared-runtime-export";
+          iatAddress: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        nextArguments: [number, number, number];
+        nextReturnAddress: number;
+        nextStackPointer: number;
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "primary-main-loop-input-progress-gateway";
+        implementationId: "runtime.main-loop-input-progress-gateway.v1";
+        requiredCycles: 253;
+        minimumRequiredCycles: 253;
+        maximumCycles: 320;
+        cycleCount: number;
+        requiredCompletions: 506;
+        minimumRequiredCompletions: 506;
+        completionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        boundaryCycleIndexes: [0, number];
+        boundaryCompletions: RuntimeThreadCallSnapshot[];
+        cycles: RuntimePresentationProgressCycleSummary[];
+        interCycleCompletionCount: number;
+        interCycleIntervals: RuntimeRecurringTimerInterCycleSummary[];
+        waitCompletionCount: number;
+        criticalSectionCompletionCount: number;
+        criticalSectionAcquisitionCount: number;
+        criticalSectionReleaseCount: number;
+        carriedCycleCount: number;
+        timerArmCompletionCount: number;
+        roundtripCount: number;
+        criticalSectionAddresses: number[];
+        mainLoopThreadId: number;
+        participatingThreadIds: number[];
+        threadTransitionCount: number;
+        balanced: boolean;
+        baseline: {
+          cycleCount: 64;
+          lastCompletionSequence: 159093;
+          lastCompletionInstructionCount: 297177073;
+          presentOccurrence: 2;
+        };
+        inputBaseline: {
+          cycleCount: 253;
+          lastCompletionSequence: 161897;
+          lastCompletionInstructionCount: 321458098;
+          presentOccurrence: 2;
+          renderCompletionCount: 3;
+        };
+        inputConsumed: boolean;
+        inputEvents: [
+          RuntimeKeyboardInputBoundaryEvidence,
+          RuntimeKeyboardInputBoundaryEvidence,
+        ];
+        inputQuery: RuntimeThreadCallSnapshot | null;
+        outcome:
+          | "presentation-progress-reached"
+          | "input-consumed-no-presentation-progress"
+          | "input-not-consumed";
         hardBoundReached: boolean;
         renderCompletionCount: number;
         renderCompletions: RuntimeThreadCallSnapshot[];

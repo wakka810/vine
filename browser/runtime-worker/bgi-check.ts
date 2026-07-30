@@ -69,6 +69,7 @@ const d3d9Canvas =
   capabilityProfile === "primary-main-loop-recurring-timer-multi-cycle-batch" ||
   capabilityProfile === "primary-main-loop-recurring-timer-window-batch" ||
   capabilityProfile === "primary-main-loop-presentation-progress-gateway" ||
+  capabilityProfile === "primary-main-loop-input-progress-gateway" ||
   capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
   capabilityProfile ===
@@ -169,7 +170,8 @@ const startMessage = {
       scenario === "watchdog"
         ? 1
         : capabilityProfile ===
-            "primary-main-loop-presentation-progress-gateway"
+              "primary-main-loop-presentation-progress-gateway" ||
+            capabilityProfile === "primary-main-loop-input-progress-gateway"
           ? 340_000_000
           : capabilityProfile === "runtime-trapless-execution-budget" ||
               capabilityProfile === "kernel32-heap-free-large-buffer" ||
@@ -269,6 +271,7 @@ const startMessage = {
         "primary-main-loop-recurring-timer-multi-cycle-batch" ||
       capabilityProfile === "primary-main-loop-recurring-timer-window-batch" ||
       capabilityProfile === "primary-main-loop-presentation-progress-gateway" ||
+      capabilityProfile === "primary-main-loop-input-progress-gateway" ||
       capabilityProfile ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
       capabilityProfile ===
@@ -316,7 +319,8 @@ const startMessage = {
 worker.postMessage(startMessage, d3d9Canvas === undefined ? [] : [d3d9Canvas]);
 if (
   capabilityProfile === "user32-async-key-state-input" ||
-  capabilityProfile === "user32-async-key-state-input-continuation"
+  capabilityProfile === "user32-async-key-state-input-continuation" ||
+  capabilityProfile === "primary-main-loop-input-progress-gateway"
 ) {
   worker.postMessage({
     type: "keyboard-input",
@@ -329,6 +333,19 @@ if (
       repeat: false,
     },
   } satisfies MainToWorkerMessage);
+  if (capabilityProfile === "primary-main-loop-input-progress-gateway") {
+    worker.postMessage({
+      type: "keyboard-input",
+      protocolVersion,
+      sessionId,
+      event: {
+        sequence: "2",
+        kind: "key-up",
+        virtualKey: 0xa2,
+        repeat: false,
+      },
+    } satisfies MainToWorkerMessage);
+  }
 }
 
 function finish(report: SessionReport): void {
@@ -435,6 +452,7 @@ function parseCapabilityProfile(
     value === "primary-main-loop-recurring-timer-multi-cycle-batch" ||
     value === "primary-main-loop-recurring-timer-window-batch" ||
     value === "primary-main-loop-presentation-progress-gateway" ||
+    value === "primary-main-loop-input-progress-gateway" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-critical-section"
