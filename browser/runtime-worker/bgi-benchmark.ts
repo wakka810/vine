@@ -495,18 +495,22 @@ function validateSession(report: SessionReport, expected: any): void {
       "BGI checkpoint retained an unsupported fault",
     );
     invariant(isRecord(checkpoint), "BGI capability checkpoint is malformed");
+    const checkpointRecord = checkpoint as Record<string, unknown>;
     invariant(
-      checkpoint.capability === expectedCheckpoint.capability &&
-        checkpoint.implementationId === expectedCheckpoint.implementationId &&
-        checkpoint.requiredCompletions ===
+      checkpointRecord.capability === expectedCheckpoint.capability &&
+        checkpointRecord.implementationId ===
+          expectedCheckpoint.implementationId &&
+        checkpointRecord.requiredCompletions ===
           expectedCheckpoint.requiredCompletions &&
-        checkpoint.completionCount === expectedCheckpoint.completionCount &&
-        checkpoint.lastCompletionSequence ===
+        checkpointRecord.completionCount ===
+          expectedCheckpoint.completionCount &&
+        checkpointRecord.lastCompletionSequence ===
           expectedCheckpoint.lastCompletionSequence &&
-        checkpoint.lastCompletionInstructionCount ===
+        checkpointRecord.lastCompletionInstructionCount ===
           expectedCheckpoint.lastCompletionInstructionCount &&
-        checkpoint.instructionCount === expectedCheckpoint.instructionCount &&
-        checkpoint.memoryContentSha256 ===
+        checkpointRecord.instructionCount ===
+          expectedCheckpoint.instructionCount &&
+        checkpointRecord.memoryContentSha256 ===
           expectedCheckpoint.memoryContentSha256,
       "BGI capability checkpoint changed",
     );

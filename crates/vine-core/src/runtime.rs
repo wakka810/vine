@@ -180,12 +180,15 @@ pub use input::{
     RuntimeAsyncKeyStateResult, RuntimeCursorPosition, RuntimeCursorPositionProfile,
     RuntimeInputProfile, RuntimeKeyboardEventReceipt, RuntimeKeyboardProfile,
     RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind, RuntimeKeyboardState,
-    RuntimeMouseButtonMapping, RuntimeSwapMouseButtonResult, RuntimeVirtualKeyState,
+    RuntimeLogicalMouseButton, RuntimeMouseButtonMapping, RuntimePointerButton,
+    RuntimePointerButtonEventReceipt, RuntimePointerButtonMessageProfile,
+    RuntimePointerButtonSourceEvent, RuntimePointerButtonSourceEventKind,
+    RuntimeSwapMouseButtonResult, RuntimeVirtualKeyState,
 };
 pub use kernel::*;
 pub use messages::{
     RuntimeMessageId, RuntimeMessagePeekDisposition, RuntimeMessageReceiveDisposition,
-    RuntimeMessageWake, RuntimeThreadMessage,
+    RuntimeMessageSource, RuntimeMessageWake, RuntimeThreadMessage,
 };
 pub use modules::{
     DLL_PROCESS_ATTACH, DLL_PROCESS_DETACH, DLL_PROCESS_STATIC_RESERVED,

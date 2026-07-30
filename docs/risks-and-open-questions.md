@@ -105,8 +105,11 @@ Primary `SetTimer`のidentity、owner thread、interval、TIMERPROC、replacemen
 Native bounded traceと同数のrecurring breadthに加え、253回目のsemantic main-timer cycleでprimary left-button actionを
 commitし、その消費後にも2件のTIMERPROCを完了する合成profileをNode／Chromeで一致させた。Browser task timingを
 guest-visible clockへ流入させないinput／timer compositionは閉じたが、third `Present`やvisible responseには進まない。
-残るriskはqueued pointer messageを同じ`RuntimeInput` mappingからfailure-atomicに生成すること、replacement／`KillTimer`
-race、background freeze／resumeとcatch-upをscheduler、message queue、page lifecycleで順序付けることである。
+続くprofileは同じ`RuntimeInput` mapping、logical cursor、foreground window、`RuntimeMessages`、scheduler wakeをjoint
+preflightし、`WM_LBUTTONDOWN`をWndProcへdispatchしてmatching releaseをRust queueに保持した。Queued pointer
+message productionの成立性riskは閉じた。残るriskは`SetFocus` continuationとrelease dispatch、capture／move／wheel、
+replacement／`KillTimer` race、background freeze／resumeとcatch-upをscheduler、message queue、page lifecycleで
+順序付けることである。
 
 Primary `CreateThread`／`ResumeThread`のlogical identity、stack／TEB／FS bootstrap、typed handle、suspend count、
 Worker context registrationに加え、直後の`SetThreadPriority`でabove-normal logical stateをthread ownerへ保存する

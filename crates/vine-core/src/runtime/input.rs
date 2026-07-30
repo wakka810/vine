@@ -9,6 +9,8 @@ const VIRTUAL_KEY_WORD_COUNT: usize = VIRTUAL_KEY_COUNT / u32::BITS as usize;
 const VK_SHIFT: u16 = 0x10;
 const VK_CONTROL: u16 = 0x11;
 const VK_MENU: u16 = 0x12;
+const VK_LBUTTON: u16 = 0x01;
+const VK_RBUTTON: u16 = 0x02;
 const VK_LSHIFT: u16 = 0xa0;
 const VK_RSHIFT: u16 = 0xa1;
 const VK_LCONTROL: u16 = 0xa2;
@@ -62,6 +64,53 @@ pub struct RuntimeKeyboardSourceEvent {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimePointerButtonSourceEventKind {
+    ButtonDown,
+    ButtonUp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimePointerButton {
+    Primary,
+    Secondary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeLogicalMouseButton {
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimePointerButtonSourceEvent {
+    pub sequence: u64,
+    pub kind: RuntimePointerButtonSourceEventKind,
+    pub button: RuntimePointerButton,
+    pub normalized_x: u16,
+    pub normalized_y: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimePointerButtonMessageProfile {
+    pub id: String,
+    pub normalized_position_denominator: u32,
+    pub left_button_down_message: u32,
+    pub left_button_up_message: u32,
+    pub right_button_down_message: u32,
+    pub right_button_up_message: u32,
+    pub left_button_key_mask: u32,
+    pub right_button_key_mask: u32,
+    pub shift_key_mask: u32,
+    pub control_key_mask: u32,
+    pub require_visible_active_focused_foreground_window: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeVirtualKeyState {
     pub virtual_key: u16,
@@ -93,6 +142,16 @@ pub struct RuntimeKeyboardEventReceipt {
     pub source_focused: bool,
     pub generation: u64,
     pub affected_keys: Vec<RuntimeVirtualKeyState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimePointerButtonEventReceipt {
+    pub event: RuntimePointerButtonSourceEvent,
+    pub logical_button: RuntimeLogicalMouseButton,
+    pub virtual_key: u16,
+    pub keyboard: RuntimeKeyboardEventReceipt,
+    pub cursor: RuntimeCursorPosition,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -164,6 +223,54 @@ pub(super) struct RuntimeKeyboardEventPlan {
     next_state: RuntimeKeyboardState,
     event: RuntimeKeyboardSourceEvent,
     affected_virtual_keys: Vec<u16>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimePointerButtonEventPlan {
+    expected_mapping_generation: u64,
+    expected_mapping_swapped: bool,
+    expected_cursor_generation: u64,
+    expected_cursor_x: i32,
+    expected_cursor_y: i32,
+    next_cursor: RuntimeCursorPosition,
+    keyboard: RuntimeKeyboardEventPlan,
+    event: RuntimePointerButtonSourceEvent,
+    logical_button: RuntimeLogicalMouseButton,
+    virtual_key: u16,
+}
+
+impl RuntimePointerButtonEventPlan {
+    pub(super) fn message_and_key_state(
+        &self,
+        profile: &RuntimePointerButtonMessageProfile,
+    ) -> (u32, u32) {
+        let message = match (self.logical_button, self.event.kind) {
+            (RuntimeLogicalMouseButton::Left, RuntimePointerButtonSourceEventKind::ButtonDown) => {
+                profile.left_button_down_message
+            }
+            (RuntimeLogicalMouseButton::Left, RuntimePointerButtonSourceEventKind::ButtonUp) => {
+                profile.left_button_up_message
+            }
+            (RuntimeLogicalMouseButton::Right, RuntimePointerButtonSourceEventKind::ButtonDown) => {
+                profile.right_button_down_message
+            }
+            (RuntimeLogicalMouseButton::Right, RuntimePointerButtonSourceEventKind::ButtonUp) => {
+                profile.right_button_up_message
+            }
+        };
+        let mut key_state = 0;
+        for (virtual_key, mask) in [
+            (VK_LBUTTON, profile.left_button_key_mask),
+            (VK_RBUTTON, profile.right_button_key_mask),
+            (VK_SHIFT, profile.shift_key_mask),
+            (VK_CONTROL, profile.control_key_mask),
+        ] {
+            if self.keyboard.next_state.key_down(virtual_key) {
+                key_state |= mask;
+            }
+        }
+        (message, key_state)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -462,11 +569,160 @@ impl RuntimeInput {
         })
     }
 
+    pub(super) fn plan_pointer_button_event(
+        &self,
+        event: RuntimePointerButtonSourceEvent,
+        screen_x: i32,
+        screen_y: i32,
+    ) -> Result<RuntimePointerButtonEventPlan, RuntimeStateError> {
+        let mapping = self.mouse_button_mapping.as_ref().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-input",
+                "mouse-button-mapping-unconfigured",
+                "logical mouse button mapping must be configured before pointer events are ingested",
+            )
+        })?;
+        let cursor = self.cursor_position.as_ref().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-input",
+                "cursor-position-profile-unconfigured",
+                "logical cursor position must be configured before pointer events are ingested",
+            )
+        })?;
+        let logical_button =
+            match (event.button, mapping.swapped) {
+                (RuntimePointerButton::Primary, false)
+                | (RuntimePointerButton::Secondary, true) => RuntimeLogicalMouseButton::Left,
+                (RuntimePointerButton::Secondary, false)
+                | (RuntimePointerButton::Primary, true) => RuntimeLogicalMouseButton::Right,
+            };
+        let virtual_key = match logical_button {
+            RuntimeLogicalMouseButton::Left => VK_LBUTTON,
+            RuntimeLogicalMouseButton::Right => VK_RBUTTON,
+        };
+        let keyboard = self.plan_keyboard_event(RuntimeKeyboardSourceEvent {
+            sequence: event.sequence,
+            kind: match event.kind {
+                RuntimePointerButtonSourceEventKind::ButtonDown => {
+                    RuntimeKeyboardSourceEventKind::KeyDown
+                }
+                RuntimePointerButtonSourceEventKind::ButtonUp => {
+                    RuntimeKeyboardSourceEventKind::KeyUp
+                }
+            },
+            virtual_key: Some(virtual_key),
+            repeat: false,
+        })?;
+        let next_generation = if cursor.screen_x == screen_x && cursor.screen_y == screen_y {
+            cursor.generation
+        } else {
+            cursor.generation.checked_add(1).ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-input",
+                    "cursor-position-generation-overflow",
+                    "logical cursor position generation is exhausted",
+                )
+            })?
+        };
+        Ok(RuntimePointerButtonEventPlan {
+            expected_mapping_generation: mapping.generation,
+            expected_mapping_swapped: mapping.swapped,
+            expected_cursor_generation: cursor.generation,
+            expected_cursor_x: cursor.screen_x,
+            expected_cursor_y: cursor.screen_y,
+            next_cursor: RuntimeCursorPosition {
+                profile_id: cursor.profile_id.clone(),
+                screen_x,
+                screen_y,
+                generation: next_generation,
+            },
+            keyboard,
+            event,
+            logical_button,
+            virtual_key,
+        })
+    }
+
+    pub(super) fn preflight_pointer_button_event(
+        &self,
+        plan: &RuntimePointerButtonEventPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let mapping = self.mouse_button_mapping.as_ref().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-input",
+                "mouse-button-mapping-unconfigured",
+                "logical mouse button mapping disappeared before pointer event commit",
+            )
+        })?;
+        let cursor = self.cursor_position.as_ref().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-input",
+                "cursor-position-profile-unconfigured",
+                "logical cursor position disappeared before pointer event commit",
+            )
+        })?;
+        if mapping.generation != plan.expected_mapping_generation
+            || mapping.swapped != plan.expected_mapping_swapped
+            || cursor.generation != plan.expected_cursor_generation
+            || cursor.screen_x != plan.expected_cursor_x
+            || cursor.screen_y != plan.expected_cursor_y
+            || cursor.profile_id != plan.next_cursor.profile_id
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-input",
+                "pointer-button-event-plan-stale",
+                "logical pointer mapping or cursor changed after the event was planned",
+            ));
+        }
+        match self.preflight_keyboard_event(&plan.keyboard) {
+            Err(error) if error.code == "keyboard-event-plan-stale" => {
+                Err(RuntimeStateError::conflict(
+                    "runtime-input",
+                    "pointer-button-event-plan-stale",
+                    "logical pointer keyboard state changed after the event was planned",
+                ))
+            }
+            result => result,
+        }
+    }
+
+    pub(super) fn commit_preflighted_pointer_button_event(
+        &mut self,
+        plan: RuntimePointerButtonEventPlan,
+    ) -> RuntimePointerButtonEventReceipt {
+        debug_assert!(self.preflight_pointer_button_event(&plan).is_ok());
+        let RuntimePointerButtonEventPlan {
+            next_cursor,
+            keyboard,
+            event,
+            logical_button,
+            virtual_key,
+            ..
+        } = plan;
+        let keyboard = self.commit_preflighted_keyboard_event(keyboard);
+        self.cursor_position = Some(next_cursor.clone());
+        RuntimePointerButtonEventReceipt {
+            event,
+            logical_button,
+            virtual_key,
+            keyboard,
+            cursor: next_cursor,
+        }
+    }
+
     pub(super) fn commit_keyboard_event(
         &mut self,
         plan: RuntimeKeyboardEventPlan,
     ) -> Result<RuntimeKeyboardEventReceipt, RuntimeStateError> {
-        let keyboard = self.keyboard.as_mut().ok_or_else(|| {
+        self.preflight_keyboard_event(&plan)?;
+        Ok(self.commit_preflighted_keyboard_event(plan))
+    }
+
+    fn preflight_keyboard_event(
+        &self,
+        plan: &RuntimeKeyboardEventPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let keyboard = self.keyboard.as_ref().ok_or_else(|| {
             RuntimeStateError::runtime_defect(
                 "runtime-input",
                 "keyboard-profile-unconfigured",
@@ -482,8 +738,20 @@ impl RuntimeInput {
                 "logical keyboard state changed after the event was planned",
             ));
         }
+        Ok(())
+    }
+
+    fn commit_preflighted_keyboard_event(
+        &mut self,
+        plan: RuntimeKeyboardEventPlan,
+    ) -> RuntimeKeyboardEventReceipt {
+        debug_assert!(self.preflight_keyboard_event(&plan).is_ok());
+        let keyboard = self
+            .keyboard
+            .as_mut()
+            .expect("keyboard event owner was preflighted");
         *keyboard = plan.next_state;
-        Ok(RuntimeKeyboardEventReceipt {
+        RuntimeKeyboardEventReceipt {
             sequence: plan.event.sequence,
             kind: plan.event.kind,
             virtual_key: plan.event.virtual_key,
@@ -495,7 +763,7 @@ impl RuntimeInput {
                 .into_iter()
                 .filter_map(|virtual_key| keyboard.key_state(virtual_key))
                 .collect(),
-        })
+        }
     }
 
     pub(super) fn plan_async_key_state_query(
@@ -773,6 +1041,125 @@ mod tests {
             virtual_key: None,
             repeat: false,
         }
+    }
+
+    fn pointer_profile() -> RuntimePointerButtonMessageProfile {
+        RuntimePointerButtonMessageProfile {
+            id: "normalized-primary-secondary-foreground-client-message-v1".to_owned(),
+            normalized_position_denominator: 65_536,
+            left_button_down_message: 0x0201,
+            left_button_up_message: 0x0202,
+            right_button_down_message: 0x0204,
+            right_button_up_message: 0x0205,
+            left_button_key_mask: 0x0001,
+            right_button_key_mask: 0x0002,
+            shift_key_mask: 0x0004,
+            control_key_mask: 0x0008,
+            require_visible_active_focused_foreground_window: true,
+        }
+    }
+
+    fn pointer_event(
+        sequence: u64,
+        kind: RuntimePointerButtonSourceEventKind,
+    ) -> RuntimePointerButtonSourceEvent {
+        RuntimePointerButtonSourceEvent {
+            sequence,
+            kind,
+            button: RuntimePointerButton::Primary,
+            normalized_x: 32_768,
+            normalized_y: 32_768,
+        }
+    }
+
+    #[test]
+    fn pointer_events_share_mapping_keyboard_and_cursor_authority_with_stale_safe_commit() {
+        let message_profile = pointer_profile();
+        let mut input = RuntimeInput::default();
+        let configuration = input.plan_configuration(profile(false)).unwrap();
+        input.commit_configuration(configuration).unwrap();
+
+        let before = input.clone();
+        let down = input
+            .plan_pointer_button_event(
+                pointer_event(1, RuntimePointerButtonSourceEventKind::ButtonDown),
+                1_600,
+                900,
+            )
+            .unwrap();
+        assert_eq!(
+            input, before,
+            "pointer planning must not mutate input state"
+        );
+        assert_eq!(
+            down.message_and_key_state(&message_profile),
+            (0x0201, 0x0001)
+        );
+        input.preflight_pointer_button_event(&down).unwrap();
+        let down = input.commit_preflighted_pointer_button_event(down);
+        assert_eq!(down.logical_button, RuntimeLogicalMouseButton::Left);
+        assert_eq!(down.virtual_key, VK_LBUTTON);
+        assert_eq!((down.cursor.screen_x, down.cursor.screen_y), (1_600, 900));
+        assert_eq!(down.cursor.generation, 1);
+        assert!(down.keyboard.affected_keys[0].down);
+
+        let up = input
+            .plan_pointer_button_event(
+                pointer_event(2, RuntimePointerButtonSourceEventKind::ButtonUp),
+                1_600,
+                900,
+            )
+            .unwrap();
+        let stale = up.clone();
+        assert_eq!(up.message_and_key_state(&message_profile), (0x0202, 0));
+        let up = input.commit_preflighted_pointer_button_event(up);
+        assert_eq!(up.cursor.generation, 1);
+        assert!(!up.keyboard.affected_keys[0].down);
+        assert_eq!(
+            input
+                .preflight_pointer_button_event(&stale)
+                .unwrap_err()
+                .code,
+            "pointer-button-event-plan-stale"
+        );
+
+        let mut swapped = RuntimeInput::default();
+        let configuration = swapped.plan_configuration(profile(true)).unwrap();
+        swapped.commit_configuration(configuration).unwrap();
+        let right = swapped
+            .plan_pointer_button_event(
+                pointer_event(1, RuntimePointerButtonSourceEventKind::ButtonDown),
+                960,
+                540,
+            )
+            .unwrap();
+        assert_eq!(
+            right.message_and_key_state(&message_profile),
+            (0x0204, 0x0002)
+        );
+        let right = swapped.commit_preflighted_pointer_button_event(right);
+        assert_eq!(right.logical_button, RuntimeLogicalMouseButton::Right);
+        assert_eq!(right.virtual_key, VK_RBUTTON);
+
+        let mut remapped = RuntimeInput::default();
+        let configuration = remapped.plan_configuration(profile(false)).unwrap();
+        remapped.commit_configuration(configuration).unwrap();
+        let stale_mapping = remapped
+            .plan_pointer_button_event(
+                pointer_event(1, RuntimePointerButtonSourceEventKind::ButtonDown),
+                960,
+                540,
+            )
+            .unwrap();
+        let swap = remapped.plan_mouse_button_swap(true).unwrap();
+        remapped.commit_mouse_button_swap(swap).unwrap();
+        assert_eq!(
+            remapped
+                .preflight_pointer_button_event(&stale_mapping)
+                .unwrap_err()
+                .code,
+            "pointer-button-event-plan-stale"
+        );
     }
 
     #[test]

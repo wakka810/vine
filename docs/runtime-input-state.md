@@ -2,7 +2,7 @@
 
 ## Status
 
-- Status: keyboard input gateway, steady-state key-down／key-up ingestion, deterministic cursor position, and mouse-button mapping implemented
+- Status: keyboard input gateway, failure-atomic pointer-button message ingress／dispatch, deterministic cursor position, and mouse-button mapping implemented
 - Authority: `runtime/input.rs::RuntimeInput`
 - Reached User32 APIs: `SwapMouseButton`, `GetCursorPos`, `GetAsyncKeyState`
 - DirectInput gateway: root identity and reached empty game-controller enumeration implemented
@@ -74,19 +74,21 @@ ledger. The loop continues to its hard bound with additional
 steady-state input transport, consumption, and release, not an actionable or
 visible gameplay response.
 
-The following action profile uses the actual main-thread pointer adapter rather
+The current action profile uses the actual main-thread pointer adapter rather
 than choosing another keyboard key. Browser pointer button `0` normalizes to
-`VK_LBUTTON` and crosses the same versioned Worker message and Rust commit
-boundary. The first later `GetAsyncKeyState(VK_LBUTTON)` consumes
-`0xFFFF8001`; key-up then leaves both current-down and pressed-since-query words
-clear. The integrated action／window-timer profile anchors that commit to the
-same semantic 253rd main-timer cycle rather than a call occurrence, then
-completes four Rust-owned `WM_TIMER`／`TIMERPROC` deliveries, including two
-after input consumption. Node and Chrome agree through the same 320-cycle hard
-bound and do not reach a third `Present`. This closes primary pointer-button
-ingestion, release, and coexistence with the reached recurring callback path.
-It does not create a mouse-message queue entry, move the logical cursor, or
-prove that the title turns the reached poll into a visible action.
+the logical left button and crosses protocol v78 as a normalized down／up pair.
+Rust jointly preflights input state, cursor, visible active focused foreground
+window, screen-to-client mapping, current-thread message queue, and scheduler
+wake. The down event produces `WM_LBUTTONDOWN` at client `[640,360]` with
+`MK_LBUTTON` and packed `lParam 0x01680280`; the up event produces the matching
+`WM_LBUTTONUP`. The first later `GetAsyncKeyState(VK_LBUTTON)` consumes
+`0xFFFF8001`. `PeekMessageA` removes and publishes the down message,
+`TranslateMessage` validates it and returns false, and `DispatchMessageA` enters
+the registered WndProc. At the following `SetFocus` stop, the release remains
+queued in Rust. Node and Chrome agree on both receipts, message identity,
+callback entry, queued release, terminal memory, and ordered semantic digest.
+This closes the bounded pointer-button message-production and down-dispatch
+slice; it does not prove a visible title response.
 
 A later zero-input profile provides that counterfactual for input state, but not
 for asset causality. It queues no browser event, completes 51 leading
@@ -115,9 +117,10 @@ host pointer, a DOM pointer event, or browser display state.
 `POINT` output before a single guest-memory publication. Success returns TRUE
 and preserves LastError. A NULL output returns FALSE with `ERROR_NOACCESS`
 (`998`) without changing guest memory or input state. Node and Chrome agree on
-the reached `[960,540]` result and generation zero. Future pointer-event ingress
-must update this same owner through versioned input messages; it must not create
-a TypeScript cursor authority.
+the reached `[960,540]` result and generation zero. Pointer-button ingress now
+updates this same owner through a versioned joint transaction. The reached
+center event is idempotent for cursor coordinates, so generation remains zero;
+TypeScript does not become cursor authority.
 
 ## Mouse-button mapping
 
@@ -183,12 +186,12 @@ resources do not participate in the synchronous query transaction.
 
 ## Policy version
 
-`vine.user32-compatibility-policy` version 28 retains the bounded keyboard
-profile and adds the configure-once cursor position plus `GetCursorPos` and
-`GetWindowRect` contracts to the existing display, window, paint, and
-mouse-mapping policy. Older versions remain historical evidence; the policy is
-an internal typed runtime profile rather than a persisted user format, so no
-cross-version deserialization or migration is claimed.
+`vine.user32-compatibility-policy` version 32 retains the bounded timer and
+keyboard profiles and adds normalized primary／secondary pointer-button message
+production for the visible active focused foreground window. Older versions
+remain historical evidence; the policy is an internal typed runtime profile
+rather than a persisted user format, so no cross-version deserialization or
+migration is claimed.
 
 ## Verification
 
@@ -210,13 +213,12 @@ remains in [bgi-swap-mouse-button.md](bgi-swap-mouse-button.md).
 
 ## Non-claims
 
-This checkpoint does not claim `GetKeyboardState`, message-queue keyboard or
-mouse translation, capture, raw input, callback-producing DirectInput variants,
-keyboard／mouse DirectInput devices, acquire／unacquire, buffered input, or
-general device state. Pointer normalization is present at the adapter boundary,
-and primary left-button consumption, release, and continued timer-callback
-delivery are now demonstrated; cursor movement and queued mouse-message
-translation are not. The bounded controlled Control profiles prove transport,
+This checkpoint does not claim `GetKeyboardState`, queued keyboard translation,
+pointer move／wheel／capture／double-click／nonclient translation, raw input,
+callback-producing DirectInput variants, keyboard／mouse DirectInput devices,
+acquire／unacquire, buffered input, or general device state. Primary left-button
+consumption, down-message production／WndProc dispatch, and queued release are
+demonstrated; visible response and broader mouse semantics are not. The bounded controlled Control profiles prove transport,
 one User32 consumer, pressed-bit consumption across held-key queries, and
 steady-state key release; the zero-input scan proves absence of synthesized key
 state. Action-bearing visible gameplay response, IME text composition, browser

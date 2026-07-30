@@ -79,6 +79,8 @@ const d3d9Canvas =
   capabilityProfile ===
     "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
   capabilityProfile ===
+    "primary-main-loop-pointer-message-action-progress-gateway" ||
+  capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
   capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
@@ -187,7 +189,9 @@ const startMessage = {
             capabilityProfile ===
               "primary-main-loop-window-timer-callback-recurring-batch" ||
             capabilityProfile ===
-              "primary-main-loop-window-timer-callback-action-input-progress-gateway"
+              "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
+            capabilityProfile ===
+              "primary-main-loop-pointer-message-action-progress-gateway"
           ? 340_000_000
           : capabilityProfile === "runtime-trapless-execution-budget" ||
               capabilityProfile === "kernel32-heap-free-large-buffer" ||
@@ -297,6 +301,8 @@ const startMessage = {
       capabilityProfile ===
         "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
       capabilityProfile ===
+        "primary-main-loop-pointer-message-action-progress-gateway" ||
+      capabilityProfile ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
       capabilityProfile ===
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
@@ -347,50 +353,75 @@ if (
   capabilityProfile === "primary-main-loop-input-progress-gateway" ||
   capabilityProfile === "primary-main-loop-action-input-progress-gateway" ||
   capabilityProfile ===
-    "primary-main-loop-window-timer-callback-action-input-progress-gateway"
+    "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
+  capabilityProfile === "primary-main-loop-pointer-message-action-progress-gateway"
 ) {
+  const pointerMessageInput =
+    capabilityProfile === "primary-main-loop-pointer-message-action-progress-gateway";
   const actionInput =
     capabilityProfile === "primary-main-loop-action-input-progress-gateway" ||
     capabilityProfile ===
       "primary-main-loop-window-timer-callback-action-input-progress-gateway";
-  const downEvent = actionInput
-    ? pointerSourceEvent(1, "key-down", 0)
-    : {
-        sequence: "1",
-        kind: "key-down" as const,
-        virtualKey: 0xa2,
-        repeat: false,
-      };
-  if (downEvent === null) {
-    throw new Error("primary pointer button did not map to VK_LBUTTON");
-  }
-  worker.postMessage({
-    type: "keyboard-input",
-    protocolVersion,
-    sessionId,
-    event: downEvent,
-  } satisfies MainToWorkerMessage);
-  if (
-    capabilityProfile === "primary-main-loop-input-progress-gateway" ||
-    actionInput
-  ) {
-    const upEvent = actionInput
-      ? pointerSourceEvent(2, "key-up", 0)
-      : {
-          sequence: "2",
-          kind: "key-up" as const,
-          virtualKey: 0xa2,
-          repeat: false,
-        };
-    if (upEvent === null) {
-      throw new Error("primary pointer button did not map to VK_LBUTTON");
+  if (pointerMessageInput) {
+    const downEvent = pointerSourceEvent(
+      1,
+      "button-down",
+      0,
+      0x8000,
+      0x8000,
+    );
+    const upEvent = pointerSourceEvent(
+      2,
+      "button-up",
+      0,
+      0x8000,
+      0x8000,
+    );
+    if (downEvent === null || upEvent === null) {
+      throw new Error("primary pointer button is outside the bounded source mapping");
     }
     worker.postMessage({
-      type: "keyboard-input",
+      type: "pointer-input",
+      protocolVersion,
+      sessionId,
+      event: downEvent,
+    } satisfies MainToWorkerMessage);
+    worker.postMessage({
+      type: "pointer-input",
       protocolVersion,
       sessionId,
       event: upEvent,
     } satisfies MainToWorkerMessage);
+  } else {
+    const downEvent = {
+      sequence: "1",
+      kind: "key-down" as const,
+      virtualKey: actionInput ? 0x01 : 0xa2,
+      repeat: false,
+    };
+    worker.postMessage({
+      type: "keyboard-input",
+      protocolVersion,
+      sessionId,
+      event: downEvent,
+    } satisfies MainToWorkerMessage);
+    if (
+      capabilityProfile === "primary-main-loop-input-progress-gateway" ||
+      actionInput
+    ) {
+      const upEvent = {
+        sequence: "2",
+        kind: "key-up" as const,
+        virtualKey: actionInput ? 0x01 : 0xa2,
+        repeat: false,
+      };
+      worker.postMessage({
+        type: "keyboard-input",
+        protocolVersion,
+        sessionId,
+        event: upEvent,
+      } satisfies MainToWorkerMessage);
+    }
   }
 }
 
@@ -504,6 +535,7 @@ function parseCapabilityProfile(
     value === "primary-main-loop-window-timer-callback-recurring-batch" ||
     value ===
       "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
+    value === "primary-main-loop-pointer-message-action-progress-gateway" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-critical-section"

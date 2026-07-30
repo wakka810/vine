@@ -4,9 +4,9 @@ import { observePageLifecycle } from "./page-lifecycle.js";
 import {
   focusSourceEvent,
   keyboardSourceEvent,
+  pointerButtonForBrowserButton,
   pointerSourceEvent,
   virtualKeyForKeyboardCode,
-  virtualKeyForPointerButton,
 } from "./keyboard-input.js";
 import {
   assertProtocolVersion,
@@ -16,6 +16,7 @@ import {
   type SessionMode,
   type SessionReport,
   type RuntimeKeyboardInputEvent,
+  type RuntimePointerButtonInputEvent,
   type WorkerToMainMessage,
 } from "./protocol.js";
 
@@ -90,9 +91,9 @@ let pixelRgba: string | null = null;
 let toneHz: number | null = null;
 let persistentByte: number | null = null;
 let hostServiceError: Error | null = null;
-let nextKeyboardSequence = 1;
+let nextInputSequence = 1;
 let inputSourceFocused = true;
-const pressedPointerVirtualKeys = new Set<number>();
+const pressedPointerButtons = new Set<number>();
 const pageLifecycle = observePageLifecycle((lifecycle) => {
   if (activeSessionId !== null) {
     worker.postMessage({
@@ -119,9 +120,9 @@ window.addEventListener("keydown", (event) => handleKeyboardEvent(event, "key-do
 window.addEventListener("keyup", (event) => handleKeyboardEvent(event, "key-up"));
 window.addEventListener("blur", () => sendFocusEvent(false));
 window.addEventListener("focus", () => sendFocusEvent(true));
-canvas.addEventListener("pointerdown", (event) => handlePointerEvent(event, "key-down"));
-canvas.addEventListener("pointerup", (event) => handlePointerEvent(event, "key-up"));
-canvas.addEventListener("pointercancel", (event) => handlePointerEvent(event, "key-up"));
+canvas.addEventListener("pointerdown", (event) => handlePointerEvent(event, "button-down"));
+canvas.addEventListener("pointerup", (event) => handlePointerEvent(event, "button-up"));
+canvas.addEventListener("pointercancel", handlePointerCancel);
 
 worker.addEventListener("message", (event: MessageEvent<WorkerToMainMessage>) => {
   const message = event.data;
@@ -157,9 +158,9 @@ async function startSession(mode: SessionMode = "success"): Promise<RuntimeEvide
   activeSessionId = sessionId;
   activeMode = mode;
   hostServiceError = null;
-  nextKeyboardSequence = 1;
+  nextInputSequence = 1;
   inputSourceFocused = true;
-  pressedPointerVirtualKeys.clear();
+  pressedPointerButtons.clear();
   pixelRgba = null;
   toneHz = null;
   persistentByte = null;
@@ -212,7 +213,7 @@ function handleKeyboardEvent(
     return;
   }
   const input = keyboardSourceEvent(
-    nextKeyboardSequence,
+    nextInputSequence,
     kind,
     event.code,
     event.repeat,
@@ -225,29 +226,74 @@ function handleKeyboardEvent(
 
 function handlePointerEvent(
   event: PointerEvent,
-  kind: "key-down" | "key-up",
+  kind: "button-down" | "button-up",
+): void {
+  handlePointerButtonEvent(event, kind, event.button);
+}
+
+function handlePointerCancel(event: PointerEvent): void {
+  for (const button of [...pressedPointerButtons]) {
+    handlePointerButtonEvent(event, "button-up", button);
+  }
+}
+
+function handlePointerButtonEvent(
+  event: PointerEvent,
+  kind: "button-down" | "button-up",
+  button: number,
 ): void {
   if (activeSessionId === null || !inputSourceFocused) {
     return;
   }
-  const virtualKey = virtualKeyForPointerButton(event.button);
-  if (virtualKey === null) {
+  if (pointerButtonForBrowserButton(button) === null) {
     return;
   }
-  if (kind === "key-down") {
-    if (pressedPointerVirtualKeys.has(virtualKey)) {
+  const rect = canvas.getBoundingClientRect();
+  if (!(rect.width > 0 && rect.height > 0)) {
+    return;
+  }
+  const normalizedX = normalizedPointerCoordinate(
+    event.clientX,
+    rect.left,
+    rect.width,
+  );
+  const normalizedY = normalizedPointerCoordinate(
+    event.clientY,
+    rect.top,
+    rect.height,
+  );
+  const input = pointerSourceEvent(
+    nextInputSequence,
+    kind,
+    button,
+    normalizedX,
+    normalizedY,
+  );
+  if (input === null) {
+    return;
+  }
+  if (kind === "button-down") {
+    if (pressedPointerButtons.has(button)) {
       return;
     }
-    pressedPointerVirtualKeys.add(virtualKey);
+    pressedPointerButtons.add(button);
     canvas.focus({ preventScroll: true });
-  } else if (!pressedPointerVirtualKeys.delete(virtualKey)) {
+  } else if (!pressedPointerButtons.delete(button)) {
     return;
   }
-  const input = pointerSourceEvent(nextKeyboardSequence, kind, event.button);
-  if (input !== null) {
-    event.preventDefault();
-    sendKeyboardInput(input);
-  }
+  event.preventDefault();
+  sendPointerInput(input);
+}
+
+function normalizedPointerCoordinate(
+  coordinate: number,
+  start: number,
+  extent: number,
+): number {
+  return Math.max(
+    0,
+    Math.min(0xffff, Math.floor(((coordinate - start) * 0x1_0000) / extent)),
+  );
 }
 
 function sendFocusEvent(focused: boolean): void {
@@ -256,9 +302,9 @@ function sendFocusEvent(focused: boolean): void {
   }
   inputSourceFocused = focused;
   if (!focused) {
-    pressedPointerVirtualKeys.clear();
+    pressedPointerButtons.clear();
   }
-  sendKeyboardInput(focusSourceEvent(nextKeyboardSequence, focused));
+  sendKeyboardInput(focusSourceEvent(nextInputSequence, focused));
 }
 
 function sendKeyboardInput(event: RuntimeKeyboardInputEvent): void {
@@ -271,7 +317,20 @@ function sendKeyboardInput(event: RuntimeKeyboardInputEvent): void {
     sessionId: activeSessionId,
     event,
   } satisfies MainToWorkerMessage);
-  nextKeyboardSequence += 1;
+  nextInputSequence += 1;
+}
+
+function sendPointerInput(event: RuntimePointerButtonInputEvent): void {
+  if (activeSessionId === null) {
+    return;
+  }
+  worker.postMessage({
+    type: "pointer-input",
+    protocolVersion,
+    sessionId: activeSessionId,
+    event,
+  } satisfies MainToWorkerMessage);
+  nextInputSequence += 1;
 }
 
 function cancelSession(): void {

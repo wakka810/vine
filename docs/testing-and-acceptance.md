@@ -1139,6 +1139,19 @@ intervalへ記録する。Hard boundまでthird `Present`がない場合は
 同時成立を受け入れるものであり、queued mouse message、cursor移動、readable response、deadlock不在、一般message
 orderingをclaimしない。Exact値とartifact identityは`current-checkpoint.json`だけを正本とする。
 
+`primary-main-loop-pointer-message-action-progress-gateway`は、同じ253-cycle input境界へnormalized primary
+button down／upを投入し、Rustがinput、cursor、foreground window、client mapping、current-thread queue、wakeを
+全てpreflightしてから二つのsource-tagged messageをcommitすることを要求する。Node／Chromeはdown message ID 3の
+`WM_LBUTTONDOWN`、client `[640,360]`、screen `[960,540]`、`MK_LBUTTON`、`lParam 0x01680280`、
+`GetAsyncKeyState(VK_LBUTTON) == 0xFFFF8001`、sequence 161,940の`PeekMessageA(PM_REMOVE)`、sequence
+161,941の`TranslateMessage == FALSE`、sequence 161,942の`DispatchMessageA`とWndProc frame 33を一致させる。
+Matching release message ID 4は同じRust queueに残り、instruction 321,462,324で次の
+`USER32.dll!SetFocus(0x48010001)`へ停止する。Protocol v78のChrome reportは161,944 completed calls、
+11,465 browser pacing completions、terminal memory／ordered semantic digestをNode oracleと一致させる。これは
+bounded pointer down dispatchとqueued releaseのacceptanceであり、`SetFocus` semantics、release dispatch、capture、
+move／wheel、visible response、general message orderingをclaimしない。Exact値とartifact identityは
+`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

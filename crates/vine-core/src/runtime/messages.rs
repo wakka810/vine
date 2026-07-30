@@ -11,10 +11,18 @@ const MAX_RUNTIME_THREAD_MESSAGES: usize = 4096;
 pub struct RuntimeMessageId(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum RuntimeMessageSource {
+    Thread { thread_id: RuntimeThreadId },
+    PointerInput { event_sequence: u64 },
+    WindowTimer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeThreadMessage {
     pub id: RuntimeMessageId,
-    pub source_thread_id: RuntimeThreadId,
+    pub source: RuntimeMessageSource,
     pub target_thread_id: RuntimeThreadId,
     pub hwnd: u32,
     pub message: u32,
@@ -135,7 +143,7 @@ impl RuntimeMessages {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn plan_post(
         &self,
-        source_thread_id: RuntimeThreadId,
+        source: RuntimeMessageSource,
         target_thread_id: RuntimeThreadId,
         hwnd: u32,
         message: u32,
@@ -172,7 +180,7 @@ impl RuntimeMessages {
         Ok(RuntimeMessagePostPlan {
             message: RuntimeThreadMessage {
                 id,
-                source_thread_id,
+                source,
                 target_thread_id,
                 hwnd,
                 message,
@@ -353,7 +361,18 @@ mod tests {
 
         let before_plan = messages.clone();
         let first = messages
-            .plan_post(SOURCE, OWNER, 3, 4, 5, 6, 7, 8, 9, true)
+            .plan_post(
+                RuntimeMessageSource::Thread { thread_id: SOURCE },
+                OWNER,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                true,
+            )
             .unwrap();
         assert_eq!(messages, before_plan);
         assert_eq!(first.message.id, RuntimeMessageId(1));
@@ -361,7 +380,18 @@ mod tests {
         messages.commit_post(first);
 
         let second = messages
-            .plan_post(SOURCE, OWNER, 10, 11, 12, 13, 14, 15, 16, false)
+            .plan_post(
+                RuntimeMessageSource::Thread { thread_id: SOURCE },
+                OWNER,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15,
+                16,
+                false,
+            )
             .unwrap();
         messages.commit_post(second);
         assert_eq!(
@@ -419,7 +449,18 @@ mod tests {
         let before = messages.clone();
         assert_eq!(
             messages
-                .plan_post(SOURCE, RuntimeThreadId(99), 0, 0, 0, 0, 0, 0, 0, false)
+                .plan_post(
+                    RuntimeMessageSource::Thread { thread_id: SOURCE },
+                    RuntimeThreadId(99),
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    false,
+                )
                 .unwrap_err()
                 .code,
             "message-thread-queue-missing"

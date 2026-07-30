@@ -448,18 +448,47 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
         `evidence.semantic.${label}.checkpointCompletion`,
         errors,
       );
-      for (const field of [
-        "capability",
-        "implementationId",
-        "requiredCompletions",
-        "completionCount",
-        "lastCompletionSequence",
-        "lastCompletionInstructionCount",
-      ]) {
+      for (const field of
+        expectedCompletion.requiredPointerMessages === undefined
+          ? [
+              "capability",
+              "implementationId",
+              "requiredCompletions",
+              "completionCount",
+              "lastCompletionSequence",
+              "lastCompletionInstructionCount",
+            ]
+          : [
+              "capability",
+              "implementationId",
+              "requiredPointerMessages",
+              "pointerMessageDeliveryCount",
+              "releaseMessageQueued",
+              "activeCallbackDepthAtStop",
+            ]) {
         checkEqual(
           completion[field],
           expectedCompletion[field],
           `evidence.semantic.${label}.checkpointCompletion.${field}`,
+          errors,
+        );
+      }
+      if (expectedCompletion.requiredPointerMessages !== undefined) {
+        const dispatchEntry = requireRecord(
+          completion.dispatchEntry,
+          `evidence.semantic.${label}.checkpointCompletion.dispatchEntry`,
+          errors,
+        );
+        checkEqual(
+          dispatchEntry.sequence,
+          expectedCompletion.dispatchSequence,
+          `evidence.semantic.${label}.checkpointCompletion.dispatchEntry.sequence`,
+          errors,
+        );
+        checkEqual(
+          dispatchEntry.trapInstructionCount,
+          expectedCompletion.dispatchInstructionCount,
+          `evidence.semantic.${label}.checkpointCompletion.dispatchEntry.trapInstructionCount`,
           errors,
         );
       }
@@ -647,14 +676,26 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
       errors,
     );
     const expectedCompletion = checkpoint.nextStructuredStop.completion;
-    for (const field of [
-      "capability",
-      "implementationId",
-      "requiredCompletions",
-      "completionCount",
-      "lastCompletionSequence",
-      "lastCompletionInstructionCount",
-    ]) {
+    for (const field of
+      expectedCompletion.requiredPointerMessages === undefined
+        ? [
+            "capability",
+            "implementationId",
+            "requiredCompletions",
+            "completionCount",
+            "lastCompletionSequence",
+            "lastCompletionInstructionCount",
+          ]
+        : [
+            "capability",
+            "implementationId",
+            "requiredPointerMessages",
+            "pointerMessageDeliveryCount",
+            "releaseMessageQueued",
+            "activeCallbackDepthAtStop",
+            "dispatchSequence",
+            "dispatchInstructionCount",
+          ]) {
       checkEqual(
         completion[field],
         expectedCompletion[field],

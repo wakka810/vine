@@ -175,8 +175,21 @@ function validEvidence() {
           separator > 0,
           "checkpoint endpoint identity must include a module",
         );
+        const manifestCompletion = structuredClone(
+          checkpoint.nextStructuredStop.completion,
+        );
+        const { dispatchSequence, dispatchInstructionCount, ...completion } =
+          manifestCompletion;
         return {
-          ...structuredClone(checkpoint.nextStructuredStop.completion),
+          ...completion,
+          ...(dispatchSequence === undefined
+            ? {}
+            : {
+                dispatchEntry: {
+                  sequence: dispatchSequence,
+                  trapInstructionCount: dispatchInstructionCount,
+                },
+              }),
           instructionCount: checkpoint.nextStructuredStop.instructionCount,
           nextEndpoint: {
             id: checkpoint.nextStructuredStop.nextEndpoint.endpointId,

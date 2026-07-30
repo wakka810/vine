@@ -1,6 +1,9 @@
 import type {
   RuntimeKeyboardInputEvent,
   RuntimeKeyboardSourceEventKind,
+  RuntimePointerButton,
+  RuntimePointerButtonInputEvent,
+  RuntimePointerButtonSourceEventKind,
 } from "./protocol.js";
 
 const fixedVirtualKeys = new Map<string, number>([
@@ -75,18 +78,10 @@ export function virtualKeyForKeyboardCode(code: string): number | null {
   return null;
 }
 
-export function virtualKeyForPointerButton(button: number): number | null {
-  return button === 0
-    ? 0x01
-    : button === 2
-      ? 0x02
-      : button === 1
-        ? 0x04
-        : button === 3
-          ? 0x05
-          : button === 4
-            ? 0x06
-            : null;
+export function pointerButtonForBrowserButton(
+  button: number,
+): RuntimePointerButton | null {
+  return button === 0 ? "primary" : button === 2 ? "secondary" : null;
 }
 
 export function keyboardSourceEvent(
@@ -121,16 +116,19 @@ export function focusSourceEvent(
 
 export function pointerSourceEvent(
   sequence: number,
-  kind: Extract<RuntimeKeyboardSourceEventKind, "key-down" | "key-up">,
+  kind: RuntimePointerButtonSourceEventKind,
   button: number,
-): RuntimeKeyboardInputEvent | null {
-  const virtualKey = virtualKeyForPointerButton(button);
-  return virtualKey === null
+  normalizedX: number,
+  normalizedY: number,
+): RuntimePointerButtonInputEvent | null {
+  const pointerButton = pointerButtonForBrowserButton(button);
+  return pointerButton === null
     ? null
     : {
         sequence: String(sequence),
         kind,
-        virtualKey,
-        repeat: false,
+        button: pointerButton,
+        normalizedX,
+        normalizedY,
       };
 }

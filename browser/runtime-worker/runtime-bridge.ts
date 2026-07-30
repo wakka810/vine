@@ -8,6 +8,7 @@ import {
 import type {
   RuntimeCurrentDirectoryA,
   RuntimeKeyboardInputEvent,
+  RuntimePointerButtonInputEvent,
 } from "./protocol.js";
 
 export type RegisterUpdate =
@@ -191,6 +192,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     heapAlloc24ByteBufferEnabled: number,
     postHeapTimeGetTimeEnabled: number,
     user32WindowTimerCallbackDeliveryEnabled: number,
+    user32PointerButtonMessagesEnabled: number,
   ): number;
   vine_bridge_prepare_source_read(
     executableLength: number,
@@ -246,6 +248,14 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     kind: number,
     virtualKey: number,
     repeat: number,
+  ): number;
+  vine_bridge_ingest_pointer_button_event(
+    sequenceLow: number,
+    sequenceHigh: number,
+    kind: number,
+    button: number,
+    normalizedX: number,
+    normalizedY: number,
   ): number;
   vine_bridge_schedule_next_thread(): number;
   vine_bridge_finish_thread(exitCode: number): number;
@@ -319,6 +329,7 @@ export class RuntimeBridge {
     heapAlloc24ByteBufferEnabled: boolean,
     postHeapTimeGetTimeEnabled: boolean,
     user32WindowTimerCallbackDeliveryEnabled: boolean,
+    user32PointerButtonMessagesEnabled: boolean,
   ): BridgeOutput<PreparedMetadata> {
     const source = sourceManifest ?? emptyBridgeOutput;
     this.#setInput([executable, policy, source, writableProfile]);
@@ -345,6 +356,7 @@ export class RuntimeBridge {
         Number(heapAlloc24ByteBufferEnabled),
         Number(postHeapTimeGetTimeEnabled),
         Number(user32WindowTimerCallbackDeliveryEnabled),
+        Number(user32PointerButtonMessagesEnabled),
       ),
     );
   }
@@ -562,6 +574,40 @@ export class RuntimeBridge {
         kind,
         event.virtualKey ?? 0xffff_ffff,
         Number(event.repeat),
+      ),
+    );
+  }
+
+  ingestPointerButtonEvent<T = Record<string, unknown>>(
+    event: RuntimePointerButtonInputEvent,
+  ): BridgeOutput<T> {
+    invariant(
+      /^(0|[1-9][0-9]*)$/.test(event.sequence),
+      "pointer event sequence is not a canonical unsigned integer",
+    );
+    const sequence = BigInt(event.sequence);
+    const [low, high] = splitU64(sequence);
+    const kind = { "button-down": 1, "button-up": 2 }[event.kind];
+    const button = { primary: 1, secondary: 2 }[event.button];
+    invariant(kind !== undefined, "pointer event kind is outside the bridge ABI");
+    invariant(button !== undefined, "pointer button is outside the bridge ABI");
+    invariant(
+      Number.isInteger(event.normalizedX) &&
+        event.normalizedX >= 0 &&
+        event.normalizedX <= 0xffff &&
+        Number.isInteger(event.normalizedY) &&
+        event.normalizedY >= 0 &&
+        event.normalizedY <= 0xffff,
+      "pointer normalized coordinates are outside the bridge ABI",
+    );
+    return this.#invoke(() =>
+      this.#exports.vine_bridge_ingest_pointer_button_event(
+        low,
+        high,
+        kind,
+        button,
+        event.normalizedX,
+        event.normalizedY,
       ),
     );
   }

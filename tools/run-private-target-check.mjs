@@ -187,13 +187,40 @@ function assertCapabilityCheckpoint(actual, expected) {
   assert(actual !== null, "capability checkpoint metadata is missing");
   assert.equal(actual.capability, expected.completion.capability);
   assert.equal(actual.implementationId, expected.completion.implementationId);
-  assert.equal(actual.requiredCompletions, expected.completion.requiredCompletions);
-  assert.equal(actual.completionCount, expected.completion.completionCount);
-  assert.equal(actual.lastCompletionSequence, expected.completion.lastCompletionSequence);
-  assert.equal(
-    actual.lastCompletionInstructionCount,
-    expected.completion.lastCompletionInstructionCount,
-  );
+  if (expected.completion.requiredPointerMessages !== undefined) {
+    assert.equal(
+      actual.requiredPointerMessages,
+      expected.completion.requiredPointerMessages,
+    );
+    assert.equal(
+      actual.pointerMessageDeliveryCount,
+      expected.completion.pointerMessageDeliveryCount,
+    );
+    assert.equal(actual.dispatchEntry.sequence, expected.completion.dispatchSequence);
+    assert.equal(
+      actual.dispatchEntry.trapInstructionCount,
+      expected.completion.dispatchInstructionCount,
+    );
+    assert.equal(
+      actual.releaseMessageQueued,
+      expected.completion.releaseMessageQueued,
+    );
+    assert.equal(
+      actual.activeCallbackDepthAtStop,
+      expected.completion.activeCallbackDepthAtStop,
+    );
+  } else {
+    assert.equal(actual.requiredCompletions, expected.completion.requiredCompletions);
+    assert.equal(actual.completionCount, expected.completion.completionCount);
+    assert.equal(
+      actual.lastCompletionSequence,
+      expected.completion.lastCompletionSequence,
+    );
+    assert.equal(
+      actual.lastCompletionInstructionCount,
+      expected.completion.lastCompletionInstructionCount,
+    );
+  }
   assert.equal(actual.instructionCount, expected.instructionCount);
   assert.equal(actual.nextEndpoint.id, expected.nextEndpoint.endpointId);
   assert.equal(hex32(actual.nextEndpoint.address), expected.nextEndpoint.endpointAddress);

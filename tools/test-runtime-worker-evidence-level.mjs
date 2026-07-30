@@ -12,7 +12,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 77 as const/u);
+assert.match(protocol, /protocolVersion = 78 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -34,6 +34,10 @@ assert.match(
 assert.match(
   protocol,
   /"primary-main-loop-window-timer-callback-action-input-progress-gateway"/u,
+);
+assert.match(
+  protocol,
+  /"primary-main-loop-pointer-message-action-progress-gateway"/u,
 );
 assert.match(protocol, /windowTimerDelivery\?: \{/u);
 assert.match(
@@ -60,6 +64,10 @@ assert.match(
 assert.match(
   fullProbe,
   /primary-main-loop-window-timer-callback-action-input-progress-gateway/u,
+);
+assert.match(
+  fullProbe,
+  /primary-main-loop-pointer-message-action-progress-gateway/u,
 );
 assert.match(protocol, /kernel32-get-file-attributes-a/u);
 assert.match(protocol, /RuntimeGetFileAttributesACallSnapshot/u);
@@ -229,10 +237,11 @@ assert.match(worker, /user32\.get-window-rect\.v1/u);
 assert.match(worker, /user32\.get-cursor-pos\.v1/u);
 assert.match(worker, /user32\.peek-message-a\.current-thread\.v1/u);
 assert.match(worker, /ingestKeyboardInput/u);
-assert.match(worker, /#pendingKeyboardEvents/u);
+assert.match(worker, /#pendingInputEvents/u);
 assert.match(fullProbe, /type: "keyboard-input"/u);
-assert.match(fullProbe, /pointerSourceEvent\(1, "key-down", 0\)/u);
-assert.match(fullProbe, /pointerSourceEvent\(2, "key-up", 0\)/u);
+assert.match(fullProbe, /pointerSourceEvent\(\s*1,\s*"button-down"/u);
+assert.match(fullProbe, /pointerSourceEvent\(\s*2,\s*"button-up"/u);
+assert.match(fullProbe, /type: "pointer-input"/u);
 assert.match(fullProbe, /primary-main-loop-action-input-progress-gateway/u);
 assert.match(worker, /terminal\.outcome === "structured-stop"/u);
 assert.match(

@@ -1,9 +1,9 @@
 use vine_core::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, ProcessAddressSpaceLayout, RuntimeBootstrap,
     RuntimeClockState, RuntimeCursorPositionProfile, RuntimeInputProfile, RuntimeMessageId,
-    RuntimeMessageReceiveDisposition, RuntimeMessageWake, RuntimeProcessId, RuntimeSchedulerEvent,
-    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeThreadMessage, SchedulerThreadState,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeMessageReceiveDisposition, RuntimeMessageSource, RuntimeMessageWake, RuntimeProcessId,
+    RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeThreadMessage,
+    SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 const PROCESS_ID: u32 = 4096;
@@ -49,7 +49,12 @@ fn message_queue_preserves_fifo_owner_and_wakes_only_on_empty_transition() {
         .expect("second post preserves runnable owner");
     assert_eq!(first.id, RuntimeMessageId(1));
     assert_eq!(second.id, RuntimeMessageId(2));
-    assert_eq!(first.source_thread_id, SECOND_THREAD_ID);
+    assert_eq!(
+        first.source,
+        RuntimeMessageSource::Thread {
+            thread_id: SECOND_THREAD_ID
+        }
+    );
     assert_eq!(first.target_thread_id, INITIAL_THREAD_ID);
     assert_eq!(
         runtime
@@ -132,7 +137,9 @@ fn message_queue_preserves_fifo_owner_and_wakes_only_on_empty_transition() {
     let queued = [
         RuntimeThreadMessage {
             id: RuntimeMessageId(1),
-            source_thread_id: SECOND_THREAD_ID,
+            source: RuntimeMessageSource::Thread {
+                thread_id: SECOND_THREAD_ID,
+            },
             target_thread_id: INITIAL_THREAD_ID,
             hwnd: 0,
             message: 0x0501,
@@ -144,7 +151,9 @@ fn message_queue_preserves_fifo_owner_and_wakes_only_on_empty_transition() {
         },
         RuntimeThreadMessage {
             id: RuntimeMessageId(2),
-            source_thread_id: SECOND_THREAD_ID,
+            source: RuntimeMessageSource::Thread {
+                thread_id: SECOND_THREAD_ID,
+            },
             target_thread_id: INITIAL_THREAD_ID,
             hwnd: 0,
             message: 0x0502,

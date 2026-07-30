@@ -24,17 +24,19 @@ use vine_core::{
     RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
     RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeHandle,
     RuntimeHeapInitialization, RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind,
-    RuntimeModule, RuntimeModuleId, RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent,
-    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
-    RuntimeStateErrorClass, RuntimeThreadId, RuntimeWritableCommitHostResponse,
-    RuntimeWritableDirectoryCreateHostResponse, RuntimeWritableProfileManifest,
-    SEND_MESSAGE_A_IMPLEMENTATION, SchedulerThreadState, StackCleanup, USER32_WM_IME_CONTROL,
-    User32CompatibilityPolicy, WinmmCompatibilityPolicy, bind_pe32_imports, build_pe32_load_plan,
-    complete_kernel32_source_read, complete_kernel32_waitable_timer_pacing,
-    complete_kernel32_writable_commit, complete_kernel32_writable_directory_create,
-    d3d9_contract_for_endpoint, dinput8_contract_for_endpoint, dispatch_d3d9_api,
-    dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_dsound_api,
-    dispatch_dsound_com_call, dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
+    RuntimeModule, RuntimeModuleId, RuntimeObjectKind, RuntimePointerButton,
+    RuntimePointerButtonSourceEvent, RuntimePointerButtonSourceEventKind, RuntimeProcessId,
+    RuntimeSchedulerEvent, RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest,
+    RuntimeStartupInfo, RuntimeState, RuntimeStateErrorClass, RuntimeThreadId,
+    RuntimeWritableCommitHostResponse, RuntimeWritableDirectoryCreateHostResponse,
+    RuntimeWritableProfileManifest, SEND_MESSAGE_A_IMPLEMENTATION, SchedulerThreadState,
+    StackCleanup, USER32_WM_IME_CONTROL, User32CompatibilityPolicy, WinmmCompatibilityPolicy,
+    bind_pe32_imports, build_pe32_load_plan, complete_kernel32_source_read,
+    complete_kernel32_waitable_timer_pacing, complete_kernel32_writable_commit,
+    complete_kernel32_writable_directory_create, d3d9_contract_for_endpoint,
+    dinput8_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api,
+    dispatch_dinput8_com_call, dispatch_dsound_api, dispatch_dsound_com_call,
+    dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
     dispatch_imm32_api_with_policy, dispatch_kernel32_api_with_prevalidated_policy,
     dispatch_ole32_api, dispatch_shell32_api, dispatch_user32_api_with_policy,
     dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, gdi32_contract_for_endpoint,
@@ -100,6 +102,7 @@ struct BgiCheckpointCapabilities {
     heap_alloc_24_byte_buffer: bool,
     post_heap_time_get_time: bool,
     user32_window_timer_callback_delivery: bool,
+    user32_pointer_button_messages: bool,
 }
 
 impl Bridge {
@@ -312,6 +315,14 @@ impl Bridge {
         self.set_output(metadata, Vec::new(), Vec::new())
     }
 
+    fn ingest_pointer_button_event(
+        &mut self,
+        event: RuntimePointerButtonSourceEvent,
+    ) -> Result<(), String> {
+        let metadata = self.runtime_mut()?.ingest_pointer_button_event(event)?;
+        self.set_output(metadata, Vec::new(), Vec::new())
+    }
+
     fn reconcile_writeback_input(
         &mut self,
         control_length: usize,
@@ -455,6 +466,35 @@ impl BrowserRuntime {
             "kind": "keyboard-event-ingested",
             "receipt": receipt,
             "keyboard": self.runtime.keyboard_state(),
+        }))
+    }
+
+    fn ingest_pointer_button_event(
+        &mut self,
+        event: RuntimePointerButtonSourceEvent,
+    ) -> Result<Value, String> {
+        let profile = match &self.target {
+            BrowserRuntimeTarget::Bgi { user32_policy, .. } => user32_policy
+                .pointer_button_messages
+                .clone()
+                .ok_or_else(|| {
+                    "active User32 policy does not enable pointer button messages".to_owned()
+                })?,
+            _ => {
+                return Err(
+                    "pointer button message ingestion requires the private BGI runtime".to_owned(),
+                );
+            }
+        };
+        let receipt = self
+            .runtime
+            .ingest_pointer_button_event(event, &profile)
+            .map_err(error_string)?;
+        Ok(json!({
+            "kind": "pointer-button-event-ingested",
+            "receipt": receipt,
+            "keyboard": self.runtime.keyboard_state(),
+            "cursor": self.runtime.cursor_position(),
         }))
     }
 
@@ -694,7 +734,9 @@ impl BrowserRuntime {
             .runtime
             .register_writable_profile(writable_profile)
             .map_err(error_string)?;
-        let user32_policy = if capabilities.user32_window_timer_callback_delivery {
+        let user32_policy = if capabilities.user32_pointer_button_messages {
+            User32CompatibilityPolicy::controlled_v32()
+        } else if capabilities.user32_window_timer_callback_delivery {
             User32CompatibilityPolicy::controlled_v31()
         } else {
             User32CompatibilityPolicy::controlled_v30()
@@ -839,7 +881,8 @@ impl BrowserRuntime {
             &kernel32_policy,
             capabilities.set_rect,
             capabilities.user32_async_key_state_initial_scan,
-            capabilities.user32_window_timer_callback_delivery,
+            capabilities.user32_window_timer_callback_delivery
+                || capabilities.user32_pointer_button_messages,
         )?;
         let runtime_stack = process
             .runtime
@@ -2166,6 +2209,10 @@ impl BrowserRuntime {
         let generation = delta.generation;
         let buffers = delta.encode_binary().map_err(error_string)?;
         let thread_id = self.runtime.current_thread_id();
+        let queued_thread_messages = self
+            .runtime
+            .queued_thread_messages(thread_id)
+            .map_err(error_string)?;
         let callbacks = self.callbacks.entry(thread_id).or_default();
         let depth = callbacks.len() + 1;
         let metadata = json!({
@@ -2180,6 +2227,7 @@ impl BrowserRuntime {
             "frameBytes": prepared.frame_bytes,
             "returnSentinel": call.request.return_sentinel.0,
             "generation": generation,
+            "queuedThreadMessages": queued_thread_messages,
         });
         callbacks.push(ActiveCallback {
             call,
@@ -3219,7 +3267,7 @@ fn build_bgi_dispatcher(
     kernel32_policy: &Kernel32CompatibilityPolicy,
     set_rect_enabled: bool,
     user32_async_key_state_initial_scan_enabled: bool,
-    user32_window_timer_callback_delivery_enabled: bool,
+    user32_message_dispatch_enabled: bool,
 ) -> Result<BgiDispatcher, String> {
     let mut endpoints = process
         .binding
@@ -3251,9 +3299,7 @@ fn build_bgi_dispatcher(
                 "GlobalMemoryStatus" => kernel32_policy.memory_status().is_some(),
                 "SetRect" => set_rect_enabled,
                 "GetWindowRect" | "GetCursorPos" => user32_async_key_state_initial_scan_enabled,
-                "TranslateMessage" | "DispatchMessageA" => {
-                    user32_window_timer_callback_delivery_enabled
-                }
+                "TranslateMessage" | "DispatchMessageA" => user32_message_dispatch_enabled,
                 _ => true,
             }
         })
@@ -4522,6 +4568,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
     heap_alloc_24_byte_buffer_enabled: u32,
     post_heap_time_get_time_enabled: u32,
     user32_window_timer_callback_delivery_enabled: u32,
+    user32_pointer_button_messages_enabled: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_bgi(
@@ -4549,6 +4596,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
                 post_heap_time_get_time: post_heap_time_get_time_enabled != 0,
                 user32_window_timer_callback_delivery: user32_window_timer_callback_delivery_enabled
                     != 0,
+                user32_pointer_button_messages: user32_pointer_button_messages_enabled != 0,
             },
         )
     })
@@ -4843,6 +4891,38 @@ pub extern "C" fn vine_bridge_ingest_keyboard_event(
             kind,
             virtual_key,
             repeat,
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_ingest_pointer_button_event(
+    sequence_low: u32,
+    sequence_high: u32,
+    kind: u32,
+    button: u32,
+    normalized_x: u32,
+    normalized_y: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        let kind = match kind {
+            1 => RuntimePointerButtonSourceEventKind::ButtonDown,
+            2 => RuntimePointerButtonSourceEventKind::ButtonUp,
+            _ => return Err("pointer button event kind is outside the bridge ABI".to_owned()),
+        };
+        let button = match button {
+            1 => RuntimePointerButton::Primary,
+            2 => RuntimePointerButton::Secondary,
+            _ => return Err("pointer button is outside the bridge ABI".to_owned()),
+        };
+        bridge.ingest_pointer_button_event(RuntimePointerButtonSourceEvent {
+            sequence: u64::from(sequence_low) | (u64::from(sequence_high) << 32),
+            kind,
+            button,
+            normalized_x: u16::try_from(normalized_x)
+                .map_err(|_| "pointer normalized x is outside the bridge ABI".to_owned())?,
+            normalized_y: u16::try_from(normalized_y)
+                .map_err(|_| "pointer normalized y is outside the bridge ABI".to_owned())?,
         })
     })
 }

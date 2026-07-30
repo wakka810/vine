@@ -37,13 +37,15 @@ use vine_core::{
     RuntimeKeyboardState, RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId,
     RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeModuleNode, RuntimeMutex,
     RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord, RuntimePageFaultResolution,
-    RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeSchedulerEvent,
-    RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse, RuntimeSourceSnapshot,
-    RuntimeSourceSnapshotManifest, RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState,
-    RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadExecutionSelection, RuntimeThreadId,
-    RuntimeThreadPriority, RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeThreadState,
-    RuntimeTimerClockState, RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer,
-    RuntimeWindowId, RuntimeWindowTimer, RuntimeWindowTimerDeliveryState, RuntimeWindowTimerId,
+    RuntimePointerButton, RuntimePointerButtonIngressReceipt, RuntimePointerButtonSourceEvent,
+    RuntimePointerButtonSourceEventKind, RuntimeProcessId, RuntimeProcessLifecycleState,
+    RuntimeSchedulerEvent, RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse,
+    RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest, RuntimeStandardHandle,
+    RuntimeStartupInfo, RuntimeState, RuntimeStateError, RuntimeStateErrorClass,
+    RuntimeThreadExecutionSelection, RuntimeThreadId, RuntimeThreadMessage, RuntimeThreadPriority,
+    RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeThreadState, RuntimeTimerClockState,
+    RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer, RuntimeWindowId,
+    RuntimeWindowTimer, RuntimeWindowTimerDeliveryState, RuntimeWindowTimerId,
     RuntimeWritableCommitCompletion, RuntimeWritableCommitHostResponse,
     RuntimeWritableDirectoryCreateCompletion, RuntimeWritableDirectoryCreateHostResponse,
     RuntimeWritableProfile, RuntimeWritableProfileManifest, SEND_MESSAGE_A_IMPLEMENTATION,
@@ -127,6 +129,8 @@ const RUNTIME_FRAME_THREAD_EXIT: u32 = 20;
 const RUNTIME_FRAME_THREAD_EXIT_COMPLETION: u32 = 21;
 const RUNTIME_FRAME_KEYBOARD_INPUT: u32 = 22;
 const RUNTIME_FRAME_KEYBOARD_INPUT_COMPLETION: u32 = 23;
+const RUNTIME_FRAME_POINTER_BUTTON_INPUT: u32 = 24;
+const RUNTIME_FRAME_POINTER_BUTTON_INPUT_COMPLETION: u32 = 25;
 const RUNTIME_FRAME_MAX_CONTROL_BYTES: usize = 1024 * 1024;
 const RUNTIME_FRAME_MAX_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
 const GENERIC_RUNTIME_TRAP_LIMIT: usize = 32_768;
@@ -271,6 +275,7 @@ enum GenericRuntimeCapability {
     User32AsyncKeyStateInput,
     User32AsyncKeyStateInitialScan,
     User32WindowTimerCallbackDelivery,
+    User32PointerButtonMessages,
 }
 
 struct GenericRuntimeProcess {
@@ -339,6 +344,7 @@ struct GenericRuntimeCallbackEntry {
     scratch_bytes: u32,
     frame_bytes: u32,
     return_sentinel: u32,
+    queued_thread_messages: Vec<RuntimeThreadMessage>,
     memory: MemoryStats,
 }
 
@@ -405,6 +411,34 @@ struct GenericRuntimeKeyboardInputCompletion {
     schema: &'static str,
     schema_version: u32,
     receipt: RuntimeKeyboardEventReceipt,
+    keyboard: RuntimeKeyboardState,
+    memory: MemoryStats,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GenericRuntimePointerButtonInputRequest {
+    schema: String,
+    schema_version: u32,
+    event: GenericRuntimePointerButtonInputEvent,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GenericRuntimePointerButtonInputEvent {
+    sequence: u64,
+    kind: String,
+    button: String,
+    normalized_x: u16,
+    normalized_y: u16,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimePointerButtonInputCompletion {
+    schema: &'static str,
+    schema_version: u32,
+    receipt: RuntimePointerButtonIngressReceipt,
     keyboard: RuntimeKeyboardState,
     memory: MemoryStats,
 }
@@ -2824,6 +2858,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::User32AsyncKeyStateInput
                     | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
                     | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
+                    | GenericRuntimeCapability::User32PointerButtonMessages
             )
         ) {
             let loader = kernel32_policy
@@ -3491,7 +3526,14 @@ fn run_v86_generic_runtime_session(
 ) -> Result<(), LoaderError> {
     let window_timer_delivery_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::User32WindowTimerCallbackDelivery)
+        Some(
+            GenericRuntimeCapability::User32WindowTimerCallbackDelivery
+                | GenericRuntimeCapability::User32PointerButtonMessages
+        )
+    );
+    let pointer_button_messages_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::User32PointerButtonMessages)
     );
     let d3d9_present_enabled = matches!(
         enabled_capability,
@@ -3501,6 +3543,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::User32AsyncKeyStateInput
                 | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
                 | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
+                | GenericRuntimeCapability::User32PointerButtonMessages
         )
     );
     let get_async_key_state_enabled = matches!(
@@ -3509,6 +3552,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::User32AsyncKeyStateInput
                 | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
                 | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
+                | GenericRuntimeCapability::User32PointerButtonMessages
         )
     );
     let get_async_key_state_input_enabled = matches!(
@@ -3520,6 +3564,7 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::User32AsyncKeyStateInitialScan
                 | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
+                | GenericRuntimeCapability::User32PointerButtonMessages
         )
     );
     let d3d9_post_end_scene_raster_status_enabled = matches!(
@@ -3533,6 +3578,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::User32AsyncKeyStateInput
                 | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
                 | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
+                | GenericRuntimeCapability::User32PointerButtonMessages
         )
     );
     let d3d9_end_scene_enabled = d3d9_post_end_scene_raster_status_enabled
@@ -3787,7 +3833,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9PostPresentContinuation
             | GenericRuntimeCapability::User32AsyncKeyStateInput
             | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
-            | GenericRuntimeCapability::User32WindowTimerCallbackDelivery,
+            | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
+            | GenericRuntimeCapability::User32PointerButtonMessages,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3946,7 +3993,9 @@ fn run_v86_generic_runtime_session(
     );
     let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
     imm32_policy.validate().map_err(api_fault)?;
-    let mut user32_policy = if window_timer_delivery_enabled {
+    let mut user32_policy = if pointer_button_messages_enabled {
+        User32CompatibilityPolicy::controlled_v32()
+    } else if window_timer_delivery_enabled {
         User32CompatibilityPolicy::controlled_v31()
     } else {
         User32CompatibilityPolicy::controlled_v30()
@@ -4819,7 +4868,101 @@ fn run_v86_generic_runtime_session(
 
     for _ in 0..trap_limit {
         let mut writeback_frame = read_runtime_frame(input)?;
-        while writeback_frame.kind == RUNTIME_FRAME_KEYBOARD_INPUT {
+        while matches!(
+            writeback_frame.kind,
+            RUNTIME_FRAME_KEYBOARD_INPUT | RUNTIME_FRAME_POINTER_BUTTON_INPUT
+        ) {
+            if writeback_frame.kind == RUNTIME_FRAME_POINTER_BUTTON_INPUT {
+                if !writeback_frame.payload.is_empty() {
+                    return Err(LoaderError::invalid_input(
+                        "runtime-reentry",
+                        "runtime-pointer-button-input-payload-unexpected",
+                        "generic runtime pointer-button frames may not contain a byte payload",
+                    ));
+                }
+                let request: GenericRuntimePointerButtonInputRequest = serde_json::from_slice(
+                    &writeback_frame.control,
+                )
+                .map_err(|error| {
+                    LoaderError::invalid_input(
+                        "runtime-reentry",
+                        "runtime-pointer-button-input-json-invalid",
+                        format!(
+                            "generic runtime pointer-button input frame is invalid JSON: {error}"
+                        ),
+                    )
+                })?;
+                if request.schema != "vine.v86-generic-runtime-pointer-button-input"
+                    || request.schema_version != 1
+                {
+                    return Err(LoaderError::invalid_input(
+                        "runtime-reentry",
+                        "runtime-pointer-button-input-schema-unsupported",
+                        "generic runtime pointer-button input requires schema version 1",
+                    ));
+                }
+                let kind = match request.event.kind.as_str() {
+                    "button-down" => RuntimePointerButtonSourceEventKind::ButtonDown,
+                    "button-up" => RuntimePointerButtonSourceEventKind::ButtonUp,
+                    _ => {
+                        return Err(LoaderError::invalid_input(
+                            "runtime-reentry",
+                            "runtime-pointer-button-input-kind-invalid",
+                            "generic runtime pointer-button input has an unknown event kind",
+                        ));
+                    }
+                };
+                let button = match request.event.button.as_str() {
+                    "primary" => RuntimePointerButton::Primary,
+                    "secondary" => RuntimePointerButton::Secondary,
+                    _ => {
+                        return Err(LoaderError::invalid_input(
+                            "runtime-reentry",
+                            "runtime-pointer-button-input-button-invalid",
+                            "generic runtime pointer-button input has an unknown source button",
+                        ));
+                    }
+                };
+                let profile = user32_policy.pointer_button_messages.as_ref().ok_or_else(|| {
+                    LoaderError::invalid_input(
+                        "runtime-reentry",
+                        "runtime-pointer-button-input-policy-missing",
+                        "generic runtime pointer-button input requires the User32 pointer profile",
+                    )
+                })?;
+                let receipt = process
+                    .runtime
+                    .ingest_pointer_button_event(
+                        RuntimePointerButtonSourceEvent {
+                            sequence: request.event.sequence,
+                            kind,
+                            button,
+                            normalized_x: request.event.normalized_x,
+                            normalized_y: request.event.normalized_y,
+                        },
+                        profile,
+                    )
+                    .map_err(runtime_state_error)?;
+                let keyboard = process.runtime.keyboard_state().cloned().ok_or_else(|| {
+                    LoaderError::runtime_defect(
+                        "runtime-reentry",
+                        "runtime-pointer-button-input-state-missing",
+                        "pointer-button event committed without authoritative keyboard state",
+                    )
+                })?;
+                write_runtime_json_frame(
+                    RUNTIME_FRAME_POINTER_BUTTON_INPUT_COMPLETION,
+                    &GenericRuntimePointerButtonInputCompletion {
+                        schema: "vine.v86-generic-runtime-pointer-button-input-completion",
+                        schema_version: 1,
+                        receipt,
+                        keyboard,
+                        memory: memory.stats(),
+                    },
+                )?;
+                writeback_frame = read_runtime_frame(input)?;
+                continue;
+            }
             if !writeback_frame.payload.is_empty() {
                 return Err(LoaderError::invalid_input(
                     "runtime-reentry",
@@ -5097,6 +5240,11 @@ fn run_v86_generic_runtime_session(
                     )?;
                     let window_timer = if window_timer_delivery_enabled
                         && completion.implementation_id == DISPATCH_MESSAGE_A_IMPLEMENTATION
+                        && session
+                            .runtime()
+                            .window_timers()
+                            .values()
+                            .any(|timer| timer.callback_address == retired.call.request.target)
                     {
                         Some(GenericRuntimeWindowTimer::snapshot(
                             *session
@@ -5196,6 +5344,10 @@ fn run_v86_generic_runtime_session(
                             "replacement guest callback did not commit a continuation action",
                         ));
                     }
+                    let queued_thread_messages = session
+                        .runtime()
+                        .queued_thread_messages(session.runtime().current_thread_id())
+                        .map_err(runtime_state_error)?;
                     send_pending_runtime_delta(input, memory)?;
                     let callback_entry = GenericRuntimeCallbackEntry {
                         schema: "vine.v86-generic-runtime-callback",
@@ -5213,6 +5365,7 @@ fn run_v86_generic_runtime_session(
                         scratch_bytes: prepared.scratch_bytes,
                         frame_bytes: prepared.frame_bytes,
                         return_sentinel: next.request.return_sentinel.0,
+                        queued_thread_messages,
                         memory: memory.stats(),
                     };
                     *active_callbacks
@@ -5808,6 +5961,13 @@ fn run_v86_generic_runtime_session(
                         } else if window_timer_delivery_enabled
                             && completion.implementation_id == PEEK_MESSAGE_A_IMPLEMENTATION
                             && matches!(completion.eax, RegisterUpdate::Set(value) if value != 0)
+                            && completion.guest_writes.iter().any(|write| {
+                                write.write.bytes.get(4..8).is_some_and(|bytes| {
+                                    u32::from_le_bytes(
+                                        bytes.try_into().expect("checked MSG field width"),
+                                    ) == 0x0113
+                                })
+                            })
                         {
                             Some(GenericRuntimeWindowTimer::snapshot(
                                 *session
@@ -6179,6 +6339,10 @@ fn run_v86_generic_runtime_session(
                                 return Ok(());
                             }
                         };
+                        let queued_thread_messages = session
+                            .runtime()
+                            .queued_thread_messages(session.runtime().current_thread_id())
+                            .map_err(runtime_state_error)?;
                         send_pending_runtime_delta(input, memory)?;
                         let callback_entry = GenericRuntimeCallbackEntry {
                             schema: "vine.v86-generic-runtime-callback",
@@ -6196,6 +6360,7 @@ fn run_v86_generic_runtime_session(
                             scratch_bytes: prepared.scratch_bytes,
                             frame_bytes: prepared.frame_bytes,
                             return_sentinel: call.request.return_sentinel.0,
+                            queued_thread_messages,
                             memory: memory.stats(),
                         };
                         active_callbacks.push(GenericRuntimeActiveCallback {
@@ -14700,6 +14865,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "primary-main-loop-window-timer-callback-action-input-progress-gateway" => {
                     GenericRuntimeCapability::User32WindowTimerCallbackDelivery
+                }
+                "primary-main-loop-pointer-message-action-progress-gateway" => {
+                    GenericRuntimeCapability::User32PointerButtonMessages
                 }
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx

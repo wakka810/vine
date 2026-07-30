@@ -7,6 +7,7 @@ import {
   type KeyboardInputMessage,
   type MainToWorkerMessage,
   type PageLifecycleMessage,
+  type PointerInputMessage,
   protocolVersion,
   type SessionConfiguration,
   type SessionFinishedMessage,
@@ -34,7 +35,12 @@ import {
   type RuntimeKeyboardEventReceipt,
   type RuntimeKeyboardInputEvent,
   type RuntimeKeyboardInputBoundaryEvidence,
+  type RuntimeKeyboardStateSnapshot,
+  type RuntimePointerButtonIngressReceipt,
+  type RuntimePointerButtonInputBoundaryEvidence,
+  type RuntimePointerButtonInputEvent,
   type RuntimeCursorPositionSnapshot,
+  type RuntimeThreadMessageSnapshot,
   type RuntimeSetWindowPosFrameChangeMoveCallSnapshot,
   type RuntimeSetWindowPosFrameChangeMoveCallbackEvent,
   type RuntimeSetWindowPosRepeatActivationCallSnapshot,
@@ -98,7 +104,7 @@ import { D3d9WebGl2Renderer } from "./d3d9-renderer.js";
 const worker = self as DedicatedWorkerGlobalScope;
 const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
 const BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 64;
-const MAX_PENDING_KEYBOARD_EVENTS = 256;
+const MAX_PENDING_INPUT_EVENTS = 256;
 const RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS = 40_000_000;
 const RUNTIME_TRAPLESS_EXECUTION_BUDGET_START_INSTRUCTION = 226_703_249;
 const RUNTIME_TRAPLESS_EXECUTION_BUDGET_PREVIOUS_STOP = 266_703_249;
@@ -645,7 +651,8 @@ function isInputProgressGatewayCheckpoint(
     profile === "primary-main-loop-input-progress-gateway" ||
     profile === "primary-main-loop-action-input-progress-gateway" ||
     profile ===
-      "primary-main-loop-window-timer-callback-action-input-progress-gateway"
+      "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
+    profile === "primary-main-loop-pointer-message-action-progress-gateway"
   );
 }
 
@@ -655,7 +662,8 @@ function isActionInputProgressGatewayCheckpoint(
   return (
     profile === "primary-main-loop-action-input-progress-gateway" ||
     profile ===
-      "primary-main-loop-window-timer-callback-action-input-progress-gateway"
+      "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
+    profile === "primary-main-loop-pointer-message-action-progress-gateway"
   );
 }
 
@@ -678,8 +686,15 @@ function isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
 ): boolean {
   return (
     profile ===
-    "primary-main-loop-window-timer-callback-action-input-progress-gateway"
+      "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
+    profile === "primary-main-loop-pointer-message-action-progress-gateway"
   );
+}
+
+function isPointerMessageActionProgressGatewayCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "primary-main-loop-pointer-message-action-progress-gateway";
 }
 
 function hasWindowTimerCallbackDelivery(
@@ -723,7 +738,15 @@ function isRecurringTimerBoundedWindowCheckpoint(
 function recurringTimerWindowConfiguration(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  return isWindowTimerCallbackActionInputProgressGatewayCheckpoint(profile)
+  return isPointerMessageActionProgressGatewayCheckpoint(profile)
+    ? ({
+        capability: "primary-main-loop-pointer-message-action-progress-gateway",
+        implementationId:
+          "runtime.main-loop-pointer-message-action-progress-gateway.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      } as const)
+    : isWindowTimerCallbackActionInputProgressGatewayCheckpoint(profile)
     ? ({
         capability:
           "primary-main-loop-window-timer-callback-action-input-progress-gateway",
@@ -911,16 +934,21 @@ function windowTimerCallbackRecurringBatchExpectation() {
 function inputProgressGatewayExpectation(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
+  const pointer = isPointerMessageActionProgressGatewayCheckpoint(profile);
   const combined =
     isWindowTimerCallbackActionInputProgressGatewayCheckpoint(profile);
   const action = isActionInputProgressGatewayCheckpoint(profile);
   return {
-    capability: combined
+    capability: pointer
+      ? "primary-main-loop-pointer-message-action-progress-gateway"
+      : combined
       ? "primary-main-loop-window-timer-callback-action-input-progress-gateway"
       : action
       ? "primary-main-loop-action-input-progress-gateway"
       : "primary-main-loop-input-progress-gateway",
-    implementationId: combined
+    implementationId: pointer
+      ? "runtime.main-loop-pointer-message-action-progress-gateway.v1"
+      : combined
       ? "runtime.main-loop-window-timer-callback-action-input-progress-gateway.v1"
       : action
       ? "runtime.main-loop-action-input-progress-gateway.v1"
@@ -1266,6 +1294,7 @@ interface GuestCallbackMetadata {
   frameBytes: number;
   returnSentinel: number;
   generation: number;
+  queuedThreadMessages: RuntimeThreadMessageSnapshot[];
 }
 
 interface CompletionMetadata {
@@ -1503,6 +1532,11 @@ type InputProgressGatewayCheckpoint = Extract<
   }
 >;
 
+type PointerMessageActionProgressGatewayCheckpoint = Extract<
+  NonNullable<SessionReport["checkpointCompletion"]>,
+  { capability: "primary-main-loop-pointer-message-action-progress-gateway" }
+>;
+
 type WindowTimerCallbackDeliveryGatewayCheckpoint = Extract<
   NonNullable<SessionReport["checkpointCompletion"]>,
   { capability: "primary-main-loop-window-timer-callback-delivery-gateway" }
@@ -1542,6 +1576,17 @@ interface KeyboardEventMetadata {
     pressedWords: number[];
   };
 }
+
+interface PointerButtonEventMetadata {
+  kind: "pointer-button-event-ingested";
+  receipt: RuntimePointerButtonIngressReceipt;
+  keyboard: RuntimeKeyboardStateSnapshot;
+  cursor: RuntimeCursorPositionSnapshot;
+}
+
+type PendingRuntimeInputEvent =
+  | { source: "keyboard"; event: RuntimeKeyboardInputEvent }
+  | { source: "pointer"; event: RuntimePointerButtonInputEvent };
 
 interface CallbackCompletionMetadata {
   kind: "callback-complete";
@@ -1758,6 +1803,34 @@ function validateKeyboardInputEvent(event: RuntimeKeyboardInputEvent): void {
   );
 }
 
+function validatePointerButtonInputEvent(
+  event: RuntimePointerButtonInputEvent,
+): void {
+  invariant(
+    typeof event.sequence === "string" &&
+      /^[1-9][0-9]*$/.test(event.sequence) &&
+      BigInt(event.sequence) <= BigInt(Number.MAX_SAFE_INTEGER),
+    "pointer event sequence must be a positive lossless integer",
+  );
+  invariant(
+    event.kind === "button-down" || event.kind === "button-up",
+    "pointer event kind is invalid",
+  );
+  invariant(
+    event.button === "primary" || event.button === "secondary",
+    "pointer button is invalid",
+  );
+  invariant(
+    Number.isInteger(event.normalizedX) &&
+      event.normalizedX >= 0 &&
+      event.normalizedX <= 0xffff &&
+      Number.isInteger(event.normalizedY) &&
+      event.normalizedY >= 0 &&
+      event.normalizedY <= 0xffff,
+    "pointer normalized coordinates are outside the supported range",
+  );
+}
+
 function byteArraysEqual(left: number[], right: number[]): boolean {
   return (
     left.length === right.length &&
@@ -1801,7 +1874,7 @@ class BrowserRuntimeSession {
   #stopping = false;
   #terminalTask: Promise<void> | null = null;
   #runtimePrepared = false;
-  readonly #pendingKeyboardEvents: RuntimeKeyboardInputEvent[] = [];
+  readonly #pendingInputEvents: PendingRuntimeInputEvent[] = [];
   #initialThreadId = 0;
   #currentThreadId = 0;
   #liveThreadId: number | null = null;
@@ -1954,7 +2027,12 @@ class BrowserRuntimeSession {
   };
   readonly #inputProgressKeyboardEvents: RuntimeKeyboardInputBoundaryEvidence[] =
     [];
+  readonly #inputProgressPointerEvents: RuntimePointerButtonInputBoundaryEvidence[] =
+    [];
   #inputProgressAsyncKeyStateQuery: RuntimeThreadCallSnapshot | null = null;
+  #pointerMessagePeekCall: RuntimeThreadCallSnapshot | null = null;
+  #pointerMessageTranslateCall: RuntimeThreadCallSnapshot | null = null;
+  #pointerMessageActionGatewayAwaitingSetFocus = false;
   readonly #presentationProgressRenderCompletions: RuntimeThreadCallSnapshot[] =
     [];
   #presentationProgressPresentCompletion: RuntimeThreadCallSnapshot | null =
@@ -2081,6 +2159,11 @@ class BrowserRuntimeSession {
       receivedMessages: 0,
       queuedBeforePrepare: 0,
       receipts: [] as RuntimeKeyboardEventReceipt[],
+    },
+    pointerInput: {
+      receivedMessages: 0,
+      queuedBeforePrepare: 0,
+      receipts: [] as RuntimePointerButtonIngressReceipt[],
     },
     sourceReads: [] as SessionReport["sourceReads"],
     writableCommits: [] as SessionReport["writableCommits"],
@@ -2302,6 +2385,9 @@ class BrowserRuntimeSession {
               hasWindowTimerCallbackDelivery(
                 this.#configuration.capabilityProfile,
               ),
+              isPointerMessageActionProgressGatewayCheckpoint(
+                this.#configuration.capabilityProfile,
+              ),
             )
           : workload === "controlled-source-read"
             ? bridge.prepareSourceRead(
@@ -2321,7 +2407,7 @@ class BrowserRuntimeSession {
       this.#engine = engine;
       this.#runtimePrepared = true;
       this.#prepared = preparedOutput.metadata;
-      this.#flushPendingKeyboardEvents();
+      this.#flushPendingInputEvents();
       if (profileBackedWorkload) {
         this.#validatePreparedWritableProfile(preparedOutput.metadata);
         await this.#hydrateWritableProfileObjects();
@@ -2362,9 +2448,13 @@ class BrowserRuntimeSession {
         const cursor = preparedOutput.metadata.runtime.cursorPosition;
         invariant(
           preparedOutput.metadata.runtime.user32Policy ===
-            (hasWindowTimerCallbackDelivery(
+            (isPointerMessageActionProgressGatewayCheckpoint(
               this.#configuration.capabilityProfile,
             )
+              ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
+              : hasWindowTimerCallbackDelivery(
+                    this.#configuration.capabilityProfile,
+                  )
               ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
               : "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30") &&
             cursor?.profileId === "primary-display-center-cursor-v1" &&
@@ -3013,10 +3103,13 @@ class BrowserRuntimeSession {
         )
       ) {
         invariant(
-          this.#pendingKeyboardEvents.length < MAX_PENDING_KEYBOARD_EVENTS,
-          "pending keyboard input exceeded its bounded queue",
+          this.#pendingInputEvents.length < MAX_PENDING_INPUT_EVENTS,
+          "pending runtime input exceeded its bounded queue",
         );
-        this.#pendingKeyboardEvents.push(structuredClone(message.event));
+        this.#pendingInputEvents.push({
+          source: "keyboard",
+          event: structuredClone(message.event),
+        });
         if (!this.#runtimePrepared) {
           this.#report.keyboardInput.queuedBeforePrepare += 1;
         }
@@ -3028,14 +3121,54 @@ class BrowserRuntimeSession {
     }
   }
 
-  #flushPendingKeyboardEvents(): void {
+  ingestPointerInput(message: PointerInputMessage): void {
+    if (
+      message.sessionId !== this.#sessionId ||
+      this.#terminal ||
+      this.#stopping
+    ) {
+      return;
+    }
+    try {
+      validatePointerButtonInputEvent(message.event);
+      this.#report.pointerInput.receivedMessages += 1;
+      if (
+        !this.#runtimePrepared ||
+        isInputProgressGatewayCheckpoint(
+          this.#configuration.capabilityProfile,
+        )
+      ) {
+        invariant(
+          this.#pendingInputEvents.length < MAX_PENDING_INPUT_EVENTS,
+          "pending runtime input exceeded its bounded queue",
+        );
+        this.#pendingInputEvents.push({
+          source: "pointer",
+          event: structuredClone(message.event),
+        });
+        if (!this.#runtimePrepared) {
+          this.#report.pointerInput.queuedBeforePrepare += 1;
+        }
+        return;
+      }
+      this.#commitPointerInput(message.event);
+    } catch (error) {
+      this.#fail(error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  #flushPendingInputEvents(): void {
     if (
       isInputProgressGatewayCheckpoint(this.#configuration.capabilityProfile)
     ) {
       return;
     }
-    for (const event of this.#pendingKeyboardEvents.splice(0)) {
-      this.#commitKeyboardInput(event);
+    for (const pending of this.#pendingInputEvents.splice(0)) {
+      if (pending.source === "keyboard") {
+        this.#commitKeyboardInput(pending.event);
+      } else {
+        this.#commitPointerInput(pending.event);
+      }
     }
   }
 
@@ -3073,6 +3206,77 @@ class BrowserRuntimeSession {
     return metadata;
   }
 
+  #commitPointerInput(
+    event: RuntimePointerButtonInputEvent,
+  ): PointerButtonEventMetadata {
+    const output =
+      this.#requireBridge().ingestPointerButtonEvent<PointerButtonEventMetadata>(
+        event,
+      );
+    invariant(
+      output.control.byteLength === 0 && output.payload.byteLength === 0,
+      "pointer input unexpectedly changed guest memory",
+    );
+    const metadata = output.metadata;
+    const sequence = Number(BigInt(event.sequence));
+    const receipt = metadata.receipt;
+    const input = receipt.input;
+    const expectedMessage =
+      input.logicalButton === "left"
+        ? event.kind === "button-down"
+          ? 0x0201
+          : 0x0202
+        : event.kind === "button-down"
+          ? 0x0204
+          : 0x0205;
+    const expectedButtonMask = input.logicalButton === "left" ? 0x01 : 0x02;
+    invariant(
+      metadata.kind === "pointer-button-event-ingested" &&
+        receipt.profileId === "normalized-primary-secondary-foreground-client-message-v1" &&
+        receipt.windowId > 0 &&
+        receipt.windowHandle !== 0 &&
+        receipt.targetThreadId > 0 &&
+        input.event.sequence === sequence &&
+        input.event.kind === event.kind &&
+        input.event.button === event.button &&
+        input.event.normalizedX === event.normalizedX &&
+        input.event.normalizedY === event.normalizedY &&
+        (input.logicalButton === "left" || input.logicalButton === "right") &&
+        input.virtualKey === (input.logicalButton === "left" ? 0x01 : 0x02) &&
+        input.keyboard.sequence === sequence &&
+        input.keyboard.kind ===
+          (event.kind === "button-down" ? "key-down" : "key-up") &&
+        input.keyboard.virtualKey === input.virtualKey &&
+        input.keyboard.repeat === false &&
+        input.keyboard.generation === metadata.keyboard.generation &&
+        metadata.keyboard.lastEventSequence === sequence &&
+        metadata.keyboard.maximumVirtualKey === 0xff &&
+        metadata.keyboard.aggregateModifierKeys === true &&
+        metadata.keyboard.clearOnSourceFocusLoss === true &&
+        metadata.keyboard.downWords.length === 8 &&
+        metadata.keyboard.pressedWords.length === 8 &&
+        input.cursor.profileId === metadata.cursor.profileId &&
+        input.cursor.screenX === metadata.cursor.screenX &&
+        input.cursor.screenY === metadata.cursor.screenY &&
+        input.cursor.generation === metadata.cursor.generation &&
+        receipt.message.source.kind === "pointer-input" &&
+        receipt.message.source.event_sequence === sequence &&
+        receipt.message.targetThreadId === receipt.targetThreadId &&
+        receipt.message.hwnd === receipt.windowHandle &&
+        receipt.message.message === expectedMessage &&
+        (event.kind === "button-down"
+          ? (receipt.message.wParam & expectedButtonMask) === expectedButtonMask
+          : (receipt.message.wParam & expectedButtonMask) === 0) &&
+        receipt.message.lParam ===
+          (((receipt.clientY & 0xffff) << 16) | (receipt.clientX & 0xffff)) >>> 0 &&
+        receipt.message.pointX === metadata.cursor.screenX &&
+        receipt.message.pointY === metadata.cursor.screenY,
+      "Rust pointer event receipt is inconsistent with the input protocol",
+    );
+    this.#report.pointerInput.receipts.push(structuredClone(receipt));
+    return metadata;
+  }
+
   #advanceInputProgressKeyboard(call: RuntimeSupportedCallSnapshot): void {
     if (
       !isInputProgressGatewayCheckpoint(
@@ -3084,6 +3288,14 @@ class BrowserRuntimeSession {
     const expected = inputProgressGatewayExpectation(
       this.#configuration.capabilityProfile,
     );
+    if (
+      isPointerMessageActionProgressGatewayCheckpoint(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      this.#advancePointerMessageActionProgress(call, expected);
+      return;
+    }
     const combined =
       isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
         this.#configuration.capabilityProfile,
@@ -3114,12 +3326,17 @@ class BrowserRuntimeSession {
           this.#inputProgressBaseline.lastCompletionInstructionCount &&
           this.#inputProgressKeyboardEvents.length === 0 &&
           this.#inputProgressAsyncKeyStateQuery === null &&
-          this.#pendingKeyboardEvents.length === 2,
+          this.#pendingInputEvents.length === 2,
         "input progress gateway did not retain its two-event trace until the injection boundary",
       );
-      const event = this.#pendingKeyboardEvents.shift();
+      const pending = this.#pendingInputEvents.shift();
       invariant(
-        event !== undefined &&
+        pending?.source === "keyboard" &&
+          pending.event !== undefined,
+        "input progress gateway key-down source changed",
+      );
+      const event = pending.event;
+      invariant(
           event.sequence === "1" &&
           event.kind === "key-down" &&
           event.virtualKey === expected.inputVirtualKey &&
@@ -3164,12 +3381,17 @@ class BrowserRuntimeSession {
           call.result.value === 0xffff_8001 &&
           call.lastError === 0 &&
           call.guestWrites.length === 0 &&
-          this.#pendingKeyboardEvents.length === 1,
+          this.#pendingInputEvents.length === 1,
         "input progress gateway async-key consumer changed",
       );
-      const event = this.#pendingKeyboardEvents.shift();
+      const pending = this.#pendingInputEvents.shift();
       invariant(
-        event !== undefined &&
+        pending?.source === "keyboard" &&
+          pending.event !== undefined,
+        "input progress gateway key-up source changed",
+      );
+      const event = pending.event;
+      invariant(
           event.sequence === "2" &&
           event.kind === "key-up" &&
           event.virtualKey === expected.inputVirtualKey &&
@@ -3204,6 +3426,173 @@ class BrowserRuntimeSession {
         receipt: structuredClone(metadata.receipt),
         keyboard: structuredClone(metadata.keyboard),
       });
+    }
+  }
+
+  #advancePointerMessageActionProgress(
+    call: RuntimeSupportedCallSnapshot,
+    expected: ReturnType<typeof inputProgressGatewayExpectation>,
+  ): void {
+    const currentCycle = this.#recurringTimerMultiCycleCurrentCycle;
+    const inputBoundaryReached =
+      currentCycle?.cycleIndex === this.#inputProgressBaseline.cycleCount - 1 &&
+      call.implementationId ===
+        "kernel32.set-waitable-timer.relative-one-shot.v1" &&
+      call.arguments[0] === currentCycle.waitHandle;
+    if (inputBoundaryReached) {
+      this.#inputProgressBaseline.lastCompletionSequence = call.sequence;
+      this.#inputProgressBaseline.lastCompletionInstructionCount =
+        this.#report.instructions;
+      this.#inputProgressBaseline.presentOccurrence =
+        this.#presentationProgressPresentCompletion?.occurrence ?? 2;
+      this.#inputProgressBaseline.renderCompletionCount =
+        this.#presentationProgressRenderCompletions.length;
+      invariant(
+        this.#inputProgressPointerEvents.length === 0 &&
+          this.#inputProgressAsyncKeyStateQuery === null &&
+          this.#pendingInputEvents.length === 2,
+        "pointer message gateway did not retain its two-event trace until the injection boundary",
+      );
+      const pending = this.#pendingInputEvents.shift();
+      invariant(
+        pending?.source === "pointer" &&
+          pending.event.sequence === "1" &&
+          pending.event.kind === "button-down" &&
+          pending.event.button === "primary" &&
+          pending.event.normalizedX === 0x8000 &&
+          pending.event.normalizedY === 0x8000,
+        "pointer message gateway button-down event changed",
+      );
+      const event = pending.event;
+      const metadata = this.#commitPointerInput(event);
+      invariant(
+        metadata.receipt.input.virtualKey === expected.inputVirtualKey &&
+          metadata.receipt.input.keyboard.generation === 1 &&
+          inputAffectedKeysIdentity(
+            metadata.receipt.input.keyboard.affectedKeys,
+          ) === inputAffectedKeysIdentity(expected.downAffectedKeys) &&
+          metadata.keyboard.generation === 1 &&
+          metadata.keyboard.downWords.join(",") === expected.downWords &&
+          metadata.keyboard.pressedWords.join(",") === expected.pressedWords &&
+          metadata.receipt.message.message === 0x0201 &&
+          metadata.receipt.message.wParam === 0x0001,
+        "pointer message gateway button-down did not commit input and message state",
+      );
+      this.#inputProgressPointerEvents.push({
+        committedAfterSequence: call.sequence,
+        committedAfterInstructionCount: this.#report.instructions,
+        event: { ...structuredClone(event), sequence: 1 },
+        receipt: structuredClone(metadata.receipt),
+        keyboard: structuredClone(metadata.keyboard),
+        cursor: structuredClone(metadata.cursor),
+      });
+      return;
+    }
+    if (
+      this.#inputProgressPointerEvents.length === 1 &&
+      this.#inputProgressAsyncKeyStateQuery === null &&
+      call.implementationId === "user32.get-async-key-state.v1" &&
+      call.arguments[0] === expected.inputQueryVirtualKey
+    ) {
+      invariant(
+        call.sequence === expected.inputQuerySequence &&
+          this.#report.instructions === expected.inputQueryInstructionCount &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 0xffff_8001 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0 &&
+          this.#pendingInputEvents.length === 1,
+        "pointer message gateway async-key consumer changed",
+      );
+      const pending = this.#pendingInputEvents.shift();
+      invariant(
+        pending?.source === "pointer" &&
+          pending.event.sequence === "2" &&
+          pending.event.kind === "button-up" &&
+          pending.event.button === "primary" &&
+          pending.event.normalizedX === 0x8000 &&
+          pending.event.normalizedY === 0x8000,
+        "pointer message gateway button-up event changed",
+      );
+      const event = pending.event;
+      const metadata = this.#commitPointerInput(event);
+      invariant(
+        metadata.receipt.input.virtualKey === expected.inputVirtualKey &&
+          metadata.receipt.input.keyboard.generation === 3 &&
+          inputAffectedKeysIdentity(
+            metadata.receipt.input.keyboard.affectedKeys,
+          ) === inputAffectedKeysIdentity(expected.upAffectedKeys) &&
+          metadata.keyboard.generation === 3 &&
+          metadata.keyboard.downWords.every((word) => word === 0) &&
+          metadata.keyboard.pressedWords.join(",") ===
+            expected.releasedPressedWords &&
+          metadata.receipt.message.message === 0x0202 &&
+          metadata.receipt.message.wParam === 0,
+        "pointer message gateway button-up did not release input and enqueue its message",
+      );
+      this.#inputProgressAsyncKeyStateQuery = {
+        ...structuredClone(call),
+        runtimeThreadId: this.#currentThreadId,
+        trapInstructionCount: this.#report.instructions,
+        occurrence: this.#implementationOccurrences.get(
+          "user32.get-async-key-state.v1",
+        ),
+      };
+      this.#inputProgressPointerEvents.push({
+        committedAfterSequence: call.sequence,
+        committedAfterInstructionCount: this.#report.instructions,
+        event: { ...structuredClone(event), sequence: 2 },
+        receipt: structuredClone(metadata.receipt),
+        keyboard: structuredClone(metadata.keyboard),
+        cursor: structuredClone(metadata.cursor),
+      });
+    }
+  }
+
+  #recordPointerMessageActionCall(
+    call: RuntimeSupportedCallSnapshot,
+    occurrence: number,
+  ): void {
+    if (
+      !isPointerMessageActionProgressGatewayCheckpoint(
+        this.#configuration.capabilityProfile,
+      ) ||
+      this.#inputProgressPointerEvents.length !== 2 ||
+      this.#inputProgressAsyncKeyStateQuery === null
+    ) {
+      return;
+    }
+    const frozenCall: RuntimeThreadCallSnapshot = {
+      ...structuredClone(call),
+      runtimeThreadId: this.#currentThreadId,
+      trapInstructionCount: this.#report.instructions,
+      occurrence,
+    };
+    if (
+      call.implementationId === "user32.peek-message-a.current-thread.v1" &&
+      "action" in call.result &&
+      call.result.action === "set" &&
+      call.result.value === 1
+    ) {
+      invariant(
+        this.#pointerMessagePeekCall === null &&
+          this.#pointerMessageTranslateCall === null,
+        "pointer message gateway reached more than one live PeekMessageA delivery",
+      );
+      this.#pointerMessagePeekCall = frozenCall;
+      return;
+    }
+    if (
+      call.implementationId ===
+        "user32.translate-message.window-timer-pointer-noop.v2" &&
+      this.#pointerMessagePeekCall !== null
+    ) {
+      invariant(
+        this.#pointerMessageTranslateCall === null,
+        "pointer message gateway translated its delivered message more than once",
+      );
+      this.#pointerMessageTranslateCall = frozenCall;
     }
   }
 
@@ -4679,6 +5068,28 @@ class BrowserRuntimeSession {
   }
 
   async #dispatchApi(endpoint: number, stackPointer: number): Promise<void> {
+    if (this.#pointerMessageActionGatewayAwaitingSetFocus) {
+      const ownedEndpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpoint,
+      );
+      if (
+        ownedEndpoint?.module?.toLowerCase() === "user32.dll" &&
+        ownedEndpoint.symbol?.kind === "name" &&
+        ownedEndpoint.symbol.name === "SetFocus"
+      ) {
+        const checkpoint = this.#report.checkpointCompletion;
+        invariant(
+          checkpoint?.capability ===
+            "primary-main-loop-pointer-message-action-progress-gateway" &&
+            this.#bgiCallbackCallSequences.size === 1,
+          "pointer message gateway reached SetFocus without its live WndProc frame",
+        );
+        this.#pointerMessageActionGatewayAwaitingSetFocus = false;
+        this.#bgiCheckpointPending = true;
+        this.#completeBgiCapabilityCheckpoint(endpoint, stackPointer);
+        return;
+      }
+    }
     if (this.#bgiCheckpointPending) {
       this.#completeBgiCapabilityCheckpoint(endpoint, stackPointer);
       return;
@@ -4750,6 +5161,112 @@ class BrowserRuntimeSession {
                 engine.readGuestU32(metadata.stackPointer + 16),
               ],
             };
+          }
+          if (
+            isPointerMessageActionProgressGatewayCheckpoint(
+              this.#configuration.capabilityProfile,
+            ) &&
+            metadata.target === 0x1009_2550 &&
+            this.#inputProgressPointerEvents.length === 2
+          ) {
+            const dispatchEndpoint = this.#requirePrepared().endpoints.find(
+              (candidate) => candidate.address === endpoint,
+            );
+            const dispatchModule = dispatchEndpoint?.module;
+            const dispatchSymbol = dispatchEndpoint?.symbol;
+            const inputQuery = this.#inputProgressAsyncKeyStateQuery;
+            const peekMessage = this.#pointerMessagePeekCall;
+            const translateMessage = this.#pointerMessageTranslateCall;
+            const [down, up] = this.#inputProgressPointerEvents;
+            const messageAddress = engine.readGuestU32(stackPointer + 4);
+            const callbackArguments = [
+              engine.readGuestU32(metadata.stackPointer + 4),
+              engine.readGuestU32(metadata.stackPointer + 8),
+              engine.readGuestU32(metadata.stackPointer + 12),
+              engine.readGuestU32(metadata.stackPointer + 16),
+            ] as [number, number, number, number];
+            const releaseMessage = metadata.queuedThreadMessages[0];
+            const dispatchOccurrence =
+              (this.#implementationOccurrences.get(
+                "user32.dispatch-message-a.window-timer-pointer-callback.v2",
+              ) ?? 0) + 1;
+            invariant(
+              this.#report.checkpointCompletion === null &&
+                !this.#pointerMessageActionGatewayAwaitingSetFocus &&
+                this.#bgiCallbackCallSequences.size === 0 &&
+                dispatchModule?.toLowerCase() === "user32.dll" &&
+                dispatchSymbol?.kind === "name" &&
+                dispatchSymbol.name === "DispatchMessageA" &&
+                inputQuery !== null &&
+                peekMessage !== null &&
+                translateMessage !== null &&
+                down !== undefined &&
+                up !== undefined &&
+                sequence === translateMessage.sequence + 1 &&
+                messageAddress === peekMessage.arguments[0] &&
+                messageAddress === translateMessage.arguments[0] &&
+                metadata.depth === 1 &&
+                callbackArguments.join(",") ===
+                  [
+                    down.receipt.message.hwnd,
+                    down.receipt.message.message,
+                    down.receipt.message.wParam,
+                    down.receipt.message.lParam,
+                  ].join(",") &&
+                metadata.queuedThreadMessages.length === 1 &&
+                releaseMessage !== undefined &&
+                JSON.stringify(releaseMessage) ===
+                  JSON.stringify(up.receipt.message),
+              "pointer message gateway lost its Peek/Translate/Dispatch or queued-release relation",
+            );
+            const checkpoint: PointerMessageActionProgressGatewayCheckpoint = {
+              capability:
+                "primary-main-loop-pointer-message-action-progress-gateway",
+              implementationId:
+                "runtime.main-loop-pointer-message-action-progress-gateway.v1",
+              requiredPointerMessages: 1,
+              pointerMessageDeliveryCount: 1,
+              inputBaseline: structuredClone(this.#inputProgressBaseline),
+              inputEvents: [structuredClone(down), structuredClone(up)],
+              inputQuery: structuredClone(inputQuery),
+              peekMessage: structuredClone(peekMessage),
+              translateMessage: structuredClone(translateMessage),
+              dispatchEntry: {
+                sequence,
+                module: dispatchModule,
+                symbol: "DispatchMessageA",
+                occurrence: dispatchOccurrence,
+                trapInstructionCount: this.#report.instructions,
+                arguments: [messageAddress],
+                pendingCallback: true,
+                implementationId:
+                  "user32.dispatch-message-a.window-timer-pointer-callback.v2",
+              },
+              callbackEntry: {
+                action: "enter",
+                sequence,
+                frameId: metadata.frameId,
+                instructionCount: this.#report.instructions,
+                target: metadata.target,
+                stackPointer: metadata.stackPointer,
+                arguments: callbackArguments,
+              },
+              releaseMessageQueued: true,
+              activeCallbackDepthAtStop: 1,
+              instructionCount: 0,
+              nextEndpoint: {
+                id: 0,
+                address: 0,
+                disposition: "declared-runtime-export",
+                iatAddress: 0,
+              },
+              nextArguments: [0],
+              nextReturnAddress: 0,
+              nextStackPointer: 0,
+              memoryContentSha256: "",
+            };
+            this.#report.checkpointCompletion = checkpoint;
+            this.#pointerMessageActionGatewayAwaitingSetFocus = true;
           }
           if (
             isUpdateWindow(this.#configuration.capabilityProfile) &&
@@ -5070,12 +5587,18 @@ class BrowserRuntimeSession {
           hasWindowTimerCallbackDelivery(
             this.#configuration.capabilityProfile,
           );
+        const compatibilityPolicyId =
+          isPointerMessageActionProgressGatewayCheckpoint(
+            this.#configuration.capabilityProfile,
+          )
+            ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
+            : windowTimerDelivery
+              ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
+              : "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30";
         this.#report.peekMessageA = {
           calls: [],
           instructionCounts: [],
-          compatibilityPolicyId: windowTimerDelivery
-            ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
-            : "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
+          compatibilityPolicyId,
           profileId: windowTimerDelivery
             ? "current-thread-unfiltered-peek-message-a-v1"
             : "current-thread-unfiltered-peek-message-a-v1",
@@ -5096,8 +5619,7 @@ class BrowserRuntimeSession {
           this.#report.isIconic = {
             calls: [],
             instructionCounts: [],
-            compatibilityPolicyId:
-              "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31",
+            compatibilityPolicyId,
             profileId: "logical-window-effective-style-is-iconic-v1",
             windowStateAuthority: "rust-runtime-user32-logical-window",
             minimizedStyleMask: 0x2000_0000,
@@ -5111,8 +5633,13 @@ class BrowserRuntimeSession {
           };
         }
       }
-      this.#report.peekMessageA.calls.push(structuredClone(call));
-      this.#report.peekMessageA.instructionCounts.push(
+      const peekMessageEvidence = this.#report.peekMessageA;
+      invariant(
+        peekMessageEvidence !== null,
+        "PeekMessageA evidence was not initialized",
+      );
+      peekMessageEvidence.calls.push(structuredClone(call));
+      peekMessageEvidence.instructionCounts.push(
         this.#report.instructions,
       );
     }
@@ -5121,11 +5648,20 @@ class BrowserRuntimeSession {
       call.implementationId === "user32.is-iconic.logical-window-style.v1"
     ) {
       if (this.#report.isIconic === null) {
+        const compatibilityPolicyId =
+          isPointerMessageActionProgressGatewayCheckpoint(
+            this.#configuration.capabilityProfile,
+          )
+            ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
+            : hasWindowTimerCallbackDelivery(
+                  this.#configuration.capabilityProfile,
+                )
+              ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
+              : "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30";
         this.#report.isIconic = {
           calls: [],
           instructionCounts: [],
-          compatibilityPolicyId:
-            "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
+          compatibilityPolicyId,
           profileId: "logical-window-effective-style-is-iconic-v1",
           windowStateAuthority: "rust-runtime-user32-logical-window",
           minimizedStyleMask: 0x2000_0000,
@@ -5138,8 +5674,13 @@ class BrowserRuntimeSession {
           minimizeTransitionImplemented: false,
         };
       }
-      this.#report.isIconic.calls.push(structuredClone(call));
-      this.#report.isIconic.instructionCounts.push(this.#report.instructions);
+      const isIconicEvidence = this.#report.isIconic;
+      invariant(
+        isIconicEvidence !== null,
+        "IsIconic evidence was not initialized",
+      );
+      isIconicEvidence.calls.push(structuredClone(call));
+      isIconicEvidence.instructionCounts.push(this.#report.instructions);
     }
     if (
       isUser32AsyncKeyStateInitialScanContinuation(
@@ -5274,6 +5815,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
           checkpoint.capability ===
+            "primary-main-loop-pointer-message-action-progress-gateway" ||
+          checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -5367,6 +5910,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
       checkpoint.capability ===
+        "primary-main-loop-pointer-message-action-progress-gateway" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -5409,6 +5954,11 @@ class BrowserRuntimeSession {
                     this.#requireEngine().readGuestU32(stackPointer + 20),
                     this.#requireEngine().readGuestU32(stackPointer + 24),
                   ]
+                : checkpoint.capability ===
+                    "primary-main-loop-pointer-message-action-progress-gateway"
+                  ? [
+                      this.#requireEngine().readGuestU32(stackPointer + 4),
+                    ]
                 : checkpoint.capability ===
                       "primary-main-loop-recurring-timer-cycle-batch" ||
                     checkpoint.capability ===
@@ -5497,6 +6047,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
       checkpoint.capability ===
+        "primary-main-loop-pointer-message-action-progress-gateway" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -5533,6 +6085,9 @@ class BrowserRuntimeSession {
                     : checkpoint.capability ===
                         "kernel32-enter-critical-section-post-timer-rearm-wait-batch"
                       ? "Post-timer-rearm-wait critical-section batch checkpoint completed"
+                      : checkpoint.capability ===
+                          "primary-main-loop-pointer-message-action-progress-gateway"
+                        ? "Primary main-loop pointer message action progress gateway completed"
                       : checkpoint.capability ===
                           "primary-main-loop-window-timer-callback-action-input-progress-gateway"
                         ? "Primary main-loop window timer callback action input progress gateway completed"
@@ -5701,6 +6256,12 @@ class BrowserRuntimeSession {
       hasWindowTimerCallbackDelivery(
         this.#configuration.capabilityProfile,
       );
+    const windowTimerCallbackCompleting =
+      windowTimerProfile &&
+      completion.implementationId ===
+        "user32.dispatch-message-a.window-timer-pointer-callback.v2" &&
+      metadata.kind === "callback-complete" &&
+      this.#windowTimerCallbackEntry?.frameId === metadata.frameId;
     const windowTimerMetadataExpected =
       windowTimerProfile &&
       ((completion.implementationId ===
@@ -5711,9 +6272,7 @@ class BrowserRuntimeSession {
           "user32.peek-message-a.current-thread.v1" &&
           completion.eax.action === "set" &&
           completion.eax.value !== 0) ||
-        (completion.implementationId ===
-          "user32.dispatch-message-a.window-timer-callback.v1" &&
-          metadata.kind === "callback-complete"));
+        windowTimerCallbackCompleting);
     invariant(
       windowTimerMetadataExpected === (metadata.windowTimer !== undefined),
       "BGI window timer completion metadata mismatch",
@@ -5832,9 +6391,7 @@ class BrowserRuntimeSession {
     );
     let windowTimerCallback: RuntimeSupportedCallSnapshot["callback"];
     if (
-      windowTimerProfile &&
-      completion.implementationId ===
-        "user32.dispatch-message-a.window-timer-callback.v1"
+      windowTimerCallbackCompleting
     ) {
       const entry = this.#windowTimerCallbackEntry;
       invariant(
@@ -6730,11 +7287,10 @@ class BrowserRuntimeSession {
       }
     }
     this.#recordPostPresentContinuationCall(call);
+    this.#recordPointerMessageActionCall(call, implementationOccurrence);
     this.#recordCompletedCallEvidence(call);
     if (
-      windowTimerProfile &&
-      completion.implementationId ===
-        "user32.dispatch-message-a.window-timer-callback.v1"
+      windowTimerCallback !== undefined
     ) {
       const entry = this.#windowTimerCallbackEntry;
       invariant(
@@ -7370,8 +7926,12 @@ class BrowserRuntimeSession {
             completedCycleCount === configuration.maximumCycles;
           const inputProgressConsumed =
             this.#inputProgressAsyncKeyStateQuery !== null &&
-            this.#inputProgressKeyboardEvents.length === 2 &&
-            this.#pendingKeyboardEvents.length === 0;
+            (isPointerMessageActionProgressGatewayCheckpoint(
+              this.#configuration.capabilityProfile,
+            )
+              ? this.#inputProgressPointerEvents.length === 2
+              : this.#inputProgressKeyboardEvents.length === 2) &&
+            this.#pendingInputEvents.length === 0;
           invariant(
             !inputCheckpoint ||
               !presentationProgressHardBoundReached ||
@@ -7550,14 +8110,24 @@ class BrowserRuntimeSession {
                   timerLanes: this.#presentationProgressTimerLaneSnapshot(),
                 };
                 if (inputCheckpoint) {
+                  invariant(
+                    !isPointerMessageActionProgressGatewayCheckpoint(
+                      this.#configuration.capabilityProfile,
+                    ),
+                    "pointer message gateway missed its active WndProc stop",
+                  );
                   const inputExpectation = inputProgressGatewayExpectation(
                     this.#configuration.capabilityProfile,
-                  );
-                  const [down, up] = this.#inputProgressKeyboardEvents;
+                  ) as {
+                    capability: InputProgressGatewayCheckpoint["capability"];
+                    implementationId: InputProgressGatewayCheckpoint["implementationId"];
+                  } & ReturnType<typeof inputProgressGatewayExpectation>;
+                  const inputEvents = this.#inputProgressKeyboardEvents;
+                  const [down, up] = inputEvents;
                   invariant(
                     down !== undefined &&
                       up !== undefined &&
-                      this.#inputProgressKeyboardEvents.length === 2,
+                      inputEvents.length === 2,
                     "input progress gateway checkpoint lost its event boundary evidence",
                   );
                   const checkpoint: InputProgressGatewayCheckpoint = {
@@ -10484,9 +11054,17 @@ class BrowserRuntimeSession {
     const deferredInputTraceReady = isInputProgressGatewayCheckpoint(
       this.#configuration.capabilityProfile,
     )
-      ? this.#report.keyboardInput.receivedMessages === 2 &&
-        this.#report.keyboardInput.queuedBeforePrepare === 2 &&
-        this.#pendingKeyboardEvents.length === 2
+      ? isPointerMessageActionProgressGatewayCheckpoint(
+          this.#configuration.capabilityProfile,
+        )
+        ? this.#report.pointerInput.receivedMessages === 2 &&
+          this.#report.pointerInput.queuedBeforePrepare === 2 &&
+          this.#report.keyboardInput.receivedMessages === 0 &&
+          this.#pendingInputEvents.length === 2
+        : this.#report.keyboardInput.receivedMessages === 2 &&
+          this.#report.keyboardInput.queuedBeforePrepare === 2 &&
+          this.#report.pointerInput.receivedMessages === 0 &&
+          this.#pendingInputEvents.length === 2
       : this.#report.keyboardInput.receivedMessages === 0;
     invariant(
       this.#report.checkpointCompletion === null &&
@@ -10510,9 +11088,13 @@ class BrowserRuntimeSession {
       firstCall: structuredClone(firstCall.call),
       lastCall: structuredClone(lastCall.call),
       compatibilityPolicyId:
-        hasWindowTimerCallbackDelivery(
+        isPointerMessageActionProgressGatewayCheckpoint(
           this.#configuration.capabilityProfile,
         )
+          ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
+          : hasWindowTimerCallbackDelivery(
+                this.#configuration.capabilityProfile,
+              )
           ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
           : "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
       cursorPosition: structuredClone(cursor),
@@ -14289,7 +14871,7 @@ class BrowserRuntimeSession {
                 dispatch.module.toLowerCase() === "user32.dll" &&
                 dispatch.symbol === "DispatchMessageA" &&
                 dispatch.implementationId ===
-                  "user32.dispatch-message-a.window-timer-callback.v1" &&
+                  "user32.dispatch-message-a.window-timer-pointer-callback.v2" &&
                 "action" in dispatch.result &&
                 dispatch.result.action === "set" &&
                 dispatch.result.value === 0 &&
@@ -14399,7 +14981,7 @@ class BrowserRuntimeSession {
             dispatch.symbol === "DispatchMessageA" &&
             dispatch.arguments.join(",") === "7338216" &&
             dispatch.implementationId ===
-              "user32.dispatch-message-a.window-timer-callback.v1" &&
+              "user32.dispatch-message-a.window-timer-pointer-callback.v2" &&
             "action" in dispatch.result &&
             dispatch.result.action === "set" &&
             dispatch.result.value === 0 &&
@@ -14493,12 +15075,16 @@ class BrowserRuntimeSession {
         isInputProgressGatewayCheckpoint(
           this.#configuration.capabilityProfile,
         ) &&
+        !isPointerMessageActionProgressGatewayCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
         terminal.outcome === "checkpoint-complete"
       ) {
         const expected = inputProgressGatewayExpectation(
           this.#configuration.capabilityProfile,
         );
-        const checkpoint = this.#report.checkpointCompletion;
+        const checkpoint = this.#report
+          .checkpointCompletion as InputProgressGatewayCheckpoint | null;
         const cycles =
           checkpoint?.capability === expected.capability
             ? checkpoint.cycles
@@ -14560,7 +15146,7 @@ class BrowserRuntimeSession {
             : null;
         const inputEvents =
           checkpoint?.capability === expected.capability
-            ? checkpoint.inputEvents
+            ? (checkpoint.inputEvents as RuntimeKeyboardInputBoundaryEvidence[])
             : [];
         const [down, up] = inputEvents;
         const pacing = this.#timerPacing.metrics();
@@ -14591,7 +15177,7 @@ class BrowserRuntimeSession {
                 dispatch.module.toLowerCase() === "user32.dll" &&
                 dispatch.symbol === "DispatchMessageA" &&
                 dispatch.implementationId ===
-                  "user32.dispatch-message-a.window-timer-callback.v1" &&
+                  "user32.dispatch-message-a.window-timer-pointer-callback.v2" &&
                 "action" in dispatch.result &&
                 dispatch.result.action === "set" &&
                 dispatch.result.value === 0 &&
@@ -14825,6 +15411,181 @@ class BrowserRuntimeSession {
             waitForSingleObjectExCompletions:
               this.#waitForSingleObjectExCompletions,
             pacing,
+          })}`,
+        );
+      }
+      if (
+        isPointerMessageActionProgressGatewayCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report
+          .checkpointCompletion as PointerMessageActionProgressGatewayCheckpoint | null;
+        const inputEvents = checkpoint?.inputEvents ?? [];
+        const [down, up] = inputEvents;
+        const peekWrite = checkpoint?.peekMessage.guestWrites[0];
+        invariant(
+          this.#report.supportedCallCount === 161_944 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "e29310241a7ef79cb01daff498f5cfad15b965382de1e2e85c3e0283ba3a0ff6" &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability ===
+              "primary-main-loop-pointer-message-action-progress-gateway" &&
+            checkpoint.implementationId ===
+              "runtime.main-loop-pointer-message-action-progress-gateway.v1" &&
+            checkpoint.requiredPointerMessages === 1 &&
+            checkpoint.pointerMessageDeliveryCount === 1 &&
+            JSON.stringify(checkpoint.inputBaseline) ===
+              JSON.stringify({
+                cycleCount: 253,
+                lastCompletionSequence: 161_901,
+                lastCompletionInstructionCount: 321_459_074,
+                presentOccurrence: 2,
+                renderCompletionCount: 3,
+              }) &&
+            inputEvents.length === 2 &&
+            down?.committedAfterSequence === 161_901 &&
+            down.committedAfterInstructionCount === 321_459_074 &&
+            down.event.sequence === 1 &&
+            down?.event.kind === "button-down" &&
+            down.event.button === "primary" &&
+            down.event.normalizedX === 0x8000 &&
+            down.event.normalizedY === 0x8000 &&
+            down.receipt.profileId ===
+              "normalized-primary-secondary-foreground-client-message-v1" &&
+            down.receipt.windowId === 1 &&
+            down.receipt.windowHandle === 0x4801_0001 &&
+            down.receipt.targetThreadId === 8_192 &&
+            down.receipt.clientX === 640 &&
+            down.receipt.clientY === 360 &&
+            down.receipt.input.logicalButton === "left" &&
+            down.receipt.input.virtualKey === 0x01 &&
+            down.receipt.input.keyboard.generation === 1 &&
+            down.receipt.input.cursor.screenX === 960 &&
+            down.receipt.input.cursor.screenY === 540 &&
+            down.receipt.message.id === 3 &&
+            down.receipt.message.message === 0x0201 &&
+            down.receipt.message.wParam === 0x0001 &&
+            down.receipt.message.lParam === 0x0168_0280 &&
+            down.receipt.message.source.kind === "pointer-input" &&
+            down.receipt.message.source.event_sequence === 1 &&
+            down.keyboard.generation === 1 &&
+            down.keyboard.downWords.join(",") === "2,0,0,0,0,0,0,0" &&
+            down.keyboard.pressedWords.join(",") === "2,0,0,0,0,0,0,0" &&
+            up?.committedAfterSequence === 161_932 &&
+            up.committedAfterInstructionCount === 321_461_595 &&
+            up.event.sequence === 2 &&
+            up?.event.kind === "button-up" &&
+            up.event.button === "primary" &&
+            up.event.normalizedX === 0x8000 &&
+            up.event.normalizedY === 0x8000 &&
+            up.receipt.message.id === 4 &&
+            up.receipt.message.message === 0x0202 &&
+            up.receipt.message.wParam === 0 &&
+            up.receipt.message.lParam === 0x0168_0280 &&
+            up.receipt.message.source.kind === "pointer-input" &&
+            up.receipt.message.source.event_sequence === 2 &&
+            up.receipt.input.keyboard.generation === 3 &&
+            up.keyboard.generation === 3 &&
+            up.keyboard.downWords.every((word) => word === 0) &&
+            up.keyboard.pressedWords.every((word) => word === 0) &&
+            checkpoint.inputQuery.sequence === 161_932 &&
+            checkpoint.inputQuery.trapInstructionCount === 321_461_595 &&
+            checkpoint.inputQuery.runtimeThreadId === 8_192 &&
+            checkpoint.inputQuery.occurrence === 381 &&
+            checkpoint.inputQuery.implementationId ===
+              "user32.get-async-key-state.v1" &&
+            checkpoint.inputQuery.arguments.join(",") === "1" &&
+            "action" in checkpoint.inputQuery.result &&
+            checkpoint.inputQuery.result.action === "set" &&
+            checkpoint.inputQuery.result.value === 0xffff_8001 &&
+            checkpoint.peekMessage.sequence === 161_940 &&
+            checkpoint.peekMessage.trapInstructionCount === 321_462_072 &&
+            checkpoint.peekMessage.runtimeThreadId === 8_192 &&
+            checkpoint.peekMessage.occurrence === 10 &&
+            checkpoint.peekMessage.implementationId ===
+              "user32.peek-message-a.current-thread.v1" &&
+            checkpoint.peekMessage.arguments.join(",") ===
+              "7338216,0,0,0,1" &&
+            "action" in checkpoint.peekMessage.result &&
+            checkpoint.peekMessage.result.action === "set" &&
+            checkpoint.peekMessage.result.value === 1 &&
+            checkpoint.peekMessage.guestWrites.length === 1 &&
+            peekWrite !== undefined &&
+            peekWrite.address === 7_338_216 &&
+            "bytes" in peekWrite &&
+            peekWrite.bytes.join(",") ===
+              "1,0,1,72,1,2,0,0,1,0,0,0,128,2,104,1,71,243,54,0,192,3,0,0,28,2,0,0" &&
+            checkpoint.translateMessage.sequence === 161_941 &&
+            checkpoint.translateMessage.trapInstructionCount === 321_462_082 &&
+            checkpoint.translateMessage.runtimeThreadId === 8_192 &&
+            checkpoint.translateMessage.occurrence === 3 &&
+            checkpoint.translateMessage.implementationId ===
+              "user32.translate-message.window-timer-pointer-noop.v2" &&
+            checkpoint.translateMessage.arguments.join(",") === "7338216" &&
+            "action" in checkpoint.translateMessage.result &&
+            checkpoint.translateMessage.result.action === "set" &&
+            checkpoint.translateMessage.result.value === 0 &&
+            checkpoint.dispatchEntry.sequence === 161_942 &&
+            checkpoint.dispatchEntry.occurrence === 3 &&
+            checkpoint.dispatchEntry.trapInstructionCount === 321_462_086 &&
+            checkpoint.dispatchEntry.arguments.join(",") === "7338216" &&
+            checkpoint.dispatchEntry.pendingCallback &&
+            checkpoint.callbackEntry.action === "enter" &&
+            checkpoint.callbackEntry.sequence === 161_942 &&
+            checkpoint.callbackEntry.frameId === 33 &&
+            checkpoint.callbackEntry.instructionCount === 321_462_086 &&
+            checkpoint.callbackEntry.target === 0x1009_2550 &&
+            checkpoint.callbackEntry.stackPointer === 7_338_176 &&
+            checkpoint.callbackEntry.arguments.join(",") ===
+              "1208025089,513,1,23593600" &&
+            checkpoint.releaseMessageQueued &&
+            checkpoint.activeCallbackDepthAtStop === 1 &&
+            checkpoint.instructionCount === 321_462_324 &&
+            checkpoint.nextEndpoint.id === 209 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0d00 &&
+            checkpoint.nextEndpoint.module?.toLowerCase() === "user32.dll" &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "SetFocus" &&
+            checkpoint.nextEndpoint.iatAddress === 0x100d_141c &&
+            checkpoint.nextArguments.join(",") === "1208025089" &&
+            checkpoint.nextReturnAddress === 0x1009_2dcb &&
+            checkpoint.nextStackPointer === 7_337_240 &&
+            checkpoint.memoryContentSha256 ===
+              "ea9fa8b5ca89aca279bcd0283007ff6e2c9a7156cb7c2daedcf2d08c696f8c75" &&
+            this.#report.instructions === 321_462_324 &&
+            Number(this.#generation) === 314_953 &&
+            this.#report.writebackBatches === 183_842 &&
+            this.#report.writebackPages === 282_492 &&
+            this.#report.mappingDeltas === 127_935 &&
+            this.#report.mappingDirtyPages === 150_340 &&
+            this.#report.contextSwitches === 2_512 &&
+            this.#report.stackGrowths.length === 11 &&
+            this.#report.heapPageMaterializations?.length === 3_108 &&
+            this.#report.sourceReads.length === 94 &&
+            this.#report.keyboardInput.receivedMessages === 0 &&
+            this.#report.keyboardInput.receipts.length === 0 &&
+            this.#report.pointerInput.receivedMessages === 2 &&
+            this.#report.pointerInput.queuedBeforePrepare === 2 &&
+            this.#report.pointerInput.receipts.length === 2,
+          `pointer message action gateway changed: ${JSON.stringify({
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            checkpoint,
+            pointerInput: this.#report.pointerInput,
+            instructions: this.#report.instructions,
+            finalGeneration: Number(this.#generation),
+            writebackBatches: this.#report.writebackBatches,
+            writebackPages: this.#report.writebackPages,
+            mappingDeltas: this.#report.mappingDeltas,
+            mappingDirtyPages: this.#report.mappingDirtyPages,
+            contextSwitches: this.#report.contextSwitches,
+            stackGrowths: this.#report.stackGrowths.length,
+            heapPageMaterializations:
+              this.#report.heapPageMaterializations?.length,
+            sourceReads: this.#report.sourceReads.length,
           })}`,
         );
       }
@@ -16105,6 +16866,11 @@ worker.addEventListener(
                 queuedBeforePrepare: 0,
                 receipts: [],
               },
+              pointerInput: {
+                receivedMessages: 0,
+                queuedBeforePrepare: 0,
+                receipts: [],
+              },
               sourceReads: [],
               writableCommits: [],
               writableDirectoryCreates: [],
@@ -16174,6 +16940,9 @@ worker.addEventListener(
         break;
       case "keyboard-input":
         activeSession?.ingestKeyboardInput(message);
+        break;
+      case "pointer-input":
+        activeSession?.ingestPointerInput(message);
         break;
     }
   },

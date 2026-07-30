@@ -22,22 +22,24 @@ use crate::runtime::{
     RuntimeCursorPositionProfile, RuntimeCursorResource, RuntimeCursorSource,
     RuntimeDisplayProfile, RuntimeEndPaintRequest, RuntimeIconResource,
     RuntimeImeStatusWindowRequest, RuntimeInputProfile, RuntimeKeyboardProfile,
-    RuntimeMessagePeekDisposition, RuntimeRect, RuntimeSetWindowPosCallbackAction,
-    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
-    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosDefaultOperation,
-    RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowPosVariant,
-    RuntimeStateErrorClass, RuntimeSystemCursorKind, RuntimeUpdateWindowCallbackAction,
-    RuntimeUpdateWindowOperation, RuntimeUpdateWindowRequest, RuntimeWindow,
-    RuntimeWindowClassCursorReference, RuntimeWindowClassIconReference, RuntimeWindowClassModule,
-    RuntimeWindowClassNameA, RuntimeWindowClassReference, RuntimeWindowClassRegistration,
-    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
-    RuntimeWindowCreationRequest, RuntimeWindowGeometry, RuntimeWindowLifecycle,
-    RuntimeWindowNameA, RuntimeWindowProcedure, RuntimeWindowProcedureCallingConvention,
+    RuntimeMessagePeekDisposition, RuntimePointerButtonMessageProfile, RuntimeRect,
+    RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
+    RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
+    RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest,
+    RuntimeSetWindowPosVariant, RuntimeStateErrorClass, RuntimeSystemCursorKind,
+    RuntimeUpdateWindowCallbackAction, RuntimeUpdateWindowOperation, RuntimeUpdateWindowRequest,
+    RuntimeWindow, RuntimeWindowClassCursorReference, RuntimeWindowClassIconReference,
+    RuntimeWindowClassModule, RuntimeWindowClassNameA, RuntimeWindowClassReference,
+    RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
+    RuntimeWindowCreationMessage, RuntimeWindowCreationRequest, RuntimeWindowGeometry,
+    RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
+    RuntimeWindowProcedureCallingConvention,
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 31;
-const USER32_COMPATIBILITY_POLICY_LEGACY_VERSION: u32 = 30;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 32;
+const USER32_COMPATIBILITY_POLICY_TIMER_VERSION: u32 = 31;
+const USER32_COMPATIBILITY_POLICY_BASE_VERSION: u32 = 30;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const MONITOR_FROM_WINDOW_IMPLEMENTATION: &str = "user32.monitor-from-window.v1";
 pub const GET_MONITOR_INFO_A_IMPLEMENTATION: &str = "user32.get-monitor-info-a.v1";
@@ -59,9 +61,10 @@ pub const GET_CLIENT_RECT_IMPLEMENTATION: &str = "user32.get-client-rect.v1";
 pub const GET_WINDOW_RECT_IMPLEMENTATION: &str = "user32.get-window-rect.v1";
 pub const GET_CURSOR_POS_IMPLEMENTATION: &str = "user32.get-cursor-pos.v1";
 pub const PEEK_MESSAGE_A_IMPLEMENTATION: &str = "user32.peek-message-a.current-thread.v1";
-pub const TRANSLATE_MESSAGE_IMPLEMENTATION: &str = "user32.translate-message.window-timer-noop.v1";
+pub const TRANSLATE_MESSAGE_IMPLEMENTATION: &str =
+    "user32.translate-message.window-timer-pointer-noop.v2";
 pub const DISPATCH_MESSAGE_A_IMPLEMENTATION: &str =
-    "user32.dispatch-message-a.window-timer-callback.v1";
+    "user32.dispatch-message-a.window-timer-pointer-callback.v2";
 pub const IS_ICONIC_IMPLEMENTATION: &str = "user32.is-iconic.logical-window-style.v1";
 pub const GET_FOREGROUND_WINDOW_IMPLEMENTATION: &str = "user32.get-foreground-window.v1";
 pub const GET_ASYNC_KEY_STATE_IMPLEMENTATION: &str = "user32.get-async-key-state.v1";
@@ -83,6 +86,10 @@ const LR_SHARED: u32 = 0x0000_8000;
 const WM_SETICON: u32 = 0x0080;
 const WM_PAINT: u32 = 0x000f;
 const WM_TIMER: u32 = 0x0113;
+const WM_LBUTTONDOWN: u32 = 0x0201;
+const WM_LBUTTONUP: u32 = 0x0202;
+const WM_RBUTTONDOWN: u32 = 0x0204;
+const WM_RBUTTONUP: u32 = 0x0205;
 const WM_MOVE: u32 = 0x0003;
 const WM_SIZE: u32 = 0x0005;
 const WM_ACTIVATE: u32 = 0x0006;
@@ -98,6 +105,10 @@ const WM_IME_NOTIFY: u32 = 0x0282;
 const PM_NOREMOVE: u32 = 0;
 const PM_REMOVE: u32 = 1;
 const X86_MSG_BYTE_LENGTH: u32 = 28;
+const MK_LBUTTON: u32 = 0x0001;
+const MK_RBUTTON: u32 = 0x0002;
+const MK_SHIFT: u32 = 0x0004;
+const MK_CONTROL: u32 = 0x0008;
 pub const USER32_WM_IME_CONTROL: u32 = 0x0283;
 pub const USER32_IMC_CLOSESTATUSWINDOW: u32 = 0x0021;
 pub const USER32_IMC_OPENSTATUSWINDOW: u32 = 0x0022;
@@ -398,6 +409,8 @@ pub struct User32CompatibilityPolicy {
     pub set_timer: Option<User32SetTimerPolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_timer_delivery: Option<User32WindowTimerDeliveryPolicy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pointer_button_messages: Option<RuntimePointerButtonMessageProfile>,
     pub monitor_from_window: Option<User32MonitorFromWindowPolicy>,
     pub get_monitor_info_a: Option<User32GetMonitorInfoAPolicy>,
     pub screen_dc: Option<User32ScreenDcPolicy>,
@@ -412,7 +425,7 @@ impl User32CompatibilityPolicy {
     pub fn controlled_v30() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
-            schema_version: USER32_COMPATIBILITY_POLICY_LEGACY_VERSION,
+            schema_version: USER32_COMPATIBILITY_POLICY_BASE_VERSION,
             id: "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
@@ -560,6 +573,7 @@ impl User32CompatibilityPolicy {
                 message: WM_TIMER,
             }),
             window_timer_delivery: None,
+            pointer_button_messages: None,
             monitor_from_window: Some(User32MonitorFromWindowPolicy {
                 profile_id: "live-window-default-to-primary-v1".to_owned(),
                 flags: MONITOR_DEFAULTTOPRIMARY,
@@ -629,7 +643,7 @@ impl User32CompatibilityPolicy {
 
     pub fn controlled_v31() -> Self {
         let mut policy = Self::controlled_v30();
-        policy.schema_version = USER32_COMPATIBILITY_POLICY_VERSION;
+        policy.schema_version = USER32_COMPATIBILITY_POLICY_TIMER_VERSION;
         policy.id =
             "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
                 .to_owned();
@@ -643,12 +657,39 @@ impl User32CompatibilityPolicy {
         policy
     }
 
+    pub fn controlled_v32() -> Self {
+        let mut policy = Self::controlled_v31();
+        policy.schema_version = USER32_COMPATIBILITY_POLICY_VERSION;
+        policy.id =
+            "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
+                .to_owned();
+        policy.pointer_button_messages = Some(RuntimePointerButtonMessageProfile {
+            id: "normalized-primary-secondary-foreground-client-message-v1".to_owned(),
+            normalized_position_denominator: 65_536,
+            left_button_down_message: WM_LBUTTONDOWN,
+            left_button_up_message: WM_LBUTTONUP,
+            right_button_down_message: WM_RBUTTONDOWN,
+            right_button_up_message: WM_RBUTTONUP,
+            left_button_key_mask: MK_LBUTTON,
+            right_button_key_mask: MK_RBUTTON,
+            shift_key_mask: MK_SHIFT,
+            control_key_mask: MK_CONTROL,
+            require_visible_active_focused_foreground_window: true,
+        });
+        policy
+    }
+
     pub fn validate(&self) -> Result<(), ApiFault> {
         if self.schema != USER32_COMPATIBILITY_POLICY_SCHEMA
             || !matches!(
-                (self.schema_version, self.window_timer_delivery.is_some()),
-                (USER32_COMPATIBILITY_POLICY_LEGACY_VERSION, false)
-                    | (USER32_COMPATIBILITY_POLICY_VERSION, true)
+                (
+                    self.schema_version,
+                    self.window_timer_delivery.is_some(),
+                    self.pointer_button_messages.is_some()
+                ),
+                (USER32_COMPATIBILITY_POLICY_BASE_VERSION, false, false)
+                    | (USER32_COMPATIBILITY_POLICY_TIMER_VERSION, true, false)
+                    | (USER32_COMPATIBILITY_POLICY_VERSION, true, true)
             )
             || self.id.is_empty()
             || self.id.len() > 128
@@ -959,6 +1000,29 @@ impl User32CompatibilityPolicy {
                 "user32-compatibility-policy",
                 "user32-window-timer-delivery-profile-invalid",
                 "User32 window timer delivery requires the reached empty current-thread queue, coalesced WM_TIMER, and live SetTimer profile",
+            ));
+        }
+        if let Some(profile) = self.pointer_button_messages.as_ref()
+            && (!valid_profile_id(&profile.id)
+                || profile.normalized_position_denominator != 65_536
+                || profile.left_button_down_message != WM_LBUTTONDOWN
+                || profile.left_button_up_message != WM_LBUTTONUP
+                || profile.right_button_down_message != WM_RBUTTONDOWN
+                || profile.right_button_up_message != WM_RBUTTONUP
+                || profile.left_button_key_mask != MK_LBUTTON
+                || profile.right_button_key_mask != MK_RBUTTON
+                || profile.shift_key_mask != MK_SHIFT
+                || profile.control_key_mask != MK_CONTROL
+                || !profile.require_visible_active_focused_foreground_window
+                || self.input.keyboard.is_none()
+                || self.input.cursor_position.is_none()
+                || self.peek_message_a.is_none()
+                || self.create_window_ex_a.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-pointer-button-message-profile-invalid",
+                "User32 pointer messages require normalized primary/secondary input for the visible active focused foreground logical window",
             ));
         }
         if let Some(profile) = self.monitor_from_window.as_ref()
@@ -1975,6 +2039,83 @@ fn validate_window_timer_message(
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QueuedMessageDispatch {
+    WindowTimer { callback: GuestAddress, result: u32 },
+    WindowProcedure { callback: GuestAddress },
+}
+
+fn validate_queued_message_dispatch(
+    policy: &User32CompatibilityPolicy,
+    message: X86Message,
+    contract: &ApiContract,
+    session: &ExecutionSession<'_>,
+) -> Result<QueuedMessageDispatch, ApiFault> {
+    if policy
+        .window_timer_delivery
+        .as_ref()
+        .is_some_and(|delivery| message.message == delivery.message)
+    {
+        let callback = validate_window_timer_message(policy, message, contract, session)?;
+        return Ok(QueuedMessageDispatch::WindowTimer {
+            callback,
+            result: policy
+                .window_timer_delivery
+                .as_ref()
+                .expect("validated window timer delivery policy")
+                .callback_result,
+        });
+    }
+    let profile = policy.pointer_button_messages.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-messages",
+            "queued-window-message-variant-unsupported",
+            "message is outside the reached window-timer and pointer-button profiles",
+        )
+    })?;
+    let expected_button_state = match message.message {
+        value if value == profile.left_button_down_message => {
+            Some((profile.left_button_key_mask, true))
+        }
+        value if value == profile.left_button_up_message => {
+            Some((profile.left_button_key_mask, false))
+        }
+        value if value == profile.right_button_down_message => {
+            Some((profile.right_button_key_mask, true))
+        }
+        value if value == profile.right_button_up_message => {
+            Some((profile.right_button_key_mask, false))
+        }
+        _ => None,
+    }
+    .ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-messages",
+            "queued-window-message-variant-unsupported",
+            "message is outside the reached window-timer and pointer-button profiles",
+        )
+    })?;
+    let allowed_key_state = profile.left_button_key_mask
+        | profile.right_button_key_mask
+        | profile.shift_key_mask
+        | profile.control_key_mask;
+    if message.w_param & !allowed_key_state != 0
+        || (message.w_param & expected_button_state.0 != 0) != expected_button_state.1
+    {
+        return Err(ApiFault::invalid_call(
+            "user32-messages",
+            "pointer-button-message-key-state-invalid",
+            "queued pointer message has an invalid button or modifier key-state mask",
+        ));
+    }
+    let callback = session
+        .runtime()
+        .resolve_window_procedure(message.window)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
+        .address;
+    Ok(QueuedMessageDispatch::WindowProcedure { callback })
+}
+
 fn handle_translate_message(
     policy: &User32CompatibilityPolicy,
     contract: &ApiContract,
@@ -1982,7 +2123,7 @@ fn handle_translate_message(
     session: &ExecutionSession<'_>,
 ) -> Result<ApiImmediate, ApiFault> {
     let message = read_x86_message(contract, frame, session)?;
-    validate_window_timer_message(policy, message, contract, session)?;
+    validate_queued_message_dispatch(policy, message, contract, session)?;
     Ok(ApiImmediate::new(ApiReturnValue::Bool32(false)))
 }
 
@@ -1994,25 +2135,31 @@ fn handle_dispatch_message_a(
     session: &mut ExecutionSession<'_>,
 ) -> Result<ApiHandlerResult, ApiFault> {
     let message = read_x86_message(contract, frame, session)?;
-    let callback = validate_window_timer_message(policy, message, contract, session)?;
+    let dispatch = validate_queued_message_dispatch(policy, message, contract, session)?;
+    let (callback, l_param, completion_policy) = match dispatch {
+        QueuedMessageDispatch::WindowTimer { callback, result } => (
+            callback,
+            message.time,
+            GuestCallbackCompletionPolicy::ReturnConstantU32 { value: result },
+        ),
+        QueuedMessageDispatch::WindowProcedure { callback } => (
+            callback,
+            message.l_param,
+            GuestCallbackCompletionPolicy::ReturnU32,
+        ),
+    };
     let request = GuestCallbackRequest {
         target: callback,
         arguments: vec![
             GuestCallbackArgument::U32(message.window),
             GuestCallbackArgument::U32(message.message),
             GuestCallbackArgument::U32(message.w_param),
-            GuestCallbackArgument::U32(message.time),
+            GuestCallbackArgument::U32(l_param),
         ],
         scratch: Vec::new(),
         scratch_pointer_relocations: Vec::new(),
         return_sentinel: callback_return_sentinel,
-        completion_policy: GuestCallbackCompletionPolicy::ReturnConstantU32 {
-            value: policy
-                .window_timer_delivery
-                .as_ref()
-                .expect("validated window timer delivery policy")
-                .callback_result,
-        },
+        completion_policy,
     };
     session.preflight_guest_callback(&ApiGuestCallbackCall {
         request: Box::new(request.clone()),
@@ -7724,7 +7871,10 @@ mod tests {
 
         let delivery = User32CompatibilityPolicy::controlled_v31();
         delivery.validate().unwrap();
-        assert_eq!(delivery.schema_version, USER32_COMPATIBILITY_POLICY_VERSION);
+        assert_eq!(
+            delivery.schema_version,
+            USER32_COMPATIBILITY_POLICY_TIMER_VERSION
+        );
         let delivery_profile = delivery.window_timer_delivery.as_ref().unwrap();
         assert_eq!(delivery_profile.message, WM_TIMER);
         assert_eq!(delivery_profile.callback_result, 0);
@@ -7740,6 +7890,27 @@ mod tests {
         assert_eq!(
             invalid_delivery.validate().unwrap_err().code,
             "user32-window-timer-delivery-profile-invalid"
+        );
+
+        let pointer = User32CompatibilityPolicy::controlled_v32();
+        pointer.validate().unwrap();
+        assert_eq!(pointer.schema_version, USER32_COMPATIBILITY_POLICY_VERSION);
+        let pointer_profile = pointer.pointer_button_messages.as_ref().unwrap();
+        assert_eq!(pointer_profile.normalized_position_denominator, 65_536);
+        assert_eq!(pointer_profile.left_button_down_message, WM_LBUTTONDOWN);
+        assert_eq!(pointer_profile.left_button_up_message, WM_LBUTTONUP);
+        assert_eq!(pointer_profile.left_button_key_mask, MK_LBUTTON);
+        assert!(pointer_profile.require_visible_active_focused_foreground_window);
+
+        let mut invalid_pointer = User32CompatibilityPolicy::controlled_v32();
+        invalid_pointer
+            .pointer_button_messages
+            .as_mut()
+            .unwrap()
+            .left_button_key_mask = 0;
+        assert_eq!(
+            invalid_pointer.validate().unwrap_err().code,
+            "user32-pointer-button-message-profile-invalid"
         );
 
         let mut invalid_monitor = User32CompatibilityPolicy::controlled_v30();

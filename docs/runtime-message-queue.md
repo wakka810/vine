@@ -11,8 +11,9 @@ window-timer profileでは、queueがemptyかつlogical deadlineがdueの場合�
 同じtransactionへ参加させ、low-priority `WM_TIMER`をlazy materializeする。
 
 このcheckpointはgeneral User32 `PostMessage`／`PostThreadMessage`／`GetMessage`を追加しない。Reached
-`DispatchMessageA`は登録済みwindow timerの`TIMERPROC`だけを対象とする。Window filter、cross-thread
-retrieval、paint generation、WM_QUIT special returnは未実装である。
+`DispatchMessageA`は登録済みwindow timerの`TIMERPROC`と、bounded pointer-button messageからlive
+windowの登録済みWndProcへ入る経路だけを対象とする。Window filter、cross-thread retrieval、paint
+generation、WM_QUIT special returnは未実装である。
 
 ## Message identity and ownership
 
@@ -113,6 +114,22 @@ selected threadのstdcall frameへ`(hwnd, WM_TIMER, timerId, time)`を積む。G
 `TIMERPROC` contractどおりouter resultへ伝播させず、callback完了後の`DispatchMessageA`は0を返す。Callback
 frame、timer、queue、window、guest memoryのauthorityはRustにあり、Workerはimmutable snapshotだけを記録する。
 
+## Pointer-button message production and WndProc dispatch
+
+Versioned pointer ingressはnormalized coordinate、primary／secondary button、strict source sequenceだけを
+運ぶ。`RuntimeKernel`は`RuntimeInput`のbutton／cursor plan、visible active focused foreground window、
+screen-to-client mapping、`RuntimeMessages`のpost plan、必要なscheduler wakeを全てpreflightする。Down／upの
+Win32 mapping、`wParam` key mask、packed client-coordinate `lParam`、logical tick、screen pointを一つの
+`RuntimeThreadMessage`へ固定し、いずれかのownerがstale、capacity不足、wrong relationなら全ownerを不変に保つ。
+
+到達profileではnormalized centerのprimary down／upがmessage IDs 3／4、client `[640,360]`、screen
+`[960,540]`、`WM_LBUTTONDOWN`／`WM_LBUTTONUP`となる。`PeekMessageA(PM_REMOVE)`はdownだけを28-byte
+`MSG32`としてpublishし、`TranslateMessage`はtimerまたはpointer profile relationを検証してFALSEを返す。
+`DispatchMessageA`はlive HWND／owner thread／WndProcとpointer profileに属するmessage payloadを再検証し、stdcall
+`(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, 0x01680280)` frameへ入る。Down callback中にupは同じRust queueへ
+残り、Worker evidenceはcopy snapshotからそのrelationを確認する。TypeScriptはqueue head、message ID、
+HWND relation、Win32 button stateを所有しない。
+
 ## Lifecycle cleanup
 
 Thread exit requestはowned queued messagesをcallback／host request／wait registration／scheduler eventと
@@ -133,21 +150,22 @@ cargo test -p vine-core --test runtime_message_queue --locked
 ```
 
 Subsystem tests fix non-mutating plan、FIFO identity、receive／peek commit、no-remove、remove、empty、due／
-not-due timer selection、coalesced rearm、missing-owner rejection。Integration tests fix first-message wake、no
-duplicate wake、exit cleanup、capacity rejection、failure-atomic PeekMessageA publication and validated
-TIMERPROC dispatch across message／timer／memory／thread／scheduler state。Current production regressionは
+not-due timer selection、coalesced rearm、source-tagged pointer messages、missing-owner rejection。Integration
+tests fix first-message wake、no duplicate wake、exit cleanup、capacity rejection、failure-atomic PeekMessageA
+publication、pointer input／cursor／window／message／wake joint commit、validated TIMERPROC／WndProc dispatch
+across message／timer／input／window／memory／thread／scheduler state。Current production regressionは
 [`current-checkpoint.json`](current-checkpoint.json)のcanonical commandを使う。
 
 ## Non-claims and next dependency
 
 This checkpoint does not implement window／queue creation rules, filtered or cross-thread Peek, GetMessage,
-WM_QUIT special return, generated paint, input-message production, general `DispatchMessage`, cross-process
-post, broadcast, or quota parity. Window-timer delivery is limited to the reached live-HWND／ID 1／20 ms／
-TIMERPROC profile. Sixteen ordered coalesced deliveries under one registration generation are fixed. A later
-integrated profile fixes four deliveries through the same callback, including two after Rust consumes and
-releases the primary left-button action; it still reaches no third `Present`. Queued pointer-message production,
-replacement race, `KillTimer`, NULL-HWND allocated IDs, visible action response, and background freeze／resume
-remain unproven. Existing W2 message／paint flow remains a separate fixed JavaScript harness.
+WM_QUIT special return, generated paint, general `DispatchMessage`, cross-process post, broadcast, or quota
+parity. Window-timer delivery remains limited to the reached live-HWND／ID 1／20 ms／TIMERPROC profile. Pointer
+production is limited to normalized primary／secondary button messages for the visible active focused foreground
+window; the reached case fixes down dispatch and a queued matching release. Pointer move／wheel, capture,
+double-click, nonclient translation, replacement race, `KillTimer`, NULL-HWND allocated IDs, visible action
+response, and background freeze／resume remain unproven. Existing W2 message／paint flow remains a separate
+fixed JavaScript harness.
 This is partial evidence for `P1-SCH-01`／`REQ-UI-02`, not their completion.
 
 The controlled private-heap dependency is implemented in

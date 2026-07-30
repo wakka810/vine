@@ -15,26 +15,27 @@ use vine_core::{
     RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeCurrentDirectoryA,
     RuntimeCursorSource, RuntimeDeviceContextTarget, RuntimeDisplayProfile,
     RuntimeGuestCallbackSemanticAction, RuntimeImeStatusWindowRequest, RuntimeInputProfile,
-    RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind, RuntimeModule, RuntimeProcessId,
-    RuntimeProcessImagePathA, RuntimeRect, RuntimeSetWindowPosCallbackAction,
-    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
-    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosOperation,
-    RuntimeSetWindowPosVariant, RuntimeStartupInfo, RuntimeState, RuntimeSystemCursorKind,
-    RuntimeThreadId, RuntimeUpdateWindowCallbackAction, RuntimeWindowCreationCallbackAction,
-    RuntimeWindowCreationMessage, RuntimeWindowGeometry, RuntimeWindowLifecycle, StackCleanup,
-    User32CompatibilityPolicy, begin_paint_contract, build_pe32_load_plan,
-    create_window_ex_a_contract, def_window_proc_a_contract, dispatch_gdi32_api,
-    dispatch_imm32_api_with_policy, dispatch_message_a_contract, dispatch_user32_api_with_policy,
-    enable_menu_item_contract, end_paint_contract, enum_display_monitors_contract,
-    fill_rect_contract, gdi32_contract_for_endpoint, get_async_key_state_contract,
-    get_client_rect_contract, get_cursor_pos_contract, get_dc_contract,
-    get_foreground_window_contract, get_monitor_info_a_contract, get_stock_object_contract,
-    get_system_menu_contract, get_system_metrics_contract, get_window_rect_contract,
-    imm_associate_context_contract, imm_get_default_ime_wnd_contract, is_iconic_contract,
-    load_cursor_a_contract, load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
-    monitor_from_window_contract, peek_message_a_contract, register_class_ex_a_contract,
-    release_dc_contract, send_message_a_contract, set_rect_contract, set_timer_contract,
-    set_window_long_a_contract, set_window_pos_contract, show_window_contract,
+    RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind, RuntimeMessageSource,
+    RuntimeModule, RuntimePointerButton, RuntimePointerButtonSourceEvent,
+    RuntimePointerButtonSourceEventKind, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect,
+    RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
+    RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
+    RuntimeSetWindowPosOperation, RuntimeSetWindowPosVariant, RuntimeStartupInfo, RuntimeState,
+    RuntimeSystemCursorKind, RuntimeThreadId, RuntimeUpdateWindowCallbackAction,
+    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage, RuntimeWindowGeometry,
+    RuntimeWindowLifecycle, StackCleanup, User32CompatibilityPolicy, begin_paint_contract,
+    build_pe32_load_plan, create_window_ex_a_contract, def_window_proc_a_contract,
+    dispatch_gdi32_api, dispatch_imm32_api_with_policy, dispatch_message_a_contract,
+    dispatch_user32_api_with_policy, enable_menu_item_contract, end_paint_contract,
+    enum_display_monitors_contract, fill_rect_contract, gdi32_contract_for_endpoint,
+    get_async_key_state_contract, get_client_rect_contract, get_cursor_pos_contract,
+    get_dc_contract, get_foreground_window_contract, get_monitor_info_a_contract,
+    get_stock_object_contract, get_system_menu_contract, get_system_metrics_contract,
+    get_window_rect_contract, imm_associate_context_contract, imm_get_default_ime_wnd_contract,
+    is_iconic_contract, load_cursor_a_contract, load_icon_a_contract, load_image_a_contract,
+    materialize_pe32_image, monitor_from_window_contract, peek_message_a_contract,
+    register_class_ex_a_contract, release_dc_contract, send_message_a_contract, set_rect_contract,
+    set_timer_contract, set_window_long_a_contract, set_window_pos_contract, show_window_contract,
     swap_mouse_button_contract, translate_message_contract, update_window_contract,
     user32_contract_for_endpoint,
 };
@@ -5198,6 +5199,163 @@ fn due_window_timer_materializes_once_and_dispatches_timerproc_on_the_owner_thre
             .delivery_count,
         1
     );
+}
+
+#[test]
+fn pointer_button_ingress_commits_input_queue_and_window_proc_dispatch_atomically() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, _) = fixture.prepare_active_window_with_small_icon();
+    fixture.policy = User32CompatibilityPolicy::controlled_v32();
+    let profile = fixture
+        .policy
+        .pointer_button_messages
+        .clone()
+        .expect("controlled pointer message profile");
+    let sentinel = 0x55aa_4321;
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed pointer delivery LastError");
+
+    let down = fixture
+        .runtime
+        .ingest_pointer_button_event(
+            RuntimePointerButtonSourceEvent {
+                sequence: 1,
+                kind: RuntimePointerButtonSourceEventKind::ButtonDown,
+                button: RuntimePointerButton::Primary,
+                normalized_x: 32_768,
+                normalized_y: 32_768,
+            },
+            &profile,
+        )
+        .expect("ingest primary pointer down");
+    assert_eq!(down.window_handle, window_handle);
+    assert_eq!(down.target_thread_id, RuntimeThreadId(THREAD_ID));
+    assert_eq!((down.client_x, down.client_y), (400, 300));
+    assert_eq!(
+        down.message.source,
+        RuntimeMessageSource::PointerInput { event_sequence: 1 }
+    );
+    assert_eq!(down.message.message, 0x0201);
+    assert_eq!(down.message.w_param, 0x0001);
+    assert_eq!(down.message.l_param, 0x012c_0190);
+    assert_eq!((down.message.point_x, down.message.point_y), (960, 540));
+    assert_eq!(down.input.cursor.generation, 0);
+    assert!(down.input.keyboard.affected_keys[0].down);
+    assert_eq!(
+        fixture
+            .runtime
+            .query_async_key_state(0x01)
+            .unwrap()
+            .unwrap()
+            .value,
+        0x8001_u16 as i16
+    );
+
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 1);
+    let peek = match fixture.dispatch_peek_message_a() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected pointer PeekMessageA completion, got {other:?}"),
+    };
+    assert_eq!(peek.eax, RegisterUpdate::Set(1));
+    assert_eq!(peek.last_error, sentinel);
+    assert_eq!(
+        peek.guest_writes[0].write.bytes,
+        down.message.to_x86_msg_bytes()
+    );
+    fixture.acknowledge_pending_delta();
+
+    fixture.configure_translate_message(PEEK_MESSAGE_A_OUTPUT_ADDRESS);
+    let translated = match fixture.dispatch_translate_message() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected pointer TranslateMessage completion, got {other:?}"),
+    };
+    assert_eq!(translated.eax, RegisterUpdate::Set(0));
+    assert_eq!(translated.last_error, sentinel);
+
+    fixture.configure_dispatch_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS);
+    let call = match fixture.dispatch_dispatch_message_a() {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected pointer window-procedure callback, got {other:?}"),
+    };
+    assert_eq!(call.request.target, fixture.window_procedure);
+    assert_eq!(
+        call.request.arguments,
+        [window_handle, 0x0201, 0x0001, 0x012c_0190]
+            .into_iter()
+            .map(GuestCallbackArgument::U32)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        call.request.completion_policy,
+        GuestCallbackCompletionPolicy::ReturnU32
+    );
+    let prepared = begin_fixture_callback(&mut fixture, &call);
+    let (completion, semantic_action) =
+        complete_fixture_callback(&mut fixture, call, 0x1234_5678, prepared.frame_id);
+    assert_eq!(semantic_action, None);
+    assert_eq!(completion.eax, RegisterUpdate::Set(0x1234_5678));
+    assert_eq!(completion.last_error, sentinel);
+
+    let up = fixture
+        .runtime
+        .ingest_pointer_button_event(
+            RuntimePointerButtonSourceEvent {
+                sequence: 2,
+                kind: RuntimePointerButtonSourceEventKind::ButtonUp,
+                button: RuntimePointerButton::Primary,
+                normalized_x: 32_768,
+                normalized_y: 32_768,
+            },
+            &profile,
+        )
+        .expect("ingest primary pointer up");
+    assert_eq!(up.message.message, 0x0202);
+    assert_eq!(up.message.w_param, 0);
+    assert_eq!(up.message.l_param, 0x012c_0190);
+    assert!(!up.input.keyboard.affected_keys[0].down);
+    assert_eq!(
+        fixture
+            .runtime
+            .query_async_key_state(0x01)
+            .unwrap()
+            .unwrap()
+            .value,
+        0
+    );
+
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 1);
+    assert!(matches!(
+        fixture.dispatch_peek_message_a(),
+        DispatchOutcome::Immediate(ref completion)
+            if completion.eax == RegisterUpdate::Set(1)
+                && completion.guest_writes[0].write.bytes == up.message.to_x86_msg_bytes()
+    ));
+    fixture.acknowledge_pending_delta();
+
+    for message in 0..4_096 {
+        fixture
+            .runtime
+            .post_thread_message(RuntimeThreadId(THREAD_ID), 0, 0x8000 + message, 0, 0)
+            .expect("fill pointer target queue");
+    }
+    let before_capacity_fault = fixture.runtime.clone();
+    let fault = fixture
+        .runtime
+        .ingest_pointer_button_event(
+            RuntimePointerButtonSourceEvent {
+                sequence: 3,
+                kind: RuntimePointerButtonSourceEventKind::ButtonDown,
+                button: RuntimePointerButton::Primary,
+                normalized_x: 0,
+                normalized_y: 0,
+            },
+            &profile,
+        )
+        .expect_err("full queue must reject pointer input before mutation");
+    assert_eq!(fault.code, "message-queue-capacity-exceeded");
+    assert_eq!(fixture.runtime, before_capacity_fault);
 }
 
 #[test]
