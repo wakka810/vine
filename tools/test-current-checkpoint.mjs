@@ -1267,6 +1267,15 @@ assert.ok(
   ),
 );
 
+const staleCombinedBrowserGeneration = structuredClone(manifest);
+staleCombinedBrowserGeneration.browserCheckpoint.bgiRuntimeEvidence.finalGeneration =
+  324_436;
+assert.ok(
+  validateCurrentCheckpoint(staleCombinedBrowserGeneration).some((error) =>
+    error.includes("browser BGI authority or teardown evidence"),
+  ),
+);
+
 const detachedWindowTimerQueue = structuredClone(manifest);
 detachedWindowTimerQueue.activeRuntimeCheckpoint.latestEvidence.windowTimerQueueAuthority =
   "typescript-worker-message-queue";

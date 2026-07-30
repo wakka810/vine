@@ -3692,7 +3692,7 @@
       "apiGuestWriteSemanticBytesRetainedInRust": true,
       "apiGuestWriteBinaryDeltaAuthority": "rust-guest-memory-binary-delta",
       "initialGeneration": 27,
-      "finalGeneration": 324436,
+      "finalGeneration": 316416,
       "nodeFinalGeneration": 297777,
       "generationEquivalence": "not-required-across-different-slice-reconciliation-boundaries",
       "memoryContentSha256": "9a64f6b14b503e20683855a79330d51160ae99efd92ad78eadb2ea858584c9de",

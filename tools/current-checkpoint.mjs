@@ -3569,6 +3569,8 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.mirrorRebuilds !== 0 ||
     bgiBrowserEvidence.successExecutionTransitionCount !==
       profileExpectations.browserSuccessExecutionTransitions ||
+    (windowTimerCallbackActionInputProgressGatewayActive &&
+      bgiBrowserEvidence.finalGeneration !== 316_416) ||
     JSON.stringify(bgiBrowserEvidence.registeredThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
