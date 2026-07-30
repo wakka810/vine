@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-30T10:35:57.985Z",
+  "recordedAt": "2026-07-30T13:06:25.444Z",
   "repository": {
-    "implementationCommit": "5b6855dcc3d95b30aaeda96a30daf42e93b63211",
-    "implementationTree": "18e5758cd1cd496d25bd1996872f06da03d82961",
-    "headCommit": "5b6855dcc3d95b30aaeda96a30daf42e93b63211",
+    "implementationCommit": "9d46849e68a02dc21bba7d3fc1c3d84a44424d60",
+    "implementationTree": "3c1e4cbb356937b962dda13413f0427d6bf3d354",
+    "headCommit": "9d46849e68a02dc21bba7d3fc1c3d84a44424d60",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,15 +27,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "primary-main-loop-window-timer-callback-delivery-gateway",
-    "runtimeProfile": "primary-main-loop-window-timer-callback-delivery-gateway",
+    "runtimeCheckpoint": "primary-main-loop-window-timer-callback-recurring-batch",
+    "runtimeProfile": "primary-main-loop-window-timer-callback-recurring-batch",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-primary-main-loop-window-timer-callback-delivery-gateway",
+    "nodeReportSchema": "vine.v86-bgi-primary-main-loop-window-timer-callback-recurring-batch",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v75",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v76",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -70,79 +70,953 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 130,
-      "supportedCalls": 148299,
-      "callSemanticsSha256": "95c8734dd61bbeceea0ecf2f01bfe4191ec33e17d1d56a7a4c98e078c8c80d83",
-      "instructions": 148745210,
-      "finalGeneration": 271295,
-      "memoryContentSha256": "2ff0d5bc7f72729624f911b812f332f350ec091572d068a598990f96596e6b86",
+      "supportedCalls": 168583,
+      "callSemanticsSha256": "214c137a81f6fd044b62ca94340e77a80de1ff9ae71d4ee4535fc9fbab831814",
+      "instructions": 321781155,
+      "finalGeneration": 305797,
+      "memoryContentSha256": "0dbd1f83e5c5d34be37de44346302028dc18c77ca38a49b30d36d577b15749ae",
       "checkpointCompletion": {
-        "capability": "primary-main-loop-window-timer-callback-delivery-gateway",
-        "implementationId": "runtime.main-loop-window-timer-callback-delivery-gateway.v1",
-        "requiredDeliveries": 1,
-        "deliveryCount": 1,
-        "requiredCompletions": 1,
-        "completionCount": 1,
-        "lastCompletionSequence": 148298,
-        "lastCompletionInstructionCount": 148745201,
-        "dispatch": {
-          "sequence": 148298,
-          "module": "USER32.dll",
-          "symbol": "DispatchMessageA",
-          "occurrence": 1,
-          "trapInstructionCount": 148744557,
-          "arguments": [
-            7338216
-          ],
-          "result": {
-            "action": "set",
-            "value": 0
-          },
-          "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
-          "returnAddress": 269039532,
-          "stackPointerBefore": 7338196,
-          "stackPointerAfter": 7338204,
-          "lastError": 0,
-          "guestWrites": [],
-          "windowTimer": {
-            "id": 1,
-            "windowId": 1,
-            "windowHandle": 1208025089,
-            "timerId": 1,
-            "ownerThreadId": 8192,
-            "requestedIntervalMilliseconds": 20,
-            "effectiveIntervalMilliseconds": 20,
-            "callbackAddress": 269063680,
-            "registrationGeneration": 1,
-            "armedAtTime100ns": 52845000,
-            "nextDeadlineTime100ns": 53045000,
-            "deliveryCount": 1,
-            "lastDelivery": {
+        "capability": "primary-main-loop-window-timer-callback-recurring-batch",
+        "implementationId": "runtime.main-loop-window-timer-callback-recurring-batch.v1",
+        "requiredDeliveries": 16,
+        "deliveryCount": 16,
+        "requiredCompletions": 16,
+        "completionCount": 16,
+        "firstCompletionSequence": 148298,
+        "firstCompletionInstructionCount": 148745201,
+        "lastCompletionSequence": 168582,
+        "lastCompletionInstructionCount": 321781146,
+        "dispatches": [
+          {
+            "sequence": 148298,
+            "module": "USER32.dll",
+            "symbol": "DispatchMessageA",
+            "occurrence": 1,
+            "trapInstructionCount": 148744557,
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "id": 1,
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "timerId": 1,
+              "ownerThreadId": 8192,
+              "requestedIntervalMilliseconds": 20,
+              "effectiveIntervalMilliseconds": 20,
+              "callbackAddress": 269063680,
               "registrationGeneration": 1,
+              "armedAtTime100ns": 52845000,
+              "nextDeadlineTime100ns": 53045000,
               "deliveryCount": 1,
-              "scheduledDeadlineTime100ns": 200000,
-              "deliveredAtTime100ns": 52845000
-            }
+              "lastDelivery": {
+                "registrationGeneration": 1,
+                "deliveryCount": 1,
+                "scheduledDeadlineTime100ns": 200000,
+                "deliveredAtTime100ns": 52845000
+              }
+            },
+            "callback": {
+              "frameId": 31,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 148745201,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601114
+            ]
           },
-          "callback": {
-            "frameId": 31,
-            "target": 269063680,
-            "allocationStart": 7338176,
-            "stackPointer": 7338176,
-            "scratchAddress": 0,
-            "scratchBytes": 0,
-            "frameBytes": 20,
-            "returnSentinel": 2130771968,
-            "returnInstructionCount": 148745201,
-            "result": 64
+          {
+            "sequence": 161545,
+            "module": "USER32.dll",
+            "symbol": "DispatchMessageA",
+            "occurrence": 2,
+            "trapInstructionCount": 321443726,
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "id": 1,
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "timerId": 1,
+              "ownerThreadId": 8192,
+              "requestedIntervalMilliseconds": 20,
+              "effectiveIntervalMilliseconds": 20,
+              "callbackAddress": 269063680,
+              "registrationGeneration": 1,
+              "armedAtTime100ns": 57235000,
+              "nextDeadlineTime100ns": 57435000,
+              "deliveryCount": 2,
+              "lastDelivery": {
+                "registrationGeneration": 1,
+                "deliveryCount": 2,
+                "scheduledDeadlineTime100ns": 53045000,
+                "deliveredAtTime100ns": 57235000
+              }
+            },
+            "callback": {
+              "frameId": 32,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321444370,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601207
+            ]
           },
-          "callbackArguments": [
-            1208025089,
-            275,
-            1,
-            3601114
-          ]
-        },
-        "instructionCount": 148745210,
+          {
+            "sequence": 162072,
+            "module": "USER32.dll",
+            "symbol": "DispatchMessageA",
+            "occurrence": 3,
+            "trapInstructionCount": 321467960,
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "id": 1,
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "timerId": 1,
+              "ownerThreadId": 8192,
+              "requestedIntervalMilliseconds": 20,
+              "effectiveIntervalMilliseconds": 20,
+              "callbackAddress": 269063680,
+              "registrationGeneration": 1,
+              "armedAtTime100ns": 57490000,
+              "nextDeadlineTime100ns": 57690000,
+              "deliveryCount": 3,
+              "lastDelivery": {
+                "registrationGeneration": 1,
+                "deliveryCount": 3,
+                "scheduledDeadlineTime100ns": 57435000,
+                "deliveredAtTime100ns": 57490000
+              }
+            },
+            "callback": {
+              "frameId": 33,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321468604,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601228
+            ]
+          },
+          {
+            "sequence": 162596,
+            "module": "USER32.dll",
+            "symbol": "DispatchMessageA",
+            "occurrence": 4,
+            "trapInstructionCount": 321492124,
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "id": 1,
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "timerId": 1,
+              "ownerThreadId": 8192,
+              "requestedIntervalMilliseconds": 20,
+              "effectiveIntervalMilliseconds": 20,
+              "callbackAddress": 269063680,
+              "registrationGeneration": 1,
+              "armedAtTime100ns": 57690000,
+              "nextDeadlineTime100ns": 57890000,
+              "deliveryCount": 4,
+              "lastDelivery": {
+                "registrationGeneration": 1,
+                "deliveryCount": 4,
+                "scheduledDeadlineTime100ns": 57690000,
+                "deliveredAtTime100ns": 57690000
+              }
+            },
+            "callback": {
+              "frameId": 34,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321492768,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601249
+            ]
+          },
+          {
+            "sequence": 163048,
+            "module": "USER32.dll",
+            "symbol": "DispatchMessageA",
+            "occurrence": 5,
+            "trapInstructionCount": 321515044,
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "id": 1,
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "timerId": 1,
+              "ownerThreadId": 8192,
+              "requestedIntervalMilliseconds": 20,
+              "effectiveIntervalMilliseconds": 20,
+              "callbackAddress": 269063680,
+              "registrationGeneration": 1,
+              "armedAtTime100ns": 57930000,
+              "nextDeadlineTime100ns": 58130000,
+              "deliveryCount": 5,
+              "lastDelivery": {
+                "registrationGeneration": 1,
+                "deliveryCount": 5,
+                "scheduledDeadlineTime100ns": 57890000,
+                "deliveredAtTime100ns": 57930000
+              }
+            },
+            "callback": {
+              "frameId": 35,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321515688,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601270
+            ]
+          },
+          {
+            "sequence": 163572,
+            "module": "USER32.dll",
+            "symbol": "DispatchMessageA",
+            "occurrence": 6,
+            "trapInstructionCount": 321539208,
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "id": 1,
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "timerId": 1,
+              "ownerThreadId": 8192,
+              "requestedIntervalMilliseconds": 20,
+              "effectiveIntervalMilliseconds": 20,
+              "callbackAddress": 269063680,
+              "registrationGeneration": 1,
+              "armedAtTime100ns": 58170000,
+              "nextDeadlineTime100ns": 58370000,
+              "deliveryCount": 6,
+              "lastDelivery": {
+                "registrationGeneration": 1,
+                "deliveryCount": 6,
+                "scheduledDeadlineTime100ns": 58130000,
+                "deliveredAtTime100ns": 58170000
+              }
+            },
+            "callback": {
+              "frameId": 36,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321539852,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601291
+            ]
+          },
+          {
+            "sequence": 164024,
+            "module": "USER32.dll",
+            "symbol": "DispatchMessageA",
+            "occurrence": 7,
+            "trapInstructionCount": 321562128,
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "id": 1,
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "timerId": 1,
+              "ownerThreadId": 8192,
+              "requestedIntervalMilliseconds": 20,
+              "effectiveIntervalMilliseconds": 20,
+              "callbackAddress": 269063680,
+              "registrationGeneration": 1,
+              "armedAtTime100ns": 58370000,
+              "nextDeadlineTime100ns": 58570000,
+              "deliveryCount": 7,
+              "lastDelivery": {
+                "registrationGeneration": 1,
+                "deliveryCount": 7,
+                "scheduledDeadlineTime100ns": 58370000,
+                "deliveredAtTime100ns": 58370000
+              }
+            },
+            "callback": {
+              "frameId": 37,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321562772,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601312
+            ]
+          },
+          {
+            "sequence": 164548,
+            "module": "USER32.dll",
+            "symbol": "DispatchMessageA",
+            "occurrence": 8,
+            "trapInstructionCount": 321586292,
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "id": 1,
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "timerId": 1,
+              "ownerThreadId": 8192,
+              "requestedIntervalMilliseconds": 20,
+              "effectiveIntervalMilliseconds": 20,
+              "callbackAddress": 269063680,
+              "registrationGeneration": 1,
+              "armedAtTime100ns": 58610000,
+              "nextDeadlineTime100ns": 58810000,
+              "deliveryCount": 8,
+              "lastDelivery": {
+                "registrationGeneration": 1,
+                "deliveryCount": 8,
+                "scheduledDeadlineTime100ns": 58570000,
+                "deliveredAtTime100ns": 58610000
+              }
+            },
+            "callback": {
+              "frameId": 38,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321586936,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601333
+            ]
+          },
+          {
+            "sequence": 165130,
+            "module": "USER32.dll",
+            "symbol": "DispatchMessageA",
+            "occurrence": 9,
+            "trapInstructionCount": 321615086,
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "id": 1,
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "timerId": 1,
+              "ownerThreadId": 8192,
+              "requestedIntervalMilliseconds": 20,
+              "effectiveIntervalMilliseconds": 20,
+              "callbackAddress": 269063680,
+              "registrationGeneration": 1,
+              "armedAtTime100ns": 58850000,
+              "nextDeadlineTime100ns": 59050000,
+              "deliveryCount": 9,
+              "lastDelivery": {
+                "registrationGeneration": 1,
+                "deliveryCount": 9,
+                "scheduledDeadlineTime100ns": 58810000,
+                "deliveredAtTime100ns": 58850000
+              }
+            },
+            "callback": {
+              "frameId": 39,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321615730,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601359
+            ]
+          },
+          {
+            "sequence": 165654,
+            "module": "USER32.dll",
+            "symbol": "DispatchMessageA",
+            "occurrence": 10,
+            "trapInstructionCount": 321639250,
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "id": 1,
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "timerId": 1,
+              "ownerThreadId": 8192,
+              "requestedIntervalMilliseconds": 20,
+              "effectiveIntervalMilliseconds": 20,
+              "callbackAddress": 269063680,
+              "registrationGeneration": 1,
+              "armedAtTime100ns": 59090000,
+              "nextDeadlineTime100ns": 59290000,
+              "deliveryCount": 10,
+              "lastDelivery": {
+                "registrationGeneration": 1,
+                "deliveryCount": 10,
+                "scheduledDeadlineTime100ns": 59050000,
+                "deliveredAtTime100ns": 59090000
+              }
+            },
+            "callback": {
+              "frameId": 40,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321639894,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601380
+            ]
+          },
+          {
+            "sequence": 166106,
+            "module": "USER32.dll",
+            "symbol": "DispatchMessageA",
+            "occurrence": 11,
+            "trapInstructionCount": 321662091,
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "id": 1,
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "timerId": 1,
+              "ownerThreadId": 8192,
+              "requestedIntervalMilliseconds": 20,
+              "effectiveIntervalMilliseconds": 20,
+              "callbackAddress": 269063680,
+              "registrationGeneration": 1,
+              "armedAtTime100ns": 59290000,
+              "nextDeadlineTime100ns": 59490000,
+              "deliveryCount": 11,
+              "lastDelivery": {
+                "registrationGeneration": 1,
+                "deliveryCount": 11,
+                "scheduledDeadlineTime100ns": 59290000,
+                "deliveredAtTime100ns": 59290000
+              }
+            },
+            "callback": {
+              "frameId": 41,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321662735,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601401
+            ]
+          },
+          {
+            "sequence": 166630,
+            "module": "USER32.dll",
+            "symbol": "DispatchMessageA",
+            "occurrence": 12,
+            "trapInstructionCount": 321686334,
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "id": 1,
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "timerId": 1,
+              "ownerThreadId": 8192,
+              "requestedIntervalMilliseconds": 20,
+              "effectiveIntervalMilliseconds": 20,
+              "callbackAddress": 269063680,
+              "registrationGeneration": 1,
+              "armedAtTime100ns": 59530000,
+              "nextDeadlineTime100ns": 59730000,
+              "deliveryCount": 12,
+              "lastDelivery": {
+                "registrationGeneration": 1,
+                "deliveryCount": 12,
+                "scheduledDeadlineTime100ns": 59490000,
+                "deliveredAtTime100ns": 59530000
+              }
+            },
+            "callback": {
+              "frameId": 42,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321686978,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601422
+            ]
+          },
+          {
+            "sequence": 167082,
+            "module": "USER32.dll",
+            "symbol": "DispatchMessageA",
+            "occurrence": 13,
+            "trapInstructionCount": 321709175,
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "id": 1,
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "timerId": 1,
+              "ownerThreadId": 8192,
+              "requestedIntervalMilliseconds": 20,
+              "effectiveIntervalMilliseconds": 20,
+              "callbackAddress": 269063680,
+              "registrationGeneration": 1,
+              "armedAtTime100ns": 59730000,
+              "nextDeadlineTime100ns": 59930000,
+              "deliveryCount": 13,
+              "lastDelivery": {
+                "registrationGeneration": 1,
+                "deliveryCount": 13,
+                "scheduledDeadlineTime100ns": 59730000,
+                "deliveredAtTime100ns": 59730000
+              }
+            },
+            "callback": {
+              "frameId": 43,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321709819,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601443
+            ]
+          },
+          {
+            "sequence": 167606,
+            "module": "USER32.dll",
+            "symbol": "DispatchMessageA",
+            "occurrence": 14,
+            "trapInstructionCount": 321733418,
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "id": 1,
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "timerId": 1,
+              "ownerThreadId": 8192,
+              "requestedIntervalMilliseconds": 20,
+              "effectiveIntervalMilliseconds": 20,
+              "callbackAddress": 269063680,
+              "registrationGeneration": 1,
+              "armedAtTime100ns": 59970000,
+              "nextDeadlineTime100ns": 60170000,
+              "deliveryCount": 14,
+              "lastDelivery": {
+                "registrationGeneration": 1,
+                "deliveryCount": 14,
+                "scheduledDeadlineTime100ns": 59930000,
+                "deliveredAtTime100ns": 59970000
+              }
+            },
+            "callback": {
+              "frameId": 44,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321734062,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601464
+            ]
+          },
+          {
+            "sequence": 168058,
+            "module": "USER32.dll",
+            "symbol": "DispatchMessageA",
+            "occurrence": 15,
+            "trapInstructionCount": 321756259,
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "id": 1,
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "timerId": 1,
+              "ownerThreadId": 8192,
+              "requestedIntervalMilliseconds": 20,
+              "effectiveIntervalMilliseconds": 20,
+              "callbackAddress": 269063680,
+              "registrationGeneration": 1,
+              "armedAtTime100ns": 60170000,
+              "nextDeadlineTime100ns": 60370000,
+              "deliveryCount": 15,
+              "lastDelivery": {
+                "registrationGeneration": 1,
+                "deliveryCount": 15,
+                "scheduledDeadlineTime100ns": 60170000,
+                "deliveredAtTime100ns": 60170000
+              }
+            },
+            "callback": {
+              "frameId": 45,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321756903,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601485
+            ]
+          },
+          {
+            "sequence": 168582,
+            "module": "USER32.dll",
+            "symbol": "DispatchMessageA",
+            "occurrence": 16,
+            "trapInstructionCount": 321780502,
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "id": 1,
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "timerId": 1,
+              "ownerThreadId": 8192,
+              "requestedIntervalMilliseconds": 20,
+              "effectiveIntervalMilliseconds": 20,
+              "callbackAddress": 269063680,
+              "registrationGeneration": 1,
+              "armedAtTime100ns": 60410000,
+              "nextDeadlineTime100ns": 60610000,
+              "deliveryCount": 16,
+              "lastDelivery": {
+                "registrationGeneration": 1,
+                "deliveryCount": 16,
+                "scheduledDeadlineTime100ns": 60370000,
+                "deliveredAtTime100ns": 60410000
+              }
+            },
+            "callback": {
+              "frameId": 46,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321781146,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601506
+            ]
+          }
+        ],
+        "instructionCount": 321781155,
         "nextEndpoint": {
           "id": 164,
           "address": 2130709040,
@@ -154,7 +1028,7 @@
           "disposition": "declared-runtime-export",
           "iatAddress": 269292392
         },
-        "memoryContentSha256": "2ff0d5bc7f72729624f911b812f332f350ec091572d068a598990f96596e6b86",
+        "memoryContentSha256": "0dbd1f83e5c5d34be37de44346302028dc18c77ca38a49b30d36d577b15749ae",
         "nextArguments": [
           7338216,
           0,
@@ -165,84 +1039,928 @@
         "nextReturnAddress": 269039547,
         "nextStackPointer": 7338180
       },
-      "writebackBatches": 150022,
-      "dirtyPages": 216017,
-      "changedBytes": 19887851,
-      "hostDeltaBatches": 119293
+      "writebackBatches": 171749,
+      "dirtyPages": 254906,
+      "changedBytes": 43170264,
+      "hostDeltaBatches": 130766
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 148299,
-      "callSemanticsSha256": "95c8734dd61bbeceea0ecf2f01bfe4191ec33e17d1d56a7a4c98e078c8c80d83",
-      "instructions": 148745210,
-      "finalGeneration": 279678,
-      "memoryContentSha256": "2ff0d5bc7f72729624f911b812f332f350ec091572d068a598990f96596e6b86",
+      "supportedCalls": 168583,
+      "callSemanticsSha256": "214c137a81f6fd044b62ca94340e77a80de1ff9ae71d4ee4535fc9fbab831814",
+      "instructions": 321781155,
+      "finalGeneration": 324436,
+      "memoryContentSha256": "0dbd1f83e5c5d34be37de44346302028dc18c77ca38a49b30d36d577b15749ae",
       "checkpointCompletion": {
-        "capability": "primary-main-loop-window-timer-callback-delivery-gateway",
-        "implementationId": "runtime.main-loop-window-timer-callback-delivery-gateway.v1",
-        "requiredDeliveries": 1,
-        "deliveryCount": 1,
-        "requiredCompletions": 1,
-        "completionCount": 1,
-        "lastCompletionSequence": 148298,
-        "lastCompletionInstructionCount": 148745201,
-        "dispatch": {
-          "sequence": 148298,
-          "module": "user32.dll",
-          "symbol": "DispatchMessageA",
-          "arguments": [
-            7338216
-          ],
-          "result": {
-            "action": "set",
-            "value": 0
-          },
-          "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
-          "returnAddress": 269039532,
-          "stackPointerBefore": 7338196,
-          "stackPointerAfter": 7338204,
-          "lastError": 0,
-          "guestWrites": [],
-          "windowTimer": {
-            "armedAtTime100ns": 52845000,
-            "callbackAddress": 269063680,
-            "deliveryCount": 1,
-            "effectiveIntervalMilliseconds": 20,
-            "id": 1,
-            "lastDelivery": {
-              "deliveredAtTime100ns": 52845000,
-              "deliveryCount": 1,
-              "registrationGeneration": 1,
-              "scheduledDeadlineTime100ns": 200000
+        "capability": "primary-main-loop-window-timer-callback-recurring-batch",
+        "implementationId": "runtime.main-loop-window-timer-callback-recurring-batch.v1",
+        "requiredDeliveries": 16,
+        "deliveryCount": 16,
+        "requiredCompletions": 16,
+        "completionCount": 16,
+        "firstCompletionSequence": 148298,
+        "firstCompletionInstructionCount": 148745201,
+        "lastCompletionSequence": 168582,
+        "lastCompletionInstructionCount": 321781146,
+        "dispatches": [
+          {
+            "sequence": 148298,
+            "module": "user32.dll",
+            "symbol": "DispatchMessageA",
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
             },
-            "nextDeadlineTime100ns": 53045000,
-            "ownerThreadId": 8192,
-            "registrationGeneration": 1,
-            "requestedIntervalMilliseconds": 20,
-            "timerId": 1,
-            "windowHandle": 1208025089,
-            "windowId": 1
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "armedAtTime100ns": 52845000,
+              "callbackAddress": 269063680,
+              "deliveryCount": 1,
+              "effectiveIntervalMilliseconds": 20,
+              "id": 1,
+              "lastDelivery": {
+                "deliveredAtTime100ns": 52845000,
+                "deliveryCount": 1,
+                "registrationGeneration": 1,
+                "scheduledDeadlineTime100ns": 200000
+              },
+              "nextDeadlineTime100ns": 53045000,
+              "ownerThreadId": 8192,
+              "registrationGeneration": 1,
+              "requestedIntervalMilliseconds": 20,
+              "timerId": 1,
+              "windowHandle": 1208025089,
+              "windowId": 1
+            },
+            "callback": {
+              "frameId": 31,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 148745201,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601114
+            ]
           },
-          "callback": {
-            "frameId": 31,
-            "target": 269063680,
-            "allocationStart": 7338176,
-            "stackPointer": 7338176,
-            "scratchAddress": 0,
-            "scratchBytes": 0,
-            "frameBytes": 20,
-            "returnSentinel": 2130771968,
-            "returnInstructionCount": 148745201,
-            "result": 64
+          {
+            "sequence": 161545,
+            "module": "user32.dll",
+            "symbol": "DispatchMessageA",
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "armedAtTime100ns": 57235000,
+              "callbackAddress": 269063680,
+              "deliveryCount": 2,
+              "effectiveIntervalMilliseconds": 20,
+              "id": 1,
+              "lastDelivery": {
+                "deliveredAtTime100ns": 57235000,
+                "deliveryCount": 2,
+                "registrationGeneration": 1,
+                "scheduledDeadlineTime100ns": 53045000
+              },
+              "nextDeadlineTime100ns": 57435000,
+              "ownerThreadId": 8192,
+              "registrationGeneration": 1,
+              "requestedIntervalMilliseconds": 20,
+              "timerId": 1,
+              "windowHandle": 1208025089,
+              "windowId": 1
+            },
+            "callback": {
+              "frameId": 32,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321444370,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601207
+            ]
           },
-          "callbackArguments": [
-            1208025089,
-            275,
-            1,
-            3601114
-          ]
-        },
-        "instructionCount": 148745210,
+          {
+            "sequence": 162072,
+            "module": "user32.dll",
+            "symbol": "DispatchMessageA",
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "armedAtTime100ns": 57490000,
+              "callbackAddress": 269063680,
+              "deliveryCount": 3,
+              "effectiveIntervalMilliseconds": 20,
+              "id": 1,
+              "lastDelivery": {
+                "deliveredAtTime100ns": 57490000,
+                "deliveryCount": 3,
+                "registrationGeneration": 1,
+                "scheduledDeadlineTime100ns": 57435000
+              },
+              "nextDeadlineTime100ns": 57690000,
+              "ownerThreadId": 8192,
+              "registrationGeneration": 1,
+              "requestedIntervalMilliseconds": 20,
+              "timerId": 1,
+              "windowHandle": 1208025089,
+              "windowId": 1
+            },
+            "callback": {
+              "frameId": 33,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321468604,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601228
+            ]
+          },
+          {
+            "sequence": 162596,
+            "module": "user32.dll",
+            "symbol": "DispatchMessageA",
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "armedAtTime100ns": 57690000,
+              "callbackAddress": 269063680,
+              "deliveryCount": 4,
+              "effectiveIntervalMilliseconds": 20,
+              "id": 1,
+              "lastDelivery": {
+                "deliveredAtTime100ns": 57690000,
+                "deliveryCount": 4,
+                "registrationGeneration": 1,
+                "scheduledDeadlineTime100ns": 57690000
+              },
+              "nextDeadlineTime100ns": 57890000,
+              "ownerThreadId": 8192,
+              "registrationGeneration": 1,
+              "requestedIntervalMilliseconds": 20,
+              "timerId": 1,
+              "windowHandle": 1208025089,
+              "windowId": 1
+            },
+            "callback": {
+              "frameId": 34,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321492768,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601249
+            ]
+          },
+          {
+            "sequence": 163048,
+            "module": "user32.dll",
+            "symbol": "DispatchMessageA",
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "armedAtTime100ns": 57930000,
+              "callbackAddress": 269063680,
+              "deliveryCount": 5,
+              "effectiveIntervalMilliseconds": 20,
+              "id": 1,
+              "lastDelivery": {
+                "deliveredAtTime100ns": 57930000,
+                "deliveryCount": 5,
+                "registrationGeneration": 1,
+                "scheduledDeadlineTime100ns": 57890000
+              },
+              "nextDeadlineTime100ns": 58130000,
+              "ownerThreadId": 8192,
+              "registrationGeneration": 1,
+              "requestedIntervalMilliseconds": 20,
+              "timerId": 1,
+              "windowHandle": 1208025089,
+              "windowId": 1
+            },
+            "callback": {
+              "frameId": 35,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321515688,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601270
+            ]
+          },
+          {
+            "sequence": 163572,
+            "module": "user32.dll",
+            "symbol": "DispatchMessageA",
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "armedAtTime100ns": 58170000,
+              "callbackAddress": 269063680,
+              "deliveryCount": 6,
+              "effectiveIntervalMilliseconds": 20,
+              "id": 1,
+              "lastDelivery": {
+                "deliveredAtTime100ns": 58170000,
+                "deliveryCount": 6,
+                "registrationGeneration": 1,
+                "scheduledDeadlineTime100ns": 58130000
+              },
+              "nextDeadlineTime100ns": 58370000,
+              "ownerThreadId": 8192,
+              "registrationGeneration": 1,
+              "requestedIntervalMilliseconds": 20,
+              "timerId": 1,
+              "windowHandle": 1208025089,
+              "windowId": 1
+            },
+            "callback": {
+              "frameId": 36,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321539852,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601291
+            ]
+          },
+          {
+            "sequence": 164024,
+            "module": "user32.dll",
+            "symbol": "DispatchMessageA",
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "armedAtTime100ns": 58370000,
+              "callbackAddress": 269063680,
+              "deliveryCount": 7,
+              "effectiveIntervalMilliseconds": 20,
+              "id": 1,
+              "lastDelivery": {
+                "deliveredAtTime100ns": 58370000,
+                "deliveryCount": 7,
+                "registrationGeneration": 1,
+                "scheduledDeadlineTime100ns": 58370000
+              },
+              "nextDeadlineTime100ns": 58570000,
+              "ownerThreadId": 8192,
+              "registrationGeneration": 1,
+              "requestedIntervalMilliseconds": 20,
+              "timerId": 1,
+              "windowHandle": 1208025089,
+              "windowId": 1
+            },
+            "callback": {
+              "frameId": 37,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321562772,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601312
+            ]
+          },
+          {
+            "sequence": 164548,
+            "module": "user32.dll",
+            "symbol": "DispatchMessageA",
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "armedAtTime100ns": 58610000,
+              "callbackAddress": 269063680,
+              "deliveryCount": 8,
+              "effectiveIntervalMilliseconds": 20,
+              "id": 1,
+              "lastDelivery": {
+                "deliveredAtTime100ns": 58610000,
+                "deliveryCount": 8,
+                "registrationGeneration": 1,
+                "scheduledDeadlineTime100ns": 58570000
+              },
+              "nextDeadlineTime100ns": 58810000,
+              "ownerThreadId": 8192,
+              "registrationGeneration": 1,
+              "requestedIntervalMilliseconds": 20,
+              "timerId": 1,
+              "windowHandle": 1208025089,
+              "windowId": 1
+            },
+            "callback": {
+              "frameId": 38,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321586936,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601333
+            ]
+          },
+          {
+            "sequence": 165130,
+            "module": "user32.dll",
+            "symbol": "DispatchMessageA",
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "armedAtTime100ns": 58850000,
+              "callbackAddress": 269063680,
+              "deliveryCount": 9,
+              "effectiveIntervalMilliseconds": 20,
+              "id": 1,
+              "lastDelivery": {
+                "deliveredAtTime100ns": 58850000,
+                "deliveryCount": 9,
+                "registrationGeneration": 1,
+                "scheduledDeadlineTime100ns": 58810000
+              },
+              "nextDeadlineTime100ns": 59050000,
+              "ownerThreadId": 8192,
+              "registrationGeneration": 1,
+              "requestedIntervalMilliseconds": 20,
+              "timerId": 1,
+              "windowHandle": 1208025089,
+              "windowId": 1
+            },
+            "callback": {
+              "frameId": 39,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321615730,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601359
+            ]
+          },
+          {
+            "sequence": 165654,
+            "module": "user32.dll",
+            "symbol": "DispatchMessageA",
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "armedAtTime100ns": 59090000,
+              "callbackAddress": 269063680,
+              "deliveryCount": 10,
+              "effectiveIntervalMilliseconds": 20,
+              "id": 1,
+              "lastDelivery": {
+                "deliveredAtTime100ns": 59090000,
+                "deliveryCount": 10,
+                "registrationGeneration": 1,
+                "scheduledDeadlineTime100ns": 59050000
+              },
+              "nextDeadlineTime100ns": 59290000,
+              "ownerThreadId": 8192,
+              "registrationGeneration": 1,
+              "requestedIntervalMilliseconds": 20,
+              "timerId": 1,
+              "windowHandle": 1208025089,
+              "windowId": 1
+            },
+            "callback": {
+              "frameId": 40,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321639894,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601380
+            ]
+          },
+          {
+            "sequence": 166106,
+            "module": "user32.dll",
+            "symbol": "DispatchMessageA",
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "armedAtTime100ns": 59290000,
+              "callbackAddress": 269063680,
+              "deliveryCount": 11,
+              "effectiveIntervalMilliseconds": 20,
+              "id": 1,
+              "lastDelivery": {
+                "deliveredAtTime100ns": 59290000,
+                "deliveryCount": 11,
+                "registrationGeneration": 1,
+                "scheduledDeadlineTime100ns": 59290000
+              },
+              "nextDeadlineTime100ns": 59490000,
+              "ownerThreadId": 8192,
+              "registrationGeneration": 1,
+              "requestedIntervalMilliseconds": 20,
+              "timerId": 1,
+              "windowHandle": 1208025089,
+              "windowId": 1
+            },
+            "callback": {
+              "frameId": 41,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321662735,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601401
+            ]
+          },
+          {
+            "sequence": 166630,
+            "module": "user32.dll",
+            "symbol": "DispatchMessageA",
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "armedAtTime100ns": 59530000,
+              "callbackAddress": 269063680,
+              "deliveryCount": 12,
+              "effectiveIntervalMilliseconds": 20,
+              "id": 1,
+              "lastDelivery": {
+                "deliveredAtTime100ns": 59530000,
+                "deliveryCount": 12,
+                "registrationGeneration": 1,
+                "scheduledDeadlineTime100ns": 59490000
+              },
+              "nextDeadlineTime100ns": 59730000,
+              "ownerThreadId": 8192,
+              "registrationGeneration": 1,
+              "requestedIntervalMilliseconds": 20,
+              "timerId": 1,
+              "windowHandle": 1208025089,
+              "windowId": 1
+            },
+            "callback": {
+              "frameId": 42,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321686978,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601422
+            ]
+          },
+          {
+            "sequence": 167082,
+            "module": "user32.dll",
+            "symbol": "DispatchMessageA",
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "armedAtTime100ns": 59730000,
+              "callbackAddress": 269063680,
+              "deliveryCount": 13,
+              "effectiveIntervalMilliseconds": 20,
+              "id": 1,
+              "lastDelivery": {
+                "deliveredAtTime100ns": 59730000,
+                "deliveryCount": 13,
+                "registrationGeneration": 1,
+                "scheduledDeadlineTime100ns": 59730000
+              },
+              "nextDeadlineTime100ns": 59930000,
+              "ownerThreadId": 8192,
+              "registrationGeneration": 1,
+              "requestedIntervalMilliseconds": 20,
+              "timerId": 1,
+              "windowHandle": 1208025089,
+              "windowId": 1
+            },
+            "callback": {
+              "frameId": 43,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321709819,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601443
+            ]
+          },
+          {
+            "sequence": 167606,
+            "module": "user32.dll",
+            "symbol": "DispatchMessageA",
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "armedAtTime100ns": 59970000,
+              "callbackAddress": 269063680,
+              "deliveryCount": 14,
+              "effectiveIntervalMilliseconds": 20,
+              "id": 1,
+              "lastDelivery": {
+                "deliveredAtTime100ns": 59970000,
+                "deliveryCount": 14,
+                "registrationGeneration": 1,
+                "scheduledDeadlineTime100ns": 59930000
+              },
+              "nextDeadlineTime100ns": 60170000,
+              "ownerThreadId": 8192,
+              "registrationGeneration": 1,
+              "requestedIntervalMilliseconds": 20,
+              "timerId": 1,
+              "windowHandle": 1208025089,
+              "windowId": 1
+            },
+            "callback": {
+              "frameId": 44,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321734062,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601464
+            ]
+          },
+          {
+            "sequence": 168058,
+            "module": "user32.dll",
+            "symbol": "DispatchMessageA",
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "armedAtTime100ns": 60170000,
+              "callbackAddress": 269063680,
+              "deliveryCount": 15,
+              "effectiveIntervalMilliseconds": 20,
+              "id": 1,
+              "lastDelivery": {
+                "deliveredAtTime100ns": 60170000,
+                "deliveryCount": 15,
+                "registrationGeneration": 1,
+                "scheduledDeadlineTime100ns": 60170000
+              },
+              "nextDeadlineTime100ns": 60370000,
+              "ownerThreadId": 8192,
+              "registrationGeneration": 1,
+              "requestedIntervalMilliseconds": 20,
+              "timerId": 1,
+              "windowHandle": 1208025089,
+              "windowId": 1
+            },
+            "callback": {
+              "frameId": 45,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321756903,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601485
+            ]
+          },
+          {
+            "sequence": 168582,
+            "module": "user32.dll",
+            "symbol": "DispatchMessageA",
+            "arguments": [
+              7338216
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "user32.dispatch-message-a.window-timer-callback.v1",
+            "returnAddress": 269039532,
+            "stackPointerBefore": 7338196,
+            "stackPointerAfter": 7338204,
+            "lastError": 0,
+            "guestWrites": [],
+            "windowTimer": {
+              "armedAtTime100ns": 60410000,
+              "callbackAddress": 269063680,
+              "deliveryCount": 16,
+              "effectiveIntervalMilliseconds": 20,
+              "id": 1,
+              "lastDelivery": {
+                "deliveredAtTime100ns": 60410000,
+                "deliveryCount": 16,
+                "registrationGeneration": 1,
+                "scheduledDeadlineTime100ns": 60370000
+              },
+              "nextDeadlineTime100ns": 60610000,
+              "ownerThreadId": 8192,
+              "registrationGeneration": 1,
+              "requestedIntervalMilliseconds": 20,
+              "timerId": 1,
+              "windowHandle": 1208025089,
+              "windowId": 1
+            },
+            "callback": {
+              "frameId": 46,
+              "target": 269063680,
+              "allocationStart": 7338176,
+              "stackPointer": 7338176,
+              "scratchAddress": 0,
+              "scratchBytes": 0,
+              "frameBytes": 20,
+              "returnSentinel": 2130771968,
+              "returnInstructionCount": 321781146,
+              "result": 64
+            },
+            "callbackArguments": [
+              1208025089,
+              275,
+              1,
+              3601506
+            ]
+          }
+        ],
+        "instructionCount": 321781155,
         "nextEndpoint": {
           "address": 2130709040,
           "disposition": "declared-runtime-export",
@@ -263,13 +1981,13 @@
         ],
         "nextReturnAddress": 269039547,
         "nextStackPointer": 7338180,
-        "memoryContentSha256": "2ff0d5bc7f72729624f911b812f332f350ec091572d068a598990f96596e6b86"
+        "memoryContentSha256": "0dbd1f83e5c5d34be37de44346302028dc18c77ca38a49b30d36d577b15749ae"
       },
-      "wasmBridgeCalls": 439386,
+      "wasmBridgeCalls": 505991,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 509677,
+          "transitionCount": 609982,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -311,25 +2029,27 @@
           "sha256": "99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f"
         }
       },
-      "executionEngineLinearMemoryBytes": 43384832
+      "executionEngineLinearMemoryBytes": 76939264
     },
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "primary-main-loop-window-timer-callback-recurring-batch",
-      "pausedHistoricalCheckpoint": "primary-main-loop-window-timer-callback-delivery-gateway",
-      "instructionCount": 148745210,
-      "capabilityCluster": "primary-main-loop-window-timer-callback-delivery",
-      "reason": "primary-main-loop-window-timer-callback-delivery-gateway-checkpoint-complete",
+      "nextCheckpoint": "primary-main-loop-window-timer-callback-action-input-progress-gateway",
+      "pausedHistoricalCheckpoint": "primary-main-loop-window-timer-callback-recurring-batch",
+      "instructionCount": 321781155,
+      "capabilityCluster": "primary-main-loop-window-timer-callback-action-input-progress",
+      "reason": "primary-main-loop-window-timer-callback-recurring-batch-checkpoint-complete",
       "completion": {
-        "capability": "primary-main-loop-window-timer-callback-delivery-gateway",
-        "implementationId": "runtime.main-loop-window-timer-callback-delivery-gateway.v1",
-        "requiredDeliveries": 1,
-        "deliveryCount": 1,
-        "requiredCompletions": 1,
-        "completionCount": 1,
-        "lastCompletionSequence": 148298,
-        "lastCompletionInstructionCount": 148745201
+        "capability": "primary-main-loop-window-timer-callback-recurring-batch",
+        "implementationId": "runtime.main-loop-window-timer-callback-recurring-batch.v1",
+        "requiredDeliveries": 16,
+        "deliveryCount": 16,
+        "requiredCompletions": 16,
+        "completionCount": 16,
+        "firstCompletionSequence": 148298,
+        "firstCompletionInstructionCount": 148745201,
+        "lastCompletionSequence": 168582,
+        "lastCompletionInstructionCount": 321781146
       },
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
@@ -364,14 +2084,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-primary-main-loop-window-timer-callback-delivery-gateway/report.json",
-      "bytes": 1957443,
-      "sha256": "2955fde5c76e6cb92fa434213a082d776255a4038a42ee029b2f4bf4572c9f91"
+      "path": ".work/v86-bgi-primary-main-loop-window-timer-callback-recurring-batch/report.json",
+      "bytes": 3149409,
+      "sha256": "d34ba8081cc2a1e33b509083767ae375e18077c361d16c86f0e820aed3917871"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 1721118,
-      "sha256": "fdecdfc421b4dae62484b832c103a33f1935a13650b5b07dd66da83fa6b4fe41"
+      "bytes": 2840881,
+      "sha256": "5a38583cb2a3acf42393063566099b7d4cdb209f9398acd31847ec77661189fd"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -386,7 +2106,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3766,
-      "sha256": "7ebe47bf431cbc90769acd84e1e9ed7b0b45e827d1ba36b09c9b016f1d34c1e1"
+      "sha256": "85821959f2fa5154db20980facffc2ed4fdcdbb0dea87222f99c451faaa6a923"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -423,5 +2143,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "ed53c82ee69f580c72ea960bce7b266d49807a3e365d904f67cedb3bc5c200ae"
+  "payloadSha256": "d6428c73d6819306bb8b6180cba2882937f7fc369435668440191dcc05c05850"
 }
