@@ -22992,7 +22992,20 @@ export function validateCurrentCheckpoint(manifest) {
       !Number.isSafeInteger(bgiBrowserEvidence.statusMessagesObserved) ||
       bgiBrowserEvidence.statusMessagesObserved <
         bgiBrowserEvidence.statusMessagesRetained ||
-      bgiBrowserEvidence.statusMessagesRetained !== 4_096
+      bgiBrowserEvidence.statusMessagesRetained !== 4_096 ||
+      JSON.stringify(bgiBrowserEvidence.waitForSingleObjectExPacingTimerIds) !==
+        JSON.stringify(["2", "2"]) ||
+      JSON.stringify(
+        bgiBrowserEvidence.waitForSingleObjectExPacingTargetTimes100ns,
+      ) !== JSON.stringify(["5000", "56165000"]) ||
+      JSON.stringify(
+        bgiBrowserEvidence.waitForSingleObjectExPacingArmGenerations,
+      ) !== JSON.stringify(["1", "11220"]) ||
+      JSON.stringify(
+        latestEvidence.waitForSingleObjectExPacingTargetTimes100ns,
+      ) !== JSON.stringify(["5000", "56165000"]) ||
+      JSON.stringify(latestEvidence.waitForSingleObjectExPacingArmGenerations) !==
+        JSON.stringify(["1", "11220"])
     ) {
       errors.push("recurring timer multi-cycle checkpoint stop is invalid");
     }
