@@ -326,7 +326,7 @@ function assertReportSemantics({
   );
   assert.equal(
     nodePacing.totalCount,
-    expectedBrowser.waitForSingleObjectExCompletions,
+    expectedBrowser.waitForSingleObjectExBrowserPacingRequests,
   );
   assert.equal(nodePacingRequests.length, expectedPacingCount);
   assert.deepEqual(
