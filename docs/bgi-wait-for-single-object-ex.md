@@ -249,13 +249,18 @@ in [bgi-critical-section-synchronization.md](bgi-critical-section-synchronizatio
 The subsequent
 `kernel32-set-waitable-timer-post-timer-rearm-wait-batch` profile has consumed
 that arm and stopped at another `WaitForSingleObjectEx(0x57010002, 10, TRUE)`
-frame. The next `primary-main-loop-recurring-timer-cycle-batch` checkpoint
-groups this wait, the complete balanced critical-section block, and the next
-rearm into one scenario recurrence. The wait still requires an independently
-validated Rust registration, logical expiration, scheduler-lane resume, and
-one versioned browser pacing acknowledgement; batching does not transfer timer
-or wait-result authority to the Worker. The batch stops before a second wait,
-so it does not claim unbounded loop progress or long-run stability.
+frame. The `primary-main-loop-recurring-timer-cycle-batch` checkpoint now
+groups and completes this wait, the complete balanced critical-section block,
+and the next rearm as one scenario recurrence, stopping at the following wait.
+The wait uses an independently validated Rust registration, logical
+expiration, scheduler-lane resume, and one versioned browser pacing
+acknowledgement; batching does not transfer timer or wait-result authority to
+the Worker.
+
+The next bounded multi-cycle batch repeats this whole transaction enough to
+classify recurrence as a scenario behavior rather than another sequence of
+single-call checkpoints. The one-cycle evidence does not by itself claim
+unbounded loop progress or long-run stability.
 
 ## Non-claims
 

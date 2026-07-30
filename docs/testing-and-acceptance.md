@@ -1052,11 +1052,12 @@ fairness、abandonment、APC semanticsや新しいperformance baselineを拡張�
 その後の`SetWaitableTimer` recurrenceは既存relative one-shot transactionでframeを消費し、timer／typed
 object／live generation／lifetimeのpreflight後にlogical deadlineと`nonsignaled` stateをjoint commitする。
 Node／ChromeはBOOL／LastError、zero guest write、stack cleanup、ordered semantic digest、terminal memory、
-次のalertable wait frameを一致させる。以後はsingle-call checkpointを繰り返さず、次のwait completion、
-6 call／3 roundtripのbalanced critical-section block、次のrearmを
-`primary-main-loop-recurring-timer-cycle-batch`として一括検査する。各ownerのvalidation／failure atomicity、
-一件のversioned pacing acknowledgement、最終balanced state、次wait直前の停止を維持し、unbounded loop、
-APC、general timeout、cross-thread contention、long-run安定性はclaimしない。Exact値とartifact identityは
+次のalertable wait frameを一致させる。`primary-main-loop-recurring-timer-cycle-batch`は、そのwait completion、
+6 call／3 roundtripのbalanced critical-section block、次のrearmを8-callの一単位として完了した。Node／Chromeは
+各ownerのvalidation／failure atomicity、一件のversioned pacing acknowledgement、最終balanced state、terminal
+memory、次wait直前の停止を一致させる。次は同じcontractを複数周期まとめて実行し、周期間のidentity／generation／
+balanced stateの連続性と、新しいowned endpointへの遷移有無をboundedに判定する。unbounded loop、APC、general
+timeout、cross-thread contention、long-run安定性はまだclaimしない。Exact値とartifact identityは
 `current-checkpoint.json`だけを正本とする。
 
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。

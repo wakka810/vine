@@ -56,6 +56,16 @@ document remains the frozen scheduler-selection evidence for the preceding
 profile; current values and the next endpoint are maintained in
 [current-checkpoint.json](current-checkpoint.json).
 
+The later `primary-main-loop-recurring-timer-cycle-batch` checkpoint has now
+promoted the reached loop from API-by-API progression to a scenario unit. One
+unit consists of a finite alertable wait, three balanced critical-section
+roundtrips, and the following relative one-shot timer rearm. The composite
+completion stops at the next wait and is accepted only when Node and Chrome
+agree on all eight calls, Rust-owned timer and synchronization identities,
+terminal memory, and the next endpoint. The next progression step repeats
+several complete units as one bounded batch; it does not infer unbounded-loop
+or long-run stability from a single recurrence.
+
 ## Ownership and invariants
 
 `RuntimeScheduler` plans the selection only after the API completion has been

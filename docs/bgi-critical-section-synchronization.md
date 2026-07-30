@@ -298,12 +298,18 @@ The follow-on
 `kernel32-set-waitable-timer-post-timer-rearm-wait-batch` profile has now
 consumed that arm and reached the next alertable wait without mutating either
 critical-section identity or introducing a second synchronization owner. The
-next `primary-main-loop-recurring-timer-cycle-batch` checkpoint treats the
+`primary-main-loop-recurring-timer-cycle-batch` checkpoint now consumes that
 wait, all three balanced acquire/release roundtrips, and the following rearm as
-one recurring main-loop scenario unit. Each synchronization call must still
-publish exactly one failure-atomic 24-byte update and leave both identities
-balanced before the rearm; batching does not weaken the per-call owner or
-failure-ordering contract.
+one recurring main-loop scenario unit, then stops at the next wait. Each
+synchronization call publishes exactly one failure-atomic 24-byte update and
+leaves both identities balanced before the rearm. Node and Chrome agree on the
+eight-call order, owner thread, terminal memory, and next endpoint without
+creating another synchronization owner.
+
+Further progression uses a bounded multi-cycle batch. It must revalidate every
+acquire/release pair and preserve the per-call failure ordering, but it does
+not turn browser pacing into synchronization authority or claim general
+contention, fairness, abandonment, or unbounded-loop behavior.
 
 ## Historical next structured stop
 

@@ -177,14 +177,19 @@ Chrome agree on BOOL, LastError, zero guest write, stack cleanup, timer/object
 identity, ordered semantics, terminal memory, and the following alertable wait
 frame. The Worker records non-owning evidence and creates no browser timer.
 
-Further recurrence is grouped as
+Further recurrence is now grouped by
 `primary-main-loop-recurring-timer-cycle-batch`: one complete alertable wait,
 the contiguous three balanced critical-section roundtrips, and the following
-rearm are verified as one scenario unit before stopping at the next wait. This
-batching changes neither semantic handler nor authority; it prevents repeated
-single-call checkpoints from becoming the unit of progress. Exact positions,
-generations, deadlines, report identities, and the active stop remain
-manifest-owned.
+rearm are verified as one eight-call scenario unit before stopping at the next
+wait. Node and Chrome agree on the ordered composite completion, logical timer
+and object identity, balanced synchronization state, terminal memory, and next
+endpoint. This batching changes neither semantic handler nor authority; it
+prevents repeated single-call checkpoints from becoming the unit of progress.
+
+The follow-on is a bounded multi-cycle recurrence batch. It reuses the same
+Rust owners and versioned pacing boundary and looks for divergence or a new
+owned endpoint across several complete cycles. Exact positions, generations,
+deadlines, report identities, and the active stop remain manifest-owned.
 
 ## Non-claims
 
