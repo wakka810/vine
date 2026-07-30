@@ -186,6 +186,9 @@ export function validateCurrentCheckpoint(manifest) {
   const heapAlloc24Active =
     root.activeRuntimeCheckpoint?.profile ===
       "kernel32-heap-alloc-24-byte-buffer";
+  const recurringTimerMultiCycleActive =
+    root.activeRuntimeCheckpoint?.profile ===
+      "primary-main-loop-recurring-timer-multi-cycle-batch";
   const recurringTimerCycleActive =
     root.activeRuntimeCheckpoint?.profile ===
       "primary-main-loop-recurring-timer-cycle-batch";
@@ -228,6 +231,7 @@ export function validateCurrentCheckpoint(manifest) {
     root.activeRuntimeCheckpoint?.profile ===
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch";
   const postCriticalSectionWaitEvidenceActive =
+    recurringTimerMultiCycleActive ||
     recurringTimerCycleActive ||
     postWaitCriticalSectionActive ||
     postCriticalSectionWaitActive ||
@@ -238,6 +242,7 @@ export function validateCurrentCheckpoint(manifest) {
       "runtime-trapless-execution-budget";
   const runtimeTraplessExecutionBudgetActive =
     runtimeTraplessExecutionBudgetCheckpointActive ||
+    recurringTimerMultiCycleActive ||
     recurringTimerCycleActive ||
     largeHeapFreeActive ||
     heapAlloc24Active ||
@@ -407,7 +412,9 @@ export function validateCurrentCheckpoint(manifest) {
     : createDirectoryAActive
       ? "15954287,16290526"
       : "15953766,16290005";
-  const timerCycleCount = recurringTimerCycleActive
+  const timerCycleCount = recurringTimerMultiCycleActive
+    ? 11_224
+    : recurringTimerCycleActive
     ? 11_209
     : postTimerRearmWaitSetWaitableTimerActive ||
     postTimerRearmWaitCriticalSectionActive ||
@@ -446,7 +453,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? 7
                   : 3;
-  const timerArmCount = recurringTimerCycleActive
+  const timerArmCount = recurringTimerMultiCycleActive
+    ? 11_225
+    : recurringTimerCycleActive
     ? 11_210
     : postTimerRearmWaitSetWaitableTimerActive
     ? 11_209
@@ -473,7 +482,9 @@ export function validateCurrentCheckpoint(manifest) {
     : d3d9RecreatedTexturesActive
       ? 9_187
       : timerCycleCount;
-  const timerSetSequences = recurringTimerCycleActive
+  const timerSetSequences = recurringTimerMultiCycleActive
+    ? "18681,158387"
+    : recurringTimerCycleActive
     ? "18681,158139"
     : postTimerRearmWaitSetWaitableTimerActive
     ? "18681,158131"
@@ -512,7 +523,9 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "18681,18689,18697,18705,18713,18721,18729"
                   : "18681,18689,18697";
-  const timerSetInstructionCounts = recurringTimerCycleActive
+  const timerSetInstructionCounts = recurringTimerMultiCycleActive
+    ? "11974074,287481297"
+    : recurringTimerCycleActive
     ? "11974074,276361632"
     : postTimerRearmWaitSetWaitableTimerActive
     ? "11974074,276361485"
@@ -552,7 +565,9 @@ export function validateCurrentCheckpoint(manifest) {
                   ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
                   : "11973553,11973700,11973847";
   const timerWaitSequences =
-    recurringTimerCycleActive
+    recurringTimerMultiCycleActive
+    ? "18682,158316"
+    : recurringTimerCycleActive
     ? "18682,158132"
     : postTimerRearmWaitSetWaitableTimerActive ||
     postTimerRearmWaitCriticalSectionActive ||
@@ -592,7 +607,9 @@ export function validateCurrentCheckpoint(manifest) {
                   ? "18682,18690,18698,18706,18714,18722,18730"
                   : "18682,18690,18698";
   const timerWaitInstructionCounts =
-    recurringTimerCycleActive
+    recurringTimerMultiCycleActive
+    ? "11974080,287461546"
+    : recurringTimerCycleActive
     ? "11974080,276361491"
     : postTimerRearmWaitSetWaitableTimerActive ||
     postTimerRearmWaitCriticalSectionActive ||
@@ -632,7 +649,9 @@ export function validateCurrentCheckpoint(manifest) {
                   ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
                   : "11973559,11973706,11973853";
   const timerGenerations =
-    recurringTimerCycleActive
+    recurringTimerMultiCycleActive
+    ? "1,11220"
+    : recurringTimerCycleActive
     ? "1,11205"
     : postTimerRearmWaitSetWaitableTimerActive ||
     postTimerRearmWaitCriticalSectionActive ||
@@ -672,7 +691,9 @@ export function validateCurrentCheckpoint(manifest) {
                   ? "1,2,3,4,5,6,7"
                   : "1,2,3";
   const timerClockGenerations =
-    recurringTimerCycleActive
+    recurringTimerMultiCycleActive
+    ? "1,11224"
+    : recurringTimerCycleActive
     ? "1,11209"
     : postTimerRearmWaitSetWaitableTimerActive ||
     postTimerRearmWaitCriticalSectionActive ||
@@ -698,7 +719,9 @@ export function validateCurrentCheckpoint(manifest) {
     ? "1,9187"
     : timerGenerations;
   const timerDeadlines =
-    recurringTimerCycleActive
+    recurringTimerMultiCycleActive
+    ? "5000,56165000"
+    : recurringTimerCycleActive
     ? "5000,56090000"
     : postTimerRearmWaitSetWaitableTimerActive ||
     postTimerRearmWaitCriticalSectionActive ||
@@ -738,7 +761,9 @@ export function validateCurrentCheckpoint(manifest) {
                   ? "5000,10000,15000,20000,25000,30000,35000"
                   : "5000,10000,15000";
   const timerPacingRequestIds =
-    recurringTimerCycleActive
+    recurringTimerMultiCycleActive
+    ? "3,11311"
+    : recurringTimerCycleActive
     ? "3,11296"
     : postTimerRearmWaitSetWaitableTimerActive ||
     postTimerRearmWaitCriticalSectionActive ||
@@ -778,7 +803,9 @@ export function validateCurrentCheckpoint(manifest) {
                   ? "3,4,5,6,7,8,9"
                   : "3,4,5";
   const timerPacingRegistrationIds =
-    recurringTimerCycleActive
+    recurringTimerMultiCycleActive
+    ? "1,11224"
+    : recurringTimerCycleActive
     ? "1,11209"
     : postTimerRearmWaitSetWaitableTimerActive ||
     postTimerRearmWaitCriticalSectionActive ||
@@ -818,7 +845,9 @@ export function validateCurrentCheckpoint(manifest) {
                   ? "1,2,3,4,5,6,7"
                   : "1,2,3";
   const timerPacingClockGenerations =
-    recurringTimerCycleActive
+    recurringTimerMultiCycleActive
+    ? "0,11223"
+    : recurringTimerCycleActive
     ? "0,11208"
     : postTimerRearmWaitSetWaitableTimerActive ||
     postTimerRearmWaitCriticalSectionActive ||
@@ -858,7 +887,9 @@ export function validateCurrentCheckpoint(manifest) {
                   ? "0,1,2,3,4,5,6"
                   : "0,1,2";
   const timerNextRegistrationIds =
-    recurringTimerCycleActive
+    recurringTimerMultiCycleActive
+    ? "2,11225"
+    : recurringTimerCycleActive
     ? "2,11210"
     : postTimerRearmWaitSetWaitableTimerActive ||
     postTimerRearmWaitCriticalSectionActive ||
@@ -897,7 +928,25 @@ export function validateCurrentCheckpoint(manifest) {
                 : mainLoopContinuationActive
                   ? "2,3,4,5,6,7,8"
                   : "2,3,4";
-  const profileExpectations = recurringTimerCycleActive
+  const profileExpectations = recurringTimerMultiCycleActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 125_864,
+        browserMappingDirtyPages: 146_867,
+        browserSuccessExecutionTransitions: 570_564,
+        latestSchema:
+          "vine.v86-bgi-primary-main-loop-recurring-timer-multi-cycle-batch",
+        latestWritebackBatches: 161_348,
+        latestWritebackDirtyPages: 238_005,
+        latestWritebackChangedBytes: 39_922_045,
+        latestHostDeltaBatches: 125_864,
+        latestFinalMemoryGeneration: 290_302,
+        semanticCallDigestSha256:
+          "2fb3c15a5989f1afac216346add8110c7f36fd1612f732d3fee416c36c231327",
+        memoryContentSha256:
+          "474048294afb72dcbd3d16517ed514d8771099bc3ed9c981e5fb3539dcabc625",
+      }
+    : recurringTimerCycleActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 125_768,
@@ -2245,9 +2294,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v69") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v70") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v69",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v70",
     );
   }
   if (
@@ -3031,7 +3080,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (recurringTimerCycleActive
+      (recurringTimerMultiCycleActive
+        ? 38
+        : recurringTimerCycleActive
         ? 37
         : postTimerRearmWaitSetWaitableTimerActive
         ? 36
@@ -3148,7 +3199,9 @@ export function validateCurrentCheckpoint(manifest) {
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     bgiBrowserEvidence.contextSwitches !==
-      (postClockCriticalSectionActive ||
+      (recurringTimerMultiCycleActive
+        ? 2_461
+        : postClockCriticalSectionActive ||
       postCriticalSectionWaitEvidenceActive
         ? 2_457
         : runtimeThreadStackGrowthActive
@@ -3181,7 +3234,9 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.processLifecycleAfterCleanup !== "exited" ||
     bgiBrowserEvidence.dllLifecycleAfterCleanup !== "process-detached" ||
     bgiBrowserEvidence.largeHeapPageMaterializations !==
-      (runtimeThreadStackGrowthActive
+      (recurringTimerMultiCycleActive
+        ? 2_919
+        : runtimeThreadStackGrowthActive
         ? 2_243
         : user32IsIconicActive
         ? 1_685
@@ -19938,7 +19993,9 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (recurringTimerCycleActive
+      (recurringTimerMultiCycleActive
+        ? "Rust-owned recurring main-loop timer window composed across RuntimeTimers, RuntimeWaits, RuntimeSynchronization, RuntimeObjectTable, the scheduler, and both reached guest threads"
+        : recurringTimerCycleActive
         ? "Rust-owned recurring main-loop wait, synchronization, and timer rearm cycle composed across RuntimeTimers, RuntimeWaits, RuntimeSynchronization, RuntimeObjectTable, and the scheduler"
         : postTimerArmWaitActive
         ? "Rust-owned recurring finite alertable waitable-timer completion through RuntimeTimers, RuntimeWaits, and the scheduler with deterministic browser pacing acknowledgement"
@@ -22200,6 +22257,20 @@ export function validateCurrentCheckpoint(manifest) {
       ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
       ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
     ]) {
+      const actualEndpoint = actual.nextEndpoint ?? {};
+      const actualEndpointId =
+        actualEndpoint.endpointId ?? actualEndpoint.id;
+      const actualEndpointAddress =
+        actualEndpoint.endpointAddress ??
+        (Number.isSafeInteger(actualEndpoint.address)
+          ? `0x${actualEndpoint.address.toString(16).padStart(8, "0")}`
+          : undefined);
+      const actualEndpointApi =
+        actualEndpoint.api ??
+        (typeof actualEndpoint.module === "string" &&
+        typeof actualEndpoint.symbol?.name === "string"
+          ? `${actualEndpoint.module}!${actualEndpoint.symbol.name}`
+          : undefined);
       if (
         actual.capability !== expectedCompletion.capability ||
         actual.implementationId !== expectedCompletion.implementationId ||
@@ -22210,10 +22281,9 @@ export function validateCurrentCheckpoint(manifest) {
         actual.lastCompletionInstructionCount !==
           expectedCompletion.lastCompletionInstructionCount ||
         actual.instructionCount !== currentStop.instructionCount ||
-        actual.nextEndpoint?.endpointId !== expectedEndpoint.endpointId ||
-        actual.nextEndpoint?.endpointAddress !==
-          expectedEndpoint.endpointAddress ||
-        actual.nextEndpoint?.api?.toLowerCase() !==
+        actualEndpointId !== expectedEndpoint.endpointId ||
+        actualEndpointAddress !== expectedEndpoint.endpointAddress ||
+        actualEndpointApi?.toLowerCase() !==
           expectedEndpoint.api?.toLowerCase()
       ) {
         errors.push(
@@ -22874,6 +22944,251 @@ export function validateCurrentCheckpoint(manifest) {
             `${label} post-clock critical-section completion ${index} is invalid`,
           );
         }
+      }
+    }
+  }
+  if (recurringTimerMultiCycleActive) {
+    const expectedCompletion = currentStop.completion ?? {};
+    const expectedEndpoint = currentStop.nextEndpoint ?? {};
+    if (
+      currentStop.kind !== "capability-checkpoint" ||
+      currentStop.nextCheckpoint !==
+        "primary-main-loop-recurring-timer-window-batch" ||
+      currentStop.pausedHistoricalCheckpoint !==
+        "primary-main-loop-recurring-timer-multi-cycle-batch" ||
+      currentStop.instructionCount !== 287_481_303 ||
+      currentStop.capabilityCluster !==
+        "primary-main-loop-recurring-timer-window" ||
+      currentStop.reason !==
+        "primary-main-loop-recurring-timer-multi-cycle-batch-checkpoint-complete" ||
+      expectedCompletion.capability !==
+        "primary-main-loop-recurring-timer-multi-cycle-batch" ||
+      expectedCompletion.implementationId !==
+        "runtime.main-loop-recurring-timer-multi-cycle.v1" ||
+      expectedCompletion.requiredCycles !== 16 ||
+      expectedCompletion.cycleCount !== 16 ||
+      expectedCompletion.requiredCompletions !== 32 ||
+      expectedCompletion.minimumRequiredCompletions !== 32 ||
+      expectedCompletion.completionCount !== 256 ||
+      expectedCompletion.firstCompletionSequence !== 158_132 ||
+      expectedCompletion.firstCompletionInstructionCount !== 276_361_491 ||
+      expectedCompletion.lastCompletionSequence !== 158_387 ||
+      expectedCompletion.lastCompletionInstructionCount !== 287_481_297 ||
+      expectedEndpoint.endpointKind !== "runtime-system-export" ||
+      expectedEndpoint.endpointId !== 122 ||
+      expectedEndpoint.api?.toLowerCase() !==
+        "kernel32.dll!waitforsingleobjectex" ||
+      expectedEndpoint.endpointAddress !== "0x7f000790" ||
+      expectedEndpoint.iatAddress !== "0x100d1290" ||
+      expectedEndpoint.observedModule?.toLowerCase() !== "kernel32.dll" ||
+      expectedEndpoint.observedSymbol !== "WaitForSingleObjectEx" ||
+      expectedEndpoint.disposition !== "declared-runtime-export" ||
+      expectedEndpoint.arguments?.join(",") !==
+        "0x57010002,0x0000000a,0x00000001" ||
+      active.runtimeKernelBoundary?.capabilityExpansionPausedAt !==
+        "primary-main-loop-recurring-timer-window-batch" ||
+      active.runtimeHeapBacking?.capabilityExpansionPausedAt !==
+        "primary-main-loop-recurring-timer-window-batch" ||
+      !Number.isSafeInteger(bgiBrowserEvidence.statusMessagesObserved) ||
+      bgiBrowserEvidence.statusMessagesObserved <
+        bgiBrowserEvidence.statusMessagesRetained ||
+      bgiBrowserEvidence.statusMessagesRetained !== 4_096
+    ) {
+      errors.push("recurring timer multi-cycle checkpoint stop is invalid");
+    }
+
+    const expectedCompletionCounts = [
+      8, 8, 8, 8, 8, 8, 72, 8, 8, 8, 8, 8, 8, 8, 8, 72,
+    ];
+    const expectedFirstInstructionCounts = [
+      276_361_491, 276_361_638, 276_361_785, 276_361_932,
+      276_362_079, 276_362_226, 276_362_373, 287_460_370,
+      287_460_517, 287_460_664, 287_460_811, 287_460_958,
+      287_461_105, 287_461_252, 287_461_399, 287_461_546,
+    ];
+    const expectedLastInstructionCounts = [
+      276_361_632, 276_361_779, 276_361_926, 276_362_073,
+      276_362_220, 276_362_367, 287_460_364, 287_460_511,
+      287_460_658, 287_460_805, 287_460_952, 287_461_099,
+      287_461_246, 287_461_393, 287_461_540, 287_481_297,
+    ];
+    const simpleImplementationCounts = {
+      "kernel32.enter-critical-section.v1": 3,
+      "kernel32.leave-critical-section.v1": 3,
+      "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+      "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1,
+    };
+    const workerImplementationCounts = {
+      6: {
+        "kernel32.create-file-a.source.v1": 4,
+        "kernel32.enter-critical-section.v1": 3,
+        "kernel32.fls-get-value.v1": 12,
+        "kernel32.get-last-error.v1": 17,
+        "kernel32.heap-alloc.v2": 4,
+        "kernel32.heap-free.v1": 1,
+        "kernel32.leave-critical-section.v1": 3,
+        "kernel32.set-last-error.v1": 12,
+        "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+        "kernel32.tls-get-value.v1": 12,
+        "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1,
+        "user32.get-async-key-state.v1": 1,
+        "winmm.time-get-time.v1": 1,
+      },
+      15: {
+        "kernel32.create-file-a.source.v1": 7,
+        "kernel32.enter-critical-section.v1": 3,
+        "kernel32.fls-get-value.v1": 13,
+        "kernel32.get-last-error.v1": 18,
+        "kernel32.leave-critical-section.v1": 3,
+        "kernel32.set-last-error.v1": 13,
+        "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+        "kernel32.tls-get-value.v1": 13,
+        "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1,
+      },
+    };
+    for (const [label, completion] of [
+      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+    ]) {
+      const nextEndpoint = completion.nextEndpoint ?? {};
+      if (
+        completion.capability !==
+          "primary-main-loop-recurring-timer-multi-cycle-batch" ||
+        completion.implementationId !==
+          "runtime.main-loop-recurring-timer-multi-cycle.v1" ||
+        completion.requiredCycles !== 16 ||
+        completion.cycleCount !== 16 ||
+        completion.requiredCompletions !== 32 ||
+        completion.minimumRequiredCompletions !== 32 ||
+        completion.completionCount !== 256 ||
+        completion.firstCompletionSequence !== 158_132 ||
+        completion.firstCompletionInstructionCount !== 276_361_491 ||
+        completion.lastCompletionSequence !== 158_387 ||
+        completion.lastCompletionInstructionCount !== 287_481_297 ||
+        completion.boundaryCycleIndexes?.join(",") !== "0,15" ||
+        completion.boundaryCompletionCount !== 80 ||
+        completion.waitCompletionCount !== 16 ||
+        completion.criticalSectionCompletionCount !== 96 ||
+        completion.timerArmCompletionCount !== 16 ||
+        completion.roundtripCount !== 48 ||
+        completion.criticalSectionAddresses?.join(",") !==
+          "269797584,269482016" ||
+        completion.mainLoopThreadId !== 8_193 ||
+        completion.participatingThreadIds?.join(",") !== "8192,8193" ||
+        completion.threadTransitionCount !== 4 ||
+        completion.balanced !== true ||
+        completion.instructionCount !== 287_481_303 ||
+        nextEndpoint.id !== 122 ||
+        nextEndpoint.address !== 0x7f00_0790 ||
+        nextEndpoint.iatAddress !== 0x100d_1290 ||
+        nextEndpoint.module?.toLowerCase() !== "kernel32.dll" ||
+        nextEndpoint.symbol?.kind !== "name" ||
+        nextEndpoint.symbol?.name !== "WaitForSingleObjectEx" ||
+        nextEndpoint.disposition !== "declared-runtime-export" ||
+        completion.nextArguments?.join(",") !== "1459683330,10,1" ||
+        completion.nextReturnAddress !== 268_764_693 ||
+        completion.nextStackPointer !== 1_343_225_736 ||
+        completion.memoryContentSha256 !==
+          "474048294afb72dcbd3d16517ed514d8771099bc3ed9c981e5fb3539dcabc625" ||
+        completion.cycles?.length !== 16
+      ) {
+        errors.push(`${label} recurring timer multi-cycle evidence is invalid`);
+        continue;
+      }
+
+      let nextSequence = 158_132;
+      for (let index = 0; index < 16; index += 1) {
+        const cycle = completion.cycles[index] ?? {};
+        const completionCount = expectedCompletionCounts[index];
+        const firstSequence = nextSequence;
+        const lastSequence = firstSequence + completionCount - 1;
+        nextSequence = lastSequence + 1;
+        const criticalOccurrence = 51_343 + index * 3;
+        const workerCycle = index === 6 || index === 15;
+        const expectedCounts =
+          workerImplementationCounts[index] ?? simpleImplementationCounts;
+        const implementationCounts = cycle.implementationCounts ?? {};
+        if (
+          cycle.cycleIndex !== index ||
+          cycle.completionCount !== completionCount ||
+          cycle.firstCompletionSequence !== firstSequence ||
+          cycle.firstCompletionInstructionCount !==
+            expectedFirstInstructionCounts[index] ||
+          cycle.lastCompletionSequence !== lastSequence ||
+          cycle.lastCompletionInstructionCount !==
+            expectedLastInstructionCounts[index] ||
+          cycle.waitOccurrence !== 11_209 + index ||
+          cycle.timerArmOccurrence !== 11_210 + index ||
+          cycle.waitableTimerDeadlineTime100ns !== 56_090_000 + index * 5_000 ||
+          cycle.waitableTimerArmGeneration !== 11_205 + index ||
+          cycle.waitableTimerClockGeneration !== 11_209 + index ||
+          cycle.nextWaitRegistrationId !== 11_210 + index ||
+          cycle.timerArmGeneration !== 11_206 + index ||
+          cycle.timerArmedAtTime100ns !== 56_090_000 + index * 5_000 ||
+          cycle.nextTimerDeadlineTime100ns !== 56_095_000 + index * 5_000 ||
+          cycle.criticalSectionCompletionCount !== 6 ||
+          cycle.roundtripCount !== 3 ||
+          cycle.criticalSectionOccurrences?.join(",") !==
+            `${criticalOccurrence},${criticalOccurrence + 1},${criticalOccurrence + 2}` ||
+          cycle.criticalSectionAddresses?.join(",") !==
+            "269797584,269797584,269482016" ||
+          Object.keys(implementationCounts).length !==
+            Object.keys(expectedCounts).length ||
+          Object.entries(expectedCounts).some(
+            ([key, value]) => implementationCounts[key] !== value,
+          ) ||
+          cycle.participatingThreadIds?.join(",") !==
+            (workerCycle ? "8192,8193" : "8193") ||
+          cycle.threadTransitionCount !== (workerCycle ? 2 : 0) ||
+          cycle.balanced !== true
+        ) {
+          errors.push(`${label} recurring timer cycle ${index} is invalid`);
+        }
+      }
+
+      const first = completion.firstBoundaryCompletion ?? {};
+      const last = completion.lastBoundaryCompletion ?? {};
+      if (
+        first.sequence !== 158_132 ||
+        first.module?.toLowerCase() !== "kernel32.dll" ||
+        first.symbol !== "WaitForSingleObjectEx" ||
+        (first.occurrence !== undefined && first.occurrence !== 11_209) ||
+        first.trapInstructionCount !== 276_361_491 ||
+        first.arguments?.join(",") !== "1459683330,10,1" ||
+        first.result?.action !== "set" ||
+        first.result?.value !== 0 ||
+        first.implementationId !==
+          "kernel32.wait-for-single-object-ex.waitable-timer.v1" ||
+        first.returnAddress !== 268_764_693 ||
+        first.stackPointerBefore !== 1_343_225_736 ||
+        first.stackPointerAfter !== 1_343_225_752 ||
+        first.runtimeThreadId !== 8_193 ||
+        first.guestWrites?.length !== 0 ||
+        first.waitableTimer?.timer?.lastExpiration?.armGeneration !== 11_205 ||
+        first.waitableTimer?.timer?.lastExpiration?.deadlineTime100ns !==
+          56_090_000 ||
+        first.waitableTimer?.timerClock?.generation !== 11_209 ||
+        first.waitableTimer?.nextWaitRegistrationId !== 11_210 ||
+        last.sequence !== 158_387 ||
+        last.module?.toLowerCase() !== "kernel32.dll" ||
+        last.symbol !== "SetWaitableTimer" ||
+        (last.occurrence !== undefined && last.occurrence !== 11_225) ||
+        last.trapInstructionCount !== 287_481_297 ||
+        last.arguments?.join(",") !== "1459683330,1343225752,0,0,0,0" ||
+        last.result?.action !== "set" ||
+        last.result?.value !== 1 ||
+        last.implementationId !==
+          "kernel32.set-waitable-timer.relative-one-shot.v1" ||
+        last.returnAddress !== 268_764_679 ||
+        last.stackPointerBefore !== 1_343_225_724 ||
+        last.stackPointerAfter !== 1_343_225_752 ||
+        last.runtimeThreadId !== 8_193 ||
+        last.guestWrites?.length !== 0 ||
+        last.waitableTimer?.timer?.arm?.armedAtTime100ns !== 56_165_000 ||
+        last.waitableTimer?.timer?.arm?.deadlineTime100ns !== 56_170_000 ||
+        last.waitableTimer?.timer?.arm?.generation !== 11_221
+      ) {
+        errors.push(`${label} recurring timer boundary evidence is invalid`);
       }
     }
   }
@@ -24567,6 +24882,7 @@ export function validateCurrentCheckpoint(manifest) {
             if (
               largeHeapFreeActive ||
               heapAlloc24Active ||
+              recurringTimerMultiCycleActive ||
               recurringTimerCycleActive ||
               postHeapTimeGetTimeActive ||
               postClockCriticalSectionActive ||
@@ -25574,8 +25890,14 @@ export function validateCurrentCheckpoint(manifest) {
         "nextStructuredStop.nextEndpoint.endpointAddress must be a 32-bit hex string",
       );
     }
+    const completionRequirementSatisfied =
+      completion.minimumRequiredCompletions === undefined
+        ? completion.completionCount === completion.requiredCompletions
+        : completion.requiredCompletions ===
+            completion.minimumRequiredCompletions &&
+          completion.completionCount >= completion.requiredCompletions;
     if (
-      completion.completionCount !== completion.requiredCompletions ||
+      !completionRequirementSatisfied ||
       completion.lastCompletionInstructionCount >= next.instructionCount
     ) {
       errors.push(
@@ -25842,6 +26164,9 @@ export function renderReadmeStatus(manifest) {
                                     : next.completion.capability ===
                                         "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
                                       ? "waitable-timer wait"
+                                  : next.completion.capability ===
+                                      "primary-main-loop-recurring-timer-multi-cycle-batch"
+                                    ? "recurring timer-window calls"
                                   : next.completion.capability ===
                                       "user32-async-key-state-input-continuation"
                                     ? "held-key async-key queries"

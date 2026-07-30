@@ -306,10 +306,16 @@ leaves both identities balanced before the rearm. Node and Chrome agree on the
 eight-call order, owner thread, terminal memory, and next endpoint without
 creating another synchronization owner.
 
-Further progression uses a bounded multi-cycle batch. It must revalidate every
-acquire/release pair and preserve the per-call failure ordering, but it does
-not turn browser pacing into synchronization authority or claim general
-contention, fairness, abandonment, or unbounded-loop behavior.
+The `primary-main-loop-recurring-timer-multi-cycle-batch` checkpoint now
+revalidates sixteen complete cycles in one bounded window. Each cycle contains
+the same three balanced acquire／release roundtrips, so the checkpoint fixes 48
+roundtrips over both reached identities. Two cycles include a
+`8193 -> 8192 -> 8193` work interval; every critical-section pair still closes
+on its executing thread and every 24-byte publication remains failure-atomic.
+Rust remains the sole synchronization authority and the Worker retains only
+non-owning evidence. The result does not claim general contention, fairness,
+abandonment, or unbounded-loop behavior; a larger bounded window is the next
+manifest-owned progression step.
 
 ## Historical next structured stop
 

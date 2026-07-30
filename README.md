@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `primary-main-loop-recurring-timer-cycle-batch`: 158139 calls across 128 endpoint contracts / 126 APIs, memory generation 289955 |
+| Runtime diagnostics | `primary-main-loop-recurring-timer-multi-cycle-batch`: 158387 calls across 128 endpoint contracts / 126 APIs, memory generation 290302 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `primary-main-loop-recurring-timer-cycle-batch` completed 8 recurring timer-cycle calls by instruction 276361632; verification stopped at `KERNEL32.dll!WaitForSingleObjectEx` on instruction 276361638 (`primary-main-loop-recurring-timer-cycle-batch-checkpoint-complete`) |
+| Next structured stop | `primary-main-loop-recurring-timer-multi-cycle-batch` completed 256 recurring timer-window calls by instruction 287481297; verification stopped at `KERNEL32.dll!WaitForSingleObjectEx` on instruction 287481303 (`primary-main-loop-recurring-timer-multi-cycle-batch-checkpoint-complete`) |
 
-The active semantic report is 2,872,852 bytes with SHA-256
-`2564cefc0c4b912be0ea00171b8af08c610c68de0c11322f39e261ae88303748`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 2,944,155 bytes with SHA-256
+`f0ba28e298da37a1d3a3803d6554f19dad51efb070d7fa1d258880c2557adfc7`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

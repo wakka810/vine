@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 69 as const;
+export const protocolVersion = 70 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -57,6 +57,7 @@ export type BgiCapabilityProfile =
   | "kernel32-set-waitable-timer-post-timer-wait-batch"
   | "kernel32-set-waitable-timer-post-timer-rearm-wait-batch"
   | "primary-main-loop-recurring-timer-cycle-batch"
+  | "primary-main-loop-recurring-timer-multi-cycle-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
@@ -861,6 +862,37 @@ export interface RuntimeSupportedCallSnapshot {
   graphicsTexture?: RuntimeGraphicsTextureSnapshot;
   graphicsTextureUpdate?: RuntimeGraphicsTextureUpdateSnapshot;
   browserPresentation?: RuntimeBrowserPresentationReceipt;
+}
+
+export type RuntimeThreadCallSnapshot = RuntimeSupportedCallSnapshot & {
+  runtimeThreadId: number;
+  trapInstructionCount: number;
+};
+
+export interface RuntimeRecurringTimerCycleSummary {
+  cycleIndex: number;
+  completionCount: number;
+  firstCompletionSequence: number;
+  firstCompletionInstructionCount: number;
+  lastCompletionSequence: number;
+  lastCompletionInstructionCount: number;
+  waitOccurrence: number;
+  timerArmOccurrence: number;
+  waitableTimerDeadlineTime100ns: number;
+  waitableTimerArmGeneration: number;
+  waitableTimerClockGeneration: number;
+  nextWaitRegistrationId: number;
+  timerArmGeneration: number;
+  timerArmedAtTime100ns: number;
+  nextTimerDeadlineTime100ns: number;
+  criticalSectionCompletionCount: number;
+  roundtripCount: number;
+  criticalSectionOccurrences: number[];
+  criticalSectionAddresses: number[];
+  implementationCounts: Record<string, number>;
+  participatingThreadIds: number[];
+  threadTransitionCount: number;
+  balanced: true;
 }
 
 export type RuntimeGuestWriteSnapshot =
@@ -1783,6 +1815,46 @@ export interface SessionReport {
         roundtripCount: 3;
         criticalSectionAddresses: [number, number, number];
         threadId: number;
+        balanced: true;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          disposition: "declared-runtime-export";
+          iatAddress: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        nextArguments: [number, number, number];
+        nextReturnAddress: number;
+        nextStackPointer: number;
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "primary-main-loop-recurring-timer-multi-cycle-batch";
+        implementationId: "runtime.main-loop-recurring-timer-multi-cycle.v1";
+        requiredCycles: 16;
+        cycleCount: 16;
+        requiredCompletions: 32;
+        minimumRequiredCompletions: 32;
+        completionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        boundaryCycleIndexes: [0, 15];
+        boundaryCompletions: RuntimeThreadCallSnapshot[];
+        cycles: RuntimeRecurringTimerCycleSummary[];
+        waitCompletionCount: 16;
+        criticalSectionCompletionCount: number;
+        timerArmCompletionCount: 16;
+        roundtripCount: number;
+        criticalSectionAddresses: number[];
+        mainLoopThreadId: number;
+        participatingThreadIds: number[];
+        threadTransitionCount: number;
         balanced: true;
         instructionCount: number;
         nextEndpoint: {

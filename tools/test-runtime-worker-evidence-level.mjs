@@ -12,10 +12,20 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 69 as const/u);
+assert.match(protocol, /protocolVersion = 70 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
+assert.match(
+  protocol,
+  /"primary-main-loop-recurring-timer-multi-cycle-batch"/u,
+);
+assert.match(protocol, /RuntimeRecurringTimerCycleSummary/u);
+assert.match(protocol, /runtimeThreadId: number/u);
+assert.match(worker, /recurringTimerMultiCycleExpectation/u);
+assert.match(worker, /#recurringTimerMultiCycleSummaries/u);
+assert.match(worker, /this\.#recurringTimerMultiCycleSummaries\.length === 16/u);
+assert.match(fullProbe, /primary-main-loop-recurring-timer-multi-cycle-batch/u);
 assert.match(protocol, /kernel32-get-file-attributes-a/u);
 assert.match(protocol, /RuntimeGetFileAttributesACallSnapshot/u);
 assert.match(protocol, /getFileAttributesA:/u);

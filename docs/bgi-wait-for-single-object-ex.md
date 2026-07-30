@@ -257,10 +257,15 @@ expiration, scheduler-lane resume, and one versioned browser pacing
 acknowledgement; batching does not transfer timer or wait-result authority to
 the Worker.
 
-The next bounded multi-cycle batch repeats this whole transaction enough to
-classify recurrence as a scenario behavior rather than another sequence of
-single-call checkpoints. The one-cycle evidence does not by itself claim
-unbounded loop progress or long-run stability.
+The `primary-main-loop-recurring-timer-multi-cycle-batch` checkpoint now
+repeats this whole transaction for sixteen contiguous cycles. Each wait
+advances the Rust logical timer clock and registration generation exactly once,
+returns `WAIT_OBJECT_0`, and is followed by a balanced synchronization block
+and rearm. Two cycles include reached thread-`8192` work before control returns
+to thread `8193`; Node and Chrome agree on all four transitions and leave no
+pending, cancelled, or stale pacing callback. This classifies bounded
+recurrence as scenario behavior, but it does not claim unbounded progress or
+long-run stability. The next stop extends the bounded observation window.
 
 ## Non-claims
 

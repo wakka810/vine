@@ -62,9 +62,18 @@ unit consists of a finite alertable wait, three balanced critical-section
 roundtrips, and the following relative one-shot timer rearm. The composite
 completion stops at the next wait and is accepted only when Node and Chrome
 agree on all eight calls, Rust-owned timer and synchronization identities,
-terminal memory, and the next endpoint. The next progression step repeats
-several complete units as one bounded batch; it does not infer unbounded-loop
-or long-run stability from a single recurrence.
+terminal memory, and the next endpoint.
+
+The follow-on `primary-main-loop-recurring-timer-multi-cycle-batch` checkpoint
+completes sixteen contiguous timer cycles as one bounded window. Every cycle
+begins with the reached finite alertable wait, contains three balanced
+critical-section roundtrips, and ends with the next one-shot rearm. Two cycles
+also execute reached work on thread `8192` before returning to the main-loop
+thread `8193`; the other cycles remain on `8193`. Acceptance therefore fixes
+timer-generation continuity, all 48 balanced roundtrips, four thread
+transitions, terminal memory, and Node／Chrome equivalence together. This is
+bounded recurrence evidence, not an unbounded-loop, fairness, or long-run
+stability claim. The next manifest-owned stop expands the observation window.
 
 ## Ownership and invariants
 

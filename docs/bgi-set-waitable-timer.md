@@ -186,17 +186,21 @@ and object identity, balanced synchronization state, terminal memory, and next
 endpoint. This batching changes neither semantic handler nor authority; it
 prevents repeated single-call checkpoints from becoming the unit of progress.
 
-The follow-on is a bounded multi-cycle recurrence batch. It reuses the same
-Rust owners and versioned pacing boundary and looks for divergence or a new
-owned endpoint across several complete cycles. Exact positions, generations,
-deadlines, report identities, and the active stop remain manifest-owned.
+The follow-on `primary-main-loop-recurring-timer-multi-cycle-batch` checkpoint
+has now completed sixteen contiguous rearm cycles. Every arm revalidates the
+same logical timer, typed object, lifetime, and live generation before jointly
+publishing the next deadline and `nonsignaled` state. Node and Chrome agree on
+the full generation／deadline chain even across the two cycles that run reached
+work on thread `8192`. The Worker still creates no Windows timer state; browser
+pacing remains part of the separate wait boundary. Exact positions, artifact
+identities, and the larger bounded follow-on window remain manifest-owned.
 
 ## Non-claims
 
 - This arm transaction does not itself expire or signal the timer, choose a
   wait result, deliver an APC, or resume a waiting thread.
-- Periodic rearm, APC completion, cancellation, and resume-from-suspend remain
-  outside the active contract.
+- Nonzero-period timers, APC completion, cancellation, and resume-from-suspend
+  remain outside the active contract.
 - Alertable-wait acceptance and the reached 10 ms bounded wait belong to the
   separate wait transaction, not this arm checkpoint.
 - The stored relative interval is guest-visible logical state, not a scheduled

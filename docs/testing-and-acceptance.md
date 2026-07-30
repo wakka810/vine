@@ -1053,11 +1053,13 @@ fairness、abandonment、APC semanticsや新しいperformance baselineを拡張�
 object／live generation／lifetimeのpreflight後にlogical deadlineと`nonsignaled` stateをjoint commitする。
 Node／ChromeはBOOL／LastError、zero guest write、stack cleanup、ordered semantic digest、terminal memory、
 次のalertable wait frameを一致させる。`primary-main-loop-recurring-timer-cycle-batch`は、そのwait completion、
-6 call／3 roundtripのbalanced critical-section block、次のrearmを8-callの一単位として完了した。Node／Chromeは
-各ownerのvalidation／failure atomicity、一件のversioned pacing acknowledgement、最終balanced state、terminal
-memory、次wait直前の停止を一致させる。次は同じcontractを複数周期まとめて実行し、周期間のidentity／generation／
-balanced stateの連続性と、新しいowned endpointへの遷移有無をboundedに判定する。unbounded loop、APC、general
-timeout、cross-thread contention、long-run安定性はまだclaimしない。Exact値とartifact identityは
+6 call／3 roundtripのbalanced critical-section block、次のrearmを8-callの一単位として完了した。続く
+`primary-main-loop-recurring-timer-multi-cycle-batch`は同じscenario unitを16周期のbounded windowへ拡張し、
+全wait／rearmのidentity・generation・deadline連続性、48 balanced roundtrip、2周期で発生する
+`8193 -> 8192 -> 8193` work interval、合計4 thread transition、terminal memoryをNode／Chromeで一致させる。
+Browser pacingは引き続きnon-owning acknowledgementであり、Rustのtimer／wait／scheduler／synchronization
+authorityを複製しない。次は観測windowをさらにboundedに拡張する。unbounded loop、APC、general timeout、
+general cross-thread contention、long-run安定性はまだclaimしない。Exact値とartifact identityは
 `current-checkpoint.json`だけを正本とする。
 
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
