@@ -331,6 +331,19 @@ does not claim general contention, fairness, abandonment, or long-run behavior.
 The next manifest-owned gateway asks whether execution makes new presentation
 progress instead of widening the timer window again.
 
+The `primary-main-loop-presentation-progress-gateway` checkpoint has now
+carried the same ownership ledger through 256 cycles. It records 1,792 ordered
+critical-section completions—896 acquisitions and 896 matching releases—over
+both reached threads, including the existing ten cross-cycle carry states and
+four worker-only inter-cycle intervals. The third interval contributes sixteen
+additional balanced roundtrips on thread `8192`; all ownership is empty at the
+terminal boundary. Four later rendering passes and their distinct timer-1
+lane do not introduce a synchronization owner or bypass the failure-atomic
+guest publication path. Node and Chrome agree on the full ledger and terminal
+memory. No third `Present` occurs before the hard bound, so the next gateway
+tests bounded input-driven progress; general contention, fairness,
+abandonment, and long-run behavior remain unclaimed.
+
 ## Historical next structured stop
 
 After the fourteenth initialization returns, BGI reaches instruction 575 at:

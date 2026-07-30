@@ -178,32 +178,33 @@ export function validateCurrentCheckpoint(manifest) {
     "user32-async-key-state-input-continuation";
   const user32AsyncKeyStateInputActive =
     user32AsyncKeyStateInputContinuationActive ||
-    root.activeRuntimeCheckpoint?.profile ===
-      "user32-async-key-state-input";
+    root.activeRuntimeCheckpoint?.profile === "user32-async-key-state-input";
   const largeHeapFreeActive =
-    root.activeRuntimeCheckpoint?.profile ===
-      "kernel32-heap-free-large-buffer";
+    root.activeRuntimeCheckpoint?.profile === "kernel32-heap-free-large-buffer";
   const heapAlloc24Active =
     root.activeRuntimeCheckpoint?.profile ===
-      "kernel32-heap-alloc-24-byte-buffer";
+    "kernel32-heap-alloc-24-byte-buffer";
   const recurringTimerMultiCycleActive =
     root.activeRuntimeCheckpoint?.profile ===
-      "primary-main-loop-recurring-timer-multi-cycle-batch";
+    "primary-main-loop-recurring-timer-multi-cycle-batch";
   const recurringTimerWindowActive =
     root.activeRuntimeCheckpoint?.profile ===
-      "primary-main-loop-recurring-timer-window-batch";
+    "primary-main-loop-recurring-timer-window-batch";
+  const presentationProgressGatewayActive =
+    root.activeRuntimeCheckpoint?.profile ===
+    "primary-main-loop-presentation-progress-gateway";
   const recurringTimerCycleActive =
     root.activeRuntimeCheckpoint?.profile ===
-      "primary-main-loop-recurring-timer-cycle-batch";
+    "primary-main-loop-recurring-timer-cycle-batch";
   const postHeapTimeGetTimeActive =
     root.activeRuntimeCheckpoint?.profile ===
-      "winmm-time-get-time-post-heap-reuse";
+    "winmm-time-get-time-post-heap-reuse";
   const postClockCriticalSectionActive =
     root.activeRuntimeCheckpoint?.profile ===
-      "kernel32-enter-critical-section-post-clock";
+    "kernel32-enter-critical-section-post-clock";
   const postTimerRearmWaitCriticalSectionActive =
     root.activeRuntimeCheckpoint?.profile ===
-      "kernel32-enter-critical-section-post-timer-rearm-wait-batch";
+    "kernel32-enter-critical-section-post-timer-rearm-wait-batch";
   const postTimerWaitCriticalSectionActive =
     postTimerRearmWaitCriticalSectionActive ||
     root.activeRuntimeCheckpoint?.profile ===
@@ -214,10 +215,10 @@ export function validateCurrentCheckpoint(manifest) {
       "kernel32-enter-critical-section-post-wait";
   const postCriticalSectionWaitActive =
     root.activeRuntimeCheckpoint?.profile ===
-      "kernel32-wait-for-single-object-ex-post-critical-section";
+    "kernel32-wait-for-single-object-ex-post-critical-section";
   const postTimerRearmWaitSetWaitableTimerActive =
     root.activeRuntimeCheckpoint?.profile ===
-      "kernel32-set-waitable-timer-post-timer-rearm-wait-batch";
+    "kernel32-set-waitable-timer-post-timer-rearm-wait-batch";
   const postTimerWaitSetWaitableTimerActive =
     postTimerRearmWaitSetWaitableTimerActive ||
     root.activeRuntimeCheckpoint?.profile ===
@@ -228,12 +229,13 @@ export function validateCurrentCheckpoint(manifest) {
       "kernel32-set-waitable-timer-post-critical-section-batch";
   const postTimerRearmWaitActive =
     root.activeRuntimeCheckpoint?.profile ===
-      "kernel32-wait-for-single-object-ex-post-timer-rearm-batch";
+    "kernel32-wait-for-single-object-ex-post-timer-rearm-batch";
   const postTimerArmWaitActive =
     postTimerRearmWaitActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch";
   const postCriticalSectionWaitEvidenceActive =
+    presentationProgressGatewayActive ||
     recurringTimerWindowActive ||
     recurringTimerMultiCycleActive ||
     recurringTimerCycleActive ||
@@ -243,9 +245,10 @@ export function validateCurrentCheckpoint(manifest) {
     postTimerArmWaitActive;
   const runtimeTraplessExecutionBudgetCheckpointActive =
     root.activeRuntimeCheckpoint?.profile ===
-      "runtime-trapless-execution-budget";
+    "runtime-trapless-execution-budget";
   const runtimeTraplessExecutionBudgetActive =
     runtimeTraplessExecutionBudgetCheckpointActive ||
+    presentationProgressGatewayActive ||
     recurringTimerWindowActive ||
     recurringTimerMultiCycleActive ||
     recurringTimerCycleActive ||
@@ -279,8 +282,7 @@ export function validateCurrentCheckpoint(manifest) {
     root.activeRuntimeCheckpoint?.profile ===
       "user32-async-key-state-initial-scan";
   const d3d9PostPresentStructuredStopActive =
-    root.activeRuntimeCheckpoint?.profile ===
-    "d3d9-post-present-continuation";
+    root.activeRuntimeCheckpoint?.profile === "d3d9-post-present-continuation";
   const d3d9PostPresentContinuationActive =
     user32AsyncKeyStateInitialScanActive ||
     user32AsyncKeyStateInputActive ||
@@ -290,8 +292,7 @@ export function validateCurrentCheckpoint(manifest) {
     root.activeRuntimeCheckpoint?.profile === "d3d9-first-present";
   const d3d9PostScenePresentGatewayActive =
     d3d9FirstPresentActive ||
-    root.activeRuntimeCheckpoint?.profile ===
-      "d3d9-post-scene-present-gateway";
+    root.activeRuntimeCheckpoint?.profile === "d3d9-post-scene-present-gateway";
   const d3d9PostEndSceneRasterStatusActive =
     d3d9PostRasterStatusWaitableTimerActive ||
     d3d9PostScenePresentGatewayActive ||
@@ -417,1566 +418,1666 @@ export function validateCurrentCheckpoint(manifest) {
     : createDirectoryAActive
       ? "15954287,16290526"
       : "15953766,16290005";
-  const timerCycleCount = recurringTimerWindowActive
-    ? 11_272
-    : recurringTimerMultiCycleActive
-    ? 11_224
-    : recurringTimerCycleActive
-    ? 11_209
-    : postTimerRearmWaitSetWaitableTimerActive ||
-    postTimerRearmWaitCriticalSectionActive ||
-    postTimerRearmWaitActive
-    ? 11_208
-    : postTimerArmWaitActive ||
-    postTimerWaitCriticalSectionActive ||
-    postTimerWaitSetWaitableTimerActive
-    ? 11_207
-    : postCriticalSectionWaitEvidenceActive
-    ? 11_206
-    : runtimeThreadStackGrowthActive
-    ? 11_205
-    : user32IsIconicActive
-    ? 10_571
-    : user32AsyncKeyStateInitialScanActive
-    ? 10_569
-    : user32AsyncKeyStateInputContinuationActive
-    ? 9_232
-    : d3d9PostPresentContinuationActive
-    ? 9_205
-    : d3d9PostRasterStatusWaitableTimerActive
-    ? 9_187
-    : d3d9RecreatedTexturesActive
-      ? 9_186
-      : createDirectoryAActive
-        ? 6_974
-        : getFileAttributesAActive
-          ? 6_937
-          : sleepZeroActive
-            ? 6_910
-            : archiveSourceReadActive
-              ? 4_716
-              : dragAcceptFilesActive
-                ? 4_706
-                : mainLoopContinuationActive
-                  ? 7
-                  : 3;
-  const timerArmCount = recurringTimerWindowActive
-    ? 11_273
-    : recurringTimerMultiCycleActive
-    ? 11_225
-    : recurringTimerCycleActive
-    ? 11_210
-    : postTimerRearmWaitSetWaitableTimerActive
-    ? 11_209
-    : postTimerRearmWaitCriticalSectionActive ||
-    postTimerRearmWaitActive ||
-    postTimerWaitSetWaitableTimerActive
-    ? 11_208
-    : postCriticalSectionSetWaitableTimerActive ||
-    postTimerArmWaitActive ||
-    postTimerWaitCriticalSectionActive
-    ? 11_207
-    : runtimeThreadStackGrowthActive
-    ? 11_206
-    : user32IsIconicActive
-    ? 10_571
-    : user32AsyncKeyStateInitialScanActive
-    ? 10_569
-    : user32AsyncKeyStateInputContinuationActive
-    ? 9_232
-    : d3d9PostPresentContinuationActive
-    ? 9_205
-    : d3d9PostRasterStatusWaitableTimerActive
-    ? 9_188
-    : d3d9RecreatedTexturesActive
-      ? 9_187
-      : timerCycleCount;
-  const timerSetSequences = recurringTimerWindowActive
-    ? "18681,159093"
-    : recurringTimerMultiCycleActive
-    ? "18681,158387"
-    : recurringTimerCycleActive
-    ? "18681,158139"
-    : postTimerRearmWaitSetWaitableTimerActive
-    ? "18681,158131"
-    : postTimerRearmWaitCriticalSectionActive ||
-    postTimerRearmWaitActive ||
-    postTimerWaitSetWaitableTimerActive
-    ? "18681,158123"
-    : postCriticalSectionSetWaitableTimerActive ||
-    postTimerArmWaitActive ||
-    postTimerWaitCriticalSectionActive
-    ? "18681,158115"
-    : runtimeThreadStackGrowthActive
-    ? "18681,158042"
-    : user32IsIconicActive
-    ? "18681,148472"
-    : user32AsyncKeyStateInitialScanActive
-    ? "18681,148294"
-    : user32AsyncKeyStateInputContinuationActive
-    ? "18681,128060"
-    : d3d9PostPresentContinuationActive
-    ? "18681,127648"
-    : d3d9PostRasterStatusWaitableTimerActive
-    ? "18681,127377"
-    : d3d9RecreatedTexturesActive
-      ? "18681,127344"
-      : createDirectoryAActive
-        ? "18681,108706"
-        : getFileAttributesAActive
-          ? "18681,108148"
-          : sleepZeroActive
-            ? "18681,107739"
-            : archiveSourceReadActive
-              ? "18681,89364"
-              : dragAcceptFilesActive
-                ? "18681,89217"
-                : mainLoopContinuationActive
-                  ? "18681,18689,18697,18705,18713,18721,18729"
-                  : "18681,18689,18697";
-  const timerSetInstructionCounts = recurringTimerWindowActive
-    ? "11974074,297177073"
-    : recurringTimerMultiCycleActive
-    ? "11974074,287481297"
-    : recurringTimerCycleActive
-    ? "11974074,276361632"
-    : postTimerRearmWaitSetWaitableTimerActive
-    ? "11974074,276361485"
-    : postTimerRearmWaitCriticalSectionActive ||
-    postTimerRearmWaitActive ||
-    postTimerWaitSetWaitableTimerActive
-    ? "11974074,276361338"
-    : postCriticalSectionSetWaitableTimerActive ||
-    postTimerArmWaitActive ||
-    postTimerWaitCriticalSectionActive
-    ? "11974074,276361191"
-    : runtimeThreadStackGrowthActive
-    ? "11974074,225662147"
-    : user32IsIconicActive
-    ? "11974074,148770732"
-    : user32AsyncKeyStateInitialScanActive
-    ? "11974074,148744489"
-    : user32AsyncKeyStateInputContinuationActive
-    ? "11974074,29403502"
-    : d3d9PostPresentContinuationActive
-    ? "11974074,28874710"
-    : d3d9PostRasterStatusWaitableTimerActive
-    ? "11974074,28761446"
-    : d3d9RecreatedTexturesActive
-      ? "11974074,28759195"
-      : createDirectoryAActive
-        ? "11974074,28269117"
-        : getFileAttributesAActive
-          ? "11973553,16432845"
-          : sleepZeroActive
-            ? "11973553,16291292"
-            : archiveSourceReadActive
-              ? "11973553,15942875"
-              : dragAcceptFilesActive
-                ? "11973553,15600688"
-                : mainLoopContinuationActive
-                  ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
-                  : "11973553,11973700,11973847";
-  const timerWaitSequences =
-    recurringTimerWindowActive
-    ? "18682,159086"
-    : recurringTimerMultiCycleActive
-    ? "18682,158316"
-    : recurringTimerCycleActive
-    ? "18682,158132"
-    : postTimerRearmWaitSetWaitableTimerActive ||
-    postTimerRearmWaitCriticalSectionActive ||
-    postTimerRearmWaitActive
-    ? "18682,158124"
-    : postTimerArmWaitActive ||
-    postTimerWaitCriticalSectionActive ||
-    postTimerWaitSetWaitableTimerActive
-    ? "18682,158116"
-    : postCriticalSectionWaitEvidenceActive
-    ? "18682,158108"
-    : runtimeThreadStackGrowthActive
-    ? "18682,158035"
-    : user32IsIconicActive
-    ? "18682,148473"
-    : user32AsyncKeyStateInitialScanActive
-    ? "18682,148295"
-    : user32AsyncKeyStateInputContinuationActive
-    ? "18682,128061"
-    : d3d9PostPresentContinuationActive
-    ? "18682,127649"
-    : d3d9PostRasterStatusWaitableTimerActive
-    ? "18682,127378"
-    : d3d9RecreatedTexturesActive
-      ? "18682,127337"
-      : createDirectoryAActive
-        ? "18682,108707"
-        : getFileAttributesAActive
-          ? "18682,108149"
-          : sleepZeroActive
-            ? "18682,107740"
-            : archiveSourceReadActive
-              ? "18682,89365"
-              : dragAcceptFilesActive
-                ? "18682,89218"
-                : mainLoopContinuationActive
-                  ? "18682,18690,18698,18706,18714,18722,18730"
-                  : "18682,18690,18698";
-  const timerWaitInstructionCounts =
-    recurringTimerWindowActive
-    ? "11974080,297176932"
-    : recurringTimerMultiCycleActive
-    ? "11974080,287461546"
-    : recurringTimerCycleActive
-    ? "11974080,276361491"
-    : postTimerRearmWaitSetWaitableTimerActive ||
-    postTimerRearmWaitCriticalSectionActive ||
-    postTimerRearmWaitActive
-    ? "11974080,276361344"
-    : postTimerArmWaitActive ||
-    postTimerWaitCriticalSectionActive ||
-    postTimerWaitSetWaitableTimerActive
-    ? "11974080,276361197"
-    : postCriticalSectionWaitEvidenceActive
-    ? "11974080,276361050"
-    : runtimeThreadStackGrowthActive
-    ? "11974080,225662006"
-    : user32IsIconicActive
-    ? "11974080,148770738"
-    : user32AsyncKeyStateInitialScanActive
-    ? "11974080,148744495"
-    : user32AsyncKeyStateInputContinuationActive
-    ? "11974080,29403508"
-    : d3d9PostPresentContinuationActive
-    ? "11974080,28874716"
-    : d3d9PostRasterStatusWaitableTimerActive
-    ? "11974080,28761452"
-    : d3d9RecreatedTexturesActive
-      ? "11974080,28759054"
-      : createDirectoryAActive
-        ? "11974080,28269123"
-        : getFileAttributesAActive
-          ? "11973559,16432851"
-          : sleepZeroActive
-            ? "11973559,16291298"
-            : archiveSourceReadActive
-              ? "11973559,15942881"
-              : dragAcceptFilesActive
-                ? "11973559,15600694"
-                : mainLoopContinuationActive
-                  ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
-                  : "11973559,11973706,11973853";
-  const timerGenerations =
-    recurringTimerWindowActive
-    ? "1,11268"
-    : recurringTimerMultiCycleActive
-    ? "1,11220"
-    : recurringTimerCycleActive
-    ? "1,11205"
-    : postTimerRearmWaitSetWaitableTimerActive ||
-    postTimerRearmWaitCriticalSectionActive ||
-    postTimerRearmWaitActive
-    ? "1,11204"
-    : postTimerArmWaitActive ||
-    postTimerWaitCriticalSectionActive ||
-    postTimerWaitSetWaitableTimerActive
-    ? "1,11203"
-    : postCriticalSectionWaitEvidenceActive
-    ? "1,11202"
-    : runtimeThreadStackGrowthActive
-    ? "1,11201"
-    : user32IsIconicActive
-    ? "1,3"
-    : user32AsyncKeyStateInitialScanActive
-    ? "1,1"
-    : user32AsyncKeyStateInputContinuationActive
-    ? "1,9232"
-    : d3d9PostPresentContinuationActive
-    ? "1,9205"
-    : d3d9PostRasterStatusWaitableTimerActive
-    ? "1,1"
-    : d3d9RecreatedTexturesActive
-      ? "1,9186"
-      : createDirectoryAActive
-        ? "1,6974"
-        : getFileAttributesAActive
-          ? "1,6937"
-          : sleepZeroActive
-            ? "1,6910"
-            : archiveSourceReadActive
-              ? "1,4716"
-              : dragAcceptFilesActive
-                ? "1,4706"
-                : mainLoopContinuationActive
-                  ? "1,2,3,4,5,6,7"
-                  : "1,2,3";
-  const timerClockGenerations =
-    recurringTimerWindowActive
-    ? "1,11272"
-    : recurringTimerMultiCycleActive
-    ? "1,11224"
-    : recurringTimerCycleActive
-    ? "1,11209"
-    : postTimerRearmWaitSetWaitableTimerActive ||
-    postTimerRearmWaitCriticalSectionActive ||
-    postTimerRearmWaitActive
-    ? "1,11208"
-    : postTimerArmWaitActive ||
-    postTimerWaitCriticalSectionActive ||
-    postTimerWaitSetWaitableTimerActive
-    ? "1,11207"
-    : postCriticalSectionWaitEvidenceActive
-    ? "1,11206"
-    : runtimeThreadStackGrowthActive
-    ? "1,11205"
-    : user32IsIconicActive
-    ? "1,10571"
-    : user32AsyncKeyStateInitialScanActive
-    ? "1,10569"
-    : user32AsyncKeyStateInputContinuationActive
-    ? "1,9232"
-    : d3d9PostPresentContinuationActive
-    ? "1,9205"
-    : d3d9PostRasterStatusWaitableTimerActive
-    ? "1,9187"
-    : timerGenerations;
-  const timerDeadlines =
-    recurringTimerWindowActive
-    ? "5000,56405000"
-    : recurringTimerMultiCycleActive
-    ? "5000,56165000"
-    : recurringTimerCycleActive
-    ? "5000,56090000"
-    : postTimerRearmWaitSetWaitableTimerActive ||
-    postTimerRearmWaitCriticalSectionActive ||
-    postTimerRearmWaitActive
-    ? "5000,56085000"
-    : postTimerArmWaitActive ||
-    postTimerWaitCriticalSectionActive ||
-    postTimerWaitSetWaitableTimerActive
-    ? "5000,56080000"
-    : postCriticalSectionWaitEvidenceActive
-    ? "5000,56075000"
-    : runtimeThreadStackGrowthActive
-    ? "5000,56070000"
-    : user32IsIconicActive
-    ? "5000,52885000"
-    : user32AsyncKeyStateInitialScanActive
-    ? "5000,52845000"
-    : user32AsyncKeyStateInputContinuationActive
-    ? "5000,46160000"
-    : d3d9PostPresentContinuationActive
-    ? "5000,46025000"
-    : d3d9PostRasterStatusWaitableTimerActive
-    ? "5000,45935000"
-    : d3d9RecreatedTexturesActive
-      ? "5000,45930000"
-      : createDirectoryAActive
-        ? "5000,34870000"
-        : getFileAttributesAActive
-          ? "5000,34685000"
-          : sleepZeroActive
-            ? "5000,34550000"
-            : archiveSourceReadActive
-              ? "5000,23580000"
-              : dragAcceptFilesActive
-                ? "5000,23530000"
-                : mainLoopContinuationActive
-                  ? "5000,10000,15000,20000,25000,30000,35000"
-                  : "5000,10000,15000";
-  const timerPacingRequestIds =
-    recurringTimerWindowActive
-    ? "3,11361"
-    : recurringTimerMultiCycleActive
-    ? "3,11311"
-    : recurringTimerCycleActive
-    ? "3,11296"
-    : postTimerRearmWaitSetWaitableTimerActive ||
-    postTimerRearmWaitCriticalSectionActive ||
-    postTimerRearmWaitActive
-    ? "3,11295"
-    : postTimerArmWaitActive ||
-    postTimerWaitCriticalSectionActive ||
-    postTimerWaitSetWaitableTimerActive
-    ? "3,11294"
-    : postCriticalSectionWaitEvidenceActive
-    ? "3,11293"
-    : runtimeThreadStackGrowthActive
-    ? "3,11291"
-    : user32IsIconicActive
-    ? "3,10635"
-    : user32AsyncKeyStateInitialScanActive
-    ? "3,10633"
-    : user32AsyncKeyStateInputContinuationActive
-    ? "3,9247"
-    : d3d9PostPresentContinuationActive
-    ? "3,9216"
-    : d3d9PostRasterStatusWaitableTimerActive
-    ? "3,9198"
-    : d3d9RecreatedTexturesActive
-      ? "3,9197"
-      : createDirectoryAActive
-        ? "3,6985"
-        : getFileAttributesAActive
-          ? "3,6942"
-          : sleepZeroActive
-            ? "3,6915"
-            : archiveSourceReadActive
-              ? "3,4721"
-              : dragAcceptFilesActive
-                ? "3,4708"
-                : mainLoopContinuationActive
-                  ? "3,4,5,6,7,8,9"
-                  : "3,4,5";
-  const timerPacingRegistrationIds =
-    recurringTimerWindowActive
-    ? "1,11272"
-    : recurringTimerMultiCycleActive
-    ? "1,11224"
-    : recurringTimerCycleActive
-    ? "1,11209"
-    : postTimerRearmWaitSetWaitableTimerActive ||
-    postTimerRearmWaitCriticalSectionActive ||
-    postTimerRearmWaitActive
-    ? "1,11208"
-    : postTimerArmWaitActive ||
-    postTimerWaitCriticalSectionActive ||
-    postTimerWaitSetWaitableTimerActive
-    ? "1,11207"
-    : postCriticalSectionWaitEvidenceActive
-    ? "1,11206"
-    : runtimeThreadStackGrowthActive
-    ? "1,11205"
-    : user32IsIconicActive
-    ? "1,10571"
-    : user32AsyncKeyStateInitialScanActive
-    ? "1,10569"
-    : user32AsyncKeyStateInputContinuationActive
-    ? "1,9232"
-    : d3d9PostPresentContinuationActive
-    ? "1,9205"
-    : d3d9PostRasterStatusWaitableTimerActive
-    ? "1,9187"
-    : d3d9RecreatedTexturesActive
-      ? "1,9186"
-      : createDirectoryAActive
-        ? "1,6974"
-        : getFileAttributesAActive
-          ? "1,6937"
-          : sleepZeroActive
-            ? "1,6910"
-            : archiveSourceReadActive
-              ? "1,4716"
-              : dragAcceptFilesActive
-                ? "1,4706"
-                : mainLoopContinuationActive
-                  ? "1,2,3,4,5,6,7"
-                  : "1,2,3";
-  const timerPacingClockGenerations =
-    recurringTimerWindowActive
-    ? "0,11271"
-    : recurringTimerMultiCycleActive
-    ? "0,11223"
-    : recurringTimerCycleActive
-    ? "0,11208"
-    : postTimerRearmWaitSetWaitableTimerActive ||
-    postTimerRearmWaitCriticalSectionActive ||
-    postTimerRearmWaitActive
-    ? "0,11207"
-    : postTimerArmWaitActive ||
-    postTimerWaitCriticalSectionActive ||
-    postTimerWaitSetWaitableTimerActive
-    ? "0,11206"
-    : postCriticalSectionWaitEvidenceActive
-    ? "0,11205"
-    : runtimeThreadStackGrowthActive
-    ? "0,11204"
-    : user32IsIconicActive
-    ? "0,10570"
-    : user32AsyncKeyStateInitialScanActive
-    ? "0,10568"
-    : user32AsyncKeyStateInputContinuationActive
-    ? "0,9231"
-    : d3d9PostPresentContinuationActive
-    ? "0,9204"
-    : d3d9PostRasterStatusWaitableTimerActive
-    ? "0,9186"
-    : d3d9RecreatedTexturesActive
-      ? "0,9185"
-      : createDirectoryAActive
-        ? "0,6973"
-        : getFileAttributesAActive
-          ? "0,6936"
-          : sleepZeroActive
-            ? "0,6909"
-            : archiveSourceReadActive
-              ? "0,4715"
-              : dragAcceptFilesActive
-                ? "0,4705"
-                : mainLoopContinuationActive
-                  ? "0,1,2,3,4,5,6"
-                  : "0,1,2";
-  const timerNextRegistrationIds =
-    recurringTimerWindowActive
-    ? "2,11273"
-    : recurringTimerMultiCycleActive
-    ? "2,11225"
-    : recurringTimerCycleActive
-    ? "2,11210"
-    : postTimerRearmWaitSetWaitableTimerActive ||
-    postTimerRearmWaitCriticalSectionActive ||
-    postTimerRearmWaitActive
-    ? "2,11209"
-    : postTimerArmWaitActive ||
-    postTimerWaitCriticalSectionActive ||
-    postTimerWaitSetWaitableTimerActive
-    ? "2,11208"
-    : postCriticalSectionWaitEvidenceActive
-    ? "2,11207"
-    : runtimeThreadStackGrowthActive
-    ? "2,11206"
-    : user32IsIconicActive
-    ? "2,10572"
-    : user32AsyncKeyStateInitialScanActive
-    ? "2,10570"
-    : user32AsyncKeyStateInputContinuationActive
-    ? "2,9233"
-    : d3d9PostPresentContinuationActive
-    ? "2,9206"
-    : d3d9PostRasterStatusWaitableTimerActive
-    ? "2,9188"
-    : d3d9RecreatedTexturesActive
-      ? "2,9187"
-      : createDirectoryAActive
-        ? "2,6975"
-        : getFileAttributesAActive
-          ? "2,6938"
-          : sleepZeroActive
-            ? "2,6911"
-            : archiveSourceReadActive
-              ? "2,4717"
-              : dragAcceptFilesActive
-                ? "2,4707"
-                : mainLoopContinuationActive
-                  ? "2,3,4,5,6,7,8"
-                  : "2,3,4";
-  const profileExpectations = recurringTimerWindowActive
+  const timerCycleCount = presentationProgressGatewayActive
+    ? 11_468
+    : recurringTimerWindowActive
+      ? 11_272
+      : recurringTimerMultiCycleActive
+        ? 11_224
+        : recurringTimerCycleActive
+          ? 11_209
+          : postTimerRearmWaitSetWaitableTimerActive ||
+              postTimerRearmWaitCriticalSectionActive ||
+              postTimerRearmWaitActive
+            ? 11_208
+            : postTimerArmWaitActive ||
+                postTimerWaitCriticalSectionActive ||
+                postTimerWaitSetWaitableTimerActive
+              ? 11_207
+              : postCriticalSectionWaitEvidenceActive
+                ? 11_206
+                : runtimeThreadStackGrowthActive
+                  ? 11_205
+                  : user32IsIconicActive
+                    ? 10_571
+                    : user32AsyncKeyStateInitialScanActive
+                      ? 10_569
+                      : user32AsyncKeyStateInputContinuationActive
+                        ? 9_232
+                        : d3d9PostPresentContinuationActive
+                          ? 9_205
+                          : d3d9PostRasterStatusWaitableTimerActive
+                            ? 9_187
+                            : d3d9RecreatedTexturesActive
+                              ? 9_186
+                              : createDirectoryAActive
+                                ? 6_974
+                                : getFileAttributesAActive
+                                  ? 6_937
+                                  : sleepZeroActive
+                                    ? 6_910
+                                    : archiveSourceReadActive
+                                      ? 4_716
+                                      : dragAcceptFilesActive
+                                        ? 4_706
+                                        : mainLoopContinuationActive
+                                          ? 7
+                                          : 3;
+  const timerArmCount = presentationProgressGatewayActive
+    ? 11_469
+    : recurringTimerWindowActive
+      ? 11_273
+      : recurringTimerMultiCycleActive
+        ? 11_225
+        : recurringTimerCycleActive
+          ? 11_210
+          : postTimerRearmWaitSetWaitableTimerActive
+            ? 11_209
+            : postTimerRearmWaitCriticalSectionActive ||
+                postTimerRearmWaitActive ||
+                postTimerWaitSetWaitableTimerActive
+              ? 11_208
+              : postCriticalSectionSetWaitableTimerActive ||
+                  postTimerArmWaitActive ||
+                  postTimerWaitCriticalSectionActive
+                ? 11_207
+                : runtimeThreadStackGrowthActive
+                  ? 11_206
+                  : user32IsIconicActive
+                    ? 10_571
+                    : user32AsyncKeyStateInitialScanActive
+                      ? 10_569
+                      : user32AsyncKeyStateInputContinuationActive
+                        ? 9_232
+                        : d3d9PostPresentContinuationActive
+                          ? 9_205
+                          : d3d9PostRasterStatusWaitableTimerActive
+                            ? 9_188
+                            : d3d9RecreatedTexturesActive
+                              ? 9_187
+                              : timerCycleCount;
+  const timerSetSequences = presentationProgressGatewayActive
+    ? "18681,161987"
+    : recurringTimerWindowActive
+      ? "18681,159093"
+      : recurringTimerMultiCycleActive
+        ? "18681,158387"
+        : recurringTimerCycleActive
+          ? "18681,158139"
+          : postTimerRearmWaitSetWaitableTimerActive
+            ? "18681,158131"
+            : postTimerRearmWaitCriticalSectionActive ||
+                postTimerRearmWaitActive ||
+                postTimerWaitSetWaitableTimerActive
+              ? "18681,158123"
+              : postCriticalSectionSetWaitableTimerActive ||
+                  postTimerArmWaitActive ||
+                  postTimerWaitCriticalSectionActive
+                ? "18681,158115"
+                : runtimeThreadStackGrowthActive
+                  ? "18681,158042"
+                  : user32IsIconicActive
+                    ? "18681,148472"
+                    : user32AsyncKeyStateInitialScanActive
+                      ? "18681,148294"
+                      : user32AsyncKeyStateInputContinuationActive
+                        ? "18681,128060"
+                        : d3d9PostPresentContinuationActive
+                          ? "18681,127648"
+                          : d3d9PostRasterStatusWaitableTimerActive
+                            ? "18681,127377"
+                            : d3d9RecreatedTexturesActive
+                              ? "18681,127344"
+                              : createDirectoryAActive
+                                ? "18681,108706"
+                                : getFileAttributesAActive
+                                  ? "18681,108148"
+                                  : sleepZeroActive
+                                    ? "18681,107739"
+                                    : archiveSourceReadActive
+                                      ? "18681,89364"
+                                      : dragAcceptFilesActive
+                                        ? "18681,89217"
+                                        : mainLoopContinuationActive
+                                          ? "18681,18689,18697,18705,18713,18721,18729"
+                                          : "18681,18689,18697";
+  const timerSetInstructionCounts = presentationProgressGatewayActive
+    ? "11974074,321463786"
+    : recurringTimerWindowActive
+      ? "11974074,297177073"
+      : recurringTimerMultiCycleActive
+        ? "11974074,287481297"
+        : recurringTimerCycleActive
+          ? "11974074,276361632"
+          : postTimerRearmWaitSetWaitableTimerActive
+            ? "11974074,276361485"
+            : postTimerRearmWaitCriticalSectionActive ||
+                postTimerRearmWaitActive ||
+                postTimerWaitSetWaitableTimerActive
+              ? "11974074,276361338"
+              : postCriticalSectionSetWaitableTimerActive ||
+                  postTimerArmWaitActive ||
+                  postTimerWaitCriticalSectionActive
+                ? "11974074,276361191"
+                : runtimeThreadStackGrowthActive
+                  ? "11974074,225662147"
+                  : user32IsIconicActive
+                    ? "11974074,148770732"
+                    : user32AsyncKeyStateInitialScanActive
+                      ? "11974074,148744489"
+                      : user32AsyncKeyStateInputContinuationActive
+                        ? "11974074,29403502"
+                        : d3d9PostPresentContinuationActive
+                          ? "11974074,28874710"
+                          : d3d9PostRasterStatusWaitableTimerActive
+                            ? "11974074,28761446"
+                            : d3d9RecreatedTexturesActive
+                              ? "11974074,28759195"
+                              : createDirectoryAActive
+                                ? "11974074,28269117"
+                                : getFileAttributesAActive
+                                  ? "11973553,16432845"
+                                  : sleepZeroActive
+                                    ? "11973553,16291292"
+                                    : archiveSourceReadActive
+                                      ? "11973553,15942875"
+                                      : dragAcceptFilesActive
+                                        ? "11973553,15600688"
+                                        : mainLoopContinuationActive
+                                          ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
+                                          : "11973553,11973700,11973847";
+  const timerWaitSequences = presentationProgressGatewayActive
+    ? "18682,161980"
+    : recurringTimerWindowActive
+      ? "18682,159086"
+      : recurringTimerMultiCycleActive
+        ? "18682,158316"
+        : recurringTimerCycleActive
+          ? "18682,158132"
+          : postTimerRearmWaitSetWaitableTimerActive ||
+              postTimerRearmWaitCriticalSectionActive ||
+              postTimerRearmWaitActive
+            ? "18682,158124"
+            : postTimerArmWaitActive ||
+                postTimerWaitCriticalSectionActive ||
+                postTimerWaitSetWaitableTimerActive
+              ? "18682,158116"
+              : postCriticalSectionWaitEvidenceActive
+                ? "18682,158108"
+                : runtimeThreadStackGrowthActive
+                  ? "18682,158035"
+                  : user32IsIconicActive
+                    ? "18682,148473"
+                    : user32AsyncKeyStateInitialScanActive
+                      ? "18682,148295"
+                      : user32AsyncKeyStateInputContinuationActive
+                        ? "18682,128061"
+                        : d3d9PostPresentContinuationActive
+                          ? "18682,127649"
+                          : d3d9PostRasterStatusWaitableTimerActive
+                            ? "18682,127378"
+                            : d3d9RecreatedTexturesActive
+                              ? "18682,127337"
+                              : createDirectoryAActive
+                                ? "18682,108707"
+                                : getFileAttributesAActive
+                                  ? "18682,108149"
+                                  : sleepZeroActive
+                                    ? "18682,107740"
+                                    : archiveSourceReadActive
+                                      ? "18682,89365"
+                                      : dragAcceptFilesActive
+                                        ? "18682,89218"
+                                        : mainLoopContinuationActive
+                                          ? "18682,18690,18698,18706,18714,18722,18730"
+                                          : "18682,18690,18698";
+  const timerWaitInstructionCounts = presentationProgressGatewayActive
+    ? "11974080,321463645"
+    : recurringTimerWindowActive
+      ? "11974080,297176932"
+      : recurringTimerMultiCycleActive
+        ? "11974080,287461546"
+        : recurringTimerCycleActive
+          ? "11974080,276361491"
+          : postTimerRearmWaitSetWaitableTimerActive ||
+              postTimerRearmWaitCriticalSectionActive ||
+              postTimerRearmWaitActive
+            ? "11974080,276361344"
+            : postTimerArmWaitActive ||
+                postTimerWaitCriticalSectionActive ||
+                postTimerWaitSetWaitableTimerActive
+              ? "11974080,276361197"
+              : postCriticalSectionWaitEvidenceActive
+                ? "11974080,276361050"
+                : runtimeThreadStackGrowthActive
+                  ? "11974080,225662006"
+                  : user32IsIconicActive
+                    ? "11974080,148770738"
+                    : user32AsyncKeyStateInitialScanActive
+                      ? "11974080,148744495"
+                      : user32AsyncKeyStateInputContinuationActive
+                        ? "11974080,29403508"
+                        : d3d9PostPresentContinuationActive
+                          ? "11974080,28874716"
+                          : d3d9PostRasterStatusWaitableTimerActive
+                            ? "11974080,28761452"
+                            : d3d9RecreatedTexturesActive
+                              ? "11974080,28759054"
+                              : createDirectoryAActive
+                                ? "11974080,28269123"
+                                : getFileAttributesAActive
+                                  ? "11973559,16432851"
+                                  : sleepZeroActive
+                                    ? "11973559,16291298"
+                                    : archiveSourceReadActive
+                                      ? "11973559,15942881"
+                                      : dragAcceptFilesActive
+                                        ? "11973559,15600694"
+                                        : mainLoopContinuationActive
+                                          ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
+                                          : "11973559,11973706,11973853";
+  const timerGenerations = presentationProgressGatewayActive
+    ? "1,11460"
+    : recurringTimerWindowActive
+      ? "1,11268"
+      : recurringTimerMultiCycleActive
+        ? "1,11220"
+        : recurringTimerCycleActive
+          ? "1,11205"
+          : postTimerRearmWaitSetWaitableTimerActive ||
+              postTimerRearmWaitCriticalSectionActive ||
+              postTimerRearmWaitActive
+            ? "1,11204"
+            : postTimerArmWaitActive ||
+                postTimerWaitCriticalSectionActive ||
+                postTimerWaitSetWaitableTimerActive
+              ? "1,11203"
+              : postCriticalSectionWaitEvidenceActive
+                ? "1,11202"
+                : runtimeThreadStackGrowthActive
+                  ? "1,11201"
+                  : user32IsIconicActive
+                    ? "1,3"
+                    : user32AsyncKeyStateInitialScanActive
+                      ? "1,1"
+                      : user32AsyncKeyStateInputContinuationActive
+                        ? "1,9232"
+                        : d3d9PostPresentContinuationActive
+                          ? "1,9205"
+                          : d3d9PostRasterStatusWaitableTimerActive
+                            ? "1,1"
+                            : d3d9RecreatedTexturesActive
+                              ? "1,9186"
+                              : createDirectoryAActive
+                                ? "1,6974"
+                                : getFileAttributesAActive
+                                  ? "1,6937"
+                                  : sleepZeroActive
+                                    ? "1,6910"
+                                    : archiveSourceReadActive
+                                      ? "1,4716"
+                                      : dragAcceptFilesActive
+                                        ? "1,4706"
+                                        : mainLoopContinuationActive
+                                          ? "1,2,3,4,5,6,7"
+                                          : "1,2,3";
+  const timerClockGenerations = presentationProgressGatewayActive
+    ? "1,11467"
+    : recurringTimerWindowActive
+      ? "1,11272"
+      : recurringTimerMultiCycleActive
+        ? "1,11224"
+        : recurringTimerCycleActive
+          ? "1,11209"
+          : postTimerRearmWaitSetWaitableTimerActive ||
+              postTimerRearmWaitCriticalSectionActive ||
+              postTimerRearmWaitActive
+            ? "1,11208"
+            : postTimerArmWaitActive ||
+                postTimerWaitCriticalSectionActive ||
+                postTimerWaitSetWaitableTimerActive
+              ? "1,11207"
+              : postCriticalSectionWaitEvidenceActive
+                ? "1,11206"
+                : runtimeThreadStackGrowthActive
+                  ? "1,11205"
+                  : user32IsIconicActive
+                    ? "1,10571"
+                    : user32AsyncKeyStateInitialScanActive
+                      ? "1,10569"
+                      : user32AsyncKeyStateInputContinuationActive
+                        ? "1,9232"
+                        : d3d9PostPresentContinuationActive
+                          ? "1,9205"
+                          : d3d9PostRasterStatusWaitableTimerActive
+                            ? "1,9187"
+                            : timerGenerations;
+  const timerDeadlines = presentationProgressGatewayActive
+    ? "5000,57440000"
+    : recurringTimerWindowActive
+      ? "5000,56405000"
+      : recurringTimerMultiCycleActive
+        ? "5000,56165000"
+        : recurringTimerCycleActive
+          ? "5000,56090000"
+          : postTimerRearmWaitSetWaitableTimerActive ||
+              postTimerRearmWaitCriticalSectionActive ||
+              postTimerRearmWaitActive
+            ? "5000,56085000"
+            : postTimerArmWaitActive ||
+                postTimerWaitCriticalSectionActive ||
+                postTimerWaitSetWaitableTimerActive
+              ? "5000,56080000"
+              : postCriticalSectionWaitEvidenceActive
+                ? "5000,56075000"
+                : runtimeThreadStackGrowthActive
+                  ? "5000,56070000"
+                  : user32IsIconicActive
+                    ? "5000,52885000"
+                    : user32AsyncKeyStateInitialScanActive
+                      ? "5000,52845000"
+                      : user32AsyncKeyStateInputContinuationActive
+                        ? "5000,46160000"
+                        : d3d9PostPresentContinuationActive
+                          ? "5000,46025000"
+                          : d3d9PostRasterStatusWaitableTimerActive
+                            ? "5000,45935000"
+                            : d3d9RecreatedTexturesActive
+                              ? "5000,45930000"
+                              : createDirectoryAActive
+                                ? "5000,34870000"
+                                : getFileAttributesAActive
+                                  ? "5000,34685000"
+                                  : sleepZeroActive
+                                    ? "5000,34550000"
+                                    : archiveSourceReadActive
+                                      ? "5000,23580000"
+                                      : dragAcceptFilesActive
+                                        ? "5000,23530000"
+                                        : mainLoopContinuationActive
+                                          ? "5000,10000,15000,20000,25000,30000,35000"
+                                          : "5000,10000,15000";
+  const timerPacingRequestIds = presentationProgressGatewayActive
+    ? "3,11562"
+    : recurringTimerWindowActive
+      ? "3,11361"
+      : recurringTimerMultiCycleActive
+        ? "3,11311"
+        : recurringTimerCycleActive
+          ? "3,11296"
+          : postTimerRearmWaitSetWaitableTimerActive ||
+              postTimerRearmWaitCriticalSectionActive ||
+              postTimerRearmWaitActive
+            ? "3,11295"
+            : postTimerArmWaitActive ||
+                postTimerWaitCriticalSectionActive ||
+                postTimerWaitSetWaitableTimerActive
+              ? "3,11294"
+              : postCriticalSectionWaitEvidenceActive
+                ? "3,11293"
+                : runtimeThreadStackGrowthActive
+                  ? "3,11291"
+                  : user32IsIconicActive
+                    ? "3,10635"
+                    : user32AsyncKeyStateInitialScanActive
+                      ? "3,10633"
+                      : user32AsyncKeyStateInputContinuationActive
+                        ? "3,9247"
+                        : d3d9PostPresentContinuationActive
+                          ? "3,9216"
+                          : d3d9PostRasterStatusWaitableTimerActive
+                            ? "3,9198"
+                            : d3d9RecreatedTexturesActive
+                              ? "3,9197"
+                              : createDirectoryAActive
+                                ? "3,6985"
+                                : getFileAttributesAActive
+                                  ? "3,6942"
+                                  : sleepZeroActive
+                                    ? "3,6915"
+                                    : archiveSourceReadActive
+                                      ? "3,4721"
+                                      : dragAcceptFilesActive
+                                        ? "3,4708"
+                                        : mainLoopContinuationActive
+                                          ? "3,4,5,6,7,8,9"
+                                          : "3,4,5";
+  const timerPacingRegistrationIds = presentationProgressGatewayActive
+    ? "1,11468"
+    : recurringTimerWindowActive
+      ? "1,11272"
+      : recurringTimerMultiCycleActive
+        ? "1,11224"
+        : recurringTimerCycleActive
+          ? "1,11209"
+          : postTimerRearmWaitSetWaitableTimerActive ||
+              postTimerRearmWaitCriticalSectionActive ||
+              postTimerRearmWaitActive
+            ? "1,11208"
+            : postTimerArmWaitActive ||
+                postTimerWaitCriticalSectionActive ||
+                postTimerWaitSetWaitableTimerActive
+              ? "1,11207"
+              : postCriticalSectionWaitEvidenceActive
+                ? "1,11206"
+                : runtimeThreadStackGrowthActive
+                  ? "1,11205"
+                  : user32IsIconicActive
+                    ? "1,10571"
+                    : user32AsyncKeyStateInitialScanActive
+                      ? "1,10569"
+                      : user32AsyncKeyStateInputContinuationActive
+                        ? "1,9232"
+                        : d3d9PostPresentContinuationActive
+                          ? "1,9205"
+                          : d3d9PostRasterStatusWaitableTimerActive
+                            ? "1,9187"
+                            : d3d9RecreatedTexturesActive
+                              ? "1,9186"
+                              : createDirectoryAActive
+                                ? "1,6974"
+                                : getFileAttributesAActive
+                                  ? "1,6937"
+                                  : sleepZeroActive
+                                    ? "1,6910"
+                                    : archiveSourceReadActive
+                                      ? "1,4716"
+                                      : dragAcceptFilesActive
+                                        ? "1,4706"
+                                        : mainLoopContinuationActive
+                                          ? "1,2,3,4,5,6,7"
+                                          : "1,2,3";
+  const timerPacingClockGenerations = presentationProgressGatewayActive
+    ? "0,11466"
+    : recurringTimerWindowActive
+      ? "0,11271"
+      : recurringTimerMultiCycleActive
+        ? "0,11223"
+        : recurringTimerCycleActive
+          ? "0,11208"
+          : postTimerRearmWaitSetWaitableTimerActive ||
+              postTimerRearmWaitCriticalSectionActive ||
+              postTimerRearmWaitActive
+            ? "0,11207"
+            : postTimerArmWaitActive ||
+                postTimerWaitCriticalSectionActive ||
+                postTimerWaitSetWaitableTimerActive
+              ? "0,11206"
+              : postCriticalSectionWaitEvidenceActive
+                ? "0,11205"
+                : runtimeThreadStackGrowthActive
+                  ? "0,11204"
+                  : user32IsIconicActive
+                    ? "0,10570"
+                    : user32AsyncKeyStateInitialScanActive
+                      ? "0,10568"
+                      : user32AsyncKeyStateInputContinuationActive
+                        ? "0,9231"
+                        : d3d9PostPresentContinuationActive
+                          ? "0,9204"
+                          : d3d9PostRasterStatusWaitableTimerActive
+                            ? "0,9186"
+                            : d3d9RecreatedTexturesActive
+                              ? "0,9185"
+                              : createDirectoryAActive
+                                ? "0,6973"
+                                : getFileAttributesAActive
+                                  ? "0,6936"
+                                  : sleepZeroActive
+                                    ? "0,6909"
+                                    : archiveSourceReadActive
+                                      ? "0,4715"
+                                      : dragAcceptFilesActive
+                                        ? "0,4705"
+                                        : mainLoopContinuationActive
+                                          ? "0,1,2,3,4,5,6"
+                                          : "0,1,2";
+  const timerNextRegistrationIds = presentationProgressGatewayActive
+    ? "2,11468"
+    : recurringTimerWindowActive
+      ? "2,11273"
+      : recurringTimerMultiCycleActive
+        ? "2,11225"
+        : recurringTimerCycleActive
+          ? "2,11210"
+          : postTimerRearmWaitSetWaitableTimerActive ||
+              postTimerRearmWaitCriticalSectionActive ||
+              postTimerRearmWaitActive
+            ? "2,11209"
+            : postTimerArmWaitActive ||
+                postTimerWaitCriticalSectionActive ||
+                postTimerWaitSetWaitableTimerActive
+              ? "2,11208"
+              : postCriticalSectionWaitEvidenceActive
+                ? "2,11207"
+                : runtimeThreadStackGrowthActive
+                  ? "2,11206"
+                  : user32IsIconicActive
+                    ? "2,10572"
+                    : user32AsyncKeyStateInitialScanActive
+                      ? "2,10570"
+                      : user32AsyncKeyStateInputContinuationActive
+                        ? "2,9233"
+                        : d3d9PostPresentContinuationActive
+                          ? "2,9206"
+                          : d3d9PostRasterStatusWaitableTimerActive
+                            ? "2,9188"
+                            : d3d9RecreatedTexturesActive
+                              ? "2,9187"
+                              : createDirectoryAActive
+                                ? "2,6975"
+                                : getFileAttributesAActive
+                                  ? "2,6938"
+                                  : sleepZeroActive
+                                    ? "2,6911"
+                                    : archiveSourceReadActive
+                                      ? "2,4717"
+                                      : dragAcceptFilesActive
+                                        ? "2,4707"
+                                        : mainLoopContinuationActive
+                                          ? "2,3,4,5,6,7,8"
+                                          : "2,3,4";
+  const profileExpectations = presentationProgressGatewayActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 126_312,
-        browserMappingDirtyPages: 147_700,
-        browserSuccessExecutionTransitions: 574_735,
+        browserMappingDeltas: 127_946,
+        browserMappingDirtyPages: 150_351,
+        browserSuccessExecutionTransitions: 588_778,
         latestSchema:
-          "vine.v86-bgi-primary-main-loop-recurring-timer-window-batch",
-        latestWritebackBatches: 162_106,
-        latestWritebackDirtyPages: 239_352,
-        latestWritebackChangedBytes: 40_568_695,
-        latestHostDeltaBatches: 126_312,
-        latestFinalMemoryGeneration: 291_540,
+          "vine.v86-bgi-primary-main-loop-presentation-progress-gateway",
+        latestWritebackBatches: 165_137,
+        latestWritebackDirtyPages: 244_519,
+        latestWritebackChangedBytes: 43_070_875,
+        latestHostDeltaBatches: 127_946,
+        latestFinalMemoryGeneration: 296_365,
         semanticCallDigestSha256:
-          "b85bb7cf08e2382ddf85a6c59e76493aef93480b512b5a86cf546d13cc58c35f",
+          "f81a04c2ba9badc9caa4850d7e6482f33ec93aea3a8ddddd52dbb7eaac9d149c",
         memoryContentSha256:
-          "3541def87e86e92dbfcb76d807006f183ff52e733fb803007ec7566cdf2ef0bb",
+          "fef2805b5adc894960293aaab9c4820db1a288bca24a7387913a11c1a8dc67c1",
       }
-    : recurringTimerMultiCycleActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 125_864,
-        browserMappingDirtyPages: 146_867,
-        browserSuccessExecutionTransitions: 570_564,
-        latestSchema:
-          "vine.v86-bgi-primary-main-loop-recurring-timer-multi-cycle-batch",
-        latestWritebackBatches: 161_348,
-        latestWritebackDirtyPages: 238_005,
-        latestWritebackChangedBytes: 39_922_045,
-        latestHostDeltaBatches: 125_864,
-        latestFinalMemoryGeneration: 290_302,
-        semanticCallDigestSha256:
-          "2fb3c15a5989f1afac216346add8110c7f36fd1612f732d3fee416c36c231327",
-        memoryContentSha256:
-          "474048294afb72dcbd3d16517ed514d8771099bc3ed9c981e5fb3539dcabc625",
-      }
-    : recurringTimerCycleActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 125_768,
-        browserMappingDirtyPages: 145_873,
-        browserSuccessExecutionTransitions: 567_743,
-        latestSchema:
-          "vine.v86-bgi-primary-main-loop-recurring-timer-cycle-batch",
-        latestWritebackBatches: 161_099,
-        latestWritebackDirtyPages: 236_745,
-        latestWritebackChangedBytes: 36_243_840,
-        latestHostDeltaBatches: 125_768,
-        latestFinalMemoryGeneration: 289_955,
-        semanticCallDigestSha256:
-          "bfeee03ec768b7fe0c2e4151e0ac0d73d3d7bdeaf6c531cbcf8c07f33b016eb2",
-        memoryContentSha256:
-          "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf",
-      }
-    : postTimerArmWaitActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: postTimerRearmWaitActive ? 125_756 : 125_750,
-        browserMappingDirtyPages: postTimerRearmWaitActive
-          ? 145_861
-          : 145_855,
-        browserSuccessExecutionTransitions: postTimerRearmWaitActive
-          ? 567_695
-          : 567_668,
-        latestSchema: postTimerRearmWaitActive
-          ? "vine.v86-bgi-kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
-          : "vine.v86-bgi-kernel32-wait-for-single-object-ex-post-timer-arm-batch",
-        latestWritebackBatches: postTimerRearmWaitActive ? 161_084 : 161_076,
-        latestWritebackDirtyPages: postTimerRearmWaitActive
-          ? 236_725
-          : 236_714,
-        latestWritebackChangedBytes: postTimerRearmWaitActive
-          ? 36_243_654
-          : 36_243_547,
-        latestHostDeltaBatches: postTimerRearmWaitActive ? 125_756 : 125_750,
-        latestFinalMemoryGeneration: postTimerRearmWaitActive
-          ? 289_928
-          : 289_914,
-        semanticCallDigestSha256: postTimerRearmWaitActive
-          ? "952121a940b5ae292fa2ddc2a0c0dafb7ea239e8dbbe739c5aad2924b0ce10f8"
-          : "b4d9f6ee62c0c7fdb48c1e7c148624c2c8911701a7a061ee81a773debcefd745",
-        memoryContentSha256:
-          "a2016162ae29d5f3b8ccd7e2006e0c8648418b9dc1f5adbc930d3c920b8834fa",
-      }
-    : postCriticalSectionSetWaitableTimerActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: postTimerRearmWaitSetWaitableTimerActive
-          ? 125_762
-          : postTimerWaitSetWaitableTimerActive
-            ? 125_756
-            : 125_750,
-        browserMappingDirtyPages: postTimerRearmWaitSetWaitableTimerActive
-          ? 145_867
-          : postTimerWaitSetWaitableTimerActive
-            ? 145_861
-            : 145_855,
-        browserSuccessExecutionTransitions:
-          postTimerRearmWaitSetWaitableTimerActive
-            ? 567_716
-            : postTimerWaitSetWaitableTimerActive
-              ? 567_689
-              : 567_662,
-        latestSchema: postTimerRearmWaitSetWaitableTimerActive
-          ? "vine.v86-bgi-kernel32-set-waitable-timer-post-timer-rearm-wait-batch"
-          : postTimerWaitSetWaitableTimerActive
-            ? "vine.v86-bgi-kernel32-set-waitable-timer-post-timer-wait-batch"
-            : "vine.v86-bgi-kernel32-set-waitable-timer-post-critical-section-batch",
-        latestWritebackBatches: postTimerRearmWaitSetWaitableTimerActive
-          ? 161_091
-          : postTimerWaitSetWaitableTimerActive
-            ? 161_083
-            : 161_075,
-        latestWritebackDirtyPages: postTimerRearmWaitSetWaitableTimerActive
-          ? 236_734
-          : postTimerWaitSetWaitableTimerActive
-            ? 236_723
-            : 236_712,
-        latestWritebackChangedBytes: postTimerRearmWaitSetWaitableTimerActive
-          ? 36_243_733
-          : postTimerWaitSetWaitableTimerActive
-            ? 36_243_626
-            : 36_243_519,
-        latestHostDeltaBatches: postTimerRearmWaitSetWaitableTimerActive
-          ? 125_762
-          : postTimerWaitSetWaitableTimerActive
-            ? 125_756
-            : 125_750,
-        latestFinalMemoryGeneration: postTimerRearmWaitSetWaitableTimerActive
-          ? 289_941
-          : postTimerWaitSetWaitableTimerActive
-            ? 289_927
-            : 289_913,
-        semanticCallDigestSha256: postTimerRearmWaitSetWaitableTimerActive
-          ? "6a5dc16de09e556f83e9b2541439f8b804870ad9b7e8f253d5c383a0344b5aba"
-          : postTimerWaitSetWaitableTimerActive
-            ? "b6db19c1beaaedefe177c3f29a619da75bfe9431a440be4c40fc537d99bd3b2e"
-            : "ea918c1143107f0b5ee0c374b1306e9e58c712106637285657ccc7225771d7a0",
-        memoryContentSha256:
-          "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf",
-      }
-    : postWaitCriticalSectionActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: postTimerRearmWaitCriticalSectionActive
-          ? 125_762
-          : postTimerWaitCriticalSectionActive
-            ? 125_756
-            : 125_750,
-        browserMappingDirtyPages: postTimerRearmWaitCriticalSectionActive
-          ? 145_867
-          : postTimerWaitCriticalSectionActive
-            ? 145_861
-            : 145_855,
-        browserSuccessExecutionTransitions:
-          postTimerRearmWaitCriticalSectionActive
-            ? 567_713
-            : postTimerWaitCriticalSectionActive
-              ? 567_686
-              : 567_659,
-        latestSchema: postTimerRearmWaitCriticalSectionActive
-          ? "vine.v86-bgi-kernel32-enter-critical-section-post-timer-rearm-wait-batch"
-          : postTimerWaitCriticalSectionActive
-            ? "vine.v86-bgi-kernel32-enter-critical-section-post-timer-wait-batch"
-            : "vine.v86-bgi-kernel32-enter-critical-section-post-wait",
-        latestWritebackBatches: postTimerRearmWaitCriticalSectionActive
-          ? 161_090
-          : postTimerWaitCriticalSectionActive
-            ? 161_082
-            : 161_074,
-        latestWritebackDirtyPages: postTimerRearmWaitCriticalSectionActive
-          ? 236_733
-          : postTimerWaitCriticalSectionActive
-            ? 236_722
-            : 236_711,
-        latestWritebackChangedBytes:
-          postTimerRearmWaitCriticalSectionActive
-            ? 36_243_724
-            : postTimerWaitCriticalSectionActive
-              ? 36_243_617
-              : 36_243_510,
-        latestHostDeltaBatches: postTimerRearmWaitCriticalSectionActive
-          ? 125_762
-          : postTimerWaitCriticalSectionActive
-            ? 125_756
-            : 125_750,
-        latestFinalMemoryGeneration:
-          postTimerRearmWaitCriticalSectionActive
-            ? 289_940
-            : postTimerWaitCriticalSectionActive
-              ? 289_926
-              : 289_912,
-        semanticCallDigestSha256: postTimerRearmWaitCriticalSectionActive
-          ? "21e5a69577524da6333f51fca63cf338e8b3636f0f6c6dc0d6668be3267ee4aa"
-          : postTimerWaitCriticalSectionActive
-            ? "c90b7e833362576c3c31209a78321fd27d3786386621e986d5a52a74ee94ccdf"
-            : "63091c71ceb92caa0a781fe23ddd1925b800daaf03d48e82263fb618a992f5de",
-        memoryContentSha256:
-          "bd92a619b4ee428eab13238b769afd60f326ce22fcf86d22f3a46fc11df56700",
-      }
-    : postCriticalSectionWaitActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 125_744,
-        browserMappingDirtyPages: 145_849,
-        browserSuccessExecutionTransitions: 567_641,
-        latestSchema:
-          "vine.v86-bgi-kernel32-wait-for-single-object-ex-post-critical-section",
-        latestWritebackBatches: 161_068,
-        latestWritebackDirtyPages: 236_703,
-        latestWritebackChangedBytes: 36_243_440,
-        latestHostDeltaBatches: 125_744,
-        latestFinalMemoryGeneration: 289_900,
-        semanticCallDigestSha256:
-          "3ca0fa06e6a89d4024685afa6dda1070f2107b961f16b10dcdbb9d583dc63f39",
-        memoryContentSha256:
-          "a2016162ae29d5f3b8ccd7e2006e0c8648418b9dc1f5adbc930d3c920b8834fa",
-      }
-    : postClockCriticalSectionActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 125_744,
-        browserMappingDirtyPages: 145_849,
-        browserSuccessExecutionTransitions: 567_635,
-        latestSchema:
-          "vine.v86-bgi-kernel32-enter-critical-section-post-clock",
-        latestWritebackBatches: 161_067,
-        latestWritebackDirtyPages: 236_701,
-        latestWritebackChangedBytes: 36_243_412,
-        latestHostDeltaBatches: 125_744,
-        latestFinalMemoryGeneration: 289_899,
-        semanticCallDigestSha256:
-          "1018bc57c47f4b548ffd505f3ec80b6560c590fd9d8bcc809e8760a92d104e2e",
-        memoryContentSha256:
-          "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf",
-      }
-    : postHeapTimeGetTimeActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 125_742,
-        browserMappingDirtyPages: 145_847,
-        browserSuccessExecutionTransitions: 567_628,
-        latestSchema: "vine.v86-bgi-winmm-time-get-time-post-heap-reuse",
-        latestWritebackBatches: 161_065,
-        latestWritebackDirtyPages: 236_699,
-        latestWritebackChangedBytes: 36_243_399,
-        latestHostDeltaBatches: 125_742,
-        latestFinalMemoryGeneration: 289_895,
-        semanticCallDigestSha256:
-          "cb252963b489263ebcf7ae0ecef9db6100c95f9f7307644491f773eb17d61740",
-        memoryContentSha256:
-          "979b11ad530a677d061eca5de7f08e146a905133fc09112bb2ac21f1760d9571",
-      }
-    : heapAlloc24Active
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 125_742,
-        browserMappingDirtyPages: 145_847,
-        browserSuccessExecutionTransitions: 567_625,
-        latestSchema: "vine.v86-bgi-kernel32-heap-alloc-24-byte-buffer",
-        latestWritebackBatches: 161_064,
-        latestWritebackDirtyPages: 236_694,
-        latestWritebackChangedBytes: 36_243_225,
-        latestHostDeltaBatches: 125_742,
-        latestFinalMemoryGeneration: 289_894,
-        semanticCallDigestSha256:
-          "2cfdbb2fec2315784a72e565b766be7d7fe90ee33f50ce4f4e5c1edb44c4ac00",
-        memoryContentSha256:
-          "102795f1f536f78a6faedf72f2114b82123d024dd51dfd9ff6a1bf8032ce846a",
-      }
-    : largeHeapFreeActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 125_738,
-        browserMappingDirtyPages: 145_168,
-        browserSuccessExecutionTransitions: 567_613,
-        latestSchema: "vine.v86-bgi-kernel32-heap-free-large-buffer",
-        latestWritebackBatches: 161_060,
-        latestWritebackDirtyPages: 236_011,
-        latestWritebackChangedBytes: 33_493_088,
-        latestHostDeltaBatches: 125_738,
-        latestFinalMemoryGeneration: 289_886,
-        semanticCallDigestSha256:
-          "9a0ae6fde8ba2f8414757ebf33af7a6a834ee9b9931637e78eda2a99547797da",
-        memoryContentSha256:
-          "f5bf558d4405c7940d627805b8f5ce3b3e20cc77b74a3370c21c745f7637b180",
-      }
-    : runtimeTraplessExecutionBudgetActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 125_736,
-        browserMappingDirtyPages: 144_396,
-        browserSuccessExecutionTransitions: 567_607,
-        latestSchema: "vine.v86-bgi-runtime-trapless-execution-budget",
-        latestWritebackBatches: 161_058,
-        latestWritebackDirtyPages: 236_007,
-        latestWritebackChangedBytes: 33_492_982,
-        latestHostDeltaBatches: 125_736,
-        latestFinalMemoryGeneration: 289_882,
-        semanticCallDigestSha256:
-          "c795f34a0a893523c0e92382635fd51c5a386ff51ff9f614d90b642581559fce",
-        memoryContentSha256:
-          "f9cbbcc490533a966eb846aa3cb385f4b976b4330b6d8c4a8152ff745b826fbf",
-      }
-    : runtimeThreadStackGrowthActive
-      ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 125_061,
-        browserMappingDirtyPages: 143_721,
-        browserSuccessExecutionTransitions: 563_892,
-        latestSchema: "vine.v86-bgi-runtime-thread-stack-growth",
-        latestWritebackBatches: 160_383,
-        latestWritebackDirtyPages: 235_270,
-        latestWritebackChangedBytes: 30_501_184,
-        latestHostDeltaBatches: 125_061,
-        latestFinalMemoryGeneration: 287_857,
-        semanticCallDigestSha256:
-          "c795f34a0a893523c0e92382635fd51c5a386ff51ff9f614d90b642581559fce",
-        memoryContentSha256:
-          "0719c6c7b1019e1b61eca9811ab475cef68130698bf1ea36499f8f8ca7024e7f",
-      }
-    : user32IsIconicActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 119_327,
-        browserMappingDirtyPages: 132_487,
-        browserSuccessExecutionTransitions: 510_360,
-        latestSchema: "vine.v86-bgi-user32-is-iconic",
-        latestWritebackBatches: 150_245,
-        latestWritebackDirtyPages: 216_370,
-        latestWritebackChangedBytes: 19_893_723,
-        latestHostDeltaBatches: 119_327,
-        latestFinalMemoryGeneration: 271_554,
-        semanticCallDigestSha256:
-          "10e5637f27a2404ee6ec5e29d36b2372914b2995725046460d5bbe5fb60e8b52",
-        memoryContentSha256:
-          "320a6ba1fb4c97573b11f977b63158f9f85deb265c70610e46a241101389495b",
-      }
-    : user32PeekMessageAActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 119_293,
-        browserMappingDirtyPages: 132_399,
-        browserSuccessExecutionTransitions: 509_691,
-        latestSchema: "vine.v86-bgi-user32-peek-message-a",
-        latestWritebackBatches: 150_026,
-        latestWritebackDirtyPages: 216_024,
-        latestWritebackChangedBytes: 19_887_745,
-        latestHostDeltaBatches: 119_293,
-        latestFinalMemoryGeneration: 271_299,
-        semanticCallDigestSha256:
-          "89c5dfa0e7f5914c8161576c62a67f09c3829258ab36aeec88782af07f83b3dd",
-        memoryContentSha256:
-          "027687ed1dac984d97137c0c01d3016ceb0a2728f67856cf013faf796225cb5a",
-      }
-    : user32AsyncKeyStateInitialScanContinuationActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 119_291,
-        browserMappingDirtyPages: 132_397,
-        browserSuccessExecutionTransitions: 509_664,
-        latestSchema:
-          "vine.v86-bgi-user32-async-key-state-initial-scan-continuation",
-        latestWritebackBatches: 150_017,
-        latestWritebackDirtyPages: 216_010,
-        latestWritebackChangedBytes: 19_887_519,
-        latestHostDeltaBatches: 119_291,
-        latestFinalMemoryGeneration: 271_288,
-        semanticCallDigestSha256:
-          "74170ad0115e2e7c75e752eca7cdcf5a0563d38166fffbb36c46af78d742a88b",
-        memoryContentSha256:
-          "8cb35ad270630b96dc24dff848b2390a1f2efda5bd162caacaf5e8918d3ed36d",
-      }
-    : user32AsyncKeyStateInitialScanActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 119_273,
-        browserMappingDirtyPages: 130_332,
-        browserSuccessExecutionTransitions: 509_179,
-        latestSchema:
-          "vine.v86-bgi-user32-async-key-state-initial-scan",
-        latestWritebackBatches: 149_916,
-        latestWritebackDirtyPages: 214_431,
-        latestWritebackChangedBytes: 19_882_726,
-        latestHostDeltaBatches: 119_273,
-        latestFinalMemoryGeneration: 271_166,
-        semanticCallDigestSha256:
-          "807a700fa699f6a8ec3d83954a534960243ec27d203d7f68f499356254910950",
-        memoryContentSha256:
-          "ea8b7752bc8c4424ae5d901958330b09fb7e8af3bf4a506bbeb0f9aeba8fff86",
-      }
-    : user32AsyncKeyStateInputContinuationActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 107_148,
-        browserMappingDirtyPages: 110_362,
-        browserSuccessExecutionTransitions: 419_208,
-        latestSchema:
-          "vine.v86-bgi-user32-async-key-state-input-continuation",
-        latestWritebackBatches: 128_223,
-        latestWritebackDirtyPages: 177_196,
-        latestWritebackChangedBytes: 6_792_623,
-        latestHostDeltaBatches: 107_148,
-        latestFinalMemoryGeneration: 236_665,
-        semanticCallDigestSha256:
-          "35dd9d4e6ee43cdf312e2f3c14ee5f82478373779dfa645074761b1474355404",
-        memoryContentSha256:
-          "1671745d3e36bc8732ff00ed4fde0cad13bfb624d3e61bb3335876d17626be87",
-      }
-    : user32AsyncKeyStateInputActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_909,
-        browserMappingDirtyPages: 110_070,
-        browserSuccessExecutionTransitions: 417_660,
-        latestSchema: "vine.v86-bgi-user32-async-key-state-input",
-        latestWritebackBatches: 127_790,
-        latestWritebackDirtyPages: 176_489,
-        latestWritebackChangedBytes: 6_647_203,
-        latestHostDeltaBatches: 106_909,
-        latestFinalMemoryGeneration: 235_983,
-        semanticCallDigestSha256:
-          "9cf34a9c26fab3e0eccc49318b8601a69ef26fbcd075ccbe022ce93851c8c070",
-        memoryContentSha256:
-          "c7801c079a345735737df36bd26eed53c2381cfdba7b7b618e79b75e5280dae4",
-      }
-    : d3d9PostPresentContinuationActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_909,
-        browserMappingDirtyPages: 110_070,
-        browserSuccessExecutionTransitions: 417_657,
-        latestSchema: "vine.v86-bgi-d3d9-post-present-continuation",
-        latestWritebackBatches: 127_789,
-        latestWritebackDirtyPages: 176_488,
-        latestWritebackChangedBytes: 6_647_194,
-        latestHostDeltaBatches: 106_909,
-        latestFinalMemoryGeneration: 235_982,
-        semanticCallDigestSha256:
-          "ac1eee34c5e1f3e4746600db145ac70a2d0a023949a9094729572c7a04c41617",
-        memoryContentSha256:
-          "6ba9e12a6946dd09a1d673d76f7dab2a11436ad1f7fe5989d2c43a6698b82321",
-      }
-    : d3d9FirstPresentActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_770,
-        browserMappingDirtyPages: 109_859,
-        browserSuccessExecutionTransitions: 416_565,
-        latestSchema: "vine.v86-bgi-d3d9-first-present",
-        latestWritebackBatches: 127_475,
-        latestWritebackDirtyPages: 175_997,
-        latestWritebackChangedBytes: 6_619_993,
-        latestHostDeltaBatches: 106_770,
-        latestFinalMemoryGeneration: 235_528,
-        semanticCallDigestSha256:
-          "792c9f0f6f620fdce04445f5d6138b317656bed87a392196fae2ed0d09bc3398",
-        memoryContentSha256:
-          "bff1bcdfd09d14143797630f57222aaf9a94ca08e29593a85010690da7e804b9",
-      }
-    : d3d9PostScenePresentGatewayActive
-    ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_770,
-        browserMappingDirtyPages: 109_859,
-        browserSuccessExecutionTransitions: 416_563,
-        latestSchema: "vine.v86-bgi-d3d9-post-scene-present-gateway",
-        latestWritebackBatches: 127_474,
-        latestWritebackDirtyPages: 175_996,
-        latestWritebackChangedBytes: 6_619_985,
-        latestHostDeltaBatches: 106_770,
-        latestFinalMemoryGeneration: 235_527,
-        semanticCallDigestSha256:
-          "0d078f5f58c953ff8d8c952a33497e308c5e7632c6c03437c21ca04a85f711d6",
-        memoryContentSha256:
-          "c8e437febb7fd0b6b79ad5822f8185cc336e16b532c980aa39815479590f204e",
-      }
-    : d3d9PostRasterStatusWaitableTimerActive
-      ? {
-        benchmarkObservation: "current-archive-source-read-observation",
-        browserMappingDeltas: 106_770,
-        browserMappingDirtyPages: 109_859,
-        browserSuccessExecutionTransitions: 416_570,
-        latestSchema: "vine.v86-bgi-d3d9-post-raster-status-waitable-timer",
-        latestWritebackBatches: 127_476,
-        latestWritebackDirtyPages: 175_998,
-        latestWritebackChangedBytes: 6_620_041,
-        latestHostDeltaBatches: 106_770,
-        latestFinalMemoryGeneration: 235_529,
-        semanticCallDigestSha256:
-          "60fd9f021109569f413d64b8ace66d7aa644f9cdcb501d034223b1d1275459de",
-        memoryContentSha256:
-          "fd484385c3f60914412b328120c6eed7ddc616a3a110b8e3b3ebe14c21cdc65a",
-        }
-      : d3d9PostEndSceneRasterStatusActive
+    : recurringTimerWindowActive
       ? {
           benchmarkObservation: "current-archive-source-read-observation",
-          browserMappingDeltas: 106_770,
-          browserMappingDirtyPages: 109_859,
-          browserSuccessExecutionTransitions: 416_563,
-          latestSchema: "vine.v86-bgi-d3d9-post-end-scene-raster-status",
-          latestWritebackBatches: 127_474,
-          latestWritebackDirtyPages: 175_996,
-          latestWritebackChangedBytes: 6_620_003,
-          latestHostDeltaBatches: 106_770,
-          latestFinalMemoryGeneration: 235_527,
+          browserMappingDeltas: 126_312,
+          browserMappingDirtyPages: 147_700,
+          browserSuccessExecutionTransitions: 574_735,
+          latestSchema:
+            "vine.v86-bgi-primary-main-loop-recurring-timer-window-batch",
+          latestWritebackBatches: 162_106,
+          latestWritebackDirtyPages: 239_352,
+          latestWritebackChangedBytes: 40_568_695,
+          latestHostDeltaBatches: 126_312,
+          latestFinalMemoryGeneration: 291_540,
           semanticCallDigestSha256:
-            "62f79296cc5c0adaf71fd5bba4e16f3e4ca8f6aa6f64eb0ba66500553f4b4f28",
+            "b85bb7cf08e2382ddf85a6c59e76493aef93480b512b5a86cf546d13cc58c35f",
           memoryContentSha256:
-            "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc",
+            "3541def87e86e92dbfcb76d807006f183ff52e733fb803007ec7566cdf2ef0bb",
         }
-      : d3d9EndSceneActive
+      : recurringTimerMultiCycleActive
         ? {
             benchmarkObservation: "current-archive-source-read-observation",
-            browserMappingDeltas: 106_769,
-            browserMappingDirtyPages: 109_858,
-            browserSuccessExecutionTransitions: 416_561,
-            latestSchema: "vine.v86-bgi-d3d9-end-scene",
-            latestWritebackBatches: 127_473,
-            latestWritebackDirtyPages: 175_995,
-            latestWritebackChangedBytes: 6_619_956,
-            latestHostDeltaBatches: 106_769,
-            latestFinalMemoryGeneration: 235_525,
+            browserMappingDeltas: 125_864,
+            browserMappingDirtyPages: 146_867,
+            browserSuccessExecutionTransitions: 570_564,
+            latestSchema:
+              "vine.v86-bgi-primary-main-loop-recurring-timer-multi-cycle-batch",
+            latestWritebackBatches: 161_348,
+            latestWritebackDirtyPages: 238_005,
+            latestWritebackChangedBytes: 39_922_045,
+            latestHostDeltaBatches: 125_864,
+            latestFinalMemoryGeneration: 290_302,
             semanticCallDigestSha256:
-              "c0daff3027448422848654cba884186b04f828e6d3e772d935b029775cd189b3",
+              "2fb3c15a5989f1afac216346add8110c7f36fd1612f732d3fee416c36c231327",
             memoryContentSha256:
-              "670ea1ef57a6c440ea336234edad713c0d6fc8bc22ee0727257e037e79acb438",
+              "474048294afb72dcbd3d16517ed514d8771099bc3ed9c981e5fb3539dcabc625",
           }
-        : d3d9DrawPrimitiveActive
+        : recurringTimerCycleActive
           ? {
               benchmarkObservation: "current-archive-source-read-observation",
-              browserMappingDeltas: 106_769,
-              browserMappingDirtyPages: 109_858,
-              browserSuccessExecutionTransitions: 416_559,
-              latestSchema: "vine.v86-bgi-d3d9-draw-primitive",
-              latestWritebackBatches: 127_472,
-              latestWritebackDirtyPages: 175_994,
-              latestWritebackChangedBytes: 6_619_910,
-              latestHostDeltaBatches: 106_769,
-              latestFinalMemoryGeneration: 235_524,
+              browserMappingDeltas: 125_768,
+              browserMappingDirtyPages: 145_873,
+              browserSuccessExecutionTransitions: 567_743,
+              latestSchema:
+                "vine.v86-bgi-primary-main-loop-recurring-timer-cycle-batch",
+              latestWritebackBatches: 161_099,
+              latestWritebackDirtyPages: 236_745,
+              latestWritebackChangedBytes: 36_243_840,
+              latestHostDeltaBatches: 125_768,
+              latestFinalMemoryGeneration: 289_955,
               semanticCallDigestSha256:
-                "bad8077a6eb60ec328542af5d68f70824e0f579d0aa1b9998944c0117b522615",
+                "bfeee03ec768b7fe0c2e4151e0ac0d73d3d7bdeaf6c531cbcf8c07f33b016eb2",
               memoryContentSha256:
-                "6736cc7a51bc4fa854877fad65ed254ab6af0f0a10489af5b9eb516dc5e89ee0",
+                "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf",
             }
-          : d3d9SetStreamSourceActive
+          : postTimerArmWaitActive
             ? {
                 benchmarkObservation: "current-archive-source-read-observation",
-                browserMappingDeltas: 106_769,
-                browserMappingDirtyPages: 109_858,
-                browserSuccessExecutionTransitions: 416_557,
-                latestSchema: "vine.v86-bgi-d3d9-set-stream-source",
-                latestWritebackBatches: 127_471,
-                latestWritebackDirtyPages: 175_993,
-                latestWritebackChangedBytes: 6_619_903,
-                latestHostDeltaBatches: 106_769,
-                latestFinalMemoryGeneration: 235_523,
-                semanticCallDigestSha256:
-                  "550bf28ab81d2eea0c0e2159ed6c8051b114c016926f026b591b9d21170371d6",
+                browserMappingDeltas: postTimerRearmWaitActive
+                  ? 125_756
+                  : 125_750,
+                browserMappingDirtyPages: postTimerRearmWaitActive
+                  ? 145_861
+                  : 145_855,
+                browserSuccessExecutionTransitions: postTimerRearmWaitActive
+                  ? 567_695
+                  : 567_668,
+                latestSchema: postTimerRearmWaitActive
+                  ? "vine.v86-bgi-kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
+                  : "vine.v86-bgi-kernel32-wait-for-single-object-ex-post-timer-arm-batch",
+                latestWritebackBatches: postTimerRearmWaitActive
+                  ? 161_084
+                  : 161_076,
+                latestWritebackDirtyPages: postTimerRearmWaitActive
+                  ? 236_725
+                  : 236_714,
+                latestWritebackChangedBytes: postTimerRearmWaitActive
+                  ? 36_243_654
+                  : 36_243_547,
+                latestHostDeltaBatches: postTimerRearmWaitActive
+                  ? 125_756
+                  : 125_750,
+                latestFinalMemoryGeneration: postTimerRearmWaitActive
+                  ? 289_928
+                  : 289_914,
+                semanticCallDigestSha256: postTimerRearmWaitActive
+                  ? "952121a940b5ae292fa2ddc2a0c0dafb7ea239e8dbbe739c5aad2924b0ce10f8"
+                  : "b4d9f6ee62c0c7fdb48c1e7c148624c2c8911701a7a061ee81a773debcefd745",
                 memoryContentSha256:
-                  "f910711260e589be1f66e3fa7049b6937024766c2e1ff980235f5cae48f074a7",
+                  "a2016162ae29d5f3b8ccd7e2006e0c8648418b9dc1f5adbc930d3c920b8834fa",
               }
-            : d3d9SetFvfActive
+            : postCriticalSectionSetWaitableTimerActive
               ? {
                   benchmarkObservation:
                     "current-archive-source-read-observation",
-                  browserMappingDeltas: 106_769,
-                  browserMappingDirtyPages: 109_858,
-                  browserSuccessExecutionTransitions: 416_555,
-                  latestSchema: "vine.v86-bgi-d3d9-set-fvf",
-                  latestWritebackBatches: 127_470,
-                  latestWritebackDirtyPages: 175_992,
-                  latestWritebackChangedBytes: 6_619_892,
-                  latestHostDeltaBatches: 106_769,
-                  latestFinalMemoryGeneration: 235_522,
+                  browserMappingDeltas: postTimerRearmWaitSetWaitableTimerActive
+                    ? 125_762
+                    : postTimerWaitSetWaitableTimerActive
+                      ? 125_756
+                      : 125_750,
+                  browserMappingDirtyPages:
+                    postTimerRearmWaitSetWaitableTimerActive
+                      ? 145_867
+                      : postTimerWaitSetWaitableTimerActive
+                        ? 145_861
+                        : 145_855,
+                  browserSuccessExecutionTransitions:
+                    postTimerRearmWaitSetWaitableTimerActive
+                      ? 567_716
+                      : postTimerWaitSetWaitableTimerActive
+                        ? 567_689
+                        : 567_662,
+                  latestSchema: postTimerRearmWaitSetWaitableTimerActive
+                    ? "vine.v86-bgi-kernel32-set-waitable-timer-post-timer-rearm-wait-batch"
+                    : postTimerWaitSetWaitableTimerActive
+                      ? "vine.v86-bgi-kernel32-set-waitable-timer-post-timer-wait-batch"
+                      : "vine.v86-bgi-kernel32-set-waitable-timer-post-critical-section-batch",
+                  latestWritebackBatches:
+                    postTimerRearmWaitSetWaitableTimerActive
+                      ? 161_091
+                      : postTimerWaitSetWaitableTimerActive
+                        ? 161_083
+                        : 161_075,
+                  latestWritebackDirtyPages:
+                    postTimerRearmWaitSetWaitableTimerActive
+                      ? 236_734
+                      : postTimerWaitSetWaitableTimerActive
+                        ? 236_723
+                        : 236_712,
+                  latestWritebackChangedBytes:
+                    postTimerRearmWaitSetWaitableTimerActive
+                      ? 36_243_733
+                      : postTimerWaitSetWaitableTimerActive
+                        ? 36_243_626
+                        : 36_243_519,
+                  latestHostDeltaBatches:
+                    postTimerRearmWaitSetWaitableTimerActive
+                      ? 125_762
+                      : postTimerWaitSetWaitableTimerActive
+                        ? 125_756
+                        : 125_750,
+                  latestFinalMemoryGeneration:
+                    postTimerRearmWaitSetWaitableTimerActive
+                      ? 289_941
+                      : postTimerWaitSetWaitableTimerActive
+                        ? 289_927
+                        : 289_913,
                   semanticCallDigestSha256:
-                    "e1d9ed2ab4cac70ba8e85563baa9c8f761577ee855c0a0df5b59e06f76c0bfb3",
+                    postTimerRearmWaitSetWaitableTimerActive
+                      ? "6a5dc16de09e556f83e9b2541439f8b804870ad9b7e8f253d5c383a0344b5aba"
+                      : postTimerWaitSetWaitableTimerActive
+                        ? "b6db19c1beaaedefe177c3f29a619da75bfe9431a440be4c40fc537d99bd3b2e"
+                        : "ea918c1143107f0b5ee0c374b1306e9e58c712106637285657ccc7225771d7a0",
                   memoryContentSha256:
-                    "599b87df20d23ae860b5e3ef0bb763c97247278b6290ba28c4a9c70b7e3e6d21",
+                    "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf",
                 }
-              : d3d9SetTextureActive
+              : postWaitCriticalSectionActive
                 ? {
                     benchmarkObservation:
                       "current-archive-source-read-observation",
-                    browserMappingDeltas: 106_769,
-                    browserMappingDirtyPages: 109_858,
-                    browserSuccessExecutionTransitions: 416_553,
-                    latestSchema: "vine.v86-bgi-d3d9-set-texture",
-                    latestWritebackBatches: 127_469,
-                    latestWritebackDirtyPages: 175_991,
-                    latestWritebackChangedBytes: 6_619_874,
-                    latestHostDeltaBatches: 106_769,
-                    latestFinalMemoryGeneration: 235_521,
+                    browserMappingDeltas:
+                      postTimerRearmWaitCriticalSectionActive
+                        ? 125_762
+                        : postTimerWaitCriticalSectionActive
+                          ? 125_756
+                          : 125_750,
+                    browserMappingDirtyPages:
+                      postTimerRearmWaitCriticalSectionActive
+                        ? 145_867
+                        : postTimerWaitCriticalSectionActive
+                          ? 145_861
+                          : 145_855,
+                    browserSuccessExecutionTransitions:
+                      postTimerRearmWaitCriticalSectionActive
+                        ? 567_713
+                        : postTimerWaitCriticalSectionActive
+                          ? 567_686
+                          : 567_659,
+                    latestSchema: postTimerRearmWaitCriticalSectionActive
+                      ? "vine.v86-bgi-kernel32-enter-critical-section-post-timer-rearm-wait-batch"
+                      : postTimerWaitCriticalSectionActive
+                        ? "vine.v86-bgi-kernel32-enter-critical-section-post-timer-wait-batch"
+                        : "vine.v86-bgi-kernel32-enter-critical-section-post-wait",
+                    latestWritebackBatches:
+                      postTimerRearmWaitCriticalSectionActive
+                        ? 161_090
+                        : postTimerWaitCriticalSectionActive
+                          ? 161_082
+                          : 161_074,
+                    latestWritebackDirtyPages:
+                      postTimerRearmWaitCriticalSectionActive
+                        ? 236_733
+                        : postTimerWaitCriticalSectionActive
+                          ? 236_722
+                          : 236_711,
+                    latestWritebackChangedBytes:
+                      postTimerRearmWaitCriticalSectionActive
+                        ? 36_243_724
+                        : postTimerWaitCriticalSectionActive
+                          ? 36_243_617
+                          : 36_243_510,
+                    latestHostDeltaBatches:
+                      postTimerRearmWaitCriticalSectionActive
+                        ? 125_762
+                        : postTimerWaitCriticalSectionActive
+                          ? 125_756
+                          : 125_750,
+                    latestFinalMemoryGeneration:
+                      postTimerRearmWaitCriticalSectionActive
+                        ? 289_940
+                        : postTimerWaitCriticalSectionActive
+                          ? 289_926
+                          : 289_912,
                     semanticCallDigestSha256:
-                      "80d38898b8abb24cee864e307e108c2bb7f4c76791bb9de774b83bc5301fdf03",
+                      postTimerRearmWaitCriticalSectionActive
+                        ? "21e5a69577524da6333f51fca63cf338e8b3636f0f6c6dc0d6668be3267ee4aa"
+                        : postTimerWaitCriticalSectionActive
+                          ? "c90b7e833362576c3c31209a78321fd27d3786386621e986d5a52a74ee94ccdf"
+                          : "63091c71ceb92caa0a781fe23ddd1925b800daaf03d48e82263fb618a992f5de",
                     memoryContentSha256:
-                      "3e9f75fe23428778fcc74f9ffffa9b3d8fc24977ecc38b788151e5ff7cd0b5d1",
+                      "bd92a619b4ee428eab13238b769afd60f326ce22fcf86d22f3a46fc11df56700",
                   }
-                : d3d9InitialTextureStageStatesActive
+                : postCriticalSectionWaitActive
                   ? {
                       benchmarkObservation:
                         "current-archive-source-read-observation",
-                      browserMappingDeltas: 106_769,
-                      browserMappingDirtyPages: 109_858,
-                      browserSuccessExecutionTransitions: 416_551,
+                      browserMappingDeltas: 125_744,
+                      browserMappingDirtyPages: 145_849,
+                      browserSuccessExecutionTransitions: 567_641,
                       latestSchema:
-                        "vine.v86-bgi-d3d9-initial-texture-stage-states",
-                      latestWritebackBatches: 127_468,
-                      latestWritebackDirtyPages: 175_990,
-                      latestWritebackChangedBytes: 6_619_863,
-                      latestHostDeltaBatches: 106_769,
-                      latestFinalMemoryGeneration: 235_520,
+                        "vine.v86-bgi-kernel32-wait-for-single-object-ex-post-critical-section",
+                      latestWritebackBatches: 161_068,
+                      latestWritebackDirtyPages: 236_703,
+                      latestWritebackChangedBytes: 36_243_440,
+                      latestHostDeltaBatches: 125_744,
+                      latestFinalMemoryGeneration: 289_900,
                       semanticCallDigestSha256:
-                        "efee84814bbd1a4b116f61de3b0167d295e09c2017facd86b1cf21bb4641f2dd",
+                        "3ca0fa06e6a89d4024685afa6dda1070f2107b961f16b10dcdbb9d583dc63f39",
                       memoryContentSha256:
-                        "ebb1d477c29d5d4438b9747d2ccd764e03f2fdca4d79fa39f6a900fedbebbfad",
+                        "a2016162ae29d5f3b8ccd7e2006e0c8648418b9dc1f5adbc930d3c920b8834fa",
                     }
-                  : d3d9InitialSamplerStatesActive
+                  : postClockCriticalSectionActive
                     ? {
                         benchmarkObservation:
                           "current-archive-source-read-observation",
-                        browserMappingDeltas: 106_769,
-                        browserMappingDirtyPages: 109_858,
-                        browserSuccessExecutionTransitions: 416_539,
+                        browserMappingDeltas: 125_744,
+                        browserMappingDirtyPages: 145_849,
+                        browserSuccessExecutionTransitions: 567_635,
                         latestSchema:
-                          "vine.v86-bgi-d3d9-initial-sampler-states",
-                        latestWritebackBatches: 127_462,
-                        latestWritebackDirtyPages: 175_984,
-                        latestWritebackChangedBytes: 6_619_837,
-                        latestHostDeltaBatches: 106_769,
-                        latestFinalMemoryGeneration: 235_514,
+                          "vine.v86-bgi-kernel32-enter-critical-section-post-clock",
+                        latestWritebackBatches: 161_067,
+                        latestWritebackDirtyPages: 236_701,
+                        latestWritebackChangedBytes: 36_243_412,
+                        latestHostDeltaBatches: 125_744,
+                        latestFinalMemoryGeneration: 289_899,
                         semanticCallDigestSha256:
-                          "80e3477ae2d017c3fbd72a545c8655d317b2dc0dad11d877a4ee8372a7190c42",
+                          "1018bc57c47f4b548ffd505f3ec80b6560c590fd9d8bcc809e8760a92d104e2e",
                         memoryContentSha256:
-                          "68d7490f9f03716b648544083c8ba006959e2792659f172c1ffe7c2cc8ed6ca8",
+                          "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf",
                       }
-                    : d3d9BeginSceneActive
+                    : postHeapTimeGetTimeActive
                       ? {
                           benchmarkObservation:
                             "current-archive-source-read-observation",
-                          browserMappingDeltas: 106_769,
-                          browserMappingDirtyPages: 109_858,
-                          browserSuccessExecutionTransitions: 416_529,
-                          latestSchema: "vine.v86-bgi-d3d9-begin-scene",
-                          latestWritebackBatches: 127_457,
-                          latestWritebackDirtyPages: 175_979,
-                          latestWritebackChangedBytes: 6_619_810,
-                          latestHostDeltaBatches: 106_769,
-                          latestFinalMemoryGeneration: 235_509,
+                          browserMappingDeltas: 125_742,
+                          browserMappingDirtyPages: 145_847,
+                          browserSuccessExecutionTransitions: 567_628,
+                          latestSchema:
+                            "vine.v86-bgi-winmm-time-get-time-post-heap-reuse",
+                          latestWritebackBatches: 161_065,
+                          latestWritebackDirtyPages: 236_699,
+                          latestWritebackChangedBytes: 36_243_399,
+                          latestHostDeltaBatches: 125_742,
+                          latestFinalMemoryGeneration: 289_895,
                           semanticCallDigestSha256:
-                            "cc5c45b8a381b78aef9f92199249d28f2a08d783ce302747b29096b5cd579336",
+                            "cb252963b489263ebcf7ae0ecef9db6100c95f9f7307644491f773eb17d61740",
                           memoryContentSha256:
-                            "a8dae8df1346601cdaf44e32e3f082c29b1e88aae363c561fffe70e32036b2cf",
+                            "979b11ad530a677d061eca5de7f08e146a905133fc09112bb2ac21f1760d9571",
                         }
-                      : d3d9UpdateTextureActive
+                      : heapAlloc24Active
                         ? {
                             benchmarkObservation:
                               "current-archive-source-read-observation",
-                            browserMappingDeltas: 106_769,
-                            browserMappingDirtyPages: 109_858,
-                            browserSuccessExecutionTransitions: 416_527,
-                            latestSchema: "vine.v86-bgi-d3d9-update-texture",
-                            latestWritebackBatches: 127_456,
-                            latestWritebackDirtyPages: 175_978,
-                            latestWritebackChangedBytes: 6_619_792,
-                            latestHostDeltaBatches: 106_769,
-                            latestFinalMemoryGeneration: 235_508,
+                            browserMappingDeltas: 125_742,
+                            browserMappingDirtyPages: 145_847,
+                            browserSuccessExecutionTransitions: 567_625,
+                            latestSchema:
+                              "vine.v86-bgi-kernel32-heap-alloc-24-byte-buffer",
+                            latestWritebackBatches: 161_064,
+                            latestWritebackDirtyPages: 236_694,
+                            latestWritebackChangedBytes: 36_243_225,
+                            latestHostDeltaBatches: 125_742,
+                            latestFinalMemoryGeneration: 289_894,
                             semanticCallDigestSha256:
-                              "b5f44675f551e3986efd94d97b0a50dcb26431f22697fe16178824bafcdc828d",
+                              "2cfdbb2fec2315784a72e565b766be7d7fe90ee33f50ce4f4e5c1edb44c4ac00",
                             memoryContentSha256:
-                              "6a33233c5973dc1d97badc37755780ed99688c0fa835c0d2d041acc9e231e57a",
+                              "102795f1f536f78a6faedf72f2114b82123d024dd51dfd9ff6a1bf8032ce846a",
                           }
-                        : d3d9AddDirtyRectActive
+                        : largeHeapFreeActive
                           ? {
                               benchmarkObservation:
                                 "current-archive-source-read-observation",
-                              browserMappingDeltas: 106_769,
-                              browserMappingDirtyPages: 109_858,
-                              browserSuccessExecutionTransitions: 416_525,
-                              latestSchema: "vine.v86-bgi-d3d9-add-dirty-rect",
-                              latestWritebackBatches: 127_455,
-                              latestWritebackDirtyPages: 175_977,
-                              latestWritebackChangedBytes: 6_619_787,
-                              latestHostDeltaBatches: 106_769,
-                              latestFinalMemoryGeneration: 235_507,
+                              browserMappingDeltas: 125_738,
+                              browserMappingDirtyPages: 145_168,
+                              browserSuccessExecutionTransitions: 567_613,
+                              latestSchema:
+                                "vine.v86-bgi-kernel32-heap-free-large-buffer",
+                              latestWritebackBatches: 161_060,
+                              latestWritebackDirtyPages: 236_011,
+                              latestWritebackChangedBytes: 33_493_088,
+                              latestHostDeltaBatches: 125_738,
+                              latestFinalMemoryGeneration: 289_886,
                               semanticCallDigestSha256:
-                                "af311f2769ed51c752349385619cb00400ecb468a866133f5cba71a7c80c373a",
+                                "9a0ae6fde8ba2f8414757ebf33af7a6a834ee9b9931637e78eda2a99547797da",
                               memoryContentSha256:
-                                "2e8deed2908c310e490b75ba714ebc8eb615a87b66efab2ab49287784d0a408a",
+                                "f5bf558d4405c7940d627805b8f5ce3b3e20cc77b74a3370c21c745f7637b180",
                             }
-                          : setRectActive
+                          : runtimeTraplessExecutionBudgetActive
                             ? {
                                 benchmarkObservation:
                                   "current-archive-source-read-observation",
-                                browserMappingDeltas: 106_769,
-                                browserMappingDirtyPages: 109_858,
-                                browserSuccessExecutionTransitions: 416_523,
-                                latestSchema: "vine.v86-bgi-user32-set-rect",
-                                latestWritebackBatches: 127_454,
-                                latestWritebackDirtyPages: 175_976,
-                                latestWritebackChangedBytes: 6_619_715,
-                                latestHostDeltaBatches: 106_769,
-                                latestFinalMemoryGeneration: 235_506,
+                                browserMappingDeltas: 125_736,
+                                browserMappingDirtyPages: 144_396,
+                                browserSuccessExecutionTransitions: 567_607,
+                                latestSchema:
+                                  "vine.v86-bgi-runtime-trapless-execution-budget",
+                                latestWritebackBatches: 161_058,
+                                latestWritebackDirtyPages: 236_007,
+                                latestWritebackChangedBytes: 33_492_982,
+                                latestHostDeltaBatches: 125_736,
+                                latestFinalMemoryGeneration: 289_882,
                                 semanticCallDigestSha256:
-                                  "01f5a4a0ca80adefdfde1a8d7a7ab3a229c76fc4d35271ebacc46cc61340761f",
+                                  "c795f34a0a893523c0e92382635fd51c5a386ff51ff9f614d90b642581559fce",
                                 memoryContentSha256:
-                                  "870976fcdad8dd1de12cb1d2279279c3764ee320e30e14e9640d5ce346296afb",
+                                  "f9cbbcc490533a966eb846aa3cb385f4b976b4330b6d8c4a8152ff745b826fbf",
                               }
-                            : d3d9ClearActive
+                            : runtimeThreadStackGrowthActive
                               ? {
                                   benchmarkObservation:
                                     "current-archive-source-read-observation",
-                                  browserMappingDeltas: 106_768,
-                                  browserMappingDirtyPages: 109_857,
-                                  browserSuccessExecutionTransitions: 416_521,
-                                  latestSchema: "vine.v86-bgi-d3d9-clear",
-                                  latestWritebackBatches: 127_453,
-                                  latestWritebackDirtyPages: 175_975,
-                                  latestWritebackChangedBytes: 6_619_704,
-                                  latestHostDeltaBatches: 106_768,
-                                  latestFinalMemoryGeneration: 235_504,
+                                  browserMappingDeltas: 125_061,
+                                  browserMappingDirtyPages: 143_721,
+                                  browserSuccessExecutionTransitions: 563_892,
+                                  latestSchema:
+                                    "vine.v86-bgi-runtime-thread-stack-growth",
+                                  latestWritebackBatches: 160_383,
+                                  latestWritebackDirtyPages: 235_270,
+                                  latestWritebackChangedBytes: 30_501_184,
+                                  latestHostDeltaBatches: 125_061,
+                                  latestFinalMemoryGeneration: 287_857,
                                   semanticCallDigestSha256:
-                                    "b8d2e16f49c417e6deebf9fa52a40195204ea2502a65b5299d9867b5229eb9cc",
+                                    "c795f34a0a893523c0e92382635fd51c5a386ff51ff9f614d90b642581559fce",
                                   memoryContentSha256:
-                                    "b567254a8ef1a0ea18a6a983b10293b57b25ad5b9864bda28c28598d5200e5ae",
+                                    "0719c6c7b1019e1b61eca9811ab475cef68130698bf1ea36499f8f8ca7024e7f",
                                 }
-                              : updateWindowActive
+                              : user32IsIconicActive
                                 ? {
                                     benchmarkObservation:
                                       "current-archive-source-read-observation",
-                                    browserMappingDeltas: 106_768,
-                                    browserMappingDirtyPages: 109_857,
-                                    browserSuccessExecutionTransitions: 416_519,
+                                    browserMappingDeltas: 119_327,
+                                    browserMappingDirtyPages: 132_487,
+                                    browserSuccessExecutionTransitions: 510_360,
                                     latestSchema:
-                                      "vine.v86-bgi-user32-update-window",
-                                    latestWritebackBatches: 127_452,
-                                    latestWritebackDirtyPages: 175_974,
-                                    latestWritebackChangedBytes: 6_619_682,
-                                    latestHostDeltaBatches: 106_768,
-                                    latestFinalMemoryGeneration: 235_503,
+                                      "vine.v86-bgi-user32-is-iconic",
+                                    latestWritebackBatches: 150_245,
+                                    latestWritebackDirtyPages: 216_370,
+                                    latestWritebackChangedBytes: 19_893_723,
+                                    latestHostDeltaBatches: 119_327,
+                                    latestFinalMemoryGeneration: 271_554,
                                     semanticCallDigestSha256:
-                                      "33ef06b514d5d26eefb8d2ecdea0e569197752884b798af5787e3e0ef8d0b4b5",
+                                      "10e5637f27a2404ee6ec5e29d36b2372914b2995725046460d5bbe5fb60e8b52",
                                     memoryContentSha256:
-                                      "ceaaf33c0382b0f1859997d2f114a1d85eeed1ce5090bb9e7f6fabcc49de03ff",
+                                      "320a6ba1fb4c97573b11f977b63158f9f85deb265c70610e46a241101389495b",
                                   }
-                                : setWindowPosFrameChangeMoveActive
+                                : user32PeekMessageAActive
                                   ? {
                                       benchmarkObservation:
                                         "current-archive-source-read-observation",
-                                      browserMappingDeltas: 106_766,
-                                      browserMappingDirtyPages: 109_855,
-                                      browserSuccessExecutionTransitions: 416_510,
+                                      browserMappingDeltas: 119_293,
+                                      browserMappingDirtyPages: 132_399,
+                                      browserSuccessExecutionTransitions: 509_691,
                                       latestSchema:
-                                        "vine.v86-bgi-user32-set-window-pos-frame-change-move",
-                                      latestWritebackBatches: 127_448,
-                                      latestWritebackDirtyPages: 175_970,
-                                      latestWritebackChangedBytes: 6_619_588,
-                                      latestHostDeltaBatches: 106_766,
-                                      latestFinalMemoryGeneration: 235_497,
+                                        "vine.v86-bgi-user32-peek-message-a",
+                                      latestWritebackBatches: 150_026,
+                                      latestWritebackDirtyPages: 216_024,
+                                      latestWritebackChangedBytes: 19_887_745,
+                                      latestHostDeltaBatches: 119_293,
+                                      latestFinalMemoryGeneration: 271_299,
                                       semanticCallDigestSha256:
-                                        "6288683381bcc5df62a20abad70a9b73bbedb153dd0f5f8aa9cfe2e3abde300c",
+                                        "89c5dfa0e7f5914c8161576c62a67f09c3829258ab36aeec88782af07f83b3dd",
                                       memoryContentSha256:
-                                        "b7a48b1a742ff2e7bf477880574bdad5f9334288f4adc3c9d6a8616ed49ad628",
+                                        "027687ed1dac984d97137c0c01d3016ceb0a2728f67856cf013faf796225cb5a",
                                     }
-                                  : d3d9RecreatedTexturesActive
+                                  : user32AsyncKeyStateInitialScanContinuationActive
                                     ? {
                                         benchmarkObservation:
                                           "current-archive-source-read-observation",
-                                        browserMappingDeltas: 106_761,
-                                        browserMappingDirtyPages: 109_847,
-                                        browserSuccessExecutionTransitions: 416_491,
+                                        browserMappingDeltas: 119_291,
+                                        browserMappingDirtyPages: 132_397,
+                                        browserSuccessExecutionTransitions: 509_664,
                                         latestSchema:
-                                          "vine.v86-bgi-d3d9-recreated-textures",
-                                        latestWritebackBatches: 127_439,
-                                        latestWritebackDirtyPages: 175_958,
-                                        latestWritebackChangedBytes: 6_619_474,
-                                        latestHostDeltaBatches: 106_761,
-                                        latestFinalMemoryGeneration: 235_480,
+                                          "vine.v86-bgi-user32-async-key-state-initial-scan-continuation",
+                                        latestWritebackBatches: 150_017,
+                                        latestWritebackDirtyPages: 216_010,
+                                        latestWritebackChangedBytes: 19_887_519,
+                                        latestHostDeltaBatches: 119_291,
+                                        latestFinalMemoryGeneration: 271_288,
                                         semanticCallDigestSha256:
-                                          "481f448cc414e9edf6e9a74c577349d811735cda65e4a2ed8481e42cee672c3b",
+                                          "74170ad0115e2e7c75e752eca7cdcf5a0563d38166fffbb36c46af78d742a88b",
                                         memoryContentSha256:
-                                          "b4e097035105aee8547a5d8c02fffae3bafaa8a943b484f1f0de8cb3ad1a9973",
+                                          "8cb35ad270630b96dc24dff848b2390a1f2efda5bd162caacaf5e8918d3ed36d",
                                       }
-                                    : setWindowPosRepeatActivationActive
+                                    : user32AsyncKeyStateInitialScanActive
                                       ? {
                                           benchmarkObservation:
                                             "current-archive-source-read-observation",
-                                          browserMappingDeltas: 92_825,
-                                          browserMappingDirtyPages: 95_902,
-                                          browserSuccessExecutionTransitions: 353_544,
+                                          browserMappingDeltas: 119_273,
+                                          browserMappingDirtyPages: 130_332,
+                                          browserSuccessExecutionTransitions: 509_179,
                                           latestSchema:
-                                            "vine.v86-bgi-user32-set-window-pos-repeat-activation",
-                                          latestWritebackBatches: 108_830,
-                                          latestWritebackDirtyPages: 150_285,
-                                          latestWritebackChangedBytes: 6_369_334,
-                                          latestHostDeltaBatches: 92_825,
-                                          latestFinalMemoryGeneration: 202_769,
+                                            "vine.v86-bgi-user32-async-key-state-initial-scan",
+                                          latestWritebackBatches: 149_916,
+                                          latestWritebackDirtyPages: 214_431,
+                                          latestWritebackChangedBytes: 19_882_726,
+                                          latestHostDeltaBatches: 119_273,
+                                          latestFinalMemoryGeneration: 271_166,
                                           semanticCallDigestSha256:
-                                            "7cb784a2fb34fa1c00e0be37385fcc83b1959c98df5efa063fd2c386503938c2",
+                                            "807a700fa699f6a8ec3d83954a534960243ec27d203d7f68f499356254910950",
                                           memoryContentSha256:
-                                            "cfc177c8645e76604946c2392b272e7b8ef945b1371d21736938deed45e056ac",
+                                            "ea8b7752bc8c4424ae5d901958330b09fb7e8af3bf4a506bbeb0f9aeba8fff86",
                                         }
-                                      : createDirectoryAActive
+                                      : user32AsyncKeyStateInputContinuationActive
                                         ? {
                                             benchmarkObservation:
                                               "current-archive-source-read-observation",
-                                            browserMappingDeltas: 92_815,
-                                            browserMappingDirtyPages: 95_893,
-                                            browserSuccessExecutionTransitions: 353_486,
+                                            browserMappingDeltas: 107_148,
+                                            browserMappingDirtyPages: 110_362,
+                                            browserSuccessExecutionTransitions: 419_208,
                                             latestSchema:
-                                              "vine.v86-bgi-kernel32-create-directory-a",
-                                            latestWritebackBatches: 108_810,
-                                            latestWritebackDirtyPages: 150_254,
-                                            latestWritebackChangedBytes: 6_368_965,
-                                            latestHostDeltaBatches: 92_815,
-                                            latestFinalMemoryGeneration: 202_575,
+                                              "vine.v86-bgi-user32-async-key-state-input-continuation",
+                                            latestWritebackBatches: 128_223,
+                                            latestWritebackDirtyPages: 177_196,
+                                            latestWritebackChangedBytes: 6_792_623,
+                                            latestHostDeltaBatches: 107_148,
+                                            latestFinalMemoryGeneration: 236_665,
                                             semanticCallDigestSha256:
-                                              "e925e87a010017aa85316f8564a8bcbdac81fe59f87b84e5c288a865db0adb65",
+                                              "35dd9d4e6ee43cdf312e2f3c14ee5f82478373779dfa645074761b1474355404",
                                             memoryContentSha256:
-                                              "0b1e924899c1bbcf774d70a88b0bbfb796d1be420b14d7377384a63b20addd75",
+                                              "1671745d3e36bc8732ff00ed4fde0cad13bfb624d3e61bb3335876d17626be87",
                                           }
-                                        : getFileAttributesAActive
+                                        : user32AsyncKeyStateInputActive
                                           ? {
                                               benchmarkObservation:
                                                 "current-archive-source-read-observation",
-                                              browserMappingDeltas: 92_492,
-                                              browserMappingDirtyPages: 94_681,
-                                              browserSuccessExecutionTransitions: 349_581,
+                                              browserMappingDeltas: 106_909,
+                                              browserMappingDirtyPages: 110_070,
+                                              browserSuccessExecutionTransitions: 417_660,
                                               latestSchema:
-                                                "vine.v86-bgi-kernel32-get-file-attributes-a",
-                                              latestWritebackBatches: 108_267,
-                                              latestWritebackDirtyPages: 148_855,
-                                              latestWritebackChangedBytes: 4_925_375,
-                                              latestHostDeltaBatches: 92_492,
-                                              latestFinalMemoryGeneration: 201_672,
+                                                "vine.v86-bgi-user32-async-key-state-input",
+                                              latestWritebackBatches: 127_790,
+                                              latestWritebackDirtyPages: 176_489,
+                                              latestWritebackChangedBytes: 6_647_203,
+                                              latestHostDeltaBatches: 106_909,
+                                              latestFinalMemoryGeneration: 235_983,
                                               semanticCallDigestSha256:
-                                                "b1846ec7eb00de76f15194a14e4877f2fb1871e0ac49a00f3b81b8dc6f0583a2",
+                                                "9cf34a9c26fab3e0eccc49318b8601a69ef26fbcd075ccbe022ce93851c8c070",
                                               memoryContentSha256:
-                                                "b0294a8cc38e30d97d0851e4abb0bd0387dbccb6d79fed8ce7b8872b3f04a345",
+                                                "c7801c079a345735737df36bd26eed53c2381cfdba7b7b618e79b75e5280dae4",
                                             }
-                                          : globalMemoryStatusActive
+                                          : d3d9PostPresentContinuationActive
                                             ? {
                                                 benchmarkObservation:
                                                   "current-archive-source-read-observation",
-                                                browserMappingDeltas: 92_327,
-                                                browserMappingDirtyPages: 94_516,
-                                                browserSuccessExecutionTransitions: 348_240,
+                                                browserMappingDeltas: 106_909,
+                                                browserMappingDirtyPages: 110_070,
+                                                browserSuccessExecutionTransitions: 417_657,
                                                 latestSchema:
-                                                  "vine.v86-bgi-kernel32-global-memory-status",
-                                                latestWritebackBatches: 107_849,
-                                                latestWritebackDirtyPages: 148_256,
-                                                latestWritebackChangedBytes: 4_917_540,
-                                                latestHostDeltaBatches: 92_327,
-                                                latestFinalMemoryGeneration: 201_089,
+                                                  "vine.v86-bgi-d3d9-post-present-continuation",
+                                                latestWritebackBatches: 127_789,
+                                                latestWritebackDirtyPages: 176_488,
+                                                latestWritebackChangedBytes: 6_647_194,
+                                                latestHostDeltaBatches: 106_909,
+                                                latestFinalMemoryGeneration: 235_982,
                                                 semanticCallDigestSha256:
-                                                  "ef1e28a26937875cb742983528bf5a9cd278aab6bd6fee49ac8de1415418a884",
+                                                  "ac1eee34c5e1f3e4746600db145ac70a2d0a023949a9094729572c7a04c41617",
                                                 memoryContentSha256:
-                                                  "0fb78a7fa320825c0ae840a28ad90def5246ce164110c521cc958eb9b2483246",
+                                                  "6ba9e12a6946dd09a1d673d76f7dab2a11436ad1f7fe5989d2c43a6698b82321",
                                               }
-                                            : sleepZeroActive
+                                            : d3d9FirstPresentActive
                                               ? {
                                                   benchmarkObservation:
                                                     "current-archive-source-read-observation",
-                                                  browserMappingDeltas: 92_304,
-                                                  browserMappingDirtyPages: 94_493,
-                                                  browserSuccessExecutionTransitions: 348_147,
+                                                  browserMappingDeltas: 106_770,
+                                                  browserMappingDirtyPages: 109_859,
+                                                  browserSuccessExecutionTransitions: 416_565,
                                                   latestSchema:
-                                                    "vine.v86-bgi-kernel32-sleep-zero",
-                                                  latestWritebackBatches: 107_818,
-                                                  latestWritebackDirtyPages: 148_160,
-                                                  latestWritebackChangedBytes: 4_916_226,
-                                                  latestHostDeltaBatches: 92_304,
-                                                  latestFinalMemoryGeneration: 201_035,
+                                                    "vine.v86-bgi-d3d9-first-present",
+                                                  latestWritebackBatches: 127_475,
+                                                  latestWritebackDirtyPages: 175_997,
+                                                  latestWritebackChangedBytes: 6_619_993,
+                                                  latestHostDeltaBatches: 106_770,
+                                                  latestFinalMemoryGeneration: 235_528,
                                                   semanticCallDigestSha256:
-                                                    "bc221fdb22e8b69ad03f00bedc4181e753a2507c882a182004de8634058a1dd1",
+                                                    "792c9f0f6f620fdce04445f5d6138b317656bed87a392196fae2ed0d09bc3398",
                                                   memoryContentSha256:
-                                                    "924c7f2fe3c2c13300ab5113d289101abc7df31c1c0f6848ddf9fcb8e07983f4",
+                                                    "bff1bcdfd09d14143797630f57222aaf9a94ca08e29593a85010690da7e804b9",
                                                 }
-                                              : archiveSourceReadActive
+                                              : d3d9PostScenePresentGatewayActive
                                                 ? {
                                                     benchmarkObservation:
                                                       "current-archive-source-read-observation",
-                                                    browserMappingDeltas: 78_613,
-                                                    browserMappingDirtyPages: 80_530,
-                                                    browserSuccessExecutionTransitions: 286_089,
+                                                    browserMappingDeltas: 106_770,
+                                                    browserMappingDirtyPages: 109_859,
+                                                    browserSuccessExecutionTransitions: 416_563,
                                                     latestSchema:
-                                                      "vine.v86-bgi-kernel32-archive-source-read.v1",
-                                                    latestWritebackBatches: 89_491,
-                                                    latestWritebackDirtyPages: 122_969,
-                                                    latestWritebackChangedBytes: 3_623_229,
-                                                    latestHostDeltaBatches: 78_613,
-                                                    latestFinalMemoryGeneration: 169_016,
+                                                      "vine.v86-bgi-d3d9-post-scene-present-gateway",
+                                                    latestWritebackBatches: 127_474,
+                                                    latestWritebackDirtyPages: 175_996,
+                                                    latestWritebackChangedBytes: 6_619_985,
+                                                    latestHostDeltaBatches: 106_770,
+                                                    latestFinalMemoryGeneration: 235_527,
                                                     semanticCallDigestSha256:
-                                                      "2308a70a77a72340fed6cc500aa05b3135d116812328e69172c5561c767264f4",
+                                                      "0d078f5f58c953ff8d8c952a33497e308c5e7632c6c03437c21ca04a85f711d6",
                                                     memoryContentSha256:
-                                                      "e62c0b7b8dd44505ea2ccd201273d014242e3bbb1a8dc446d4039715318fb8fd",
+                                                      "c8e437febb7fd0b6b79ad5822f8185cc336e16b532c980aa39815479590f204e",
                                                   }
-                                                : dragAcceptFilesActive
+                                                : d3d9PostRasterStatusWaitableTimerActive
                                                   ? {
                                                       benchmarkObservation:
-                                                        "current-shell32-drag-accept-files-observation",
-                                                      browserMappingDeltas: 78_501,
-                                                      browserMappingDirtyPages: 80_168,
-                                                      browserSuccessExecutionTransitions: 285_545,
+                                                        "current-archive-source-read-observation",
+                                                      browserMappingDeltas: 106_770,
+                                                      browserMappingDirtyPages: 109_859,
+                                                      browserSuccessExecutionTransitions: 416_570,
                                                       latestSchema:
-                                                        "vine.v86-bgi-shell32-drag-accept-files.v1",
-                                                      latestWritebackBatches: 89_339,
-                                                      latestWritebackDirtyPages: 122_724,
-                                                      latestWritebackChangedBytes: 3_608_013,
-                                                      latestHostDeltaBatches: 78_501,
-                                                      latestFinalMemoryGeneration: 168_414,
+                                                        "vine.v86-bgi-d3d9-post-raster-status-waitable-timer",
+                                                      latestWritebackBatches: 127_476,
+                                                      latestWritebackDirtyPages: 175_998,
+                                                      latestWritebackChangedBytes: 6_620_041,
+                                                      latestHostDeltaBatches: 106_770,
+                                                      latestFinalMemoryGeneration: 235_529,
                                                       semanticCallDigestSha256:
-                                                        "61a51e57987cc3644926f1e61615ad630c48477334dd5b9c1e9a32cf985e6977",
+                                                        "60fd9f021109569f413d64b8ace66d7aa644f9cdcb501d034223b1d1275459de",
                                                       memoryContentSha256:
-                                                        "2f041d4df7be96665dfa3bcdce1c6c21aea92e1e486ef025ab834b7e692da31e",
+                                                        "fd484385c3f60914412b328120c6eed7ddc616a3a110b8e3b3ebe14c21cdc65a",
                                                     }
-                                                  : leaveCriticalSectionContinuationActive
+                                                  : d3d9PostEndSceneRasterStatusActive
                                                     ? {
                                                         benchmarkObservation:
-                                                          "current-critical-section-continuation-release-observation",
-                                                        browserMappingDeltas: 17_384,
-                                                        browserMappingDirtyPages: 18_891,
-                                                        browserSuccessExecutionTransitions: 58_464,
+                                                          "current-archive-source-read-observation",
+                                                        browserMappingDeltas: 106_770,
+                                                        browserMappingDirtyPages: 109_859,
+                                                        browserSuccessExecutionTransitions: 416_563,
                                                         latestSchema:
-                                                          "vine.v86-bgi-kernel32-leave-critical-section-continuation.v1",
-                                                        latestWritebackBatches: 18_793,
-                                                        latestWritebackDirtyPages: 37_790,
-                                                        latestWritebackChangedBytes: 2_933_180,
-                                                        latestHostDeltaBatches: 17_384,
-                                                        latestFinalMemoryGeneration: 36_750,
+                                                          "vine.v86-bgi-d3d9-post-end-scene-raster-status",
+                                                        latestWritebackBatches: 127_474,
+                                                        latestWritebackDirtyPages: 175_996,
+                                                        latestWritebackChangedBytes: 6_620_003,
+                                                        latestHostDeltaBatches: 106_770,
+                                                        latestFinalMemoryGeneration: 235_527,
                                                         semanticCallDigestSha256:
-                                                          "cedf137a3e4d410bd8a409c6405fd02f53f2f1efb6f4c6511e2ecad67bb45631",
+                                                          "62f79296cc5c0adaf71fd5bba4e16f3e4ca8f6aa6f64eb0ba66500553f4b4f28",
                                                         memoryContentSha256:
-                                                          "9473c7af4f1c00a6bf8f2f5db611cb7a5253d04387297b9e0244d81f032315bc",
+                                                          "74607b96f2adf49162802d29b83096fa19385a38abb2e48cab69c8cfb74d88dc",
                                                       }
-                                                    : enterCriticalSectionContinuationActive
+                                                    : d3d9EndSceneActive
                                                       ? {
                                                           benchmarkObservation:
-                                                            "current-critical-section-acquisition-observation",
-                                                          browserMappingDeltas: 17_383,
-                                                          browserMappingDirtyPages: 18_890,
-                                                          browserSuccessExecutionTransitions: 58_461,
+                                                            "current-archive-source-read-observation",
+                                                          browserMappingDeltas: 106_769,
+                                                          browserMappingDirtyPages: 109_858,
+                                                          browserSuccessExecutionTransitions: 416_561,
                                                           latestSchema:
-                                                            "vine.v86-bgi-kernel32-enter-critical-section-continuation.v1",
-                                                          latestWritebackBatches: 18_792,
-                                                          latestWritebackDirtyPages: 37_788,
-                                                          latestWritebackChangedBytes: 2_933_171,
-                                                          latestHostDeltaBatches: 17_383,
-                                                          latestFinalMemoryGeneration: 36_748,
+                                                            "vine.v86-bgi-d3d9-end-scene",
+                                                          latestWritebackBatches: 127_473,
+                                                          latestWritebackDirtyPages: 175_995,
+                                                          latestWritebackChangedBytes: 6_619_956,
+                                                          latestHostDeltaBatches: 106_769,
+                                                          latestFinalMemoryGeneration: 235_525,
                                                           semanticCallDigestSha256:
-                                                            "da20a011071131b44421f357e9dd1fa044ff1ee2ec33e509ed28a38137bec04b",
+                                                            "c0daff3027448422848654cba884186b04f828e6d3e772d935b029775cd189b3",
                                                           memoryContentSha256:
-                                                            "12de5674ab03760d39da41c1eb5aa2cea0c242a98387518aaeb52fc22e4e60df",
+                                                            "670ea1ef57a6c440ea336234edad713c0d6fc8bc22ee0727257e037e79acb438",
                                                         }
-                                                      : leaveCriticalSectionActive
+                                                      : d3d9DrawPrimitiveActive
                                                         ? {
                                                             benchmarkObservation:
-                                                              "current-critical-section-release-observation",
-                                                            browserMappingDeltas: 17_382,
-                                                            browserMappingDirtyPages: 18_889,
-                                                            browserSuccessExecutionTransitions: 58_458,
+                                                              "current-archive-source-read-observation",
+                                                            browserMappingDeltas: 106_769,
+                                                            browserMappingDirtyPages: 109_858,
+                                                            browserSuccessExecutionTransitions: 416_559,
                                                             latestSchema:
-                                                              "vine.v86-bgi-kernel32-leave-critical-section.v1",
-                                                            latestWritebackBatches: 18_791,
-                                                            latestWritebackDirtyPages: 37_785,
-                                                            latestWritebackChangedBytes: 2_933_159,
-                                                            latestHostDeltaBatches: 17_382,
-                                                            latestFinalMemoryGeneration: 36_746,
+                                                              "vine.v86-bgi-d3d9-draw-primitive",
+                                                            latestWritebackBatches: 127_472,
+                                                            latestWritebackDirtyPages: 175_994,
+                                                            latestWritebackChangedBytes: 6_619_910,
+                                                            latestHostDeltaBatches: 106_769,
+                                                            latestFinalMemoryGeneration: 235_524,
                                                             semanticCallDigestSha256:
-                                                              "77dee747fc8fc285f6c4e32f68e12ba2334118b7b6984ecc68236be8acdac7f4",
+                                                              "bad8077a6eb60ec328542af5d68f70824e0f579d0aa1b9998944c0117b522615",
                                                             memoryContentSha256:
-                                                              "b326ab911f02986bbbac818825b0b67171299bc946495eb52f5a0be6fb7e8636",
+                                                              "6736cc7a51bc4fa854877fad65ed254ab6af0f0a10489af5b9eb516dc5e89ee0",
                                                           }
-                                                        : primaryMainLoopProgressionActive
+                                                        : d3d9SetStreamSourceActive
                                                           ? {
                                                               benchmarkObservation:
-                                                                "current-main-loop-progression-observation",
-                                                              browserMappingDeltas: 17_381,
-                                                              browserMappingDirtyPages: 18_888,
-                                                              browserSuccessExecutionTransitions: 58_455,
+                                                                "current-archive-source-read-observation",
+                                                              browserMappingDeltas: 106_769,
+                                                              browserMappingDirtyPages: 109_858,
+                                                              browserSuccessExecutionTransitions: 416_557,
                                                               latestSchema:
-                                                                "vine.v86-bgi-primary-main-loop-progression.v1",
-                                                              latestWritebackBatches: 18_790,
-                                                              latestWritebackDirtyPages: 37_783,
-                                                              latestWritebackChangedBytes: 2_933_150,
-                                                              latestHostDeltaBatches: 17_381,
-                                                              latestFinalMemoryGeneration: 36_744,
+                                                                "vine.v86-bgi-d3d9-set-stream-source",
+                                                              latestWritebackBatches: 127_471,
+                                                              latestWritebackDirtyPages: 175_993,
+                                                              latestWritebackChangedBytes: 6_619_903,
+                                                              latestHostDeltaBatches: 106_769,
+                                                              latestFinalMemoryGeneration: 235_523,
                                                               semanticCallDigestSha256:
-                                                                "0b620924832019b38cc8af0ac9ffa3b1f6300647262bc8a4544ce64408dbf4c8",
+                                                                "550bf28ab81d2eea0c0e2159ed6c8051b114c016926f026b591b9d21170371d6",
                                                               memoryContentSha256:
-                                                                "ca7efd6774fe36acfa3ee61621e12b2b6fccbaf4327cc026f323f3aa0859fc2b",
+                                                                "f910711260e589be1f66e3fa7049b6937024766c2e1ff980235f5cae48f074a7",
                                                             }
-                                                          : {
-                                                              benchmarkObservation:
-                                                                "current-critical-section-idle-cycle-observation",
-                                                              browserMappingDeltas: 17_359,
-                                                              browserMappingDirtyPages: 18_866,
-                                                              browserSuccessExecutionTransitions: 58_352,
-                                                              latestSchema:
-                                                                "vine.v86-bgi-kernel32-enter-critical-section.v1",
-                                                              latestWritebackBatches: 18_760,
-                                                              latestWritebackDirtyPages: 37_740,
-                                                              latestWritebackChangedBytes: 2_932_769,
-                                                              latestHostDeltaBatches: 17_359,
-                                                              latestFinalMemoryGeneration: 36_692,
-                                                              semanticCallDigestSha256:
-                                                                "c1d21b090a8bd6469784aed5c4d54f7304b339b4efd4eeecb19e45e6448546da",
-                                                              memoryContentSha256:
-                                                                "ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5",
-                                                            };
+                                                          : d3d9SetFvfActive
+                                                            ? {
+                                                                benchmarkObservation:
+                                                                  "current-archive-source-read-observation",
+                                                                browserMappingDeltas: 106_769,
+                                                                browserMappingDirtyPages: 109_858,
+                                                                browserSuccessExecutionTransitions: 416_555,
+                                                                latestSchema:
+                                                                  "vine.v86-bgi-d3d9-set-fvf",
+                                                                latestWritebackBatches: 127_470,
+                                                                latestWritebackDirtyPages: 175_992,
+                                                                latestWritebackChangedBytes: 6_619_892,
+                                                                latestHostDeltaBatches: 106_769,
+                                                                latestFinalMemoryGeneration: 235_522,
+                                                                semanticCallDigestSha256:
+                                                                  "e1d9ed2ab4cac70ba8e85563baa9c8f761577ee855c0a0df5b59e06f76c0bfb3",
+                                                                memoryContentSha256:
+                                                                  "599b87df20d23ae860b5e3ef0bb763c97247278b6290ba28c4a9c70b7e3e6d21",
+                                                              }
+                                                            : d3d9SetTextureActive
+                                                              ? {
+                                                                  benchmarkObservation:
+                                                                    "current-archive-source-read-observation",
+                                                                  browserMappingDeltas: 106_769,
+                                                                  browserMappingDirtyPages: 109_858,
+                                                                  browserSuccessExecutionTransitions: 416_553,
+                                                                  latestSchema:
+                                                                    "vine.v86-bgi-d3d9-set-texture",
+                                                                  latestWritebackBatches: 127_469,
+                                                                  latestWritebackDirtyPages: 175_991,
+                                                                  latestWritebackChangedBytes: 6_619_874,
+                                                                  latestHostDeltaBatches: 106_769,
+                                                                  latestFinalMemoryGeneration: 235_521,
+                                                                  semanticCallDigestSha256:
+                                                                    "80d38898b8abb24cee864e307e108c2bb7f4c76791bb9de774b83bc5301fdf03",
+                                                                  memoryContentSha256:
+                                                                    "3e9f75fe23428778fcc74f9ffffa9b3d8fc24977ecc38b788151e5ff7cd0b5d1",
+                                                                }
+                                                              : d3d9InitialTextureStageStatesActive
+                                                                ? {
+                                                                    benchmarkObservation:
+                                                                      "current-archive-source-read-observation",
+                                                                    browserMappingDeltas: 106_769,
+                                                                    browserMappingDirtyPages: 109_858,
+                                                                    browserSuccessExecutionTransitions: 416_551,
+                                                                    latestSchema:
+                                                                      "vine.v86-bgi-d3d9-initial-texture-stage-states",
+                                                                    latestWritebackBatches: 127_468,
+                                                                    latestWritebackDirtyPages: 175_990,
+                                                                    latestWritebackChangedBytes: 6_619_863,
+                                                                    latestHostDeltaBatches: 106_769,
+                                                                    latestFinalMemoryGeneration: 235_520,
+                                                                    semanticCallDigestSha256:
+                                                                      "efee84814bbd1a4b116f61de3b0167d295e09c2017facd86b1cf21bb4641f2dd",
+                                                                    memoryContentSha256:
+                                                                      "ebb1d477c29d5d4438b9747d2ccd764e03f2fdca4d79fa39f6a900fedbebbfad",
+                                                                  }
+                                                                : d3d9InitialSamplerStatesActive
+                                                                  ? {
+                                                                      benchmarkObservation:
+                                                                        "current-archive-source-read-observation",
+                                                                      browserMappingDeltas: 106_769,
+                                                                      browserMappingDirtyPages: 109_858,
+                                                                      browserSuccessExecutionTransitions: 416_539,
+                                                                      latestSchema:
+                                                                        "vine.v86-bgi-d3d9-initial-sampler-states",
+                                                                      latestWritebackBatches: 127_462,
+                                                                      latestWritebackDirtyPages: 175_984,
+                                                                      latestWritebackChangedBytes: 6_619_837,
+                                                                      latestHostDeltaBatches: 106_769,
+                                                                      latestFinalMemoryGeneration: 235_514,
+                                                                      semanticCallDigestSha256:
+                                                                        "80e3477ae2d017c3fbd72a545c8655d317b2dc0dad11d877a4ee8372a7190c42",
+                                                                      memoryContentSha256:
+                                                                        "68d7490f9f03716b648544083c8ba006959e2792659f172c1ffe7c2cc8ed6ca8",
+                                                                    }
+                                                                  : d3d9BeginSceneActive
+                                                                    ? {
+                                                                        benchmarkObservation:
+                                                                          "current-archive-source-read-observation",
+                                                                        browserMappingDeltas: 106_769,
+                                                                        browserMappingDirtyPages: 109_858,
+                                                                        browserSuccessExecutionTransitions: 416_529,
+                                                                        latestSchema:
+                                                                          "vine.v86-bgi-d3d9-begin-scene",
+                                                                        latestWritebackBatches: 127_457,
+                                                                        latestWritebackDirtyPages: 175_979,
+                                                                        latestWritebackChangedBytes: 6_619_810,
+                                                                        latestHostDeltaBatches: 106_769,
+                                                                        latestFinalMemoryGeneration: 235_509,
+                                                                        semanticCallDigestSha256:
+                                                                          "cc5c45b8a381b78aef9f92199249d28f2a08d783ce302747b29096b5cd579336",
+                                                                        memoryContentSha256:
+                                                                          "a8dae8df1346601cdaf44e32e3f082c29b1e88aae363c561fffe70e32036b2cf",
+                                                                      }
+                                                                    : d3d9UpdateTextureActive
+                                                                      ? {
+                                                                          benchmarkObservation:
+                                                                            "current-archive-source-read-observation",
+                                                                          browserMappingDeltas: 106_769,
+                                                                          browserMappingDirtyPages: 109_858,
+                                                                          browserSuccessExecutionTransitions: 416_527,
+                                                                          latestSchema:
+                                                                            "vine.v86-bgi-d3d9-update-texture",
+                                                                          latestWritebackBatches: 127_456,
+                                                                          latestWritebackDirtyPages: 175_978,
+                                                                          latestWritebackChangedBytes: 6_619_792,
+                                                                          latestHostDeltaBatches: 106_769,
+                                                                          latestFinalMemoryGeneration: 235_508,
+                                                                          semanticCallDigestSha256:
+                                                                            "b5f44675f551e3986efd94d97b0a50dcb26431f22697fe16178824bafcdc828d",
+                                                                          memoryContentSha256:
+                                                                            "6a33233c5973dc1d97badc37755780ed99688c0fa835c0d2d041acc9e231e57a",
+                                                                        }
+                                                                      : d3d9AddDirtyRectActive
+                                                                        ? {
+                                                                            benchmarkObservation:
+                                                                              "current-archive-source-read-observation",
+                                                                            browserMappingDeltas: 106_769,
+                                                                            browserMappingDirtyPages: 109_858,
+                                                                            browserSuccessExecutionTransitions: 416_525,
+                                                                            latestSchema:
+                                                                              "vine.v86-bgi-d3d9-add-dirty-rect",
+                                                                            latestWritebackBatches: 127_455,
+                                                                            latestWritebackDirtyPages: 175_977,
+                                                                            latestWritebackChangedBytes: 6_619_787,
+                                                                            latestHostDeltaBatches: 106_769,
+                                                                            latestFinalMemoryGeneration: 235_507,
+                                                                            semanticCallDigestSha256:
+                                                                              "af311f2769ed51c752349385619cb00400ecb468a866133f5cba71a7c80c373a",
+                                                                            memoryContentSha256:
+                                                                              "2e8deed2908c310e490b75ba714ebc8eb615a87b66efab2ab49287784d0a408a",
+                                                                          }
+                                                                        : setRectActive
+                                                                          ? {
+                                                                              benchmarkObservation:
+                                                                                "current-archive-source-read-observation",
+                                                                              browserMappingDeltas: 106_769,
+                                                                              browserMappingDirtyPages: 109_858,
+                                                                              browserSuccessExecutionTransitions: 416_523,
+                                                                              latestSchema:
+                                                                                "vine.v86-bgi-user32-set-rect",
+                                                                              latestWritebackBatches: 127_454,
+                                                                              latestWritebackDirtyPages: 175_976,
+                                                                              latestWritebackChangedBytes: 6_619_715,
+                                                                              latestHostDeltaBatches: 106_769,
+                                                                              latestFinalMemoryGeneration: 235_506,
+                                                                              semanticCallDigestSha256:
+                                                                                "01f5a4a0ca80adefdfde1a8d7a7ab3a229c76fc4d35271ebacc46cc61340761f",
+                                                                              memoryContentSha256:
+                                                                                "870976fcdad8dd1de12cb1d2279279c3764ee320e30e14e9640d5ce346296afb",
+                                                                            }
+                                                                          : d3d9ClearActive
+                                                                            ? {
+                                                                                benchmarkObservation:
+                                                                                  "current-archive-source-read-observation",
+                                                                                browserMappingDeltas: 106_768,
+                                                                                browserMappingDirtyPages: 109_857,
+                                                                                browserSuccessExecutionTransitions: 416_521,
+                                                                                latestSchema:
+                                                                                  "vine.v86-bgi-d3d9-clear",
+                                                                                latestWritebackBatches: 127_453,
+                                                                                latestWritebackDirtyPages: 175_975,
+                                                                                latestWritebackChangedBytes: 6_619_704,
+                                                                                latestHostDeltaBatches: 106_768,
+                                                                                latestFinalMemoryGeneration: 235_504,
+                                                                                semanticCallDigestSha256:
+                                                                                  "b8d2e16f49c417e6deebf9fa52a40195204ea2502a65b5299d9867b5229eb9cc",
+                                                                                memoryContentSha256:
+                                                                                  "b567254a8ef1a0ea18a6a983b10293b57b25ad5b9864bda28c28598d5200e5ae",
+                                                                              }
+                                                                            : updateWindowActive
+                                                                              ? {
+                                                                                  benchmarkObservation:
+                                                                                    "current-archive-source-read-observation",
+                                                                                  browserMappingDeltas: 106_768,
+                                                                                  browserMappingDirtyPages: 109_857,
+                                                                                  browserSuccessExecutionTransitions: 416_519,
+                                                                                  latestSchema:
+                                                                                    "vine.v86-bgi-user32-update-window",
+                                                                                  latestWritebackBatches: 127_452,
+                                                                                  latestWritebackDirtyPages: 175_974,
+                                                                                  latestWritebackChangedBytes: 6_619_682,
+                                                                                  latestHostDeltaBatches: 106_768,
+                                                                                  latestFinalMemoryGeneration: 235_503,
+                                                                                  semanticCallDigestSha256:
+                                                                                    "33ef06b514d5d26eefb8d2ecdea0e569197752884b798af5787e3e0ef8d0b4b5",
+                                                                                  memoryContentSha256:
+                                                                                    "ceaaf33c0382b0f1859997d2f114a1d85eeed1ce5090bb9e7f6fabcc49de03ff",
+                                                                                }
+                                                                              : setWindowPosFrameChangeMoveActive
+                                                                                ? {
+                                                                                    benchmarkObservation:
+                                                                                      "current-archive-source-read-observation",
+                                                                                    browserMappingDeltas: 106_766,
+                                                                                    browserMappingDirtyPages: 109_855,
+                                                                                    browserSuccessExecutionTransitions: 416_510,
+                                                                                    latestSchema:
+                                                                                      "vine.v86-bgi-user32-set-window-pos-frame-change-move",
+                                                                                    latestWritebackBatches: 127_448,
+                                                                                    latestWritebackDirtyPages: 175_970,
+                                                                                    latestWritebackChangedBytes: 6_619_588,
+                                                                                    latestHostDeltaBatches: 106_766,
+                                                                                    latestFinalMemoryGeneration: 235_497,
+                                                                                    semanticCallDigestSha256:
+                                                                                      "6288683381bcc5df62a20abad70a9b73bbedb153dd0f5f8aa9cfe2e3abde300c",
+                                                                                    memoryContentSha256:
+                                                                                      "b7a48b1a742ff2e7bf477880574bdad5f9334288f4adc3c9d6a8616ed49ad628",
+                                                                                  }
+                                                                                : d3d9RecreatedTexturesActive
+                                                                                  ? {
+                                                                                      benchmarkObservation:
+                                                                                        "current-archive-source-read-observation",
+                                                                                      browserMappingDeltas: 106_761,
+                                                                                      browserMappingDirtyPages: 109_847,
+                                                                                      browserSuccessExecutionTransitions: 416_491,
+                                                                                      latestSchema:
+                                                                                        "vine.v86-bgi-d3d9-recreated-textures",
+                                                                                      latestWritebackBatches: 127_439,
+                                                                                      latestWritebackDirtyPages: 175_958,
+                                                                                      latestWritebackChangedBytes: 6_619_474,
+                                                                                      latestHostDeltaBatches: 106_761,
+                                                                                      latestFinalMemoryGeneration: 235_480,
+                                                                                      semanticCallDigestSha256:
+                                                                                        "481f448cc414e9edf6e9a74c577349d811735cda65e4a2ed8481e42cee672c3b",
+                                                                                      memoryContentSha256:
+                                                                                        "b4e097035105aee8547a5d8c02fffae3bafaa8a943b484f1f0de8cb3ad1a9973",
+                                                                                    }
+                                                                                  : setWindowPosRepeatActivationActive
+                                                                                    ? {
+                                                                                        benchmarkObservation:
+                                                                                          "current-archive-source-read-observation",
+                                                                                        browserMappingDeltas: 92_825,
+                                                                                        browserMappingDirtyPages: 95_902,
+                                                                                        browserSuccessExecutionTransitions: 353_544,
+                                                                                        latestSchema:
+                                                                                          "vine.v86-bgi-user32-set-window-pos-repeat-activation",
+                                                                                        latestWritebackBatches: 108_830,
+                                                                                        latestWritebackDirtyPages: 150_285,
+                                                                                        latestWritebackChangedBytes: 6_369_334,
+                                                                                        latestHostDeltaBatches: 92_825,
+                                                                                        latestFinalMemoryGeneration: 202_769,
+                                                                                        semanticCallDigestSha256:
+                                                                                          "7cb784a2fb34fa1c00e0be37385fcc83b1959c98df5efa063fd2c386503938c2",
+                                                                                        memoryContentSha256:
+                                                                                          "cfc177c8645e76604946c2392b272e7b8ef945b1371d21736938deed45e056ac",
+                                                                                      }
+                                                                                    : createDirectoryAActive
+                                                                                      ? {
+                                                                                          benchmarkObservation:
+                                                                                            "current-archive-source-read-observation",
+                                                                                          browserMappingDeltas: 92_815,
+                                                                                          browserMappingDirtyPages: 95_893,
+                                                                                          browserSuccessExecutionTransitions: 353_486,
+                                                                                          latestSchema:
+                                                                                            "vine.v86-bgi-kernel32-create-directory-a",
+                                                                                          latestWritebackBatches: 108_810,
+                                                                                          latestWritebackDirtyPages: 150_254,
+                                                                                          latestWritebackChangedBytes: 6_368_965,
+                                                                                          latestHostDeltaBatches: 92_815,
+                                                                                          latestFinalMemoryGeneration: 202_575,
+                                                                                          semanticCallDigestSha256:
+                                                                                            "e925e87a010017aa85316f8564a8bcbdac81fe59f87b84e5c288a865db0adb65",
+                                                                                          memoryContentSha256:
+                                                                                            "0b1e924899c1bbcf774d70a88b0bbfb796d1be420b14d7377384a63b20addd75",
+                                                                                        }
+                                                                                      : getFileAttributesAActive
+                                                                                        ? {
+                                                                                            benchmarkObservation:
+                                                                                              "current-archive-source-read-observation",
+                                                                                            browserMappingDeltas: 92_492,
+                                                                                            browserMappingDirtyPages: 94_681,
+                                                                                            browserSuccessExecutionTransitions: 349_581,
+                                                                                            latestSchema:
+                                                                                              "vine.v86-bgi-kernel32-get-file-attributes-a",
+                                                                                            latestWritebackBatches: 108_267,
+                                                                                            latestWritebackDirtyPages: 148_855,
+                                                                                            latestWritebackChangedBytes: 4_925_375,
+                                                                                            latestHostDeltaBatches: 92_492,
+                                                                                            latestFinalMemoryGeneration: 201_672,
+                                                                                            semanticCallDigestSha256:
+                                                                                              "b1846ec7eb00de76f15194a14e4877f2fb1871e0ac49a00f3b81b8dc6f0583a2",
+                                                                                            memoryContentSha256:
+                                                                                              "b0294a8cc38e30d97d0851e4abb0bd0387dbccb6d79fed8ce7b8872b3f04a345",
+                                                                                          }
+                                                                                        : globalMemoryStatusActive
+                                                                                          ? {
+                                                                                              benchmarkObservation:
+                                                                                                "current-archive-source-read-observation",
+                                                                                              browserMappingDeltas: 92_327,
+                                                                                              browserMappingDirtyPages: 94_516,
+                                                                                              browserSuccessExecutionTransitions: 348_240,
+                                                                                              latestSchema:
+                                                                                                "vine.v86-bgi-kernel32-global-memory-status",
+                                                                                              latestWritebackBatches: 107_849,
+                                                                                              latestWritebackDirtyPages: 148_256,
+                                                                                              latestWritebackChangedBytes: 4_917_540,
+                                                                                              latestHostDeltaBatches: 92_327,
+                                                                                              latestFinalMemoryGeneration: 201_089,
+                                                                                              semanticCallDigestSha256:
+                                                                                                "ef1e28a26937875cb742983528bf5a9cd278aab6bd6fee49ac8de1415418a884",
+                                                                                              memoryContentSha256:
+                                                                                                "0fb78a7fa320825c0ae840a28ad90def5246ce164110c521cc958eb9b2483246",
+                                                                                            }
+                                                                                          : sleepZeroActive
+                                                                                            ? {
+                                                                                                benchmarkObservation:
+                                                                                                  "current-archive-source-read-observation",
+                                                                                                browserMappingDeltas: 92_304,
+                                                                                                browserMappingDirtyPages: 94_493,
+                                                                                                browserSuccessExecutionTransitions: 348_147,
+                                                                                                latestSchema:
+                                                                                                  "vine.v86-bgi-kernel32-sleep-zero",
+                                                                                                latestWritebackBatches: 107_818,
+                                                                                                latestWritebackDirtyPages: 148_160,
+                                                                                                latestWritebackChangedBytes: 4_916_226,
+                                                                                                latestHostDeltaBatches: 92_304,
+                                                                                                latestFinalMemoryGeneration: 201_035,
+                                                                                                semanticCallDigestSha256:
+                                                                                                  "bc221fdb22e8b69ad03f00bedc4181e753a2507c882a182004de8634058a1dd1",
+                                                                                                memoryContentSha256:
+                                                                                                  "924c7f2fe3c2c13300ab5113d289101abc7df31c1c0f6848ddf9fcb8e07983f4",
+                                                                                              }
+                                                                                            : archiveSourceReadActive
+                                                                                              ? {
+                                                                                                  benchmarkObservation:
+                                                                                                    "current-archive-source-read-observation",
+                                                                                                  browserMappingDeltas: 78_613,
+                                                                                                  browserMappingDirtyPages: 80_530,
+                                                                                                  browserSuccessExecutionTransitions: 286_089,
+                                                                                                  latestSchema:
+                                                                                                    "vine.v86-bgi-kernel32-archive-source-read.v1",
+                                                                                                  latestWritebackBatches: 89_491,
+                                                                                                  latestWritebackDirtyPages: 122_969,
+                                                                                                  latestWritebackChangedBytes: 3_623_229,
+                                                                                                  latestHostDeltaBatches: 78_613,
+                                                                                                  latestFinalMemoryGeneration: 169_016,
+                                                                                                  semanticCallDigestSha256:
+                                                                                                    "2308a70a77a72340fed6cc500aa05b3135d116812328e69172c5561c767264f4",
+                                                                                                  memoryContentSha256:
+                                                                                                    "e62c0b7b8dd44505ea2ccd201273d014242e3bbb1a8dc446d4039715318fb8fd",
+                                                                                                }
+                                                                                              : dragAcceptFilesActive
+                                                                                                ? {
+                                                                                                    benchmarkObservation:
+                                                                                                      "current-shell32-drag-accept-files-observation",
+                                                                                                    browserMappingDeltas: 78_501,
+                                                                                                    browserMappingDirtyPages: 80_168,
+                                                                                                    browserSuccessExecutionTransitions: 285_545,
+                                                                                                    latestSchema:
+                                                                                                      "vine.v86-bgi-shell32-drag-accept-files.v1",
+                                                                                                    latestWritebackBatches: 89_339,
+                                                                                                    latestWritebackDirtyPages: 122_724,
+                                                                                                    latestWritebackChangedBytes: 3_608_013,
+                                                                                                    latestHostDeltaBatches: 78_501,
+                                                                                                    latestFinalMemoryGeneration: 168_414,
+                                                                                                    semanticCallDigestSha256:
+                                                                                                      "61a51e57987cc3644926f1e61615ad630c48477334dd5b9c1e9a32cf985e6977",
+                                                                                                    memoryContentSha256:
+                                                                                                      "2f041d4df7be96665dfa3bcdce1c6c21aea92e1e486ef025ab834b7e692da31e",
+                                                                                                  }
+                                                                                                : leaveCriticalSectionContinuationActive
+                                                                                                  ? {
+                                                                                                      benchmarkObservation:
+                                                                                                        "current-critical-section-continuation-release-observation",
+                                                                                                      browserMappingDeltas: 17_384,
+                                                                                                      browserMappingDirtyPages: 18_891,
+                                                                                                      browserSuccessExecutionTransitions: 58_464,
+                                                                                                      latestSchema:
+                                                                                                        "vine.v86-bgi-kernel32-leave-critical-section-continuation.v1",
+                                                                                                      latestWritebackBatches: 18_793,
+                                                                                                      latestWritebackDirtyPages: 37_790,
+                                                                                                      latestWritebackChangedBytes: 2_933_180,
+                                                                                                      latestHostDeltaBatches: 17_384,
+                                                                                                      latestFinalMemoryGeneration: 36_750,
+                                                                                                      semanticCallDigestSha256:
+                                                                                                        "cedf137a3e4d410bd8a409c6405fd02f53f2f1efb6f4c6511e2ecad67bb45631",
+                                                                                                      memoryContentSha256:
+                                                                                                        "9473c7af4f1c00a6bf8f2f5db611cb7a5253d04387297b9e0244d81f032315bc",
+                                                                                                    }
+                                                                                                  : enterCriticalSectionContinuationActive
+                                                                                                    ? {
+                                                                                                        benchmarkObservation:
+                                                                                                          "current-critical-section-acquisition-observation",
+                                                                                                        browserMappingDeltas: 17_383,
+                                                                                                        browserMappingDirtyPages: 18_890,
+                                                                                                        browserSuccessExecutionTransitions: 58_461,
+                                                                                                        latestSchema:
+                                                                                                          "vine.v86-bgi-kernel32-enter-critical-section-continuation.v1",
+                                                                                                        latestWritebackBatches: 18_792,
+                                                                                                        latestWritebackDirtyPages: 37_788,
+                                                                                                        latestWritebackChangedBytes: 2_933_171,
+                                                                                                        latestHostDeltaBatches: 17_383,
+                                                                                                        latestFinalMemoryGeneration: 36_748,
+                                                                                                        semanticCallDigestSha256:
+                                                                                                          "da20a011071131b44421f357e9dd1fa044ff1ee2ec33e509ed28a38137bec04b",
+                                                                                                        memoryContentSha256:
+                                                                                                          "12de5674ab03760d39da41c1eb5aa2cea0c242a98387518aaeb52fc22e4e60df",
+                                                                                                      }
+                                                                                                    : leaveCriticalSectionActive
+                                                                                                      ? {
+                                                                                                          benchmarkObservation:
+                                                                                                            "current-critical-section-release-observation",
+                                                                                                          browserMappingDeltas: 17_382,
+                                                                                                          browserMappingDirtyPages: 18_889,
+                                                                                                          browserSuccessExecutionTransitions: 58_458,
+                                                                                                          latestSchema:
+                                                                                                            "vine.v86-bgi-kernel32-leave-critical-section.v1",
+                                                                                                          latestWritebackBatches: 18_791,
+                                                                                                          latestWritebackDirtyPages: 37_785,
+                                                                                                          latestWritebackChangedBytes: 2_933_159,
+                                                                                                          latestHostDeltaBatches: 17_382,
+                                                                                                          latestFinalMemoryGeneration: 36_746,
+                                                                                                          semanticCallDigestSha256:
+                                                                                                            "77dee747fc8fc285f6c4e32f68e12ba2334118b7b6984ecc68236be8acdac7f4",
+                                                                                                          memoryContentSha256:
+                                                                                                            "b326ab911f02986bbbac818825b0b67171299bc946495eb52f5a0be6fb7e8636",
+                                                                                                        }
+                                                                                                      : primaryMainLoopProgressionActive
+                                                                                                        ? {
+                                                                                                            benchmarkObservation:
+                                                                                                              "current-main-loop-progression-observation",
+                                                                                                            browserMappingDeltas: 17_381,
+                                                                                                            browserMappingDirtyPages: 18_888,
+                                                                                                            browserSuccessExecutionTransitions: 58_455,
+                                                                                                            latestSchema:
+                                                                                                              "vine.v86-bgi-primary-main-loop-progression.v1",
+                                                                                                            latestWritebackBatches: 18_790,
+                                                                                                            latestWritebackDirtyPages: 37_783,
+                                                                                                            latestWritebackChangedBytes: 2_933_150,
+                                                                                                            latestHostDeltaBatches: 17_381,
+                                                                                                            latestFinalMemoryGeneration: 36_744,
+                                                                                                            semanticCallDigestSha256:
+                                                                                                              "0b620924832019b38cc8af0ac9ffa3b1f6300647262bc8a4544ce64408dbf4c8",
+                                                                                                            memoryContentSha256:
+                                                                                                              "ca7efd6774fe36acfa3ee61621e12b2b6fccbaf4327cc026f323f3aa0859fc2b",
+                                                                                                          }
+                                                                                                        : {
+                                                                                                            benchmarkObservation:
+                                                                                                              "current-critical-section-idle-cycle-observation",
+                                                                                                            browserMappingDeltas: 17_359,
+                                                                                                            browserMappingDirtyPages: 18_866,
+                                                                                                            browserSuccessExecutionTransitions: 58_352,
+                                                                                                            latestSchema:
+                                                                                                              "vine.v86-bgi-kernel32-enter-critical-section.v1",
+                                                                                                            latestWritebackBatches: 18_760,
+                                                                                                            latestWritebackDirtyPages: 37_740,
+                                                                                                            latestWritebackChangedBytes: 2_932_769,
+                                                                                                            latestHostDeltaBatches: 17_359,
+                                                                                                            latestFinalMemoryGeneration: 36_692,
+                                                                                                            semanticCallDigestSha256:
+                                                                                                              "c1d21b090a8bd6469784aed5c4d54f7304b339b4efd4eeecb19e45e6448546da",
+                                                                                                            memoryContentSha256:
+                                                                                                              "ef30be973462cb545e57a0153362a9f7e40bac0ede6c01cf56424958bcedb2c5",
+                                                                                                          };
   const timerEvidenceEntries =
     dragAcceptFilesActive || archiveSourceReadActive ? 2 : timerCycleCount;
   const timerRepeatedOnes = Array(timerEvidenceEntries).fill(1).join(",");
   const timerPacingDelayMilliseconds = runtimeThreadStackGrowthActive
     ? "1,1"
     : user32IsIconicActive
-    ? "1,2"
-    : timerRepeatedOnes;
+      ? "1,2"
+      : timerRepeatedOnes;
   const timerRepeatedTwos = d3d9PostRasterStatusWaitableTimerActive
     ? "2,1"
     : Array(timerEvidenceEntries).fill(2).join(",");
@@ -2343,9 +2444,9 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v71") {
+  if (browser.browserRuntimeProtocol !== "vine.browser-runtime-worker.v72") {
     errors.push(
-      "browserCheckpoint.browserRuntimeProtocol must identify protocol v71",
+      "browserCheckpoint.browserRuntimeProtocol must identify protocol v72",
     );
   }
   if (
@@ -3129,92 +3230,98 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (recurringTimerWindowActive
-        ? 39
-        : recurringTimerMultiCycleActive
-        ? 38
-        : recurringTimerCycleActive
-        ? 37
-        : postTimerRearmWaitSetWaitableTimerActive
-        ? 36
-        : postTimerRearmWaitCriticalSectionActive
-        ? 35
-        : postTimerRearmWaitActive
-        ? 34
-        : postTimerWaitSetWaitableTimerActive
-        ? 33
-        : postTimerArmWaitActive
-        ? 31
-        : postTimerWaitCriticalSectionActive
-        ? 32
-        : postCriticalSectionSetWaitableTimerActive
-        ? 30
-        : postWaitCriticalSectionActive
-        ? 29
-        : postCriticalSectionWaitActive
-        ? 28
-        : postClockCriticalSectionActive
-        ? 27
-        : postHeapTimeGetTimeActive
-        ? 26
-        : heapAlloc24Active
-        ? 25
-        : largeHeapFreeActive
-        ? 24
-        : runtimeTraplessExecutionBudgetActive
-          ? 23
-        : runtimeThreadStackGrowthActive
-          ? 22
-        : user32IsIconicActive
-        ? 21
-        : user32PeekMessageAActive
-        ? 20
-        : user32AsyncKeyStateInitialScanContinuationActive
-        ? 19
-        : user32AsyncKeyStateInitialScanActive
-        ? 16
-        : user32AsyncKeyStateInputContinuationActive
-        ? 15
-        : user32AsyncKeyStateInputActive
-        ? 14
-        : d3d9PostPresentStructuredStopActive
-          ? 13
-          : 12) ||
+      (presentationProgressGatewayActive
+        ? 40
+        : recurringTimerWindowActive
+          ? 39
+          : recurringTimerMultiCycleActive
+            ? 38
+            : recurringTimerCycleActive
+              ? 37
+              : postTimerRearmWaitSetWaitableTimerActive
+                ? 36
+                : postTimerRearmWaitCriticalSectionActive
+                  ? 35
+                  : postTimerRearmWaitActive
+                    ? 34
+                    : postTimerWaitSetWaitableTimerActive
+                      ? 33
+                      : postTimerArmWaitActive
+                        ? 31
+                        : postTimerWaitCriticalSectionActive
+                          ? 32
+                          : postCriticalSectionSetWaitableTimerActive
+                            ? 30
+                            : postWaitCriticalSectionActive
+                              ? 29
+                              : postCriticalSectionWaitActive
+                                ? 28
+                                : postClockCriticalSectionActive
+                                  ? 27
+                                  : postHeapTimeGetTimeActive
+                                    ? 26
+                                    : heapAlloc24Active
+                                      ? 25
+                                      : largeHeapFreeActive
+                                        ? 24
+                                        : runtimeTraplessExecutionBudgetActive
+                                          ? 23
+                                          : runtimeThreadStackGrowthActive
+                                            ? 22
+                                            : user32IsIconicActive
+                                              ? 21
+                                              : user32PeekMessageAActive
+                                                ? 20
+                                                : user32AsyncKeyStateInitialScanContinuationActive
+                                                  ? 19
+                                                  : user32AsyncKeyStateInitialScanActive
+                                                    ? 16
+                                                    : user32AsyncKeyStateInputContinuationActive
+                                                      ? 15
+                                                      : user32AsyncKeyStateInputActive
+                                                        ? 14
+                                                        : d3d9PostPresentStructuredStopActive
+                                                          ? 13
+                                                          : 12) ||
     bgiBrowserEvidence.nodeOracleReportBytes > 4 * 1024 * 1024 ||
     bgiBrowserEvidence.browserReportBytes > 4 * 1024 * 1024 ||
     bgiMappingOperations.reserve !==
-      (runtimeThreadStackGrowthActive
-        ? 113
-        : user32AsyncKeyStateInitialScanActive
-        ? 91
-        : user32AsyncKeyStateInputContinuationActive
-        ? 39
-        : setWindowPosFrameChangeMoveActive
-          ? 38
-          : sleepZeroActive
-            ? 29
-            : 21) ||
-    bgiMappingOperations.commit !==
-      (postClockCriticalSectionActive ||
-      postCriticalSectionWaitEvidenceActive
-        ? 3_114
+      (presentationProgressGatewayActive
+        ? 121
         : runtimeThreadStackGrowthActive
-        ? 2_439
-        : user32IsIconicActive
-        ? 1_810
-        : user32AsyncKeyStateInitialScanActive
-        ? 1_809
-        : user32AsyncKeyStateInputContinuationActive
-        ? 149
-        : setWindowPosFrameChangeMoveActive
-        ? 142
-        : sleepZeroActive
-          ? 94
-          : archiveSourceReadActive
-            ? 78
-            : dragAcceptFilesActive
-              ? 72
-              : 71) ||
+          ? 113
+          : user32AsyncKeyStateInitialScanActive
+            ? 91
+            : user32AsyncKeyStateInputContinuationActive
+              ? 39
+              : setWindowPosFrameChangeMoveActive
+                ? 38
+                : sleepZeroActive
+                  ? 29
+                  : 21) ||
+    bgiMappingOperations.commit !==
+      (presentationProgressGatewayActive
+        ? 3_323
+        : postClockCriticalSectionActive ||
+            postCriticalSectionWaitEvidenceActive
+          ? 3_114
+          : runtimeThreadStackGrowthActive
+            ? 2_439
+            : user32IsIconicActive
+              ? 1_810
+              : user32AsyncKeyStateInitialScanActive
+                ? 1_809
+                : user32AsyncKeyStateInputContinuationActive
+                  ? 149
+                  : setWindowPosFrameChangeMoveActive
+                    ? 142
+                    : sleepZeroActive
+                      ? 94
+                      : archiveSourceReadActive
+                        ? 78
+                        : dragAcceptFilesActive
+                          ? 72
+                          : 71) ||
     bgiMappingOperations.protect !==
       (user32AsyncKeyStateInitialScanActive || setWindowPosFrameChangeMoveActive
         ? user32AsyncKeyStateInitialScanActive
@@ -3225,17 +3332,19 @@ export function validateCurrentCheckpoint(manifest) {
           : 28) ||
     bgiMappingOperations.decommit !== 0 ||
     bgiMappingOperations.release !==
-      (runtimeThreadStackGrowthActive
-        ? 93
-        : user32AsyncKeyStateInitialScanActive
-        ? 71
-        : user32AsyncKeyStateInputContinuationActive
-        ? 22
-        : setWindowPosFrameChangeMoveActive
-          ? 21
-          : sleepZeroActive
-            ? 12
-            : 4) ||
+      (presentationProgressGatewayActive
+        ? 102
+        : runtimeThreadStackGrowthActive
+          ? 93
+          : user32AsyncKeyStateInitialScanActive
+            ? 71
+            : user32AsyncKeyStateInputContinuationActive
+              ? 22
+              : setWindowPosFrameChangeMoveActive
+                ? 21
+                : sleepZeroActive
+                  ? 12
+                  : 4) ||
     bgiBrowserEvidence.mappingDeltas !==
       profileExpectations.browserMappingDeltas ||
     bgiBrowserEvidence.mappingDirtyPages !==
@@ -3250,54 +3359,58 @@ export function validateCurrentCheckpoint(manifest) {
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     bgiBrowserEvidence.contextSwitches !==
-      (recurringTimerWindowActive
-        ? 2_471
-        : recurringTimerMultiCycleActive
-        ? 2_461
-        : postClockCriticalSectionActive ||
-      postCriticalSectionWaitEvidenceActive
-        ? 2_457
-        : runtimeThreadStackGrowthActive
-        ? 2_456
-        : user32IsIconicActive
-        ? 2_317
-        : user32AsyncKeyStateInitialScanActive
-        ? 2_314
-        : user32AsyncKeyStateInputContinuationActive
-        ? 2_020
-        : d3d9PostPresentContinuationActive
-        ? 2_014
-        : d3d9RecreatedTexturesActive
-        ? 2_010
-        : createDirectoryAActive
-          ? 1_526
-          : getFileAttributesAActive
-            ? 1_518
-            : sleepZeroActive
-              ? 1_512
-              : archiveSourceReadActive
-                ? 1_032
-                : dragAcceptFilesActive
-                  ? 1_030
-                  : mainLoopContinuationActive
-                    ? 2
-                    : 1) ||
+      (presentationProgressGatewayActive
+        ? 2_513
+        : recurringTimerWindowActive
+          ? 2_471
+          : recurringTimerMultiCycleActive
+            ? 2_461
+            : postClockCriticalSectionActive ||
+                postCriticalSectionWaitEvidenceActive
+              ? 2_457
+              : runtimeThreadStackGrowthActive
+                ? 2_456
+                : user32IsIconicActive
+                  ? 2_317
+                  : user32AsyncKeyStateInitialScanActive
+                    ? 2_314
+                    : user32AsyncKeyStateInputContinuationActive
+                      ? 2_020
+                      : d3d9PostPresentContinuationActive
+                        ? 2_014
+                        : d3d9RecreatedTexturesActive
+                          ? 2_010
+                          : createDirectoryAActive
+                            ? 1_526
+                            : getFileAttributesAActive
+                              ? 1_518
+                              : sleepZeroActive
+                                ? 1_512
+                                : archiveSourceReadActive
+                                  ? 1_032
+                                  : dragAcceptFilesActive
+                                    ? 1_030
+                                    : mainLoopContinuationActive
+                                      ? 2
+                                      : 1) ||
     bgiBrowserEvidence.pendingHostCallsAfterCleanup !== 0 ||
     bgiBrowserEvidence.pendingCallbacksAfterCleanup !== 0 ||
     bgiBrowserEvidence.processLifecycleAfterCleanup !== "exited" ||
     bgiBrowserEvidence.dllLifecycleAfterCleanup !== "process-detached" ||
     bgiBrowserEvidence.largeHeapPageMaterializations !==
-      (recurringTimerWindowActive
-        ? 2_971
-        : recurringTimerMultiCycleActive
-        ? 2_919
-        : runtimeThreadStackGrowthActive
-        ? 2_243
-        : user32IsIconicActive
-        ? 1_685
-        : user32AsyncKeyStateInitialScanActive
-          ? 1_684
-          : 31) ||
+      (presentationProgressGatewayActive
+        ? 3_108
+        : recurringTimerWindowActive
+          ? 2_971
+          : recurringTimerMultiCycleActive
+            ? 2_919
+            : runtimeThreadStackGrowthActive
+              ? 2_243
+              : user32IsIconicActive
+                ? 1_685
+                : user32AsyncKeyStateInitialScanActive
+                  ? 1_684
+                  : 31) ||
     bgiBrowserEvidence.largeHeapAllocationAddress !== "0x40000000" ||
     bgiBrowserEvidence.largeHeapAllocationBytes !== 64 * 1024 * 1024 ||
     bgiBrowserEvidence.largeHeapAllocationId !== 12 ||
@@ -3313,23 +3426,25 @@ export function validateCurrentCheckpoint(manifest) {
       1_487 ||
     bgiBrowserEvidence.largeHeapBrowserMaterializationGeneration !== 1_489 ||
     bgiBrowserEvidence.sourceReadCompletions !==
-      (recurringTimerWindowActive
-        ? 88
-        : runtimeThreadStackGrowthActive
-        ? 86
-        : user32IsIconicActive
-        ? 64
-        : user32AsyncKeyStateInitialScanActive
-        ? 63
-        : user32AsyncKeyStateInputContinuationActive
-        ? 14
-        : d3d9PostPresentContinuationActive
-        ? 11
-        : createDirectoryAActive
-          ? 10
-          : archiveSourceReadActive
-            ? 5
-            : 2) ||
+      (presentationProgressGatewayActive
+        ? 94
+        : recurringTimerWindowActive
+          ? 88
+          : runtimeThreadStackGrowthActive
+            ? 86
+            : user32IsIconicActive
+              ? 64
+              : user32AsyncKeyStateInitialScanActive
+                ? 63
+                : user32AsyncKeyStateInputContinuationActive
+                  ? 14
+                  : d3d9PostPresentContinuationActive
+                    ? 11
+                    : createDirectoryAActive
+                      ? 10
+                      : archiveSourceReadActive
+                        ? 5
+                        : 2) ||
     bgiBrowserEvidence.sourceReadPendingAfterCleanup !== 0 ||
     bgiBrowserEvidence.callbackEntries !==
       (updateWindowActive
@@ -5055,17 +5170,20 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.d3d9PresentLogicalGraphicsDeviceGeneration !== 59 ||
       bgiBrowserEvidence.d3d9PresentFrameSequence !== 1 ||
       bgiBrowserEvidence.d3d9PresentPublishedContentGeneration !== 2 ||
-      bgiBrowserEvidence.d3d9PresentDiscardedBackBufferContentGeneration !== 3 ||
+      bgiBrowserEvidence.d3d9PresentDiscardedBackBufferContentGeneration !==
+        3 ||
       bgiBrowserEvidence.d3d9PresentDrawSubmissionCount !== 1 ||
       bgiBrowserEvidence.d3d9PresentFailureAtomicity !== true ||
       bgiBrowserEvidence.d3d9PresentBrowserRendererResourceCreated !== true ||
-      bgiBrowserEvidence.d3d9PresentBrowserResourceId !== "browser-resource:1" ||
+      bgiBrowserEvidence.d3d9PresentBrowserResourceId !==
+        "browser-resource:1" ||
       bgiBrowserEvidence.d3d9PresentBrowserResourceKind !==
         "d3d9-webgl2-device" ||
       bgiBrowserEvidence.d3d9PresentBrowserBindingOwnership !== "non-owning" ||
       bgiBrowserEvidence.d3d9PresentBrowserBackend !==
         "webgl2-offscreen-canvas" ||
-      bgiBrowserEvidence.d3d9PresentBrowserFrameSize?.join(",") !== "1280,720" ||
+      bgiBrowserEvidence.d3d9PresentBrowserFrameSize?.join(",") !==
+        "1280,720" ||
       bgiBrowserEvidence.d3d9PresentBrowserUploadedTextureBytes !== 8_388_608 ||
       bgiBrowserEvidence.d3d9PresentBrowserUploadedVertexBytes !== 112 ||
       bgiBrowserEvidence.d3d9PresentBrowserCenterPixelRgba?.join(",") !==
@@ -5205,9 +5323,9 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.waitForSingleObjectExHostClockImported !== false ||
     bgiBrowserEvidence.waitForSingleObjectExBrowserTimerCreated !== true ||
     bgiBrowserEvidence.waitForSingleObjectExBrowserPacingRequests !==
-      timerCycleCount ||
+      (presentationProgressGatewayActive ? 11_467 : timerCycleCount) ||
     bgiBrowserEvidence.waitForSingleObjectExBrowserPacingCompletions !==
-      timerCycleCount ||
+      (presentationProgressGatewayActive ? 11_467 : timerCycleCount) ||
     bgiBrowserEvidence.waitForSingleObjectExBrowserPacingCancellations !== 0 ||
     bgiBrowserEvidence.waitForSingleObjectExBrowserPacingStaleCallbacks !== 0 ||
     bgiBrowserEvidence.waitForSingleObjectExBrowserPacingPending !== 0 ||
@@ -8741,11 +8859,12 @@ export function validateCurrentCheckpoint(manifest) {
     "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeTestCooperativeLevelEvidence.arguments",
     errors,
   );
-  const d3d9PrivateTestCooperativeLevelStackPointers = requireOrderedStringArray(
-    d3d9PrivateTestCooperativeLevel.stackPointers,
-    "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeTestCooperativeLevelEvidence.stackPointers",
-    errors,
-  );
+  const d3d9PrivateTestCooperativeLevelStackPointers =
+    requireOrderedStringArray(
+      d3d9PrivateTestCooperativeLevel.stackPointers,
+      "activeRuntimeCheckpoint.d3d9Frontend.privateRuntimeTestCooperativeLevelEvidence.stackPointers",
+      errors,
+    );
   for (const [value, label] of [
     [
       d3d9NativeUpdateTexture.primaryTraceSha256,
@@ -9265,10 +9384,22 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   for (const [value, label] of [
-    [d3d9NativePresent.primaryTraceSha256, "nativePresentEvidence.primaryTraceSha256"],
-    [d3d9NativePresent.primarySummarySha256, "nativePresentEvidence.primarySummarySha256"],
-    [d3d9NativePresent.confirmationTraceSha256, "nativePresentEvidence.confirmationTraceSha256"],
-    [d3d9NativePresent.confirmationSummarySha256, "nativePresentEvidence.confirmationSummarySha256"],
+    [
+      d3d9NativePresent.primaryTraceSha256,
+      "nativePresentEvidence.primaryTraceSha256",
+    ],
+    [
+      d3d9NativePresent.primarySummarySha256,
+      "nativePresentEvidence.primarySummarySha256",
+    ],
+    [
+      d3d9NativePresent.confirmationTraceSha256,
+      "nativePresentEvidence.confirmationTraceSha256",
+    ],
+    [
+      d3d9NativePresent.confirmationSummarySha256,
+      "nativePresentEvidence.confirmationSummarySha256",
+    ],
   ]) {
     requireSha256(
       value,
@@ -10466,7 +10597,8 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9GetRasterStatus.slot !== 19 ||
     d3d9GetRasterStatus.explicitArgumentWords !== 2 ||
     d3d9GetRasterStatus.returnKind !== "h-result" ||
-    d3d9GetRasterStatus.profileId !== "primary-stable-last-visible-scanline-v2" ||
+    d3d9GetRasterStatus.profileId !==
+      "primary-stable-last-visible-scanline-v2" ||
     d3d9GetRasterStatus.displayProfileId !==
       "single-monitor-1920x1080-work-1920x1032-v2" ||
     d3d9GetRasterStatus.swapChain !== 0 ||
@@ -11200,8 +11332,7 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9NativeTextureLockRect.maximumApiDepth !== 3 ||
     d3d9NativeTextureLockRect.apiPairingBalanced !== true ||
     d3d9NativeTextureLockRect.creationCallerRva !== "0x0005a715" ||
-    d3d9NativeTextureLockCreationArguments.join(",") !==
-      "2048,1024,1,0,22,2" ||
+    d3d9NativeTextureLockCreationArguments.join(",") !== "2048,1024,1,0,22,2" ||
     d3d9NativeTextureLockRect.lockCallerRva !== "0x0004154c" ||
     d3d9NativeTextureLockRect.unlockCallerRva !== "0x000415a8" ||
     d3d9NativeTextureLockRect.level !== 0 ||
@@ -11227,8 +11358,7 @@ export function validateCurrentCheckpoint(manifest) {
       "0x01020004,0x00000000,0x006ff8c4,0x006ff8cc,0x00008000" ||
     d3d9PrivateTextureLockRect.lockResult !== "0x00000000" ||
     d3d9PrivateTextureLockRect.lockReturnAddress !== "0x1004154c" ||
-    d3d9PrivateTextureLockStackPointers.join(",") !==
-      "0x006ff8a8,0x006ff8c0" ||
+    d3d9PrivateTextureLockStackPointers.join(",") !== "0x006ff8a8,0x006ff8c0" ||
     d3d9PrivateTextureLockRect.outputAddress !== "0x006ff8c4" ||
     d3d9PrivateTextureLockRect.outputHex !== "0020000000100044" ||
     d3d9PrivateTextureLockRect.pitch !== 8_192 ||
@@ -11277,7 +11407,9 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9PrivatePartialUpdate.chromeCompletions !== 1 ||
     d3d9PrivatePartialUpdate.nodeChromeOrderedSemanticsMatched !== true
   ) {
-    errors.push("active D3D9 texture lock and partial update boundary is invalid");
+    errors.push(
+      "active D3D9 texture lock and partial update boundary is invalid",
+    );
   }
   if (
     d3d9BeginScene.slot !== 41 ||
@@ -12279,8 +12411,7 @@ export function validateCurrentCheckpoint(manifest) {
       d3d9PrivatePresent.arguments?.join(",") !==
         "0x01010004,0x00000000,0x00000000,0x00000000,0x00000000" ||
       d3d9PrivatePresent.returnAddress !== "0x1005b7b1" ||
-      d3d9PrivatePresent.stackPointers?.join(",") !==
-        "0x006ff280,0x006ff298" ||
+      d3d9PrivatePresent.stackPointers?.join(",") !== "0x006ff280,0x006ff298" ||
       d3d9PrivatePresent.result !== "0x00000000" ||
       d3d9PrivatePresent.guestWriteBytes !== 0 ||
       d3d9PrivatePresent.deviceReferenceCount !== 5 ||
@@ -12823,8 +12954,7 @@ export function validateCurrentCheckpoint(manifest) {
     messages.schema !== "vine.runtime-message-queue.v3" ||
     messages.stateOwner !== "runtime/messages.rs::RuntimeMessages" ||
     messages.mutableCollectionVisibility !== "private" ||
-    messages.readInspection !==
-      "copy-snapshot-and-mutation-free-head-plan" ||
+    messages.readInspection !== "copy-snapshot-and-mutation-free-head-plan" ||
     messages.crossSubsystemMutation !==
       "queue-plan-memory-preflight-queue-revalidation-targeted-commit" ||
     messages.subsystemTests < 2 ||
@@ -13636,8 +13766,7 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.cursorPositionProfileId !==
       "primary-display-center-cursor-v1" ||
     user32Policy.cursorPositionInitialScreen?.join(",") !== "960,540" ||
-    user32Policy.cursorPositionConfiguration !==
-      "configure-once-plan-commit" ||
+    user32Policy.cursorPositionConfiguration !== "configure-once-plan-commit" ||
     user32Policy.cursorPositionStateAuthority !==
       "runtime/input.rs::RuntimeInput" ||
     user32Policy.cursorPositionHostPointerImported !== false ||
@@ -13675,8 +13804,7 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.peekMessageAX86MsgBytes !== 28 ||
     user32Policy.peekMessageAStateAuthority !==
       "runtime/messages.rs::RuntimeMessages" ||
-    user32Policy.peekMessageAEmptyReturn !==
-      "false-without-output-write" ||
+    user32Policy.peekMessageAEmptyReturn !== "false-without-output-write" ||
     user32Policy.peekMessageAMessageReturn !==
       "true-with-atomic-msg-publication" ||
     user32Policy.peekMessageAMutation !==
@@ -14690,9 +14818,9 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.waitForSingleObjectExHostClockImported !== false ||
     latestEvidence.waitForSingleObjectExBrowserTimerImported !== false ||
     latestEvidence.waitForSingleObjectExBrowserPacingRequests !==
-      timerCycleCount ||
+      (presentationProgressGatewayActive ? 11_467 : timerCycleCount) ||
     latestEvidence.waitForSingleObjectExBrowserPacingCompletions !==
-      timerCycleCount ||
+      (presentationProgressGatewayActive ? 11_467 : timerCycleCount) ||
     latestEvidence.waitForSingleObjectExBrowserPacingCancellations !== 0 ||
     latestEvidence.waitForSingleObjectExBrowserPacingStaleCallbacks !== 0 ||
     latestEvidence.waitForSingleObjectExBrowserPacingPending !== 0 ||
@@ -20050,65 +20178,67 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (recurringTimerWindowActive
-        ? "Rust-owned bounded recurring main-loop timer window with cross-cycle critical-section ownership and inter-cycle worker completion evidence composed across RuntimeTimers, RuntimeWaits, RuntimeSynchronization, RuntimeObjectTable, the scheduler, and both reached guest threads"
-        : recurringTimerMultiCycleActive
-        ? "Rust-owned recurring main-loop timer window composed across RuntimeTimers, RuntimeWaits, RuntimeSynchronization, RuntimeObjectTable, the scheduler, and both reached guest threads"
-        : recurringTimerCycleActive
-        ? "Rust-owned recurring main-loop wait, synchronization, and timer rearm cycle composed across RuntimeTimers, RuntimeWaits, RuntimeSynchronization, RuntimeObjectTable, and the scheduler"
-        : postTimerArmWaitActive
-        ? "Rust-owned recurring finite alertable waitable-timer completion through RuntimeTimers, RuntimeWaits, and the scheduler with deterministic browser pacing acknowledgement"
-        : postCriticalSectionSetWaitableTimerActive
-        ? "Rust-owned recurring relative one-shot waitable-timer arm through RuntimeTimers and RuntimeObjectTable with joint preflight and targeted commit"
-        : postWaitCriticalSectionActive
-        ? postTimerRearmWaitCriticalSectionActive
-          ? "Rust-owned recurring balanced critical-section batch through RuntimeSynchronization with failure-atomic 24-byte guest publication and non-owning browser evidence"
-          : "Rust-owned three-roundtrip critical-section batch through RuntimeSynchronization with atomic guest-state publication and scheduler handoff"
-        : postCriticalSectionWaitActive
-        ? "Rust-owned finite alertable waitable-timer completion through RuntimeTimers, RuntimeWaits, and the scheduler with deterministic browser pacing acknowledgement"
-        : postClockCriticalSectionActive
-        ? "Rust-owned balanced critical-section acquire/release roundtrip through RuntimeSynchronization with atomic guest-state publication and scheduler handoff"
-        : postHeapTimeGetTimeActive
-        ? "Rust-owned post-heap multimedia tick sampling over shared RuntimeProcessState clock authority without browser clock import"
-        : largeHeapFreeActive
-        ? "Rust-owned large ordinary private-heap allocation retirement with failure-atomic deterministic poison publication through binary host deltas"
-        : heapAlloc24Active
-          ? "Rust-owned private-heap allocation identity with failure-atomic small-buffer publication and coalesced ordinary-segment reuse through binary host deltas"
-        : runtimeTraplessExecutionBudgetActive
-          ? "Bounded Rust/Wasm guest execution across serviceable page faults to the next runtime-owned endpoint without adding guest-visible semantics"
-        : runtimeThreadStackGrowthActive
-          ? "Rust-owned current-selected-thread stack guard growth with per-thread identity validation and failure-atomic guest-memory commit"
-        : user32IsIconicActive
-        ? "Rust-owned IsIconic query derived from the logical window effective style without duplicating minimized-state authority"
-        : user32PeekMessageAActive
-        ? "Rust-owned current-thread unfiltered PeekMessageA queue inspection with failure-atomic guest MSG publication and optional removal"
-        : user32AsyncKeyStateInitialScanContinuationActive
-        ? "Rust-owned zero-input startup continuation through two D3D9 frame cycles and a mutation-free live-device cooperative-level query to the USER32 PeekMessageA gateway"
-        : user32AsyncKeyStateInitialScanActive
-        ? "Rust-owned bounded second ordinary heap backing plus logical window geometry, cursor position, and zero-input GetAsyncKeyState startup scan"
-        : user32AsyncKeyStateInputContinuationActive
-        ? "Rust-owned held-key GetAsyncKeyState continuation with one-shot pressed-bit consumption across repeated primary polling"
-        : user32AsyncKeyStateInputActive
-        ? "Rust-owned focused virtual-key state with versioned browser input ingress and signed-short GetAsyncKeyState query semantics"
-        : setWindowPosFrameChangeMoveActive
-        ? "Rust-owned SetWindowPos frame-change move callback transaction over RuntimeUser32 geometry authority"
-        : d3d9RecreatedTexturesActive
-          ? "Rust-owned D3D9 recreated-texture band over transactional RuntimeGraphics and RuntimeCom authority"
-          : setWindowPosRepeatActivationActive
-            ? "Rust-owned same-active-window repeated SetWindowPos validation-only callback over RuntimeUser32 authority"
-            : createDirectoryAActive
-              ? "Rust-owned durable CreateDirectoryA over RuntimeFiles and SQLite writable-profile authority"
-              : getFileAttributesAActive
-                ? "Rust-owned GetFileAttributesA over RuntimeFiles registered VFS and derived directory authority"
-                : globalMemoryStatusActive
-                  ? "Rust-owned deterministic x86 MEMORYSTATUS over Kernel32CompatibilityPolicy and system-info virtual-span authority"
-                  : sleepZeroActive
-                    ? "Rust-owned Sleep(0) cooperative yield over RuntimeScheduler authority"
-                    : archiveSourceReadActive
-                      ? "Rust-owned window-scoped logical system-menu identity and bounded SC_CLOSE state over RuntimeUser32 authority"
-                      : dragAcceptFilesActive
-                        ? "Rust-owned DragAcceptFiles over logical-window extended-style authority with failure-atomic plan/commit"
-                        : "Rust-owned bounded WaitForSingleObjectEx over logical waitable-timer clock, scheduler, wait, and typed-object authority") ||
+      (presentationProgressGatewayActive
+        ? "Rust-owned bounded main-loop presentation-progress gateway composed across RuntimeTimers, RuntimeWaits, RuntimeSynchronization, RuntimeObjectTable, RuntimeGraphics, the scheduler, and both reached guest threads with non-owning browser pacing and rendering evidence"
+        : recurringTimerWindowActive
+          ? "Rust-owned bounded recurring main-loop timer window with cross-cycle critical-section ownership and inter-cycle worker completion evidence composed across RuntimeTimers, RuntimeWaits, RuntimeSynchronization, RuntimeObjectTable, the scheduler, and both reached guest threads"
+          : recurringTimerMultiCycleActive
+            ? "Rust-owned recurring main-loop timer window composed across RuntimeTimers, RuntimeWaits, RuntimeSynchronization, RuntimeObjectTable, the scheduler, and both reached guest threads"
+            : recurringTimerCycleActive
+              ? "Rust-owned recurring main-loop wait, synchronization, and timer rearm cycle composed across RuntimeTimers, RuntimeWaits, RuntimeSynchronization, RuntimeObjectTable, and the scheduler"
+              : postTimerArmWaitActive
+                ? "Rust-owned recurring finite alertable waitable-timer completion through RuntimeTimers, RuntimeWaits, and the scheduler with deterministic browser pacing acknowledgement"
+                : postCriticalSectionSetWaitableTimerActive
+                  ? "Rust-owned recurring relative one-shot waitable-timer arm through RuntimeTimers and RuntimeObjectTable with joint preflight and targeted commit"
+                  : postWaitCriticalSectionActive
+                    ? postTimerRearmWaitCriticalSectionActive
+                      ? "Rust-owned recurring balanced critical-section batch through RuntimeSynchronization with failure-atomic 24-byte guest publication and non-owning browser evidence"
+                      : "Rust-owned three-roundtrip critical-section batch through RuntimeSynchronization with atomic guest-state publication and scheduler handoff"
+                    : postCriticalSectionWaitActive
+                      ? "Rust-owned finite alertable waitable-timer completion through RuntimeTimers, RuntimeWaits, and the scheduler with deterministic browser pacing acknowledgement"
+                      : postClockCriticalSectionActive
+                        ? "Rust-owned balanced critical-section acquire/release roundtrip through RuntimeSynchronization with atomic guest-state publication and scheduler handoff"
+                        : postHeapTimeGetTimeActive
+                          ? "Rust-owned post-heap multimedia tick sampling over shared RuntimeProcessState clock authority without browser clock import"
+                          : largeHeapFreeActive
+                            ? "Rust-owned large ordinary private-heap allocation retirement with failure-atomic deterministic poison publication through binary host deltas"
+                            : heapAlloc24Active
+                              ? "Rust-owned private-heap allocation identity with failure-atomic small-buffer publication and coalesced ordinary-segment reuse through binary host deltas"
+                              : runtimeTraplessExecutionBudgetActive
+                                ? "Bounded Rust/Wasm guest execution across serviceable page faults to the next runtime-owned endpoint without adding guest-visible semantics"
+                                : runtimeThreadStackGrowthActive
+                                  ? "Rust-owned current-selected-thread stack guard growth with per-thread identity validation and failure-atomic guest-memory commit"
+                                  : user32IsIconicActive
+                                    ? "Rust-owned IsIconic query derived from the logical window effective style without duplicating minimized-state authority"
+                                    : user32PeekMessageAActive
+                                      ? "Rust-owned current-thread unfiltered PeekMessageA queue inspection with failure-atomic guest MSG publication and optional removal"
+                                      : user32AsyncKeyStateInitialScanContinuationActive
+                                        ? "Rust-owned zero-input startup continuation through two D3D9 frame cycles and a mutation-free live-device cooperative-level query to the USER32 PeekMessageA gateway"
+                                        : user32AsyncKeyStateInitialScanActive
+                                          ? "Rust-owned bounded second ordinary heap backing plus logical window geometry, cursor position, and zero-input GetAsyncKeyState startup scan"
+                                          : user32AsyncKeyStateInputContinuationActive
+                                            ? "Rust-owned held-key GetAsyncKeyState continuation with one-shot pressed-bit consumption across repeated primary polling"
+                                            : user32AsyncKeyStateInputActive
+                                              ? "Rust-owned focused virtual-key state with versioned browser input ingress and signed-short GetAsyncKeyState query semantics"
+                                              : setWindowPosFrameChangeMoveActive
+                                                ? "Rust-owned SetWindowPos frame-change move callback transaction over RuntimeUser32 geometry authority"
+                                                : d3d9RecreatedTexturesActive
+                                                  ? "Rust-owned D3D9 recreated-texture band over transactional RuntimeGraphics and RuntimeCom authority"
+                                                  : setWindowPosRepeatActivationActive
+                                                    ? "Rust-owned same-active-window repeated SetWindowPos validation-only callback over RuntimeUser32 authority"
+                                                    : createDirectoryAActive
+                                                      ? "Rust-owned durable CreateDirectoryA over RuntimeFiles and SQLite writable-profile authority"
+                                                      : getFileAttributesAActive
+                                                        ? "Rust-owned GetFileAttributesA over RuntimeFiles registered VFS and derived directory authority"
+                                                        : globalMemoryStatusActive
+                                                          ? "Rust-owned deterministic x86 MEMORYSTATUS over Kernel32CompatibilityPolicy and system-info virtual-span authority"
+                                                          : sleepZeroActive
+                                                            ? "Rust-owned Sleep(0) cooperative yield over RuntimeScheduler authority"
+                                                            : archiveSourceReadActive
+                                                              ? "Rust-owned window-scoped logical system-menu identity and bounded SC_CLOSE state over RuntimeUser32 authority"
+                                                              : dragAcceptFilesActive
+                                                                ? "Rust-owned DragAcceptFiles over logical-window extended-style authority with failure-atomic plan/commit"
+                                                                : "Rust-owned bounded WaitForSingleObjectEx over logical waitable-timer clock, scheduler, wait, and typed-object authority") ||
     latestEvidence.createWindowExAImplemented !== true ||
     latestEvidence.createWindowExASequence !== 1_388 ||
     latestEvidence.createWindowExAInstructionCount !== 11_476_236 ||
@@ -22317,8 +22447,7 @@ export function validateCurrentCheckpoint(manifest) {
       ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
     ]) {
       const actualEndpoint = actual.nextEndpoint ?? {};
-      const actualEndpointId =
-        actualEndpoint.endpointId ?? actualEndpoint.id;
+      const actualEndpointId = actualEndpoint.endpointId ?? actualEndpoint.id;
       const actualEndpointAddress =
         actualEndpoint.endpointAddress ??
         (Number.isSafeInteger(actualEndpoint.address)
@@ -22342,8 +22471,7 @@ export function validateCurrentCheckpoint(manifest) {
         actual.instructionCount !== currentStop.instructionCount ||
         actualEndpointId !== expectedEndpoint.endpointId ||
         actualEndpointAddress !== expectedEndpoint.endpointAddress ||
-        actualEndpointApi?.toLowerCase() !==
-          expectedEndpoint.api?.toLowerCase()
+        actualEndpointApi?.toLowerCase() !== expectedEndpoint.api?.toLowerCase()
       ) {
         errors.push(
           `${label} capability checkpoint must match nextStructuredStop`,
@@ -22396,8 +22524,7 @@ export function validateCurrentCheckpoint(manifest) {
       currentStop.capabilityCluster !== "kernel32-heap-lifecycle" ||
       currentStop.reason !==
         "runtime-trapless-execution-budget-checkpoint-complete" ||
-      expectedCompletion.previousBudgetStopInstructionCount !==
-        266_703_249 ||
+      expectedCompletion.previousBudgetStopInstructionCount !== 266_703_249 ||
       expectedCompletion.maximumAdditionalInstructions !== 64_000_000 ||
       expectedCompletion.additionalInstructionCount !== 49_655_587 ||
       expectedEndpoint.endpointKind !== "runtime-system-export" ||
@@ -22556,8 +22683,7 @@ export function validateCurrentCheckpoint(manifest) {
         completion.nextEndpoint?.endpointAddress !== "0x7f0004a0" ||
         completion.nextEndpoint?.api?.toLowerCase() !==
           "kernel32.dll!heapalloc" ||
-        completion.nextArguments?.join(",") !==
-          "0x68010001,0x00000000,24" ||
+        completion.nextArguments?.join(",") !== "0x68010001,0x00000000,24" ||
         completion.nextReturnAddress !== "0x100a4a33" ||
         completion.nextStackPointer !== "0x006ff4d4" ||
         completion.memoryContentSha256 !==
@@ -22616,8 +22742,7 @@ export function validateCurrentCheckpoint(manifest) {
       currentStop.capabilityCluster !== "winmm-process-clock" ||
       currentStop.reason !==
         "kernel32-heap-alloc-24-byte-buffer-checkpoint-complete" ||
-      expectedCompletion.capability !==
-        "kernel32-heap-alloc-24-byte-buffer" ||
+      expectedCompletion.capability !== "kernel32-heap-alloc-24-byte-buffer" ||
       expectedCompletion.implementationId !== "kernel32.heap-alloc.v2" ||
       expectedCompletion.requiredCompletions !== 4 ||
       expectedCompletion.completionCount !== 4 ||
@@ -22810,8 +22935,7 @@ export function validateCurrentCheckpoint(manifest) {
         "kernel32-critical-section-synchronization" ||
       currentStop.reason !==
         "winmm-time-get-time-post-heap-reuse-checkpoint-complete" ||
-      expectedCompletion.capability !==
-        "winmm-time-get-time-post-heap-reuse" ||
+      expectedCompletion.capability !== "winmm-time-get-time-post-heap-reuse" ||
       expectedCompletion.implementationId !== "winmm.time-get-time.v1" ||
       expectedCompletion.requiredCompletions !== 1 ||
       expectedCompletion.completionCount !== 1 ||
@@ -22932,8 +23056,7 @@ export function validateCurrentCheckpoint(manifest) {
         api: "KERNEL32.dll!EnterCriticalSection",
         implementationId: "kernel32.enter-critical-section.v1",
         returnAddress: "0x100077ba",
-        guestWriteHex:
-          "fffffffffeffffff010000000020000000000000d0070002",
+        guestWriteHex: "fffffffffeffffff010000000020000000000000d0070002",
       },
       {
         sequence: 158_107,
@@ -22941,8 +23064,7 @@ export function validateCurrentCheckpoint(manifest) {
         api: "KERNEL32.dll!LeaveCriticalSection",
         implementationId: "kernel32.leave-critical-section.v1",
         returnAddress: "0x100077fc",
-        guestWriteHex:
-          "ffffffffffffffff000000000000000000000000d0070002",
+        guestWriteHex: "ffffffffffffffff000000000000000000000000d0070002",
       },
     ];
     for (const [label, completion] of [
@@ -23003,6 +23125,421 @@ export function validateCurrentCheckpoint(manifest) {
             `${label} post-clock critical-section completion ${index} is invalid`,
           );
         }
+      }
+    }
+  }
+  if (presentationProgressGatewayActive) {
+    const expectedCompletion = currentStop.completion ?? {};
+    const expectedEndpoint = currentStop.nextEndpoint ?? {};
+    if (
+      currentStop.kind !== "capability-checkpoint" ||
+      currentStop.nextCheckpoint !==
+        "primary-main-loop-input-progress-gateway" ||
+      currentStop.pausedHistoricalCheckpoint !==
+        "primary-main-loop-presentation-progress-gateway" ||
+      currentStop.instructionCount !== 321_463_792 ||
+      currentStop.capabilityCluster !== "primary-main-loop-input-progress" ||
+      currentStop.reason !==
+        "primary-main-loop-presentation-progress-gateway-checkpoint-complete" ||
+      expectedCompletion.capability !==
+        "primary-main-loop-presentation-progress-gateway" ||
+      expectedCompletion.implementationId !==
+        "runtime.main-loop-presentation-progress-gateway.v1" ||
+      expectedCompletion.requiredCycles !== 64 ||
+      expectedCompletion.minimumRequiredCycles !== 64 ||
+      expectedCompletion.maximumCycles !== 256 ||
+      expectedCompletion.cycleCount !== 256 ||
+      expectedCompletion.requiredCompletions !== 128 ||
+      expectedCompletion.minimumRequiredCompletions !== 128 ||
+      expectedCompletion.completionCount !== 3_856 ||
+      expectedCompletion.interCycleCompletionCount !== 259 ||
+      expectedCompletion.criticalSectionCompletionCount !== 1_792 ||
+      expectedCompletion.criticalSectionAcquisitionCount !== 896 ||
+      expectedCompletion.criticalSectionReleaseCount !== 896 ||
+      expectedCompletion.carriedCycleCount !== 10 ||
+      expectedCompletion.renderCompletionCount !== 4 ||
+      expectedCompletion.outcome !== "bounded-window-exhausted" ||
+      expectedCompletion.hardBoundReached !== true ||
+      expectedCompletion.firstCompletionSequence !== 158_132 ||
+      expectedCompletion.firstCompletionInstructionCount !== 276_361_491 ||
+      expectedCompletion.lastCompletionSequence !== 161_987 ||
+      expectedCompletion.lastCompletionInstructionCount !== 321_463_786 ||
+      expectedEndpoint.endpointKind !== "runtime-system-export" ||
+      expectedEndpoint.endpointId !== 122 ||
+      expectedEndpoint.api?.toLowerCase() !==
+        "kernel32.dll!waitforsingleobjectex" ||
+      expectedEndpoint.endpointAddress !== "0x7f000790" ||
+      expectedEndpoint.iatAddress !== "0x100d1290" ||
+      expectedEndpoint.observedModule?.toLowerCase() !== "kernel32.dll" ||
+      expectedEndpoint.observedSymbol !== "WaitForSingleObjectEx" ||
+      expectedEndpoint.disposition !== "declared-runtime-export" ||
+      expectedEndpoint.arguments?.join(",") !==
+        "0x57010002,0x0000000a,0x00000001" ||
+      active.runtimeKernelBoundary?.capabilityExpansionPausedAt !==
+        "primary-main-loop-input-progress-gateway" ||
+      active.runtimeHeapBacking?.capabilityExpansionPausedAt !==
+        "primary-main-loop-input-progress-gateway" ||
+      bgiBrowserEvidence.nodeOracleReportBytes !== 3_616_933 ||
+      bgiBrowserEvidence.nodeOracleReportSha256 !==
+        "8bc91f667483b3f9f4e2610990bf0f89a6ea482ec3031f441c66470269a3185a" ||
+      bgiBrowserEvidence.browserReportBytes !== 3_390_688 ||
+      bgiBrowserEvidence.browserReportSha256 !==
+        "520bfb4d3351fc1ef6659b5961325eab21440836f0e560c672b6df80500248eb" ||
+      bgiBrowserEvidence.runtimeWorkerBytes !== 613_495 ||
+      bgiBrowserEvidence.runtimeWorkerSha256 !==
+        "954493c2a27e337b4b06e3d995ef559b9c6e5bbe6d026e9827d31f794dc081dd" ||
+      latestEvidence.reportBytes !== 3_616_933 ||
+      latestEvidence.reportSha256 !==
+        "8bc91f667483b3f9f4e2610990bf0f89a6ea482ec3031f441c66470269a3185a" ||
+      latestEvidence.browserReportBytes !== 3_390_688 ||
+      latestEvidence.browserReportSha256 !==
+        "520bfb4d3351fc1ef6659b5961325eab21440836f0e560c672b6df80500248eb" ||
+      !Number.isSafeInteger(bgiBrowserEvidence.statusMessagesObserved) ||
+      bgiBrowserEvidence.statusMessagesObserved <
+        bgiBrowserEvidence.statusMessagesRetained ||
+      bgiBrowserEvidence.statusMessagesRetained !== 4_096
+    ) {
+      errors.push("presentation-progress gateway checkpoint stop is invalid");
+    }
+
+    const expectedWorkerCycleIndexes = [
+      6, 15, 24, 33, 42, 51, 70, 79, 88, 97, 106, 115, 134, 143, 152, 161, 170,
+      179, 198, 207, 216, 225, 234, 243,
+    ];
+    const expectedIntervals = [
+      [60, 64, 159_006, 297_143_384, 159_069, 297_176_632, 0],
+      [124, 64, 159_968, 306_573_990, 160_031, 306_591_167, 0],
+      [188, 65, 160_930, 316_572_500, 160_994, 319_025_872, 16],
+      [252, 66, 161_898, 321_458_179, 161_963, 321_463_345, 0],
+    ];
+    const finalIntervalImplementationCounts = {
+      "com:IDirect3DDevice9:slot-3": 1,
+      "kernel32.set-waitable-timer.relative-one-shot.v1": 1,
+      "kernel32.wait-for-single-object-ex.waitable-timer.v1": 1,
+      "user32.get-async-key-state.v1": 46,
+      "user32.get-cursor-pos.v1": 2,
+      "user32.get-system-metrics.v1": 6,
+      "user32.get-window-rect.v1": 2,
+      "user32.is-iconic.logical-window-style.v1": 1,
+      "user32.peek-message-a.current-thread.v1": 1,
+      "winmm.time-get-time.v1": 5,
+    };
+    for (const [label, completion] of [
+      ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
+      ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
+    ]) {
+      const nextEndpoint = completion.nextEndpoint ?? {};
+      const cycles = completion.cycles ?? [];
+      const intervals = completion.interCycleIntervals ?? [];
+      const timerLanes = completion.timerLanes ?? [];
+      const renderCompletions = completion.renderCompletions ?? [];
+      if (
+        completion.capability !==
+          "primary-main-loop-presentation-progress-gateway" ||
+        completion.implementationId !==
+          "runtime.main-loop-presentation-progress-gateway.v1" ||
+        completion.requiredCycles !== 64 ||
+        completion.minimumRequiredCycles !== 64 ||
+        completion.maximumCycles !== 256 ||
+        completion.cycleCount !== 256 ||
+        completion.requiredCompletions !== 128 ||
+        completion.minimumRequiredCompletions !== 128 ||
+        completion.completionCount !== 3_856 ||
+        completion.firstCompletionSequence !== 158_132 ||
+        completion.firstCompletionInstructionCount !== 276_361_491 ||
+        completion.lastCompletionSequence !== 161_987 ||
+        completion.lastCompletionInstructionCount !== 321_463_786 ||
+        completion.boundaryCycleIndexes?.join(",") !== "0,255" ||
+        completion.boundaryCompletionCount !== 16 ||
+        cycles.length !== 256 ||
+        completion.interCycleCompletionCount !== 259 ||
+        intervals.length !== 4 ||
+        completion.waitCompletionCount !== 256 ||
+        completion.criticalSectionCompletionCount !== 1_792 ||
+        completion.criticalSectionAcquisitionCount !== 896 ||
+        completion.criticalSectionReleaseCount !== 896 ||
+        completion.carriedCycleCount !== 10 ||
+        completion.timerArmCompletionCount !== 256 ||
+        completion.roundtripCount !== 896 ||
+        completion.criticalSectionAddresses?.join(",") !==
+          "269797584,269482016,538061564,538063348,538071508,269503120,537154112,537005648,537005720,537005792,537005864,537005936,537006008,537006080,537006152,537006224,537006296,537006368,537006440,537006656,537006728,537006512,537006584" ||
+        completion.mainLoopThreadId !== 8_193 ||
+        completion.participatingThreadIds?.join(",") !== "8192,8193" ||
+        completion.threadTransitionCount !== 56 ||
+        completion.balanced !== true ||
+        completion.baseline?.cycleCount !== 64 ||
+        completion.baseline?.lastCompletionSequence !== 159_093 ||
+        completion.baseline?.lastCompletionInstructionCount !== 297_177_073 ||
+        completion.baseline?.presentOccurrence !== 2 ||
+        completion.outcome !== "bounded-window-exhausted" ||
+        completion.hardBoundReached !== true ||
+        completion.renderCompletionCount !== 4 ||
+        renderCompletions.length !== 4 ||
+        completion.presentCompletion !== null ||
+        timerLanes.length !== 2 ||
+        completion.instructionCount !== 321_463_792 ||
+        nextEndpoint.id !== 122 ||
+        nextEndpoint.address !== 0x7f00_0790 ||
+        nextEndpoint.iatAddress !== 0x100d_1290 ||
+        nextEndpoint.module?.toLowerCase() !== "kernel32.dll" ||
+        nextEndpoint.symbol?.kind !== "name" ||
+        nextEndpoint.symbol?.name !== "WaitForSingleObjectEx" ||
+        nextEndpoint.disposition !== "declared-runtime-export" ||
+        completion.nextArguments?.join(",") !== "1459683330,10,1" ||
+        completion.nextReturnAddress !== 268_764_693 ||
+        completion.nextStackPointer !== 1_343_225_736 ||
+        completion.memoryContentSha256 !==
+          "fef2805b5adc894960293aaab9c4820db1a288bca24a7387913a11c1a8dc67c1"
+      ) {
+        errors.push(`${label} presentation-progress evidence is invalid`);
+        continue;
+      }
+
+      const intervalsByCycle = new Map(
+        intervals.map((interval) => [interval.afterCycleIndex, interval]),
+      );
+      const histogram = new Map();
+      let nextSequence = 158_132;
+      let expectedCarryIn = [];
+      let acquisitionCount = 0;
+      let releaseCount = 0;
+      for (let index = 0; index < cycles.length; index += 1) {
+        const cycle = cycles[index] ?? {};
+        const implementationCount = Object.values(
+          cycle.implementationCounts ?? {},
+        ).reduce((total, count) => total + count, 0);
+        histogram.set(
+          cycle.completionCount,
+          (histogram.get(cycle.completionCount) ?? 0) + 1,
+        );
+        if (
+          cycle.cycleIndex !== index ||
+          cycle.firstCompletionSequence !== nextSequence ||
+          cycle.lastCompletionSequence !==
+            cycle.firstCompletionSequence + cycle.completionCount - 1 ||
+          cycle.firstCompletionInstructionCount <= 0 ||
+          cycle.lastCompletionInstructionCount <=
+            cycle.firstCompletionInstructionCount ||
+          cycle.waitThreadId !== 8_193 ||
+          cycle.timerArmThreadId !== 8_193 ||
+          cycle.waitHandle !== 1_459_683_330 ||
+          cycle.timerId !== 2 ||
+          cycle.waitOccurrence <= 0 ||
+          cycle.timerArmOccurrence <= cycle.waitOccurrence ||
+          cycle.waitableTimerDeadlineTime100ns <= 0 ||
+          cycle.waitableTimerArmGeneration <= 0 ||
+          cycle.waitableTimerClockGeneration <= 0 ||
+          cycle.nextWaitRegistrationId <= 0 ||
+          cycle.timerArmGeneration <= 0 ||
+          cycle.timerArmedAtTime100ns <= 0 ||
+          cycle.nextTimerDeadlineTime100ns <= cycle.timerArmedAtTime100ns ||
+          cycle.criticalSectionCompletionCount !==
+            cycle.criticalSectionAcquisitionCount +
+              cycle.criticalSectionReleaseCount ||
+          cycle.roundtripCount !== cycle.criticalSectionReleaseCount ||
+          cycle.criticalSectionAddresses?.length !==
+            cycle.criticalSectionAcquisitionCount ||
+          cycle.criticalSectionOccurrences?.length !==
+            cycle.criticalSectionAcquisitionCount ||
+          JSON.stringify(cycle.criticalSectionCarryIn) !==
+            JSON.stringify(expectedCarryIn) ||
+          cycle.balanced !== (cycle.criticalSectionCarryOut?.length === 0) ||
+          (cycle.participatingThreadIds?.join(",") !== "8193" &&
+            cycle.participatingThreadIds?.join(",") !== "8192,8193") ||
+          cycle.threadTransitionCount !==
+            (cycle.participatingThreadIds?.length === 1 ? 0 : 2) ||
+          cycle.implementationCounts?.[
+            "kernel32.wait-for-single-object-ex.waitable-timer.v1"
+          ] < 1 ||
+          cycle.implementationCounts?.[
+            "kernel32.set-waitable-timer.relative-one-shot.v1"
+          ] < 1 ||
+          implementationCount !== cycle.completionCount
+        ) {
+          errors.push(
+            `${label} presentation-progress cycle ${index} is invalid`,
+          );
+        }
+        acquisitionCount += cycle.criticalSectionAcquisitionCount ?? 0;
+        releaseCount += cycle.criticalSectionReleaseCount ?? 0;
+        expectedCarryIn = cycle.criticalSectionCarryOut;
+        nextSequence = cycle.lastCompletionSequence + 1;
+        const interval = intervalsByCycle.get(index);
+        if (interval === undefined) continue;
+        if (
+          interval.firstCompletionSequence !== nextSequence ||
+          interval.lastCompletionSequence !==
+            interval.firstCompletionSequence + interval.completionCount - 1 ||
+          interval.participatingThreadIds?.join(",") !== "8192" ||
+          interval.threadTransitionCount !== 0 ||
+          interval.criticalSectionAcquisitionCount !==
+            interval.criticalSectionReleaseCount ||
+          interval.criticalSectionAddresses?.length !==
+            interval.criticalSectionAcquisitionCount ||
+          interval.criticalSectionOccurrences?.length !==
+            interval.criticalSectionAcquisitionCount ||
+          interval.criticalSectionCarryIn?.length !== 0 ||
+          interval.criticalSectionCarryOut?.length !== 0 ||
+          interval.balanced !== true ||
+          Object.values(interval.implementationCounts ?? {}).reduce(
+            (total, count) => total + count,
+            0,
+          ) !== interval.completionCount
+        ) {
+          errors.push(
+            `${label} presentation-progress interval ${index} is invalid`,
+          );
+        }
+        acquisitionCount += interval.criticalSectionAcquisitionCount ?? 0;
+        releaseCount += interval.criticalSectionReleaseCount ?? 0;
+        expectedCarryIn = interval.criticalSectionCarryOut;
+        nextSequence = interval.lastCompletionSequence + 1;
+      }
+
+      for (const [interval, expected] of intervals.map((value, index) => [
+        value,
+        expectedIntervals[index],
+      ])) {
+        if (
+          interval.afterCycleIndex !== expected[0] ||
+          interval.completionCount !== expected[1] ||
+          interval.firstCompletionSequence !== expected[2] ||
+          interval.firstCompletionInstructionCount !== expected[3] ||
+          interval.lastCompletionSequence !== expected[4] ||
+          interval.lastCompletionInstructionCount !== expected[5] ||
+          interval.criticalSectionAcquisitionCount !== expected[6] ||
+          interval.criticalSectionReleaseCount !== expected[6]
+        ) {
+          errors.push(
+            `${label} presentation-progress interval bound is invalid`,
+          );
+        }
+      }
+      if (
+        [...histogram.entries()]
+          .sort(([left], [right]) => left - right)
+          .map(([count, occurrences]) => `${count}:${occurrences}`)
+          .join(",") !== "8:232,72:14,73:7,74:3" ||
+        cycles
+          .filter((cycle) => cycle.participatingThreadIds?.length > 1)
+          .map((cycle) => cycle.cycleIndex)
+          .join(",") !== expectedWorkerCycleIndexes.join(",") ||
+        cycles
+          .filter(
+            (cycle) =>
+              cycle.criticalSectionCarryIn?.length > 0 ||
+              cycle.criticalSectionCarryOut?.length > 0,
+          )
+          .map((cycle) => cycle.cycleIndex)
+          .join(",") !== "24,25,26,27,28,29,30,31,32,33" ||
+        acquisitionCount !== 896 ||
+        releaseCount !== 896 ||
+        expectedCarryIn?.length !== 0 ||
+        nextSequence !== 161_988 ||
+        JSON.stringify(intervals[3]?.implementationCounts) !==
+          JSON.stringify(finalIntervalImplementationCounts)
+      ) {
+        errors.push(`${label} presentation-progress aggregate is invalid`);
+      }
+
+      const renderSequences = [161_536, 161_667, 161_798, 161_929];
+      const renderInstructions = [
+        321_442_939, 321_448_839, 321_454_722, 321_460_631,
+      ];
+      for (const [index, render] of renderCompletions.entries()) {
+        if (
+          render.sequence !== renderSequences[index] ||
+          render.module !== "<com>" ||
+          render.symbol !== "IDirect3DDevice9.TestCooperativeLevel" ||
+          render.occurrence !== 7 + index ||
+          render.trapInstructionCount !== renderInstructions[index] ||
+          render.interface !== "IDirect3DDevice9" ||
+          render.vtableSlot !== 3 ||
+          render.arguments?.join(",") !== "16842756" ||
+          render.result?.kind !== "h-result" ||
+          render.result?.value !== 0 ||
+          render.returnAddress !== 268_807_629 ||
+          render.stackPointerBefore !== 7_338_228 ||
+          render.stackPointerAfter !== 7_338_236 ||
+          render.referenceCount !== 5 ||
+          render.objectRetired !== false ||
+          render.guestWrites?.length !== 0 ||
+          render.runtimeThreadId !== 8_192
+        ) {
+          errors.push(
+            `${label} presentation-progress render completion ${index} is invalid`,
+          );
+        }
+      }
+
+      const timerOne = timerLanes.find((lane) => lane.timerId === 1) ?? {};
+      const timerTwo = timerLanes.find((lane) => lane.timerId === 2) ?? {};
+      const allLaneCompletions = timerLanes.flatMap(
+        (lane) => lane.completions ?? [],
+      );
+      const invalidLaneCompletion = timerLanes.some((lane) =>
+        (lane.completions ?? []).some(
+          (entry) =>
+            entry.handle !== lane.handle ||
+            entry.timerId !== lane.timerId ||
+            entry.runtimeThreadId !== lane.participatingThreadIds?.[0] ||
+            entry.armGeneration <= 0 ||
+            entry.deadlineTime100ns <= 0 ||
+            (entry.kind === "arm" && entry.paced !== false),
+        ),
+      );
+      if (
+        timerOne.handle !== 1_459_683_329 ||
+        timerOne.armCompletionCount !== 4 ||
+        timerOne.waitCompletionCount !== 4 ||
+        timerOne.participatingThreadIds?.join(",") !== "8192" ||
+        timerOne.completions?.length !== 8 ||
+        timerOne.completions?.[0]?.kind !== "arm" ||
+        timerOne.completions?.[0]?.sequence !== 161_537 ||
+        timerOne.completions?.at(-1)?.kind !== "wait" ||
+        timerOne.completions?.at(-1)?.sequence !== 161_931 ||
+        timerTwo.handle !== 1_459_683_330 ||
+        timerTwo.armCompletionCount !== 192 ||
+        timerTwo.waitCompletionCount !== 192 ||
+        timerTwo.participatingThreadIds?.join(",") !== "8193" ||
+        timerTwo.completions?.length !== 384 ||
+        timerTwo.completions?.[0]?.kind !== "wait" ||
+        timerTwo.completions?.[0]?.sequence !== 159_094 ||
+        timerTwo.completions?.at(-1)?.kind !== "arm" ||
+        timerTwo.completions?.at(-1)?.sequence !== 161_987 ||
+        invalidLaneCompletion ||
+        allLaneCompletions
+          .filter((entry) => entry.kind === "wait" && entry.paced === false)
+          .map((entry) => entry.sequence)
+          .join(",") !== "161964"
+      ) {
+        errors.push(`${label} presentation-progress timer lanes are invalid`);
+      }
+
+      const first = completion.firstBoundaryCompletion ?? {};
+      const last = completion.lastBoundaryCompletion ?? {};
+      if (
+        first.sequence !== 158_132 ||
+        first.module?.toLowerCase() !== "kernel32.dll" ||
+        first.symbol !== "WaitForSingleObjectEx" ||
+        (first.occurrence !== undefined && first.occurrence !== 11_209) ||
+        first.trapInstructionCount !== 276_361_491 ||
+        first.arguments?.join(",") !== "1459683330,10,1" ||
+        first.runtimeThreadId !== 8_193 ||
+        first.waitableTimer?.timer?.lastExpiration?.armGeneration !== 11_205 ||
+        first.waitableTimer?.timerClock?.generation !== 11_209 ||
+        last.sequence !== 161_987 ||
+        last.module?.toLowerCase() !== "kernel32.dll" ||
+        last.symbol !== "SetWaitableTimer" ||
+        (last.occurrence !== undefined && last.occurrence !== 11_469) ||
+        last.trapInstructionCount !== 321_463_786 ||
+        last.arguments?.join(",") !== "1459683330,1343225752,0,0,0,0" ||
+        last.runtimeThreadId !== 8_193 ||
+        last.waitableTimer?.timer?.arm?.armedAtTime100ns !== 57_440_000 ||
+        last.waitableTimer?.timer?.arm?.deadlineTime100ns !== 57_445_000 ||
+        last.waitableTimer?.timer?.arm?.generation !== 11_461
+      ) {
+        errors.push(`${label} presentation-progress boundary is invalid`);
       }
     }
   }
@@ -23070,8 +23607,9 @@ export function validateCurrentCheckpoint(manifest) {
       JSON.stringify(
         latestEvidence.waitForSingleObjectExPacingTargetTimes100ns,
       ) !== JSON.stringify(["5000", "56405000"]) ||
-      JSON.stringify(latestEvidence.waitForSingleObjectExPacingArmGenerations) !==
-        JSON.stringify(["1", "11268"]) ||
+      JSON.stringify(
+        latestEvidence.waitForSingleObjectExPacingArmGenerations,
+      ) !== JSON.stringify(["1", "11268"]) ||
       bgiBrowserEvidence.nodeOracleReportBytes !== 3_027_521 ||
       bgiBrowserEvidence.nodeOracleReportSha256 !==
         "4f9f150a239c058f118cb3e5e90b2240ebd023fc358fbe0beaf14011cbd018ad" ||
@@ -23222,15 +23760,15 @@ export function validateCurrentCheckpoint(manifest) {
           cycle.implementationCounts?.[
             "kernel32.set-waitable-timer.relative-one-shot.v1"
           ] !== 1 ||
-          cycle.implementationCounts?.[
-            "kernel32.enter-critical-section.v1"
-          ] !== cycle.criticalSectionAcquisitionCount ||
-          cycle.implementationCounts?.[
-            "kernel32.leave-critical-section.v1"
-          ] !== cycle.criticalSectionReleaseCount ||
+          cycle.implementationCounts?.["kernel32.enter-critical-section.v1"] !==
+            cycle.criticalSectionAcquisitionCount ||
+          cycle.implementationCounts?.["kernel32.leave-critical-section.v1"] !==
+            cycle.criticalSectionReleaseCount ||
           implementationCount !== expectedCount
         ) {
-          errors.push(`${label} recurring timer window cycle ${index} is invalid`);
+          errors.push(
+            `${label} recurring timer window cycle ${index} is invalid`,
+          );
         }
         acquisitionCount += cycle.criticalSectionAcquisitionCount ?? 0;
         releaseCount += cycle.criticalSectionReleaseCount ?? 0;
@@ -23385,8 +23923,9 @@ export function validateCurrentCheckpoint(manifest) {
       JSON.stringify(
         latestEvidence.waitForSingleObjectExPacingTargetTimes100ns,
       ) !== JSON.stringify(["5000", "56165000"]) ||
-      JSON.stringify(latestEvidence.waitForSingleObjectExPacingArmGenerations) !==
-        JSON.stringify(["1", "11220"])
+      JSON.stringify(
+        latestEvidence.waitForSingleObjectExPacingArmGenerations,
+      ) !== JSON.stringify(["1", "11220"])
     ) {
       errors.push("recurring timer multi-cycle checkpoint stop is invalid");
     }
@@ -23395,16 +23934,16 @@ export function validateCurrentCheckpoint(manifest) {
       8, 8, 8, 8, 8, 8, 72, 8, 8, 8, 8, 8, 8, 8, 8, 72,
     ];
     const expectedFirstInstructionCounts = [
-      276_361_491, 276_361_638, 276_361_785, 276_361_932,
-      276_362_079, 276_362_226, 276_362_373, 287_460_370,
-      287_460_517, 287_460_664, 287_460_811, 287_460_958,
-      287_461_105, 287_461_252, 287_461_399, 287_461_546,
+      276_361_491, 276_361_638, 276_361_785, 276_361_932, 276_362_079,
+      276_362_226, 276_362_373, 287_460_370, 287_460_517, 287_460_664,
+      287_460_811, 287_460_958, 287_461_105, 287_461_252, 287_461_399,
+      287_461_546,
     ];
     const expectedLastInstructionCounts = [
-      276_361_632, 276_361_779, 276_361_926, 276_362_073,
-      276_362_220, 276_362_367, 287_460_364, 287_460_511,
-      287_460_658, 287_460_805, 287_460_952, 287_461_099,
-      287_461_246, 287_461_393, 287_461_540, 287_481_297,
+      276_361_632, 276_361_779, 276_361_926, 276_362_073, 276_362_220,
+      276_362_367, 287_460_364, 287_460_511, 287_460_658, 287_460_805,
+      287_460_952, 287_461_099, 287_461_246, 287_461_393, 287_461_540,
+      287_481_297,
     ];
     const simpleImplementationCounts = {
       "kernel32.enter-critical-section.v1": 3,
@@ -23631,14 +24170,78 @@ export function validateCurrentCheckpoint(manifest) {
       errors.push("recurring timer-cycle checkpoint stop is invalid");
     }
     const expectedCalls = [
-      [158_132, 276_361_491, 11_209, "WaitForSingleObjectEx", "0x57010002", "0x10050615", "0x500fff88,0x500fff98"],
-      [158_133, 276_361_516, 51_343, "EnterCriticalSection", "0x1014c8d0", "0x10091796", "0x500fff70,0x500fff78"],
-      [158_134, 276_361_521, 51_343, "LeaveCriticalSection", "0x1014c8d0", "0x100917aa", "0x500fff70,0x500fff78"],
-      [158_135, 276_361_557, 51_344, "EnterCriticalSection", "0x1014c8d0", "0x10091966", "0x500fff70,0x500fff78"],
-      [158_136, 276_361_562, 51_344, "LeaveCriticalSection", "0x1014c8d0", "0x1009197a", "0x500fff70,0x500fff78"],
-      [158_137, 276_361_588, 51_345, "EnterCriticalSection", "0x100ff820", "0x100010db", "0x500fff90,0x500fff98"],
-      [158_138, 276_361_597, 51_345, "LeaveCriticalSection", "0x100ff820", "0x100010eb", "0x500fff90,0x500fff98"],
-      [158_139, 276_361_632, 11_210, "SetWaitableTimer", "0x57010002", "0x10050607", "0x500fff7c,0x500fff98"],
+      [
+        158_132,
+        276_361_491,
+        11_209,
+        "WaitForSingleObjectEx",
+        "0x57010002",
+        "0x10050615",
+        "0x500fff88,0x500fff98",
+      ],
+      [
+        158_133,
+        276_361_516,
+        51_343,
+        "EnterCriticalSection",
+        "0x1014c8d0",
+        "0x10091796",
+        "0x500fff70,0x500fff78",
+      ],
+      [
+        158_134,
+        276_361_521,
+        51_343,
+        "LeaveCriticalSection",
+        "0x1014c8d0",
+        "0x100917aa",
+        "0x500fff70,0x500fff78",
+      ],
+      [
+        158_135,
+        276_361_557,
+        51_344,
+        "EnterCriticalSection",
+        "0x1014c8d0",
+        "0x10091966",
+        "0x500fff70,0x500fff78",
+      ],
+      [
+        158_136,
+        276_361_562,
+        51_344,
+        "LeaveCriticalSection",
+        "0x1014c8d0",
+        "0x1009197a",
+        "0x500fff70,0x500fff78",
+      ],
+      [
+        158_137,
+        276_361_588,
+        51_345,
+        "EnterCriticalSection",
+        "0x100ff820",
+        "0x100010db",
+        "0x500fff90,0x500fff98",
+      ],
+      [
+        158_138,
+        276_361_597,
+        51_345,
+        "LeaveCriticalSection",
+        "0x100ff820",
+        "0x100010eb",
+        "0x500fff90,0x500fff98",
+      ],
+      [
+        158_139,
+        276_361_632,
+        11_210,
+        "SetWaitableTimer",
+        "0x57010002",
+        "0x10050607",
+        "0x500fff7c,0x500fff98",
+      ],
     ];
     for (const [label, completion] of [
       ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
@@ -23698,8 +24301,7 @@ export function validateCurrentCheckpoint(manifest) {
           call.stackPointers?.join(",") !== expected[6] ||
           call.lastError !== 0 ||
           (isWait &&
-            (call.arguments?.join(",") !==
-              "0x57010002,0x0000000a,0x00000001" ||
+            (call.arguments?.join(",") !== "0x57010002,0x0000000a,0x00000001" ||
               call.result !== 0 ||
               call.implementationId !==
                 "kernel32.wait-for-single-object-ex.waitable-timer.v1" ||
@@ -23729,7 +24331,9 @@ export function validateCurrentCheckpoint(manifest) {
               call.guestWriteBytes !== 24 ||
               call.guestWriteHex !== criticalWriteHex))
         ) {
-          errors.push(`${label} recurring timer-cycle completion ${index} is invalid`);
+          errors.push(
+            `${label} recurring timer-cycle completion ${index} is invalid`,
+          );
         }
       }
     }
@@ -23795,8 +24399,7 @@ export function validateCurrentCheckpoint(manifest) {
       expectedCompletion.requiredCompletions !== 1 ||
       expectedCompletion.completionCount !== 1 ||
       expectedCompletion.firstCompletionSequence !== sequence ||
-      expectedCompletion.firstCompletionInstructionCount !==
-        instructionCount ||
+      expectedCompletion.firstCompletionInstructionCount !== instructionCount ||
       expectedCompletion.lastCompletionSequence !== sequence ||
       expectedCompletion.lastCompletionInstructionCount !== instructionCount ||
       expectedEndpoint.endpointKind !== "runtime-system-export" ||
@@ -23810,15 +24413,14 @@ export function validateCurrentCheckpoint(manifest) {
       expectedEndpoint.disposition !== "declared-runtime-export" ||
       expectedEndpoint.arguments?.join(",") !==
         "0x57010002,0x0000000a,0x00000001" ||
-      active.runtimeHeapBacking?.capabilityExpansionPausedAt !== nextCheckpoint ||
+      active.runtimeHeapBacking?.capabilityExpansionPausedAt !==
+        nextCheckpoint ||
       !Number.isSafeInteger(bgiBrowserEvidence.statusMessagesObserved) ||
       bgiBrowserEvidence.statusMessagesObserved <
         bgiBrowserEvidence.statusMessagesRetained ||
       bgiBrowserEvidence.statusMessagesRetained !== 4_096
     ) {
-      errors.push(
-        "waitable-timer arm checkpoint stop is invalid",
-      );
+      errors.push("waitable-timer arm checkpoint stop is invalid");
     }
     for (const [label, completion] of [
       ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
@@ -23914,12 +24516,11 @@ export function validateCurrentCheckpoint(manifest) {
         : postTimerWaitCriticalSectionActive
           ? 276_361_303
           : 276_361_156;
-    const checkpointInstructionCount =
-      postTimerRearmWaitCriticalSectionActive
-        ? 276_361_485
-        : postTimerWaitCriticalSectionActive
-          ? 276_361_338
-          : 276_361_191;
+    const checkpointInstructionCount = postTimerRearmWaitCriticalSectionActive
+      ? 276_361_485
+      : postTimerWaitCriticalSectionActive
+        ? 276_361_338
+        : 276_361_191;
     const expectedCompletion = currentStop.completion ?? {};
     const expectedEndpoint = currentStop.nextEndpoint ?? {};
     if (
@@ -23928,8 +24529,7 @@ export function validateCurrentCheckpoint(manifest) {
       currentStop.pausedHistoricalCheckpoint !== profile ||
       currentStop.instructionCount !== checkpointInstructionCount ||
       currentStop.capabilityCluster !== "kernel32-waitable-timer-arm" ||
-      currentStop.reason !==
-        `${profile}-checkpoint-complete` ||
+      currentStop.reason !== `${profile}-checkpoint-complete` ||
       expectedCompletion.capability !== profile ||
       expectedCompletion.implementationId !==
         "kernel32.critical-section-balanced-batch.v1" ||
@@ -23943,8 +24543,7 @@ export function validateCurrentCheckpoint(manifest) {
         lastCompletionInstructionCount ||
       expectedEndpoint.endpointKind !== "runtime-system-export" ||
       expectedEndpoint.endpointId !== 118 ||
-      expectedEndpoint.api?.toLowerCase() !==
-        "kernel32.dll!setwaitabletimer" ||
+      expectedEndpoint.api?.toLowerCase() !== "kernel32.dll!setwaitabletimer" ||
       expectedEndpoint.endpointAddress !== "0x7f000750" ||
       expectedEndpoint.iatAddress !== "0x100d1280" ||
       expectedEndpoint.observedModule?.toLowerCase() !== "kernel32.dll" ||
@@ -23952,7 +24551,8 @@ export function validateCurrentCheckpoint(manifest) {
       expectedEndpoint.disposition !== "declared-runtime-export" ||
       expectedEndpoint.arguments?.join(",") !==
         "0x57010002,0x500fff98,0x00000000,0x00000000,0x00000000,0x00000000" ||
-      active.runtimeHeapBacking?.capabilityExpansionPausedAt !== nextCheckpoint ||
+      active.runtimeHeapBacking?.capabilityExpansionPausedAt !==
+        nextCheckpoint ||
       !Number.isSafeInteger(bgiBrowserEvidence.statusMessagesObserved) ||
       bgiBrowserEvidence.statusMessagesObserved <
         bgiBrowserEvidence.statusMessagesRetained ||
@@ -23962,30 +24562,192 @@ export function validateCurrentCheckpoint(manifest) {
     }
     const expectedCalls = postTimerRearmWaitCriticalSectionActive
       ? [
-          [158_125, 276_361_369, 51_340, "EnterCriticalSection", "0x1014c8d0", "0x10091796", "0x500fff70,0x500fff78", "fffffffffeffffff010000000120000000000000d0070002"],
-          [158_126, 276_361_374, 51_340, "LeaveCriticalSection", "0x1014c8d0", "0x100917aa", "0x500fff70,0x500fff78", "ffffffffffffffff000000000000000000000000d0070002"],
-          [158_127, 276_361_410, 51_341, "EnterCriticalSection", "0x1014c8d0", "0x10091966", "0x500fff70,0x500fff78", "fffffffffeffffff010000000120000000000000d0070002"],
-          [158_128, 276_361_415, 51_341, "LeaveCriticalSection", "0x1014c8d0", "0x1009197a", "0x500fff70,0x500fff78", "ffffffffffffffff000000000000000000000000d0070002"],
-          [158_129, 276_361_441, 51_342, "EnterCriticalSection", "0x100ff820", "0x100010db", "0x500fff90,0x500fff98", "fffffffffeffffff010000000120000000000000d0070002"],
-          [158_130, 276_361_450, 51_342, "LeaveCriticalSection", "0x100ff820", "0x100010eb", "0x500fff90,0x500fff98", "ffffffffffffffff000000000000000000000000d0070002"],
+          [
+            158_125,
+            276_361_369,
+            51_340,
+            "EnterCriticalSection",
+            "0x1014c8d0",
+            "0x10091796",
+            "0x500fff70,0x500fff78",
+            "fffffffffeffffff010000000120000000000000d0070002",
+          ],
+          [
+            158_126,
+            276_361_374,
+            51_340,
+            "LeaveCriticalSection",
+            "0x1014c8d0",
+            "0x100917aa",
+            "0x500fff70,0x500fff78",
+            "ffffffffffffffff000000000000000000000000d0070002",
+          ],
+          [
+            158_127,
+            276_361_410,
+            51_341,
+            "EnterCriticalSection",
+            "0x1014c8d0",
+            "0x10091966",
+            "0x500fff70,0x500fff78",
+            "fffffffffeffffff010000000120000000000000d0070002",
+          ],
+          [
+            158_128,
+            276_361_415,
+            51_341,
+            "LeaveCriticalSection",
+            "0x1014c8d0",
+            "0x1009197a",
+            "0x500fff70,0x500fff78",
+            "ffffffffffffffff000000000000000000000000d0070002",
+          ],
+          [
+            158_129,
+            276_361_441,
+            51_342,
+            "EnterCriticalSection",
+            "0x100ff820",
+            "0x100010db",
+            "0x500fff90,0x500fff98",
+            "fffffffffeffffff010000000120000000000000d0070002",
+          ],
+          [
+            158_130,
+            276_361_450,
+            51_342,
+            "LeaveCriticalSection",
+            "0x100ff820",
+            "0x100010eb",
+            "0x500fff90,0x500fff98",
+            "ffffffffffffffff000000000000000000000000d0070002",
+          ],
         ]
       : postTimerWaitCriticalSectionActive
         ? [
-          [158_117, 276_361_222, 51_337, "EnterCriticalSection", "0x1014c8d0", "0x10091796", "0x500fff70,0x500fff78", "fffffffffeffffff010000000120000000000000d0070002"],
-          [158_118, 276_361_227, 51_337, "LeaveCriticalSection", "0x1014c8d0", "0x100917aa", "0x500fff70,0x500fff78", "ffffffffffffffff000000000000000000000000d0070002"],
-          [158_119, 276_361_263, 51_338, "EnterCriticalSection", "0x1014c8d0", "0x10091966", "0x500fff70,0x500fff78", "fffffffffeffffff010000000120000000000000d0070002"],
-          [158_120, 276_361_268, 51_338, "LeaveCriticalSection", "0x1014c8d0", "0x1009197a", "0x500fff70,0x500fff78", "ffffffffffffffff000000000000000000000000d0070002"],
-          [158_121, 276_361_294, 51_339, "EnterCriticalSection", "0x100ff820", "0x100010db", "0x500fff90,0x500fff98", "fffffffffeffffff010000000120000000000000d0070002"],
-          [158_122, 276_361_303, 51_339, "LeaveCriticalSection", "0x100ff820", "0x100010eb", "0x500fff90,0x500fff98", "ffffffffffffffff000000000000000000000000d0070002"],
+            [
+              158_117,
+              276_361_222,
+              51_337,
+              "EnterCriticalSection",
+              "0x1014c8d0",
+              "0x10091796",
+              "0x500fff70,0x500fff78",
+              "fffffffffeffffff010000000120000000000000d0070002",
+            ],
+            [
+              158_118,
+              276_361_227,
+              51_337,
+              "LeaveCriticalSection",
+              "0x1014c8d0",
+              "0x100917aa",
+              "0x500fff70,0x500fff78",
+              "ffffffffffffffff000000000000000000000000d0070002",
+            ],
+            [
+              158_119,
+              276_361_263,
+              51_338,
+              "EnterCriticalSection",
+              "0x1014c8d0",
+              "0x10091966",
+              "0x500fff70,0x500fff78",
+              "fffffffffeffffff010000000120000000000000d0070002",
+            ],
+            [
+              158_120,
+              276_361_268,
+              51_338,
+              "LeaveCriticalSection",
+              "0x1014c8d0",
+              "0x1009197a",
+              "0x500fff70,0x500fff78",
+              "ffffffffffffffff000000000000000000000000d0070002",
+            ],
+            [
+              158_121,
+              276_361_294,
+              51_339,
+              "EnterCriticalSection",
+              "0x100ff820",
+              "0x100010db",
+              "0x500fff90,0x500fff98",
+              "fffffffffeffffff010000000120000000000000d0070002",
+            ],
+            [
+              158_122,
+              276_361_303,
+              51_339,
+              "LeaveCriticalSection",
+              "0x100ff820",
+              "0x100010eb",
+              "0x500fff90,0x500fff98",
+              "ffffffffffffffff000000000000000000000000d0070002",
+            ],
           ]
         : [
-          [158_109, 276_361_075, 51_334, "EnterCriticalSection", "0x1014c8d0", "0x10091796", "0x500fff70,0x500fff78", "fffffffffeffffff010000000120000000000000d0070002"],
-          [158_110, 276_361_080, 51_334, "LeaveCriticalSection", "0x1014c8d0", "0x100917aa", "0x500fff70,0x500fff78", "ffffffffffffffff000000000000000000000000d0070002"],
-          [158_111, 276_361_116, 51_335, "EnterCriticalSection", "0x1014c8d0", "0x10091966", "0x500fff70,0x500fff78", "fffffffffeffffff010000000120000000000000d0070002"],
-          [158_112, 276_361_121, 51_335, "LeaveCriticalSection", "0x1014c8d0", "0x1009197a", "0x500fff70,0x500fff78", "ffffffffffffffff000000000000000000000000d0070002"],
-          [158_113, 276_361_147, 51_336, "EnterCriticalSection", "0x100ff820", "0x100010db", "0x500fff90,0x500fff98", "fffffffffeffffff010000000120000000000000d0070002"],
-          [158_114, 276_361_156, 51_336, "LeaveCriticalSection", "0x100ff820", "0x100010eb", "0x500fff90,0x500fff98", "ffffffffffffffff000000000000000000000000d0070002"],
-        ];
+            [
+              158_109,
+              276_361_075,
+              51_334,
+              "EnterCriticalSection",
+              "0x1014c8d0",
+              "0x10091796",
+              "0x500fff70,0x500fff78",
+              "fffffffffeffffff010000000120000000000000d0070002",
+            ],
+            [
+              158_110,
+              276_361_080,
+              51_334,
+              "LeaveCriticalSection",
+              "0x1014c8d0",
+              "0x100917aa",
+              "0x500fff70,0x500fff78",
+              "ffffffffffffffff000000000000000000000000d0070002",
+            ],
+            [
+              158_111,
+              276_361_116,
+              51_335,
+              "EnterCriticalSection",
+              "0x1014c8d0",
+              "0x10091966",
+              "0x500fff70,0x500fff78",
+              "fffffffffeffffff010000000120000000000000d0070002",
+            ],
+            [
+              158_112,
+              276_361_121,
+              51_335,
+              "LeaveCriticalSection",
+              "0x1014c8d0",
+              "0x1009197a",
+              "0x500fff70,0x500fff78",
+              "ffffffffffffffff000000000000000000000000d0070002",
+            ],
+            [
+              158_113,
+              276_361_147,
+              51_336,
+              "EnterCriticalSection",
+              "0x100ff820",
+              "0x100010db",
+              "0x500fff90,0x500fff98",
+              "fffffffffeffffff010000000120000000000000d0070002",
+            ],
+            [
+              158_114,
+              276_361_156,
+              51_336,
+              "LeaveCriticalSection",
+              "0x100ff820",
+              "0x100010eb",
+              "0x500fff90,0x500fff98",
+              "ffffffffffffffff000000000000000000000000d0070002",
+            ],
+          ];
     for (const [label, completion] of [
       ["browser BGI", bgiBrowserEvidence.checkpointCompletion ?? {}],
       ["latest", latestEvidence.capabilityCheckpointCompletion ?? {}],
@@ -24154,8 +24916,7 @@ export function validateCurrentCheckpoint(manifest) {
         call.instructionCount !== instructionCount ||
         call.occurrence !== occurrence ||
         call.api !== "KERNEL32.dll!WaitForSingleObjectEx" ||
-        call.arguments?.join(",") !==
-          "0x57010002,0x0000000a,0x00000001" ||
+        call.arguments?.join(",") !== "0x57010002,0x0000000a,0x00000001" ||
         call.result !== 0 ||
         call.implementationId !==
           "kernel32.wait-for-single-object-ex.waitable-timer.v1" ||
@@ -24181,9 +24942,7 @@ export function validateCurrentCheckpoint(manifest) {
         call.waitableTimerClockGeneration !== clockGeneration ||
         call.nextWaitRegistrationId !== nextWaitRegistrationId
       ) {
-        errors.push(
-          `${label} timer-arm wait checkpoint evidence is invalid`,
-        );
+        errors.push(`${label} timer-arm wait checkpoint evidence is invalid`);
       }
     }
   }
@@ -24263,8 +25022,7 @@ export function validateCurrentCheckpoint(manifest) {
         call.instructionCount !== 276_361_050 ||
         call.occurrence !== 11_206 ||
         call.api !== "KERNEL32.dll!WaitForSingleObjectEx" ||
-        call.arguments?.join(",") !==
-          "0x57010002,0x0000000a,0x00000001" ||
+        call.arguments?.join(",") !== "0x57010002,0x0000000a,0x00000001" ||
         call.result !== 0 ||
         call.implementationId !==
           "kernel32.wait-for-single-object-ex.waitable-timer.v1" ||
@@ -24489,8 +25247,10 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.nativeGetForegroundWindowOracleSentinels?.join(",") !==
         "0,87,305419896" ||
       latestEvidence.nativeGetForegroundWindowOracleCallsPerTrace !== 3 ||
-      latestEvidence.nativeGetForegroundWindowOracleResultsMatchHooks !== true ||
-      latestEvidence.nativeGetForegroundWindowOraclePreservesLastError !== true ||
+      latestEvidence.nativeGetForegroundWindowOracleResultsMatchHooks !==
+        true ||
+      latestEvidence.nativeGetForegroundWindowOraclePreservesLastError !==
+        true ||
       latestEvidence.nativeGetForegroundWindowMainCallsPerTrace !== 1 ||
       latestEvidence.nativeGetForegroundWindowCallerRva !== "0x0009390e" ||
       latestEvidence.nativeGetForegroundWindowLastError !== 0 ||
@@ -24581,13 +25341,17 @@ export function validateCurrentCheckpoint(manifest) {
             evidence.getAsyncKeyStateContinuationDownBitRetained !== true ||
             evidence.getAsyncKeyStateContinuationSourceReadCompletions !== 3 ||
             evidence.getAsyncKeyStateContinuationSourceReadObjectId !== 3 ||
-            evidence.getAsyncKeyStateContinuationSourceReadSequences?.join(",") !==
-              "127970,127972,127992" ||
-            evidence.getAsyncKeyStateContinuationSourceReadOffsets?.join(",") !==
-              "0,16,4114329" ||
+            evidence.getAsyncKeyStateContinuationSourceReadSequences?.join(
+              ",",
+            ) !== "127970,127972,127992" ||
+            evidence.getAsyncKeyStateContinuationSourceReadOffsets?.join(
+              ",",
+            ) !== "0,16,4114329" ||
             evidence.getAsyncKeyStateContinuationSourceReadBytes?.join(",") !==
               "16,19968,4651" ||
-            evidence.getAsyncKeyStateContinuationSourceReadPayloadSha256?.join(",") !==
+            evidence.getAsyncKeyStateContinuationSourceReadPayloadSha256?.join(
+              ",",
+            ) !==
               "1f08b1b89c913b0b677353a7aee5284306cdd5ed1f0427e9ef72700902e23dc6,42931ab19f71d15c16e2bbae121ef460b4f0987e2245baea489b46c94ae9a97e,a2353879125f99ea538c31c52942c812abd875b7bd0b98b68344f0bfc8a0b2b2" ||
             evidence.getAsyncKeyStateContinuationSourceReadNodeChromeMatched !==
               true ||
@@ -24654,8 +25418,7 @@ export function validateCurrentCheckpoint(manifest) {
     if (
       user32AsyncKeyStateInputContinuationActive &&
       (currentStop.kind !== "capability-checkpoint" ||
-        currentStop.nextCheckpoint !==
-          "user32-async-key-state-initial-scan" ||
+        currentStop.nextCheckpoint !== "user32-async-key-state-initial-scan" ||
         currentStop.pausedHistoricalCheckpoint !==
           "user32-async-key-state-input-continuation" ||
         currentStop.instructionCount !== 30_263_940 ||
@@ -24690,15 +25453,15 @@ export function validateCurrentCheckpoint(manifest) {
         "2e83138aff0db640caf1068c8d9a7083e54e2ee2863f669c9468a127600b371c" ||
       latestEvidence.nativeGetAsyncKeyStateConfirmationSummaryBytes !==
         67_513 ||
-      latestEvidence.nativeGetAsyncKeyStateConfirmationSummaryLines !==
-        3_078 ||
+      latestEvidence.nativeGetAsyncKeyStateConfirmationSummaryLines !== 3_078 ||
       latestEvidence.nativeGetAsyncKeyStateConfirmationSummarySha256 !==
         "f7d8ab150681c4d14ed398c52a4b13c4630f77e9d5b65cdca3a9b08f8e62a442" ||
       latestEvidence.nativeGetAsyncKeyStateTraceDiagnostics !== 0 ||
       latestEvidence.nativeGetAsyncKeyStateProfile !==
         "x86-bgi-get-async-key-state-initial-scan-v1" ||
-      latestEvidence.nativeGetAsyncKeyStateLeadingControlPollCounts?.join(",") !==
-        "23,24" ||
+      latestEvidence.nativeGetAsyncKeyStateLeadingControlPollCounts?.join(
+        ",",
+      ) !== "23,24" ||
       latestEvidence.nativeGetAsyncKeyStateCallsPerTrace !== 38 ||
       latestEvidence.nativeGetAsyncKeyStateScanVirtualKeys?.join(",") !==
         "14,15,13,16,27,38,33,40,34,37,39,49,97,50,98,51,99,52,100,53,101,54,102,55,103,56,104,57,105,48,96,9,17,1,2,4,5,6" ||
@@ -24717,9 +25480,9 @@ export function validateCurrentCheckpoint(manifest) {
   }
   if (user32AsyncKeyStateInitialScanActive) {
     const scanVirtualKeys = [
-      14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51,
-      99, 52, 100, 53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96,
-      9, 17, 1, 2, 4, 5, 6,
+      14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99, 52,
+      100, 53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17, 1, 2, 4,
+      5, 6,
     ];
     const scanVirtualKeyCsv = scanVirtualKeys.join(",");
     for (const [label, evidence] of [
@@ -24763,8 +25526,7 @@ export function validateCurrentCheckpoint(manifest) {
         evidence.getCursorPosGuestWriteBytes !== 8 ||
         evidence.getCursorPosOutput?.join(",") !== "960,540" ||
         evidence.getCursorPosImplementationId !== "user32.get-cursor-pos.v1" ||
-        evidence.getCursorPosProfileId !==
-          "primary-display-center-cursor-v1" ||
+        evidence.getCursorPosProfileId !== "primary-display-center-cursor-v1" ||
         evidence.getCursorPosGeneration !== 0 ||
         evidence.getCursorPosStateAuthority !==
           "runtime/input.rs::RuntimeInput" ||
@@ -24828,8 +25590,9 @@ export function validateCurrentCheckpoint(manifest) {
         147_765_769 ||
       latestEvidence.getAsyncKeyStateInitialScanFirstArgument !== 14 ||
       latestEvidence.getAsyncKeyStateInitialScanFirstResult !== "0x00000000" ||
-      latestEvidence.getAsyncKeyStateInitialScanFirstStackPointers?.join(",") !==
-        "0x006ff80c,0x006ff814" ||
+      latestEvidence.getAsyncKeyStateInitialScanFirstStackPointers?.join(
+        ",",
+      ) !== "0x006ff80c,0x006ff814" ||
       latestEvidence.getAsyncKeyStateInitialScanLastSequence !== 148_195 ||
       latestEvidence.getAsyncKeyStateInitialScanLastInstructionCount !==
         147_769_226 ||
@@ -24953,11 +25716,13 @@ export function validateCurrentCheckpoint(manifest) {
           present: 2,
           textureLockRect: 1,
           textureUnlockRect: 1,
-          testCooperativeLevel: runtimeThreadStackGrowthActive
-            ? 4
-            : user32IsIconicActive
-              ? 3
-              : 1,
+          testCooperativeLevel: presentationProgressGatewayActive
+            ? 8
+            : runtimeThreadStackGrowthActive
+              ? 4
+              : user32IsIconicActive
+                ? 3
+                : 1,
         },
         nextSubsystemGateway: user32PeekMessageAActive
           ? null
@@ -24998,11 +25763,13 @@ export function validateCurrentCheckpoint(manifest) {
           evidence.d3d9TestCooperativeLevelGuestWriteBytes !== 0 ||
           evidence.d3d9TestCooperativeLevelReferenceCountMutation !== false ||
           evidence.d3d9TestCooperativeLevelFailureAtomicity !== true ||
-          evidence.d3d9TestCooperativeLevelDeviceLostStateImplemented !== false ||
+          evidence.d3d9TestCooperativeLevelDeviceLostStateImplemented !==
+            false ||
           evidence.d3d9TestCooperativeLevelDeviceNotResetStateImplemented !==
             false ||
           evidence.d3d9TestCooperativeLevelResetImplemented !== false ||
-          evidence.d3d9TestCooperativeLevelBrowserContextLossImported !== false ||
+          evidence.d3d9TestCooperativeLevelBrowserContextLossImported !==
+            false ||
           evidence.d3d9TestCooperativeLevelNodeChromeOrderedSemanticsMatched !==
             true
         ) {
@@ -25011,23 +25778,29 @@ export function validateCurrentCheckpoint(manifest) {
       }
       if (
         bgiBrowserEvidence.d3d9TestCooperativeLevelCompletions !==
-          (runtimeThreadStackGrowthActive
-            ? 4
-            : user32IsIconicActive
-              ? 3
-              : 1) ||
+          (presentationProgressGatewayActive
+            ? 8
+            : runtimeThreadStackGrowthActive
+              ? 4
+              : user32IsIconicActive
+                ? 3
+                : 1) ||
         latestEvidence.d3d9TestCooperativeLevelNodeCompletions !==
-          (runtimeThreadStackGrowthActive
-            ? 4
-            : user32IsIconicActive
-              ? 3
-              : 1) ||
+          (presentationProgressGatewayActive
+            ? 8
+            : runtimeThreadStackGrowthActive
+              ? 4
+              : user32IsIconicActive
+                ? 3
+                : 1) ||
         latestEvidence.d3d9TestCooperativeLevelChromeCompletions !==
-          (runtimeThreadStackGrowthActive
-            ? 4
-            : user32IsIconicActive
-              ? 3
-              : 1)
+          (presentationProgressGatewayActive
+            ? 8
+            : runtimeThreadStackGrowthActive
+              ? 4
+              : user32IsIconicActive
+                ? 3
+                : 1)
       ) {
         errors.push("TestCooperativeLevel completion counts are invalid");
       }
@@ -25064,17 +25837,21 @@ export function validateCurrentCheckpoint(manifest) {
             evidence.peekMessageAFilteredRetrievalImplemented !== false ||
             evidence.peekMessageACrossThreadRetrievalImplemented !== false ||
             evidence.peekMessageANodeCompletions !==
-              (runtimeThreadStackGrowthActive
-                ? 4
-                : user32IsIconicActive
-                  ? 3
-                  : 1) ||
+              (presentationProgressGatewayActive
+                ? 8
+                : runtimeThreadStackGrowthActive
+                  ? 4
+                  : user32IsIconicActive
+                    ? 3
+                    : 1) ||
             evidence.peekMessageAChromeCompletions !==
-              (runtimeThreadStackGrowthActive
-                ? 4
-                : user32IsIconicActive
-                  ? 3
-                  : 1) ||
+              (presentationProgressGatewayActive
+                ? 8
+                : runtimeThreadStackGrowthActive
+                  ? 4
+                  : user32IsIconicActive
+                    ? 3
+                    : 1) ||
             evidence.peekMessageANodeChromeOrderedSemanticsMatched !== true
           ) {
             errors.push(`${label} PeekMessageA evidence is invalid`);
@@ -25089,15 +25866,13 @@ export function validateCurrentCheckpoint(manifest) {
           latestEvidence.nativePeekMessageAPrimarySummaryLines !== 2_961 ||
           latestEvidence.nativePeekMessageAPrimarySummarySha256 !==
             "52ab5979b3b7f16d4cc39b88e4c27ed044f6a459ff1ff10bced3c11fdf7ccd00" ||
-          latestEvidence.nativePeekMessageAConfirmationTraceBytes !==
-            818_796 ||
+          latestEvidence.nativePeekMessageAConfirmationTraceBytes !== 818_796 ||
           latestEvidence.nativePeekMessageAConfirmationTraceLines !== 2_523 ||
           latestEvidence.nativePeekMessageAConfirmationTraceSha256 !==
             "71a31735a39fb09cabcf5f7fc691976829d23bce6e113e47bca7f393438b7bdd" ||
           latestEvidence.nativePeekMessageAConfirmationSummaryBytes !==
             65_904 ||
-          latestEvidence.nativePeekMessageAConfirmationSummaryLines !==
-            2_969 ||
+          latestEvidence.nativePeekMessageAConfirmationSummaryLines !== 2_969 ||
           latestEvidence.nativePeekMessageAConfirmationSummarySha256 !==
             "347b3c2849b22c339992f1cb31afcce52cb796e1126f45f8dd2065241321040e" ||
           latestEvidence.nativePeekMessageATraceDiagnostics !== 0 ||
@@ -25144,15 +25919,25 @@ export function validateCurrentCheckpoint(manifest) {
             if (
               evidence.isIconicImplemented !== true ||
               evidence.isIconicSequences?.join(",") !==
-                "148305,148426,148483" ||
+                (presentationProgressGatewayActive
+                  ? "148305,148426,148483,161491,161622,161680,161811,161942"
+                  : "148305,148426,148483") ||
               evidence.isIconicInstructionCounts?.join(",") !==
-                "148745317,148766995,148771560" ||
+                (presentationProgressGatewayActive
+                  ? "148745317,148766995,148771560,321439253,321445153,321449704,321455587,321461496"
+                  : "148745317,148766995,148771560") ||
               evidence.isIconicArguments?.join(",") !== "0x48010001" ||
-              evidence.isIconicResults?.join(",") !== "0,0,0" ||
+              evidence.isIconicResults?.join(",") !==
+                (presentationProgressGatewayActive
+                  ? "0,0,0,0,0,0,0,0"
+                  : "0,0,0") ||
               evidence.isIconicReturnAddress !== "0x100889c4" ||
               evidence.isIconicStackPointers?.join(",") !==
                 "0x006ff8d8,0x006ff8e0" ||
-              evidence.isIconicLastErrors?.join(",") !== "0,0,0" ||
+              evidence.isIconicLastErrors?.join(",") !==
+                (presentationProgressGatewayActive
+                  ? "0,0,0,0,0,0,0,0"
+                  : "0,0,0") ||
               evidence.isIconicGuestWriteBytes !== 0 ||
               evidence.isIconicImplementationId !==
                 "user32.is-iconic.logical-window-style.v1" ||
@@ -25170,8 +25955,10 @@ export function validateCurrentCheckpoint(manifest) {
               evidence.isIconicRuntimeStateMutation !== false ||
               evidence.isIconicFailureAtomicity !== true ||
               evidence.isIconicMinimizeTransitionImplemented !== false ||
-              evidence.isIconicNodeCompletions !== 3 ||
-              evidence.isIconicChromeCompletions !== 3 ||
+              evidence.isIconicNodeCompletions !==
+                (presentationProgressGatewayActive ? 8 : 3) ||
+              evidence.isIconicChromeCompletions !==
+                (presentationProgressGatewayActive ? 8 : 3) ||
               evidence.isIconicNodeChromeOrderedSemanticsMatched !== true
             ) {
               errors.push(`${label} IsIconic evidence is invalid`);
@@ -25190,8 +25977,7 @@ export function validateCurrentCheckpoint(manifest) {
             latestEvidence.nativeIsIconicConfirmationTraceLines !== 84 ||
             latestEvidence.nativeIsIconicConfirmationTraceSha256 !==
               "2cbb697e9730f1d4728c59507be9958705fe9b55919c828bfe5f0ac1d7ba0a99" ||
-            latestEvidence.nativeIsIconicConfirmationSummaryBytes !==
-              22_341 ||
+            latestEvidence.nativeIsIconicConfirmationSummaryBytes !== 22_341 ||
             latestEvidence.nativeIsIconicConfirmationSummaryLines !== 1_047 ||
             latestEvidence.nativeIsIconicConfirmationSummarySha256 !==
               "08030283a8e44feae1ebab342784a4429c4ba56b1718c77092ea13a6192b8aa" ||
@@ -25237,14 +26023,14 @@ export function validateCurrentCheckpoint(manifest) {
                 evidence.apiCreatedThreadId !== 8_193 ||
                 evidence.apiCreatedThreadStackAddressAllocationId !== 57 ||
                 evidence.apiCreatedThreadStackMemoryOwner !== 27 ||
-                evidence.apiCreatedThreadStackGrowthInstructionCounts?.join(",") !==
-                  "148787159,148787164,148787169,148787174,148787206" ||
+                evidence.apiCreatedThreadStackGrowthInstructionCounts?.join(
+                  ",",
+                ) !== "148787159,148787164,148787169,148787174,148787206" ||
                 evidence.apiCreatedThreadStackCommittedPages?.join(",") !==
                   "2,3,4,5,6" ||
                 evidence.apiCreatedThreadStackFaultAddresses?.join(",") !==
                   "0x500fe000,0x500fd000,0x500fc000,0x500fb000,0x500fa000" ||
-                evidence.apiCreatedThreadStackNextGuardPage !==
-                  "0x500f9000" ||
+                evidence.apiCreatedThreadStackNextGuardPage !== "0x500f9000" ||
                 evidence.threadStackGrowthFailureAtomicity !== true ||
                 evidence.threadStackGrowthWrongThreadRejectedBeforeMutation !==
                   true ||
@@ -25270,12 +26056,15 @@ export function validateCurrentCheckpoint(manifest) {
                 evidence.apiGuestWriteBinaryDeltaAuthority !==
                   "rust-guest-memory-binary-delta"
               ) {
-                errors.push(`${label} current-thread stack-growth evidence is invalid`);
+                errors.push(
+                  `${label} current-thread stack-growth evidence is invalid`,
+                );
               }
             }
             if (
               largeHeapFreeActive ||
               heapAlloc24Active ||
+              presentationProgressGatewayActive ||
               recurringTimerWindowActive ||
               recurringTimerMultiCycleActive ||
               recurringTimerCycleActive ||
@@ -25315,7 +26104,9 @@ export function validateCurrentCheckpoint(manifest) {
               currentStop.fault?.previousInstructionPointer !== "0x1005f64d" ||
               currentStop.fault?.maximumAdditionalInstructions !== 40_000_000
             ) {
-              errors.push("current-thread stack-growth continuation stop is invalid");
+              errors.push(
+                "current-thread stack-growth continuation stop is invalid",
+              );
             }
           } else if (
             currentStop.kind !== "execution-fault" ||
@@ -25338,8 +26129,7 @@ export function validateCurrentCheckpoint(manifest) {
         } else if (
           currentStop.kind !== "api-endpoint" ||
           currentStop.nextCheckpoint !== "user32-is-iconic" ||
-          currentStop.pausedHistoricalCheckpoint !==
-            "user32-peek-message-a" ||
+          currentStop.pausedHistoricalCheckpoint !== "user32-peek-message-a" ||
           currentStop.instructionCount !== 148_745_317 ||
           currentStop.capabilityCluster !== "user32-api-contract" ||
           currentStop.reason !== "endpoint-contract-missing" ||
@@ -25370,9 +26160,7 @@ export function validateCurrentCheckpoint(manifest) {
         currentStop.iatAddress !== "0x100d1368" ||
         currentStop.returnAddress !== "0x1009378b"
       ) {
-        errors.push(
-          "initial-scan continuation PeekMessageA stop is invalid",
-        );
+        errors.push("initial-scan continuation PeekMessageA stop is invalid");
       }
     }
     if (
@@ -26533,47 +27321,55 @@ export function renderReadmeStatus(manifest) {
                                   : next.completion.capability ===
                                       "kernel32-heap-alloc-24-byte-buffer"
                                     ? "private-heap allocations"
-                                  : next.completion.capability ===
-                                      "winmm-time-get-time-post-heap-reuse"
-                                    ? "multimedia clock sample"
                                     : next.completion.capability ===
-                                        "kernel32-enter-critical-section-post-clock"
-                                      ? "critical-section acquire/release roundtrip"
-                                    : next.completion.capability ===
-                                          "kernel32-enter-critical-section-post-wait" ||
-                                        next.completion.capability ===
-                                          "kernel32-enter-critical-section-post-timer-wait-batch" ||
-                                        next.completion.capability ===
-                                          "kernel32-enter-critical-section-post-timer-rearm-wait-batch"
-                                      ? "balanced critical-section calls"
-                                    : next.completion.capability ===
-                                        "kernel32-wait-for-single-object-ex-post-critical-section"
-                                      ? "waitable-timer wait"
-                                    : next.completion.capability ===
-                                          "kernel32-set-waitable-timer-post-critical-section-batch" ||
-                                      next.completion.capability ===
-                                          "kernel32-set-waitable-timer-post-timer-wait-batch" ||
-                                      next.completion.capability ===
-                                          "kernel32-set-waitable-timer-post-timer-rearm-wait-batch"
-                                      ? "waitable-timer arm"
-                                    : next.completion.capability ===
-                                        "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
-                                      ? "waitable-timer wait"
-                                  : next.completion.capability ===
-                                        "primary-main-loop-recurring-timer-multi-cycle-batch" ||
-                                      next.completion.capability ===
-                                        "primary-main-loop-recurring-timer-window-batch"
-                                    ? "recurring timer-window calls"
-                                  : next.completion.capability ===
-                                      "user32-async-key-state-input-continuation"
-                                    ? "held-key async-key queries"
-                                  : next.completion.capability ===
-                                      "primary-main-loop-recurring-timer-cycle-batch"
-                                    ? "recurring timer-cycle calls"
-                                    : next.completion.capability ===
-                                        "user32-async-key-state-initial-scan"
-                                      ? "zero-input startup key queries"
-                                      : "recurring waits"
+                                        "winmm-time-get-time-post-heap-reuse"
+                                      ? "multimedia clock sample"
+                                      : next.completion.capability ===
+                                          "kernel32-enter-critical-section-post-clock"
+                                        ? "critical-section acquire/release roundtrip"
+                                        : next.completion.capability ===
+                                              "kernel32-enter-critical-section-post-wait" ||
+                                            next.completion.capability ===
+                                              "kernel32-enter-critical-section-post-timer-wait-batch" ||
+                                            next.completion.capability ===
+                                              "kernel32-enter-critical-section-post-timer-rearm-wait-batch"
+                                          ? "balanced critical-section calls"
+                                          : next.completion.capability ===
+                                              "kernel32-wait-for-single-object-ex-post-critical-section"
+                                            ? "waitable-timer wait"
+                                            : next.completion.capability ===
+                                                  "kernel32-set-waitable-timer-post-critical-section-batch" ||
+                                                next.completion.capability ===
+                                                  "kernel32-set-waitable-timer-post-timer-wait-batch" ||
+                                                next.completion.capability ===
+                                                  "kernel32-set-waitable-timer-post-timer-rearm-wait-batch"
+                                              ? "waitable-timer arm"
+                                              : next.completion.capability ===
+                                                  "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
+                                                ? "waitable-timer wait"
+                                                : next.completion.capability ===
+                                                      "primary-main-loop-recurring-timer-multi-cycle-batch" ||
+                                                    next.completion
+                                                      .capability ===
+                                                      "primary-main-loop-recurring-timer-window-batch"
+                                                  ? "recurring timer-window calls"
+                                                  : next.completion
+                                                        .capability ===
+                                                      "primary-main-loop-presentation-progress-gateway"
+                                                    ? "bounded presentation-progress calls"
+                                                    : next.completion
+                                                          .capability ===
+                                                        "user32-async-key-state-input-continuation"
+                                                      ? "held-key async-key queries"
+                                                      : next.completion
+                                                            .capability ===
+                                                          "primary-main-loop-recurring-timer-cycle-batch"
+                                                        ? "recurring timer-cycle calls"
+                                                        : next.completion
+                                                              .capability ===
+                                                            "user32-async-key-state-initial-scan"
+                                                          ? "zero-input startup key queries"
+                                                          : "recurring waits"
         } ` +
         `by instruction ${next.completion.lastCompletionInstructionCount}; verification stopped at ` +
         `\`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +
@@ -26582,14 +27378,14 @@ export function renderReadmeStatus(manifest) {
         ? `\`${next.capabilityCluster}\` at instruction ${next.instructionCount}: ` +
           `\`${next.reason}\` at EIP \`${next.fault.instructionPointer}\` after ` +
           `${next.fault.maximumAdditionalInstructions.toLocaleString("en-US")} bounded instructions`
-      : next.kind === "execution-fault"
-        ? `\`${next.capabilityCluster}\` at instruction ${next.instructionCount}: ` +
-          `\`${next.reason}\` at \`${next.fault.faultAddress}\``
-        : next.kind === "com-method"
-          ? `\`${next.interface}::${next.method}(${next.arguments.join(", ")})\` at instruction ` +
-            `${next.instructionCount}: \`${next.reason}\``
-          : `\`${next.api}(${next.arguments.join(", ")})\` at instruction ` +
-            `${next.instructionCount}: \`${next.reason}\``;
+        : next.kind === "execution-fault"
+          ? `\`${next.capabilityCluster}\` at instruction ${next.instructionCount}: ` +
+            `\`${next.reason}\` at \`${next.fault.faultAddress}\``
+          : next.kind === "com-method"
+            ? `\`${next.interface}::${next.method}(${next.arguments.join(", ")})\` at instruction ` +
+              `${next.instructionCount}: \`${next.reason}\``
+            : `\`${next.api}(${next.arguments.join(", ")})\` at instruction ` +
+              `${next.instructionCount}: \`${next.reason}\``;
   const blockerSummary = manifest.activeBlocker
     ? `| Active blocker | \`${manifest.activeBlocker.id}\`: \`${manifest.activeBlocker.firstFailure.code}\`; ${manifest.activeBlocker.resumeCondition} |\n`
     : browser.bgiBenchmarkBlocker

@@ -1071,6 +1071,19 @@ presentation workへ進むかをbounded gatewayとして判定する。unbounded
 cross-thread contention、readable pixel、long-run安定性はまだclaimしない。Exact値とartifact identityは
 `current-checkpoint.json`だけを正本とする。
 
+`primary-main-loop-presentation-progress-gateway`は、同じledgerをhard maximum 256周期まで延長し、
+third `Present`へ進んだ場合はその直後のmain timer rearmで停止し、進まない場合はhard boundで
+`bounded-window-exhausted`として停止する。今回のacceptanceは後者であり、256 wait／256 matching arm、
+3,856 ordered completions、1,792 critical-section completions（896 acquire／896 release）、4個の
+inter-cycle interval、balanced terminal state、terminal memoryをNode／Chromeで一致させた。後半では
+thread `8192`上の4回の`IDirect3DDevice9::TestCooperativeLevel`、それぞれに対応するtimer 1のarm／wait、
+反復するzero-input scan／geometry／cursor／`PeekMessageA`／`IsIconic`を到達したが、third `Present`は
+発生しなかった。timer 1とmain-loop timer 2は別laneとして検証し、1回のsynchronous logical waitを
+browser pacing countへ混入させない。これはdeadlockや描画不能の証明ではなく、入力を与えないbounded
+windowの分類である。次はwindowを再拡張せず、到達済みsteady-state loopへbounded inputを投入して
+guest-visibleなinput／presentation progressを判定する。Exact値とartifact identityは
+`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 71 as const;
+export const protocolVersion = 72 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -59,6 +59,7 @@ export type BgiCapabilityProfile =
   | "primary-main-loop-recurring-timer-cycle-batch"
   | "primary-main-loop-recurring-timer-multi-cycle-batch"
   | "primary-main-loop-recurring-timer-window-batch"
+  | "primary-main-loop-presentation-progress-gateway"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
@@ -868,6 +869,7 @@ export interface RuntimeSupportedCallSnapshot {
 export type RuntimeThreadCallSnapshot = RuntimeSupportedCallSnapshot & {
   runtimeThreadId: number;
   trapInstructionCount: number;
+  occurrence?: number;
 };
 
 export interface RuntimeRecurringTimerCycleSummary {
@@ -927,6 +929,36 @@ export interface RuntimeRecurringTimerInterCycleSummary {
   criticalSectionCarryIn: RuntimeCriticalSectionOwnershipSnapshot[];
   criticalSectionCarryOut: RuntimeCriticalSectionOwnershipSnapshot[];
   balanced: boolean;
+}
+
+export type RuntimePresentationProgressCycleSummary =
+  RuntimeRecurringTimerWindowCycleSummary & {
+    waitThreadId: number;
+    timerArmThreadId: number;
+    waitHandle: number;
+    timerId: number;
+  };
+
+export interface RuntimePresentationTimerLaneCompletion {
+  kind: "arm" | "wait";
+  sequence: number;
+  instructionCount: number;
+  occurrence: number;
+  runtimeThreadId: number;
+  handle: number;
+  timerId: number;
+  paced: boolean;
+  armGeneration: number;
+  deadlineTime100ns: number;
+}
+
+export interface RuntimePresentationTimerLaneSummary {
+  handle: number;
+  timerId: number;
+  armCompletionCount: number;
+  waitCompletionCount: number;
+  participatingThreadIds: number[];
+  completions: RuntimePresentationTimerLaneCompletion[];
 }
 
 export type RuntimeGuestWriteSnapshot =
@@ -1728,7 +1760,10 @@ export interface SessionReport {
         firstCompletionInstructionCount: number;
         lastCompletionSequence: number;
         lastCompletionInstructionCount: number;
-        completions: [RuntimeSupportedCallSnapshot, RuntimeSupportedCallSnapshot];
+        completions: [
+          RuntimeSupportedCallSnapshot,
+          RuntimeSupportedCallSnapshot,
+        ];
         criticalSectionAddress: number;
         threadId: number;
         balanced: true;
@@ -1937,6 +1972,65 @@ export interface SessionReport {
         participatingThreadIds: number[];
         threadTransitionCount: number;
         balanced: true;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          disposition: "declared-runtime-export";
+          iatAddress: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        nextArguments: [number, number, number];
+        nextReturnAddress: number;
+        nextStackPointer: number;
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "primary-main-loop-presentation-progress-gateway";
+        implementationId: "runtime.main-loop-presentation-progress-gateway.v1";
+        requiredCycles: 64;
+        minimumRequiredCycles: 64;
+        maximumCycles: 256;
+        cycleCount: number;
+        requiredCompletions: 128;
+        minimumRequiredCompletions: 128;
+        completionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        boundaryCycleIndexes: [0, number];
+        boundaryCompletions: RuntimeThreadCallSnapshot[];
+        cycles: RuntimePresentationProgressCycleSummary[];
+        interCycleCompletionCount: number;
+        interCycleIntervals: RuntimeRecurringTimerInterCycleSummary[];
+        waitCompletionCount: number;
+        criticalSectionCompletionCount: number;
+        criticalSectionAcquisitionCount: number;
+        criticalSectionReleaseCount: number;
+        carriedCycleCount: number;
+        timerArmCompletionCount: number;
+        roundtripCount: number;
+        criticalSectionAddresses: number[];
+        mainLoopThreadId: number;
+        participatingThreadIds: number[];
+        threadTransitionCount: number;
+        balanced: boolean;
+        baseline: {
+          cycleCount: 64;
+          lastCompletionSequence: 159093;
+          lastCompletionInstructionCount: 297177073;
+          presentOccurrence: 2;
+        };
+        outcome: "presentation-progress-reached" | "bounded-window-exhausted";
+        hardBoundReached: boolean;
+        renderCompletionCount: number;
+        renderCompletions: RuntimeThreadCallSnapshot[];
+        presentCompletion: RuntimeThreadCallSnapshot | null;
+        timerLanes: RuntimePresentationTimerLaneSummary[];
         instructionCount: number;
         nextEndpoint: {
           id: number;

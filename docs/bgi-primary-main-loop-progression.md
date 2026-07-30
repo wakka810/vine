@@ -89,6 +89,18 @@ This remains a bounded recurrence observation; it does not prove unbounded or
 long-run progress. The next manifest-owned subsystem gateway measures whether
 the resumed main loop reaches new presentation work.
 
+The `primary-main-loop-presentation-progress-gateway` checkpoint has now
+completed that bounded classification. It extends the ledger to the 256-cycle
+hard bound and preserves 3,856 ordered completions, balanced synchronization,
+both timer lanes, terminal memory, and Node／Chrome equivalence. The late
+main-thread path reaches four additional mutation-free
+`IDirect3DDevice9::TestCooperativeLevel` calls together with repeated
+zero-input scans, geometry/cursor reads, `PeekMessageA`, and `IsIconic`, but it
+does not issue a third `Present`. This is evidence about the no-input bounded
+window, not proof of a deadlock or a general presentation failure. The next
+manifest-owned gateway injects bounded input at this reached steady-state loop
+and asks whether guest-visible input or presentation work advances.
+
 ## Ownership and invariants
 
 `RuntimeScheduler` plans the selection only after the API completion has been

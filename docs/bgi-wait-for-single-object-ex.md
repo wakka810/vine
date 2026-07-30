@@ -280,6 +280,20 @@ alertable wait frame, with no pending, cancelled, duplicate, or stale callback.
 This is still bounded recurrence evidence. The next stop asks for new
 presentation progress rather than another timer-window widening.
 
+The `primary-main-loop-presentation-progress-gateway` checkpoint has now run
+the same main-loop ledger to its 256-cycle hard bound. The recurring timer-2
+lane remains owned by Rust and completes one wait and matching rearm per cycle;
+four reached rendering passes on thread `8192` use a distinct timer-1 lane and
+do not get paired with the timer-2 cycle boundary. Node and Chrome agree on all
+256 main waits, both lane identities, the one synchronously completed timer-2
+wait that requires no browser delay, balanced synchronization state, terminal
+memory, and the following timer-2 wait frame. Four additional
+`TestCooperativeLevel` calls are reached, but no third `Present` occurs before
+the hard bound. This classifies the no-input bounded window; it does not prove
+deadlock, unbounded progress, or inability to present. The next gateway applies
+bounded input at the reached steady-state loop instead of widening this wait
+window again.
+
 ## Non-claims
 
 - Alertable mode is accepted, but APC delivery and `WAIT_IO_COMPLETION` are not

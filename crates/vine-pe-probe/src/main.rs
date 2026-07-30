@@ -14465,6 +14465,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "primary-main-loop-recurring-timer-cycle-batch"
                 | "primary-main-loop-recurring-timer-multi-cycle-batch"
                 | "primary-main-loop-recurring-timer-window-batch"
+                | "primary-main-loop-presentation-progress-gateway"
                 | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
                 | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
                 | "kernel32-enter-critical-section-post-timer-wait-batch"

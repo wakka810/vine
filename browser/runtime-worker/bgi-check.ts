@@ -62,15 +62,13 @@ const d3d9Canvas =
     "kernel32-enter-critical-section-post-timer-rearm-wait-batch" ||
   capabilityProfile ===
     "kernel32-set-waitable-timer-post-critical-section-batch" ||
-  capabilityProfile ===
-    "kernel32-set-waitable-timer-post-timer-wait-batch" ||
+  capabilityProfile === "kernel32-set-waitable-timer-post-timer-wait-batch" ||
   capabilityProfile ===
     "kernel32-set-waitable-timer-post-timer-rearm-wait-batch" ||
   capabilityProfile === "primary-main-loop-recurring-timer-cycle-batch" ||
-  capabilityProfile ===
-    "primary-main-loop-recurring-timer-multi-cycle-batch" ||
-  capabilityProfile ===
-    "primary-main-loop-recurring-timer-window-batch" ||
+  capabilityProfile === "primary-main-loop-recurring-timer-multi-cycle-batch" ||
+  capabilityProfile === "primary-main-loop-recurring-timer-window-batch" ||
+  capabilityProfile === "primary-main-loop-presentation-progress-gateway" ||
   capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
   capabilityProfile ===
@@ -170,70 +168,79 @@ const startMessage = {
     watchdogInstructionLimit:
       scenario === "watchdog"
         ? 1
-        : capabilityProfile === "runtime-trapless-execution-budget" ||
-            capabilityProfile === "kernel32-heap-free-large-buffer" ||
-            capabilityProfile === "kernel32-heap-alloc-24-byte-buffer" ||
-            capabilityProfile === "winmm-time-get-time-post-heap-reuse" ||
-            capabilityProfile === "kernel32-enter-critical-section-post-clock" ||
-            capabilityProfile === "kernel32-enter-critical-section-post-wait" ||
-            capabilityProfile ===
-              "kernel32-enter-critical-section-post-timer-wait-batch" ||
-            capabilityProfile ===
-              "kernel32-enter-critical-section-post-timer-rearm-wait-batch" ||
-            capabilityProfile ===
-              "kernel32-set-waitable-timer-post-critical-section-batch" ||
-            capabilityProfile ===
-              "kernel32-set-waitable-timer-post-timer-wait-batch" ||
-            capabilityProfile ===
-              "kernel32-set-waitable-timer-post-timer-rearm-wait-batch" ||
-            capabilityProfile ===
-              "primary-main-loop-recurring-timer-cycle-batch" ||
-            capabilityProfile ===
-              "primary-main-loop-recurring-timer-multi-cycle-batch" ||
-            capabilityProfile ===
-              "primary-main-loop-recurring-timer-window-batch" ||
-            capabilityProfile ===
-              "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
-            capabilityProfile ===
-              "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
-            capabilityProfile ===
-              "kernel32-wait-for-single-object-ex-post-critical-section"
-          ? 320_000_000
-          : capabilityProfile === "runtime-thread-stack-growth"
-          ? 300_000_000
-          : capabilityProfile === "user32-async-key-state-initial-scan" ||
-            capabilityProfile ===
-              "user32-async-key-state-initial-scan-continuation" ||
-            capabilityProfile === "user32-peek-message-a" ||
-            capabilityProfile === "user32-is-iconic"
-          ? 180_000_000
-          : capabilityProfile === "kernel32-create-directory-a" ||
-              capabilityProfile === "user32-set-window-pos-repeat-activation" ||
-              capabilityProfile === "d3d9-recreated-textures" ||
-              capabilityProfile === "user32-set-window-pos-frame-change-move" ||
-              capabilityProfile === "user32-show-window-normal" ||
-              capabilityProfile === "user32-update-window" ||
-              capabilityProfile === "d3d9-clear" ||
-              capabilityProfile === "user32-set-rect" ||
-              capabilityProfile === "d3d9-add-dirty-rect" ||
-              capabilityProfile === "d3d9-update-texture" ||
-              capabilityProfile === "d3d9-begin-scene" ||
-              capabilityProfile === "d3d9-initial-sampler-states" ||
-              capabilityProfile === "d3d9-initial-texture-stage-states" ||
-              capabilityProfile === "d3d9-set-texture" ||
-              capabilityProfile === "d3d9-set-fvf" ||
-              capabilityProfile === "d3d9-set-stream-source" ||
-              capabilityProfile === "d3d9-draw-primitive" ||
-              capabilityProfile === "d3d9-end-scene" ||
-              capabilityProfile === "d3d9-post-end-scene-raster-status" ||
-              capabilityProfile === "d3d9-post-raster-status-waitable-timer" ||
-              capabilityProfile === "d3d9-post-scene-present-gateway" ||
-              capabilityProfile === "d3d9-first-present" ||
-              capabilityProfile === "d3d9-post-present-continuation" ||
-              capabilityProfile === "user32-async-key-state-input" ||
-              capabilityProfile === "user32-async-key-state-input-continuation"
-            ? 35_000_000
-            : 20_000_000,
+        : capabilityProfile ===
+            "primary-main-loop-presentation-progress-gateway"
+          ? 340_000_000
+          : capabilityProfile === "runtime-trapless-execution-budget" ||
+              capabilityProfile === "kernel32-heap-free-large-buffer" ||
+              capabilityProfile === "kernel32-heap-alloc-24-byte-buffer" ||
+              capabilityProfile === "winmm-time-get-time-post-heap-reuse" ||
+              capabilityProfile ===
+                "kernel32-enter-critical-section-post-clock" ||
+              capabilityProfile ===
+                "kernel32-enter-critical-section-post-wait" ||
+              capabilityProfile ===
+                "kernel32-enter-critical-section-post-timer-wait-batch" ||
+              capabilityProfile ===
+                "kernel32-enter-critical-section-post-timer-rearm-wait-batch" ||
+              capabilityProfile ===
+                "kernel32-set-waitable-timer-post-critical-section-batch" ||
+              capabilityProfile ===
+                "kernel32-set-waitable-timer-post-timer-wait-batch" ||
+              capabilityProfile ===
+                "kernel32-set-waitable-timer-post-timer-rearm-wait-batch" ||
+              capabilityProfile ===
+                "primary-main-loop-recurring-timer-cycle-batch" ||
+              capabilityProfile ===
+                "primary-main-loop-recurring-timer-multi-cycle-batch" ||
+              capabilityProfile ===
+                "primary-main-loop-recurring-timer-window-batch" ||
+              capabilityProfile ===
+                "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
+              capabilityProfile ===
+                "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
+              capabilityProfile ===
+                "kernel32-wait-for-single-object-ex-post-critical-section"
+            ? 320_000_000
+            : capabilityProfile === "runtime-thread-stack-growth"
+              ? 300_000_000
+              : capabilityProfile === "user32-async-key-state-initial-scan" ||
+                  capabilityProfile ===
+                    "user32-async-key-state-initial-scan-continuation" ||
+                  capabilityProfile === "user32-peek-message-a" ||
+                  capabilityProfile === "user32-is-iconic"
+                ? 180_000_000
+                : capabilityProfile === "kernel32-create-directory-a" ||
+                    capabilityProfile ===
+                      "user32-set-window-pos-repeat-activation" ||
+                    capabilityProfile === "d3d9-recreated-textures" ||
+                    capabilityProfile ===
+                      "user32-set-window-pos-frame-change-move" ||
+                    capabilityProfile === "user32-show-window-normal" ||
+                    capabilityProfile === "user32-update-window" ||
+                    capabilityProfile === "d3d9-clear" ||
+                    capabilityProfile === "user32-set-rect" ||
+                    capabilityProfile === "d3d9-add-dirty-rect" ||
+                    capabilityProfile === "d3d9-update-texture" ||
+                    capabilityProfile === "d3d9-begin-scene" ||
+                    capabilityProfile === "d3d9-initial-sampler-states" ||
+                    capabilityProfile === "d3d9-initial-texture-stage-states" ||
+                    capabilityProfile === "d3d9-set-texture" ||
+                    capabilityProfile === "d3d9-set-fvf" ||
+                    capabilityProfile === "d3d9-set-stream-source" ||
+                    capabilityProfile === "d3d9-draw-primitive" ||
+                    capabilityProfile === "d3d9-end-scene" ||
+                    capabilityProfile === "d3d9-post-end-scene-raster-status" ||
+                    capabilityProfile ===
+                      "d3d9-post-raster-status-waitable-timer" ||
+                    capabilityProfile === "d3d9-post-scene-present-gateway" ||
+                    capabilityProfile === "d3d9-first-present" ||
+                    capabilityProfile === "d3d9-post-present-continuation" ||
+                    capabilityProfile === "user32-async-key-state-input" ||
+                    capabilityProfile ===
+                      "user32-async-key-state-input-continuation"
+                  ? 35_000_000
+                  : 20_000_000,
     watchdogWallMilliseconds:
       capabilityProfile === "user32-async-key-state-initial-scan" ||
       capabilityProfile ===
@@ -260,8 +267,8 @@ const startMessage = {
       capabilityProfile === "primary-main-loop-recurring-timer-cycle-batch" ||
       capabilityProfile ===
         "primary-main-loop-recurring-timer-multi-cycle-batch" ||
-      capabilityProfile ===
-        "primary-main-loop-recurring-timer-window-batch" ||
+      capabilityProfile === "primary-main-loop-recurring-timer-window-batch" ||
+      capabilityProfile === "primary-main-loop-presentation-progress-gateway" ||
       capabilityProfile ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
       capabilityProfile ===
@@ -427,6 +434,7 @@ function parseCapabilityProfile(
     value === "primary-main-loop-recurring-timer-cycle-batch" ||
     value === "primary-main-loop-recurring-timer-multi-cycle-batch" ||
     value === "primary-main-loop-recurring-timer-window-batch" ||
+    value === "primary-main-loop-presentation-progress-gateway" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-critical-section"

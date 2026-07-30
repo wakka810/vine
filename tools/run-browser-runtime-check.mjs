@@ -93,12 +93,12 @@ const recurringTimerMultiCycleProfile =
   bgiProfile === "primary-main-loop-recurring-timer-multi-cycle-batch";
 const recurringTimerWindowProfile =
   bgiProfile === "primary-main-loop-recurring-timer-window-batch";
+const presentationProgressGatewayProfile =
+  bgiProfile === "primary-main-loop-presentation-progress-gateway";
 const runtimeTraplessExecutionBudgetProfile =
   bgiProfile === "runtime-trapless-execution-budget";
-const largeHeapFreeProfile =
-  bgiProfile === "kernel32-heap-free-large-buffer";
-const heapAlloc24Profile =
-  bgiProfile === "kernel32-heap-alloc-24-byte-buffer";
+const largeHeapFreeProfile = bgiProfile === "kernel32-heap-free-large-buffer";
+const heapAlloc24Profile = bgiProfile === "kernel32-heap-alloc-24-byte-buffer";
 const postHeapTimeGetTimeProfile =
   bgiProfile === "winmm-time-get-time-post-heap-reuse";
 const postClockCriticalSectionProfile =
@@ -106,8 +106,7 @@ const postClockCriticalSectionProfile =
 const postWaitCriticalSectionProfile =
   bgiProfile === "kernel32-enter-critical-section-post-wait";
 const postTimerRearmWaitCriticalSectionProfile =
-  bgiProfile ===
-  "kernel32-enter-critical-section-post-timer-rearm-wait-batch";
+  bgiProfile === "kernel32-enter-critical-section-post-timer-rearm-wait-batch";
 const postTimerWaitCriticalSectionProfile =
   postTimerRearmWaitCriticalSectionProfile ||
   bgiProfile === "kernel32-enter-critical-section-post-timer-wait-batch";
@@ -117,8 +116,7 @@ const postTimerWaitSetWaitableTimerProfile =
   postTimerRearmWaitSetWaitableTimerProfile ||
   bgiProfile === "kernel32-set-waitable-timer-post-timer-wait-batch";
 const postCriticalSectionSetWaitableTimerProfile =
-  bgiProfile ===
-    "kernel32-set-waitable-timer-post-critical-section-batch" ||
+  bgiProfile === "kernel32-set-waitable-timer-post-critical-section-batch" ||
   postTimerWaitSetWaitableTimerProfile;
 const postTimerRearmWaitProfile =
   bgiProfile === "kernel32-wait-for-single-object-ex-post-timer-rearm-batch";
@@ -131,6 +129,7 @@ const postHeapTimeGetTimeEvidenceProfile =
   recurringTimerCycleProfile ||
   recurringTimerMultiCycleProfile ||
   recurringTimerWindowProfile ||
+  presentationProgressGatewayProfile ||
   postHeapTimeGetTimeProfile ||
   postClockCriticalSectionProfile ||
   postWaitCriticalSectionProfile ||
@@ -143,6 +142,7 @@ const runtimeThreadStackGrowthProfile =
   recurringTimerCycleProfile ||
   recurringTimerMultiCycleProfile ||
   recurringTimerWindowProfile ||
+  presentationProgressGatewayProfile ||
   runtimeTraplessExecutionBudgetProfile ||
   largeHeapFreeProfile ||
   heapAlloc24Profile ||
@@ -225,7 +225,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v71";
+const runtimeProtocol = "vine.browser-runtime-worker.v72";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -903,6 +903,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-recurring-timer-cycle-batch",
         "primary-main-loop-recurring-timer-multi-cycle-batch",
         "primary-main-loop-recurring-timer-window-batch",
+        "primary-main-loop-presentation-progress-gateway",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -970,6 +971,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-recurring-timer-cycle-batch",
         "primary-main-loop-recurring-timer-multi-cycle-batch",
         "primary-main-loop-recurring-timer-window-batch",
+        "primary-main-loop-presentation-progress-gateway",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1037,6 +1039,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-recurring-timer-cycle-batch",
         "primary-main-loop-recurring-timer-multi-cycle-batch",
         "primary-main-loop-recurring-timer-window-batch",
+        "primary-main-loop-presentation-progress-gateway",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
@@ -1049,14 +1052,16 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
                 postCriticalSectionWaitProfile ||
                 recurringTimerCycleProfile
                 ? 2_457
-                : recurringTimerWindowProfile
-                  ? 2_471
-                  : recurringTimerMultiCycleProfile
-                    ? 2_461
-                : 2_456
+                : presentationProgressGatewayProfile
+                  ? 2_513
+                  : recurringTimerWindowProfile
+                    ? 2_471
+                    : recurringTimerMultiCycleProfile
+                      ? 2_461
+                      : 2_456
               : user32IsIconicProfile
                 ? 2_317
-              : 2_314
+                : 2_314
             : 2_312
           : user32AsyncKeyStateInputContinuationProfile
             ? 2_020
@@ -1111,6 +1116,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         recurringTimerCycleProfile ||
         recurringTimerMultiCycleProfile ||
         recurringTimerWindowProfile ||
+        presentationProgressGatewayProfile ||
         runtimeTraplessExecutionBudgetProfile ||
         largeHeapFreeProfile ||
         heapAlloc24Profile ||
@@ -1164,59 +1170,62 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         setWindowPosRepeatActivationProfile ||
         user32AsyncKeyStateInitialScanContinuationProfile
       ) {
-        const pacingCount = recurringTimerWindowProfile
-          ? 11_272
-          : recurringTimerMultiCycleProfile
-            ? 11_224
-          : recurringTimerCycleProfile
-            ? 11_209
-          : user32AsyncKeyStateInitialScanProfile
-          ? user32AsyncKeyStateInitialScanContinuationProfile
-            ? runtimeThreadStackGrowthProfile
-              ? postTimerRearmWaitProfile ||
-                postTimerRearmWaitCriticalSectionProfile ||
-                postTimerRearmWaitSetWaitableTimerProfile
-                ? 11_208
-              : postTimerArmWaitProfile ||
-                postTimerWaitCriticalSectionProfile ||
-                postTimerWaitSetWaitableTimerProfile
-                ? 11_207
-                : postCriticalSectionWaitProfile ||
-                postWaitCriticalSectionProfile ||
-                postCriticalSectionSetWaitableTimerProfile
-                ? 11_206
-                : 11_205
-              : user32IsIconicProfile
-                ? 10_571
-              : 10_569
-            : 10_567
-          : user32AsyncKeyStateInputContinuationProfile
-            ? 9_232
-            : d3d9PostPresentContinuationProfile
-              ? 9_205
-              : d3d9RecreatedTexturesProfile
-                ? d3d9PostRasterStatusWaitableTimerProfile
-                  ? 9_187
-                  : 9_186
-                : createDirectoryAProfile
-                  ? 6_974
-                  : getFileAttributesAProfile
-                    ? 6_937
-                    : sleepZeroProfile
-                      ? 6_910
-                      : bgiProfile === "kernel32-archive-source-read"
-                        ? 4_716
-                        : bgiProfile === "shell32-drag-accept-files"
-                          ? 4_706
-                          : bgiProfile === "primary-main-loop-progression" ||
-                              bgiProfile ===
-                                "kernel32-leave-critical-section" ||
-                              bgiProfile ===
-                                "kernel32-enter-critical-section-continuation" ||
-                              bgiProfile ===
-                                "kernel32-leave-critical-section-continuation"
-                            ? 7
-                            : 3;
+        const pacingCount = presentationProgressGatewayProfile
+          ? 11_467
+          : recurringTimerWindowProfile
+            ? 11_272
+            : recurringTimerMultiCycleProfile
+              ? 11_224
+              : recurringTimerCycleProfile
+                ? 11_209
+                : user32AsyncKeyStateInitialScanProfile
+                  ? user32AsyncKeyStateInitialScanContinuationProfile
+                    ? runtimeThreadStackGrowthProfile
+                      ? postTimerRearmWaitProfile ||
+                        postTimerRearmWaitCriticalSectionProfile ||
+                        postTimerRearmWaitSetWaitableTimerProfile
+                        ? 11_208
+                        : postTimerArmWaitProfile ||
+                            postTimerWaitCriticalSectionProfile ||
+                            postTimerWaitSetWaitableTimerProfile
+                          ? 11_207
+                          : postCriticalSectionWaitProfile ||
+                              postWaitCriticalSectionProfile ||
+                              postCriticalSectionSetWaitableTimerProfile
+                            ? 11_206
+                            : 11_205
+                      : user32IsIconicProfile
+                        ? 10_571
+                        : 10_569
+                    : 10_567
+                  : user32AsyncKeyStateInputContinuationProfile
+                    ? 9_232
+                    : d3d9PostPresentContinuationProfile
+                      ? 9_205
+                      : d3d9RecreatedTexturesProfile
+                        ? d3d9PostRasterStatusWaitableTimerProfile
+                          ? 9_187
+                          : 9_186
+                        : createDirectoryAProfile
+                          ? 6_974
+                          : getFileAttributesAProfile
+                            ? 6_937
+                            : sleepZeroProfile
+                              ? 6_910
+                              : bgiProfile === "kernel32-archive-source-read"
+                                ? 4_716
+                                : bgiProfile === "shell32-drag-accept-files"
+                                  ? 4_706
+                                  : bgiProfile ===
+                                        "primary-main-loop-progression" ||
+                                      bgiProfile ===
+                                        "kernel32-leave-critical-section" ||
+                                      bgiProfile ===
+                                        "kernel32-enter-critical-section-continuation" ||
+                                      bgiProfile ===
+                                        "kernel32-leave-critical-section-continuation"
+                                    ? 7
+                                    : 3;
         assert.deepEqual(evidence.report.timerPacing, {
           requests: pacingCount,
           completions: pacingCount,
@@ -1286,9 +1295,11 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           assert.equal(
             archiveReads.length,
             runtimeThreadStackGrowthProfile
-              ? recurringTimerWindowProfile
-                ? 84
-                : 82
+              ? presentationProgressGatewayProfile
+                ? 90
+                : recurringTimerWindowProfile
+                  ? 84
+                  : 82
               : user32IsIconicProfile
                 ? 60
                 : 59,
@@ -3172,11 +3183,13 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           present: 2,
           textureLockRect: 1,
           textureUnlockRect: 1,
-          testCooperativeLevel: runtimeThreadStackGrowthProfile
-            ? 4
-            : user32IsIconicProfile
-              ? 3
-              : 1,
+          testCooperativeLevel: presentationProgressGatewayProfile
+            ? 8
+            : runtimeThreadStackGrowthProfile
+              ? 4
+              : user32IsIconicProfile
+                ? 3
+                : 1,
         });
         assert.equal(
           continuation.nextSubsystemGateway,
@@ -3247,27 +3260,39 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert(peek !== null, "Chrome Worker omitted PeekMessageA evidence");
         assert.equal(
           peek.calls.length,
-          runtimeThreadStackGrowthProfile
-            ? 4
-            : user32IsIconicProfile
-              ? 3
-              : 1,
+          presentationProgressGatewayProfile
+            ? 8
+            : runtimeThreadStackGrowthProfile
+              ? 4
+              : user32IsIconicProfile
+                ? 3
+                : 1,
         );
         assert.deepEqual(
           peek.calls.map((call) => call.sequence),
-          runtimeThreadStackGrowthProfile
-            ? [148_296, 148_353, 148_474, 148_599]
-            : user32IsIconicProfile
-              ? [148_296, 148_353, 148_474]
-              : [148_296],
+          presentationProgressGatewayProfile
+            ? [
+                148_296, 148_353, 148_474, 148_599, 161_539, 161_670, 161_801,
+                161_932,
+              ]
+            : runtimeThreadStackGrowthProfile
+              ? [148_296, 148_353, 148_474, 148_599]
+              : user32IsIconicProfile
+                ? [148_296, 148_353, 148_474]
+                : [148_296],
         );
         assert.deepEqual(
           peek.instructionCounts,
-          runtimeThreadStackGrowthProfile
-            ? [148_744_543, 148_749_108, 148_770_786, 153_196_320]
-            : user32IsIconicProfile
-              ? [148_744_543, 148_749_108, 148_770_786]
-              : [148_744_543],
+          presentationProgressGatewayProfile
+            ? [
+                148_744_543, 148_749_108, 148_770_786, 153_196_320, 321_443_044,
+                321_448_944, 321_454_827, 321_460_736,
+              ]
+            : runtimeThreadStackGrowthProfile
+              ? [148_744_543, 148_749_108, 148_770_786, 153_196_320]
+              : user32IsIconicProfile
+                ? [148_744_543, 148_749_108, 148_770_786]
+                : [148_744_543],
         );
         const firstPeek = peek.calls[0];
         assert.deepEqual(
@@ -3332,14 +3357,27 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       if (user32IsIconicProfile) {
         const iconic = evidence.report.isIconic;
         assert(iconic !== null, "Chrome Worker omitted IsIconic evidence");
-        assert.equal(iconic.calls.length, 3);
+        assert.equal(
+          iconic.calls.length,
+          presentationProgressGatewayProfile ? 8 : 3,
+        );
         assert.deepEqual(
           iconic.calls.map((call) => call.sequence),
-          [148_305, 148_426, 148_483],
+          presentationProgressGatewayProfile
+            ? [
+                148_305, 148_426, 148_483, 161_491, 161_622, 161_680, 161_811,
+                161_942,
+              ]
+            : [148_305, 148_426, 148_483],
         );
         assert.deepEqual(
           iconic.instructionCounts,
-          [148_745_317, 148_766_995, 148_771_560],
+          presentationProgressGatewayProfile
+            ? [
+                148_745_317, 148_766_995, 148_771_560, 321_439_253, 321_445_153,
+                321_449_704, 321_455_587, 321_461_496,
+              ]
+            : [148_745_317, 148_766_995, 148_771_560],
         );
         const firstIconic = iconic.calls[0];
         assert.deepEqual(
@@ -5305,9 +5343,7 @@ function validateBgiEquivalence(browser, oracle) {
       browserCheckpoint.nextEndpoint.symbol,
       oracleCheckpoint.nextEndpoint.symbol,
     );
-    if (
-      oracleCheckpoint.capability === "kernel32-heap-free-large-buffer"
-    ) {
+    if (oracleCheckpoint.capability === "kernel32-heap-free-large-buffer") {
       const normalizeCompletion = ({ call, freeDelta, memoryAfter }) => ({
         call: {
           ...normalizeSemanticCall(call),
@@ -5315,8 +5351,7 @@ function validateBgiEquivalence(browser, oracle) {
           heapFree: call.heapFree,
         },
         freeDelta: {
-          generationAdvance:
-            freeDelta.generation - freeDelta.fromGeneration,
+          generationAdvance: freeDelta.generation - freeDelta.fromGeneration,
           mappingOperations: freeDelta.mappingOperations,
           dirtyPages: freeDelta.dirtyPages,
           cacheEffects: freeDelta.cacheEffects,
@@ -5370,14 +5405,8 @@ function validateBgiEquivalence(browser, oracle) {
         "Chrome Worker large HeapFree lifecycle differs from the Node oracle",
       );
     }
-    if (
-      oracleCheckpoint.capability === "kernel32-heap-alloc-24-byte-buffer"
-    ) {
-      const normalizeCompletion = ({
-        call,
-        allocationDelta,
-        memoryAfter,
-      }) => ({
+    if (oracleCheckpoint.capability === "kernel32-heap-alloc-24-byte-buffer") {
+      const normalizeCompletion = ({ call, allocationDelta, memoryAfter }) => ({
         call: {
           ...normalizeSemanticCall(call),
           implementationId: call.implementationId,
@@ -5437,10 +5466,7 @@ function validateBgiEquivalence(browser, oracle) {
         "Chrome Worker HeapAlloc lifecycle differs from the Node oracle",
       );
     }
-    if (
-      oracleCheckpoint.capability ===
-      "winmm-time-get-time-post-heap-reuse"
-    ) {
+    if (oracleCheckpoint.capability === "winmm-time-get-time-post-heap-reuse") {
       const normalizeClockCall = (call) => ({
         ...normalizeSemanticCall(call),
         implementationId: call.implementationId,
@@ -5541,8 +5567,7 @@ function validateBgiEquivalence(browser, oracle) {
           lastCompletionInstructionCount:
             browserCheckpoint.lastCompletionInstructionCount,
           roundtripCount: browserCheckpoint.roundtripCount,
-          criticalSectionAddresses:
-            browserCheckpoint.criticalSectionAddresses,
+          criticalSectionAddresses: browserCheckpoint.criticalSectionAddresses,
           threadId: browserCheckpoint.threadId,
           balanced: browserCheckpoint.balanced,
           nextArguments: browserCheckpoint.nextArguments,
@@ -5560,8 +5585,7 @@ function validateBgiEquivalence(browser, oracle) {
           lastCompletionInstructionCount:
             oracleCheckpoint.lastCompletionInstructionCount,
           roundtripCount: oracleCheckpoint.roundtripCount,
-          criticalSectionAddresses:
-            oracleCheckpoint.criticalSectionAddresses,
+          criticalSectionAddresses: oracleCheckpoint.criticalSectionAddresses,
           threadId: oracleCheckpoint.threadId,
           balanced: oracleCheckpoint.balanced,
           nextArguments: oracleCheckpoint.nextArguments,
@@ -5595,8 +5619,7 @@ function validateBgiEquivalence(browser, oracle) {
             browserCheckpoint.criticalSectionCompletionCount,
           timerArmCompletionCount: browserCheckpoint.timerArmCompletionCount,
           roundtripCount: browserCheckpoint.roundtripCount,
-          criticalSectionAddresses:
-            browserCheckpoint.criticalSectionAddresses,
+          criticalSectionAddresses: browserCheckpoint.criticalSectionAddresses,
           threadId: browserCheckpoint.threadId,
           balanced: browserCheckpoint.balanced,
           nextArguments: browserCheckpoint.nextArguments,
@@ -5616,8 +5639,7 @@ function validateBgiEquivalence(browser, oracle) {
             oracleCheckpoint.criticalSectionCompletionCount,
           timerArmCompletionCount: oracleCheckpoint.timerArmCompletionCount,
           roundtripCount: oracleCheckpoint.roundtripCount,
-          criticalSectionAddresses:
-            oracleCheckpoint.criticalSectionAddresses,
+          criticalSectionAddresses: oracleCheckpoint.criticalSectionAddresses,
           threadId: oracleCheckpoint.threadId,
           balanced: oracleCheckpoint.balanced,
           nextArguments: oracleCheckpoint.nextArguments,
@@ -5632,13 +5654,19 @@ function validateBgiEquivalence(browser, oracle) {
       oracleCheckpoint.capability ===
         "primary-main-loop-recurring-timer-multi-cycle-batch" ||
       oracleCheckpoint.capability ===
-        "primary-main-loop-recurring-timer-window-batch"
+        "primary-main-loop-recurring-timer-window-batch" ||
+      oracleCheckpoint.capability ===
+        "primary-main-loop-presentation-progress-gateway"
     ) {
       const normalizeCycleBoundaryCall = (call) => ({
         ...normalizeSemanticCall(call),
         implementationId: call.implementationId,
         runtimeThreadId: call.runtimeThreadId,
         trapInstructionCount: call.trapInstructionCount,
+        ...(oracleCheckpoint.capability ===
+        "primary-main-loop-presentation-progress-gateway"
+          ? { occurrence: call.occurrence }
+          : {}),
       });
       const normalizeMultiCycleCheckpoint = (checkpoint) => ({
         implementationId: checkpoint.implementationId,
@@ -5676,6 +5704,33 @@ function validateBgiEquivalence(browser, oracle) {
         participatingThreadIds: checkpoint.participatingThreadIds,
         threadTransitionCount: checkpoint.threadTransitionCount,
         balanced: checkpoint.balanced,
+        ...(checkpoint.capability ===
+        "primary-main-loop-presentation-progress-gateway"
+          ? {
+              baseline: checkpoint.baseline,
+              outcome: checkpoint.outcome,
+              hardBoundReached: checkpoint.hardBoundReached,
+              renderCompletionCount: checkpoint.renderCompletionCount,
+              renderCompletions: checkpoint.renderCompletions.map((call) => ({
+                ...normalizeSemanticCall(call),
+                runtimeThreadId: call.runtimeThreadId,
+                trapInstructionCount: call.trapInstructionCount,
+                occurrence: call.occurrence,
+              })),
+              presentCompletion:
+                checkpoint.presentCompletion === null
+                  ? null
+                  : {
+                      ...normalizeSemanticCall(checkpoint.presentCompletion),
+                      runtimeThreadId:
+                        checkpoint.presentCompletion.runtimeThreadId,
+                      trapInstructionCount:
+                        checkpoint.presentCompletion.trapInstructionCount,
+                      occurrence: checkpoint.presentCompletion.occurrence,
+                    },
+              timerLanes: checkpoint.timerLanes,
+            }
+          : {}),
         instructionCount: checkpoint.instructionCount,
         nextArguments: checkpoint.nextArguments,
         nextReturnAddress: checkpoint.nextReturnAddress,

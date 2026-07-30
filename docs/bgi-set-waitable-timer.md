@@ -206,6 +206,17 @@ ledger and next wait frame. The Worker remains a non-owning pacing and evidence
 adapter, and the bounded checkpoint does not claim a browser-clock authority or
 long-run timer behavior.
 
+The `primary-main-loop-presentation-progress-gateway` checkpoint extends the
+same timer-2 chain to the 256-cycle hard bound. It keeps the main-loop wait and
+rearm paired even when reached thread-`8192` rendering work creates four
+independent timer-1 arm/wait pairs. The two handles, logical timer identities,
+owner threads, generations, and deadlines stay in separate evidence lanes;
+the nested timer-1 activity therefore cannot advance or satisfy the timer-2
+cycle. Node and Chrome agree on the terminal timer-2 rearm and following wait
+frame. No third `Present` is observed, so the bounded result advances to an
+input-progress gateway rather than claiming long-run timer or presentation
+progress.
+
 ## Non-claims
 
 - This arm transaction does not itself expire or signal the timer, choose a

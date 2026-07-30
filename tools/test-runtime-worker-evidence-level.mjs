@@ -12,7 +12,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 71 as const/u);
+assert.match(protocol, /protocolVersion = 72 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -20,10 +20,8 @@ assert.match(
   protocol,
   /"primary-main-loop-recurring-timer-multi-cycle-batch"/u,
 );
-assert.match(
-  protocol,
-  /"primary-main-loop-recurring-timer-window-batch"/u,
-);
+assert.match(protocol, /"primary-main-loop-recurring-timer-window-batch"/u);
+assert.match(protocol, /"primary-main-loop-presentation-progress-gateway"/u);
 assert.match(protocol, /RuntimeRecurringTimerCycleSummary/u);
 assert.match(protocol, /RuntimeRecurringTimerWindowCycleSummary/u);
 assert.match(protocol, /RuntimeRecurringTimerInterCycleSummary/u);
@@ -34,6 +32,7 @@ assert.match(worker, /#recurringTimerMultiCycleSummaries/u);
 assert.match(worker, /completedCycleCount >= configuration\.requiredCycles/u);
 assert.match(fullProbe, /primary-main-loop-recurring-timer-multi-cycle-batch/u);
 assert.match(fullProbe, /primary-main-loop-recurring-timer-window-batch/u);
+assert.match(fullProbe, /primary-main-loop-presentation-progress-gateway/u);
 assert.match(protocol, /kernel32-get-file-attributes-a/u);
 assert.match(protocol, /RuntimeGetFileAttributesACallSnapshot/u);
 assert.match(protocol, /getFileAttributesA:/u);
@@ -113,10 +112,7 @@ assert.match(
   protocol,
   /kernel32-set-waitable-timer-post-critical-section-batch/u,
 );
-assert.match(
-  protocol,
-  /kernel32-set-waitable-timer-post-timer-wait-batch/u,
-);
+assert.match(protocol, /kernel32-set-waitable-timer-post-timer-wait-batch/u);
 assert.match(
   protocol,
   /kernel32-set-waitable-timer-post-timer-rearm-wait-batch/u,
@@ -134,10 +130,7 @@ assert.match(
   protocol,
   /kernel32-wait-for-single-object-ex-post-critical-section/u,
 );
-assert.match(
-  protocol,
-  /capability: "winmm-time-get-time-post-heap-reuse"/u,
-);
+assert.match(protocol, /capability: "winmm-time-get-time-post-heap-reuse"/u);
 assert.match(
   protocol,
   /capability: "kernel32-enter-critical-section-post-clock"/u,
@@ -158,10 +151,7 @@ assert.match(
   protocol,
   /"kernel32-set-waitable-timer-post-critical-section-batch"/u,
 );
-assert.match(
-  protocol,
-  /"kernel32-set-waitable-timer-post-timer-wait-batch"/u,
-);
+assert.match(protocol, /"kernel32-set-waitable-timer-post-timer-wait-batch"/u);
 assert.match(
   protocol,
   /"kernel32-set-waitable-timer-post-timer-rearm-wait-batch"/u,
