@@ -843,7 +843,7 @@ export function validateCurrentCheckpoint(manifest) {
                                           ? "3,4,5,6,7,8,9"
                                           : "3,4,5";
   const timerPacingRegistrationIds = presentationProgressGatewayActive
-    ? "1,11468"
+    ? "1,11467"
     : recurringTimerWindowActive
       ? "1,11272"
       : recurringTimerMultiCycleActive
