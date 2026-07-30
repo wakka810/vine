@@ -1128,6 +1128,17 @@ return boundary、terminal memory、ordered semantic digest、次の`PeekMessage
 する。このcheckpointはreplacement、`KillTimer`、NULL-HWND ID、filtered／cross-thread retrieval、background lifecycleを
 claimしない。Exact値とartifact identityは`current-checkpoint.json`だけを正本とする。
 
+`primary-main-loop-window-timer-callback-action-input-progress-gateway`は、固定call sequenceではなく253回目の
+main-timer cycle completionをinput境界とし、既証明の`VK_LBUTTON` down／query／upとRust-owned window timer
+deliveryを一つのbounded scenarioへ合成する。Node／Chromeは同じcycle identityでinputをcommitし、最初の後続
+`GetAsyncKeyState(VK_LBUTTON)`による消費、4件のTIMERPROC completion、そのうちinput後2件、320周期、4,838
+completion、terminal memory、ordered semantic digestを一致させなければならない。TIMERPROC内のnested callより後に
+完了する外側`DispatchMessageA`は、予約sequenceではなくcallback returnのcompletion時点で所属cycle／inter-cycle
+intervalへ記録する。Hard boundまでthird `Present`がない場合は
+`input-consumed-with-post-input-timer-no-presentation-progress`へ分類する。これはtimer deliveryとprimary action inputの
+同時成立を受け入れるものであり、queued mouse message、cursor移動、readable response、deadlock不在、一般message
+orderingをclaimしない。Exact値とartifact identityは`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

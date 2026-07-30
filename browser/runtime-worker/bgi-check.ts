@@ -77,6 +77,8 @@ const d3d9Canvas =
   capabilityProfile ===
     "primary-main-loop-window-timer-callback-recurring-batch" ||
   capabilityProfile ===
+    "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
+  capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
   capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
@@ -183,7 +185,9 @@ const startMessage = {
             capabilityProfile ===
               "primary-main-loop-window-timer-callback-delivery-gateway" ||
             capabilityProfile ===
-              "primary-main-loop-window-timer-callback-recurring-batch"
+              "primary-main-loop-window-timer-callback-recurring-batch" ||
+            capabilityProfile ===
+              "primary-main-loop-window-timer-callback-action-input-progress-gateway"
           ? 340_000_000
           : capabilityProfile === "runtime-trapless-execution-budget" ||
               capabilityProfile === "kernel32-heap-free-large-buffer" ||
@@ -291,6 +295,8 @@ const startMessage = {
       capabilityProfile ===
         "primary-main-loop-window-timer-callback-recurring-batch" ||
       capabilityProfile ===
+        "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
+      capabilityProfile ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
       capabilityProfile ===
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
@@ -339,10 +345,14 @@ if (
   capabilityProfile === "user32-async-key-state-input" ||
   capabilityProfile === "user32-async-key-state-input-continuation" ||
   capabilityProfile === "primary-main-loop-input-progress-gateway" ||
-  capabilityProfile === "primary-main-loop-action-input-progress-gateway"
+  capabilityProfile === "primary-main-loop-action-input-progress-gateway" ||
+  capabilityProfile ===
+    "primary-main-loop-window-timer-callback-action-input-progress-gateway"
 ) {
   const actionInput =
-    capabilityProfile === "primary-main-loop-action-input-progress-gateway";
+    capabilityProfile === "primary-main-loop-action-input-progress-gateway" ||
+    capabilityProfile ===
+      "primary-main-loop-window-timer-callback-action-input-progress-gateway";
   const downEvent = actionInput
     ? pointerSourceEvent(1, "key-down", 0)
     : {
@@ -492,6 +502,8 @@ function parseCapabilityProfile(
     value === "primary-main-loop-action-input-progress-gateway" ||
     value === "primary-main-loop-window-timer-callback-delivery-gateway" ||
     value === "primary-main-loop-window-timer-callback-recurring-batch" ||
+    value ===
+      "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-critical-section"

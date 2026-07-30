@@ -79,10 +79,14 @@ than choosing another keyboard key. Browser pointer button `0` normalizes to
 `VK_LBUTTON` and crosses the same versioned Worker message and Rust commit
 boundary. The first later `GetAsyncKeyState(VK_LBUTTON)` consumes
 `0xFFFF8001`; key-up then leaves both current-down and pressed-since-query words
-clear. Node and Chrome agree through the same 320-cycle hard bound and do not
-reach a third `Present`. This closes primary pointer-button ingestion and
-release only. It does not create a mouse-message queue entry, move the logical
-cursor, or prove that the title treats the reached poll as an action.
+clear. The integrated action／window-timer profile anchors that commit to the
+same semantic 253rd main-timer cycle rather than a call occurrence, then
+completes four Rust-owned `WM_TIMER`／`TIMERPROC` deliveries, including two
+after input consumption. Node and Chrome agree through the same 320-cycle hard
+bound and do not reach a third `Present`. This closes primary pointer-button
+ingestion, release, and coexistence with the reached recurring callback path.
+It does not create a mouse-message queue entry, move the logical cursor, or
+prove that the title turns the reached poll into a visible action.
 
 A later zero-input profile provides that counterfactual for input state, but not
 for asset causality. It queues no browser event, completes 51 leading
@@ -210,11 +214,12 @@ This checkpoint does not claim `GetKeyboardState`, message-queue keyboard or
 mouse translation, capture, raw input, callback-producing DirectInput variants,
 keyboard／mouse DirectInput devices, acquire／unacquire, buffered input, or
 general device state. Pointer normalization is present at the adapter boundary,
-and primary left-button consumption and release are now demonstrated; cursor
-movement and queued mouse-message translation are not. The bounded controlled
-Control profiles prove transport, one User32 consumer, pressed-bit consumption
-across held-key queries, and steady-state key release; the zero-input scan proves
-absence of synthesized key state. Action-bearing visible gameplay response, IME
-text composition, browser shortcut suppression, and general input remain future
-scenario evidence. It does not change host OS input state, and TypeScript remains
-an adapter rather than Windows-state authority.
+and primary left-button consumption, release, and continued timer-callback
+delivery are now demonstrated; cursor movement and queued mouse-message
+translation are not. The bounded controlled Control profiles prove transport,
+one User32 consumer, pressed-bit consumption across held-key queries, and
+steady-state key release; the zero-input scan proves absence of synthesized key
+state. Action-bearing visible gameplay response, IME text composition, browser
+shortcut suppression, and general input remain future scenario evidence. It
+does not change host OS input state, and TypeScript remains an adapter rather
+than Windows-state authority.

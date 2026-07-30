@@ -643,14 +643,20 @@ function isInputProgressGatewayCheckpoint(
 ): boolean {
   return (
     profile === "primary-main-loop-input-progress-gateway" ||
-    profile === "primary-main-loop-action-input-progress-gateway"
+    profile === "primary-main-loop-action-input-progress-gateway" ||
+    profile ===
+      "primary-main-loop-window-timer-callback-action-input-progress-gateway"
   );
 }
 
 function isActionInputProgressGatewayCheckpoint(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "primary-main-loop-action-input-progress-gateway";
+  return (
+    profile === "primary-main-loop-action-input-progress-gateway" ||
+    profile ===
+      "primary-main-loop-window-timer-callback-action-input-progress-gateway"
+  );
 }
 
 function isWindowTimerCallbackDeliveryGatewayCheckpoint(
@@ -667,12 +673,22 @@ function isWindowTimerCallbackRecurringBatchCheckpoint(
   return profile === "primary-main-loop-window-timer-callback-recurring-batch";
 }
 
+function isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile ===
+    "primary-main-loop-window-timer-callback-action-input-progress-gateway"
+  );
+}
+
 function hasWindowTimerCallbackDelivery(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isWindowTimerCallbackDeliveryGatewayCheckpoint(profile) ||
-    isWindowTimerCallbackRecurringBatchCheckpoint(profile)
+    isWindowTimerCallbackRecurringBatchCheckpoint(profile) ||
+    isWindowTimerCallbackActionInputProgressGatewayCheckpoint(profile)
   );
 }
 
@@ -707,7 +723,16 @@ function isRecurringTimerBoundedWindowCheckpoint(
 function recurringTimerWindowConfiguration(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  return isWindowTimerCallbackRecurringBatchCheckpoint(profile)
+  return isWindowTimerCallbackActionInputProgressGatewayCheckpoint(profile)
+    ? ({
+        capability:
+          "primary-main-loop-window-timer-callback-action-input-progress-gateway",
+        implementationId:
+          "runtime.main-loop-window-timer-callback-action-input-progress-gateway.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      } as const)
+    : isWindowTimerCallbackRecurringBatchCheckpoint(profile)
     ? ({
         capability:
           "primary-main-loop-window-timer-callback-recurring-batch",
@@ -886,27 +911,47 @@ function windowTimerCallbackRecurringBatchExpectation() {
 function inputProgressGatewayExpectation(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
+  const combined =
+    isWindowTimerCallbackActionInputProgressGatewayCheckpoint(profile);
   const action = isActionInputProgressGatewayCheckpoint(profile);
   return {
-    capability: action
+    capability: combined
+      ? "primary-main-loop-window-timer-callback-action-input-progress-gateway"
+      : action
       ? "primary-main-loop-action-input-progress-gateway"
       : "primary-main-loop-input-progress-gateway",
-    implementationId: action
+    implementationId: combined
+      ? "runtime.main-loop-window-timer-callback-action-input-progress-gateway.v1"
+      : action
       ? "runtime.main-loop-action-input-progress-gateway.v1"
       : "runtime.main-loop-input-progress-gateway.v1",
-    supportedCallCount: 162_962,
-    semanticDigest: action
+    supportedCallCount: combined ? 162_971 : 162_962,
+    semanticDigest: combined
+      ? "45f352e2729c3d295384e88d9ee7ebbed9fde3d4075e85b0633e7e6e2cb98330"
+      : action
       ? "fc7e9e9003907122652510d1a988959a7835f1b8b22ac754876086290c67191d"
       : "592e9f78379c63292b61d12b0216833e45d2a357cc54cd63c4d39e4c493fad4b",
-    firstSequence: 158_132,
-    firstInstructionCount: 276_361_491,
-    lastSequence: 162_962,
-    lastInstructionCount: action ? 321_509_588 : 321_509_586,
-    terminalInstructionCount: action ? 321_509_594 : 321_509_592,
+    firstSequence: combined ? 158_134 : 158_132,
+    firstInstructionCount: combined ? 276_361_944 : 276_361_491,
+    lastSequence: combined ? 162_971 : 162_962,
+    lastInstructionCount: combined
+      ? 321_511_657
+      : action
+        ? 321_509_588
+        : 321_509_586,
+    terminalInstructionCount: combined
+      ? 321_511_663
+      : action
+        ? 321_509_594
+        : 321_509_592,
     inputVirtualKey: action ? 0x01 : 0xa2,
     inputQueryVirtualKey: action ? 0x01 : 0x11,
-    inputQuerySequence: action ? 161_924 : 161_918,
-    inputQueryInstructionCount: action ? 321_460_259 : 321_459_946,
+    inputQuerySequence: combined ? 161_932 : action ? 161_924 : 161_918,
+    inputQueryInstructionCount: combined
+      ? 321_461_595
+      : action
+        ? 321_460_259
+        : 321_459_946,
     downWords: action ? "2,0,0,0,0,0,0,0" : "131072,0,0,0,0,4,0,0",
     pressedWords: action
       ? "2,0,0,0,0,0,0,0"
@@ -926,22 +971,23 @@ function inputProgressGatewayExpectation(
     releasedPressedWords: action
       ? "0,0,0,0,0,0,0,0"
       : "0,0,0,0,0,4,0,0",
-    memoryContentSha256:
-      "48750ae580df1b33ad89384c4fc7d6fe56ae204c303829635d6c836f7260ed7b",
-    finalGeneration: 316_395n,
-    writebackBatches: 184_857,
-    writebackPages: 284_094,
-    mappingDeltas: 128_362,
-    mappingDirtyPages: 150_767,
+    memoryContentSha256: combined
+      ? "9a64f6b14b503e20683855a79330d51160ae99efd92ad78eadb2ea858584c9de"
+      : "48750ae580df1b33ad89384c4fc7d6fe56ae204c303829635d6c836f7260ed7b",
+    finalGeneration: combined ? 316_416n : 316_395n,
+    writebackBatches: combined ? 184_870 : 184_857,
+    writebackPages: combined ? 284_108 : 284_094,
+    mappingDeltas: combined ? 128_370 : 128_362,
+    mappingDirtyPages: combined ? 150_775 : 150_767,
     contextSwitches: 2_527,
     heapPageMaterializations: 3_108,
     sourceReads: 94,
-    hostRequests: 11_626,
-    rustSchedulerTransitions: 14_153,
-    slices: 184_864,
-    wasmBridgeCalls: 491_898,
-    waitCompletions: 11_540,
-    pacingRequests: 11_531,
+    hostRequests: combined ? 11_627 : 11_626,
+    rustSchedulerTransitions: combined ? 14_154 : 14_153,
+    slices: combined ? 184_877 : 184_864,
+    wasmBridgeCalls: combined ? 491_933 : 491_898,
+    waitCompletions: combined ? 11_540 : 11_540,
+    pacingRequests: combined ? 11_532 : 11_531,
   } as const;
 }
 
@@ -1452,7 +1498,8 @@ type InputProgressGatewayCheckpoint = Extract<
   {
     capability:
       | "primary-main-loop-input-progress-gateway"
-      | "primary-main-loop-action-input-progress-gateway";
+      | "primary-main-loop-action-input-progress-gateway"
+      | "primary-main-loop-window-timer-callback-action-input-progress-gateway";
   }
 >;
 
@@ -1899,12 +1946,12 @@ class BrowserRuntimeSession {
     presentOccurrence: 2,
   } as const;
   readonly #inputProgressBaseline = {
-    cycleCount: 253,
+    cycleCount: 253 as const,
     lastCompletionSequence: 161_897,
     lastCompletionInstructionCount: 321_458_098,
     presentOccurrence: 2,
     renderCompletionCount: 3,
-  } as const;
+  };
   readonly #inputProgressKeyboardEvents: RuntimeKeyboardInputBoundaryEvidence[] =
     [];
   #inputProgressAsyncKeyStateQuery: RuntimeThreadCallSnapshot | null = null;
@@ -1915,7 +1962,6 @@ class BrowserRuntimeSession {
   readonly #presentationProgressTimerLaneCompletions: RuntimePresentationTimerLaneCompletion[] =
     [];
   readonly #timerPacedCallSequences = new Set<number>();
-  #recurringTimerCriticalSectionAcquisitionOccurrence = 51_342;
   readonly #renderCompletionCounts: NonNullable<
     SessionReport["initialScanContinuation"]
   >["renderCompletionCounts"] = {
@@ -3038,7 +3084,31 @@ class BrowserRuntimeSession {
     const expected = inputProgressGatewayExpectation(
       this.#configuration.capabilityProfile,
     );
-    if (call.sequence === this.#inputProgressBaseline.lastCompletionSequence) {
+    const combined =
+      isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
+        this.#configuration.capabilityProfile,
+      );
+    const currentCycle = this.#recurringTimerMultiCycleCurrentCycle;
+    const combinedInputBoundaryReached =
+      combined &&
+      currentCycle?.cycleIndex === this.#inputProgressBaseline.cycleCount - 1 &&
+      call.implementationId ===
+        "kernel32.set-waitable-timer.relative-one-shot.v1" &&
+      call.arguments[0] === currentCycle.waitHandle;
+    if (
+      combined
+        ? combinedInputBoundaryReached
+        : call.sequence === this.#inputProgressBaseline.lastCompletionSequence
+    ) {
+      if (combined) {
+        this.#inputProgressBaseline.lastCompletionSequence = call.sequence;
+        this.#inputProgressBaseline.lastCompletionInstructionCount =
+          this.#report.instructions;
+        this.#inputProgressBaseline.presentOccurrence =
+          this.#presentationProgressPresentCompletion?.occurrence ?? 2;
+        this.#inputProgressBaseline.renderCompletionCount =
+          this.#presentationProgressRenderCompletions.length;
+      }
       invariant(
         this.#report.instructions ===
           this.#inputProgressBaseline.lastCompletionInstructionCount &&
@@ -5202,6 +5272,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "primary-main-loop-window-timer-callback-recurring-batch" ||
           checkpoint.capability ===
+            "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
+          checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -5293,6 +5365,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "primary-main-loop-window-timer-callback-recurring-batch" ||
       checkpoint.capability ===
+        "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -5346,7 +5420,9 @@ class BrowserRuntimeSession {
                     checkpoint.capability ===
                       "primary-main-loop-input-progress-gateway" ||
                     checkpoint.capability ===
-                      "primary-main-loop-action-input-progress-gateway"
+                      "primary-main-loop-action-input-progress-gateway" ||
+                    checkpoint.capability ===
+                      "primary-main-loop-window-timer-callback-action-input-progress-gateway"
                   ? [
                       this.#requireEngine().readGuestU32(stackPointer + 4),
                       this.#requireEngine().readGuestU32(stackPointer + 8),
@@ -5419,6 +5495,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "primary-main-loop-window-timer-callback-recurring-batch" ||
       checkpoint.capability ===
+        "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -5455,6 +5533,9 @@ class BrowserRuntimeSession {
                     : checkpoint.capability ===
                         "kernel32-enter-critical-section-post-timer-rearm-wait-batch"
                       ? "Post-timer-rearm-wait critical-section batch checkpoint completed"
+                      : checkpoint.capability ===
+                          "primary-main-loop-window-timer-callback-action-input-progress-gateway"
+                        ? "Primary main-loop window timer callback action input progress gateway completed"
                       : checkpoint.capability ===
                           "primary-main-loop-window-timer-callback-recurring-batch"
                         ? "Primary main-loop window timer callback recurring batch completed"
@@ -6671,6 +6752,9 @@ class BrowserRuntimeSession {
       const requiredDeliveries =
         isWindowTimerCallbackRecurringBatchCheckpoint(
           this.#configuration.capabilityProfile,
+        ) ||
+        isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
+          this.#configuration.capabilityProfile,
         )
           ? 16
           : 1;
@@ -6678,7 +6762,12 @@ class BrowserRuntimeSession {
         this.#windowTimerCallbackDispatches.length <= requiredDeliveries,
         "window timer callback delivery exceeded its bounded batch",
       );
-      if (this.#windowTimerCallbackDispatches.length === requiredDeliveries) {
+      if (
+        !isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        this.#windowTimerCallbackDispatches.length === requiredDeliveries
+      ) {
         const checkpoint =
           isWindowTimerCallbackRecurringBatchCheckpoint(
             this.#configuration.capabilityProfile,
@@ -6874,9 +6963,12 @@ class BrowserRuntimeSession {
         ) {
           const address = frozenCall.arguments[0] ?? 0;
           const ownershipKey = `${frozenCall.runtimeThreadId}:${address}`;
-          this.#recurringTimerCriticalSectionAcquisitionOccurrence += 1;
+          invariant(
+            frozenCall.occurrence !== undefined,
+            "recurring timer inter-cycle critical-section completion omitted its ABI occurrence",
+          );
           interval.criticalSectionOccurrences.push(
-            this.#recurringTimerCriticalSectionAcquisitionOccurrence,
+            frozenCall.occurrence,
           );
           this.#recurringTimerWindowHeldCriticalSections.set(
             ownershipKey,
@@ -7117,10 +7209,13 @@ class BrowserRuntimeSession {
                 ownershipKey,
                 (heldCriticalSections.get(ownershipKey) ?? 0) + 1,
               );
-              this.#recurringTimerCriticalSectionAcquisitionOccurrence += 1;
+              invariant(
+                completionCall.occurrence !== undefined,
+                `recurring timer cycle ${cycleIndex} critical-section completion omitted its ABI occurrence`,
+              );
               criticalSectionAddresses.push(address);
               criticalSectionOccurrences.push(
-                this.#recurringTimerCriticalSectionAcquisitionOccurrence,
+                completionCall.occurrence,
               );
               criticalSectionCompletionCount += 1;
               criticalSectionAcquisitionCount += 1;
@@ -7486,11 +7581,36 @@ class BrowserRuntimeSession {
                         : structuredClone(
                             this.#inputProgressAsyncKeyStateQuery,
                           ),
+                    ...(isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
+                      this.#configuration.capabilityProfile,
+                    )
+                      ? {
+                          windowTimerDelivery: {
+                            minimumRequiredDeliveriesAfterInput: 1 as const,
+                            deliveryCount:
+                              this.#windowTimerCallbackDispatches.length,
+                            deliveriesAfterInputCount:
+                              this.#windowTimerCallbackDispatches.filter(
+                                (dispatch) =>
+                                  dispatch.sequence >
+                                  this.#inputProgressBaseline
+                                    .lastCompletionSequence,
+                              ).length,
+                            dispatches: structuredClone(
+                              this.#windowTimerCallbackDispatches,
+                            ),
+                          },
+                        }
+                      : {}),
                     outcome: !inputProgressConsumed
                       ? "input-not-consumed"
                       : presentationProgressReached
                         ? "presentation-progress-reached"
-                        : "input-consumed-no-presentation-progress",
+                        : isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
+                              this.#configuration.capabilityProfile,
+                            )
+                          ? "input-consumed-with-post-input-timer-no-presentation-progress"
+                          : "input-consumed-no-presentation-progress",
                   };
                   this.#report.checkpointCompletion = checkpoint;
                 } else {
@@ -14444,6 +14564,55 @@ class BrowserRuntimeSession {
             : [];
         const [down, up] = inputEvents;
         const pacing = this.#timerPacing.metrics();
+        const combined =
+          isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
+            this.#configuration.capabilityProfile,
+          );
+        const windowTimerDelivery =
+          checkpoint?.capability === expected.capability
+            ? checkpoint.windowTimerDelivery
+            : undefined;
+        const inputBaselineSequence = down?.committedAfterSequence ?? 0;
+        const combinedTimerDeliveryMatches =
+          !combined ||
+          (windowTimerDelivery?.minimumRequiredDeliveriesAfterInput === 1 &&
+            windowTimerDelivery.deliveryCount === 4 &&
+            windowTimerDelivery.deliveriesAfterInputCount === 2 &&
+            windowTimerDelivery.dispatches.length === 4 &&
+            windowTimerDelivery.dispatches
+              .map(
+                (dispatch) =>
+                  `${dispatch.sequence}:${dispatch.callback?.frameId}:${dispatch.callback?.returnInstructionCount}`,
+              )
+              .join(",") ===
+              "148298:31:148745201,161545:32:321444370,162072:33:321468604,162596:34:321492768" &&
+            windowTimerDelivery.dispatches.every(
+              (dispatch, index) =>
+                dispatch.module.toLowerCase() === "user32.dll" &&
+                dispatch.symbol === "DispatchMessageA" &&
+                dispatch.implementationId ===
+                  "user32.dispatch-message-a.window-timer-callback.v1" &&
+                "action" in dispatch.result &&
+                dispatch.result.action === "set" &&
+                dispatch.result.value === 0 &&
+                dispatch.guestWrites.length === 0 &&
+                dispatch.callbackArguments.slice(0, 3).join(",") ===
+                  "1208025089,275,1" &&
+                dispatch.windowTimer?.deliveryCount === index + 1 &&
+                dispatch.windowTimer.registrationGeneration === 1 &&
+                dispatch.windowTimer.lastDelivery?.deliveryCount ===
+                  index + 1 &&
+                dispatch.callback?.target === 0x1009_9600 &&
+                dispatch.callback.frameBytes === 20 &&
+                dispatch.callback.returnSentinel === 0x7f01_0000,
+            ) &&
+            windowTimerDelivery.dispatches
+              .filter(
+                (dispatch) =>
+                  dispatch.sequence > inputBaselineSequence,
+              )
+              .map((dispatch) => dispatch.sequence)
+              .join(",") === "162072,162596");
         invariant(
           this.#report.supportedCallCount === expected.supportedCallCount &&
             this.#report.supportedCallSemanticsSha256 ===
@@ -14458,7 +14627,7 @@ class BrowserRuntimeSession {
             checkpoint.cycleCount === 320 &&
             checkpoint.requiredCompletions === 506 &&
             checkpoint.minimumRequiredCompletions === 506 &&
-            checkpoint.completionCount === 4_831 &&
+            checkpoint.completionCount === (combined ? 4_838 : 4_831) &&
             checkpoint.firstCompletionSequence === expected.firstSequence &&
             checkpoint.firstCompletionInstructionCount ===
               expected.firstInstructionCount &&
@@ -14470,23 +14639,34 @@ class BrowserRuntimeSession {
             cycles.length === 320 &&
             cycleContractsMatch &&
             JSON.stringify(cycleHistogram) ===
-              JSON.stringify({ 8: 296, 72: 14, 73: 7, 74: 3 }) &&
+              JSON.stringify(
+                combined
+                  ? { 8: 296, 72: 14, 73: 7, 74: 2, 76: 1 }
+                  : { 8: 296, 72: 14, 73: 7, 74: 3 },
+              ) &&
             workerCycleIndexes ===
               "6,15,24,33,42,51,70,79,88,97,106,115,134,143,152,161,170,179,198,207,216,225,234,243" &&
-            checkpoint.interCycleCompletionCount === 722 &&
+            checkpoint.interCycleCompletionCount ===
+              (combined ? 727 : 722) &&
             intervals.length === 11 &&
             intervals.map((interval) => interval.afterCycleIndex).join(",") ===
               "60,124,188,252,261,270,279,288,297,306,315" &&
             intervals.map((interval) => interval.completionCount).join(",") ===
-              "64,64,65,66,66,66,67,66,66,66,66" &&
+              (combined
+                ? "64,64,65,66,68,66,66,68,68,66,66"
+                : "64,64,65,66,66,66,67,66,66,66,66") &&
             checkpoint.waitCompletionCount === 320 &&
-            checkpoint.criticalSectionCompletionCount === 2_176 &&
-            checkpoint.criticalSectionAcquisitionCount === 1_088 &&
-            checkpoint.criticalSectionReleaseCount === 1_088 &&
+            checkpoint.criticalSectionCompletionCount ===
+              (combined ? 2_178 : 2_176) &&
+            checkpoint.criticalSectionAcquisitionCount ===
+              (combined ? 1_089 : 1_088) &&
+            checkpoint.criticalSectionReleaseCount ===
+              (combined ? 1_089 : 1_088) &&
             checkpoint.timerArmCompletionCount === 320 &&
-            checkpoint.roundtripCount === 1_088 &&
-            checkpoint.carriedCycleCount === 10 &&
-            checkpoint.criticalSectionAddresses.length === 23 &&
+            checkpoint.roundtripCount === (combined ? 1_089 : 1_088) &&
+            checkpoint.carriedCycleCount === (combined ? 30 : 10) &&
+            checkpoint.criticalSectionAddresses.length ===
+              (combined ? 24 : 23) &&
             checkpoint.mainLoopThreadId === 8_193 &&
             checkpoint.participatingThreadIds.join(",") === "8192,8193" &&
             checkpoint.threadTransitionCount === 70 &&
@@ -14494,14 +14674,19 @@ class BrowserRuntimeSession {
             JSON.stringify(checkpoint.inputBaseline) ===
               JSON.stringify({
                 cycleCount: 253,
-                lastCompletionSequence: 161_897,
-                lastCompletionInstructionCount: 321_458_098,
+                lastCompletionSequence: combined ? 161_901 : 161_897,
+                lastCompletionInstructionCount: combined
+                  ? 321_459_074
+                  : 321_458_098,
                 presentOccurrence: 2,
                 renderCompletionCount: 3,
               }) &&
             checkpoint.inputConsumed &&
             checkpoint.outcome ===
-              "input-consumed-no-presentation-progress" &&
+              (combined
+                ? "input-consumed-with-post-input-timer-no-presentation-progress"
+                : "input-consumed-no-presentation-progress") &&
+            combinedTimerDeliveryMatches &&
             checkpoint.hardBoundReached &&
             checkpoint.presentCompletion === null &&
             checkpoint.renderCompletionCount === 12 &&
@@ -14509,7 +14694,9 @@ class BrowserRuntimeSession {
             checkpoint.renderCompletions
               .map((completion) => completion.sequence)
               .join(",") ===
-              "161536,161667,161798,161929,162059,162189,162319,162377,162507,162637,162767,162897" &&
+              (combined
+                ? "161540,161675,161806,161937,162067,162201,162331,162461,162519,162653,162783,162913"
+                : "161536,161667,161798,161929,162059,162189,162319,162377,162507,162637,162767,162897") &&
             checkpoint.renderCompletions.every(
               (completion) =>
                 completion.interface === "IDirect3DDevice9" &&
@@ -14522,8 +14709,10 @@ class BrowserRuntimeSession {
                 completion.guestWrites.length === 0,
             ) &&
             inputEvents.length === 2 &&
-            down?.committedAfterSequence === 161_897 &&
-            down.committedAfterInstructionCount === 321_458_098 &&
+            down?.committedAfterSequence ===
+              (combined ? 161_901 : 161_897) &&
+            down.committedAfterInstructionCount ===
+              (combined ? 321_459_074 : 321_458_098) &&
             down.event.sequence === 1 &&
             down.event.kind === "key-down" &&
             down.event.virtualKey === expected.inputVirtualKey &&
@@ -14563,17 +14752,23 @@ class BrowserRuntimeSession {
             workerTimerLane?.timerId === 1 &&
             workerTimerLane.armCompletionCount === 12 &&
             workerTimerLane.waitCompletionCount === 12 &&
-            workerTimerLane.completions[0]?.sequence === 161_537 &&
-            workerTimerLane.completions.at(-1)?.sequence === 162_899 &&
+            workerTimerLane.completions[0]?.sequence ===
+              (combined ? 161_541 : 161_537) &&
+            workerTimerLane.completions.at(-1)?.sequence ===
+              (combined ? 162_915 : 162_899) &&
             workerUnpacedWaits.map((wait) => wait.sequence).join(",") ===
-              "162451" &&
+              (combined ? "" : "162451") &&
             mainTimerLane?.timerId === 2 &&
-            mainTimerLane.armCompletionCount === 256 &&
+            mainTimerLane.armCompletionCount === (combined ? 257 : 256) &&
             mainTimerLane.waitCompletionCount === 256 &&
-            mainTimerLane.completions[0]?.sequence === 159_094 &&
-            mainTimerLane.completions.at(-1)?.sequence === 162_962 &&
+            mainTimerLane.completions[0]?.sequence ===
+              (combined ? 159_095 : 159_094) &&
+            mainTimerLane.completions.at(-1)?.sequence ===
+              (combined ? 162_971 : 162_962) &&
             mainUnpacedWaits.map((wait) => wait.sequence).join(",") ===
-              "161964,162102,162240,162379,162517,162655,162793,162931" &&
+              (combined
+                ? "161968,162108,162246,162384,162524,162664,162802,162940"
+                : "161964,162102,162240,162379,162517,162655,162793,162931") &&
             checkpoint.instructionCount === expected.terminalInstructionCount &&
             checkpoint.nextEndpoint.id === 122 &&
             checkpoint.nextEndpoint.address === 0x7f00_0790 &&

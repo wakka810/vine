@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 76 as const;
+export const protocolVersion = 77 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -64,6 +64,7 @@ export type BgiCapabilityProfile =
   | "primary-main-loop-action-input-progress-gateway"
   | "primary-main-loop-window-timer-callback-delivery-gateway"
   | "primary-main-loop-window-timer-callback-recurring-batch"
+  | "primary-main-loop-window-timer-callback-action-input-progress-gateway"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
@@ -2121,10 +2122,12 @@ export interface SessionReport {
     | {
         capability:
           | "primary-main-loop-input-progress-gateway"
-          | "primary-main-loop-action-input-progress-gateway";
+          | "primary-main-loop-action-input-progress-gateway"
+          | "primary-main-loop-window-timer-callback-action-input-progress-gateway";
         implementationId:
           | "runtime.main-loop-input-progress-gateway.v1"
-          | "runtime.main-loop-action-input-progress-gateway.v1";
+          | "runtime.main-loop-action-input-progress-gateway.v1"
+          | "runtime.main-loop-window-timer-callback-action-input-progress-gateway.v1";
         requiredCycles: 253;
         minimumRequiredCycles: 253;
         maximumCycles: 320;
@@ -2161,10 +2164,10 @@ export interface SessionReport {
         };
         inputBaseline: {
           cycleCount: 253;
-          lastCompletionSequence: 161897;
-          lastCompletionInstructionCount: 321458098;
-          presentOccurrence: 2;
-          renderCompletionCount: 3;
+          lastCompletionSequence: number;
+          lastCompletionInstructionCount: number;
+          presentOccurrence: number;
+          renderCompletionCount: number;
         };
         inputConsumed: boolean;
         inputEvents: [
@@ -2175,7 +2178,18 @@ export interface SessionReport {
         outcome:
           | "presentation-progress-reached"
           | "input-consumed-no-presentation-progress"
+          | "input-consumed-with-post-input-timer-no-presentation-progress"
           | "input-not-consumed";
+        windowTimerDelivery?: {
+          minimumRequiredDeliveriesAfterInput: 1;
+          deliveryCount: number;
+          deliveriesAfterInputCount: number;
+          dispatches: Array<
+            RuntimeSupportedCallSnapshot & {
+              callbackArguments: [number, number, number, number];
+            }
+          >;
+        };
         hardBoundReached: boolean;
         renderCompletionCount: number;
         renderCompletions: RuntimeThreadCallSnapshot[];

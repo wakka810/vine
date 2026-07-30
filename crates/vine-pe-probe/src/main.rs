@@ -14698,6 +14698,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "primary-main-loop-window-timer-callback-recurring-batch" => {
                     GenericRuntimeCapability::User32WindowTimerCallbackDelivery
                 }
+                "primary-main-loop-window-timer-callback-action-input-progress-gateway" => {
+                    GenericRuntimeCapability::User32WindowTimerCallbackDelivery
+                }
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
                 }

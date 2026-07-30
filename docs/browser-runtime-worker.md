@@ -3,9 +3,9 @@
 ## Status
 
 - Status: Verified controlled fixture and private BGI semantic checkpoint
-- Date: 2026-07-29
+- Date: 2026-07-30
 - Browser: Chrome `150.0.7871.187`
-- Protocol: `vine.browser-runtime-worker` version `74`
+- Protocol: `vine.browser-runtime-worker` version `77`
 - Runtime core: Rust/Wasm, zero imports; current artifact identity is manifest-owned
 - CPU mirror: pinned source-v86 adapter in a dedicated Runtime Worker
 - Controlled PE32 fixture: `browser-vertical.exe`
@@ -64,15 +64,19 @@ changed pages, which the Worker atomically reconciles into Rust before
 classifying or resuming the guest. The upper loop does not know how changes are
 discovered.
 
-Protocol version 76 adds the recurring logical window-timer callback batch.
+Protocol version 77 composes the primary pointer-button action with recurring logical
+window-timer callback delivery at a semantic main-timer cycle boundary.
 Rust remains authoritative for armed time, deadline, delivery count,
 low-priority `WM_TIMER` materialization, queue removal, `MSG32` bytes, and every
-selected-thread TIMERPROC frame. The Worker correlates 16 versioned callback
-entry／return pairs with one registration generation, retains only completed
-dispatch evidence, and stops at the next message poll only after the sixteenth
-callback completes. It creates no browser timer, Windows queue, timer ID,
-deadline, callback stack, or second generation. The version-75 single-delivery
-profile and version-74 pointer-button profile remain historical regressions.
+selected-thread TIMERPROC frame. The Worker commits pointer input through the
+existing non-owning adapter, correlates completed callback entry／return pairs with
+one registration generation, and requires a completed post-input dispatch before
+classifying bounded presentation progress. A deferred outer `DispatchMessageA`
+completion is assigned when its callback frame returns, after any nested API
+completion, rather than by its earlier reserved sequence. The Worker creates no
+browser timer, Windows queue, timer ID, deadline, callback stack, or second
+generation. The version-76 recurring batch, version-75 single-delivery profile,
+and version-74 pointer-button profile remain historical regressions.
 
 After a guest API completion, Rust may return a `thread-switch` selected by the
 authoritative scheduler. The Worker saves the outgoing opaque engine context and

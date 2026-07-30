@@ -102,9 +102,11 @@ moveとして閉じた。GeometryはNCCALCSIZE completionでのみcommitし、GD
 Primary `SetTimer`のidentity、owner thread、interval、TIMERPROC、replacement generation、process teardownに加え、
 16回のlogical expiry、empty current-thread queueへのlow-priority `WM_TIMER` materialization、missed-period coalescing、
 `TranslateMessage` validation、同一registration generationでのTIMERPROC dispatchまでRust authorityとして成立した。
-Native bounded traceと同数のrecurring breadthは閉じたため、残るriskはbrowser task timingをguest-visible clockへ直接
-流入させずにaction inputとtimer deliveryを合成してprogressを判定すること、replacement／`KillTimer` race、
-background freeze／resumeとcatch-upをscheduler、message queue、page lifecycleで順序付けることである。
+Native bounded traceと同数のrecurring breadthに加え、253回目のsemantic main-timer cycleでprimary left-button actionを
+commitし、その消費後にも2件のTIMERPROCを完了する合成profileをNode／Chromeで一致させた。Browser task timingを
+guest-visible clockへ流入させないinput／timer compositionは閉じたが、third `Present`やvisible responseには進まない。
+残るriskはqueued pointer messageを同じ`RuntimeInput` mappingからfailure-atomicに生成すること、replacement／`KillTimer`
+race、background freeze／resumeとcatch-upをscheduler、message queue、page lifecycleで順序付けることである。
 
 Primary `CreateThread`／`ResumeThread`のlogical identity、stack／TEB／FS bootstrap、typed handle、suspend count、
 Worker context registrationに加え、直後の`SetThreadPriority`でabove-normal logical stateをthread ownerへ保存する

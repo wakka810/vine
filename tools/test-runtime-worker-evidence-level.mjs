@@ -12,7 +12,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 76 as const/u);
+assert.match(protocol, /protocolVersion = 77 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -31,6 +31,15 @@ assert.match(
   protocol,
   /"primary-main-loop-window-timer-callback-delivery-gateway"/u,
 );
+assert.match(
+  protocol,
+  /"primary-main-loop-window-timer-callback-action-input-progress-gateway"/u,
+);
+assert.match(protocol, /windowTimerDelivery\?: \{/u);
+assert.match(
+  protocol,
+  /"input-consumed-with-post-input-timer-no-presentation-progress"/u,
+);
 assert.match(protocol, /RuntimeWindowTimerSnapshot/u);
 assert.match(protocol, /RuntimeRecurringTimerCycleSummary/u);
 assert.match(protocol, /RuntimeRecurringTimerWindowCycleSummary/u);
@@ -47,6 +56,10 @@ assert.match(fullProbe, /primary-main-loop-input-progress-gateway/u);
 assert.match(
   fullProbe,
   /primary-main-loop-window-timer-callback-delivery-gateway/u,
+);
+assert.match(
+  fullProbe,
+  /primary-main-loop-window-timer-callback-action-input-progress-gateway/u,
 );
 assert.match(protocol, /kernel32-get-file-attributes-a/u);
 assert.match(protocol, /RuntimeGetFileAttributesACallSnapshot/u);
