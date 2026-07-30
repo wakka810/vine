@@ -64,14 +64,14 @@ changed pages, which the Worker atomically reconciles into Rust before
 classifying or resuming the guest. The upper loop does not know how changes are
 discovered.
 
-Protocol version 74 adds the bounded primary action-input evidence profile. The
-main-thread adapter maps pointer button `0` to `VK_LBUTTON`, while the Worker
-only validates, orders, and forwards the normalized down／up messages. The
-profile defers each commit to an explicit guest boundary and records the Rust
-receipt and snapshot around the consuming `GetAsyncKeyState` query. It creates
-no Worker-side virtual-key table, queued Windows message, cursor authority, or
-second input generation. The matching Node and Chrome outcome is bounded input
-consumption without a third presentation, not a visible title-action claim.
+Protocol version 75 adds the bounded logical window-timer callback evidence
+profile. Rust remains authoritative for armed time, deadline, delivery count,
+low-priority `WM_TIMER` materialization, queue removal, `MSG32` bytes, and the
+selected-thread TIMERPROC frame. The Worker recognizes the versioned callback
+entry／return, correlates it with the Rust timer snapshot, and stops at the next
+message poll only after callback completion. It creates no browser timer,
+Windows queue, timer ID, deadline, callback stack, or second generation. The
+version-74 pointer-button profile remains a historical regression profile.
 
 After a guest API completion, Rust may return a `thread-switch` selected by the
 authoritative scheduler. The Worker saves the outgoing opaque engine context and

@@ -99,6 +99,7 @@ struct BgiCheckpointCapabilities {
     user32_async_key_state_initial_scan: bool,
     heap_alloc_24_byte_buffer: bool,
     post_heap_time_get_time: bool,
+    user32_window_timer_callback_delivery: bool,
 }
 
 impl Bridge {
@@ -693,7 +694,11 @@ impl BrowserRuntime {
             .runtime
             .register_writable_profile(writable_profile)
             .map_err(error_string)?;
-        let user32_policy = User32CompatibilityPolicy::controlled_v30();
+        let user32_policy = if capabilities.user32_window_timer_callback_delivery {
+            User32CompatibilityPolicy::controlled_v31()
+        } else {
+            User32CompatibilityPolicy::controlled_v30()
+        };
         user32_policy.validate().map_err(api_fault_string)?;
         let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v6();
         gdi32_policy.validate().map_err(api_fault_string)?;
@@ -834,6 +839,7 @@ impl BrowserRuntime {
             &kernel32_policy,
             capabilities.set_rect,
             capabilities.user32_async_key_state_initial_scan,
+            capabilities.user32_window_timer_callback_delivery,
         )?;
         let runtime_stack = process
             .runtime
@@ -1880,6 +1886,13 @@ impl BrowserRuntime {
                         )? {
                             metadata["imm32"] = imm32;
                         }
+                        if let Some(window_timer) = bgi_window_timer_completion_metadata(
+                            &completion,
+                            &self.runtime,
+                            user32_policy,
+                        )? {
+                            metadata["windowTimer"] = json!(window_timer);
+                        }
                         if let Some(virtual_memory) = bgi_virtual_memory_completion_metadata(
                             &completion,
                             &self.runtime,
@@ -2690,11 +2703,19 @@ impl BrowserRuntime {
                     _ => {}
                 }
                 if let BrowserRuntimeTarget::Bgi {
+                    user32_policy,
                     gdi32_policy,
                     gdiplus_policy,
                     ..
                 } = &self.target
                 {
+                    if user32_policy.window_timer_delivery.is_some()
+                        && completion.implementation_id
+                            == vine_core::DISPATCH_MESSAGE_A_IMPLEMENTATION
+                    {
+                        metadata["windowTimer"] =
+                            json!(latest_delivered_window_timer(&self.runtime)?);
+                    }
                     if let Some(gdi) =
                         bgi_gdi_completion_metadata(&completion, &self.runtime, gdi32_policy)?
                     {
@@ -3198,6 +3219,7 @@ fn build_bgi_dispatcher(
     kernel32_policy: &Kernel32CompatibilityPolicy,
     set_rect_enabled: bool,
     user32_async_key_state_initial_scan_enabled: bool,
+    user32_window_timer_callback_delivery_enabled: bool,
 ) -> Result<BgiDispatcher, String> {
     let mut endpoints = process
         .binding
@@ -3229,6 +3251,9 @@ fn build_bgi_dispatcher(
                 "GlobalMemoryStatus" => kernel32_policy.memory_status().is_some(),
                 "SetRect" => set_rect_enabled,
                 "GetWindowRect" | "GetCursorPos" => user32_async_key_state_initial_scan_enabled,
+                "TranslateMessage" | "DispatchMessageA" => {
+                    user32_window_timer_callback_delivery_enabled
+                }
                 _ => true,
             }
         })
@@ -3556,6 +3581,73 @@ fn completion_metadata(kind: &str, completion: &ApiImmediateCompletion) -> Value
         "kind": kind,
         "completion": completion,
     })
+}
+
+fn latest_delivered_window_timer(
+    runtime: &RuntimeState,
+) -> Result<vine_core::RuntimeWindowTimer, String> {
+    runtime
+        .window_timers()
+        .values()
+        .filter_map(|timer| {
+            timer
+                .last_delivery
+                .map(|delivery| (delivery.delivered_at_time_100ns, timer.id, *timer))
+        })
+        .max_by_key(|(delivered_at_time_100ns, timer_id, _)| (*delivered_at_time_100ns, *timer_id))
+        .map(|(_, _, timer)| timer)
+        .ok_or_else(|| {
+            "window-timer callback completion has no delivered Rust timer state".to_owned()
+        })
+}
+
+fn bgi_window_timer_completion_metadata(
+    completion: &ApiImmediateCompletion,
+    runtime: &RuntimeState,
+    policy: &User32CompatibilityPolicy,
+) -> Result<Option<vine_core::RuntimeWindowTimer>, String> {
+    if policy.window_timer_delivery.is_none() {
+        return Ok(None);
+    }
+    match completion.implementation_id.as_str() {
+        vine_core::SET_TIMER_IMPLEMENTATION => {
+            let RegisterUpdate::Set(result) = completion.eax else {
+                return Err("SetTimer completion did not set UINT_PTR in EAX".to_owned());
+            };
+            if result == 0 {
+                return Ok(None);
+            }
+            let window_handle = completion
+                .frame
+                .argument_u32(0)
+                .ok_or_else(|| "SetTimer completion has no HWND argument".to_owned())?;
+            let timer_id = completion
+                .frame
+                .argument_u32(1)
+                .ok_or_else(|| "SetTimer completion has no timer ID argument".to_owned())?;
+            runtime
+                .window_timers()
+                .values()
+                .filter(|timer| timer.window_handle == window_handle && timer.timer_id == timer_id)
+                .max_by_key(|timer| timer.registration_generation)
+                .copied()
+                .map(Some)
+                .ok_or_else(|| {
+                    "successful SetTimer completion has no registered Rust timer state".to_owned()
+                })
+        }
+        vine_core::PEEK_MESSAGE_A_IMPLEMENTATION => {
+            let RegisterUpdate::Set(result) = completion.eax else {
+                return Err("PeekMessageA completion did not set BOOL in EAX".to_owned());
+            };
+            if result == 0 {
+                Ok(None)
+            } else {
+                latest_delivered_window_timer(runtime).map(Some)
+            }
+        }
+        _ => Ok(None),
+    }
 }
 
 fn bgi_imm32_completion_metadata(
@@ -4429,6 +4521,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
     user32_async_key_state_initial_scan_enabled: u32,
     heap_alloc_24_byte_buffer_enabled: u32,
     post_heap_time_get_time_enabled: u32,
+    user32_window_timer_callback_delivery_enabled: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_bgi(
@@ -4454,6 +4547,8 @@ pub extern "C" fn vine_bridge_prepare_bgi(
                     != 0,
                 heap_alloc_24_byte_buffer: heap_alloc_24_byte_buffer_enabled != 0,
                 post_heap_time_get_time: post_heap_time_get_time_enabled != 0,
+                user32_window_timer_callback_delivery: user32_window_timer_callback_delivery_enabled
+                    != 0,
             },
         )
     })

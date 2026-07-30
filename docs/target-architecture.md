@@ -328,8 +328,12 @@ recordに保つ。`RuntimeUser32`はlive windowとselected owner threadをprefli
 planが両方validな場合だけtargeted commitする。同じHWND／timer IDの再登録はinternal identityを保持して
 registrationだけを置換し、capacity、wrong owner、invalid callback、stale planではallocator／index／generationを
 更新しない。Process exit teardownはtimer-resolution request、waitable-timer payload、logical window timerを同じ
-owner planでretireする。Expiry clock、`WM_TIMER`／TIMERPROC配送、`KillTimer`は登録stateとは別のscheduler／message
-gatewayであり、browser task timerをauthorityとして先行導入しない。
+owner planでretireする。Reached expiry gatewayでは同じrecordがarmed time、next deadline、delivery count、last
+deliveryを所有し、Rust logical clockだけでdueを判定する。Current-thread queueがemptyの場合に限り
+`RuntimeMessages`へlow-priority `WM_TIMER`をlazy materializeし、missed periodsは一件へcoalesceしてcurrent timeから
+rearmする。Kernelはtimer delivery plan、message plan、完全な`MSG32` memory writeを全てpreflightしてからtargeted
+commitする。Browser task timerはauthorityにならない。`KillTimer`、replacement race、background catch-upは後続
+lifecycle gatewayである。
 
 WinMM `timeGetTime`のsampled DWORDはtimer subsystemへ複製しない。既存の
 `runtime/process.rs::RuntimeProcessState`がKernel32 `GetTickCount`と共有するtick datum、
@@ -687,8 +691,12 @@ Reached `SetTimer` profileはlive top-level HWND、timer ID 1、20 ms、same-own
 TIMERPROCだけを受理する。User32 dispatcherはregister call中にcallbackを起動せず、`RuntimeTimers`へopaqueな
 registration planを要求して、success時はtimer IDを返しLastErrorを保存する。Logical window timer snapshotは
 Workerへのread-only completionであり、TypeScriptはWindows timer identity、generation、deadlineを所有しない。
-NULL HWND／zero ID allocation、general interval、queue fallback、replacement delivery、`KillTimer`はnative oracleに
-存在するが、primary-reached registration contractへ一般化しない。
+Reached `PeekMessageA`／`TranslateMessage`／`DispatchMessageA` bandは、live registrationからmaterializeした
+`WM_TIMER`だけを検証し、selected-thread stdcall callback frameへ`(HWND, WM_TIMER, ID, time)`を渡す。Callback
+returnはouter `DispatchMessageA` resultへ伝播させず0を返す。Wrong message／HWND／ID／callback、bad pointer、
+stale planはtimer、queue、callback stack、guest bytesを部分更新しない。NULL HWND／zero ID allocation、general
+interval、replacement delivery、`KillTimer`はnative oracleに存在するが、primary-reached delivery contractへ
+一般化しない。
 
 Reached `SetWindowPos` profileでは、geometry、visibility、topmostとsmall-icon relationのauthorityを同じ
 `RuntimeUser32` window recordへ置く。Show operationはlogical displayとversioned non-client policyから

@@ -1174,9 +1174,10 @@ impl<'a> ExecutionSession<'a> {
         &mut self,
         output: GuestAddress,
         remove: bool,
+        window_timer_message: Option<u32>,
     ) -> Result<(RuntimeMessagePeekDisposition, Option<GuestWriteResult>), RuntimeStateError> {
         self.runtime
-            .peek_current_thread_message(self.memory, output, remove)
+            .peek_current_thread_message(self.memory, output, remove, window_timer_message)
     }
 
     pub fn end_window_paint(

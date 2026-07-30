@@ -14,24 +14,24 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `primary-main-loop-action-input-progress-gateway`: 162962 calls across 128 endpoint contracts / 126 APIs, memory generation 297756 |
+| Runtime diagnostics | `primary-main-loop-window-timer-callback-delivery-gateway`: 148299 calls across 130 endpoint contracts / 128 APIs, memory generation 271295 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `primary-main-loop-action-input-progress-gateway` completed 4831 recurring waits by instruction 321509588; verification stopped at `KERNEL32.dll!WaitForSingleObjectEx` on instruction 321509594 (`primary-main-loop-action-input-progress-gateway-checkpoint-complete`) |
+| Next structured stop | `primary-main-loop-window-timer-callback-delivery-gateway` completed 1 recurring waits by instruction 148745201; verification stopped at `USER32.dll!PeekMessageA` on instruction 148745210 (`primary-main-loop-window-timer-callback-delivery-gateway-checkpoint-complete`) |
 
-The active semantic report is 3,799,206 bytes with SHA-256
-`54b5844acdb3bcf0a1f55cf3c84d4c90c32c8218b2ad437b94050854a3efcb7d`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 1,957,443 bytes with SHA-256
+`2955fde5c76e6cb92fa434213a082d776255a4038a42ee029b2f4bf4572c9f91`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
 | ID | Milestone | Status | Evidence boundary |
 |---|---|---|---|
 | `boot-and-process-initialization` | Boot and process initialization | `in-progress` | Primary executable reaches the current structured stop after creating and resuming one guest thread; title entry and child workload completion are not complete |
-| `logical-window-and-message-flow` | Logical window and message flow | `in-progress` | Primary logical window creation, style, DC, activation, frame-change move, already-visible ShowWindow, synchronous WM_PAINT with BeginPaint/EndPaint, and owner-thread SetTimer registration slices pass. The action-input gateway confirms the live browser pointer path without producing a queued message. Logical clock expiry, WM_TIMER/TIMERPROC delivery, and general message flow remain partial; the next gateway owns that timer-callback boundary. |
+| `logical-window-and-message-flow` | Logical window and message flow | `in-progress` | Primary logical window creation, style, DC, activation, frame-change move, already-visible ShowWindow, synchronous WM_PAINT with BeginPaint/EndPaint, and owner-thread SetTimer registration pass. The first due logical window timer is lazily materialized as low-priority WM_TIMER only on an empty current-thread queue, removed atomically with its MSG32 write, translated without mutation, and dispatched through the registered stdcall TIMERPROC in both Node and Chrome. Recurring delivery breadth, KillTimer, filtered and cross-thread retrieval, and general message flow remain partial. |
 | `immutable-source-asset-access` | Immutable source asset access | `in-progress` | Primary system.arc opens through the immutable boot-archive snapshot mount and completes bounded header, index, and ipl._bp member reads while BGI.gdb stays writable profile state; remaining archives and general asset breadth are not claimed |
-| `first-present-readable-screen` | First present and readable screen | `in-progress` | Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, level-zero surface/GDI fill, locked vertex buffer, fixed-function state, Clear, two bounded scene/draw/present cycles, Rust-owned lazy texture backing with atomic LockRect/UnlockRect, generation-checked partial UpdateTexture publication, and synchronous Worker WebGL2 materialization are complete. The 1280x720 black browser frames are visible before guest resume. The bounded presentation, Control-key input, and primary left-click action profiles are Node/Chrome equivalent and retain balanced timer, wait, synchronization, and rendering evidence. Neither the zero-input window nor the consumed Control or left-click action produced a third Present before the hard bound, so readable title content, resize, device loss/recovery, queued-message production/dispatch, timer-callback-driven progress, general stack overflow/SEH, and long-run stability remain unproven. |
-| `user-input-consumption` | User input consumption | `in-progress` | The primary browser path now proves both keyboard-state and live pointer-button ingestion. A deterministic ControlLeft down/up pair is consumed through GetAsyncKeyState(VK_CONTROL), and the primary left-button action profile maps browser pointer button 0 to VK_LBUTTON, consumes 0xFFFF8001 at sequence 161924/instruction 321460259, then commits key-up with Rust-owned down and pressed state fully cleared. Node and Chrome match through 320 bounded main-loop cycles, but neither action produces a third Present. Visible gameplay response, queued pointer messages, DirectInput keyboard devices, and timer-callback delivery remain unproven. |
+| `first-present-readable-screen` | First present and readable screen | `in-progress` | Controlled Canvas pixel passes; primary D3D9 logical device, system-memory textures, level-zero surface/GDI fill, locked vertex buffer, fixed-function state, Clear, two bounded scene/draw/present cycles, Rust-owned lazy texture backing with atomic LockRect/UnlockRect, generation-checked partial UpdateTexture publication, and synchronous Worker WebGL2 materialization are complete. The bounded presentation and input profiles remain historical evidence; the active timer-callback gateway branches at the first message poll and preserves the 1280x720 black browser frame. Readable title content, a third Present, resize, device loss/recovery, recurring timer-driven presentation progress, general stack overflow/SEH, and long-run stability remain unproven. |
+| `user-input-consumption` | User input consumption | `in-progress` | The bounded Control-key and primary left-button action profiles remain Node/Chrome-equivalent historical evidence. The active timer-callback gateway injects no input and branches at the first message poll to prove WM_TIMER delivery independently; visible gameplay response, queued pointer messages, DirectInput keyboard devices, and input-driven presentation progress remain unproven. |
 | `audible-output` | Audible output | `fixture-only` | Controlled 880 Hz browser pulse passes; primary DirectSound8 reaches an 88,200-byte zero-filled secondary sample backing through Lock/Unlock and accepts looping Play, while browser audio transport, audible primary output, and WinMM audio are not reached |
 | `save-browser-restart-load` | Save, browser restart, and load | `not-reached` | Rust-owned writable profile and SQLite generation/idempotency/rollback foundation pass; controlled guest browser commit, restart, and load are not demonstrated |
 | `representative-flow` | Representative scenario flow | `not-reached` | No primary representative flow is claimed |
@@ -165,6 +165,8 @@ The active semantic report is 3,799,206 bytes with SHA-256
 - `USER32.dll!SetRect`
 - `USER32.dll!PeekMessageA`
 - `USER32.dll!IsIconic`
+- `USER32.dll!TranslateMessage`
+- `USER32.dll!DispatchMessageA`
 
 ### Reproduce Current Checkpoint
 

@@ -129,6 +129,19 @@ same bound, the next subsystem gateway targets the already registered owner-
 thread window timer and must model logical expiry plus `WM_TIMER`／`TIMERPROC`
 delivery before extending the polling window again.
 
+The `primary-main-loop-window-timer-callback-delivery-gateway` closes that first
+delivery boundary. At the first unfiltered `PeekMessageA`, Rust observes the
+normal current-thread queue empty and timer ID 1 overdue on the logical clock,
+materializes one low-priority `WM_TIMER`, atomically publishes and removes its
+28-byte `MSG32`, and rearms the coalesced timer from the current clock. The guest
+then completes `TranslateMessage` and the registered stdcall TIMERPROC through
+`DispatchMessageA`; the callback's guest return value is intentionally ignored
+and the outer dispatch returns zero. Node and Chrome agree through the callback
+return and stop at the next `PeekMessageA`. This proves neither all 16 native
+callback occurrences nor timer-driven presentation progress, so the next
+manifest-owned boundary is a bounded recurring callback batch rather than a
+new API leaf.
+
 ## Ownership and invariants
 
 `RuntimeScheduler` plans the selection only after the API completion has been

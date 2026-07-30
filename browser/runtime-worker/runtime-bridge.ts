@@ -190,6 +190,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     user32AsyncKeyStateInitialScanEnabled: number,
     heapAlloc24ByteBufferEnabled: number,
     postHeapTimeGetTimeEnabled: number,
+    user32WindowTimerCallbackDeliveryEnabled: number,
   ): number;
   vine_bridge_prepare_source_read(
     executableLength: number,
@@ -317,6 +318,7 @@ export class RuntimeBridge {
     user32AsyncKeyStateInitialScanEnabled: boolean,
     heapAlloc24ByteBufferEnabled: boolean,
     postHeapTimeGetTimeEnabled: boolean,
+    user32WindowTimerCallbackDeliveryEnabled: boolean,
   ): BridgeOutput<PreparedMetadata> {
     const source = sourceManifest ?? emptyBridgeOutput;
     this.#setInput([executable, policy, source, writableProfile]);
@@ -342,6 +344,7 @@ export class RuntimeBridge {
         Number(user32AsyncKeyStateInitialScanEnabled),
         Number(heapAlloc24ByteBufferEnabled),
         Number(postHeapTimeGetTimeEnabled),
+        Number(user32WindowTimerCallbackDeliveryEnabled),
       ),
     );
   }

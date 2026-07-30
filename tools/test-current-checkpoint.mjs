@@ -1258,6 +1258,33 @@ assert.ok(
   ),
 );
 
+const browserOwnedWindowTimer = structuredClone(manifest);
+browserOwnedWindowTimer.browserCheckpoint.bgiRuntimeEvidence.windowTimerBrowserTimerCreated =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedWindowTimer).some((error) =>
+    error.includes("window timer callback delivery evidence"),
+  ),
+);
+
+const detachedWindowTimerQueue = structuredClone(manifest);
+detachedWindowTimerQueue.activeRuntimeCheckpoint.latestEvidence.windowTimerQueueAuthority =
+  "typescript-worker-message-queue";
+assert.ok(
+  validateCurrentCheckpoint(detachedWindowTimerQueue).some((error) =>
+    error.includes("window timer callback delivery evidence"),
+  ),
+);
+
+const consumedTimerProcResult = structuredClone(manifest);
+consumedTimerProcResult.activeRuntimeCheckpoint.latestEvidence.dispatchMessageACallbackResultPolicy =
+  "return-guest-result";
+assert.ok(
+  validateCurrentCheckpoint(consumedTimerProcResult).some((error) =>
+    error.includes("window timer callback delivery evidence"),
+  ),
+);
+
 const sample = `before\n${README_STATUS_START}\nstale\n${README_STATUS_END}\nafter\n`;
 assert.equal(
   replaceReadmeStatus(sample, rendered),

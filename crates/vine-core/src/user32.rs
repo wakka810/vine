@@ -36,7 +36,8 @@ use crate::runtime::{
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 30;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 31;
+const USER32_COMPATIBILITY_POLICY_LEGACY_VERSION: u32 = 30;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
 pub const MONITOR_FROM_WINDOW_IMPLEMENTATION: &str = "user32.monitor-from-window.v1";
 pub const GET_MONITOR_INFO_A_IMPLEMENTATION: &str = "user32.get-monitor-info-a.v1";
@@ -58,6 +59,9 @@ pub const GET_CLIENT_RECT_IMPLEMENTATION: &str = "user32.get-client-rect.v1";
 pub const GET_WINDOW_RECT_IMPLEMENTATION: &str = "user32.get-window-rect.v1";
 pub const GET_CURSOR_POS_IMPLEMENTATION: &str = "user32.get-cursor-pos.v1";
 pub const PEEK_MESSAGE_A_IMPLEMENTATION: &str = "user32.peek-message-a.current-thread.v1";
+pub const TRANSLATE_MESSAGE_IMPLEMENTATION: &str = "user32.translate-message.window-timer-noop.v1";
+pub const DISPATCH_MESSAGE_A_IMPLEMENTATION: &str =
+    "user32.dispatch-message-a.window-timer-callback.v1";
 pub const IS_ICONIC_IMPLEMENTATION: &str = "user32.is-iconic.logical-window-style.v1";
 pub const GET_FOREGROUND_WINDOW_IMPLEMENTATION: &str = "user32.get-foreground-window.v1";
 pub const GET_ASYNC_KEY_STATE_IMPLEMENTATION: &str = "user32.get-async-key-state.v1";
@@ -246,6 +250,16 @@ pub struct User32SetTimerPolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct User32WindowTimerDeliveryPolicy {
+    pub profile_id: String,
+    pub message: u32,
+    pub callback_result: u32,
+    pub require_empty_queue: bool,
+    pub coalesce_missed_periods: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct User32MonitorFromWindowPolicy {
     pub profile_id: String,
     pub flags: u32,
@@ -382,6 +396,8 @@ pub struct User32CompatibilityPolicy {
     pub update_window: Option<User32UpdateWindowPolicy>,
     pub set_window_long_a: Option<User32SetWindowLongAPolicy>,
     pub set_timer: Option<User32SetTimerPolicy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_timer_delivery: Option<User32WindowTimerDeliveryPolicy>,
     pub monitor_from_window: Option<User32MonitorFromWindowPolicy>,
     pub get_monitor_info_a: Option<User32GetMonitorInfoAPolicy>,
     pub screen_dc: Option<User32ScreenDcPolicy>,
@@ -396,7 +412,7 @@ impl User32CompatibilityPolicy {
     pub fn controlled_v30() -> Self {
         Self {
             schema: USER32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
-            schema_version: USER32_COMPATIBILITY_POLICY_VERSION,
+            schema_version: USER32_COMPATIBILITY_POLICY_LEGACY_VERSION,
             id: "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30"
                 .to_owned(),
             enum_display_monitors: Some(RuntimeDisplayProfile {
@@ -543,6 +559,7 @@ impl User32CompatibilityPolicy {
                 interval_milliseconds: 20,
                 message: WM_TIMER,
             }),
+            window_timer_delivery: None,
             monitor_from_window: Some(User32MonitorFromWindowPolicy {
                 profile_id: "live-window-default-to-primary-v1".to_owned(),
                 flags: MONITOR_DEFAULTTOPRIMARY,
@@ -610,9 +627,29 @@ impl User32CompatibilityPolicy {
         }
     }
 
+    pub fn controlled_v31() -> Self {
+        let mut policy = Self::controlled_v30();
+        policy.schema_version = USER32_COMPATIBILITY_POLICY_VERSION;
+        policy.id =
+            "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
+                .to_owned();
+        policy.window_timer_delivery = Some(User32WindowTimerDeliveryPolicy {
+            profile_id: "current-thread-empty-queue-coalesced-window-timer-callback-v1".to_owned(),
+            message: WM_TIMER,
+            callback_result: 0,
+            require_empty_queue: true,
+            coalesce_missed_periods: true,
+        });
+        policy
+    }
+
     pub fn validate(&self) -> Result<(), ApiFault> {
         if self.schema != USER32_COMPATIBILITY_POLICY_SCHEMA
-            || self.schema_version != USER32_COMPATIBILITY_POLICY_VERSION
+            || !matches!(
+                (self.schema_version, self.window_timer_delivery.is_some()),
+                (USER32_COMPATIBILITY_POLICY_LEGACY_VERSION, false)
+                    | (USER32_COMPATIBILITY_POLICY_VERSION, true)
+            )
             || self.id.is_empty()
             || self.id.len() > 128
             || !self.id.is_ascii()
@@ -904,6 +941,24 @@ impl User32CompatibilityPolicy {
                 "user32-compatibility-policy",
                 "user32-set-timer-profile-invalid",
                 "User32 SetTimer profile requires a live logical window, a nonzero timer identity, a bounded interval, and WM_TIMER delivery semantics",
+            ));
+        }
+        if let Some(profile) = self.window_timer_delivery.as_ref()
+            && (!valid_profile_id(&profile.profile_id)
+                || profile.message != WM_TIMER
+                || profile.callback_result != 0
+                || !profile.require_empty_queue
+                || !profile.coalesce_missed_periods
+                || self.peek_message_a.is_none()
+                || self
+                    .set_timer
+                    .as_ref()
+                    .is_none_or(|timer| timer.message != profile.message || timer.timer_id == 0))
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-window-timer-delivery-profile-invalid",
+                "User32 window timer delivery requires the reached empty current-thread queue, coalesced WM_TIMER, and live SetTimer profile",
             ));
         }
         if let Some(profile) = self.monitor_from_window.as_ref()
@@ -1298,6 +1353,24 @@ pub fn dispatch_user32_api_with_policy(
         PEEK_MESSAGE_A_IMPLEMENTATION => {
             match handle_peek_message_a(policy, contract, frame, session) {
                 Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
+        TRANSLATE_MESSAGE_IMPLEMENTATION => {
+            match handle_translate_message(policy, contract, frame, session) {
+                Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
+        DISPATCH_MESSAGE_A_IMPLEMENTATION => {
+            match handle_dispatch_message_a(
+                policy,
+                callback_return_sentinel,
+                contract,
+                frame,
+                session,
+            ) {
+                Ok(result) => result,
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
         }
@@ -1777,8 +1850,12 @@ fn handle_peek_message_a(
         .last_error()
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     let remove = remove_flag == profile.remove_flag;
+    let window_timer_message = policy
+        .window_timer_delivery
+        .as_ref()
+        .map(|delivery| delivery.message);
     let (disposition, write) = session
-        .peek_current_thread_message(GuestAddress(output), remove)
+        .peek_current_thread_message(GuestAddress(output), remove, window_timer_message)
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     match disposition {
         RuntimeMessagePeekDisposition::Empty => {
@@ -1819,6 +1896,130 @@ fn handle_peek_message_a(
                 .with_last_error(preserved_last_error))
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct X86Message {
+    window: u32,
+    message: u32,
+    w_param: u32,
+    l_param: u32,
+    time: u32,
+}
+
+fn read_x86_message(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<X86Message, ApiFault> {
+    let address = required_argument(contract, frame, 0, "message")?;
+    let bytes = session
+        .memory()
+        .read(GuestAddress(address), X86_MSG_BYTE_LENGTH as usize)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let word = |offset, label| {
+        read_u32(&bytes, offset).ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "user32-messages",
+                "message-structure-read-incomplete",
+                format!("validated MSG32 omitted its {label} field"),
+            )
+        })
+    };
+    Ok(X86Message {
+        window: word(0, "window")?,
+        message: word(4, "message")?,
+        w_param: word(8, "wParam")?,
+        l_param: word(12, "lParam")?,
+        time: word(16, "time")?,
+    })
+}
+
+fn validate_window_timer_message(
+    policy: &User32CompatibilityPolicy,
+    message: X86Message,
+    contract: &ApiContract,
+    session: &ExecutionSession<'_>,
+) -> Result<GuestAddress, ApiFault> {
+    let delivery_policy = policy.window_timer_delivery.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-timers",
+            "window-timer-delivery-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable logical window timer delivery",
+                policy.id
+            ),
+        )
+    })?;
+    let timer_policy = policy.set_timer.as_ref().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "user32-timers",
+            "window-timer-registration-policy-missing",
+            "validated window timer delivery policy has no SetTimer registration profile",
+        )
+    })?;
+    if message.message != delivery_policy.message || message.w_param != timer_policy.timer_id {
+        return Err(ApiFault::unsupported(
+            "user32-timers",
+            "window-timer-message-variant-unsupported",
+            "message is outside the reached live-window WM_TIMER callback profile",
+        ));
+    }
+    session
+        .runtime()
+        .resolve_window_timer_callback(
+            message.window,
+            message.w_param,
+            GuestAddress(message.l_param),
+        )
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))
+}
+
+fn handle_translate_message(
+    policy: &User32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let message = read_x86_message(contract, frame, session)?;
+    validate_window_timer_message(policy, message, contract, session)?;
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(false)))
+}
+
+fn handle_dispatch_message_a(
+    policy: &User32CompatibilityPolicy,
+    callback_return_sentinel: GuestAddress,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiHandlerResult, ApiFault> {
+    let message = read_x86_message(contract, frame, session)?;
+    let callback = validate_window_timer_message(policy, message, contract, session)?;
+    let request = GuestCallbackRequest {
+        target: callback,
+        arguments: vec![
+            GuestCallbackArgument::U32(message.window),
+            GuestCallbackArgument::U32(message.message),
+            GuestCallbackArgument::U32(message.w_param),
+            GuestCallbackArgument::U32(message.time),
+        ],
+        scratch: Vec::new(),
+        scratch_pointer_relocations: Vec::new(),
+        return_sentinel: callback_return_sentinel,
+        completion_policy: GuestCallbackCompletionPolicy::ReturnConstantU32 {
+            value: policy
+                .window_timer_delivery
+                .as_ref()
+                .expect("validated window timer delivery policy")
+                .callback_result,
+        },
+    };
+    session.preflight_guest_callback(&ApiGuestCallbackCall {
+        request: Box::new(request.clone()),
+        contract: contract.clone(),
+        frame: frame.clone(),
+    })?;
+    Ok(ApiHandlerResult::GuestCallback(request))
 }
 
 fn handle_is_iconic(
@@ -6361,6 +6562,8 @@ pub fn user32_contract_for_endpoint(
         "GetWindowRect" => Ok(Some(get_window_rect_contract(endpoint)?)),
         "GetCursorPos" => Ok(Some(get_cursor_pos_contract(endpoint)?)),
         "PeekMessageA" => Ok(Some(peek_message_a_contract(endpoint)?)),
+        "TranslateMessage" => Ok(Some(translate_message_contract(endpoint)?)),
+        "DispatchMessageA" => Ok(Some(dispatch_message_a_contract(endpoint)?)),
         "IsIconic" => Ok(Some(is_iconic_contract(endpoint)?)),
         "GetForegroundWindow" => Ok(Some(get_foreground_window_contract(endpoint)?)),
         "GetAsyncKeyState" => Ok(Some(get_async_key_state_contract(endpoint)?)),
@@ -6769,6 +6972,40 @@ pub fn peek_message_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: PEEK_MESSAGE_A_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn translate_message_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![required_in_struct("message", "MSG32", X86_MSG_BYTE_LENGTH)],
+            return_value: ApiReturnSchema::Bool32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::Preserve,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: TRANSLATE_MESSAGE_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn dispatch_message_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![required_in_struct("message", "MSG32", X86_MSG_BYTE_LENGTH)],
+            return_value: ApiReturnSchema::U32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::Preserve,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Optional,
+        implementation_id: DISPATCH_MESSAGE_A_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -7296,6 +7533,8 @@ mod tests {
         assert_eq!(timer.timer_id, 1);
         assert_eq!(timer.interval_milliseconds, 20);
         assert_eq!(timer.message, WM_TIMER);
+        assert_eq!(policy.schema_version, 30);
+        assert!(policy.window_timer_delivery.is_none());
         let update_window = policy.update_window.as_ref().unwrap();
         assert_eq!(update_window.paint_message, WM_PAINT);
         assert_eq!(update_window.callback_result, 0);
@@ -7481,6 +7720,26 @@ mod tests {
         assert_eq!(
             invalid_timer.validate().unwrap_err().code,
             "user32-set-timer-profile-invalid"
+        );
+
+        let delivery = User32CompatibilityPolicy::controlled_v31();
+        delivery.validate().unwrap();
+        assert_eq!(delivery.schema_version, USER32_COMPATIBILITY_POLICY_VERSION);
+        let delivery_profile = delivery.window_timer_delivery.as_ref().unwrap();
+        assert_eq!(delivery_profile.message, WM_TIMER);
+        assert_eq!(delivery_profile.callback_result, 0);
+        assert!(delivery_profile.require_empty_queue);
+        assert!(delivery_profile.coalesce_missed_periods);
+
+        let mut invalid_delivery = User32CompatibilityPolicy::controlled_v31();
+        invalid_delivery
+            .window_timer_delivery
+            .as_mut()
+            .unwrap()
+            .coalesce_missed_periods = false;
+        assert_eq!(
+            invalid_delivery.validate().unwrap_err().code,
+            "user32-window-timer-delivery-profile-invalid"
         );
 
         let mut invalid_monitor = User32CompatibilityPolicy::controlled_v30();

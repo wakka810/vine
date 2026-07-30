@@ -99,6 +99,8 @@ const inputProgressGatewayProfile =
   bgiProfile === "primary-main-loop-input-progress-gateway";
 const actionInputProgressGatewayProfile =
   bgiProfile === "primary-main-loop-action-input-progress-gateway";
+const windowTimerCallbackDeliveryGatewayProfile =
+  bgiProfile === "primary-main-loop-window-timer-callback-delivery-gateway";
 const inputProgressEvidenceProfile =
   inputProgressGatewayProfile || actionInputProgressGatewayProfile;
 const presentationProgressEvidenceProfile =
@@ -138,6 +140,7 @@ const postHeapTimeGetTimeEvidenceProfile =
   recurringTimerMultiCycleProfile ||
   recurringTimerWindowProfile ||
   presentationProgressEvidenceProfile ||
+  windowTimerCallbackDeliveryGatewayProfile ||
   postHeapTimeGetTimeProfile ||
   postClockCriticalSectionProfile ||
   postWaitCriticalSectionProfile ||
@@ -146,19 +149,22 @@ const postHeapTimeGetTimeEvidenceProfile =
   postTimerArmWaitProfile ||
   postCriticalSectionWaitProfile;
 const runtimeThreadStackGrowthProfile =
-  bgiProfile === "runtime-thread-stack-growth" ||
-  recurringTimerCycleProfile ||
-  recurringTimerMultiCycleProfile ||
-  recurringTimerWindowProfile ||
-  presentationProgressEvidenceProfile ||
-  runtimeTraplessExecutionBudgetProfile ||
-  largeHeapFreeProfile ||
-  heapAlloc24Profile ||
-  postHeapTimeGetTimeEvidenceProfile;
+  !windowTimerCallbackDeliveryGatewayProfile &&
+  (bgiProfile === "runtime-thread-stack-growth" ||
+    recurringTimerCycleProfile ||
+    recurringTimerMultiCycleProfile ||
+    recurringTimerWindowProfile ||
+    presentationProgressEvidenceProfile ||
+    runtimeTraplessExecutionBudgetProfile ||
+    largeHeapFreeProfile ||
+    heapAlloc24Profile ||
+    postHeapTimeGetTimeEvidenceProfile);
 const user32IsIconicProfile =
   bgiProfile === "user32-is-iconic" || runtimeThreadStackGrowthProfile;
 const user32PeekMessageAProfile =
-  bgiProfile === "user32-peek-message-a" || user32IsIconicProfile;
+  bgiProfile === "user32-peek-message-a" ||
+  user32IsIconicProfile ||
+  windowTimerCallbackDeliveryGatewayProfile;
 const user32AsyncKeyStateInitialScanContinuationProfile =
   bgiProfile === "user32-async-key-state-initial-scan-continuation" ||
   user32PeekMessageAProfile;
@@ -233,7 +239,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v74";
+const runtimeProtocol = "vine.browser-runtime-worker.v75";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -914,6 +920,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-presentation-progress-gateway",
         "primary-main-loop-input-progress-gateway",
         "primary-main-loop-action-input-progress-gateway",
+        "primary-main-loop-window-timer-callback-delivery-gateway",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -984,6 +991,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-presentation-progress-gateway",
         "primary-main-loop-input-progress-gateway",
         "primary-main-loop-action-input-progress-gateway",
+        "primary-main-loop-window-timer-callback-delivery-gateway",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1054,11 +1062,14 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-presentation-progress-gateway",
         "primary-main-loop-input-progress-gateway",
         "primary-main-loop-action-input-progress-gateway",
+        "primary-main-loop-window-timer-callback-delivery-gateway",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
             ? runtimeThreadStackGrowthProfile
-              ? postClockCriticalSectionProfile ||
+              ? windowTimerCallbackDeliveryGatewayProfile
+                ? 2_314
+                : postClockCriticalSectionProfile ||
                 postWaitCriticalSectionProfile ||
                 postTimerWaitCriticalSectionProfile ||
                 postCriticalSectionSetWaitableTimerProfile ||
@@ -1133,6 +1144,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         recurringTimerMultiCycleProfile ||
         recurringTimerWindowProfile ||
         presentationProgressEvidenceProfile ||
+        windowTimerCallbackDeliveryGatewayProfile ||
         runtimeTraplessExecutionBudgetProfile ||
         largeHeapFreeProfile ||
         heapAlloc24Profile ||
@@ -3179,7 +3191,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.deepEqual(scan.lastCall.result, { action: "set", value: 0 });
         assert.equal(
           scan.compatibilityPolicyId,
-          "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
+          windowTimerCallbackDeliveryGatewayProfile
+            ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
+            : "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
         );
         assert.deepEqual(scan.cursorPosition, getCursorPos.cursorPosition);
         assert.equal(
@@ -3347,7 +3361,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert(peek !== null, "Chrome Worker omitted PeekMessageA evidence");
         assert.equal(
           peek.calls.length,
-          inputProgressEvidenceProfile
+          windowTimerCallbackDeliveryGatewayProfile
+            ? 1
+            : inputProgressEvidenceProfile
             ? 16
             : presentationProgressGatewayProfile
               ? 8
@@ -3421,18 +3437,36 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
             sequence: 148_296,
             instructionCount: 148_744_543,
             arguments: [0x006f_f8e8, 0, 0, 0, 1],
-            result: { action: "set", value: 0 },
+            result: {
+              action: "set",
+              value: windowTimerCallbackDeliveryGatewayProfile ? 1 : 0,
+            },
             implementationId: "user32.peek-message-a.current-thread.v1",
             returnAddress: 0x1009_378b,
             stackPointerBefore: 0x006f_f8c8,
             stackPointerAfter: 0x006f_f8e0,
             lastError: 0,
-            guestWrites: [],
+            guestWrites: windowTimerCallbackDeliveryGatewayProfile
+              ? [
+                  {
+                    address: 0x006f_f8e8,
+                    bytes: [
+                      0x01, 0x00, 0x01, 0x48, 0x13, 0x01, 0x00, 0x00, 0x01,
+                      0x00, 0x00, 0x00, 0x00, 0x96, 0x09, 0x10, 0xda, 0xf2,
+                      0x36, 0x00, 0xc0, 0x03, 0x00, 0x00, 0x1c, 0x02, 0x00,
+                      0x00,
+                    ],
+                  },
+                ]
+              : [],
           },
         );
         for (const completion of peek.calls) {
           assert.deepEqual(completion.arguments, [0x006f_f8e8, 0, 0, 0, 1]);
-          assert.deepEqual(completion.result, { action: "set", value: 0 });
+          assert.deepEqual(completion.result, {
+            action: "set",
+            value: windowTimerCallbackDeliveryGatewayProfile ? 1 : 0,
+          });
           assert.equal(
             completion.implementationId,
             "user32.peek-message-a.current-thread.v1",
@@ -3442,20 +3476,40 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
             completion.stackPointerBefore + 24,
           );
           assert.equal(completion.lastError, 0);
-          assert.deepEqual(completion.guestWrites, []);
+          assert.equal(
+            completion.guestWrites.length,
+            windowTimerCallbackDeliveryGatewayProfile ? 1 : 0,
+          );
         }
         assert.equal(
           peek.compatibilityPolicyId,
-          "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
+          windowTimerCallbackDeliveryGatewayProfile
+            ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
+            : "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
         );
         assert.equal(
           peek.profileId,
-          "current-thread-unfiltered-peek-message-a-v1",
+          windowTimerCallbackDeliveryGatewayProfile
+            ? "current-thread-unfiltered-peek-message-a-v1"
+            : "current-thread-unfiltered-peek-message-a-v1",
         );
         assert.equal(peek.queueAuthority, "rust-runtime-thread-message-queue");
-        assert.equal(peek.emptyQueueResult, false);
-        assert.equal(peek.outputMutation, "none-on-empty");
-        assert.equal(peek.removal, "none-on-empty");
+        assert.equal(
+          peek.emptyQueueResult,
+          !windowTimerCallbackDeliveryGatewayProfile,
+        );
+        assert.equal(
+          peek.outputMutation,
+          windowTimerCallbackDeliveryGatewayProfile
+            ? "atomic-materialized-msg32-write"
+            : "none-on-empty",
+        );
+        assert.equal(
+          peek.removal,
+          windowTimerCallbackDeliveryGatewayProfile
+            ? "pm-remove-after-materialization"
+            : "none-on-empty",
+        );
         assert.equal(peek.lastErrorPolicy, "preserve");
         assert.equal(peek.failureAtomicity, true);
         assert.equal(peek.filteredRetrievalImplemented, false);
@@ -3463,7 +3517,16 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       } else {
         assert.equal(evidence.report.peekMessageA, null);
       }
-      if (user32IsIconicProfile) {
+      if (windowTimerCallbackDeliveryGatewayProfile) {
+        const iconic = evidence.report.isIconic;
+        assert(iconic !== null, "Chrome Worker omitted empty IsIconic scope evidence");
+        assert.deepEqual(iconic.calls, []);
+        assert.deepEqual(iconic.instructionCounts, []);
+        assert.equal(
+          iconic.compatibilityPolicyId,
+          "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31",
+        );
+      } else if (user32IsIconicProfile) {
         const iconic = evidence.report.isIconic;
         assert(iconic !== null, "Chrome Worker omitted IsIconic evidence");
         assert.equal(
@@ -5781,6 +5844,48 @@ function validateBgiEquivalence(browser, oracle) {
           completions: oracleCheckpoint.completions.map(normalizeCycleCall),
         },
         "Chrome Worker recurring timer cycle differs from the Node oracle",
+      );
+    }
+    if (
+      oracleCheckpoint.capability ===
+      "primary-main-loop-window-timer-callback-delivery-gateway"
+    ) {
+      const normalizeDispatch = (call) => ({
+        ...normalizeSemanticCall(call),
+        implementationId: call.implementationId,
+        windowTimer: call.windowTimer,
+        callback: call.callback,
+        callbackArguments: call.callbackArguments,
+      });
+      assert.equal(
+        browserCheckpoint.capability,
+        oracleCheckpoint.capability,
+        "Chrome Worker reached a different window timer capability",
+      );
+      assert.deepEqual(
+        {
+          implementationId: browserCheckpoint.implementationId,
+          requiredDeliveries: browserCheckpoint.requiredDeliveries,
+          deliveryCount: browserCheckpoint.deliveryCount,
+          dispatch: normalizeDispatch(browserCheckpoint.dispatch),
+          instructionCount: browserCheckpoint.instructionCount,
+          nextArguments: browserCheckpoint.nextArguments,
+          nextReturnAddress: browserCheckpoint.nextReturnAddress,
+          nextStackPointer: browserCheckpoint.nextStackPointer,
+          memoryContentSha256: browserCheckpoint.memoryContentSha256,
+        },
+        {
+          implementationId: oracleCheckpoint.implementationId,
+          requiredDeliveries: oracleCheckpoint.requiredDeliveries,
+          deliveryCount: oracleCheckpoint.deliveryCount,
+          dispatch: normalizeDispatch(oracleCheckpoint.dispatch),
+          instructionCount: oracleCheckpoint.instructionCount,
+          nextArguments: oracleCheckpoint.nextArguments,
+          nextReturnAddress: oracleCheckpoint.nextReturnAddress,
+          nextStackPointer: oracleCheckpoint.nextStackPointer,
+          memoryContentSha256: oracleCheckpoint.memoryContentSha256,
+        },
+        "Chrome Worker window timer delivery differs from the Node oracle",
       );
     }
     if (

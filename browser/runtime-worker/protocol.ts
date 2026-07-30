@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 74 as const;
+export const protocolVersion = 75 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -62,6 +62,7 @@ export type BgiCapabilityProfile =
   | "primary-main-loop-presentation-progress-gateway"
   | "primary-main-loop-input-progress-gateway"
   | "primary-main-loop-action-input-progress-gateway"
+  | "primary-main-loop-window-timer-callback-delivery-gateway"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
@@ -626,6 +627,27 @@ export interface RuntimeWaitableTimerSnapshot {
   nextWaitRegistrationId?: number;
 }
 
+export interface RuntimeWindowTimerSnapshot {
+  id: number;
+  windowId: number;
+  windowHandle: number;
+  timerId: number;
+  ownerThreadId: number;
+  requestedIntervalMilliseconds: number;
+  effectiveIntervalMilliseconds: number;
+  callbackAddress: number;
+  registrationGeneration: number;
+  armedAtTime100ns: number;
+  nextDeadlineTime100ns: number;
+  deliveryCount: number;
+  lastDelivery?: {
+    registrationGeneration: number;
+    deliveryCount: number;
+    scheduledDeadlineTime100ns: number;
+    deliveredAtTime100ns: number;
+  };
+}
+
 export interface RuntimeIconSnapshot {
   id: number;
   handle: number;
@@ -845,6 +867,7 @@ export interface RuntimeSupportedCallSnapshot {
   currentDirectory?: RuntimeCurrentDirectorySnapshot;
   mutex?: RuntimeMutexSnapshot;
   waitableTimer?: RuntimeWaitableTimerSnapshot;
+  windowTimer?: RuntimeWindowTimerSnapshot;
   icon?: RuntimeIconSnapshot;
   cursor?: RuntimeCursorSnapshot;
   windowClass?: RuntimeWindowClassSnapshot;
@@ -886,6 +909,18 @@ export interface RuntimeSupportedCallSnapshot {
     liveAllocationsBefore: number;
     liveAllocationsAfter: number;
     allocationRetired: boolean;
+  };
+  callback?: {
+    frameId: number;
+    target: number;
+    allocationStart: number;
+    stackPointer: number;
+    scratchAddress: number;
+    scratchBytes: number;
+    frameBytes: number;
+    returnSentinel: number;
+    returnInstructionCount: number;
+    result: number;
   };
   graphicsDevice?: RuntimeGraphicsDeviceSnapshot;
   graphicsTexture?: RuntimeGraphicsTextureSnapshot;
@@ -1307,7 +1342,9 @@ export interface SessionReport {
     scanVirtualKeys: number[];
     firstCall: RuntimeSupportedCallSnapshot;
     lastCall: RuntimeSupportedCallSnapshot;
-    compatibilityPolicyId: "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30";
+    compatibilityPolicyId:
+      | "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30"
+      | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31";
     cursorPosition: RuntimeCursorPositionSnapshot;
     cursorStateAuthority: "rust-runtime-input-cursor-position";
     keyboardProfileId: "foreground-focused-virtual-key-state-v1";
@@ -1351,12 +1388,16 @@ export interface SessionReport {
   peekMessageA: {
     calls: RuntimeSupportedCallSnapshot[];
     instructionCounts: number[];
-    compatibilityPolicyId: "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30";
-    profileId: "current-thread-unfiltered-peek-message-a-v1";
+    compatibilityPolicyId:
+      | "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30"
+      | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31";
+    profileId:
+      | "current-thread-unfiltered-peek-message-a-v1"
+      | "current-thread-empty-queue-coalesced-window-timer-callback-v1";
     queueAuthority: "rust-runtime-thread-message-queue";
-    emptyQueueResult: false;
-    outputMutation: "none-on-empty";
-    removal: "none-on-empty";
+    emptyQueueResult: boolean;
+    outputMutation: "none-on-empty" | "atomic-materialized-msg32-write";
+    removal: "none-on-empty" | "pm-remove-after-materialization";
     lastErrorPolicy: "preserve";
     failureAtomicity: true;
     filteredRetrievalImplemented: false;
@@ -1365,7 +1406,9 @@ export interface SessionReport {
   isIconic: {
     calls: RuntimeSupportedCallSnapshot[];
     instructionCounts: number[];
-    compatibilityPolicyId: "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30";
+    compatibilityPolicyId:
+      | "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30"
+      | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31";
     profileId: "logical-window-effective-style-is-iconic-v1";
     windowStateAuthority: "rust-runtime-user32-logical-window";
     minimizedStyleMask: 536870912;
@@ -2149,6 +2192,34 @@ export interface SessionReport {
             | { kind: "ordinal"; ordinal: number };
         };
         nextArguments: [number, number, number];
+        nextReturnAddress: number;
+        nextStackPointer: number;
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "primary-main-loop-window-timer-callback-delivery-gateway";
+        implementationId: "runtime.main-loop-window-timer-callback-delivery-gateway.v1";
+        requiredDeliveries: 1;
+        deliveryCount: number;
+        requiredCompletions: 1;
+        completionCount: 1;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        dispatch: RuntimeSupportedCallSnapshot & {
+          callbackArguments: [number, number, number, number];
+        };
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          disposition: "declared-runtime-export";
+          iatAddress: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        nextArguments: [number, number, number, number, number];
         nextReturnAddress: number;
         nextStackPointer: number;
         memoryContentSha256: string;

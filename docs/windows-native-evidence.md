@@ -6048,3 +6048,36 @@ supported calls before a user-mode read page fault on the second thread's
 stack guard at `0x500FE000` while executing `0x100A47A9`. This checkpoint does
 not implement minimize／restore transitions, browser visibility mapping,
 activation-driven iconification, or other show-state transitions.
+
+## 180. BGI first logical window-timer callback delivery
+
+The focused `SetTimer` evidence in section 132 already fixes the primary
+registration and consumer relation: live main HWND, ID 1, 20 ms, TIMERPROC RVA
+`0x00099600`, same owner thread, 16 callback entries per bounded trace, and no
+reached `KillTimer`. Static caller flow fixes the delivery sequence as
+`PeekMessageA` return RVA `0x0009378B`, `TranslateMessage` return RVA
+`0x000937A2`, `DispatchMessageA` return RVA `0x000937AC`, then the next
+`PeekMessageA` call returning to RVA `0x000937BB`. Native HWND and callback
+timestamp remain artifact identity; Vine does not import them as logical
+handles or clock state.
+
+The new runtime profile uses the existing Rust logical HWND `0x48010001`, timer
+ID 1, owner TID 8192, callback `0x10099600`, and the shared logical clock. When
+the first current-thread unfiltered poll finds the ordinary queue empty and the
+timer overdue, `RuntimeTimers` plans one delivery, `RuntimeMessages` plans the
+low-priority `WM_TIMER`, and `GuestMemory` preflights the complete 28-byte
+`MSG32`. One targeted commit advances delivery count, rearms from current time,
+publishes the message, and applies `PM_REMOVE`; no browser timer or Worker-owned
+Windows state is created.
+
+The following `TranslateMessage` validates the live timer relation and returns
+FALSE without mutation. `DispatchMessageA` creates a stdcall frame with
+`(0x48010001, 0x0113, 1, logical-time-DWORD)`, enters the registered TIMERPROC,
+and completes at the callback sentinel. The guest callback's EAX value is not
+the outer dispatch result; the outer call returns 0 and preserves LastError.
+Canonical Node and Chrome agree on the ordered calls, callback frame, timer
+snapshot, terminal memory, and next message-poll boundary. Exact call counts,
+instruction counts, semantic digests, and report identities remain authoritative
+only in [current-checkpoint.json](current-checkpoint.json). Recurring delivery
+breadth, `KillTimer`, replacement races, NULL-HWND IDs, filtered／cross-thread
+retrieval, and background lifecycle remain unproven.

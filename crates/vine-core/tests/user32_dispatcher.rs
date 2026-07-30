@@ -24,18 +24,19 @@ use vine_core::{
     RuntimeWindowCreationMessage, RuntimeWindowGeometry, RuntimeWindowLifecycle, StackCleanup,
     User32CompatibilityPolicy, begin_paint_contract, build_pe32_load_plan,
     create_window_ex_a_contract, def_window_proc_a_contract, dispatch_gdi32_api,
-    dispatch_imm32_api_with_policy, dispatch_user32_api_with_policy, enable_menu_item_contract,
-    end_paint_contract, enum_display_monitors_contract, fill_rect_contract,
-    gdi32_contract_for_endpoint, get_async_key_state_contract, get_client_rect_contract,
-    get_cursor_pos_contract, get_dc_contract, get_foreground_window_contract,
-    get_monitor_info_a_contract, get_stock_object_contract, get_system_menu_contract,
-    get_system_metrics_contract, get_window_rect_contract, imm_associate_context_contract,
-    imm_get_default_ime_wnd_contract, is_iconic_contract, load_cursor_a_contract,
-    load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
+    dispatch_imm32_api_with_policy, dispatch_message_a_contract, dispatch_user32_api_with_policy,
+    enable_menu_item_contract, end_paint_contract, enum_display_monitors_contract,
+    fill_rect_contract, gdi32_contract_for_endpoint, get_async_key_state_contract,
+    get_client_rect_contract, get_cursor_pos_contract, get_dc_contract,
+    get_foreground_window_contract, get_monitor_info_a_contract, get_stock_object_contract,
+    get_system_menu_contract, get_system_metrics_contract, get_window_rect_contract,
+    imm_associate_context_contract, imm_get_default_ime_wnd_contract, is_iconic_contract,
+    load_cursor_a_contract, load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
     monitor_from_window_contract, peek_message_a_contract, register_class_ex_a_contract,
     release_dc_contract, send_message_a_contract, set_rect_contract, set_timer_contract,
     set_window_long_a_contract, set_window_pos_contract, show_window_contract,
-    swap_mouse_button_contract, update_window_contract, user32_contract_for_endpoint,
+    swap_mouse_button_contract, translate_message_contract, update_window_contract,
+    user32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -147,6 +148,14 @@ const PEEK_MESSAGE_A_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 11
 const PEEK_MESSAGE_A_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2f80;
 const PEEK_MESSAGE_A_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_378b);
 const PEEK_MESSAGE_A_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2e60);
+const TRANSLATE_MESSAGE_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0a10);
+const TRANSLATE_MESSAGE_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 124);
+const TRANSLATE_MESSAGE_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2f20;
+const TRANSLATE_MESSAGE_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_37a2);
+const DISPATCH_MESSAGE_A_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0b50);
+const DISPATCH_MESSAGE_A_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 128);
+const DISPATCH_MESSAGE_A_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2f40;
+const DISPATCH_MESSAGE_A_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_37ac);
 const IS_ICONIC_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0b60);
 const IS_ICONIC_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 120);
 const IS_ICONIC_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2fc0;
@@ -1206,6 +1215,8 @@ struct RegisterClassFixture {
     get_window_rect_endpoint: ApiEndpointIdentity,
     get_cursor_pos_endpoint: ApiEndpointIdentity,
     peek_message_a_endpoint: ApiEndpointIdentity,
+    translate_message_endpoint: ApiEndpointIdentity,
+    dispatch_message_a_endpoint: ApiEndpointIdentity,
     is_iconic_endpoint: ApiEndpointIdentity,
     get_dc_endpoint: ApiEndpointIdentity,
     get_stock_object_endpoint: ApiEndpointIdentity,
@@ -1324,6 +1335,14 @@ impl RegisterClassFixture {
             ),
             (GET_CURSOR_POS_IAT_ADDRESS, GET_CURSOR_POS_ENDPOINT_ADDRESS),
             (PEEK_MESSAGE_A_IAT_ADDRESS, PEEK_MESSAGE_A_ENDPOINT_ADDRESS),
+            (
+                TRANSLATE_MESSAGE_IAT_ADDRESS,
+                TRANSLATE_MESSAGE_ENDPOINT_ADDRESS,
+            ),
+            (
+                DISPATCH_MESSAGE_A_IAT_ADDRESS,
+                DISPATCH_MESSAGE_A_ENDPOINT_ADDRESS,
+            ),
             (IS_ICONIC_IAT_ADDRESS, IS_ICONIC_ENDPOINT_ADDRESS),
             (GET_DC_IAT_ADDRESS, GET_DC_ENDPOINT_ADDRESS),
             (
@@ -1873,6 +1892,36 @@ impl RegisterClassFixture {
                 name_rva: vine_core::Rva(0),
             },
         });
+        let translate_message_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(162),
+            address: TRANSLATE_MESSAGE_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1360),
+            iat_address: TRANSLATE_MESSAGE_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "TranslateMessage".to_owned(),
+                hint: 764,
+                name_rva: vine_core::Rva(0),
+            },
+        });
+        let dispatch_message_a_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(182),
+            address: DISPATCH_MESSAGE_A_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_13b0),
+            iat_address: DISPATCH_MESSAGE_A_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "DispatchMessageA".to_owned(),
+                hint: 174,
+                name_rva: vine_core::Rva(0),
+            },
+        });
         let is_iconic_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
             id: ImportThunkId(183),
             address: IS_ICONIC_ENDPOINT_ADDRESS,
@@ -2060,6 +2109,8 @@ impl RegisterClassFixture {
                 get_window_rect_endpoint.clone(),
                 get_cursor_pos_endpoint.clone(),
                 peek_message_a_endpoint.clone(),
+                translate_message_endpoint.clone(),
+                dispatch_message_a_endpoint.clone(),
                 is_iconic_endpoint.clone(),
                 get_dc_endpoint.clone(),
                 get_stock_object_endpoint.clone(),
@@ -2106,6 +2157,10 @@ impl RegisterClassFixture {
                     .expect("cursor position contract"),
                 peek_message_a_contract(peek_message_a_endpoint.clone())
                     .expect("message peek contract"),
+                translate_message_contract(translate_message_endpoint.clone())
+                    .expect("message translation contract"),
+                dispatch_message_a_contract(dispatch_message_a_endpoint.clone())
+                    .expect("message dispatch contract"),
                 is_iconic_contract(is_iconic_endpoint.clone())
                     .expect("iconic-state query contract"),
                 get_dc_contract(get_dc_endpoint.clone()).expect("GetDC contract"),
@@ -2161,6 +2216,8 @@ impl RegisterClassFixture {
             get_window_rect_endpoint,
             get_cursor_pos_endpoint,
             peek_message_a_endpoint,
+            translate_message_endpoint,
+            dispatch_message_a_endpoint,
             is_iconic_endpoint,
             get_dc_endpoint,
             get_stock_object_endpoint,
@@ -2700,6 +2757,38 @@ impl RegisterClassFixture {
             self.peek_message_a_endpoint.clone(),
             GuestAddress(PEEK_MESSAGE_A_STACK_POINTER),
             PEEK_MESSAGE_A_RETURN_ADDRESS,
+        )
+    }
+
+    fn configure_translate_message(&mut self, message: GuestAddress) {
+        self.write_live_words(
+            GuestAddress(TRANSLATE_MESSAGE_STACK_POINTER),
+            &[TRANSLATE_MESSAGE_RETURN_ADDRESS.0, message.0],
+        );
+        self.acknowledge_pending_delta();
+    }
+
+    fn dispatch_translate_message(&mut self) -> DispatchOutcome {
+        self.dispatch_endpoint(
+            self.translate_message_endpoint.clone(),
+            GuestAddress(TRANSLATE_MESSAGE_STACK_POINTER),
+            TRANSLATE_MESSAGE_RETURN_ADDRESS,
+        )
+    }
+
+    fn configure_dispatch_message_a(&mut self, message: GuestAddress) {
+        self.write_live_words(
+            GuestAddress(DISPATCH_MESSAGE_A_STACK_POINTER),
+            &[DISPATCH_MESSAGE_A_RETURN_ADDRESS.0, message.0],
+        );
+        self.acknowledge_pending_delta();
+    }
+
+    fn dispatch_dispatch_message_a(&mut self) -> DispatchOutcome {
+        self.dispatch_endpoint(
+            self.dispatch_message_a_endpoint.clone(),
+            GuestAddress(DISPATCH_MESSAGE_A_STACK_POINTER),
+            DISPATCH_MESSAGE_A_RETURN_ADDRESS,
         )
     }
 
@@ -4936,6 +5025,179 @@ fn peek_message_a_preserves_empty_output_and_commits_remove_with_guest_write_ato
     assert_eq!(pointer_fault.code, "guest-page-fault");
     assert_eq!(fixture.runtime, runtime_before_pointer_fault);
     assert_eq!(fixture.memory.stats(), memory_before_pointer_fault);
+}
+
+#[test]
+fn due_window_timer_materializes_once_and_dispatches_timerproc_on_the_owner_thread() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, _) = fixture.prepare_created_window_and_small_icon();
+    let callback = fixture.window_procedure;
+    let sentinel = 0x55aa_1234;
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed timer delivery LastError");
+    let registration = match fixture.dispatch_set_timer(window_handle, 1, 20, callback) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected SetTimer completion, got {other:?}"),
+    };
+    assert_eq!(registration.eax, RegisterUpdate::Set(1));
+    let timer = *fixture.runtime.window_timers().values().next().unwrap();
+    assert_eq!(timer.next_deadline_time_100ns, 200_000);
+
+    let clock_timer = fixture
+        .runtime
+        .create_waitable_timer_a(true)
+        .expect("create logical clock driver");
+    fixture
+        .runtime
+        .wait_for_single_object_ex(clock_timer.handle, 20, true)
+        .expect("advance logical clock to window timer deadline");
+    assert_eq!(
+        fixture.runtime.timer_clock_state().current_time_100ns,
+        200_000
+    );
+
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 1);
+    let legacy = match fixture.dispatch_peek_message_a() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => {
+            panic!("expected disabled timer delivery to preserve the empty queue, got {other:?}")
+        }
+    };
+    assert_eq!(legacy.eax, RegisterUpdate::Set(0));
+    assert_eq!(
+        fixture
+            .runtime
+            .window_timers()
+            .values()
+            .next()
+            .unwrap()
+            .delivery_count,
+        0
+    );
+    fixture.policy = User32CompatibilityPolicy::controlled_v31();
+
+    fixture.configure_peek_message_a(GuestAddress(MEMORY_BASE.0 + 0x3000), 0, 0, 0, 1);
+    let runtime_before_pointer_fault = fixture.runtime.clone();
+    let memory_before_pointer_fault = fixture.memory.stats();
+    let pointer_fault = match fixture.dispatch_peek_message_a() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected due timer MSG pointer fault, got {other:?}"),
+    };
+    assert_eq!(pointer_fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(pointer_fault.code, "guest-page-fault");
+    assert_eq!(fixture.runtime, runtime_before_pointer_fault);
+    assert_eq!(fixture.memory.stats(), memory_before_pointer_fault);
+
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 1);
+    let peek = match fixture.dispatch_peek_message_a() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected due window timer message, got {other:?}"),
+    };
+    assert_eq!(peek.eax, RegisterUpdate::Set(1));
+    assert_eq!(peek.last_error, sentinel);
+    assert_eq!(peek.guest_writes.len(), 1);
+    let message_bytes = peek.guest_writes[0].write.bytes.clone();
+    let message_words = message_bytes
+        .chunks_exact(4)
+        .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
+        .collect::<Vec<_>>();
+    assert_eq!(message_words.len(), 7);
+    assert_eq!(&message_words[..4], &[window_handle, 0x0113, 1, callback.0]);
+    assert_eq!(message_words[5], 960);
+    assert_eq!(message_words[6], 540);
+    assert!(
+        fixture
+            .runtime
+            .queued_thread_messages(RuntimeThreadId(THREAD_ID))
+            .expect("inspect removed timer message")
+            .is_empty()
+    );
+    let delivered = *fixture.runtime.window_timers().values().next().unwrap();
+    assert_eq!(delivered.delivery_count, 1);
+    assert_eq!(delivered.next_deadline_time_100ns, 400_000);
+    assert_eq!(
+        delivered.last_delivery.unwrap().delivered_at_time_100ns,
+        200_000
+    );
+    fixture.acknowledge_pending_delta();
+
+    fixture.configure_translate_message(PEEK_MESSAGE_A_OUTPUT_ADDRESS);
+    let translated = match fixture.dispatch_translate_message() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected timer TranslateMessage completion, got {other:?}"),
+    };
+    assert_eq!(translated.eax, RegisterUpdate::Set(0));
+    assert_eq!(translated.last_error, sentinel);
+    assert!(translated.guest_writes.is_empty());
+
+    fixture.configure_dispatch_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS);
+    let call = match fixture.dispatch_dispatch_message_a() {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected TIMERPROC callback, got {other:?}"),
+    };
+    assert_eq!(call.request.target, callback);
+    assert_eq!(
+        call.request.arguments,
+        [window_handle, 0x0113, 1, message_words[4]]
+            .into_iter()
+            .map(GuestCallbackArgument::U32)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        call.request.completion_policy,
+        GuestCallbackCompletionPolicy::ReturnConstantU32 { value: 0 }
+    );
+    assert_eq!(call.request.return_sentinel, fixture.callback_sentinel);
+    let prepared = begin_fixture_callback(&mut fixture, &call);
+    assert_eq!(prepared.frame_bytes, 20);
+    assert_eq!(
+        fixture
+            .memory
+            .read(prepared.stack_pointer, 20)
+            .expect("read TIMERPROC frame"),
+        [
+            fixture.callback_sentinel.0,
+            window_handle,
+            0x0113,
+            1,
+            message_words[4],
+        ]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect::<Vec<_>>()
+    );
+    let (completion, semantic_action) =
+        complete_fixture_callback(&mut fixture, call, 0xdead_beef, prepared.frame_id);
+    assert_eq!(semantic_action, None);
+    assert_eq!(completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(completion.last_error, sentinel);
+    assert_eq!(
+        completion.instruction_pointer,
+        DISPATCH_MESSAGE_A_RETURN_ADDRESS
+    );
+    assert_eq!(
+        completion.stack_pointer,
+        GuestAddress(DISPATCH_MESSAGE_A_STACK_POINTER + 8)
+    );
+
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 1);
+    let coalesced = match fixture.dispatch_peek_message_a() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected coalesced timer queue to be empty, got {other:?}"),
+    };
+    assert_eq!(coalesced.eax, RegisterUpdate::Set(0));
+    assert_eq!(
+        fixture
+            .runtime
+            .window_timers()
+            .values()
+            .next()
+            .unwrap()
+            .delivery_count,
+        1
+    );
 }
 
 #[test]

@@ -1106,6 +1106,18 @@ Controlとleft-buttonの両方が同じpresentation boundに留まるため、�
 既存owner-thread `SetTimer`のlogical expiryと`WM_TIMER`／`TIMERPROC` deliveryを固定する。Exact値とartifact
 identityは`current-checkpoint.json`だけを正本とする。
 
+`primary-main-loop-window-timer-callback-delivery-gateway`は、Rust logical clock上でdueになった既存owner-thread
+window timerを、通常queueがemptyの時だけ一件のlow-priority `WM_TIMER`へlazy materializeする。Missed periodsは
+一件へcoalesceし、next deadlineをcurrent logical timeから20 ms後へrearmしなければならない。`PM_REMOVE`時は
+timer delivery、queue append／pop、28-byte `MSG32` publicationを一括preflight／commitし、failure時はdeadline、
+delivery count、queue、guest bytesを全て保持する。続く`TranslateMessage`はlive registrationを検証してFALSE、
+`DispatchMessageA`は`(HWND, WM_TIMER, 1, time)`のstdcall TIMERPROCを完了させ、guest callback resultを無視して0を
+返す。Node／Chromeはdelivery count 1、callback frame／return boundary、terminal memory、ordered semantic digest、
+次の`PeekMessageA`を一致させ、Worker側にbrowser timerやWindows queue authorityを作ってはならない。これは最初の
+delivery acceptanceであり、recurring breadth、`KillTimer`、replacement race、filtered／cross-thread retrieval、
+background lifecycleをclaimしない。次はnativeで観測済みの反復callbackをbounded batchとして検証する。Exact値と
+artifact identityは`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

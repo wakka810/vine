@@ -3618,6 +3618,7 @@ impl RuntimeKernel {
                     .plan_transition(target_thread_id, SchedulerThreadState::Runnable)
             })
             .transpose()?;
+        self.messages.preflight_post(&plan)?;
         self.messages.commit_post(plan);
         if let Some(scheduler_plan) = scheduler_plan {
             self.scheduler.commit_lane(scheduler_plan);
@@ -3662,6 +3663,7 @@ impl RuntimeKernel {
         memory: &mut GuestMemory,
         output: GuestAddress,
         remove: bool,
+        window_timer_message: Option<u32>,
     ) -> Result<(RuntimeMessagePeekDisposition, Option<GuestWriteResult>), RuntimeStateError> {
         if !self.process.is_running()
             || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
@@ -3673,7 +3675,80 @@ impl RuntimeKernel {
                 "message peek requires a running process and runnable owner thread",
             ));
         }
-        let plan = self.messages.plan_peek(self.current_thread_id(), remove)?;
+        let thread_id = self.current_thread_id();
+        if let Some(window_timer_message) = window_timer_message
+            && self.messages.is_empty(thread_id)?
+            && let Some(timer_plan) = self.timers.plan_due_window_timer_delivery(thread_id)?
+        {
+            let timer = timer_plan.timer();
+            let window = self.user32.window(timer.window_handle)?;
+            if window.id != timer.window_id
+                || window.lifecycle != RuntimeWindowLifecycle::Created
+                || window.creation.owner_thread_id != timer.owner_thread_id
+                || window_timer_message == 0
+            {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-window-timer",
+                    "window-timer-delivery-target-stale",
+                    "logical window timer target changed before message delivery",
+                ));
+            }
+            let cursor = self.input.cursor_position().ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-message",
+                    "message-cursor-position-unconfigured",
+                    "timer message delivery requires a configured logical cursor position",
+                )
+            })?;
+            let post_plan = self.messages.plan_post(
+                thread_id,
+                thread_id,
+                timer.window_handle,
+                window_timer_message,
+                timer.timer_id,
+                timer.callback_address.0,
+                self.process.clock().tick_count,
+                cursor.screen_x,
+                cursor.screen_y,
+                false,
+            )?;
+            let message = post_plan.message;
+            let bytes = message.to_x86_msg_bytes();
+            memory
+                .validate_access(output, bytes.len(), MemoryAccess::Write)
+                .map_err(RuntimeStateError::from_memory)?;
+            let mut transaction = memory.begin_transaction();
+            let write = transaction
+                .write(output, &bytes)
+                .map_err(RuntimeStateError::from_memory)?;
+            self.timers.preflight_window_timer_delivery(&timer_plan)?;
+            self.messages.preflight_post(&post_plan)?;
+            let current_window = self.user32.window(timer.window_handle)?;
+            if current_window.id != timer.window_id
+                || current_window.lifecycle != RuntimeWindowLifecycle::Created
+                || current_window.creation.owner_thread_id != timer.owner_thread_id
+            {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-window-timer",
+                    "window-timer-delivery-target-stale",
+                    "logical window timer target changed after delivery planning",
+                ));
+            }
+            self.timers.commit_window_timer_delivery(timer_plan);
+            self.messages.commit_post(post_plan);
+            if remove {
+                self.messages.commit_receive(thread_id, message.id);
+            }
+            transaction.commit_transaction();
+            return Ok((
+                RuntimeMessagePeekDisposition::Message {
+                    message,
+                    removed: remove,
+                },
+                Some(write),
+            ));
+        }
+        let plan = self.messages.plan_peek(thread_id, remove)?;
         let RuntimeMessagePeekPlan::Message { message, .. } = plan else {
             self.messages.preflight_peek(&plan)?;
             return Ok((self.messages.commit_preflighted_peek(plan), None));
@@ -5441,6 +5516,43 @@ impl RuntimeKernel {
         id: RuntimeWindowTimerId,
     ) -> Result<&RuntimeWindowTimer, RuntimeStateError> {
         self.timers.window_timer(id)
+    }
+
+    pub(crate) fn resolve_window_timer_callback(
+        &self,
+        window_handle: u32,
+        timer_id: u32,
+        callback_address: GuestAddress,
+    ) -> Result<GuestAddress, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let timer = self
+            .timers
+            .window_timers()
+            .values()
+            .find(|timer| timer.window_handle == window_handle && timer.timer_id == timer_id)
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-window-timer",
+                    "window-timer-message-unknown",
+                    "timer message does not identify a live logical window timer",
+                )
+            })?;
+        let window = self.user32.window(window_handle)?;
+        if timer.owner_thread_id != self.current_thread_id()
+            || timer.callback_address != callback_address
+            || timer.delivery_count == 0
+            || timer.last_delivery.is_none()
+            || window.id != timer.window_id
+            || window.lifecycle != RuntimeWindowLifecycle::Created
+            || window.creation.owner_thread_id != timer.owner_thread_id
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-window-timer",
+                "window-timer-message-stale",
+                "timer message no longer matches its live window, owner, registration, or callback",
+            ));
+        }
+        Ok(timer.callback_address)
     }
 
     fn preflight_window_timer_registration(

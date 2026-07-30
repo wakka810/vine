@@ -189,6 +189,7 @@ impl RuntimeMessages {
     }
 
     pub(super) fn commit_post(&mut self, plan: RuntimeMessagePostPlan) {
+        debug_assert!(self.preflight_post(&plan).is_ok());
         let queue = self
             .queues
             .get_mut(&plan.message.target_thread_id)
@@ -197,6 +198,25 @@ impl RuntimeMessages {
         debug_assert_eq!(self.next_message_id + 1, plan.next_message_id);
         queue.push_back(plan.message);
         self.next_message_id = plan.next_message_id;
+    }
+
+    pub(super) fn preflight_post(
+        &self,
+        plan: &RuntimeMessagePostPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let queue = self.queue(plan.message.target_thread_id)?;
+        if queue.len().checked_add(1) != Some(plan.queue_depth)
+            || self.next_message_id != plan.message.id.0
+            || self.next_message_id.checked_add(1) != Some(plan.next_message_id)
+            || (plan.wake_target && !queue.is_empty())
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-message",
+                "message-post-plan-stale",
+                "runtime message queue changed after post planning",
+            ));
+        }
+        Ok(())
     }
 
     pub(super) fn plan_receive(

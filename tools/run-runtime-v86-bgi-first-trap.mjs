@@ -206,6 +206,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "primary-main-loop-presentation-progress-gateway",
         "primary-main-loop-input-progress-gateway",
         "primary-main-loop-action-input-progress-gateway",
+        "primary-main-loop-window-timer-callback-delivery-gateway",
         "kernel32-wait-for-single-object-ex",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -385,6 +386,7 @@ assert(
       "primary-main-loop-presentation-progress-gateway",
       "primary-main-loop-input-progress-gateway",
       "primary-main-loop-action-input-progress-gateway",
+      "primary-main-loop-window-timer-callback-delivery-gateway",
       "kernel32-wait-for-single-object-ex",
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
       "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -502,6 +504,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "primary-main-loop-input-progress-gateway" ||
     genericRuntimeCapability ===
       "primary-main-loop-action-input-progress-gateway" ||
+    genericRuntimeCapability ===
+      "primary-main-loop-window-timer-callback-delivery-gateway" ||
     genericRuntimeCapability ===
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     genericRuntimeCapability ===
@@ -869,12 +873,20 @@ const inputProgressGatewayCheckpointEnabled =
   genericRuntimeCapability === "primary-main-loop-input-progress-gateway" ||
   genericRuntimeCapability ===
     "primary-main-loop-action-input-progress-gateway";
+const windowTimerCallbackDeliveryGatewayCheckpointEnabled =
+  genericRuntimeCapability ===
+  "primary-main-loop-window-timer-callback-delivery-gateway";
+const user32CompatibilityPolicyId =
+  windowTimerCallbackDeliveryGatewayCheckpointEnabled
+    ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
+    : "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30";
 const actionInputProgressGatewayCheckpointEnabled =
   genericRuntimeCapability ===
   "primary-main-loop-action-input-progress-gateway";
 const presentationProgressEvidenceEnabled =
   presentationProgressGatewayCheckpointEnabled ||
-  inputProgressGatewayCheckpointEnabled;
+  inputProgressGatewayCheckpointEnabled ||
+  windowTimerCallbackDeliveryGatewayCheckpointEnabled;
 const recurringTimerWindowEvidenceEnabled =
   recurringTimerWindowCheckpointEnabled ||
   presentationProgressEvidenceEnabled;
@@ -882,7 +894,16 @@ const recurringTimerBoundedWindowCheckpointEnabled =
   recurringTimerMultiCycleCheckpointEnabled ||
   recurringTimerWindowEvidenceEnabled;
 const recurringTimerWindowConfiguration =
-  actionInputProgressGatewayCheckpointEnabled
+  windowTimerCallbackDeliveryGatewayCheckpointEnabled
+    ? {
+        capability:
+          "primary-main-loop-window-timer-callback-delivery-gateway",
+        implementationId:
+          "runtime.main-loop-window-timer-callback-delivery-gateway.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      }
+    : actionInputProgressGatewayCheckpointEnabled
     ? {
         capability: "primary-main-loop-action-input-progress-gateway",
         implementationId:
@@ -6192,13 +6213,15 @@ async function run() {
               : heapAlloc24CheckpointEnabled
                 ? "bgi private-heap allocation and coalesced reuse batch"
                 : recurringTimerBoundedWindowCheckpointEnabled
-                  ? inputProgressGatewayCheckpointEnabled
-                    ? "bgi primary main-loop input progress gateway"
-                    : presentationProgressGatewayCheckpointEnabled
-                      ? "bgi primary main-loop presentation progress gateway"
+                  ? windowTimerCallbackDeliveryGatewayCheckpointEnabled
+                    ? "bgi primary main-loop window timer callback delivery gateway"
+                    : inputProgressGatewayCheckpointEnabled
+                      ? "bgi primary main-loop input progress gateway"
+                      : presentationProgressGatewayCheckpointEnabled
+                        ? "bgi primary main-loop presentation progress gateway"
                     : recurringTimerWindowCheckpointEnabled
-                      ? "bgi primary main-loop recurring timer window batch"
-                      : "bgi primary main-loop recurring timer multi-cycle batch"
+                        ? "bgi primary main-loop recurring timer window batch"
+                        : "bgi primary main-loop recurring timer multi-cycle batch"
                   : recurringTimerCycleCheckpointEnabled
                     ? "bgi primary main-loop recurring timer cycle batch"
                     : postHeapTimeGetTimeCheckpointEnabled
@@ -6539,6 +6562,9 @@ async function run() {
                 : genericResult.checkpointCompletion.capability ===
                     "user32-async-key-state-input"
                   ? `${genericResult.checkpointCompletion.completionCount} controlled async-key query completed`
+                  : genericResult.checkpointCompletion.capability ===
+                      "primary-main-loop-window-timer-callback-delivery-gateway"
+                    ? `${genericResult.checkpointCompletion.deliveryCount} WM_TIMER callback delivered`
                   : genericResult.checkpointCompletion.capability ===
                       "primary-main-loop-presentation-progress-gateway"
                     ? `${genericResult.checkpointCompletion.cycleCount} recurring timer cycles inspected with outcome ${genericResult.checkpointCompletion.outcome}`
@@ -7369,6 +7395,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "primary-main-loop-window-timer-callback-delivery-gateway"
+            ? "primary-main-loop-window-timer-callback-delivery-gateway-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "primary-main-loop-action-input-progress-gateway"
             ? "primary-main-loop-action-input-progress-gateway-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -7527,6 +7556,10 @@ async function runGenericRuntimeReentry({
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (postCriticalSectionSetWaitableTimerCheckpointEnabled) {
         checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 4);
+        checkpointCompletion.nextReturnAddress = terminal.returnAddress;
+        checkpointCompletion.nextStackPointer = continuation.finalState.esp;
+      } else if (windowTimerCallbackDeliveryGatewayCheckpointEnabled) {
+        checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 6);
         checkpointCompletion.nextReturnAddress = terminal.returnAddress;
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (
@@ -7692,6 +7725,41 @@ async function runGenericRuntimeReentry({
         returnInstructionCount: continuation.instructionCount,
         result: callbackResult,
       };
+      if (
+        windowTimerCallbackDeliveryGatewayCheckpointEnabled &&
+        active.endpoint.module.toLowerCase() === "user32.dll" &&
+        active.endpoint.symbol === "DispatchMessageA"
+      ) {
+        assert.equal(checkpointCompletion, null);
+        const callbackArguments = Array.from(
+          { length: active.entry.argumentCount },
+          (_, index) =>
+            context.readVirtualU32(
+              active.entry.stackPointer + (index + 1) * 4,
+              `window timer callback argument ${index}`,
+            ),
+        );
+        assert(call.windowTimer, "timer DispatchMessageA omitted window state");
+        checkpointCompletion = {
+          capability:
+            "primary-main-loop-window-timer-callback-delivery-gateway",
+          implementationId:
+            "runtime.main-loop-window-timer-callback-delivery-gateway.v1",
+          requiredDeliveries: 1,
+          deliveryCount: call.windowTimer.deliveryCount,
+          requiredCompletions: 1,
+          completionCount: 1,
+          lastCompletionSequence: call.sequence,
+          lastCompletionInstructionCount: continuation.instructionCount,
+          dispatch: {
+            ...structuredClone(call),
+            callbackArguments,
+          },
+          instructionCount: 0,
+          nextEndpoint: null,
+          memoryContentSha256: "",
+        };
+      }
       supportedCalls[active.callIndex] = call;
       if (active.manifestCheckpoint !== null) {
         validateGenericCallAgainstManifest(call, active.manifestCheckpoint);
@@ -10616,6 +10684,7 @@ function validateGenericRuntimeReady(ready, offer) {
       (user32AsyncKeyStateInitialScanEnabled ? 2 : 0) +
       (user32PeekMessageAEnabled ? 1 : 0) +
       (user32IsIconicEnabled ? 1 : 0) +
+      (windowTimerCallbackDeliveryGatewayCheckpointEnabled ? 2 : 0) +
       (setRectCheckpointEnabled ? 1 : 0) +
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
@@ -10803,7 +10872,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (enumDisplayMonitorsEnabled) {
     assert.equal(
       ready.user32CompatibilityPolicyId,
-      "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
+      user32CompatibilityPolicyId,
     );
     assert.equal(
       ready.displayProfileId,
@@ -11934,6 +12003,25 @@ function validateGenericCallbackEntry(entry, endpoint, generation, context) {
         ),
       ),
       [0x4801_0001, 0x0080, 0, 0x4901_0002],
+    );
+  } else if (
+    endpoint.module.toLowerCase() === "user32.dll" &&
+    endpoint.symbol === "DispatchMessageA"
+  ) {
+    assert(windowTimerCallbackDeliveryGatewayCheckpointEnabled);
+    assert.equal(entry.target, 0x1009_9600);
+    assert.equal(entry.argumentCount, 4);
+    assert.equal(entry.scratchAddress, 0);
+    assert.equal(entry.scratchBytes, 0);
+    assert.equal(entry.frameBytes, 20);
+    assert.deepEqual(
+      [1, 2, 3].map((index) =>
+        context.readVirtualU32(
+          entry.stackPointer + index * 4,
+          `DispatchMessageA callback argument ${index - 1}`,
+        ),
+      ),
+      [0x4801_0001, 0x0113, 1],
     );
   }
 }
@@ -25613,6 +25701,10 @@ function validatePostWaitCriticalSectionResult(result) {
 }
 
 function validateRecurringTimerBoundedWindowResult(result) {
+  if (windowTimerCallbackDeliveryGatewayCheckpointEnabled) {
+    validateWindowTimerCallbackDeliveryGatewayResult(result);
+    return;
+  }
   if (recurringTimerMultiCycleCheckpointEnabled) {
     validateRecurringTimerMultiCycleResult(result);
     return;
@@ -25626,6 +25718,156 @@ function validateRecurringTimerBoundedWindowResult(result) {
     return;
   }
   validateRecurringTimerWindowResult(result);
+}
+
+function validateWindowTimerCallbackDeliveryGatewayResult(result) {
+  assert(windowTimerCallbackDeliveryGatewayCheckpointEnabled);
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  const checkpoint = result.checkpointCompletion;
+  assert.equal(
+    checkpoint?.capability,
+    "primary-main-loop-window-timer-callback-delivery-gateway",
+  );
+  assert.equal(
+    checkpoint.implementationId,
+    "runtime.main-loop-window-timer-callback-delivery-gateway.v1",
+  );
+  assert.equal(checkpoint.requiredDeliveries, 1);
+  assert.equal(checkpoint.deliveryCount, 1);
+  const messageCalls = result.supportedCalls.filter((call) =>
+    [
+      "user32.peek-message-a.current-thread.v1",
+      "user32.translate-message.window-timer-noop.v1",
+      "user32.dispatch-message-a.window-timer-callback.v1",
+    ].includes(call.implementationId),
+  );
+  assert.equal(messageCalls.length, 3);
+  const [peek, translate, dispatch] = messageCalls;
+  assert.equal(peek.sequence, 148_296);
+  assert.equal(peek.trapInstructionCount, 148_744_543);
+  assert.deepEqual(peek.arguments, [0x006f_f8e8, 0, 0, 0, 1]);
+  assert.deepEqual(peek.result, { action: "set", value: 1 });
+  assert.equal(peek.returnAddress, 0x1009_378b);
+  assert.equal(peek.stackPointerAfter - peek.stackPointerBefore, 24);
+  assert.equal(peek.lastError, 0);
+  assert.equal(peek.guestWrites.length, 1);
+  assert.deepEqual(
+    peek.guestWrites[0].bytes,
+    [
+      0x01, 0x00, 0x01, 0x48, 0x13, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00,
+      0x00, 0x00, 0x96, 0x09, 0x10, 0xda, 0xf2, 0x36, 0x00, 0xc0, 0x03,
+      0x00, 0x00, 0x1c, 0x02, 0x00, 0x00,
+    ],
+  );
+  assert.equal(peek.guestWrites[0].result.bytesWritten, 28);
+  assert.equal(peek.guestWrites[0].result.dirtyPages, 1);
+  const timer = peek.windowTimer;
+  assert.deepEqual(timer, {
+    id: 1,
+    windowId: 1,
+    windowHandle: 0x4801_0001,
+    timerId: 1,
+    ownerThreadId: 8_192,
+    requestedIntervalMilliseconds: 20,
+    effectiveIntervalMilliseconds: 20,
+    callbackAddress: 0x1009_9600,
+    registrationGeneration: 1,
+    armedAtTime100ns: 52_845_000,
+    nextDeadlineTime100ns: 53_045_000,
+    deliveryCount: 1,
+    lastDelivery: {
+      registrationGeneration: 1,
+      deliveryCount: 1,
+      scheduledDeadlineTime100ns: 200_000,
+      deliveredAtTime100ns: 52_845_000,
+    },
+  });
+
+  assert.equal(translate.sequence, 148_297);
+  assert.equal(translate.trapInstructionCount, 148_744_553);
+  assert.deepEqual(translate.arguments, [0x006f_f8e8]);
+  assert.deepEqual(translate.result, { action: "set", value: 0 });
+  assert.equal(translate.returnAddress, 0x1009_37a2);
+  assert.equal(translate.lastError, 0);
+  assert.deepEqual(translate.guestWrites, []);
+
+  assert.equal(dispatch.sequence, 148_298);
+  assert.equal(dispatch.trapInstructionCount, 148_744_557);
+  assert.deepEqual(dispatch.arguments, [0x006f_f8e8]);
+  assert.deepEqual(dispatch.result, { action: "set", value: 0 });
+  assert.equal(dispatch.returnAddress, 0x1009_37ac);
+  assert.equal(dispatch.stackPointerAfter - dispatch.stackPointerBefore, 8);
+  assert.equal(dispatch.lastError, 0);
+  assert.deepEqual(dispatch.guestWrites, []);
+  assert.deepEqual(dispatch.windowTimer, timer);
+  assert.deepEqual(dispatch.callback, {
+    frameId: 31,
+    target: 0x1009_9600,
+    allocationStart: 0x006f_f8c0,
+    stackPointer: 0x006f_f8c0,
+    scratchAddress: 0,
+    scratchBytes: 0,
+    frameBytes: 20,
+    returnSentinel: 0x7f01_0000,
+    returnInstructionCount: 148_745_201,
+    result: 64,
+  });
+  assert.deepEqual(checkpoint.dispatch, {
+    ...dispatch,
+    callbackArguments: [0x4801_0001, 0x0113, 1, 0x0036_f2da],
+  });
+  assert.deepEqual(result.callbackEvents.slice(-2), [
+    {
+      action: "enter",
+      sequence: 148_298,
+      frameId: 31,
+      instructionCount: 148_744_557,
+      target: 0x1009_9600,
+      stackPointer: 0x006f_f8c0,
+      arguments: [0x4801_0001, 0x0113, 1, 0x0036_f2da],
+    },
+    {
+      action: "return",
+      sequence: 148_298,
+      frameId: 31,
+      instructionCount: 148_745_201,
+      result: 64,
+    },
+  ]);
+  assert.equal(checkpoint.instructionCount, 148_745_210);
+  assert.deepEqual(checkpoint.nextEndpoint, {
+    id: 164,
+    address: 0x7f00_0a30,
+    module: "USER32.dll",
+    symbol: { kind: "name", name: "PeekMessageA" },
+    disposition: "declared-runtime-export",
+    iatAddress: 0x100d_1368,
+  });
+  assert.deepEqual(checkpoint.nextArguments, [0x006f_f8e8, 0, 0, 0, 1]);
+  assert.equal(checkpoint.nextReturnAddress, 0x1009_37bb);
+  assert.equal(checkpoint.nextStackPointer, 0x006f_f8c4);
+  assert.equal(
+    checkpoint.memoryContentSha256,
+    "2ff0d5bc7f72729624f911b812f332f350ec091572d068a598990f96596e6b86",
+  );
+  assert.equal(result.supportedCalls.length, 148_299);
+  assert.equal(result.terminal.instructionCount, 148_745_210);
+  assert.equal(result.writebacks.length, 150_022);
+  assert.equal(result.hostDeltas.length, 119_293);
+  assert.equal(result.timerPacing.length, 10_569);
+  assert.equal(result.sourceReads.length, 63);
+  assert.equal(result.heapPageMaterializations.length, 1_685);
+  assert.equal(result.finalGeneration, 271_295);
+  assert.equal(result.threadExecution.contextSwitches, 2_314);
+  const digest = new SemanticCallDigest();
+  for (const call of result.supportedCalls) {
+    digest.update(call);
+  }
+  assert.equal(
+    digest.digestHex(),
+    "95c8734dd61bbeceea0ecf2f01bfe4191ec33e17d1d56a7a4c98e078c8c80d83",
+  );
 }
 
 function validateInputProgressGatewayResult(result) {
@@ -32382,7 +32624,10 @@ function buildGenericRuntimeReentryReport({
                         (d3d9PostPresentContinuationEnabled &&
                         !runtimeThreadStackGrowthEnabled
                           ? 1
-                          : 0)
+                          : 0) +
+                        Number(
+                          windowTimerCallbackDeliveryGatewayCheckpointEnabled,
+                        )
                       : 9_186
                     : createDirectoryACheckpointEnabled
                       ? 6_974
@@ -32833,12 +33078,34 @@ function buildGenericRuntimeReentryReport({
           call.implementationId === "user32.peek-message-a.current-thread.v1",
       )
     : [];
+  const translateMessageCalls = windowTimerCallbackDeliveryGatewayCheckpointEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.implementationId ===
+          "user32.translate-message.window-timer-noop.v1",
+      )
+    : [];
+  const dispatchMessageACalls = windowTimerCallbackDeliveryGatewayCheckpointEnabled
+    ? genericResult.supportedCalls.filter(
+        (call) =>
+          call.implementationId ===
+          "user32.dispatch-message-a.window-timer-callback.v1",
+      )
+    : [];
   if (user32PeekMessageAEnabled) {
     assertSummaryCompletionCount(
       peekMessageACalls,
-      user32IsIconicEnabled ? 3 : 1,
+      windowTimerCallbackDeliveryGatewayCheckpointEnabled
+        ? 1
+        : user32IsIconicEnabled
+          ? 3
+          : 1,
       "PeekMessageA report summary has an unexpected completion count",
     );
+  }
+  if (windowTimerCallbackDeliveryGatewayCheckpointEnabled) {
+    assert.equal(translateMessageCalls.length, 1);
+    assert.equal(dispatchMessageACalls.length, 1);
   }
   const isIconicCalls = user32IsIconicEnabled
     ? genericResult.supportedCalls.filter(
@@ -32847,11 +33114,15 @@ function buildGenericRuntimeReentryReport({
       )
     : [];
   if (user32IsIconicEnabled) {
-    assertSummaryCompletionCount(
-      isIconicCalls,
-      3,
-      "IsIconic report summary requires three completions",
-    );
+    if (windowTimerCallbackDeliveryGatewayCheckpointEnabled) {
+      assert.equal(isIconicCalls.length, 0);
+    } else {
+      assertSummaryCompletionCount(
+        isIconicCalls,
+        3,
+        "IsIconic report summary requires three completions",
+      );
+    }
   }
   const d3d9UpdateTextureCalls = d3d9UpdateTextureCheckpointEnabled
     ? genericResult.supportedCalls.filter(
@@ -34308,8 +34579,7 @@ function buildGenericRuntimeReentryReport({
       ? {
           getAsyncKeyState: {
             call: getAsyncKeyStateCall,
-            compatibilityPolicyId:
-              "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
+            compatibilityPolicyId: user32CompatibilityPolicyId,
             keyboardProfileId: "foreground-focused-virtual-key-state-v1",
             inputEvent: runtimeReady.initialKeyboardEventReceipt,
             initialKeyboardState: runtimeReady.keyboardState,
@@ -34348,8 +34618,7 @@ function buildGenericRuntimeReentryReport({
             scanVirtualKeys: [...user32AsyncKeyStateInitialScanVirtualKeys],
             firstCall: getAsyncKeyStateInitialScanCalls[0],
             lastCall: getAsyncKeyStateInitialScanCalls.at(-1),
-            compatibilityPolicyId:
-              "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
+            compatibilityPolicyId: user32CompatibilityPolicyId,
             cursorPosition: runtimeReady.cursorPosition,
             cursorStateAuthority: "rust-runtime-input-cursor-position",
             keyboardProfileId: "foreground-focused-virtual-key-state-v1",
@@ -34408,17 +34677,50 @@ function buildGenericRuntimeReentryReport({
             instructionCounts: peekMessageACalls.map(
               (call) => call.trapInstructionCount,
             ),
-            compatibilityPolicyId:
-              "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
+            compatibilityPolicyId: user32CompatibilityPolicyId,
             profileId: "current-thread-unfiltered-peek-message-a-v1",
             queueAuthority: "rust-runtime-thread-message-queue",
-            emptyQueueResult: false,
-            outputMutation: "none-on-empty",
-            removal: "none-on-empty",
+            emptyQueueResult:
+              !windowTimerCallbackDeliveryGatewayCheckpointEnabled,
+            outputMutation: windowTimerCallbackDeliveryGatewayCheckpointEnabled
+              ? "atomic-materialized-msg32-write"
+              : "none-on-empty",
+            removal: windowTimerCallbackDeliveryGatewayCheckpointEnabled
+              ? "pm-remove-after-materialization"
+              : "none-on-empty",
             lastErrorPolicy: "preserve",
             failureAtomicity: true,
             filteredRetrievalImplemented: false,
             crossThreadRetrievalImplemented: false,
+          },
+        }
+      : {}),
+    ...(windowTimerCallbackDeliveryGatewayCheckpointEnabled
+      ? {
+          windowTimerDelivery: {
+            compatibilityPolicyId: user32CompatibilityPolicyId,
+            profileId:
+              "current-thread-empty-queue-coalesced-window-timer-callback-v1",
+            registrationProfileId: "main-window-id-1-20ms-timerproc-v1",
+            peekMessageA: peekMessageACalls[0],
+            translateMessage: translateMessageCalls[0],
+            dispatchMessageA: dispatchMessageACalls[0],
+            callbackArguments:
+              genericResult.checkpointCompletion.dispatch.callbackArguments,
+            timer: genericResult.checkpointCompletion.dispatch.windowTimer,
+            timerAuthority: "rust-runtime-timers",
+            queueAuthority: "rust-runtime-thread-message-queue",
+            windowAuthority: "rust-runtime-user32-logical-window",
+            callbackAuthority: "rust-runtime-callback-frame-stack",
+            materialization:
+              "lazy-on-empty-current-thread-unfiltered-peek-message-a",
+            missedPeriodPolicy: "coalesce-one-delivery-and-rearm-from-now",
+            translateResult: false,
+            dispatchOuterResult: 0,
+            lastErrorPolicy: "preserve",
+            browserTimerCreated: false,
+            killTimerImplemented: false,
+            failureAtomicity: true,
           },
         }
       : {}),
@@ -34429,8 +34731,7 @@ function buildGenericRuntimeReentryReport({
             instructionCounts: isIconicCalls.map(
               (call) => call.trapInstructionCount,
             ),
-            compatibilityPolicyId:
-              "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
+            compatibilityPolicyId: user32CompatibilityPolicyId,
             profileId: "logical-window-effective-style-is-iconic-v1",
             windowStateAuthority: "rust-runtime-user32-logical-window",
             minimizedStyleMask: 0x2000_0000,
@@ -34767,7 +35068,12 @@ function buildGenericRuntimeReentryReport({
                                                                               .capability ===
                                                                             "kernel32-enter-critical-section"
                                                                           ? "BGI completed the next three balanced primary critical-section acquisitions and stopped at the idle-cycle boundary"
-                                                                          : "BGI completed three recurring finite alertable waits and stopped before dispatching the next owned endpoint",
+                                                                          : genericResult
+                                                                                .checkpointCompletion
+                                                                                .capability ===
+                                                                              "primary-main-loop-window-timer-callback-delivery-gateway"
+                                                                            ? "BGI materialized one due WM_TIMER, completed TranslateMessage and TIMERPROC dispatch, and stopped before the next message poll"
+                                                                            : "BGI completed three recurring finite alertable waits and stopped before dispatching the next owned endpoint",
           },
   };
 }

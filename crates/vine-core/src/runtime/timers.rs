@@ -73,6 +73,29 @@ pub struct RuntimeWindowTimer {
     pub effective_interval_milliseconds: u32,
     pub callback_address: GuestAddress,
     pub registration_generation: u64,
+    pub armed_at_time_100ns: u64,
+    pub next_deadline_time_100ns: u64,
+    pub delivery_count: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_delivery: Option<RuntimeWindowTimerDeliveryState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeWindowTimerDeliveryState {
+    pub registration_generation: u64,
+    pub delivery_count: u64,
+    pub scheduled_deadline_time_100ns: u64,
+    pub delivered_at_time_100ns: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeWindowTimerDelivery {
+    pub timer: RuntimeWindowTimer,
+    pub scheduled_deadline_time_100ns: u64,
+    pub delivered_at_time_100ns: u64,
+    pub generation: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -201,6 +224,7 @@ pub(crate) struct RuntimeWindowTimerRegistrationPlan {
     next_window_timer_id: u64,
     previous: Option<RuntimeWindowTimer>,
     next: RuntimeWindowTimer,
+    expected_clock: RuntimeTimerClockState,
 }
 
 impl RuntimeWindowTimerRegistrationPlan {
@@ -214,6 +238,22 @@ impl RuntimeWindowTimerRegistrationPlan {
             self.next.owner_thread_id,
             self.next.callback_address,
         )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeWindowTimerDeliveryPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    previous_clock: RuntimeTimerClockState,
+    previous: RuntimeWindowTimer,
+    next: RuntimeWindowTimer,
+    scheduled_deadline_time_100ns: u64,
+}
+
+impl RuntimeWindowTimerDeliveryPlan {
+    pub(crate) const fn timer(&self) -> RuntimeWindowTimer {
+        self.previous
     }
 }
 
@@ -649,12 +689,36 @@ impl RuntimeTimers {
                 "logical window timer collection generation is exhausted",
             )
         })?;
+        let effective_interval_milliseconds = request
+            .interval_milliseconds
+            .max(RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS);
+        let interval_100ns = u64::from(effective_interval_milliseconds)
+            .checked_mul(10_000)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-window-timer",
+                    "window-timer-interval-overflow",
+                    "logical window timer interval exceeds the timer clock unit range",
+                )
+            })?;
+        let next_deadline_time_100ns = self
+            .timer_clock
+            .current_time_100ns
+            .checked_add(interval_100ns)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-window-timer",
+                    "window-timer-deadline-overflow",
+                    "logical window timer deadline exceeds the timer clock",
+                )
+            })?;
         Ok(RuntimeWindowTimerRegistrationPlan {
             expected_generation: self.window_timer_generation,
             next_generation,
             expected_next_id: self.next_window_timer_id,
             next_window_timer_id,
             previous,
+            expected_clock: self.timer_clock,
             next: RuntimeWindowTimer {
                 id,
                 window_id: request.window_id,
@@ -662,11 +726,13 @@ impl RuntimeTimers {
                 timer_id: request.timer_id,
                 owner_thread_id: request.owner_thread_id,
                 requested_interval_milliseconds: request.interval_milliseconds,
-                effective_interval_milliseconds: request
-                    .interval_milliseconds
-                    .max(RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS),
+                effective_interval_milliseconds,
                 callback_address: request.callback_address,
                 registration_generation,
+                armed_at_time_100ns: self.timer_clock.current_time_100ns,
+                next_deadline_time_100ns,
+                delivery_count: previous.map_or(0, |timer| timer.delivery_count),
+                last_delivery: previous.and_then(|timer| timer.last_delivery),
             },
         })
     }
@@ -682,6 +748,7 @@ impl RuntimeTimers {
             .and_then(|id| self.window_timers.get(id))
             .copied();
         if self.window_timer_generation != plan.expected_generation
+            || self.timer_clock != plan.expected_clock
             || self.next_window_timer_id != plan.expected_next_id
             || current != plan.previous
             || plan.next.id.0 == 0
@@ -690,6 +757,12 @@ impl RuntimeTimers {
             || plan.next.owner_thread_id.0 == 0
             || plan.next.callback_address.0 == 0
             || plan.next.effective_interval_milliseconds < RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS
+            || plan.next.armed_at_time_100ns != plan.expected_clock.current_time_100ns
+            || plan
+                .expected_clock
+                .current_time_100ns
+                .checked_add(u64::from(plan.next.effective_interval_milliseconds) * 10_000)
+                != Some(plan.next.next_deadline_time_100ns)
             || self.window_timer_generation.checked_add(1) != Some(plan.next_generation)
             || (plan.previous.is_some()
                 && (plan.next.id != plan.previous.expect("checked replacement").id
@@ -727,6 +800,130 @@ impl RuntimeTimers {
             timer_id: plan.next.timer_id,
             replaced,
             registration_generation: plan.next.registration_generation,
+            generation: self.window_timer_generation,
+        }
+    }
+
+    pub(crate) fn plan_due_window_timer_delivery(
+        &self,
+        owner_thread_id: RuntimeThreadId,
+    ) -> Result<Option<RuntimeWindowTimerDeliveryPlan>, RuntimeStateError> {
+        if owner_thread_id.0 == 0 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-window-timer",
+                "window-timer-delivery-owner-invalid",
+                "logical window timer delivery requires a nonzero owner thread",
+            ));
+        }
+        let Some(previous) = self
+            .window_timers
+            .values()
+            .filter(|timer| {
+                timer.owner_thread_id == owner_thread_id
+                    && timer.next_deadline_time_100ns <= self.timer_clock.current_time_100ns
+            })
+            .min_by_key(|timer| (timer.next_deadline_time_100ns, timer.id))
+            .copied()
+        else {
+            return Ok(None);
+        };
+        let next_generation = self.window_timer_generation.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-window-timer",
+                "window-timer-generation-exhausted",
+                "logical window timer collection generation is exhausted",
+            )
+        })?;
+        let delivery_count = previous.delivery_count.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-window-timer",
+                "window-timer-delivery-count-exhausted",
+                "logical window timer delivery count is exhausted",
+            )
+        })?;
+        let interval_100ns = u64::from(previous.effective_interval_milliseconds)
+            .checked_mul(10_000)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-window-timer",
+                    "window-timer-interval-overflow",
+                    "logical window timer interval exceeds the timer clock unit range",
+                )
+            })?;
+        let next_deadline_time_100ns = self
+            .timer_clock
+            .current_time_100ns
+            .checked_add(interval_100ns)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-window-timer",
+                    "window-timer-deadline-overflow",
+                    "logical window timer deadline exceeds the timer clock",
+                )
+            })?;
+        let delivery = RuntimeWindowTimerDeliveryState {
+            registration_generation: previous.registration_generation,
+            delivery_count,
+            scheduled_deadline_time_100ns: previous.next_deadline_time_100ns,
+            delivered_at_time_100ns: self.timer_clock.current_time_100ns,
+        };
+        let mut next = previous;
+        next.armed_at_time_100ns = self.timer_clock.current_time_100ns;
+        next.next_deadline_time_100ns = next_deadline_time_100ns;
+        next.delivery_count = delivery_count;
+        next.last_delivery = Some(delivery);
+        Ok(Some(RuntimeWindowTimerDeliveryPlan {
+            expected_generation: self.window_timer_generation,
+            next_generation,
+            previous_clock: self.timer_clock,
+            previous,
+            next,
+            scheduled_deadline_time_100ns: previous.next_deadline_time_100ns,
+        }))
+    }
+
+    pub(crate) fn preflight_window_timer_delivery(
+        &self,
+        plan: &RuntimeWindowTimerDeliveryPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.window_timer_generation != plan.expected_generation
+            || self.window_timer_generation.checked_add(1) != Some(plan.next_generation)
+            || self.timer_clock != plan.previous_clock
+            || self.window_timers.get(&plan.previous.id) != Some(&plan.previous)
+            || plan.previous.owner_thread_id != plan.next.owner_thread_id
+            || plan.previous.registration_generation != plan.next.registration_generation
+            || plan.previous.next_deadline_time_100ns != plan.scheduled_deadline_time_100ns
+            || plan.scheduled_deadline_time_100ns > plan.previous_clock.current_time_100ns
+            || plan.next.delivery_count != plan.previous.delivery_count.checked_add(1).unwrap_or(0)
+            || plan.next.last_delivery
+                != Some(RuntimeWindowTimerDeliveryState {
+                    registration_generation: plan.previous.registration_generation,
+                    delivery_count: plan.next.delivery_count,
+                    scheduled_deadline_time_100ns: plan.scheduled_deadline_time_100ns,
+                    delivered_at_time_100ns: plan.previous_clock.current_time_100ns,
+                })
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-window-timer",
+                "window-timer-delivery-plan-stale",
+                "logical window timer state changed after delivery planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn commit_window_timer_delivery(
+        &mut self,
+        plan: RuntimeWindowTimerDeliveryPlan,
+    ) -> RuntimeWindowTimerDelivery {
+        debug_assert!(self.preflight_window_timer_delivery(&plan).is_ok());
+        self.window_timer_generation = plan.next_generation;
+        let previous = self.window_timers.insert(plan.next.id, plan.next);
+        debug_assert_eq!(previous, Some(plan.previous));
+        RuntimeWindowTimerDelivery {
+            timer: plan.next,
+            scheduled_deadline_time_100ns: plan.scheduled_deadline_time_100ns,
+            delivered_at_time_100ns: plan.previous_clock.current_time_100ns,
             generation: self.window_timer_generation,
         }
     }
@@ -1090,6 +1287,10 @@ mod tests {
         assert_eq!(registered.requested_interval_milliseconds, 20);
         assert_eq!(registered.effective_interval_milliseconds, 20);
         assert_eq!(registered.callback_address, GuestAddress(0x1009_9600));
+        assert_eq!(registered.armed_at_time_100ns, 0);
+        assert_eq!(registered.next_deadline_time_100ns, 200_000);
+        assert_eq!(registered.delivery_count, 0);
+        assert_eq!(registered.last_delivery, None);
         assert_eq!(
             timers
                 .preflight_window_timer_registration(&stale)
@@ -1113,6 +1314,8 @@ mod tests {
         assert_eq!(registered.requested_interval_milliseconds, 1);
         assert_eq!(registered.effective_interval_milliseconds, 10);
         assert_eq!(registered.callback_address, GuestAddress(0x1009_9700));
+        assert_eq!(registered.next_deadline_time_100ns, 100_000);
+        assert_eq!(registered.delivery_count, 0);
         assert_eq!(timers.next_window_timer_id, 2);
 
         let before_invalid = timers.clone();
@@ -1133,6 +1336,81 @@ mod tests {
         assert_eq!(result.retired_window_timers, 1);
         assert!(timers.window_timers().is_empty());
         assert!(timers.window_timer_index.is_empty());
+    }
+
+    #[test]
+    fn window_timer_delivery_is_due_owned_coalesced_and_generation_checked() {
+        let mut timers = RuntimeTimers::default();
+        let registration = timers
+            .plan_window_timer_registration(RuntimeWindowTimerRegistrationRequest {
+                window_id: RuntimeWindowId(7),
+                window_handle: 0x4801_0001,
+                timer_id: 1,
+                owner_thread_id: RuntimeThreadId(9),
+                interval_milliseconds: 20,
+                callback_address: GuestAddress(0x1009_9600),
+            })
+            .unwrap();
+        timers.commit_window_timer_registration(registration);
+        assert!(
+            timers
+                .plan_due_window_timer_delivery(RuntimeThreadId(9))
+                .unwrap()
+                .is_none()
+        );
+
+        let advance = timers.plan_timer_clock_advance(200_000).unwrap();
+        timers.commit_timer_clock_advance(advance);
+        assert!(
+            timers
+                .plan_due_window_timer_delivery(RuntimeThreadId(10))
+                .unwrap()
+                .is_none()
+        );
+        let plan = timers
+            .plan_due_window_timer_delivery(RuntimeThreadId(9))
+            .unwrap()
+            .expect("due owner timer");
+        let stale = plan;
+        let delivered = timers.commit_window_timer_delivery(plan);
+        assert_eq!(delivered.scheduled_deadline_time_100ns, 200_000);
+        assert_eq!(delivered.delivered_at_time_100ns, 200_000);
+        assert_eq!(delivered.timer.next_deadline_time_100ns, 400_000);
+        assert_eq!(delivered.timer.delivery_count, 1);
+        assert_eq!(
+            delivered.timer.last_delivery,
+            Some(RuntimeWindowTimerDeliveryState {
+                registration_generation: 1,
+                delivery_count: 1,
+                scheduled_deadline_time_100ns: 200_000,
+                delivered_at_time_100ns: 200_000,
+            })
+        );
+        assert!(
+            timers
+                .plan_due_window_timer_delivery(RuntimeThreadId(9))
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            timers
+                .preflight_window_timer_delivery(&stale)
+                .unwrap_err()
+                .code,
+            "window-timer-delivery-plan-stale"
+        );
+
+        let advance = timers.plan_timer_clock_advance(450_000).unwrap();
+        timers.commit_timer_clock_advance(advance);
+        let late = timers
+            .plan_due_window_timer_delivery(RuntimeThreadId(9))
+            .unwrap()
+            .expect("late coalesced delivery");
+        let delivered = timers.commit_window_timer_delivery(late);
+        assert_eq!(delivered.scheduled_deadline_time_100ns, 400_000);
+        assert_eq!(delivered.delivered_at_time_100ns, 450_000);
+        assert_eq!(delivered.timer.next_deadline_time_100ns, 650_000);
+        assert_eq!(delivered.timer.delivery_count, 2);
     }
 
     #[test]

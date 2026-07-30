@@ -6,10 +6,13 @@ Controlled thread registryへRust-owned per-thread FIFOを置き、別registered
 messageをenqueueし、ownerがdequeueするまでのidentity、empty-queue blocking、first-message wake、
 thread/process exit cleanupをauthoritative Rust runtime kernelへ置く。Mutable queue authorityそのものは
 private `RuntimeMessages`に限定する。Reached `PeekMessageA` sliceはcurrent threadのunfiltered queue headを
-nonblockingにinspectし、optional removeとx86 `MSG` publicationを一つのtransactionとして扱う。
+nonblockingにinspectし、optional removeとx86 `MSG` publicationを一つのtransactionとして扱う。Reached
+window-timer profileでは、queueがemptyかつlogical deadlineがdueの場合だけ`RuntimeTimers`のdelivery planを
+同じtransactionへ参加させ、low-priority `WM_TIMER`をlazy materializeする。
 
-このcheckpointはUser32 `PostMessage`／`PostThreadMessage`／`GetMessage`／`DispatchMessage`を追加しない。
-Window filter、cross-thread retrieval、paint generation、WM_QUIT special returnは未実装である。
+このcheckpointはgeneral User32 `PostMessage`／`PostThreadMessage`／`GetMessage`を追加しない。Reached
+`DispatchMessageA`は登録済みwindow timerの`TIMERPROC`だけを対象とする。Window filter、cross-thread
+retrieval、paint generation、WM_QUIT special returnは未実装である。
 
 ## Message identity and ownership
 
@@ -91,6 +94,25 @@ targeted commitしてからpreflight済みmemory transactionをcommitする。�
 filter／cross-thread variant、stale planはqueue、allocator、guest bytes、LastErrorを部分更新しない。
 Empty resultではguest write transaction自体を作らない。
 
+## Lazy window-timer materialization and dispatch
+
+`RuntimeTimers`はwindow timer recordにarmed time、next deadline、delivery count、last deliveryを保持する。
+Current-thread unfiltered `PeekMessageA`で通常queueがemptyの場合だけ、selected owner thread、live HWND、timer
+ID、registration generation、logical clockを検査し、due timerから一件の`WM_TIMER`をmaterializeする。同じ
+timerが複数period遅れていても一件だけ配送し、次deadlineはcurrent logical timeからeffective interval後へ
+rearmする。Browser task timer、`performance.now()`、Worker-side deadline tableは使わない。
+
+`PM_NOREMOVE`はmaterialized messageをqueue headに残し、`PM_REMOVE`はdelivery plan、queue append／pop、完全な
+28-byte `MSG32` writeを全てpreflightしてからtargeted commitする。Bad output pointer、stale timer／queue plan、
+wrong owner、capacity failureではdeadline、delivery count、queue、guest bytesのどれも変えない。通常messageが
+既にある場合はtimerより先にFIFO headを返すため、window timerはlow-priorityである。
+
+Reached `TranslateMessage`はpublished `MSG32`を読み、live timer registrationとのHWND／`WM_TIMER`／ID／
+TIMERPROC relationを検証してFALSEを返す。Reached `DispatchMessageA`は同じrelationとcallback preflightを行い、
+selected threadのstdcall frameへ`(hwnd, WM_TIMER, timerId, time)`を積む。Guest callback resultはWin32
+`TIMERPROC` contractどおりouter resultへ伝播させず、callback完了後の`DispatchMessageA`は0を返す。Callback
+frame、timer、queue、window、guest memoryのauthorityはRustにあり、Workerはimmutable snapshotだけを記録する。
+
 ## Lifecycle cleanup
 
 Thread exit requestはowned queued messagesをcallback／host request／wait registration／scheduler eventと
@@ -110,17 +132,19 @@ cargo test -p vine-core runtime::messages::tests --locked
 cargo test -p vine-core --test runtime_message_queue --locked
 ```
 
-Subsystem tests fix non-mutating plan、FIFO identity、receive／peek commit、no-remove、remove、empty、
-missing-owner rejection。Integration tests fix first-message wake、no duplicate wake、exit cleanup、capacity
-rejection and failure-atomic PeekMessageA publication across message／memory／thread／scheduler state。Current production regressionは
+Subsystem tests fix non-mutating plan、FIFO identity、receive／peek commit、no-remove、remove、empty、due／
+not-due timer selection、coalesced rearm、missing-owner rejection。Integration tests fix first-message wake、no
+duplicate wake、exit cleanup、capacity rejection、failure-atomic PeekMessageA publication and validated
+TIMERPROC dispatch across message／timer／memory／thread／scheduler state。Current production regressionは
 [`current-checkpoint.json`](current-checkpoint.json)のcanonical commandを使う。
 
 ## Non-claims and next dependency
 
 This checkpoint does not implement window／queue creation rules, filtered or cross-thread Peek, GetMessage,
-WM_QUIT special return, generated paint, input or timer message production, `SendMessage` reentrancy,
-dispatch callback, cross-process post, broadcast, or quota parity. Existing W2 message／paint flow remains a
-separate fixed JavaScript harness.
+WM_QUIT special return, generated paint, input-message production, general `DispatchMessage`, cross-process
+post, broadcast, or quota parity. Window-timer delivery is limited to the reached live-HWND／ID 1／20 ms／
+TIMERPROC profile; recurring breadth, replacement race, `KillTimer`, NULL-HWND allocated IDs, and background
+freeze／resume remain unproven. Existing W2 message／paint flow remains a separate fixed JavaScript harness.
 This is partial evidence for `P1-SCH-01`／`REQ-UI-02`, not their completion.
 
 The controlled private-heap dependency is implemented in

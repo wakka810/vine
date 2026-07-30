@@ -247,7 +247,8 @@ pub use timers::{
     RuntimeCreateWaitableTimerAResult, RuntimeTimerClockState,
     RuntimeTimerResolutionMutationResult, RuntimeTimerResolutionState, RuntimeWaitableTimer,
     RuntimeWaitableTimerArm, RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId,
-    RuntimeWindowTimer, RuntimeWindowTimerId, RuntimeWindowTimerRegistrationResult,
+    RuntimeWindowTimer, RuntimeWindowTimerDelivery, RuntimeWindowTimerDeliveryState,
+    RuntimeWindowTimerId, RuntimeWindowTimerRegistrationResult,
 };
 pub use user32::{
     LOGICAL_CURSOR_HANDLE_NAMESPACE, LOGICAL_ICON_HANDLE_NAMESPACE, LOGICAL_MENU_HANDLE_NAMESPACE,

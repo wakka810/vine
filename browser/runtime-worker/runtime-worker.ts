@@ -15,6 +15,7 @@ import {
   type RuntimeComApartmentSnapshot,
   type RuntimeMutexSnapshot,
   type RuntimeWaitableTimerSnapshot,
+  type RuntimeWindowTimerSnapshot,
   type RuntimeIconSnapshot,
   type RuntimeCursorSnapshot,
   type RuntimeWindowClassSnapshot,
@@ -652,12 +653,21 @@ function isActionInputProgressGatewayCheckpoint(
   return profile === "primary-main-loop-action-input-progress-gateway";
 }
 
+function isWindowTimerCallbackDeliveryGatewayCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile === "primary-main-loop-window-timer-callback-delivery-gateway"
+  );
+}
+
 function hasPresentationProgressEvidence(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isPresentationProgressGatewayCheckpoint(profile) ||
-    isInputProgressGatewayCheckpoint(profile)
+    isInputProgressGatewayCheckpoint(profile) ||
+    isWindowTimerCallbackDeliveryGatewayCheckpoint(profile)
   );
 }
 
@@ -682,7 +692,16 @@ function isRecurringTimerBoundedWindowCheckpoint(
 function recurringTimerWindowConfiguration(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  return isActionInputProgressGatewayCheckpoint(profile)
+  return isWindowTimerCallbackDeliveryGatewayCheckpoint(profile)
+    ? ({
+        capability:
+          "primary-main-loop-window-timer-callback-delivery-gateway",
+        implementationId:
+          "runtime.main-loop-window-timer-callback-delivery-gateway.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      } as const)
+    : isActionInputProgressGatewayCheckpoint(profile)
     ? ({
         capability: "primary-main-loop-action-input-progress-gateway",
         implementationId:
@@ -1160,6 +1179,7 @@ interface CompletionMetadata {
   currentDirectory?: RuntimeCurrentDirectorySnapshot;
   mutex?: RuntimeMutexSnapshot;
   waitableTimer?: RuntimeWaitableTimerSnapshot;
+  windowTimer?: RuntimeWindowTimerSnapshot;
   icon?: RuntimeIconSnapshot;
   cursor?: RuntimeCursorSnapshot;
   windowClass?: RuntimeWindowClassSnapshot;
@@ -1251,6 +1271,7 @@ interface HostCompletionMetadata {
   currentDirectory?: RuntimeCurrentDirectorySnapshot;
   mutex?: RuntimeMutexSnapshot;
   waitableTimer?: RuntimeWaitableTimerSnapshot;
+  windowTimer?: RuntimeWindowTimerSnapshot;
   icon?: RuntimeIconSnapshot;
   cursor?: RuntimeCursorSnapshot;
   windowClass?: RuntimeWindowClassSnapshot;
@@ -1378,6 +1399,11 @@ type InputProgressGatewayCheckpoint = Extract<
   }
 >;
 
+type WindowTimerCallbackDeliveryGatewayCheckpoint = Extract<
+  NonNullable<SessionReport["checkpointCompletion"]>,
+  { capability: "primary-main-loop-window-timer-callback-delivery-gateway" }
+>;
+
 interface AppliedHostDeltaEvidence {
   delta: ReturnType<typeof decodeHostDelta>;
   payloadBytes: number;
@@ -1424,6 +1450,7 @@ interface CallbackCompletionMetadata {
   currentDirectory?: RuntimeCurrentDirectorySnapshot;
   mutex?: RuntimeMutexSnapshot;
   waitableTimer?: RuntimeWaitableTimerSnapshot;
+  windowTimer?: RuntimeWindowTimerSnapshot;
   icon?: RuntimeIconSnapshot;
   cursor?: RuntimeCursorSnapshot;
   windowClass?: RuntimeWindowClassSnapshot;
@@ -1700,6 +1727,19 @@ class BrowserRuntimeSession {
   #profileLease: WritableProfileLease | null = null;
   #nextBgiCallSequence = 0;
   readonly #bgiCallbackCallSequences = new Map<number, number>();
+  #windowTimerCallbackEntry: {
+    sequence: number;
+    frameId: number;
+    instructionCount: number;
+    target: number;
+    allocationStart: number;
+    stackPointer: number;
+    scratchAddress: number;
+    scratchBytes: number;
+    frameBytes: number;
+    returnSentinel: number;
+    arguments: [number, number, number, number];
+  } | null = null;
   #setWindowPosCompletionCount = 0;
   #setWindowPosRepeatActivationCallbackEntry: {
     action: "enter";
@@ -2146,6 +2186,9 @@ class BrowserRuntimeSession {
               includesPostHeapTimeGetTimeEvidence(
                 this.#configuration.capabilityProfile,
               ),
+              isWindowTimerCallbackDeliveryGatewayCheckpoint(
+                this.#configuration.capabilityProfile,
+              ),
             )
           : workload === "controlled-source-read"
             ? bridge.prepareSourceRead(
@@ -2206,7 +2249,11 @@ class BrowserRuntimeSession {
         const cursor = preparedOutput.metadata.runtime.cursorPosition;
         invariant(
           preparedOutput.metadata.runtime.user32Policy ===
-            "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30" &&
+            (isWindowTimerCallbackDeliveryGatewayCheckpoint(
+              this.#configuration.capabilityProfile,
+            )
+              ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
+              : "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30") &&
             cursor?.profileId === "primary-display-center-cursor-v1" &&
             cursor.screenX === 960 &&
             cursor.screenY === 540 &&
@@ -4539,6 +4586,35 @@ class BrowserRuntimeSession {
             "BGI callback frame reused an active call sequence",
           );
           if (
+            isWindowTimerCallbackDeliveryGatewayCheckpoint(
+              this.#configuration.capabilityProfile,
+            ) &&
+            metadata.target === 0x1009_9600
+          ) {
+            invariant(
+              this.#windowTimerCallbackEntry === null,
+              "window timer delivery entered more than one live callback",
+            );
+            this.#windowTimerCallbackEntry = {
+              sequence,
+              frameId: metadata.frameId,
+              instructionCount: this.#report.instructions,
+              target: metadata.target,
+              allocationStart: metadata.allocationStart,
+              stackPointer: metadata.stackPointer,
+              scratchAddress: metadata.scratchAddress,
+              scratchBytes: metadata.scratchBytes,
+              frameBytes: metadata.frameBytes,
+              returnSentinel: metadata.returnSentinel,
+              arguments: [
+                engine.readGuestU32(metadata.stackPointer + 4),
+                engine.readGuestU32(metadata.stackPointer + 8),
+                engine.readGuestU32(metadata.stackPointer + 12),
+                engine.readGuestU32(metadata.stackPointer + 16),
+              ],
+            };
+          }
+          if (
             isUpdateWindow(this.#configuration.capabilityProfile) &&
             sequence === 127_352
           ) {
@@ -4853,21 +4929,50 @@ class BrowserRuntimeSession {
       call.implementationId === "user32.peek-message-a.current-thread.v1"
     ) {
       if (this.#report.peekMessageA === null) {
+        const windowTimerDelivery =
+          isWindowTimerCallbackDeliveryGatewayCheckpoint(
+            this.#configuration.capabilityProfile,
+          );
         this.#report.peekMessageA = {
           calls: [],
           instructionCounts: [],
-          compatibilityPolicyId:
-            "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
-          profileId: "current-thread-unfiltered-peek-message-a-v1",
+          compatibilityPolicyId: windowTimerDelivery
+            ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
+            : "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
+          profileId: windowTimerDelivery
+            ? "current-thread-unfiltered-peek-message-a-v1"
+            : "current-thread-unfiltered-peek-message-a-v1",
           queueAuthority: "rust-runtime-thread-message-queue",
-          emptyQueueResult: false,
-          outputMutation: "none-on-empty",
-          removal: "none-on-empty",
+          emptyQueueResult: !windowTimerDelivery,
+          outputMutation: windowTimerDelivery
+            ? "atomic-materialized-msg32-write"
+            : "none-on-empty",
+          removal: windowTimerDelivery
+            ? "pm-remove-after-materialization"
+            : "none-on-empty",
           lastErrorPolicy: "preserve",
           failureAtomicity: true,
           filteredRetrievalImplemented: false,
           crossThreadRetrievalImplemented: false,
         };
+        if (windowTimerDelivery && this.#report.isIconic === null) {
+          this.#report.isIconic = {
+            calls: [],
+            instructionCounts: [],
+            compatibilityPolicyId:
+              "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31",
+            profileId: "logical-window-effective-style-is-iconic-v1",
+            windowStateAuthority: "rust-runtime-user32-logical-window",
+            minimizedStyleMask: 0x2000_0000,
+            normalWindowResult: false,
+            validLastErrorPolicy: "preserve",
+            invalidWindowLastError: 1400,
+            guestMemoryMutation: false,
+            runtimeStateMutation: false,
+            failureAtomicity: true,
+            minimizeTransitionImplemented: false,
+          };
+        }
       }
       this.#report.peekMessageA.calls.push(structuredClone(call));
       this.#report.peekMessageA.instructionCounts.push(
@@ -5026,6 +5131,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "primary-main-loop-action-input-progress-gateway" ||
           checkpoint.capability ===
+            "primary-main-loop-window-timer-callback-delivery-gateway" ||
+          checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -5113,6 +5220,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "primary-main-loop-action-input-progress-gateway" ||
       checkpoint.capability ===
+        "primary-main-loop-window-timer-callback-delivery-gateway" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -5173,6 +5282,15 @@ class BrowserRuntimeSession {
                       this.#requireEngine().readGuestU32(stackPointer + 12),
                     ]
                   : checkpoint.capability ===
+                      "primary-main-loop-window-timer-callback-delivery-gateway"
+                    ? [
+                        this.#requireEngine().readGuestU32(stackPointer + 4),
+                        this.#requireEngine().readGuestU32(stackPointer + 8),
+                        this.#requireEngine().readGuestU32(stackPointer + 12),
+                        this.#requireEngine().readGuestU32(stackPointer + 16),
+                        this.#requireEngine().readGuestU32(stackPointer + 20),
+                      ]
+                  : checkpoint.capability ===
                       "kernel32-wait-for-single-object-ex-post-critical-section"
                     ? [this.#requireEngine().readGuestU32(stackPointer + 4)]
                     : checkpoint.capability ===
@@ -5224,6 +5342,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "primary-main-loop-action-input-progress-gateway" ||
       checkpoint.capability ===
+        "primary-main-loop-window-timer-callback-delivery-gateway" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -5260,6 +5380,9 @@ class BrowserRuntimeSession {
                     : checkpoint.capability ===
                         "kernel32-enter-critical-section-post-timer-rearm-wait-batch"
                       ? "Post-timer-rearm-wait critical-section batch checkpoint completed"
+                      : checkpoint.capability ===
+                          "primary-main-loop-window-timer-callback-delivery-gateway"
+                        ? "Primary main-loop window timer callback delivery gateway completed"
                       : checkpoint.capability ===
                           "primary-main-loop-action-input-progress-gateway"
                         ? "Primary main-loop action input progress gateway completed"
@@ -5415,6 +5538,27 @@ class BrowserRuntimeSession {
         "BGI waitable timer clock metadata mismatch",
       );
     }
+    const windowTimerProfile =
+      isWindowTimerCallbackDeliveryGatewayCheckpoint(
+        this.#configuration.capabilityProfile,
+      );
+    const windowTimerMetadataExpected =
+      windowTimerProfile &&
+      ((completion.implementationId ===
+        "user32.set-timer.live-window-callback-registration.v1" &&
+        completion.eax.action === "set" &&
+        completion.eax.value !== 0) ||
+        (completion.implementationId ===
+          "user32.peek-message-a.current-thread.v1" &&
+          completion.eax.action === "set" &&
+          completion.eax.value !== 0) ||
+        (completion.implementationId ===
+          "user32.dispatch-message-a.window-timer-callback.v1" &&
+          metadata.kind === "callback-complete"));
+    invariant(
+      windowTimerMetadataExpected === (metadata.windowTimer !== undefined),
+      "BGI window timer completion metadata mismatch",
+    );
     const isCreateThread =
       completion.implementationId === "kernel32.create-thread.v1";
     invariant(
@@ -5527,6 +5671,35 @@ class BrowserRuntimeSession {
       isHeapFreeCompletion === (metadata.heapFree !== undefined),
       "BGI HeapFree completion metadata mismatch",
     );
+    let windowTimerCallback: RuntimeSupportedCallSnapshot["callback"];
+    if (
+      windowTimerProfile &&
+      completion.implementationId ===
+        "user32.dispatch-message-a.window-timer-callback.v1"
+    ) {
+      const entry = this.#windowTimerCallbackEntry;
+      invariant(
+        metadata.kind === "callback-complete" &&
+          callbackResult !== undefined &&
+          entry !== null &&
+          entry.sequence === reservedSequence &&
+          entry.frameId === metadata.frameId &&
+          metadata.remainingDepth === 0,
+        "window timer callback completion lost its live adapter frame",
+      );
+      windowTimerCallback = {
+        frameId: entry.frameId,
+        target: entry.target,
+        allocationStart: entry.allocationStart,
+        stackPointer: entry.stackPointer,
+        scratchAddress: entry.scratchAddress,
+        scratchBytes: entry.scratchBytes,
+        frameBytes: entry.frameBytes,
+        returnSentinel: entry.returnSentinel,
+        returnInstructionCount: this.#report.instructions,
+        result: callbackResult,
+      };
+    }
     const sequence = reservedSequence ?? ++this.#nextBgiCallSequence;
     const call: RuntimeSupportedCallSnapshot = {
       sequence,
@@ -5561,6 +5734,9 @@ class BrowserRuntimeSession {
       ...(metadata.waitableTimer === undefined
         ? {}
         : { waitableTimer: metadata.waitableTimer }),
+      ...(metadata.windowTimer === undefined
+        ? {}
+        : { windowTimer: metadata.windowTimer }),
       ...(metadata.createdThread === undefined
         ? {}
         : { createdThread: metadata.createdThread }),
@@ -5601,6 +5777,9 @@ class BrowserRuntimeSession {
       ...(metadata.heapFree === undefined
         ? {}
         : { heapFree: metadata.heapFree }),
+      ...(windowTimerCallback === undefined
+        ? {}
+        : { callback: windowTimerCallback }),
     };
     const implementationOccurrence =
       (this.#implementationOccurrences.get(completion.implementationId) ?? 0) +
@@ -6393,6 +6572,50 @@ class BrowserRuntimeSession {
     }
     this.#recordPostPresentContinuationCall(call);
     this.#recordCompletedCallEvidence(call);
+    if (
+      windowTimerProfile &&
+      completion.implementationId ===
+        "user32.dispatch-message-a.window-timer-callback.v1"
+    ) {
+      const entry = this.#windowTimerCallbackEntry;
+      invariant(
+        this.#report.checkpointCompletion === null &&
+          entry !== null &&
+          call.windowTimer !== undefined &&
+          call.callback !== undefined,
+        "window timer delivery checkpoint lost its completed dispatch evidence",
+      );
+      const checkpoint: WindowTimerCallbackDeliveryGatewayCheckpoint = {
+        capability:
+          "primary-main-loop-window-timer-callback-delivery-gateway",
+        implementationId:
+          "runtime.main-loop-window-timer-callback-delivery-gateway.v1",
+        requiredDeliveries: 1,
+        deliveryCount: call.windowTimer.deliveryCount,
+        requiredCompletions: 1,
+        completionCount: 1,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: this.#report.instructions,
+        dispatch: {
+          ...structuredClone(call),
+          callbackArguments: structuredClone(entry.arguments),
+        },
+        instructionCount: 0,
+        nextEndpoint: {
+          id: 0,
+          address: 0,
+          disposition: "declared-runtime-export",
+          iatAddress: 0,
+        },
+        nextArguments: [0, 0, 0, 0, 0],
+        nextReturnAddress: 0,
+        nextStackPointer: 0,
+        memoryContentSha256: "",
+      };
+      this.#report.checkpointCompletion = checkpoint;
+      this.#bgiCheckpointPending = true;
+      this.#windowTimerCallbackEntry = null;
+    }
     if (
       isRecurringTimerBoundedWindowCheckpoint(
         this.#configuration.capabilityProfile,
@@ -10018,7 +10241,11 @@ class BrowserRuntimeSession {
       firstCall: structuredClone(firstCall.call),
       lastCall: structuredClone(lastCall.call),
       compatibilityPolicyId:
-        "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
+        isWindowTimerCallbackDeliveryGatewayCheckpoint(
+          this.#configuration.capabilityProfile,
+        )
+          ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
+          : "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
       cursorPosition: structuredClone(cursor),
       cursorStateAuthority: "rust-runtime-input-cursor-position",
       keyboardProfileId: "foreground-focused-virtual-key-state-v1",
@@ -13747,6 +13974,132 @@ class BrowserRuntimeSession {
                     last: lane.completions.at(-1),
                   }))
                 : [],
+            hostRequests: this.#report.hostRequests,
+            rustSchedulerTransitions: this.#report.rustSchedulerTransitions,
+            slices: this.#report.slices,
+            wasmBridgeCalls: this.#bridge?.callCount(),
+            waitForSingleObjectExCompletions:
+              this.#waitForSingleObjectExCompletions,
+            pacing,
+          })}`,
+        );
+      }
+      if (
+        isWindowTimerCallbackDeliveryGatewayCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report.checkpointCompletion;
+        const dispatch =
+          checkpoint?.capability ===
+          "primary-main-loop-window-timer-callback-delivery-gateway"
+            ? checkpoint.dispatch
+            : undefined;
+        const timer = dispatch?.windowTimer;
+        const callback = dispatch?.callback;
+        const peek = this.#report.peekMessageA;
+        const pacing = this.#timerPacing.metrics();
+        invariant(
+          this.#report.supportedCallCount === 148_299 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "95c8734dd61bbeceea0ecf2f01bfe4191ec33e17d1d56a7a4c98e078c8c80d83" &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability ===
+              "primary-main-loop-window-timer-callback-delivery-gateway" &&
+            checkpoint.implementationId ===
+              "runtime.main-loop-window-timer-callback-delivery-gateway.v1" &&
+            checkpoint.requiredDeliveries === 1 &&
+            checkpoint.deliveryCount === 1 &&
+            checkpoint.requiredCompletions === 1 &&
+            checkpoint.completionCount === 1 &&
+            checkpoint.lastCompletionSequence === 148_298 &&
+            checkpoint.lastCompletionInstructionCount === 148_745_201 &&
+            dispatch?.sequence === 148_298 &&
+            dispatch.module.toLowerCase() === "user32.dll" &&
+            dispatch.symbol === "DispatchMessageA" &&
+            dispatch.arguments.join(",") === "7338216" &&
+            dispatch.implementationId ===
+              "user32.dispatch-message-a.window-timer-callback.v1" &&
+            "action" in dispatch.result &&
+            dispatch.result.action === "set" &&
+            dispatch.result.value === 0 &&
+            dispatch.returnAddress === 0x1009_37ac &&
+            dispatch.stackPointerAfter - dispatch.stackPointerBefore === 8 &&
+            dispatch.lastError === 0 &&
+            dispatch.guestWrites.length === 0 &&
+            dispatch.callbackArguments.join(",") ===
+              "1208025089,275,1,3601114" &&
+            timer?.id === 1 &&
+            timer.windowId === 1 &&
+            timer.windowHandle === 0x4801_0001 &&
+            timer.timerId === 1 &&
+            timer.ownerThreadId === 8_192 &&
+            timer.requestedIntervalMilliseconds === 20 &&
+            timer.effectiveIntervalMilliseconds === 20 &&
+            timer.callbackAddress === 0x1009_9600 &&
+            timer.registrationGeneration === 1 &&
+            timer.armedAtTime100ns === 52_845_000 &&
+            timer.nextDeadlineTime100ns === 53_045_000 &&
+            timer.deliveryCount === 1 &&
+            timer.lastDelivery?.registrationGeneration === 1 &&
+            timer.lastDelivery.deliveryCount === 1 &&
+            timer.lastDelivery.scheduledDeadlineTime100ns === 200_000 &&
+            timer.lastDelivery.deliveredAtTime100ns === 52_845_000 &&
+            callback?.frameId === 31 &&
+            callback.target === 0x1009_9600 &&
+            callback.allocationStart === 0x006f_f8c0 &&
+            callback.stackPointer === 0x006f_f8c0 &&
+            callback.scratchAddress === 0 &&
+            callback.scratchBytes === 0 &&
+            callback.frameBytes === 20 &&
+            callback.returnSentinel === 0x7f01_0000 &&
+            callback.returnInstructionCount === 148_745_201 &&
+            callback.result === 64 &&
+            peek?.calls.length === 1 &&
+            peek.calls[0]?.sequence === 148_296 &&
+            peek.instructionCounts.join(",") === "148744543" &&
+            peek.calls[0]?.windowTimer?.deliveryCount === 1 &&
+            checkpoint.instructionCount === 148_745_210 &&
+            checkpoint.nextEndpoint.id === 164 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0a30 &&
+            checkpoint.nextEndpoint.iatAddress === 0x100d_1368 &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "PeekMessageA" &&
+            checkpoint.nextArguments.join(",") === "7338216,0,0,0,1" &&
+            checkpoint.nextReturnAddress === 0x1009_37bb &&
+            checkpoint.nextStackPointer === 0x006f_f8c4 &&
+            checkpoint.memoryContentSha256 ===
+              "2ff0d5bc7f72729624f911b812f332f350ec091572d068a598990f96596e6b86" &&
+            this.#report.instructions === 148_745_210 &&
+            this.#generation === 279_678n &&
+            this.#report.writebackBatches === 158_514 &&
+            this.#report.writebackPages === 233_543 &&
+            this.#report.mappingDeltas === 119_293 &&
+            this.#report.mappingDirtyPages === 132_399 &&
+            this.#report.contextSwitches === 2_314 &&
+            this.#report.stackGrowths.length === 6 &&
+            this.#report.heapPageMaterializations?.length === 1_685 &&
+            this.#report.sourceReads.length === 63 &&
+            this.#report.hostRequests === 10_633 &&
+            this.#report.rustSchedulerTransitions === 12_947 &&
+            this.#report.slices === 158_518 &&
+            this.#bridge?.callCount() === 439_386 &&
+            this.#waitForSingleObjectExCompletions === 10_569 &&
+            pacing.requests === 10_569 &&
+            pacing.completions === 10_569 &&
+            pacing.pending === 0,
+          `window timer callback delivery gateway changed: ${JSON.stringify({
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            checkpoint,
+            finalGeneration: Number(this.#generation),
+            writebackBatches: this.#report.writebackBatches,
+            writebackPages: this.#report.writebackPages,
+            mappingDeltas: this.#report.mappingDeltas,
+            mappingDirtyPages: this.#report.mappingDirtyPages,
+            contextSwitches: this.#report.contextSwitches,
             hostRequests: this.#report.hostRequests,
             rustSchedulerTransitions: this.#report.rustSchedulerTransitions,
             slices: this.#report.slices,

@@ -15,35 +15,36 @@ use vine_core::{
     ApiImmediateCompletion, ApiOwnedTrap, ApiSymbol, ApiTrap, CONTROLLED_COMMAND_LINE,
     CREATE_THREAD_IMPLEMENTATION, CallbackReturnSentinel, ComCallCompletion, ComCallTrap,
     ComDispatchOutcome, ComFault, CpuWritebackReceipt, D3d9CompatibilityPolicy,
-    Dinput8CompatibilityPolicy, DispatchOutcome, DsoundCompatibilityPolicy, DynamicExportThunk,
-    ExecutionSession, Gdi32CompatibilityPolicy, GdiplusCompatibilityPolicy, GuestAddress,
-    GuestMemory, GuestMemoryError, GuestMemoryErrorClass, GuestPageReconciliation,
-    GuestWriteResult, IMM_ASSOCIATE_CONTEXT_IMPLEMENTATION, IMM_GET_DEFAULT_IME_WND_IMPLEMENTATION,
-    ImageMaterialization, ImageMemoryLayout, Imm32CompatibilityPolicy, ImportBinding, ImportTarget,
-    ImportThunk, ImportThunkDisposition, InitialProcessEnvironment, InitialThreadStack,
-    Kernel32CompatibilityPolicy, LOAD_LIBRARY_A_IMPLEMENTATION, LoaderError, LoaderErrorClass,
-    LoaderIngressReport, MemoryDelta, MemoryInvalidation, MemoryLimits, MemoryOwnerId,
-    MemoryReflection, MemoryRegionSnapshot, MemoryStats, ModuleIdentity, ModuleSnapshot,
-    Pe32Limits, ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord,
-    ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, ProcessEntryReturnSentinel,
-    RESUME_THREAD_IMPLEMENTATION, RUNTIME_WAITABLE_TIMER_PACING_SERVICE,
-    RUNTIME_WRITABLE_COMMIT_SERVICE, RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, RegisterUpdate,
-    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeComApartmentState,
-    RuntimeComMethodTarget, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
-    RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
-    RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation, RuntimeImeContext,
-    RuntimeImeContextAssociation, RuntimeImeWindow, RuntimeKeyboardEventReceipt,
-    RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind, RuntimeKeyboardState,
-    RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
-    RuntimeModuleImageErrorClass, RuntimeModuleNode, RuntimeMutex, RuntimeObjectKey,
-    RuntimeObjectKind, RuntimeObjectRecord, RuntimePageFaultResolution, RuntimeProcessId,
-    RuntimeProcessLifecycleState, RuntimeSchedulerEvent, RuntimeSourceReadCompletion,
-    RuntimeSourceReadHostResponse, RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
-    RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState, RuntimeStateError,
-    RuntimeStateErrorClass, RuntimeThreadExecutionSelection, RuntimeThreadId,
+    DISPATCH_MESSAGE_A_IMPLEMENTATION, Dinput8CompatibilityPolicy, DispatchOutcome,
+    DsoundCompatibilityPolicy, DynamicExportThunk, ExecutionSession, Gdi32CompatibilityPolicy,
+    GdiplusCompatibilityPolicy, GuestAddress, GuestMemory, GuestMemoryError, GuestMemoryErrorClass,
+    GuestPageReconciliation, GuestWriteResult, IMM_ASSOCIATE_CONTEXT_IMPLEMENTATION,
+    IMM_GET_DEFAULT_IME_WND_IMPLEMENTATION, ImageMaterialization, ImageMemoryLayout,
+    Imm32CompatibilityPolicy, ImportBinding, ImportTarget, ImportThunk, ImportThunkDisposition,
+    InitialProcessEnvironment, InitialThreadStack, Kernel32CompatibilityPolicy,
+    LOAD_LIBRARY_A_IMPLEMENTATION, LoaderError, LoaderErrorClass, LoaderIngressReport, MemoryDelta,
+    MemoryInvalidation, MemoryLimits, MemoryOwnerId, MemoryReflection, MemoryRegionSnapshot,
+    MemoryStats, ModuleIdentity, ModuleSnapshot, PEEK_MESSAGE_A_IMPLEMENTATION, Pe32Limits,
+    ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceAllocator,
+    ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RESUME_THREAD_IMPLEMENTATION,
+    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE,
+    RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, RegisterUpdate, RuntimeBootstrap,
+    RuntimeCallbackFrameId, RuntimeClockState, RuntimeComApartmentState, RuntimeComMethodTarget,
+    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport,
+    RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle,
+    RuntimeHeapAllocation, RuntimeImeContext, RuntimeImeContextAssociation, RuntimeImeWindow,
+    RuntimeKeyboardEventReceipt, RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind,
+    RuntimeKeyboardState, RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId,
+    RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeModuleNode, RuntimeMutex,
+    RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord, RuntimePageFaultResolution,
+    RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeSchedulerEvent,
+    RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse, RuntimeSourceSnapshot,
+    RuntimeSourceSnapshotManifest, RuntimeStandardHandle, RuntimeStartupInfo, RuntimeState,
+    RuntimeStateError, RuntimeStateErrorClass, RuntimeThreadExecutionSelection, RuntimeThreadId,
     RuntimeThreadPriority, RuntimeThreadStack, RuntimeThreadStackGrowth, RuntimeThreadState,
     RuntimeTimerClockState, RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer,
-    RuntimeWindowTimer, RuntimeWritableCommitCompletion, RuntimeWritableCommitHostResponse,
+    RuntimeWindowId, RuntimeWindowTimer, RuntimeWindowTimerDeliveryState, RuntimeWindowTimerId,
+    RuntimeWritableCommitCompletion, RuntimeWritableCommitHostResponse,
     RuntimeWritableDirectoryCreateCompletion, RuntimeWritableDirectoryCreateHostResponse,
     RuntimeWritableProfile, RuntimeWritableProfileManifest, SEND_MESSAGE_A_IMPLEMENTATION,
     SET_THREAD_PRIORITY_IMPLEMENTATION, SET_TIMER_IMPLEMENTATION, SET_WINDOW_LONG_A_IMPLEMENTATION,
@@ -269,6 +270,7 @@ enum GenericRuntimeCapability {
     D3d9PostPresentContinuation,
     User32AsyncKeyStateInput,
     User32AsyncKeyStateInitialScan,
+    User32WindowTimerCallbackDelivery,
 }
 
 struct GenericRuntimeProcess {
@@ -549,6 +551,51 @@ struct GenericRuntimeGraphicsTextureUpdate {
     destination: vine_core::RuntimeGraphicsTexture,
 }
 
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenericRuntimeWindowTimer {
+    id: RuntimeWindowTimerId,
+    window_id: RuntimeWindowId,
+    window_handle: u32,
+    timer_id: u32,
+    owner_thread_id: RuntimeThreadId,
+    requested_interval_milliseconds: u32,
+    effective_interval_milliseconds: u32,
+    callback_address: GuestAddress,
+    registration_generation: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    armed_at_time_100ns: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next_deadline_time_100ns: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delivery_count: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_delivery: Option<RuntimeWindowTimerDeliveryState>,
+}
+
+impl GenericRuntimeWindowTimer {
+    fn snapshot(timer: RuntimeWindowTimer, include_delivery_state: bool) -> Self {
+        Self {
+            id: timer.id,
+            window_id: timer.window_id,
+            window_handle: timer.window_handle,
+            timer_id: timer.timer_id,
+            owner_thread_id: timer.owner_thread_id,
+            requested_interval_milliseconds: timer.requested_interval_milliseconds,
+            effective_interval_milliseconds: timer.effective_interval_milliseconds,
+            callback_address: timer.callback_address,
+            registration_generation: timer.registration_generation,
+            armed_at_time_100ns: include_delivery_state.then_some(timer.armed_at_time_100ns),
+            next_deadline_time_100ns: include_delivery_state
+                .then_some(timer.next_deadline_time_100ns),
+            delivery_count: include_delivery_state.then_some(timer.delivery_count),
+            last_delivery: include_delivery_state
+                .then_some(timer.last_delivery)
+                .flatten(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GenericRuntimeCompletion {
@@ -587,7 +634,7 @@ struct GenericRuntimeCompletion {
     #[serde(skip_serializing_if = "Option::is_none")]
     paint: Option<GenericRuntimePaintCompletion>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    window_timer: Option<RuntimeWindowTimer>,
+    window_timer: Option<GenericRuntimeWindowTimer>,
     #[serde(skip_serializing_if = "Option::is_none")]
     thread_affinity: Option<GenericRuntimeThreadAffinity>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2776,6 +2823,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9PostPresentContinuation
                     | GenericRuntimeCapability::User32AsyncKeyStateInput
                     | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
+                    | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
             )
         ) {
             let loader = kernel32_policy
@@ -3441,6 +3489,10 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
+    let window_timer_delivery_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::User32WindowTimerCallbackDelivery)
+    );
     let d3d9_present_enabled = matches!(
         enabled_capability,
         Some(
@@ -3448,6 +3500,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9PostPresentContinuation
                 | GenericRuntimeCapability::User32AsyncKeyStateInput
                 | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
+                | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
         )
     );
     let get_async_key_state_enabled = matches!(
@@ -3455,6 +3508,7 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::User32AsyncKeyStateInput
                 | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
+                | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
         )
     );
     let get_async_key_state_input_enabled = matches!(
@@ -3463,7 +3517,10 @@ fn run_v86_generic_runtime_session(
     );
     let get_window_rect_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::User32AsyncKeyStateInitialScan)
+        Some(
+            GenericRuntimeCapability::User32AsyncKeyStateInitialScan
+                | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
+        )
     );
     let d3d9_post_end_scene_raster_status_enabled = matches!(
         enabled_capability,
@@ -3475,6 +3532,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9PostPresentContinuation
                 | GenericRuntimeCapability::User32AsyncKeyStateInput
                 | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
+                | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
         )
     );
     let d3d9_end_scene_enabled = d3d9_post_end_scene_raster_status_enabled
@@ -3728,7 +3786,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9Present
             | GenericRuntimeCapability::D3d9PostPresentContinuation
             | GenericRuntimeCapability::User32AsyncKeyStateInput
-            | GenericRuntimeCapability::User32AsyncKeyStateInitialScan,
+            | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
+            | GenericRuntimeCapability::User32WindowTimerCallbackDelivery,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -3887,7 +3946,11 @@ fn run_v86_generic_runtime_session(
     );
     let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
     imm32_policy.validate().map_err(api_fault)?;
-    let mut user32_policy = User32CompatibilityPolicy::controlled_v30();
+    let mut user32_policy = if window_timer_delivery_enabled {
+        User32CompatibilityPolicy::controlled_v31()
+    } else {
+        User32CompatibilityPolicy::controlled_v30()
+    };
     if !matches!(
         user32_capability,
         Some(
@@ -4520,6 +4583,14 @@ fn run_v86_generic_runtime_session(
             },
         ) {
             create_directory_a_enabled
+        } else if endpoint.module.eq_ignore_ascii_case("user32.dll")
+            && matches!(
+                endpoint.symbol,
+                ApiSymbol::Name { ref name }
+                    if matches!(name.as_str(), "TranslateMessage" | "DispatchMessageA")
+            )
+        {
+            window_timer_delivery_enabled
         } else {
             runtime_capability_enables_endpoint(
                 requested_capability,
@@ -5024,6 +5095,32 @@ fn run_v86_generic_runtime_session(
                         session.runtime(),
                         &gdiplus_policy,
                     )?;
+                    let window_timer = if window_timer_delivery_enabled
+                        && completion.implementation_id == DISPATCH_MESSAGE_A_IMPLEMENTATION
+                    {
+                        Some(GenericRuntimeWindowTimer::snapshot(
+                            *session
+                                .runtime()
+                                .window_timers()
+                                .values()
+                                .filter(|timer| timer.last_delivery.is_some())
+                                .max_by_key(|timer| {
+                                    timer
+                                        .last_delivery
+                                        .map(|delivery| delivery.delivered_at_time_100ns)
+                                })
+                                .ok_or_else(|| {
+                                    LoaderError::runtime_defect(
+                                        "runtime-reentry",
+                                        "dispatch-message-window-timer-state-missing-after-callback",
+                                        "DispatchMessageA callback completed without delivered window timer state",
+                                    )
+                                })?,
+                            true,
+                        ))
+                    } else {
+                        None
+                    };
                     send_pending_runtime_delta(input, memory)?;
                     write_runtime_json_frame(
                         RUNTIME_FRAME_API_COMPLETION,
@@ -5047,7 +5144,7 @@ fn run_v86_generic_runtime_session(
                             window_class: None,
                             window,
                             paint,
-                            window_timer: None,
+                            window_timer,
                             thread_affinity: None,
                             thread_priority: None,
                             imm32: None,
@@ -5690,7 +5787,7 @@ fn run_v86_generic_runtime_session(
                                     "SetTimer completion has no timer identity argument",
                                 )
                             })?;
-                            Some(
+                            Some(GenericRuntimeWindowTimer::snapshot(
                                 *session
                                     .runtime()
                                     .window_timers()
@@ -5706,7 +5803,32 @@ fn run_v86_generic_runtime_session(
                                             "SetTimer completed without a matching logical window timer",
                                         )
                                     })?,
-                            )
+                                window_timer_delivery_enabled,
+                            ))
+                        } else if window_timer_delivery_enabled
+                            && completion.implementation_id == PEEK_MESSAGE_A_IMPLEMENTATION
+                            && matches!(completion.eax, RegisterUpdate::Set(value) if value != 0)
+                        {
+                            Some(GenericRuntimeWindowTimer::snapshot(
+                                *session
+                                    .runtime()
+                                    .window_timers()
+                                    .values()
+                                    .filter(|timer| timer.last_delivery.is_some())
+                                    .max_by_key(|timer| {
+                                        timer
+                                            .last_delivery
+                                            .map(|delivery| delivery.delivered_at_time_100ns)
+                                    })
+                                    .ok_or_else(|| {
+                                        LoaderError::runtime_defect(
+                                            "runtime-reentry",
+                                            "peek-message-window-timer-state-missing-after-dispatch",
+                                            "nonempty timer-enabled PeekMessageA completed without delivered window timer state",
+                                        )
+                                    })?,
+                                true,
+                            ))
                         } else {
                             None
                         };
@@ -14569,6 +14691,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "kernel32-enter-critical-section-post-timer-rearm-wait-batch"
                 | "kernel32-wait-for-single-object-ex-post-critical-section" => {
                     GenericRuntimeCapability::User32AsyncKeyStateInitialScan
+                }
+                "primary-main-loop-window-timer-callback-delivery-gateway" => {
+                    GenericRuntimeCapability::User32WindowTimerCallbackDelivery
                 }
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx
