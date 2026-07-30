@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-29T23:50:14.193Z",
+  "recordedAt": "2026-07-30T00:36:40.929Z",
   "repository": {
-    "implementationCommit": "0a3c876823d9efbed7f041078d0c22c689dd9649",
-    "implementationTree": "e71b12271b9c422de770d4ff3420a7c4047c59ed",
-    "headCommit": "0a3c876823d9efbed7f041078d0c22c689dd9649",
+    "implementationCommit": "2dca0d93ec438349aff04c3480e365a2b16925e7",
+    "implementationTree": "df5040ff33358e4b63bb4134e8cf02cb1bd0ed0e",
+    "headCommit": "2dca0d93ec438349aff04c3480e365a2b16925e7",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,15 +27,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "kernel32-set-waitable-timer-post-timer-rearm-wait-batch",
-    "runtimeProfile": "kernel32-set-waitable-timer-post-timer-rearm-wait-batch",
+    "runtimeCheckpoint": "primary-main-loop-recurring-timer-cycle-batch",
+    "runtimeProfile": "primary-main-loop-recurring-timer-cycle-batch",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-kernel32-set-waitable-timer-post-timer-rearm-wait-batch",
+    "nodeReportSchema": "vine.v86-bgi-primary-main-loop-recurring-timer-cycle-batch",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v68",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v69",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -70,27 +70,434 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 128,
-      "supportedCalls": 158131,
-      "callSemanticsSha256": "6a5dc16de09e556f83e9b2541439f8b804870ad9b7e8f253d5c383a0344b5aba",
-      "instructions": 276361491,
-      "finalGeneration": 289941,
+      "supportedCalls": 158139,
+      "callSemanticsSha256": "bfeee03ec768b7fe0c2e4151e0ac0d73d3d7bdeaf6c531cbcf8c07f33b016eb2",
+      "instructions": 276361638,
+      "finalGeneration": 289955,
       "memoryContentSha256": "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf",
       "checkpointCompletion": {
-        "capability": "kernel32-set-waitable-timer-post-timer-rearm-wait-batch",
-        "implementationId": "kernel32.set-waitable-timer.relative-one-shot.v1",
-        "requiredCompletions": 1,
-        "completionCount": 1,
-        "firstCompletionSequence": 158131,
-        "firstCompletionInstructionCount": 276361485,
-        "lastCompletionSequence": 158131,
-        "lastCompletionInstructionCount": 276361485,
+        "capability": "primary-main-loop-recurring-timer-cycle-batch",
+        "implementationId": "runtime.main-loop-recurring-timer-cycle.v1",
+        "requiredCompletions": 8,
+        "completionCount": 8,
+        "firstCompletionSequence": 158132,
+        "firstCompletionInstructionCount": 276361491,
+        "lastCompletionSequence": 158139,
+        "lastCompletionInstructionCount": 276361632,
         "completions": [
           {
-            "sequence": 158131,
+            "sequence": 158132,
+            "module": "KERNEL32.dll",
+            "symbol": "WaitForSingleObjectEx",
+            "occurrence": 11209,
+            "trapInstructionCount": 276361491,
+            "arguments": [
+              1459683330,
+              10,
+              1
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+            "returnAddress": 268764693,
+            "stackPointerBefore": 1343225736,
+            "stackPointerAfter": 1343225752,
+            "lastError": 0,
+            "guestWrites": [],
+            "waitableTimer": {
+              "handle": 1459683330,
+              "timer": {
+                "id": 2,
+                "manualReset": true,
+                "lastExpiration": {
+                  "armGeneration": 11205,
+                  "deadlineTime100ns": 56090000
+                }
+              },
+              "objectRecord": {
+                "id": 24,
+                "key": {
+                  "kind": "waitable-timer",
+                  "timer_id": 2
+                },
+                "kind": "waitable-timer",
+                "namespace": "vine.runtime-waitable-timer-object.v1",
+                "closePolicy": "close-handle",
+                "waitState": {
+                  "state": "signaled",
+                  "exit_code": 0
+                },
+                "openHandles": 1
+              },
+              "timerClock": {
+                "currentTime100ns": 56090000,
+                "generation": 11209
+              },
+              "nextWaitRegistrationId": 11210
+            }
+          },
+          {
+            "sequence": 158133,
+            "module": "KERNEL32.dll",
+            "symbol": "EnterCriticalSection",
+            "occurrence": 51343,
+            "trapInstructionCount": 276361516,
+            "arguments": [
+              269797584
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.enter-critical-section.v1",
+            "returnAddress": 269031318,
+            "stackPointerBefore": 1343225712,
+            "stackPointerAfter": 1343225720,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269797584,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  254,
+                  255,
+                  255,
+                  255,
+                  1,
+                  0,
+                  0,
+                  0,
+                  1,
+                  32,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ],
+                "result": {
+                  "bytesWritten": 24,
+                  "dirtyPages": 1,
+                  "invalidation": {
+                    "generation": 289943,
+                    "dataTlb": false,
+                    "instructionFetch": false,
+                    "generatedCode": false
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "sequence": 158134,
+            "module": "KERNEL32.dll",
+            "symbol": "LeaveCriticalSection",
+            "occurrence": 51343,
+            "trapInstructionCount": 276361521,
+            "arguments": [
+              269797584
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.leave-critical-section.v1",
+            "returnAddress": 269031338,
+            "stackPointerBefore": 1343225712,
+            "stackPointerAfter": 1343225720,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269797584,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ],
+                "result": {
+                  "bytesWritten": 24,
+                  "dirtyPages": 1,
+                  "invalidation": {
+                    "generation": 289945,
+                    "dataTlb": false,
+                    "instructionFetch": false,
+                    "generatedCode": false
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "sequence": 158135,
+            "module": "KERNEL32.dll",
+            "symbol": "EnterCriticalSection",
+            "occurrence": 51344,
+            "trapInstructionCount": 276361557,
+            "arguments": [
+              269797584
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.enter-critical-section.v1",
+            "returnAddress": 269031782,
+            "stackPointerBefore": 1343225712,
+            "stackPointerAfter": 1343225720,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269797584,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  254,
+                  255,
+                  255,
+                  255,
+                  1,
+                  0,
+                  0,
+                  0,
+                  1,
+                  32,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ],
+                "result": {
+                  "bytesWritten": 24,
+                  "dirtyPages": 1,
+                  "invalidation": {
+                    "generation": 289947,
+                    "dataTlb": false,
+                    "instructionFetch": false,
+                    "generatedCode": false
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "sequence": 158136,
+            "module": "KERNEL32.dll",
+            "symbol": "LeaveCriticalSection",
+            "occurrence": 51344,
+            "trapInstructionCount": 276361562,
+            "arguments": [
+              269797584
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.leave-critical-section.v1",
+            "returnAddress": 269031802,
+            "stackPointerBefore": 1343225712,
+            "stackPointerAfter": 1343225720,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269797584,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ],
+                "result": {
+                  "bytesWritten": 24,
+                  "dirtyPages": 1,
+                  "invalidation": {
+                    "generation": 289949,
+                    "dataTlb": false,
+                    "instructionFetch": false,
+                    "generatedCode": false
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "sequence": 158137,
+            "module": "KERNEL32.dll",
+            "symbol": "EnterCriticalSection",
+            "occurrence": 51345,
+            "trapInstructionCount": 276361588,
+            "arguments": [
+              269482016
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.enter-critical-section.v1",
+            "returnAddress": 268439771,
+            "stackPointerBefore": 1343225744,
+            "stackPointerAfter": 1343225752,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269482016,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  254,
+                  255,
+                  255,
+                  255,
+                  1,
+                  0,
+                  0,
+                  0,
+                  1,
+                  32,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ],
+                "result": {
+                  "bytesWritten": 24,
+                  "dirtyPages": 1,
+                  "invalidation": {
+                    "generation": 289951,
+                    "dataTlb": false,
+                    "instructionFetch": false,
+                    "generatedCode": false
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "sequence": 158138,
+            "module": "KERNEL32.dll",
+            "symbol": "LeaveCriticalSection",
+            "occurrence": 51345,
+            "trapInstructionCount": 276361597,
+            "arguments": [
+              269482016
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.leave-critical-section.v1",
+            "returnAddress": 268439787,
+            "stackPointerBefore": 1343225744,
+            "stackPointerAfter": 1343225752,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269482016,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ],
+                "result": {
+                  "bytesWritten": 24,
+                  "dirtyPages": 1,
+                  "invalidation": {
+                    "generation": 289953,
+                    "dataTlb": false,
+                    "instructionFetch": false,
+                    "generatedCode": false
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "sequence": 158139,
             "module": "KERNEL32.dll",
             "symbol": "SetWaitableTimer",
-            "occurrence": 11209,
-            "trapInstructionCount": 276361485,
+            "occurrence": 11210,
+            "trapInstructionCount": 276361632,
             "arguments": [
               1459683330,
               1343225752,
@@ -116,10 +523,10 @@
                 "manualReset": true,
                 "arm": {
                   "relativeDueTime100ns": 5000,
-                  "armedAtTime100ns": 56085000,
-                  "deadlineTime100ns": 56090000,
+                  "armedAtTime100ns": 56090000,
+                  "deadlineTime100ns": 56095000,
                   "periodMilliseconds": 0,
-                  "generation": 11205
+                  "generation": 11206
                 }
               },
               "objectRecord": {
@@ -139,8 +546,18 @@
             }
           }
         ],
+        "waitCompletionCount": 1,
+        "criticalSectionCompletionCount": 6,
+        "timerArmCompletionCount": 1,
+        "roundtripCount": 3,
+        "criticalSectionAddresses": [
+          269797584,
+          269797584,
+          269482016
+        ],
         "threadId": 8193,
-        "instructionCount": 276361491,
+        "balanced": true,
+        "instructionCount": 276361638,
         "nextEndpoint": {
           "id": 122,
           "address": 2130708368,
@@ -161,30 +578,363 @@
         "nextReturnAddress": 268764693,
         "nextStackPointer": 1343225736
       },
-      "writebackBatches": 161091,
-      "dirtyPages": 236734,
-      "changedBytes": 36243733,
-      "hostDeltaBatches": 125762
+      "writebackBatches": 161099,
+      "dirtyPages": 236745,
+      "changedBytes": 36243840,
+      "hostDeltaBatches": 125768
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 158131,
-      "callSemanticsSha256": "6a5dc16de09e556f83e9b2541439f8b804870ad9b7e8f253d5c383a0344b5aba",
-      "instructions": 276361491,
-      "finalGeneration": 305891,
+      "supportedCalls": 158139,
+      "callSemanticsSha256": "bfeee03ec768b7fe0c2e4151e0ac0d73d3d7bdeaf6c531cbcf8c07f33b016eb2",
+      "instructions": 276361638,
+      "finalGeneration": 305905,
       "memoryContentSha256": "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf",
       "checkpointCompletion": {
-        "capability": "kernel32-set-waitable-timer-post-timer-rearm-wait-batch",
-        "implementationId": "kernel32.set-waitable-timer.relative-one-shot.v1",
-        "requiredCompletions": 1,
-        "completionCount": 1,
-        "firstCompletionSequence": 158131,
-        "firstCompletionInstructionCount": 276361485,
-        "lastCompletionSequence": 158131,
-        "lastCompletionInstructionCount": 276361485,
+        "capability": "primary-main-loop-recurring-timer-cycle-batch",
+        "implementationId": "runtime.main-loop-recurring-timer-cycle.v1",
+        "requiredCompletions": 8,
+        "completionCount": 8,
+        "firstCompletionSequence": 158132,
+        "firstCompletionInstructionCount": 276361491,
+        "lastCompletionSequence": 158139,
+        "lastCompletionInstructionCount": 276361632,
         "completions": [
           {
-            "sequence": 158131,
+            "sequence": 158132,
+            "module": "kernel32.dll",
+            "symbol": "WaitForSingleObjectEx",
+            "arguments": [
+              1459683330,
+              10,
+              1
+            ],
+            "result": {
+              "action": "set",
+              "value": 0
+            },
+            "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+            "returnAddress": 268764693,
+            "stackPointerBefore": 1343225736,
+            "stackPointerAfter": 1343225752,
+            "lastError": 0,
+            "guestWrites": [],
+            "waitableTimer": {
+              "handle": 1459683330,
+              "nextWaitRegistrationId": 11210,
+              "objectRecord": {
+                "closePolicy": "close-handle",
+                "id": 24,
+                "key": {
+                  "kind": "waitable-timer",
+                  "timer_id": 2
+                },
+                "kind": "waitable-timer",
+                "namespace": "vine.runtime-waitable-timer-object.v1",
+                "openHandles": 1,
+                "waitState": {
+                  "exit_code": 0,
+                  "state": "signaled"
+                }
+              },
+              "timer": {
+                "id": 2,
+                "lastExpiration": {
+                  "armGeneration": 11205,
+                  "deadlineTime100ns": 56090000
+                },
+                "manualReset": true
+              },
+              "timerClock": {
+                "currentTime100ns": 56090000,
+                "generation": 11209
+              }
+            }
+          },
+          {
+            "sequence": 158133,
+            "module": "kernel32.dll",
+            "symbol": "EnterCriticalSection",
+            "arguments": [
+              269797584
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.enter-critical-section.v1",
+            "returnAddress": 269031318,
+            "stackPointerBefore": 1343225712,
+            "stackPointerAfter": 1343225720,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269797584,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  254,
+                  255,
+                  255,
+                  255,
+                  1,
+                  0,
+                  0,
+                  0,
+                  1,
+                  32,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ]
+              }
+            ]
+          },
+          {
+            "sequence": 158134,
+            "module": "kernel32.dll",
+            "symbol": "LeaveCriticalSection",
+            "arguments": [
+              269797584
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.leave-critical-section.v1",
+            "returnAddress": 269031338,
+            "stackPointerBefore": 1343225712,
+            "stackPointerAfter": 1343225720,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269797584,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ]
+              }
+            ]
+          },
+          {
+            "sequence": 158135,
+            "module": "kernel32.dll",
+            "symbol": "EnterCriticalSection",
+            "arguments": [
+              269797584
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.enter-critical-section.v1",
+            "returnAddress": 269031782,
+            "stackPointerBefore": 1343225712,
+            "stackPointerAfter": 1343225720,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269797584,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  254,
+                  255,
+                  255,
+                  255,
+                  1,
+                  0,
+                  0,
+                  0,
+                  1,
+                  32,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ]
+              }
+            ]
+          },
+          {
+            "sequence": 158136,
+            "module": "kernel32.dll",
+            "symbol": "LeaveCriticalSection",
+            "arguments": [
+              269797584
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.leave-critical-section.v1",
+            "returnAddress": 269031802,
+            "stackPointerBefore": 1343225712,
+            "stackPointerAfter": 1343225720,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269797584,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ]
+              }
+            ]
+          },
+          {
+            "sequence": 158137,
+            "module": "kernel32.dll",
+            "symbol": "EnterCriticalSection",
+            "arguments": [
+              269482016
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.enter-critical-section.v1",
+            "returnAddress": 268439771,
+            "stackPointerBefore": 1343225744,
+            "stackPointerAfter": 1343225752,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269482016,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  254,
+                  255,
+                  255,
+                  255,
+                  1,
+                  0,
+                  0,
+                  0,
+                  1,
+                  32,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ]
+              }
+            ]
+          },
+          {
+            "sequence": 158138,
+            "module": "kernel32.dll",
+            "symbol": "LeaveCriticalSection",
+            "arguments": [
+              269482016
+            ],
+            "result": {
+              "action": "preserve"
+            },
+            "implementationId": "kernel32.leave-critical-section.v1",
+            "returnAddress": 268439787,
+            "stackPointerBefore": 1343225744,
+            "stackPointerAfter": 1343225752,
+            "lastError": 0,
+            "guestWrites": [
+              {
+                "address": 269482016,
+                "bytes": [
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  255,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  208,
+                  7,
+                  0,
+                  2
+                ]
+              }
+            ]
+          },
+          {
+            "sequence": 158139,
             "module": "kernel32.dll",
             "symbol": "SetWaitableTimer",
             "arguments": [
@@ -223,9 +973,9 @@
               },
               "timer": {
                 "arm": {
-                  "armedAtTime100ns": 56085000,
-                  "deadlineTime100ns": 56090000,
-                  "generation": 11205,
+                  "armedAtTime100ns": 56090000,
+                  "deadlineTime100ns": 56095000,
+                  "generation": 11206,
                   "periodMilliseconds": 0,
                   "relativeDueTime100ns": 5000
                 },
@@ -235,8 +985,18 @@
             }
           }
         ],
+        "waitCompletionCount": 1,
+        "criticalSectionCompletionCount": 6,
+        "timerArmCompletionCount": 1,
+        "roundtripCount": 3,
+        "criticalSectionAddresses": [
+          269797584,
+          269797584,
+          269482016
+        ],
         "threadId": 8193,
-        "instructionCount": 276361491,
+        "balanced": true,
+        "instructionCount": 276361638,
         "nextEndpoint": {
           "address": 2130708368,
           "disposition": "declared-runtime-export",
@@ -257,11 +1017,11 @@
         "nextStackPointer": 1343225736,
         "memoryContentSha256": "dd32c26dae0fc90f727f9c990676014c42f43836442f6c8b5c9ae5cdda87cfcf"
       },
-      "wasmBridgeCalls": 476222,
+      "wasmBridgeCalls": 476245,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 567716,
+          "transitionCount": 567743,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -308,20 +1068,20 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "primary-main-loop-recurring-timer-cycle-batch",
-      "pausedHistoricalCheckpoint": "kernel32-set-waitable-timer-post-timer-rearm-wait-batch",
-      "instructionCount": 276361491,
-      "capabilityCluster": "kernel32-waitable-timer-wait",
-      "reason": "kernel32-set-waitable-timer-post-timer-rearm-wait-batch-checkpoint-complete",
+      "nextCheckpoint": "primary-main-loop-recurring-timer-multi-cycle-batch",
+      "pausedHistoricalCheckpoint": "primary-main-loop-recurring-timer-cycle-batch",
+      "instructionCount": 276361638,
+      "capabilityCluster": "primary-main-loop-recurring-timer-cycle",
+      "reason": "primary-main-loop-recurring-timer-cycle-batch-checkpoint-complete",
       "completion": {
-        "capability": "kernel32-set-waitable-timer-post-timer-rearm-wait-batch",
-        "implementationId": "kernel32.set-waitable-timer.relative-one-shot.v1",
-        "requiredCompletions": 1,
-        "completionCount": 1,
-        "firstCompletionSequence": 158131,
-        "firstCompletionInstructionCount": 276361485,
-        "lastCompletionSequence": 158131,
-        "lastCompletionInstructionCount": 276361485
+        "capability": "primary-main-loop-recurring-timer-cycle-batch",
+        "implementationId": "runtime.main-loop-recurring-timer-cycle.v1",
+        "requiredCompletions": 8,
+        "completionCount": 8,
+        "firstCompletionSequence": 158132,
+        "firstCompletionInstructionCount": 276361491,
+        "lastCompletionSequence": 158139,
+        "lastCompletionInstructionCount": 276361632
       },
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
@@ -352,14 +1112,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-set-waitable-timer-post-timer-rearm-wait-batch/report.json",
-      "bytes": 2862866,
-      "sha256": "dea341bcbb0f582db730eebf48ace4577c79a52cb3048d5ee5a9345540d0f7ba"
+      "path": ".work/v86-bgi-primary-main-loop-recurring-timer-cycle-batch/report.json",
+      "bytes": 2872852,
+      "sha256": "2564cefc0c4b912be0ea00171b8af08c610c68de0c11322f39e261ae88303748"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2576386,
-      "sha256": "684a4e9c5fa658145839285ffa368972a81362e64313393d017800bfd51e57ba"
+      "bytes": 2585417,
+      "sha256": "ee37e7cfb85169163918d3903e4896108e90e77387f0d0bf81ee4352fb94284b"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -374,7 +1134,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3766,
-      "sha256": "fc8318029a83406ff10c982534ca77d69b9fddfe36ebd1a510de9327cfbe1565"
+      "sha256": "625755db61d4c4e842fc22d2e7c3480e8514133ef631baf66eb86ebc775e41e6"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -411,5 +1171,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "7366a117cee305c94ce5432ee488a444c3dd40ba3b11d5c892d78293a5d35b31"
+  "payloadSha256": "3017d8b88b57ea63d52ab06ddd6a547c61f6c6dc7c61f70058633d123f9563b9"
 }
