@@ -142,6 +142,22 @@ callback occurrences nor timer-driven presentation progress, so the next
 manifest-owned boundary is a bounded recurring callback batch rather than a
 new API leaf.
 
+The `primary-main-loop-window-timer-callback-recurring-batch` closes that
+bounded breadth. It completes 16 ordered `PeekMessageA`／`TranslateMessage`／
+`DispatchMessageA` TIMERPROC deliveries under the same Rust-owned HWND, timer
+ID, owner TID, callback address, and registration generation. Each due period
+is coalesced at an empty current-thread queue, rearmed from the authoritative
+logical time, and completes its callback frame before the next delivery is
+eligible. Node and Chrome agree on all 16 delivery counts, callback frame IDs,
+callback arguments and returns, terminal memory, and the following
+`PeekMessageA`. The native bounded trace also contains 16 callback entries, so
+extending the same zero-input window is no longer the next useful question.
+No third `Present` occurs in the batch. The next gateway composes the proven
+primary left-button action with recurring timer delivery and asks whether that
+combination produces guest-visible presentation progress; replacement,
+`KillTimer`, filtered／cross-thread retrieval, and background lifecycle remain
+separate non-claims.
+
 ## Ownership and invariants
 
 `RuntimeScheduler` plans the selection only after the API completion has been

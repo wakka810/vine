@@ -696,7 +696,9 @@ Reached `PeekMessageA`／`TranslateMessage`／`DispatchMessageA` bandは、live 
 returnはouter `DispatchMessageA` resultへ伝播させず0を返す。Wrong message／HWND／ID／callback、bad pointer、
 stale planはtimer、queue、callback stack、guest bytesを部分更新しない。NULL HWND／zero ID allocation、general
 interval、replacement delivery、`KillTimer`はnative oracleに存在するが、primary-reached delivery contractへ
-一般化しない。
+一般化しない。Primary recurring profileは同じregistration generationのまま16回のcoalesced materializationと
+callback completionを順序検証し、各callback return前に次deliveryを公開しない。これはbrowser timer authorityや
+general timer pumpを追加する設計ではなく、到達済みowner-thread relationのbounded continuity evidenceである。
 
 Reached `SetWindowPos` profileでは、geometry、visibility、topmostとsmall-icon relationのauthorityを同じ
 `RuntimeUser32` window recordへ置く。Show operationはlogical displayとversioned non-client policyから

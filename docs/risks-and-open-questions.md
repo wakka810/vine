@@ -100,10 +100,11 @@ moveとして閉じた。GeometryはNCCALCSIZE completionでのみcommitし、GD
 初期storage locationの選択はADR-006で閉じた。Remote service、cloud同期、OPFS／IndexedDBへの移行は現在の未解決実装ではなく、localhost vertical slice後に具体的な要求が出た場合だけ再開する。
 
 Primary `SetTimer`のidentity、owner thread、interval、TIMERPROC、replacement generation、process teardownに加え、
-最初のlogical expiry、empty current-thread queueへのlow-priority `WM_TIMER` materialization、missed-period coalescing、
-`TranslateMessage` validation、TIMERPROC dispatchまでRust authorityとして成立した。残るriskはbrowser task timingを
-guest-visible clockへ直接流入させずにrecurring breadth、replacement／`KillTimer` race、background freeze／resumeと
-catch-upをscheduler、message queue、page lifecycleで順序付けることである。
+16回のlogical expiry、empty current-thread queueへのlow-priority `WM_TIMER` materialization、missed-period coalescing、
+`TranslateMessage` validation、同一registration generationでのTIMERPROC dispatchまでRust authorityとして成立した。
+Native bounded traceと同数のrecurring breadthは閉じたため、残るriskはbrowser task timingをguest-visible clockへ直接
+流入させずにaction inputとtimer deliveryを合成してprogressを判定すること、replacement／`KillTimer` race、
+background freeze／resumeとcatch-upをscheduler、message queue、page lifecycleで順序付けることである。
 
 Primary `CreateThread`／`ResumeThread`のlogical identity、stack／TEB／FS bootstrap、typed handle、suspend count、
 Worker context registrationに加え、直後の`SetThreadPriority`でabove-normal logical stateをthread ownerへ保存する

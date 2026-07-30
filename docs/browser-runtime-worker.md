@@ -64,14 +64,15 @@ changed pages, which the Worker atomically reconciles into Rust before
 classifying or resuming the guest. The upper loop does not know how changes are
 discovered.
 
-Protocol version 75 adds the bounded logical window-timer callback evidence
-profile. Rust remains authoritative for armed time, deadline, delivery count,
-low-priority `WM_TIMER` materialization, queue removal, `MSG32` bytes, and the
-selected-thread TIMERPROC frame. The Worker recognizes the versioned callback
-entry／return, correlates it with the Rust timer snapshot, and stops at the next
-message poll only after callback completion. It creates no browser timer,
-Windows queue, timer ID, deadline, callback stack, or second generation. The
-version-74 pointer-button profile remains a historical regression profile.
+Protocol version 76 adds the recurring logical window-timer callback batch.
+Rust remains authoritative for armed time, deadline, delivery count,
+low-priority `WM_TIMER` materialization, queue removal, `MSG32` bytes, and every
+selected-thread TIMERPROC frame. The Worker correlates 16 versioned callback
+entry／return pairs with one registration generation, retains only completed
+dispatch evidence, and stops at the next message poll only after the sixteenth
+callback completes. It creates no browser timer, Windows queue, timer ID,
+deadline, callback stack, or second generation. The version-75 single-delivery
+profile and version-74 pointer-button profile remain historical regressions.
 
 After a guest API completion, Rust may return a `thread-switch` selected by the
 authoritative scheduler. The Worker saves the outgoing opaque engine context and

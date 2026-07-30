@@ -143,7 +143,8 @@ TIMERPROC dispatch across message／timer／memory／thread／scheduler state。
 This checkpoint does not implement window／queue creation rules, filtered or cross-thread Peek, GetMessage,
 WM_QUIT special return, generated paint, input-message production, general `DispatchMessage`, cross-process
 post, broadcast, or quota parity. Window-timer delivery is limited to the reached live-HWND／ID 1／20 ms／
-TIMERPROC profile; recurring breadth, replacement race, `KillTimer`, NULL-HWND allocated IDs, and background
+TIMERPROC profile. Sixteen ordered coalesced deliveries under one registration generation are fixed, but
+replacement race, `KillTimer`, NULL-HWND allocated IDs, combined action-input response, and background
 freeze／resume remain unproven. Existing W2 message／paint flow remains a separate fixed JavaScript harness.
 This is partial evidence for `P1-SCH-01`／`REQ-UI-02`, not their completion.
 

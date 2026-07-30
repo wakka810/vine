@@ -661,13 +661,28 @@ function isWindowTimerCallbackDeliveryGatewayCheckpoint(
   );
 }
 
+function isWindowTimerCallbackRecurringBatchCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "primary-main-loop-window-timer-callback-recurring-batch";
+}
+
+function hasWindowTimerCallbackDelivery(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isWindowTimerCallbackDeliveryGatewayCheckpoint(profile) ||
+    isWindowTimerCallbackRecurringBatchCheckpoint(profile)
+  );
+}
+
 function hasPresentationProgressEvidence(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isPresentationProgressGatewayCheckpoint(profile) ||
     isInputProgressGatewayCheckpoint(profile) ||
-    isWindowTimerCallbackDeliveryGatewayCheckpoint(profile)
+    hasWindowTimerCallbackDelivery(profile)
   );
 }
 
@@ -692,7 +707,16 @@ function isRecurringTimerBoundedWindowCheckpoint(
 function recurringTimerWindowConfiguration(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  return isWindowTimerCallbackDeliveryGatewayCheckpoint(profile)
+  return isWindowTimerCallbackRecurringBatchCheckpoint(profile)
+    ? ({
+        capability:
+          "primary-main-loop-window-timer-callback-recurring-batch",
+        implementationId:
+          "runtime.main-loop-window-timer-callback-recurring-batch.v1",
+        requiredCycles: 253,
+        maximumCycles: 1_024,
+      } as const)
+    : isWindowTimerCallbackDeliveryGatewayCheckpoint(profile)
     ? ({
         capability:
           "primary-main-loop-window-timer-callback-delivery-gateway",
@@ -823,6 +847,39 @@ function presentationProgressGatewayExpectation() {
     wasmBridgeCalls: 489_458,
     waitCompletions: 11_468,
     pacingRequests: 11_467,
+  } as const;
+}
+
+function windowTimerCallbackRecurringBatchExpectation() {
+  return {
+    capability: "primary-main-loop-window-timer-callback-recurring-batch",
+    implementationId:
+      "runtime.main-loop-window-timer-callback-recurring-batch.v1",
+    supportedCallCount: 168_583,
+    semanticDigest:
+      "214c137a81f6fd044b62ca94340e77a80de1ff9ae71d4ee4535fc9fbab831814",
+    firstSequence: 148_298,
+    firstInstructionCount: 148_745_201,
+    lastSequence: 168_582,
+    lastInstructionCount: 321_781_146,
+    terminalInstructionCount: 321_781_155,
+    memoryContentSha256:
+      "0dbd1f83e5c5d34be37de44346302028dc18c77ca38a49b30d36d577b15749ae",
+    finalGeneration: 324_436n,
+    writebackBatches: 190_494,
+    writebackPages: 292_947,
+    mappingDeltas: 130_766,
+    mappingDirtyPages: 153_171,
+    contextSwitches: 2_608,
+    stackGrowths: 11,
+    heapPageMaterializations: 3_108,
+    sourceReads: 94,
+    hostRequests: 11_997,
+    rustSchedulerTransitions: 14_605,
+    slices: 190_501,
+    wasmBridgeCalls: 505_991,
+    waitCompletions: 11_951,
+    pacingRequests: 11_902,
   } as const;
 }
 
@@ -1404,6 +1461,11 @@ type WindowTimerCallbackDeliveryGatewayCheckpoint = Extract<
   { capability: "primary-main-loop-window-timer-callback-delivery-gateway" }
 >;
 
+type WindowTimerCallbackRecurringBatchCheckpoint = Extract<
+  NonNullable<SessionReport["checkpointCompletion"]>,
+  { capability: "primary-main-loop-window-timer-callback-recurring-batch" }
+>;
+
 interface AppliedHostDeltaEvidence {
   delta: ReturnType<typeof decodeHostDelta>;
   payloadBytes: number;
@@ -1740,6 +1802,11 @@ class BrowserRuntimeSession {
     returnSentinel: number;
     arguments: [number, number, number, number];
   } | null = null;
+  readonly #windowTimerCallbackDispatches: Array<
+    RuntimeSupportedCallSnapshot & {
+      callbackArguments: [number, number, number, number];
+    }
+  > = [];
   #setWindowPosCompletionCount = 0;
   #setWindowPosRepeatActivationCallbackEntry: {
     action: "enter";
@@ -2186,7 +2253,7 @@ class BrowserRuntimeSession {
               includesPostHeapTimeGetTimeEvidence(
                 this.#configuration.capabilityProfile,
               ),
-              isWindowTimerCallbackDeliveryGatewayCheckpoint(
+              hasWindowTimerCallbackDelivery(
                 this.#configuration.capabilityProfile,
               ),
             )
@@ -2249,7 +2316,7 @@ class BrowserRuntimeSession {
         const cursor = preparedOutput.metadata.runtime.cursorPosition;
         invariant(
           preparedOutput.metadata.runtime.user32Policy ===
-            (isWindowTimerCallbackDeliveryGatewayCheckpoint(
+            (hasWindowTimerCallbackDelivery(
               this.#configuration.capabilityProfile,
             )
               ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
@@ -4586,7 +4653,7 @@ class BrowserRuntimeSession {
             "BGI callback frame reused an active call sequence",
           );
           if (
-            isWindowTimerCallbackDeliveryGatewayCheckpoint(
+            hasWindowTimerCallbackDelivery(
               this.#configuration.capabilityProfile,
             ) &&
             metadata.target === 0x1009_9600
@@ -4930,7 +4997,7 @@ class BrowserRuntimeSession {
     ) {
       if (this.#report.peekMessageA === null) {
         const windowTimerDelivery =
-          isWindowTimerCallbackDeliveryGatewayCheckpoint(
+          hasWindowTimerCallbackDelivery(
             this.#configuration.capabilityProfile,
           );
         this.#report.peekMessageA = {
@@ -5133,6 +5200,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "primary-main-loop-window-timer-callback-delivery-gateway" ||
           checkpoint.capability ===
+            "primary-main-loop-window-timer-callback-recurring-batch" ||
+          checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -5222,6 +5291,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "primary-main-loop-window-timer-callback-delivery-gateway" ||
       checkpoint.capability ===
+        "primary-main-loop-window-timer-callback-recurring-batch" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -5282,7 +5353,9 @@ class BrowserRuntimeSession {
                       this.#requireEngine().readGuestU32(stackPointer + 12),
                     ]
                   : checkpoint.capability ===
-                      "primary-main-loop-window-timer-callback-delivery-gateway"
+                        "primary-main-loop-window-timer-callback-delivery-gateway" ||
+                      checkpoint.capability ===
+                        "primary-main-loop-window-timer-callback-recurring-batch"
                     ? [
                         this.#requireEngine().readGuestU32(stackPointer + 4),
                         this.#requireEngine().readGuestU32(stackPointer + 8),
@@ -5344,6 +5417,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "primary-main-loop-window-timer-callback-delivery-gateway" ||
       checkpoint.capability ===
+        "primary-main-loop-window-timer-callback-recurring-batch" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -5380,6 +5455,9 @@ class BrowserRuntimeSession {
                     : checkpoint.capability ===
                         "kernel32-enter-critical-section-post-timer-rearm-wait-batch"
                       ? "Post-timer-rearm-wait critical-section batch checkpoint completed"
+                      : checkpoint.capability ===
+                          "primary-main-loop-window-timer-callback-recurring-batch"
+                        ? "Primary main-loop window timer callback recurring batch completed"
                       : checkpoint.capability ===
                           "primary-main-loop-window-timer-callback-delivery-gateway"
                         ? "Primary main-loop window timer callback delivery gateway completed"
@@ -5539,7 +5617,7 @@ class BrowserRuntimeSession {
       );
     }
     const windowTimerProfile =
-      isWindowTimerCallbackDeliveryGatewayCheckpoint(
+      hasWindowTimerCallbackDelivery(
         this.#configuration.capabilityProfile,
       );
     const windowTimerMetadataExpected =
@@ -6585,35 +6663,100 @@ class BrowserRuntimeSession {
           call.callback !== undefined,
         "window timer delivery checkpoint lost its completed dispatch evidence",
       );
-      const checkpoint: WindowTimerCallbackDeliveryGatewayCheckpoint = {
-        capability:
-          "primary-main-loop-window-timer-callback-delivery-gateway",
-        implementationId:
-          "runtime.main-loop-window-timer-callback-delivery-gateway.v1",
-        requiredDeliveries: 1,
-        deliveryCount: call.windowTimer.deliveryCount,
-        requiredCompletions: 1,
-        completionCount: 1,
-        lastCompletionSequence: call.sequence,
-        lastCompletionInstructionCount: this.#report.instructions,
-        dispatch: {
-          ...structuredClone(call),
-          callbackArguments: structuredClone(entry.arguments),
-        },
-        instructionCount: 0,
-        nextEndpoint: {
-          id: 0,
-          address: 0,
-          disposition: "declared-runtime-export",
-          iatAddress: 0,
-        },
-        nextArguments: [0, 0, 0, 0, 0],
-        nextReturnAddress: 0,
-        nextStackPointer: 0,
-        memoryContentSha256: "",
+      const dispatch = {
+        ...structuredClone(call),
+        callbackArguments: structuredClone(entry.arguments),
       };
-      this.#report.checkpointCompletion = checkpoint;
-      this.#bgiCheckpointPending = true;
+      this.#windowTimerCallbackDispatches.push(dispatch);
+      const requiredDeliveries =
+        isWindowTimerCallbackRecurringBatchCheckpoint(
+          this.#configuration.capabilityProfile,
+        )
+          ? 16
+          : 1;
+      invariant(
+        this.#windowTimerCallbackDispatches.length <= requiredDeliveries,
+        "window timer callback delivery exceeded its bounded batch",
+      );
+      if (this.#windowTimerCallbackDispatches.length === requiredDeliveries) {
+        const checkpoint =
+          isWindowTimerCallbackRecurringBatchCheckpoint(
+            this.#configuration.capabilityProfile,
+          )
+            ? ({
+                capability:
+                  "primary-main-loop-window-timer-callback-recurring-batch",
+                implementationId:
+                  "runtime.main-loop-window-timer-callback-recurring-batch.v1",
+                requiredDeliveries: 16,
+                deliveryCount: call.windowTimer.deliveryCount,
+                requiredCompletions: 16,
+                completionCount: this.#windowTimerCallbackDispatches.length,
+                firstCompletionSequence:
+                  this.#windowTimerCallbackDispatches[0]!.sequence,
+                firstCompletionInstructionCount:
+                  this.#windowTimerCallbackDispatches[0]!.callback!
+                    .returnInstructionCount,
+                lastCompletionSequence: call.sequence,
+                lastCompletionInstructionCount: this.#report.instructions,
+                dispatches: structuredClone(
+                  this.#windowTimerCallbackDispatches,
+                ),
+                instructionCount: 0,
+                nextEndpoint: {
+                  id: 0,
+                  address: 0,
+                  disposition: "declared-runtime-export" as const,
+                  iatAddress: 0,
+                },
+                nextArguments: [0, 0, 0, 0, 0] as [
+                  number,
+                  number,
+                  number,
+                  number,
+                  number,
+                ],
+                nextReturnAddress: 0,
+                nextStackPointer: 0,
+                memoryContentSha256: "",
+              } satisfies WindowTimerCallbackRecurringBatchCheckpoint)
+            : ({
+                capability:
+                  "primary-main-loop-window-timer-callback-delivery-gateway",
+                implementationId:
+                  "runtime.main-loop-window-timer-callback-delivery-gateway.v1",
+                requiredDeliveries: 1,
+                deliveryCount: call.windowTimer.deliveryCount,
+                requiredCompletions: 1,
+                completionCount: 1,
+                lastCompletionSequence: call.sequence,
+                lastCompletionInstructionCount: this.#report.instructions,
+                dispatch,
+                instructionCount: 0,
+                nextEndpoint: {
+                  id: 0,
+                  address: 0,
+                  disposition: "declared-runtime-export" as const,
+                  iatAddress: 0,
+                },
+                nextArguments: [0, 0, 0, 0, 0] as [
+                  number,
+                  number,
+                  number,
+                  number,
+                  number,
+                ],
+                nextReturnAddress: 0,
+                nextStackPointer: 0,
+                memoryContentSha256: "",
+              } satisfies WindowTimerCallbackDeliveryGatewayCheckpoint);
+        invariant(
+          this.#report.checkpointCompletion === null,
+          "window timer callback checkpoint was completed twice",
+        );
+        this.#report.checkpointCompletion = checkpoint;
+        this.#bgiCheckpointPending = true;
+      }
       this.#windowTimerCallbackEntry = null;
     }
     if (
@@ -6712,7 +6855,13 @@ class BrowserRuntimeSession {
         windowCheckpoint &&
         this.#recurringTimerMultiCycleCurrentCycle === null &&
         !startsMainTimerCycle;
-      if (interCycleCompletion) {
+      if (
+        interCycleCompletion &&
+        this.#recurringTimerWindowCurrentInterCycleInterval === null &&
+        this.#recurringTimerMultiCycleSummaries.length === 0
+      ) {
+        this.#recurringTimerMultiCycleCompletions.pop();
+      } else if (interCycleCompletion) {
         const interval = this.#recurringTimerWindowCurrentInterCycleInterval;
         invariant(
           interval !== null,
@@ -10241,7 +10390,7 @@ class BrowserRuntimeSession {
       firstCall: structuredClone(firstCall.call),
       lastCall: structuredClone(lastCall.call),
       compatibilityPolicyId:
-        isWindowTimerCallbackDeliveryGatewayCheckpoint(
+        hasWindowTimerCallbackDelivery(
           this.#configuration.capabilityProfile,
         )
           ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
@@ -13974,6 +14123,116 @@ class BrowserRuntimeSession {
                     last: lane.completions.at(-1),
                   }))
                 : [],
+            hostRequests: this.#report.hostRequests,
+            rustSchedulerTransitions: this.#report.rustSchedulerTransitions,
+            slices: this.#report.slices,
+            wasmBridgeCalls: this.#bridge?.callCount(),
+            waitForSingleObjectExCompletions:
+              this.#waitForSingleObjectExCompletions,
+            pacing,
+          })}`,
+        );
+      }
+      if (
+        isWindowTimerCallbackRecurringBatchCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const expected = windowTimerCallbackRecurringBatchExpectation();
+        const checkpoint = this.#report.checkpointCompletion;
+        const dispatches =
+          checkpoint?.capability === expected.capability
+            ? checkpoint.dispatches
+            : [];
+        const pacing = this.#timerPacing.metrics();
+        invariant(
+          this.#report.supportedCallCount === expected.supportedCallCount &&
+            this.#report.supportedCallSemanticsSha256 ===
+              expected.semanticDigest &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability === expected.capability &&
+            checkpoint.implementationId === expected.implementationId &&
+            checkpoint.requiredDeliveries === 16 &&
+            checkpoint.deliveryCount === 16 &&
+            checkpoint.requiredCompletions === 16 &&
+            checkpoint.completionCount === 16 &&
+            checkpoint.firstCompletionSequence === expected.firstSequence &&
+            checkpoint.firstCompletionInstructionCount ===
+              expected.firstInstructionCount &&
+            checkpoint.lastCompletionSequence === expected.lastSequence &&
+            checkpoint.lastCompletionInstructionCount ===
+              expected.lastInstructionCount &&
+            dispatches.length === 16 &&
+            dispatches.every(
+              (dispatch, index) =>
+                dispatch.module.toLowerCase() === "user32.dll" &&
+                dispatch.symbol === "DispatchMessageA" &&
+                dispatch.implementationId ===
+                  "user32.dispatch-message-a.window-timer-callback.v1" &&
+                "action" in dispatch.result &&
+                dispatch.result.action === "set" &&
+                dispatch.result.value === 0 &&
+                dispatch.guestWrites.length === 0 &&
+                dispatch.callbackArguments.slice(0, 3).join(",") ===
+                  "1208025089,275,1" &&
+                dispatch.windowTimer?.deliveryCount === index + 1 &&
+                dispatch.windowTimer.registrationGeneration === 1 &&
+                dispatch.windowTimer.lastDelivery?.deliveryCount ===
+                  index + 1 &&
+                dispatch.callback?.frameId === 31 + index &&
+                dispatch.callback.target === 0x1009_9600 &&
+                dispatch.callback.frameBytes === 20 &&
+                dispatch.callback.returnSentinel === 0x7f01_0000,
+            ) &&
+            checkpoint.instructionCount ===
+              expected.terminalInstructionCount &&
+            checkpoint.nextEndpoint.id === 164 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0a30 &&
+            checkpoint.nextEndpoint.iatAddress === 0x100d_1368 &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "PeekMessageA" &&
+            checkpoint.nextArguments.join(",") === "7338216,0,0,0,1" &&
+            checkpoint.nextReturnAddress === 0x1009_37bb &&
+            checkpoint.nextStackPointer === 0x006f_f8c4 &&
+            checkpoint.memoryContentSha256 ===
+              expected.memoryContentSha256 &&
+            this.#report.instructions === expected.terminalInstructionCount &&
+            this.#generation === expected.finalGeneration &&
+            this.#report.writebackBatches === expected.writebackBatches &&
+            this.#report.writebackPages === expected.writebackPages &&
+            this.#report.mappingDeltas === expected.mappingDeltas &&
+            this.#report.mappingDirtyPages === expected.mappingDirtyPages &&
+            this.#report.contextSwitches === expected.contextSwitches &&
+            this.#report.stackGrowths.length === expected.stackGrowths &&
+            this.#report.heapPageMaterializations?.length ===
+              expected.heapPageMaterializations &&
+            this.#report.sourceReads.length === expected.sourceReads &&
+            this.#report.hostRequests === expected.hostRequests &&
+            this.#report.rustSchedulerTransitions ===
+              expected.rustSchedulerTransitions &&
+            this.#report.slices === expected.slices &&
+            this.#bridge?.callCount() === expected.wasmBridgeCalls &&
+            this.#waitForSingleObjectExCompletions ===
+              expected.waitCompletions &&
+            pacing.requests === expected.pacingRequests &&
+            pacing.completions === expected.pacingRequests &&
+            pacing.pending === 0,
+          `window timer callback recurring batch changed: ${JSON.stringify({
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            checkpoint,
+            finalGeneration: Number(this.#generation),
+            writebackBatches: this.#report.writebackBatches,
+            writebackPages: this.#report.writebackPages,
+            mappingDeltas: this.#report.mappingDeltas,
+            mappingDirtyPages: this.#report.mappingDirtyPages,
+            contextSwitches: this.#report.contextSwitches,
+            stackGrowths: this.#report.stackGrowths.length,
+            heapPageMaterializations:
+              this.#report.heapPageMaterializations?.length,
+            sourceReads: this.#report.sourceReads.length,
             hostRequests: this.#report.hostRequests,
             rustSchedulerTransitions: this.#report.rustSchedulerTransitions,
             slices: this.#report.slices,

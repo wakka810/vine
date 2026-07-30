@@ -1263,7 +1263,7 @@ browserOwnedWindowTimer.browserCheckpoint.bgiRuntimeEvidence.windowTimerBrowserT
   true;
 assert.ok(
   validateCurrentCheckpoint(browserOwnedWindowTimer).some((error) =>
-    error.includes("window timer callback delivery evidence"),
+    error.includes("window timer callback recurring evidence"),
   ),
 );
 
@@ -1272,7 +1272,7 @@ detachedWindowTimerQueue.activeRuntimeCheckpoint.latestEvidence.windowTimerQueue
   "typescript-worker-message-queue";
 assert.ok(
   validateCurrentCheckpoint(detachedWindowTimerQueue).some((error) =>
-    error.includes("window timer callback delivery evidence"),
+    error.includes("window timer callback recurring evidence"),
   ),
 );
 
@@ -1281,7 +1281,7 @@ consumedTimerProcResult.activeRuntimeCheckpoint.latestEvidence.dispatchMessageAC
   "return-guest-result";
 assert.ok(
   validateCurrentCheckpoint(consumedTimerProcResult).some((error) =>
-    error.includes("window timer callback delivery evidence"),
+    error.includes("window timer callback recurring evidence"),
   ),
 );
 

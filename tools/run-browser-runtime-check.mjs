@@ -101,10 +101,17 @@ const actionInputProgressGatewayProfile =
   bgiProfile === "primary-main-loop-action-input-progress-gateway";
 const windowTimerCallbackDeliveryGatewayProfile =
   bgiProfile === "primary-main-loop-window-timer-callback-delivery-gateway";
+const windowTimerCallbackRecurringBatchProfile =
+  bgiProfile === "primary-main-loop-window-timer-callback-recurring-batch";
+const windowTimerCallbackDeliveryProfile =
+  windowTimerCallbackDeliveryGatewayProfile ||
+  windowTimerCallbackRecurringBatchProfile;
 const inputProgressEvidenceProfile =
   inputProgressGatewayProfile || actionInputProgressGatewayProfile;
 const presentationProgressEvidenceProfile =
-  presentationProgressGatewayProfile || inputProgressEvidenceProfile;
+  presentationProgressGatewayProfile ||
+  inputProgressEvidenceProfile ||
+  windowTimerCallbackDeliveryProfile;
 const runtimeTraplessExecutionBudgetProfile =
   bgiProfile === "runtime-trapless-execution-budget";
 const largeHeapFreeProfile = bgiProfile === "kernel32-heap-free-large-buffer";
@@ -140,7 +147,7 @@ const postHeapTimeGetTimeEvidenceProfile =
   recurringTimerMultiCycleProfile ||
   recurringTimerWindowProfile ||
   presentationProgressEvidenceProfile ||
-  windowTimerCallbackDeliveryGatewayProfile ||
+  windowTimerCallbackDeliveryProfile ||
   postHeapTimeGetTimeProfile ||
   postClockCriticalSectionProfile ||
   postWaitCriticalSectionProfile ||
@@ -164,7 +171,7 @@ const user32IsIconicProfile =
 const user32PeekMessageAProfile =
   bgiProfile === "user32-peek-message-a" ||
   user32IsIconicProfile ||
-  windowTimerCallbackDeliveryGatewayProfile;
+  windowTimerCallbackDeliveryProfile;
 const user32AsyncKeyStateInitialScanContinuationProfile =
   bgiProfile === "user32-async-key-state-initial-scan-continuation" ||
   user32PeekMessageAProfile;
@@ -239,7 +246,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v75";
+const runtimeProtocol = "vine.browser-runtime-worker.v76";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -921,6 +928,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-input-progress-gateway",
         "primary-main-loop-action-input-progress-gateway",
         "primary-main-loop-window-timer-callback-delivery-gateway",
+        "primary-main-loop-window-timer-callback-recurring-batch",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -992,6 +1000,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-input-progress-gateway",
         "primary-main-loop-action-input-progress-gateway",
         "primary-main-loop-window-timer-callback-delivery-gateway",
+        "primary-main-loop-window-timer-callback-recurring-batch",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1063,12 +1072,15 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-input-progress-gateway",
         "primary-main-loop-action-input-progress-gateway",
         "primary-main-loop-window-timer-callback-delivery-gateway",
+        "primary-main-loop-window-timer-callback-recurring-batch",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
-            ? runtimeThreadStackGrowthProfile
+              ? runtimeThreadStackGrowthProfile
               ? windowTimerCallbackDeliveryGatewayProfile
                 ? 2_314
+                : windowTimerCallbackRecurringBatchProfile
+                  ? 2_608
                 : postClockCriticalSectionProfile ||
                 postWaitCriticalSectionProfile ||
                 postTimerWaitCriticalSectionProfile ||
@@ -1144,7 +1156,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         recurringTimerMultiCycleProfile ||
         recurringTimerWindowProfile ||
         presentationProgressEvidenceProfile ||
-        windowTimerCallbackDeliveryGatewayProfile ||
+        windowTimerCallbackDeliveryProfile ||
         runtimeTraplessExecutionBudgetProfile ||
         largeHeapFreeProfile ||
         heapAlloc24Profile ||
@@ -1198,7 +1210,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         setWindowPosRepeatActivationProfile ||
         user32AsyncKeyStateInitialScanContinuationProfile
       ) {
-        const pacingCount = inputProgressEvidenceProfile
+        const pacingCount = windowTimerCallbackRecurringBatchProfile
+          ? 11_902
+          : inputProgressEvidenceProfile
           ? 11_531
           : presentationProgressGatewayProfile
             ? 11_467
@@ -3191,7 +3205,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.deepEqual(scan.lastCall.result, { action: "set", value: 0 });
         assert.equal(
           scan.compatibilityPolicyId,
-          windowTimerCallbackDeliveryGatewayProfile
+          windowTimerCallbackDeliveryProfile
             ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
             : "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
         );
@@ -3284,6 +3298,8 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           textureUnlockRect: 1,
           testCooperativeLevel: inputProgressEvidenceProfile
             ? 16
+            : windowTimerCallbackRecurringBatchProfile
+              ? 62
             : presentationProgressGatewayProfile
               ? 8
             : runtimeThreadStackGrowthProfile
@@ -3361,7 +3377,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert(peek !== null, "Chrome Worker omitted PeekMessageA evidence");
         assert.equal(
           peek.calls.length,
-          windowTimerCallbackDeliveryGatewayProfile
+          windowTimerCallbackRecurringBatchProfile
+            ? 77
+            : windowTimerCallbackDeliveryGatewayProfile
             ? 1
             : inputProgressEvidenceProfile
             ? 16
@@ -3375,7 +3393,23 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         );
         assert.deepEqual(
           peek.calls.map((call) => call.sequence),
-          inputProgressEvidenceProfile
+          windowTimerCallbackRecurringBatchProfile
+            ? [
+                148_296, 148_300, 148_357, 148_478, 148_603, 161_543,
+                161_547, 161_678, 161_809, 161_940, 162_070, 162_074,
+                162_204, 162_334, 162_464, 162_522, 162_598, 162_656,
+                162_786, 162_916, 163_046, 163_050, 163_180, 163_310,
+                163_440, 163_570, 163_574, 163_632, 163_762, 163_892,
+                164_022, 164_026, 164_156, 164_286, 164_416, 164_546,
+                164_550, 164_680, 164_738, 164_868, 164_998, 165_128,
+                165_132, 165_262, 165_392, 165_522, 165_652, 165_656,
+                165_714, 165_844, 165_974, 166_104, 166_108, 166_238,
+                166_368, 166_498, 166_628, 166_632, 166_762, 166_820,
+                166_950, 167_080, 167_084, 167_214, 167_344, 167_474,
+                167_604, 167_608, 167_738, 167_796, 167_926, 168_056,
+                168_060, 168_190, 168_320, 168_450, 168_580,
+              ]
+            : inputProgressEvidenceProfile
             ? [
                 148_296, 148_353, 148_474, 148_599, 161_539, 161_670, 161_801,
                 161_932, 162_062, 162_192, 162_322, 162_452, 162_510, 162_640,
@@ -3394,7 +3428,30 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         );
         assert.deepEqual(
           peek.instructionCounts,
-          actionInputProgressGatewayProfile
+          windowTimerCallbackRecurringBatchProfile
+            ? [
+                148_744_543, 148_745_210, 148_749_776, 148_771_454,
+                153_196_988, 321_443_712, 321_444_379, 321_450_280,
+                321_456_163, 321_462_072, 321_467_946, 321_468_613,
+                321_474_488, 321_480_362, 321_486_236, 321_490_787,
+                321_492_777, 321_497_408, 321_503_282, 321_509_156,
+                321_515_030, 321_515_697, 321_521_572, 321_527_446,
+                321_533_320, 321_539_194, 321_539_861, 321_544_413,
+                321_550_287, 321_556_240, 321_562_114, 321_562_781,
+                321_568_656, 321_574_530, 321_580_404, 321_586_278,
+                321_586_945, 321_592_820, 321_597_371, 321_603_245,
+                321_609_198, 321_615_072, 321_615_739, 321_621_614,
+                321_627_488, 321_633_362, 321_639_236, 321_639_903,
+                321_644_455, 321_650_329, 321_656_203, 321_662_077,
+                321_662_744, 321_668_698, 321_674_572, 321_680_446,
+                321_686_320, 321_686_987, 321_692_862, 321_697_413,
+                321_703_287, 321_709_161, 321_709_828, 321_715_703,
+                321_721_656, 321_727_530, 321_733_404, 321_734_071,
+                321_739_946, 321_744_497, 321_750_371, 321_756_245,
+                321_756_912, 321_762_787, 321_768_661, 321_774_535,
+                321_780_488,
+              ]
+            : actionInputProgressGatewayProfile
             ? [
                 148_744_543, 148_749_108, 148_770_786, 153_196_320,
                 321_443_044, 321_448_944, 321_454_827, 321_460_736,
@@ -3439,14 +3496,14 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
             arguments: [0x006f_f8e8, 0, 0, 0, 1],
             result: {
               action: "set",
-              value: windowTimerCallbackDeliveryGatewayProfile ? 1 : 0,
+              value: windowTimerCallbackDeliveryProfile ? 1 : 0,
             },
             implementationId: "user32.peek-message-a.current-thread.v1",
             returnAddress: 0x1009_378b,
             stackPointerBefore: 0x006f_f8c8,
             stackPointerAfter: 0x006f_f8e0,
             lastError: 0,
-            guestWrites: windowTimerCallbackDeliveryGatewayProfile
+            guestWrites: windowTimerCallbackDeliveryProfile
               ? [
                   {
                     address: 0x006f_f8e8,
@@ -3462,10 +3519,11 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           },
         );
         for (const completion of peek.calls) {
+          const timerDelivered = completion.windowTimer !== undefined;
           assert.deepEqual(completion.arguments, [0x006f_f8e8, 0, 0, 0, 1]);
           assert.deepEqual(completion.result, {
             action: "set",
-            value: windowTimerCallbackDeliveryGatewayProfile ? 1 : 0,
+            value: timerDelivered ? 1 : 0,
           });
           assert.equal(
             completion.implementationId,
@@ -3478,35 +3536,35 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           assert.equal(completion.lastError, 0);
           assert.equal(
             completion.guestWrites.length,
-            windowTimerCallbackDeliveryGatewayProfile ? 1 : 0,
+            timerDelivered ? 1 : 0,
           );
         }
         assert.equal(
           peek.compatibilityPolicyId,
-          windowTimerCallbackDeliveryGatewayProfile
+          windowTimerCallbackDeliveryProfile
             ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
             : "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
         );
         assert.equal(
           peek.profileId,
-          windowTimerCallbackDeliveryGatewayProfile
+          windowTimerCallbackDeliveryProfile
             ? "current-thread-unfiltered-peek-message-a-v1"
             : "current-thread-unfiltered-peek-message-a-v1",
         );
         assert.equal(peek.queueAuthority, "rust-runtime-thread-message-queue");
         assert.equal(
           peek.emptyQueueResult,
-          !windowTimerCallbackDeliveryGatewayProfile,
+          !windowTimerCallbackDeliveryProfile,
         );
         assert.equal(
           peek.outputMutation,
-          windowTimerCallbackDeliveryGatewayProfile
+          windowTimerCallbackDeliveryProfile
             ? "atomic-materialized-msg32-write"
             : "none-on-empty",
         );
         assert.equal(
           peek.removal,
-          windowTimerCallbackDeliveryGatewayProfile
+          windowTimerCallbackDeliveryProfile
             ? "pm-remove-after-materialization"
             : "none-on-empty",
         );
@@ -3531,7 +3589,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert(iconic !== null, "Chrome Worker omitted IsIconic evidence");
         assert.equal(
           iconic.calls.length,
-          inputProgressEvidenceProfile
+          windowTimerCallbackRecurringBatchProfile
+            ? 61
+            : inputProgressEvidenceProfile
             ? 16
             : presentationProgressGatewayProfile
               ? 8
@@ -3539,7 +3599,21 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         );
         assert.deepEqual(
           iconic.calls.map((call) => call.sequence),
-          inputProgressEvidenceProfile
+          windowTimerCallbackRecurringBatchProfile
+            ? [
+                148_309, 148_430, 148_487, 161_495, 161_630, 161_688,
+                161_819, 161_950, 162_084, 162_214, 162_344, 162_474,
+                162_608, 162_738, 162_796, 162_926, 163_060, 163_190,
+                163_320, 163_450, 163_584, 163_714, 163_772, 163_902,
+                164_036, 164_166, 164_296, 164_426, 164_560, 164_690,
+                164_820, 164_878, 165_008, 165_142, 165_272, 165_402,
+                165_532, 165_666, 165_796, 165_854, 165_984, 166_118,
+                166_248, 166_378, 166_508, 166_642, 166_772, 166_902,
+                166_960, 167_094, 167_224, 167_354, 167_484, 167_618,
+                167_748, 167_878, 167_936, 168_070, 168_200, 168_330,
+                168_460,
+              ]
+            : inputProgressEvidenceProfile
             ? [
                 148_305, 148_426, 148_483, 161_491, 161_622, 161_680, 161_811,
                 161_942, 162_072, 162_202, 162_332, 162_462, 162_592, 162_650,
@@ -3554,7 +3628,26 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         );
         assert.deepEqual(
           iconic.instructionCounts,
-          actionInputProgressGatewayProfile
+          windowTimerCallbackRecurringBatchProfile
+            ? [
+                148_745_985, 148_767_663, 148_772_228, 321_439_921,
+                321_446_489, 321_451_040, 321_456_923, 321_462_832,
+                321_469_374, 321_475_248, 321_481_122, 321_486_996,
+                321_493_617, 321_499_491, 321_504_042, 321_509_916,
+                321_516_458, 321_522_332, 321_528_206, 321_534_080,
+                321_540_622, 321_546_496, 321_551_126, 321_557_000,
+                321_563_542, 321_569_416, 321_575_290, 321_581_164,
+                321_587_706, 321_593_580, 321_599_454, 321_604_084,
+                321_609_958, 321_616_500, 321_622_374, 321_628_248,
+                321_634_122, 321_640_664, 321_646_538, 321_651_089,
+                321_656_963, 321_663_584, 321_669_458, 321_675_332,
+                321_681_206, 321_687_748, 321_693_622, 321_699_496,
+                321_704_047, 321_710_589, 321_716_542, 321_722_416,
+                321_728_290, 321_734_832, 321_740_706, 321_746_580,
+                321_751_131, 321_757_673, 321_763_547, 321_769_421,
+                321_775_374,
+              ]
+            : actionInputProgressGatewayProfile
             ? [
                 148_745_317, 148_766_995, 148_771_560, 321_439_253,
                 321_445_153, 321_449_704, 321_455_587, 321_461_496,
@@ -3590,8 +3683,12 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
             guestWrites: firstIconic.guestWrites,
           },
           {
-            sequence: 148_305,
-            instructionCount: 148_745_317,
+            sequence: windowTimerCallbackRecurringBatchProfile
+              ? 148_309
+              : 148_305,
+            instructionCount: windowTimerCallbackRecurringBatchProfile
+              ? 148_745_985
+              : 148_745_317,
             arguments: [0x4801_0001],
             result: { action: "set", value: 0 },
             implementationId: "user32.is-iconic.logical-window-style.v1",
@@ -3618,7 +3715,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         }
         assert.equal(
           iconic.compatibilityPolicyId,
-          "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
+          windowTimerCallbackDeliveryProfile
+            ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
+            : "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30",
         );
         assert.equal(
           iconic.profileId,
@@ -5886,6 +5985,66 @@ function validateBgiEquivalence(browser, oracle) {
           memoryContentSha256: oracleCheckpoint.memoryContentSha256,
         },
         "Chrome Worker window timer delivery differs from the Node oracle",
+      );
+    }
+    if (
+      oracleCheckpoint.capability ===
+      "primary-main-loop-window-timer-callback-recurring-batch"
+    ) {
+      const normalizeDispatch = (call) => ({
+        ...normalizeSemanticCall(call),
+        implementationId: call.implementationId,
+        windowTimer: call.windowTimer,
+        callback: call.callback,
+        callbackArguments: call.callbackArguments,
+      });
+      assert.equal(
+        browserCheckpoint.capability,
+        oracleCheckpoint.capability,
+        "Chrome Worker reached a different recurring window timer capability",
+      );
+      assert.deepEqual(
+        {
+          implementationId: browserCheckpoint.implementationId,
+          requiredDeliveries: browserCheckpoint.requiredDeliveries,
+          deliveryCount: browserCheckpoint.deliveryCount,
+          requiredCompletions: browserCheckpoint.requiredCompletions,
+          completionCount: browserCheckpoint.completionCount,
+          firstCompletionSequence:
+            browserCheckpoint.firstCompletionSequence,
+          firstCompletionInstructionCount:
+            browserCheckpoint.firstCompletionInstructionCount,
+          lastCompletionSequence: browserCheckpoint.lastCompletionSequence,
+          lastCompletionInstructionCount:
+            browserCheckpoint.lastCompletionInstructionCount,
+          dispatches: browserCheckpoint.dispatches.map(normalizeDispatch),
+          instructionCount: browserCheckpoint.instructionCount,
+          nextArguments: browserCheckpoint.nextArguments,
+          nextReturnAddress: browserCheckpoint.nextReturnAddress,
+          nextStackPointer: browserCheckpoint.nextStackPointer,
+          memoryContentSha256: browserCheckpoint.memoryContentSha256,
+        },
+        {
+          implementationId: oracleCheckpoint.implementationId,
+          requiredDeliveries: oracleCheckpoint.requiredDeliveries,
+          deliveryCount: oracleCheckpoint.deliveryCount,
+          requiredCompletions: oracleCheckpoint.requiredCompletions,
+          completionCount: oracleCheckpoint.completionCount,
+          firstCompletionSequence:
+            oracleCheckpoint.firstCompletionSequence,
+          firstCompletionInstructionCount:
+            oracleCheckpoint.firstCompletionInstructionCount,
+          lastCompletionSequence: oracleCheckpoint.lastCompletionSequence,
+          lastCompletionInstructionCount:
+            oracleCheckpoint.lastCompletionInstructionCount,
+          dispatches: oracleCheckpoint.dispatches.map(normalizeDispatch),
+          instructionCount: oracleCheckpoint.instructionCount,
+          nextArguments: oracleCheckpoint.nextArguments,
+          nextReturnAddress: oracleCheckpoint.nextReturnAddress,
+          nextStackPointer: oracleCheckpoint.nextStackPointer,
+          memoryContentSha256: oracleCheckpoint.memoryContentSha256,
+        },
+        "Chrome Worker recurring window timer batch differs from the Node oracle",
       );
     }
     if (

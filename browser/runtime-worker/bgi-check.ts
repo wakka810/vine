@@ -75,6 +75,8 @@ const d3d9Canvas =
   capabilityProfile ===
     "primary-main-loop-window-timer-callback-delivery-gateway" ||
   capabilityProfile ===
+    "primary-main-loop-window-timer-callback-recurring-batch" ||
+  capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
   capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
@@ -179,7 +181,9 @@ const startMessage = {
             capabilityProfile ===
               "primary-main-loop-action-input-progress-gateway" ||
             capabilityProfile ===
-              "primary-main-loop-window-timer-callback-delivery-gateway"
+              "primary-main-loop-window-timer-callback-delivery-gateway" ||
+            capabilityProfile ===
+              "primary-main-loop-window-timer-callback-recurring-batch"
           ? 340_000_000
           : capabilityProfile === "runtime-trapless-execution-budget" ||
               capabilityProfile === "kernel32-heap-free-large-buffer" ||
@@ -284,6 +288,8 @@ const startMessage = {
         "primary-main-loop-action-input-progress-gateway" ||
       capabilityProfile ===
         "primary-main-loop-window-timer-callback-delivery-gateway" ||
+      capabilityProfile ===
+        "primary-main-loop-window-timer-callback-recurring-batch" ||
       capabilityProfile ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
       capabilityProfile ===
@@ -485,6 +491,7 @@ function parseCapabilityProfile(
     value === "primary-main-loop-input-progress-gateway" ||
     value === "primary-main-loop-action-input-progress-gateway" ||
     value === "primary-main-loop-window-timer-callback-delivery-gateway" ||
+    value === "primary-main-loop-window-timer-callback-recurring-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-critical-section"

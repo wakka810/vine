@@ -6081,3 +6081,22 @@ instruction counts, semantic digests, and report identities remain authoritative
 only in [current-checkpoint.json](current-checkpoint.json). Recurring delivery
 breadth, `KillTimer`, replacement races, NULL-HWND IDs, filtered／cross-thread
 retrieval, and background lifecycle remain unproven.
+
+## 181. Runtime recurring window-timer callback corroboration
+
+Section 180's native evidence fixes 16 TIMERPROC entries in each bounded trace.
+The corresponding runtime batch now completes 16 ordered deliveries without
+changing the Rust-owned logical HWND, timer ID, owner thread, callback address,
+or registration generation. Each delivery is materialized only after the
+ordinary current-thread queue is empty, coalesces any missed periods into one
+`WM_TIMER`, rearms from logical time, and completes the selected-thread stdcall
+callback before the next delivery. Node and Chrome agree on every delivery
+ordinal, timer snapshot, callback frame and return, terminal memory, and the
+following `PeekMessageA` boundary.
+
+This is runtime corroboration of the bounded native occurrence count, not a
+new native trace or a claim that host HWND values and timestamps are semantic.
+No third `Present` occurs during the batch. The next evidence question combines
+the already validated primary left-button action with recurring callback
+delivery; replacement, `KillTimer`, NULL-HWND IDs, filtered／cross-thread
+retrieval, and background lifecycle remain outside this checkpoint.

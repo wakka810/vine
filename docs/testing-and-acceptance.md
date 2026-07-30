@@ -1118,6 +1118,16 @@ delivery acceptanceであり、recurring breadth、`KillTimer`、replacement rac
 background lifecycleをclaimしない。次はnativeで観測済みの反復callbackをbounded batchとして検証する。Exact値と
 artifact identityは`current-checkpoint.json`だけを正本とする。
 
+`primary-main-loop-window-timer-callback-recurring-batch`は、native bounded traceの16 callback entriesに対応して、
+同じHWND／timer ID／owner TID／TIMERPROC／registration generationで16回のcoalesced deliveryを完了することを要求する。
+各回はempty current-thread queueでのみ`WM_TIMER`をmaterializeし、28-byte `MSG32` publicationと`PM_REMOVE`を
+failure-atomicにcommitし、`TranslateMessage`のno-op validation後に一つのstdcall callback frameを完了してから次回へ
+進む。Node／Chromeは16件すべてのdelivery count、scheduled／delivered deadline relation、frame ID、callback arguments、
+return boundary、terminal memory、ordered semantic digest、次の`PeekMessageA`を一致させなければならない。Third
+`Present`がないことはtimer continuityの失敗ではなく、次に既証明のleft-button actionと合成してprogressを判定する根拠と
+する。このcheckpointはreplacement、`KillTimer`、NULL-HWND ID、filtered／cross-thread retrieval、background lifecycleを
+claimしない。Exact値とartifact identityは`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

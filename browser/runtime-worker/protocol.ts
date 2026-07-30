@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 75 as const;
+export const protocolVersion = 76 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -63,6 +63,7 @@ export type BgiCapabilityProfile =
   | "primary-main-loop-input-progress-gateway"
   | "primary-main-loop-action-input-progress-gateway"
   | "primary-main-loop-window-timer-callback-delivery-gateway"
+  | "primary-main-loop-window-timer-callback-recurring-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
@@ -2208,6 +2209,39 @@ export interface SessionReport {
         dispatch: RuntimeSupportedCallSnapshot & {
           callbackArguments: [number, number, number, number];
         };
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          disposition: "declared-runtime-export";
+          iatAddress: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        nextArguments: [number, number, number, number, number];
+        nextReturnAddress: number;
+        nextStackPointer: number;
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "primary-main-loop-window-timer-callback-recurring-batch";
+        implementationId:
+          "runtime.main-loop-window-timer-callback-recurring-batch.v1";
+        requiredDeliveries: 16;
+        deliveryCount: number;
+        requiredCompletions: 16;
+        completionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        dispatches: Array<
+          RuntimeSupportedCallSnapshot & {
+            callbackArguments: [number, number, number, number];
+          }
+        >;
         instructionCount: number;
         nextEndpoint: {
           id: number;
