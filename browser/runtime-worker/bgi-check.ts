@@ -1,4 +1,5 @@
 import { observePageLifecycle } from "./page-lifecycle.js";
+import { pointerSourceEvent } from "./keyboard-input.js";
 import {
   assertProtocolVersion,
   type BgiCapabilityProfile,
@@ -70,6 +71,7 @@ const d3d9Canvas =
   capabilityProfile === "primary-main-loop-recurring-timer-window-batch" ||
   capabilityProfile === "primary-main-loop-presentation-progress-gateway" ||
   capabilityProfile === "primary-main-loop-input-progress-gateway" ||
+  capabilityProfile === "primary-main-loop-action-input-progress-gateway" ||
   capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
   capabilityProfile ===
@@ -171,7 +173,9 @@ const startMessage = {
         ? 1
         : capabilityProfile ===
               "primary-main-loop-presentation-progress-gateway" ||
-            capabilityProfile === "primary-main-loop-input-progress-gateway"
+            capabilityProfile === "primary-main-loop-input-progress-gateway" ||
+            capabilityProfile ===
+              "primary-main-loop-action-input-progress-gateway"
           ? 340_000_000
           : capabilityProfile === "runtime-trapless-execution-budget" ||
               capabilityProfile === "kernel32-heap-free-large-buffer" ||
@@ -273,6 +277,8 @@ const startMessage = {
       capabilityProfile === "primary-main-loop-presentation-progress-gateway" ||
       capabilityProfile === "primary-main-loop-input-progress-gateway" ||
       capabilityProfile ===
+        "primary-main-loop-action-input-progress-gateway" ||
+      capabilityProfile ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
       capabilityProfile ===
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
@@ -320,30 +326,48 @@ worker.postMessage(startMessage, d3d9Canvas === undefined ? [] : [d3d9Canvas]);
 if (
   capabilityProfile === "user32-async-key-state-input" ||
   capabilityProfile === "user32-async-key-state-input-continuation" ||
-  capabilityProfile === "primary-main-loop-input-progress-gateway"
+  capabilityProfile === "primary-main-loop-input-progress-gateway" ||
+  capabilityProfile === "primary-main-loop-action-input-progress-gateway"
 ) {
+  const actionInput =
+    capabilityProfile === "primary-main-loop-action-input-progress-gateway";
+  const downEvent = actionInput
+    ? pointerSourceEvent(1, "key-down", 0)
+    : {
+        sequence: "1",
+        kind: "key-down" as const,
+        virtualKey: 0xa2,
+        repeat: false,
+      };
+  if (downEvent === null) {
+    throw new Error("primary pointer button did not map to VK_LBUTTON");
+  }
   worker.postMessage({
     type: "keyboard-input",
     protocolVersion,
     sessionId,
-    event: {
-      sequence: "1",
-      kind: "key-down",
-      virtualKey: 0xa2,
-      repeat: false,
-    },
+    event: downEvent,
   } satisfies MainToWorkerMessage);
-  if (capabilityProfile === "primary-main-loop-input-progress-gateway") {
+  if (
+    capabilityProfile === "primary-main-loop-input-progress-gateway" ||
+    actionInput
+  ) {
+    const upEvent = actionInput
+      ? pointerSourceEvent(2, "key-up", 0)
+      : {
+          sequence: "2",
+          kind: "key-up" as const,
+          virtualKey: 0xa2,
+          repeat: false,
+        };
+    if (upEvent === null) {
+      throw new Error("primary pointer button did not map to VK_LBUTTON");
+    }
     worker.postMessage({
       type: "keyboard-input",
       protocolVersion,
       sessionId,
-      event: {
-        sequence: "2",
-        kind: "key-up",
-        virtualKey: 0xa2,
-        repeat: false,
-      },
+      event: upEvent,
     } satisfies MainToWorkerMessage);
   }
 }
@@ -453,6 +477,7 @@ function parseCapabilityProfile(
     value === "primary-main-loop-recurring-timer-window-batch" ||
     value === "primary-main-loop-presentation-progress-gateway" ||
     value === "primary-main-loop-input-progress-gateway" ||
+    value === "primary-main-loop-action-input-progress-gateway" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-critical-section"

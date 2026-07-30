@@ -5,7 +5,7 @@
 - Status: Verified controlled fixture and private BGI semantic checkpoint
 - Date: 2026-07-29
 - Browser: Chrome `150.0.7871.187`
-- Protocol: `vine.browser-runtime-worker` version `73`
+- Protocol: `vine.browser-runtime-worker` version `74`
 - Runtime core: Rust/Wasm, zero imports; current artifact identity is manifest-owned
 - CPU mirror: pinned source-v86 adapter in a dedicated Runtime Worker
 - Controlled PE32 fixture: `browser-vertical.exe`
@@ -63,6 +63,15 @@ explicit caller budget and returns structured `budget-yield`／`trap`／`fault`�
 changed pages, which the Worker atomically reconciles into Rust before
 classifying or resuming the guest. The upper loop does not know how changes are
 discovered.
+
+Protocol version 74 adds the bounded primary action-input evidence profile. The
+main-thread adapter maps pointer button `0` to `VK_LBUTTON`, while the Worker
+only validates, orders, and forwards the normalized down／up messages. The
+profile defers each commit to an explicit guest boundary and records the Rust
+receipt and snapshot around the consuming `GetAsyncKeyState` query. It creates
+no Worker-side virtual-key table, queued Windows message, cursor authority, or
+second input generation. The matching Node and Chrome outcome is bounded input
+consumption without a third presentation, not a visible title-action claim.
 
 After a guest API completion, Rust may return a `thread-switch` selected by the
 authoritative scheduler. The Worker saves the outgoing opaque engine context and

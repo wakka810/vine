@@ -1095,6 +1095,17 @@ acceptanceであり、Controlがtitle actionであること、visible response�
 windowを延長せず、action-bearing inputでguest-visible progressを判定する。Exact値とartifact identityは
 `current-checkpoint.json`だけを正本とする。
 
+`primary-main-loop-action-input-progress-gateway`は、live browser adapterのpointer button `0`を
+`VK_LBUTTON`へ正規化し、同じno-input prefix後にRust `RuntimeInput`へdownをcommitする。最初の後続
+`GetAsyncKeyState(VK_LBUTTON)`がsigned `0xFFFF8001`を消費し、その直後のup commitでdown／pressed wordsが
+すべてclearになることを要求する。Node／Chromeは2件のreceipt、query、320周期、4,831 completions、terminal
+memory、ordered semantic digestを一致させ、third `Present`なしの
+`input-consumed-no-presentation-progress`へ分類されなければならない。これはprimary pointer-button transport、
+消費、releaseのacceptanceであり、queued mouse message、cursor移動、titleのvisible action responseをclaimしない。
+Controlとleft-buttonの両方が同じpresentation boundに留まるため、次のsubsystem gatewayはpolling windowを延長せず、
+既存owner-thread `SetTimer`のlogical expiryと`WM_TIMER`／`TIMERPROC` deliveryを固定する。Exact値とartifact
+identityは`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

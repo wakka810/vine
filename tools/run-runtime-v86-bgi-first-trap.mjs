@@ -205,6 +205,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "primary-main-loop-recurring-timer-window-batch",
         "primary-main-loop-presentation-progress-gateway",
         "primary-main-loop-input-progress-gateway",
+        "primary-main-loop-action-input-progress-gateway",
         "kernel32-wait-for-single-object-ex",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -383,6 +384,7 @@ assert(
       "primary-main-loop-recurring-timer-window-batch",
       "primary-main-loop-presentation-progress-gateway",
       "primary-main-loop-input-progress-gateway",
+      "primary-main-loop-action-input-progress-gateway",
       "kernel32-wait-for-single-object-ex",
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
       "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -498,6 +500,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability ===
       "primary-main-loop-presentation-progress-gateway" ||
     genericRuntimeCapability === "primary-main-loop-input-progress-gateway" ||
+    genericRuntimeCapability ===
+      "primary-main-loop-action-input-progress-gateway" ||
     genericRuntimeCapability ===
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     genericRuntimeCapability ===
@@ -862,7 +866,12 @@ const presentationProgressGatewayCheckpointEnabled =
   genericRuntimeCapability ===
   "primary-main-loop-presentation-progress-gateway";
 const inputProgressGatewayCheckpointEnabled =
-  genericRuntimeCapability === "primary-main-loop-input-progress-gateway";
+  genericRuntimeCapability === "primary-main-loop-input-progress-gateway" ||
+  genericRuntimeCapability ===
+    "primary-main-loop-action-input-progress-gateway";
+const actionInputProgressGatewayCheckpointEnabled =
+  genericRuntimeCapability ===
+  "primary-main-loop-action-input-progress-gateway";
 const presentationProgressEvidenceEnabled =
   presentationProgressGatewayCheckpointEnabled ||
   inputProgressGatewayCheckpointEnabled;
@@ -873,7 +882,15 @@ const recurringTimerBoundedWindowCheckpointEnabled =
   recurringTimerMultiCycleCheckpointEnabled ||
   recurringTimerWindowEvidenceEnabled;
 const recurringTimerWindowConfiguration =
-  inputProgressGatewayCheckpointEnabled
+  actionInputProgressGatewayCheckpointEnabled
+    ? {
+        capability: "primary-main-loop-action-input-progress-gateway",
+        implementationId:
+          "runtime.main-loop-action-input-progress-gateway.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      }
+    : inputProgressGatewayCheckpointEnabled
     ? {
         capability: "primary-main-loop-input-progress-gateway",
         implementationId: "runtime.main-loop-input-progress-gateway.v1",
@@ -6865,6 +6882,11 @@ async function runGenericRuntimeReentry({
   const presentationProgressTimerLaneCompletions = [];
   const inputProgressKeyboardEvents = [];
   let inputProgressAsyncKeyStateQuery = null;
+  const inputProgressVirtualKey = actionInputProgressGatewayCheckpointEnabled
+    ? 0x01
+    : 0xa2;
+  const inputProgressQueryVirtualKey =
+    actionInputProgressGatewayCheckpointEnabled ? 0x01 : 0x11;
   const presentationProgressTimerLaneSnapshot = () =>
     [
       ...presentationProgressTimerLaneCompletions
@@ -7347,6 +7369,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "primary-main-loop-action-input-progress-gateway"
+            ? "primary-main-loop-action-input-progress-gateway-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "primary-main-loop-input-progress-gateway"
             ? "primary-main-loop-input-progress-gateway-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -9918,7 +9943,7 @@ async function runGenericRuntimeReentry({
         const event = {
           sequence: 1,
           kind: "key-down",
-          virtualKey: 0xa2,
+          virtualKey: inputProgressVirtualKey,
           repeat: false,
         };
         const completion = await ingestGenericRuntimeKeyboardInput({
@@ -9937,7 +9962,7 @@ async function runGenericRuntimeReentry({
         inputProgressKeyboardEvents.length === 1 &&
         inputProgressAsyncKeyStateQuery === null &&
         call.implementationId === "user32.get-async-key-state.v1" &&
-        call.arguments[0] === 0x11
+        call.arguments[0] === inputProgressQueryVirtualKey
       ) {
         assert(sequence > inputProgressBaseline.lastCompletionSequence);
         assert.deepEqual(call.result, { action: "set", value: 0xffff_8001 });
@@ -9950,7 +9975,7 @@ async function runGenericRuntimeReentry({
         const event = {
           sequence: 2,
           kind: "key-up",
-          virtualKey: 0xa2,
+          virtualKey: inputProgressVirtualKey,
           repeat: false,
         };
         const completion = await ingestGenericRuntimeKeyboardInput({
@@ -25605,16 +25630,52 @@ function validateRecurringTimerBoundedWindowResult(result) {
 
 function validateInputProgressGatewayResult(result) {
   assert(inputProgressGatewayCheckpointEnabled);
+  const action = actionInputProgressGatewayCheckpointEnabled;
+  const expected = {
+    capability: action
+      ? "primary-main-loop-action-input-progress-gateway"
+      : "primary-main-loop-input-progress-gateway",
+    implementationId: action
+      ? "runtime.main-loop-action-input-progress-gateway.v1"
+      : "runtime.main-loop-input-progress-gateway.v1",
+    inputVirtualKey: action ? 0x01 : 0xa2,
+    queryVirtualKey: action ? 0x01 : 0x11,
+    querySequence: action ? 161_924 : 161_918,
+    queryInstructionCount: action ? 321_460_259 : 321_459_946,
+    lastInstructionCount: action ? 321_509_588 : 321_509_586,
+    terminalInstructionCount: action ? 321_509_594 : 321_509_592,
+    downAffectedKeys: action
+      ? [{ virtualKey: 0x01, down: true, pressedSinceLastQuery: true }]
+      : [
+          { virtualKey: 0x11, down: true, pressedSinceLastQuery: true },
+          { virtualKey: 0xa2, down: true, pressedSinceLastQuery: true },
+        ],
+    upAffectedKeys: action
+      ? [{ virtualKey: 0x01, down: false, pressedSinceLastQuery: false }]
+      : [
+          { virtualKey: 0x11, down: false, pressedSinceLastQuery: false },
+          { virtualKey: 0xa2, down: false, pressedSinceLastQuery: true },
+        ],
+    downWords: action
+      ? [2, 0, 0, 0, 0, 0, 0, 0]
+      : [131_072, 0, 0, 0, 0, 4, 0, 0],
+    releasedPressedWords: action
+      ? [0, 0, 0, 0, 0, 0, 0, 0]
+      : [0, 0, 0, 0, 0, 4, 0, 0],
+    semanticDigest: action
+      ? "fc7e9e9003907122652510d1a988959a7835f1b8b22ac754876086290c67191d"
+      : "592e9f78379c63292b61d12b0216833e45d2a357cc54cd63c4d39e4c493fad4b",
+  };
   assert.equal(result.fault, null);
   assert.equal(result.activeCallbackDepth, 0);
   const checkpoint = result.checkpointCompletion;
   assert.equal(
     checkpoint?.capability,
-    "primary-main-loop-input-progress-gateway",
+    expected.capability,
   );
   assert.equal(
     checkpoint.implementationId,
-    "runtime.main-loop-input-progress-gateway.v1",
+    expected.implementationId,
   );
   assert.equal(checkpoint.requiredCycles, 253);
   assert.equal(checkpoint.minimumRequiredCycles, 253);
@@ -25648,7 +25709,7 @@ function validateInputProgressGatewayResult(result) {
   assert.deepEqual(down.event, {
     sequence: 1,
     kind: "key-down",
-    virtualKey: 0xa2,
+    virtualKey: expected.inputVirtualKey,
     repeat: false,
   });
   assert.equal(down.committedAfterSequence, 161_897);
@@ -25660,15 +25721,14 @@ function validateInputProgressGatewayResult(result) {
       down: state.down,
       pressedSinceLastQuery: state.pressedSinceLastQuery,
     })),
-    [
-      { virtualKey: 0x11, down: true, pressedSinceLastQuery: true },
-      { virtualKey: 0xa2, down: true, pressedSinceLastQuery: true },
-    ],
+    expected.downAffectedKeys,
   );
-  assert.equal(checkpoint.inputQuery.implementationId,
-    "user32.get-async-key-state.v1");
+  assert.equal(
+    checkpoint.inputQuery.implementationId,
+    "user32.get-async-key-state.v1",
+  );
   assert(checkpoint.inputQuery.sequence > down.committedAfterSequence);
-  assert.deepEqual(checkpoint.inputQuery.arguments, [0x11]);
+  assert.deepEqual(checkpoint.inputQuery.arguments, [expected.queryVirtualKey]);
   assert.deepEqual(checkpoint.inputQuery.result, {
     action: "set",
     value: 0xffff_8001,
@@ -25678,7 +25738,7 @@ function validateInputProgressGatewayResult(result) {
   assert.deepEqual(up.event, {
     sequence: 2,
     kind: "key-up",
-    virtualKey: 0xa2,
+    virtualKey: expected.inputVirtualKey,
     repeat: false,
   });
   assert.equal(up.committedAfterSequence, checkpoint.inputQuery.sequence);
@@ -25693,10 +25753,7 @@ function validateInputProgressGatewayResult(result) {
       down: state.down,
       pressedSinceLastQuery: state.pressedSinceLastQuery,
     })),
-    [
-      { virtualKey: 0x11, down: false, pressedSinceLastQuery: false },
-      { virtualKey: 0xa2, down: false, pressedSinceLastQuery: true },
-    ],
+    expected.upAffectedKeys,
   );
   assert.equal(up.keyboard.generation, 3);
   assert.equal(up.keyboard.lastEventSequence, 2);
@@ -25734,9 +25791,15 @@ function validateInputProgressGatewayResult(result) {
   assert.equal(checkpoint.completionCount, 4_831);
   assert.equal(checkpoint.interCycleCompletionCount, 722);
   assert.equal(checkpoint.lastCompletionSequence, 162_962);
-  assert.equal(checkpoint.lastCompletionInstructionCount, 321_509_586);
-  assert.equal(checkpoint.instructionCount, 321_509_592);
-  assert.equal(result.terminal.instructionCount, 321_509_592);
+  assert.equal(
+    checkpoint.lastCompletionInstructionCount,
+    expected.lastInstructionCount,
+  );
+  assert.equal(checkpoint.instructionCount, expected.terminalInstructionCount);
+  assert.equal(
+    result.terminal.instructionCount,
+    expected.terminalInstructionCount,
+  );
   assert.equal(checkpoint.criticalSectionCompletionCount, 2_176);
   assert.equal(checkpoint.criticalSectionAcquisitionCount, 1_088);
   assert.equal(checkpoint.criticalSectionReleaseCount, 1_088);
@@ -25790,12 +25853,15 @@ function validateInputProgressGatewayResult(result) {
       162_377, 162_507, 162_637, 162_767, 162_897,
     ],
   );
-  assert.equal(checkpoint.inputQuery.sequence, 161_918);
-  assert.equal(checkpoint.inputQuery.trapInstructionCount, 321_459_946);
-  assert.deepEqual(down.keyboard.downWords, [131_072, 0, 0, 0, 0, 4, 0, 0]);
-  assert.deepEqual(down.keyboard.pressedWords, [131_072, 0, 0, 0, 0, 4, 0, 0]);
+  assert.equal(checkpoint.inputQuery.sequence, expected.querySequence);
+  assert.equal(
+    checkpoint.inputQuery.trapInstructionCount,
+    expected.queryInstructionCount,
+  );
+  assert.deepEqual(down.keyboard.downWords, expected.downWords);
+  assert.deepEqual(down.keyboard.pressedWords, expected.downWords);
   assert.deepEqual(up.keyboard.downWords, [0, 0, 0, 0, 0, 0, 0, 0]);
-  assert.deepEqual(up.keyboard.pressedWords, [0, 0, 0, 0, 0, 4, 0, 0]);
+  assert.deepEqual(up.keyboard.pressedWords, expected.releasedPressedWords);
   assert.deepEqual(
     checkpoint.timerLanes.map((lane) => ({
       handle: lane.handle,
@@ -25853,7 +25919,7 @@ function validateInputProgressGatewayResult(result) {
   }
   assert.equal(
     digest.digestHex(),
-    "592e9f78379c63292b61d12b0216833e45d2a357cc54cd63c4d39e4c493fad4b",
+    expected.semanticDigest,
   );
   assert.equal(result.timerPacing.length, 11_531);
   assert.equal(result.sourceReads.length, 94);

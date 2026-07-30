@@ -74,6 +74,16 @@ ledger. The loop continues to its hard bound with additional
 steady-state input transport, consumption, and release, not an actionable or
 visible gameplay response.
 
+The following action profile uses the actual main-thread pointer adapter rather
+than choosing another keyboard key. Browser pointer button `0` normalizes to
+`VK_LBUTTON` and crosses the same versioned Worker message and Rust commit
+boundary. The first later `GetAsyncKeyState(VK_LBUTTON)` consumes
+`0xFFFF8001`; key-up then leaves both current-down and pressed-since-query words
+clear. Node and Chrome agree through the same 320-cycle hard bound and do not
+reach a third `Present`. This closes primary pointer-button ingestion and
+release only. It does not create a mouse-message queue entry, move the logical
+cursor, or prove that the title treats the reached poll as an action.
+
 A later zero-input profile provides that counterfactual for input state, but not
 for asset causality. It queues no browser event, completes 51 leading
 `VK_CONTROL` polls, then executes the native-derived 38-key startup scan in the
@@ -189,7 +199,8 @@ NULL／unmapped cursor outputs, and policy／authority failure atomicity.
 The native primary and confirmation traces plus the earlier controlled
 two-query runs are recorded in
 [windows-native-evidence.md](windows-native-evidence.md). Exact identities for
-the steady-state down／query／up Node and Chrome profile remain in
+the steady-state Control and left-button down／query／up Node and Chrome profiles
+remain in
 [current-checkpoint.json](current-checkpoint.json). Mouse-mapping evidence
 remains in [bgi-swap-mouse-button.md](bgi-swap-mouse-button.md).
 
@@ -199,10 +210,11 @@ This checkpoint does not claim `GetKeyboardState`, message-queue keyboard or
 mouse translation, capture, raw input, callback-producing DirectInput variants,
 keyboard／mouse DirectInput devices, acquire／unacquire, buffered input, or
 general device state. Pointer normalization is present at the adapter boundary,
-but primary pointer-event consumption and cursor movement are not demonstrated.
-The bounded controlled Control profiles prove transport, one User32 consumer,
-pressed-bit consumption across held-key queries, and steady-state key release;
-the zero-input scan proves absence of synthesized key state. Action-bearing
-gameplay input, IME text composition, browser shortcut suppression, and visible
-game response remain future scenario evidence. It does not change host OS input
-state, and TypeScript remains an adapter rather than Windows-state authority.
+and primary left-button consumption and release are now demonstrated; cursor
+movement and queued mouse-message translation are not. The bounded controlled
+Control profiles prove transport, one User32 consumer, pressed-bit consumption
+across held-key queries, and steady-state key release; the zero-input scan proves
+absence of synthesized key state. Action-bearing visible gameplay response, IME
+text composition, browser shortcut suppression, and general input remain future
+scenario evidence. It does not change host OS input state, and TypeScript remains
+an adapter rather than Windows-state authority.

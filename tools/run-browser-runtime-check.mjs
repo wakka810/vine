@@ -97,8 +97,12 @@ const presentationProgressGatewayProfile =
   bgiProfile === "primary-main-loop-presentation-progress-gateway";
 const inputProgressGatewayProfile =
   bgiProfile === "primary-main-loop-input-progress-gateway";
+const actionInputProgressGatewayProfile =
+  bgiProfile === "primary-main-loop-action-input-progress-gateway";
+const inputProgressEvidenceProfile =
+  inputProgressGatewayProfile || actionInputProgressGatewayProfile;
 const presentationProgressEvidenceProfile =
-  presentationProgressGatewayProfile || inputProgressGatewayProfile;
+  presentationProgressGatewayProfile || inputProgressEvidenceProfile;
 const runtimeTraplessExecutionBudgetProfile =
   bgiProfile === "runtime-trapless-execution-budget";
 const largeHeapFreeProfile = bgiProfile === "kernel32-heap-free-large-buffer";
@@ -229,7 +233,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v73";
+const runtimeProtocol = "vine.browser-runtime-worker.v74";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -909,6 +913,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-recurring-timer-window-batch",
         "primary-main-loop-presentation-progress-gateway",
         "primary-main-loop-input-progress-gateway",
+        "primary-main-loop-action-input-progress-gateway",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -978,6 +983,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-recurring-timer-window-batch",
         "primary-main-loop-presentation-progress-gateway",
         "primary-main-loop-input-progress-gateway",
+        "primary-main-loop-action-input-progress-gateway",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1047,6 +1053,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-recurring-timer-window-batch",
         "primary-main-loop-presentation-progress-gateway",
         "primary-main-loop-input-progress-gateway",
+        "primary-main-loop-action-input-progress-gateway",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
@@ -1059,7 +1066,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
                 postCriticalSectionWaitProfile ||
                 recurringTimerCycleProfile
                 ? 2_457
-                : inputProgressGatewayProfile
+                : inputProgressEvidenceProfile
                   ? 2_527
                   : presentationProgressGatewayProfile
                     ? 2_513
@@ -1179,7 +1186,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         setWindowPosRepeatActivationProfile ||
         user32AsyncKeyStateInitialScanContinuationProfile
       ) {
-        const pacingCount = inputProgressGatewayProfile
+        const pacingCount = inputProgressEvidenceProfile
           ? 11_531
           : presentationProgressGatewayProfile
             ? 11_467
@@ -2951,7 +2958,48 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       } else {
         assert.equal(evidence.report.postPresentContinuation, null);
       }
-      if (inputProgressGatewayProfile) {
+      if (inputProgressEvidenceProfile) {
+        const inputVirtualKey = actionInputProgressGatewayProfile ? 0x01 : 0xa2;
+        const downAffectedKeys = actionInputProgressGatewayProfile
+          ? [
+              {
+                virtualKey: 0x01,
+                down: true,
+                pressedSinceLastQuery: true,
+              },
+            ]
+          : [
+              {
+                virtualKey: 0x11,
+                down: true,
+                pressedSinceLastQuery: true,
+              },
+              {
+                virtualKey: 0xa2,
+                down: true,
+                pressedSinceLastQuery: true,
+              },
+            ];
+        const upAffectedKeys = actionInputProgressGatewayProfile
+          ? [
+              {
+                virtualKey: 0x01,
+                down: false,
+                pressedSinceLastQuery: false,
+              },
+            ]
+          : [
+              {
+                virtualKey: 0x11,
+                down: false,
+                pressedSinceLastQuery: false,
+              },
+              {
+                virtualKey: 0xa2,
+                down: false,
+                pressedSinceLastQuery: true,
+              },
+            ];
         assert.deepEqual(evidence.report.keyboardInput, {
           receivedMessages: 2,
           queuedBeforePrepare: 2,
@@ -2959,42 +3007,20 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
             {
               sequence: 1,
               kind: "key-down",
-              virtualKey: 0xa2,
+              virtualKey: inputVirtualKey,
               repeat: false,
               sourceFocused: true,
               generation: 1,
-              affectedKeys: [
-                {
-                  virtualKey: 0x11,
-                  down: true,
-                  pressedSinceLastQuery: true,
-                },
-                {
-                  virtualKey: 0xa2,
-                  down: true,
-                  pressedSinceLastQuery: true,
-                },
-              ],
+              affectedKeys: downAffectedKeys,
             },
             {
               sequence: 2,
               kind: "key-up",
-              virtualKey: 0xa2,
+              virtualKey: inputVirtualKey,
               repeat: false,
               sourceFocused: true,
               generation: 3,
-              affectedKeys: [
-                {
-                  virtualKey: 0x11,
-                  down: false,
-                  pressedSinceLastQuery: false,
-                },
-                {
-                  virtualKey: 0xa2,
-                  down: false,
-                  pressedSinceLastQuery: true,
-                },
-              ],
+              affectedKeys: upAffectedKeys,
             },
           ],
         });
@@ -3242,7 +3268,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           present: 2,
           textureLockRect: 1,
           textureUnlockRect: 1,
-          testCooperativeLevel: inputProgressGatewayProfile
+          testCooperativeLevel: inputProgressEvidenceProfile
             ? 16
             : presentationProgressGatewayProfile
               ? 8
@@ -3321,7 +3347,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert(peek !== null, "Chrome Worker omitted PeekMessageA evidence");
         assert.equal(
           peek.calls.length,
-          inputProgressGatewayProfile
+          inputProgressEvidenceProfile
             ? 16
             : presentationProgressGatewayProfile
               ? 8
@@ -3333,7 +3359,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         );
         assert.deepEqual(
           peek.calls.map((call) => call.sequence),
-          inputProgressGatewayProfile
+          inputProgressEvidenceProfile
             ? [
                 148_296, 148_353, 148_474, 148_599, 161_539, 161_670, 161_801,
                 161_932, 162_062, 162_192, 162_322, 162_452, 162_510, 162_640,
@@ -3352,8 +3378,15 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         );
         assert.deepEqual(
           peek.instructionCounts,
-          inputProgressGatewayProfile
+          actionInputProgressGatewayProfile
             ? [
+                148_744_543, 148_749_108, 148_770_786, 153_196_320,
+                321_443_044, 321_448_944, 321_454_827, 321_460_736,
+                321_466_610, 321_472_484, 321_478_358, 321_484_232,
+                321_488_783, 321_494_657, 321_500_610, 321_506_484,
+              ]
+            : inputProgressGatewayProfile
+              ? [
                 148_744_543, 148_749_108, 148_770_786, 153_196_320,
                 321_443_044, 321_448_944, 321_454_827, 321_460_734,
                 321_466_608, 321_472_482, 321_478_356, 321_484_230,
@@ -3435,7 +3468,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert(iconic !== null, "Chrome Worker omitted IsIconic evidence");
         assert.equal(
           iconic.calls.length,
-          inputProgressGatewayProfile
+          inputProgressEvidenceProfile
             ? 16
             : presentationProgressGatewayProfile
               ? 8
@@ -3443,7 +3476,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         );
         assert.deepEqual(
           iconic.calls.map((call) => call.sequence),
-          inputProgressGatewayProfile
+          inputProgressEvidenceProfile
             ? [
                 148_305, 148_426, 148_483, 161_491, 161_622, 161_680, 161_811,
                 161_942, 162_072, 162_202, 162_332, 162_462, 162_592, 162_650,
@@ -3458,8 +3491,15 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         );
         assert.deepEqual(
           iconic.instructionCounts,
-          inputProgressGatewayProfile
+          actionInputProgressGatewayProfile
             ? [
+                148_745_317, 148_766_995, 148_771_560, 321_439_253,
+                321_445_153, 321_449_704, 321_455_587, 321_461_496,
+                321_467_370, 321_473_244, 321_479_118, 321_484_992,
+                321_490_866, 321_495_496, 321_501_370, 321_507_244,
+              ]
+            : inputProgressGatewayProfile
+              ? [
                 148_745_317, 148_766_995, 148_771_560, 321_439_253,
                 321_445_153, 321_449_704, 321_455_587, 321_461_494,
                 321_467_368, 321_473_242, 321_479_116, 321_484_990,
@@ -5751,13 +5791,17 @@ function validateBgiEquivalence(browser, oracle) {
       oracleCheckpoint.capability ===
         "primary-main-loop-presentation-progress-gateway" ||
       oracleCheckpoint.capability ===
-        "primary-main-loop-input-progress-gateway"
+        "primary-main-loop-input-progress-gateway" ||
+      oracleCheckpoint.capability ===
+        "primary-main-loop-action-input-progress-gateway"
     ) {
       const presentationEvidence =
         oracleCheckpoint.capability ===
           "primary-main-loop-presentation-progress-gateway" ||
         oracleCheckpoint.capability ===
-          "primary-main-loop-input-progress-gateway";
+          "primary-main-loop-input-progress-gateway" ||
+        oracleCheckpoint.capability ===
+          "primary-main-loop-action-input-progress-gateway";
       const normalizeCycleBoundaryCall = (call) => ({
         ...normalizeSemanticCall(call),
         implementationId: call.implementationId,
@@ -5805,7 +5849,9 @@ function validateBgiEquivalence(browser, oracle) {
         balanced: checkpoint.balanced,
         ...(checkpoint.capability ===
           "primary-main-loop-presentation-progress-gateway" ||
-        checkpoint.capability === "primary-main-loop-input-progress-gateway"
+        checkpoint.capability === "primary-main-loop-input-progress-gateway" ||
+        checkpoint.capability ===
+          "primary-main-loop-action-input-progress-gateway"
           ? {
               baseline: checkpoint.baseline,
               outcome: checkpoint.outcome,
@@ -5832,7 +5878,9 @@ function validateBgiEquivalence(browser, oracle) {
             }
           : {}),
         ...(checkpoint.capability ===
-        "primary-main-loop-input-progress-gateway"
+          "primary-main-loop-input-progress-gateway" ||
+        checkpoint.capability ===
+          "primary-main-loop-action-input-progress-gateway"
           ? {
               inputBaseline: checkpoint.inputBaseline,
               inputConsumed: checkpoint.inputConsumed,

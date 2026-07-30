@@ -115,6 +115,20 @@ an actionable title input or that rendering is blocked. The next
 manifest-owned gateway changes the semantic input class rather than extending
 the same timer window again.
 
+The `primary-main-loop-action-input-progress-gateway` completes that semantic
+input classification with the live browser pointer mapping. Browser pointer
+button `0` is normalized to `VK_LBUTTON`, committed after the same no-input
+prefix, consumed by the reached `GetAsyncKeyState(VK_LBUTTON)` as
+`0xFFFF8001`, and released immediately after the consuming query. The final
+Rust snapshot has neither a down nor pressed left-button bit. Node and Chrome
+match both receipts, the query, 320 bounded cycles, terminal memory, and the
+ordered semantic digest. No third `Present` occurs, so this proves primary
+pointer-button transport and consumption but not an actionable title response.
+Because both the control and primary action profiles leave presentation at the
+same bound, the next subsystem gateway targets the already registered owner-
+thread window timer and must model logical expiry plus `WM_TIMER`／`TIMERPROC`
+delivery before extending the polling window again.
+
 ## Ownership and invariants
 
 `RuntimeScheduler` plans the selection only after the API completion has been

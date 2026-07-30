@@ -12,7 +12,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 73 as const/u);
+assert.match(protocol, /protocolVersion = 74 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -23,6 +23,10 @@ assert.match(
 assert.match(protocol, /"primary-main-loop-recurring-timer-window-batch"/u);
 assert.match(protocol, /"primary-main-loop-presentation-progress-gateway"/u);
 assert.match(protocol, /"primary-main-loop-input-progress-gateway"/u);
+assert.match(
+  protocol,
+  /"primary-main-loop-action-input-progress-gateway"/u,
+);
 assert.match(protocol, /RuntimeRecurringTimerCycleSummary/u);
 assert.match(protocol, /RuntimeRecurringTimerWindowCycleSummary/u);
 assert.match(protocol, /RuntimeRecurringTimerInterCycleSummary/u);
@@ -205,7 +209,9 @@ assert.match(worker, /user32\.peek-message-a\.current-thread\.v1/u);
 assert.match(worker, /ingestKeyboardInput/u);
 assert.match(worker, /#pendingKeyboardEvents/u);
 assert.match(fullProbe, /type: "keyboard-input"/u);
-assert.match(fullProbe, /virtualKey: 0xa2/u);
+assert.match(fullProbe, /pointerSourceEvent\(1, "key-down", 0\)/u);
+assert.match(fullProbe, /pointerSourceEvent\(2, "key-up", 0\)/u);
+assert.match(fullProbe, /primary-main-loop-action-input-progress-gateway/u);
 assert.match(worker, /terminal\.outcome === "structured-stop"/u);
 assert.match(
   worker,

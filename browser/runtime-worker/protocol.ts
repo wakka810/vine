@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 73 as const;
+export const protocolVersion = 74 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -61,6 +61,7 @@ export type BgiCapabilityProfile =
   | "primary-main-loop-recurring-timer-window-batch"
   | "primary-main-loop-presentation-progress-gateway"
   | "primary-main-loop-input-progress-gateway"
+  | "primary-main-loop-action-input-progress-gateway"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
@@ -2074,8 +2075,12 @@ export interface SessionReport {
         memoryContentSha256: string;
       }
     | {
-        capability: "primary-main-loop-input-progress-gateway";
-        implementationId: "runtime.main-loop-input-progress-gateway.v1";
+        capability:
+          | "primary-main-loop-input-progress-gateway"
+          | "primary-main-loop-action-input-progress-gateway";
+        implementationId:
+          | "runtime.main-loop-input-progress-gateway.v1"
+          | "runtime.main-loop-action-input-progress-gateway.v1";
         requiredCycles: 253;
         minimumRequiredCycles: 253;
         maximumCycles: 320;
