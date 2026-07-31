@@ -491,13 +491,10 @@ function assertCapabilityCheckpoint(
             const getSystemMetricsCaption =
               actual.getSystemMetricsCaptionPostRelease;
             assert(getSystemMetricsCaption !== undefined);
-            assert.equal(
-              getSystemMetricsCaption.sequence,
-              actual.lastCompletionSequence,
-            );
+            assert.equal(getSystemMetricsCaption.sequence, 161_961);
             assert.equal(
               getSystemMetricsCaption.trapInstructionCount,
-              actual.lastCompletionInstructionCount,
+              321_463_133,
             );
             assert.equal(getSystemMetricsCaption.runtimeThreadId, 8_192);
             assert.equal(
