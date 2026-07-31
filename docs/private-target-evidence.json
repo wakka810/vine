@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-31T20:42:14.371Z",
+  "recordedAt": "2026-07-31T22:21:58.947Z",
   "repository": {
-    "implementationCommit": "f804f7ee1936420ca8eb720fc8bf1837b88f7615",
-    "implementationTree": "ac950dc3fffc7da71ed100556475966137004b02",
-    "headCommit": "f804f7ee1936420ca8eb720fc8bf1837b88f7615",
+    "implementationCommit": "afa1c1e1bda527c32bff26e6bab69f3cd9a3a76c",
+    "implementationTree": "75dddee9424b0eed9204e212aa87941f9e89f162",
+    "headCommit": "afa1c1e1bda527c32bff26e6bab69f3cd9a3a76c",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -28,14 +28,14 @@
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
     "runtimeCheckpoint": "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
-    "runtimeProfile": "winmm-time-get-time-post-is-iconic-continuation",
+    "runtimeProfile": "user32-get-async-key-state-post-is-iconic-clock-continuation",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-winmm-time-get-time-post-is-iconic-continuation",
+    "nodeReportSchema": "vine.v86-bgi-user32-get-async-key-state-post-is-iconic-clock-continuation",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v95",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v96",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -70,14 +70,14 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 131,
-      "supportedCalls": 161964,
-      "callSemanticsSha256": "893826b9bf64219e935d14b5455cff43a62df40ea8292aceabbea73dd724606e",
-      "instructions": 321463448,
-      "finalGeneration": 296339,
-      "memoryContentSha256": "57976ebffcc035e81358e80479bd1848454c08d85c6f024676df353ad444aaae",
+      "supportedCalls": 162079,
+      "callSemanticsSha256": "1d7b2f9fd9e3677a19611e3648e62a40a5f571131c1176636130b06d1bddf284",
+      "instructions": 321468292,
+      "finalGeneration": 296510,
+      "memoryContentSha256": "d4e6ec50e875a134762e7abeea2d49bbad4c2be754b407741de025ca7d78b2be",
       "checkpointCompletion": {
-        "capability": "winmm-time-get-time-post-is-iconic-continuation",
-        "implementationId": "runtime.winmm-time-get-time-post-is-iconic-continuation.v1",
+        "capability": "user32-get-async-key-state-post-is-iconic-clock-continuation",
+        "implementationId": "runtime.user32-get-async-key-state-post-is-iconic-clock-continuation.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -428,8 +428,8 @@
         },
         "releaseMessageQueued": false,
         "activeCallbackDepthAtStop": 0,
-        "requiredCompletions": 1,
-        "completionCount": 1,
+        "requiredCompletions": 38,
+        "completionCount": 38,
         "setFocus": {
           "sequence": 161946,
           "module": "USER32.dll",
@@ -524,8 +524,8 @@
           },
           "runtimeThreadId": 8192
         },
-        "lastCompletionSequence": 161964,
-        "lastCompletionInstructionCount": 321463291,
+        "lastCompletionSequence": 162079,
+        "lastCompletionInstructionCount": 321468229,
         "defWindowProcAActiveCallbackDepthAtCompletion": 1,
         "defWindowProcA": {
           "sequence": 161948,
@@ -1103,42 +1103,135 @@
           },
           "runtimeThreadId": 8192
         },
-        "setFocusActiveCallbackDepthAtStop": 1,
-        "instructionCount": 321463448,
-        "nextEndpoint": {
-          "id": 231,
-          "address": 2130710112,
+        "firstCompletionSequence": 161965,
+        "firstCompletionInstructionCount": 321463448,
+        "scanVirtualKeys": [
+          14,
+          15,
+          13,
+          16,
+          27,
+          38,
+          33,
+          40,
+          34,
+          37,
+          39,
+          49,
+          97,
+          50,
+          98,
+          51,
+          99,
+          52,
+          100,
+          53,
+          101,
+          54,
+          102,
+          55,
+          103,
+          56,
+          104,
+          57,
+          105,
+          48,
+          96,
+          9,
+          17,
+          1,
+          2,
+          4,
+          5,
+          6
+        ],
+        "result": {
+          "action": "set",
+          "value": 0
+        },
+        "lastError": 0,
+        "guestWriteBytes": 0,
+        "getAsyncKeyStatePostIsIconicClockActiveCallbackDepthAtCompletion": 0,
+        "getAsyncKeyStatePostIsIconicClockFirst": {
+          "sequence": 161965,
           "module": "USER32.dll",
+          "symbol": "GetAsyncKeyState",
+          "occurrence": 386,
+          "trapInstructionCount": 321463448,
+          "arguments": [
+            14
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.get-async-key-state.v1",
+          "returnAddress": 268862469,
+          "stackPointerBefore": 7337996,
+          "stackPointerAfter": 7338004,
+          "lastError": 0,
+          "guestWrites": [],
+          "runtimeThreadId": 8192
+        },
+        "getAsyncKeyStatePostIsIconicClockLast": {
+          "sequence": 162079,
+          "module": "USER32.dll",
+          "symbol": "GetAsyncKeyState",
+          "occurrence": 423,
+          "trapInstructionCount": 321468229,
+          "arguments": [
+            6
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.get-async-key-state.v1",
+          "returnAddress": 268862469,
+          "stackPointerBefore": 7338184,
+          "stackPointerAfter": 7338192,
+          "lastError": 0,
+          "guestWrites": [],
+          "runtimeThreadId": 8192
+        },
+        "setFocusActiveCallbackDepthAtStop": 1,
+        "instructionCount": 321468292,
+        "nextEndpoint": {
+          "id": 0,
+          "address": 16846944,
+          "module": "<com>",
           "symbol": {
             "kind": "name",
-            "name": "GetAsyncKeyState"
+            "name": "interface-1-slot-3"
           },
-          "disposition": "declared-runtime-export",
-          "iatAddress": 269292660
+          "disposition": "declared-com-method",
+          "interfaceIndex": 1,
+          "vtableSlot": 3,
+          "interface": "IDirect3DDevice9",
+          "method": "TestCooperativeLevel"
         },
-        "memoryContentSha256": "57976ebffcc035e81358e80479bd1848454c08d85c6f024676df353ad444aaae",
+        "memoryContentSha256": "d4e6ec50e875a134762e7abeea2d49bbad4c2be754b407741de025ca7d78b2be",
         "nextArguments": [
-          14,
-          0
+          16842756
         ],
-        "nextReturnAddress": 268862469,
-        "nextStackPointer": 7337996
+        "nextReturnAddress": 268807629,
+        "nextStackPointer": 7338228
       },
-      "writebackBatches": 165118,
-      "dirtyPages": 244485,
-      "changedBytes": 43070925,
-      "hostDeltaBatches": 127939
+      "writebackBatches": 165233,
+      "dirtyPages": 244664,
+      "changedBytes": 43072357,
+      "hostDeltaBatches": 127995
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 161964,
-      "callSemanticsSha256": "893826b9bf64219e935d14b5455cff43a62df40ea8292aceabbea73dd724606e",
-      "instructions": 321463448,
-      "finalGeneration": 314978,
-      "memoryContentSha256": "57976ebffcc035e81358e80479bd1848454c08d85c6f024676df353ad444aaae",
+      "supportedCalls": 162079,
+      "callSemanticsSha256": "1d7b2f9fd9e3677a19611e3648e62a40a5f571131c1176636130b06d1bddf284",
+      "instructions": 321468292,
+      "finalGeneration": 315149,
+      "memoryContentSha256": "d4e6ec50e875a134762e7abeea2d49bbad4c2be754b407741de025ca7d78b2be",
       "checkpointCompletion": {
-        "capability": "winmm-time-get-time-post-is-iconic-continuation",
-        "implementationId": "runtime.winmm-time-get-time-post-is-iconic-continuation.v1",
+        "capability": "user32-get-async-key-state-post-is-iconic-clock-continuation",
+        "implementationId": "runtime.user32-get-async-key-state-post-is-iconic-clock-continuation.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -1482,8 +1575,8 @@
         "releaseMessageQueued": false,
         "activeCallbackDepthAtStop": 0,
         "setFocusActiveCallbackDepthAtStop": 1,
-        "requiredCompletions": 1,
-        "completionCount": 1,
+        "requiredCompletions": 38,
+        "completionCount": 38,
         "setFocus": {
           "sequence": 161946,
           "module": "user32.dll",
@@ -1683,8 +1776,8 @@
         "translateMessageReleaseActiveCallbackDepthAtCompletion": 0,
         "queueDepthAtTranslateCompletion": 0,
         "translateMessageReleaseBytesPreserved": true,
-        "lastCompletionSequence": 161964,
-        "lastCompletionInstructionCount": 321463291,
+        "lastCompletionSequence": 162079,
+        "lastCompletionInstructionCount": 321468229,
         "translateMessageRelease": {
           "sequence": 161950,
           "module": "user32.dll",
@@ -2127,31 +2220,124 @@
           "trapInstructionCount": 321463291,
           "occurrence": 223
         },
-        "instructionCount": 321463448,
-        "nextEndpoint": {
-          "address": 2130710112,
-          "disposition": "declared-runtime-export",
-          "iatAddress": 269292660,
-          "id": 231,
+        "firstCompletionSequence": 161965,
+        "firstCompletionInstructionCount": 321463448,
+        "scanVirtualKeys": [
+          14,
+          15,
+          13,
+          16,
+          27,
+          38,
+          33,
+          40,
+          34,
+          37,
+          39,
+          49,
+          97,
+          50,
+          98,
+          51,
+          99,
+          52,
+          100,
+          53,
+          101,
+          54,
+          102,
+          55,
+          103,
+          56,
+          104,
+          57,
+          105,
+          48,
+          96,
+          9,
+          17,
+          1,
+          2,
+          4,
+          5,
+          6
+        ],
+        "result": {
+          "action": "set",
+          "value": 0
+        },
+        "lastError": 0,
+        "guestWriteBytes": 0,
+        "getAsyncKeyStatePostIsIconicClockActiveCallbackDepthAtCompletion": 0,
+        "getAsyncKeyStatePostIsIconicClockFirst": {
+          "sequence": 161965,
           "module": "user32.dll",
+          "symbol": "GetAsyncKeyState",
+          "arguments": [
+            14
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.get-async-key-state.v1",
+          "returnAddress": 268862469,
+          "stackPointerBefore": 7337996,
+          "stackPointerAfter": 7338004,
+          "lastError": 0,
+          "guestWrites": [],
+          "runtimeThreadId": 8192,
+          "trapInstructionCount": 321463448,
+          "occurrence": 386
+        },
+        "getAsyncKeyStatePostIsIconicClockLast": {
+          "sequence": 162079,
+          "module": "user32.dll",
+          "symbol": "GetAsyncKeyState",
+          "arguments": [
+            6
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.get-async-key-state.v1",
+          "returnAddress": 268862469,
+          "stackPointerBefore": 7338184,
+          "stackPointerAfter": 7338192,
+          "lastError": 0,
+          "guestWrites": [],
+          "runtimeThreadId": 8192,
+          "trapInstructionCount": 321468229,
+          "occurrence": 423
+        },
+        "instructionCount": 321468292,
+        "nextEndpoint": {
+          "id": 0,
+          "address": 16846944,
+          "module": "<com>",
           "symbol": {
             "kind": "name",
-            "name": "GetAsyncKeyState"
-          }
+            "name": "interface-1-slot-3"
+          },
+          "disposition": "declared-com-method",
+          "interfaceIndex": 1,
+          "vtableSlot": 3,
+          "interface": "IDirect3DDevice9",
+          "method": "TestCooperativeLevel"
         },
         "nextArguments": [
-          14,
-          0
+          16842756
         ],
-        "nextReturnAddress": 268862469,
-        "nextStackPointer": 7337996,
-        "memoryContentSha256": "57976ebffcc035e81358e80479bd1848454c08d85c6f024676df353ad444aaae"
+        "nextReturnAddress": 268807629,
+        "nextStackPointer": 7338228,
+        "memoryContentSha256": "d4e6ec50e875a134762e7abeea2d49bbad4c2be754b407741de025ca7d78b2be"
       },
-      "wasmBridgeCalls": 489413,
+      "wasmBridgeCalls": 489708,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 588701,
+          "transitionCount": 589072,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -2198,18 +2384,20 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "user32-get-async-key-state-post-is-iconic-clock-continuation",
-      "pausedHistoricalCheckpoint": "winmm-time-get-time-post-is-iconic-continuation",
-      "instructionCount": 321463448,
-      "capabilityCluster": "user32-post-is-iconic-input-query-continuation",
-      "reason": "winmm-time-get-time-post-is-iconic-continuation-checkpoint-complete",
+      "nextCheckpoint": "d3d9-test-cooperative-level-post-input-scan-continuation",
+      "pausedHistoricalCheckpoint": "user32-get-async-key-state-post-is-iconic-clock-continuation",
+      "instructionCount": 321468292,
+      "capabilityCluster": "d3d9-live-device-query-continuation",
+      "reason": "user32-get-async-key-state-post-is-iconic-clock-continuation-checkpoint-complete",
       "completion": {
-        "capability": "winmm-time-get-time-post-is-iconic-continuation",
-        "implementationId": "runtime.winmm-time-get-time-post-is-iconic-continuation.v1",
-        "requiredCompletions": 1,
-        "completionCount": 1,
-        "lastCompletionSequence": 161964,
-        "lastCompletionInstructionCount": 321463291,
+        "capability": "user32-get-async-key-state-post-is-iconic-clock-continuation",
+        "implementationId": "runtime.user32-get-async-key-state-post-is-iconic-clock-continuation.v1",
+        "requiredCompletions": 38,
+        "completionCount": 38,
+        "firstCompletionSequence": 161965,
+        "firstCompletionInstructionCount": 321463448,
+        "lastCompletionSequence": 162079,
+        "lastCompletionInstructionCount": 321468229,
         "maximumRepeatCompletions": 16,
         "requiredEntries": 1,
         "entryCount": 1,
@@ -2217,20 +2405,22 @@
         "lastEntryInstructionCount": 321462435
       },
       "nextEndpoint": {
-        "endpointKind": "runtime-system-export",
-        "endpointId": 231,
-        "api": "USER32.dll!GetAsyncKeyState",
-        "endpointAddress": "0x7f000e60",
-        "iatAddress": "0x100d1474",
-        "observedModule": "USER32.dll",
-        "observedSymbol": "GetAsyncKeyState",
-        "disposition": "declared-runtime-export",
+        "endpointKind": "com-method",
+        "endpointId": 0,
+        "api": "IDirect3DDevice9!TestCooperativeLevel",
+        "endpointAddress": "0x01011060",
+        "observedModule": "<com>",
+        "observedSymbol": "interface-1-slot-3",
+        "disposition": "declared-com-method",
+        "interfaceIndex": 1,
+        "vtableSlot": 3,
+        "interface": "IDirect3DDevice9",
+        "method": "TestCooperativeLevel",
         "arguments": [
-          "0x0000000e",
-          "0x00000000"
+          "0x01010004"
         ],
-        "returnAddress": "0x10068405",
-        "stackPointer": "0x006ff80c"
+        "returnAddress": "0x1005adcd",
+        "stackPointer": "0x006ff8f4"
       }
     },
     "cleanup": {
@@ -2246,14 +2436,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-time-get-time-post-is-iconic-continuation/report.json",
-      "bytes": 3049167,
-      "sha256": "abcd5ff245aad79103efd46817fba562248e6d41e6cdaa002bcc2be52b473a09"
+      "path": ".work/v86-bgi-get-async-key-state-post-is-iconic-clock-continuation/report.json",
+      "bytes": 3054152,
+      "sha256": "1bace4680cec810322d4cce7744c89d253dd0da0b885e8126ad1a4641150b48f"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2753352,
-      "sha256": "eb60fc256243a9bb92c0eb36d538de500c1466f8f332fb8266e00e83e774d356"
+      "bytes": 2755688,
+      "sha256": "9c8cad6741aa6864b9d454d741e440807750605168b5c78a0837aee93a8f3507"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -2268,7 +2458,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3766,
-      "sha256": "44c2c52145964d7abd616d92520252fb9c8e1e9f0e8bd316747e6dadd0c0c3e6"
+      "sha256": "453ade8db78cf371feb16119a2314c037ba596b915ef87048cfd03466d9e26e3"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -2305,5 +2495,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "9f5b0f0802fc4222aacab088adc2072830cc1c2cff250e2a228a6a81b2d479df"
+  "payloadSha256": "b31f0e378111d2ecb59f4a018f0802104877fe779a1262e00da2065aa38689d0"
 }
