@@ -278,6 +278,7 @@ enum GenericRuntimeCapability {
     User32PointerButtonMessages,
     User32SetFocusSameWindow,
     User32DefWindowProcPointerDown,
+    User32DefWindowProcPointerRelease,
 }
 
 struct GenericRuntimeProcess {
@@ -2932,6 +2933,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::User32PointerButtonMessages
                     | GenericRuntimeCapability::User32SetFocusSameWindow
                     | GenericRuntimeCapability::User32DefWindowProcPointerDown
+                    | GenericRuntimeCapability::User32DefWindowProcPointerRelease
             )
         ) {
             let loader = kernel32_policy
@@ -3604,6 +3606,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::User32PointerButtonMessages
                 | GenericRuntimeCapability::User32SetFocusSameWindow
                 | GenericRuntimeCapability::User32DefWindowProcPointerDown
+                | GenericRuntimeCapability::User32DefWindowProcPointerRelease
         )
     );
     let pointer_button_messages_enabled = matches!(
@@ -3612,6 +3615,7 @@ fn run_v86_generic_runtime_session(
             GenericRuntimeCapability::User32PointerButtonMessages
                 | GenericRuntimeCapability::User32SetFocusSameWindow
                 | GenericRuntimeCapability::User32DefWindowProcPointerDown
+                | GenericRuntimeCapability::User32DefWindowProcPointerRelease
         )
     );
     let set_focus_same_window_enabled = matches!(
@@ -3619,11 +3623,19 @@ fn run_v86_generic_runtime_session(
         Some(
             GenericRuntimeCapability::User32SetFocusSameWindow
                 | GenericRuntimeCapability::User32DefWindowProcPointerDown
+                | GenericRuntimeCapability::User32DefWindowProcPointerRelease
         )
     );
     let def_window_proc_pointer_down_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::User32DefWindowProcPointerDown)
+        Some(
+            GenericRuntimeCapability::User32DefWindowProcPointerDown
+                | GenericRuntimeCapability::User32DefWindowProcPointerRelease
+        )
+    );
+    let def_window_proc_pointer_release_enabled = matches!(
+        enabled_capability,
+        Some(GenericRuntimeCapability::User32DefWindowProcPointerRelease)
     );
     let d3d9_present_enabled = matches!(
         enabled_capability,
@@ -3636,6 +3648,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::User32PointerButtonMessages
                 | GenericRuntimeCapability::User32SetFocusSameWindow
                 | GenericRuntimeCapability::User32DefWindowProcPointerDown
+                | GenericRuntimeCapability::User32DefWindowProcPointerRelease
         )
     );
     let get_async_key_state_enabled = matches!(
@@ -3647,6 +3660,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::User32PointerButtonMessages
                 | GenericRuntimeCapability::User32SetFocusSameWindow
                 | GenericRuntimeCapability::User32DefWindowProcPointerDown
+                | GenericRuntimeCapability::User32DefWindowProcPointerRelease
         )
     );
     let get_async_key_state_input_enabled = matches!(
@@ -3661,6 +3675,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::User32PointerButtonMessages
                 | GenericRuntimeCapability::User32SetFocusSameWindow
                 | GenericRuntimeCapability::User32DefWindowProcPointerDown
+                | GenericRuntimeCapability::User32DefWindowProcPointerRelease
         )
     );
     let d3d9_post_end_scene_raster_status_enabled = matches!(
@@ -3677,6 +3692,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::User32PointerButtonMessages
                 | GenericRuntimeCapability::User32SetFocusSameWindow
                 | GenericRuntimeCapability::User32DefWindowProcPointerDown
+                | GenericRuntimeCapability::User32DefWindowProcPointerRelease
         )
     );
     let d3d9_end_scene_enabled = d3d9_post_end_scene_raster_status_enabled
@@ -3934,7 +3950,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
             | GenericRuntimeCapability::User32PointerButtonMessages
             | GenericRuntimeCapability::User32SetFocusSameWindow
-            | GenericRuntimeCapability::User32DefWindowProcPointerDown,
+            | GenericRuntimeCapability::User32DefWindowProcPointerDown
+            | GenericRuntimeCapability::User32DefWindowProcPointerRelease,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
         capability => capability,
     };
@@ -4093,7 +4110,9 @@ fn run_v86_generic_runtime_session(
     );
     let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
     imm32_policy.validate().map_err(api_fault)?;
-    let mut user32_policy = if def_window_proc_pointer_down_enabled {
+    let mut user32_policy = if def_window_proc_pointer_release_enabled {
+        User32CompatibilityPolicy::controlled_v35()
+    } else if def_window_proc_pointer_down_enabled {
         User32CompatibilityPolicy::controlled_v34()
     } else if set_focus_same_window_enabled {
         User32CompatibilityPolicy::controlled_v33()
@@ -15021,6 +15040,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "user32-translate-message-pointer-release-continuation"
                 | "user32-dispatch-message-a-pointer-release-continuation" => {
                     GenericRuntimeCapability::User32DefWindowProcPointerDown
+                }
+                "user32-def-window-proc-a-pointer-release-continuation" => {
+                    GenericRuntimeCapability::User32DefWindowProcPointerRelease
                 }
                 "kernel32-leave-critical-section" => {
                     GenericRuntimeCapability::WaitForSingleObjectEx

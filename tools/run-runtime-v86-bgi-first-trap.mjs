@@ -216,6 +216,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-peek-message-a-pointer-release-continuation",
         "user32-translate-message-pointer-release-continuation",
         "user32-dispatch-message-a-pointer-release-continuation",
+        "user32-def-window-proc-a-pointer-release-continuation",
         "kernel32-wait-for-single-object-ex",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -405,6 +406,7 @@ assert(
       "user32-peek-message-a-pointer-release-continuation",
       "user32-translate-message-pointer-release-continuation",
       "user32-dispatch-message-a-pointer-release-continuation",
+      "user32-def-window-proc-a-pointer-release-continuation",
       "kernel32-wait-for-single-object-ex",
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
       "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -540,6 +542,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
       "user32-translate-message-pointer-release-continuation" ||
     genericRuntimeCapability ===
       "user32-dispatch-message-a-pointer-release-continuation" ||
+    genericRuntimeCapability ===
+      "user32-def-window-proc-a-pointer-release-continuation" ||
     genericRuntimeCapability ===
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     genericRuntimeCapability ===
@@ -920,7 +924,12 @@ const inputProgressGatewayCheckpointEnabled =
   genericRuntimeCapability ===
     "user32-translate-message-pointer-release-continuation" ||
   genericRuntimeCapability ===
-    "user32-dispatch-message-a-pointer-release-continuation";
+    "user32-dispatch-message-a-pointer-release-continuation" ||
+  genericRuntimeCapability ===
+    "user32-def-window-proc-a-pointer-release-continuation";
+const defWindowProcAPointerReleaseContinuationCheckpointEnabled =
+  genericRuntimeCapability ===
+  "user32-def-window-proc-a-pointer-release-continuation";
 const windowTimerCallbackDeliveryGatewayCheckpointEnabled =
   genericRuntimeCapability ===
   "primary-main-loop-window-timer-callback-delivery-gateway";
@@ -941,7 +950,9 @@ const windowTimerCallbackActionInputProgressGatewayCheckpointEnabled =
   genericRuntimeCapability ===
     "user32-translate-message-pointer-release-continuation" ||
   genericRuntimeCapability ===
-    "user32-dispatch-message-a-pointer-release-continuation";
+    "user32-dispatch-message-a-pointer-release-continuation" ||
+  genericRuntimeCapability ===
+    "user32-def-window-proc-a-pointer-release-continuation";
 const setFocusActionContinuationCheckpointEnabled =
   genericRuntimeCapability === "user32-set-focus-action-continuation" ||
   genericRuntimeCapability === "winmm-time-get-time-action-continuation" ||
@@ -952,12 +963,15 @@ const setFocusActionContinuationCheckpointEnabled =
   genericRuntimeCapability ===
     "user32-translate-message-pointer-release-continuation" ||
   genericRuntimeCapability ===
-    "user32-dispatch-message-a-pointer-release-continuation";
+    "user32-dispatch-message-a-pointer-release-continuation" ||
+  genericRuntimeCapability ===
+    "user32-def-window-proc-a-pointer-release-continuation";
 const timeGetTimeActionContinuationCheckpointEnabled =
   genericRuntimeCapability === "winmm-time-get-time-action-continuation";
 const dispatchMessageAPointerReleaseContinuationCheckpointEnabled =
   genericRuntimeCapability ===
-  "user32-dispatch-message-a-pointer-release-continuation";
+    "user32-dispatch-message-a-pointer-release-continuation" ||
+  defWindowProcAPointerReleaseContinuationCheckpointEnabled;
 const translateMessagePointerReleaseContinuationCheckpointEnabled =
   genericRuntimeCapability ===
     "user32-translate-message-pointer-release-continuation" ||
@@ -982,7 +996,9 @@ const windowTimerCallbackDeliveryEnabled =
   windowTimerCallbackRecurringBatchCheckpointEnabled ||
   windowTimerCallbackActionInputProgressGatewayCheckpointEnabled;
 const user32CompatibilityPolicyId =
-  defWindowProcAActionContinuationCheckpointEnabled
+  defWindowProcAPointerReleaseContinuationCheckpointEnabled
+    ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35"
+    : defWindowProcAActionContinuationCheckpointEnabled
     ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
     : setFocusActionContinuationCheckpointEnabled
     ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
@@ -1006,7 +1022,16 @@ const recurringTimerBoundedWindowCheckpointEnabled =
   recurringTimerMultiCycleCheckpointEnabled ||
   recurringTimerWindowEvidenceEnabled;
 const recurringTimerWindowConfiguration =
-  dispatchMessageAPointerReleaseContinuationCheckpointEnabled
+  defWindowProcAPointerReleaseContinuationCheckpointEnabled
+    ? {
+        capability:
+          "user32-def-window-proc-a-pointer-release-continuation",
+        implementationId:
+          "runtime.user32-def-window-proc-a-pointer-release-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      }
+    : dispatchMessageAPointerReleaseContinuationCheckpointEnabled
     ? {
         capability: "user32-dispatch-message-a-pointer-release-continuation",
         implementationId:
@@ -1610,7 +1635,9 @@ const outputDirectory = path.join(
             : recurringTimerBoundedWindowCheckpointEnabled
               ? setFocusActionContinuationCheckpointEnabled
                 ? dispatchMessageAPointerReleaseContinuationCheckpointEnabled
-                  ? "v86-bgi-dispatch-message-a-pointer-release-continuation"
+                  ? defWindowProcAPointerReleaseContinuationCheckpointEnabled
+                    ? "v86-bgi-def-window-proc-a-pointer-release-continuation"
+                    : "v86-bgi-dispatch-message-a-pointer-release-continuation"
                   : translateMessagePointerReleaseContinuationCheckpointEnabled
                   ? "v86-bgi-translate-message-pointer-release-continuation"
                   : peekMessageAPointerReleaseContinuationCheckpointEnabled
@@ -6059,7 +6086,9 @@ async function run() {
       sessionCompleted = true;
       const sourceAfter = sourceIdentity(bgiPath);
       assert.deepEqual(sourceAfter, sourceBefore);
-      if (dispatchMessageAPointerReleaseContinuationCheckpointEnabled) {
+      if (defWindowProcAPointerReleaseContinuationCheckpointEnabled) {
+        validateDefWindowProcAPointerReleaseContinuationResult(genericResult);
+      } else if (dispatchMessageAPointerReleaseContinuationCheckpointEnabled) {
         validateDispatchMessageAPointerReleaseContinuationResult(genericResult);
       } else if (translateMessagePointerReleaseContinuationCheckpointEnabled) {
         validateTranslateMessagePointerReleaseContinuationResult(genericResult);
@@ -6429,7 +6458,9 @@ async function run() {
                   ? pointerMessageActionProgressGatewayCheckpointEnabled
                     ? setFocusActionContinuationCheckpointEnabled
                       ? dispatchMessageAPointerReleaseContinuationCheckpointEnabled
-                        ? "bgi USER32 DispatchMessageA pointer release continuation"
+                        ? defWindowProcAPointerReleaseContinuationCheckpointEnabled
+                          ? "bgi USER32 DefWindowProcA pointer release continuation"
+                          : "bgi USER32 DispatchMessageA pointer release continuation"
                         : translateMessagePointerReleaseContinuationCheckpointEnabled
                         ? "bgi USER32 TranslateMessage pointer release continuation"
                         : peekMessageAPointerReleaseContinuationCheckpointEnabled
@@ -7179,6 +7210,7 @@ async function runGenericRuntimeReentry({
   let dispatchMessageAPointerReleaseDispatching = false;
   let dispatchMessageAPointerReleaseContinuationEntry = null;
   let dispatchMessageAPointerReleaseBytesBefore = null;
+  let defWindowProcAPointerReleaseContinuationEntry = null;
   let inputProgressAsyncKeyStateQuery = null;
   const inputProgressVirtualKey = actionInputProgressGatewayCheckpointEnabled
     ? 0x01
@@ -7556,6 +7588,29 @@ async function runGenericRuntimeReentry({
       dispatchMessageAPointerReleaseAwaitingDispatch = false;
       dispatchMessageAPointerReleaseDispatching = true;
     }
+    if (
+      defWindowProcAPointerReleaseContinuationCheckpointEnabled &&
+      dispatchMessageAPointerReleaseContinuationEntry !== null &&
+      defWindowProcAPointerReleaseContinuationEntry === null &&
+      endpoint !== null
+    ) {
+      assert.equal(activeCallbacks.length, 1);
+      assert.equal(endpoint.kind, "runtime-system-export");
+      assert.equal(endpoint.id, 233);
+      assert.equal(endpoint.address, 0x7f00_0e80);
+      assert.equal(endpoint.module.toLowerCase(), "user32.dll");
+      assert.equal(endpoint.symbol, "DefWindowProcA");
+      assert.equal(terminal.kind, "owned-import-thunk");
+      assert.equal(terminal.thunk.iatAddress, 0x100d_147c);
+      assert.deepEqual(terminal.stackWords.slice(1, 5), [
+        0x4801_0001,
+        0x0202,
+        0,
+        0x0168_0280,
+      ]);
+      assert.equal(terminal.returnAddress, 0x1009_33bf);
+      assert.equal(continuation.finalState.esp, 0x006f_f50c);
+    }
 
     if (
       endpoint !== null &&
@@ -7780,7 +7835,25 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
+      defWindowProcAPointerReleaseContinuationEntry !== null &&
+      endpoint !== null
+    ) {
+      assert.equal(activeCallbacks.length, 0);
+      assert(defWindowProcAPointerReleaseContinuationEntry.releaseCallbackReturn);
+      checkpointCompletion = {
+        ...defWindowProcAPointerReleaseContinuationEntry,
+        setFocusActiveCallbackDepthAtStop:
+          defWindowProcAPointerReleaseContinuationEntry
+            .activeCallbackDepthAtStop,
+        activeCallbackDepthAtStop: activeCallbacks.length,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
+    if (
       dispatchMessageAPointerReleaseContinuationEntry !== null &&
+      !defWindowProcAPointerReleaseContinuationCheckpointEnabled &&
       endpoint !== null
     ) {
       assert.equal(dispatchMessageAPointerReleaseAwaitingDispatch, false);
@@ -7900,6 +7973,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "user32-def-window-proc-a-pointer-release-continuation"
+            ? "user32-def-window-proc-a-pointer-release-continuation-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "user32-dispatch-message-a-pointer-release-continuation"
             ? "user32-dispatch-message-a-pointer-release-continuation-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -8088,6 +8164,12 @@ async function runGenericRuntimeReentry({
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (postCriticalSectionSetWaitableTimerCheckpointEnabled) {
         checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 4);
+        checkpointCompletion.nextReturnAddress = terminal.returnAddress;
+        checkpointCompletion.nextStackPointer = continuation.finalState.esp;
+      } else if (
+        defWindowProcAPointerReleaseContinuationCheckpointEnabled
+      ) {
+        checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 6);
         checkpointCompletion.nextReturnAddress = terminal.returnAddress;
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (
@@ -8421,8 +8503,28 @@ async function runGenericRuntimeReentry({
         result: callbackResult,
       });
       if (
+        defWindowProcAPointerReleaseContinuationCheckpointEnabled &&
+        defWindowProcAPointerReleaseContinuationEntry !== null &&
+        activeCallbacks.length === 0
+      ) {
+        assert.equal(active.endpoint.module.toLowerCase(), "user32.dll");
+        assert.equal(active.endpoint.symbol, "DispatchMessageA");
+        assert.equal(
+          active.sequence,
+          defWindowProcAPointerReleaseContinuationEntry.lastEntrySequence,
+        );
+        assert.equal(callbackResult, 0);
+        defWindowProcAPointerReleaseContinuationEntry = {
+          ...defWindowProcAPointerReleaseContinuationEntry,
+          releaseCallbackReturn: structuredClone(callbackEvents.at(-1)),
+          dispatchMessageReleaseResult: callbackResult,
+        };
+      }
+      if (
         peekMessageAPointerReleaseContinuationCheckpointEnabled &&
         defWindowProcAActionContinuationEntry !== null &&
+        active.sequence ===
+          defWindowProcAActionContinuationEntry.dispatchEntry.sequence &&
         activeCallbacks.length === 0
       ) {
         assert.equal(active.endpoint.module.toLowerCase(), "user32.dll");
@@ -9454,6 +9556,7 @@ async function runGenericRuntimeReentry({
     if (
       hasTimeGetTimeActionContinuationCheckpoint &&
       setFocusActionContinuationEntry !== null &&
+      defWindowProcAActionContinuationEntry === null &&
       call.implementationId === "winmm.time-get-time.v1"
     ) {
       assert.equal(timeGetTimeActionContinuationEntry, null);
@@ -9543,6 +9646,52 @@ async function runGenericRuntimeReentry({
         },
       };
       timeGetTimeActionContinuationEntry = null;
+    }
+    if (
+      defWindowProcAPointerReleaseContinuationCheckpointEnabled &&
+      dispatchMessageAPointerReleaseContinuationEntry !== null &&
+      call.implementationId === "user32.def-window-proc-a.v1" &&
+      call.arguments[1] === 0x0202
+    ) {
+      assert.equal(defWindowProcAPointerReleaseContinuationEntry, null);
+      assert.equal(call.module.toLowerCase(), "user32.dll");
+      assert.equal(call.symbol, "DefWindowProcA");
+      assert.deepEqual(call.arguments, [
+        0x4801_0001,
+        0x0202,
+        0,
+        0x0168_0280,
+      ]);
+      assert.deepEqual(call.result, { action: "set", value: 0 });
+      assert.equal(
+        call.sequence,
+        dispatchMessageAPointerReleaseContinuationEntry.lastEntrySequence + 1,
+      );
+      assert.equal(call.returnAddress, 0x1009_33bf);
+      assert.equal(call.stackPointerBefore, 0x006f_f50c);
+      assert.equal(call.stackPointerAfter, 0x006f_f520);
+      assert.equal(call.lastError, 0);
+      assert.deepEqual(call.guestWrites, []);
+      assert.equal(currentThreadId, 8_192);
+      assert.equal(activeCallbacks.length, 1);
+      defWindowProcAPointerReleaseContinuationEntry = {
+        ...dispatchMessageAPointerReleaseContinuationEntry,
+        capability:
+          "user32-def-window-proc-a-pointer-release-continuation",
+        implementationId:
+          "runtime.user32-def-window-proc-a-pointer-release-continuation.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: call.trapInstructionCount,
+        defWindowProcAReleaseActiveCallbackDepthAtCompletion:
+          activeCallbacks.length,
+        defWindowProcARelease: {
+          ...structuredClone(call),
+          runtimeThreadId: currentThreadId,
+        },
+      };
+      dispatchMessageAPointerReleaseContinuationEntry = null;
     }
     if (
       presentationProgressEvidenceEnabled &&
@@ -26902,6 +27051,10 @@ function validatePostWaitCriticalSectionResult(result) {
 }
 
 function validateRecurringTimerBoundedWindowResult(result) {
+  if (defWindowProcAPointerReleaseContinuationCheckpointEnabled) {
+    validateDefWindowProcAPointerReleaseContinuationResult(result);
+    return;
+  }
   if (dispatchMessageAPointerReleaseContinuationCheckpointEnabled) {
     validateDispatchMessageAPointerReleaseContinuationResult(result);
     return;
@@ -26955,6 +27108,86 @@ function validateRecurringTimerBoundedWindowResult(result) {
     return;
   }
   validateRecurringTimerWindowResult(result);
+}
+
+function validateDefWindowProcAPointerReleaseContinuationResult(result) {
+  assert(defWindowProcAPointerReleaseContinuationCheckpointEnabled);
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  const checkpoint = result.checkpointCompletion;
+  assert.equal(
+    checkpoint?.capability,
+    "user32-def-window-proc-a-pointer-release-continuation",
+  );
+  assert.equal(
+    checkpoint.implementationId,
+    "runtime.user32-def-window-proc-a-pointer-release-continuation.v1",
+  );
+  assert.equal(checkpoint.requiredCompletions, 1);
+  assert.equal(checkpoint.completionCount, 1);
+  assert.equal(checkpoint.lastCompletionSequence, 161_952);
+  assert.equal(checkpoint.lastCompletionInstructionCount, 321_462_499);
+  assert.equal(checkpoint.defWindowProcAReleaseActiveCallbackDepthAtCompletion, 1);
+  assert.equal(checkpoint.setFocusActiveCallbackDepthAtStop, 1);
+  assert.equal(checkpoint.activeCallbackDepthAtStop, 0);
+  assert.equal(checkpoint.queueDepthAtDispatchEntry, 0);
+  assert.equal(checkpoint.releaseMessageQueued, false);
+  assert.equal(checkpoint.dispatchMessageReleaseResult, 0);
+  assert.deepEqual(checkpoint.defWindowProcARelease.arguments, [
+    0x4801_0001,
+    0x0202,
+    0,
+    0x0168_0280,
+  ]);
+  assert.deepEqual(checkpoint.defWindowProcARelease.result, {
+    action: "set",
+    value: 0,
+  });
+  assert.equal(checkpoint.defWindowProcARelease.lastError, 0);
+  assert.deepEqual(checkpoint.defWindowProcARelease.guestWrites, []);
+  assert.deepEqual(checkpoint.releaseCallbackReturn, {
+    action: "return",
+    sequence: 161_951,
+    frameId: 34,
+    instructionCount: 321_462_512,
+    result: 0,
+  });
+  assert.equal(checkpoint.instructionCount, 321_462_521);
+  assert.deepEqual(checkpoint.nextEndpoint, {
+    id: 164,
+    address: 0x7f00_0a30,
+    module: "USER32.dll",
+    symbol: { kind: "name", name: "PeekMessageA" },
+    disposition: "declared-runtime-export",
+    iatAddress: 0x100d_1368,
+  });
+  assert.deepEqual(checkpoint.nextArguments, [0x006f_f8e8, 0, 0, 0, 1]);
+  assert.equal(checkpoint.nextReturnAddress, 0x1009_37bb);
+  assert.equal(checkpoint.nextStackPointer, 0x006f_f8c4);
+  assert.equal(
+    checkpoint.memoryContentSha256,
+    "3f84e3a33f2f3d23856d235cbede4d95c420dc61951d2c2646af6e96213be529",
+  );
+  assert.equal(result.terminal.instructionCount, checkpoint.instructionCount);
+  assert.equal(result.supportedCalls.length, 161_952);
+  assert.equal(result.writebacks.length, 165_106);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    244_464,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    43_070_501,
+  );
+  assert.equal(result.hostDeltas.length, 127_937);
+  assert.equal(result.finalGeneration, 296_325);
+  assert.equal(result.threadExecution.contextSwitches, 2_512);
 }
 
 function validateDispatchMessageAPointerReleaseContinuationResult(result) {
@@ -34618,7 +34851,15 @@ function buildGenericRuntimeReentryReport({
   }
   assert.equal(semanticCallDigest.count(), completedSupportedCalls.length);
   const supportedCallSemanticsSha256 = semanticCallDigest.digestHex();
-  if (dispatchMessageAPointerReleaseContinuationCheckpointEnabled) {
+  if (defWindowProcAPointerReleaseContinuationCheckpointEnabled) {
+    assert.equal(completedSupportedCalls.length, 161_952);
+    assert.equal(genericResult.supportedCalls.length, 161_952);
+    assert.notEqual(genericResult.supportedCalls.at(-1).pendingCallback, true);
+    assert.equal(
+      supportedCallSemanticsSha256,
+      "d884a63fe998798edcd606766c990d11e121dda2947685ce5439f85a00d2380c",
+    );
+  } else if (dispatchMessageAPointerReleaseContinuationCheckpointEnabled) {
     assert.equal(completedSupportedCalls.length, 161_950);
     assert.equal(genericResult.supportedCalls.length, 161_951);
     assert.equal(genericResult.supportedCalls.at(-1).pendingCallback, true);
@@ -35472,7 +35713,8 @@ function buildGenericRuntimeReentryReport({
       requiredDeliveries +
         (defWindowProcAActionContinuationCheckpointEnabled
           ? pointerDeliveries
-          : 0),
+          : 0) +
+        (defWindowProcAPointerReleaseContinuationCheckpointEnabled ? 1 : 0),
     );
   }
   const isIconicCalls = user32IsIconicEnabled

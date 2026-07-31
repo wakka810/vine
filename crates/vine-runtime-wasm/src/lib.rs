@@ -105,6 +105,7 @@ struct BgiCheckpointCapabilities {
     user32_pointer_button_messages: bool,
     user32_set_focus_same_window: bool,
     user32_def_window_proc_a_pointer_down: bool,
+    user32_def_window_proc_a_pointer_release: bool,
 }
 
 impl Bridge {
@@ -736,7 +737,9 @@ impl BrowserRuntime {
             .runtime
             .register_writable_profile(writable_profile)
             .map_err(error_string)?;
-        let user32_policy = if capabilities.user32_def_window_proc_a_pointer_down {
+        let user32_policy = if capabilities.user32_def_window_proc_a_pointer_release {
+            User32CompatibilityPolicy::controlled_v35()
+        } else if capabilities.user32_def_window_proc_a_pointer_down {
             User32CompatibilityPolicy::controlled_v34()
         } else if capabilities.user32_set_focus_same_window {
             User32CompatibilityPolicy::controlled_v33()
@@ -890,7 +893,8 @@ impl BrowserRuntime {
             capabilities.user32_window_timer_callback_delivery
                 || capabilities.user32_pointer_button_messages
                 || capabilities.user32_set_focus_same_window
-                || capabilities.user32_def_window_proc_a_pointer_down,
+                || capabilities.user32_def_window_proc_a_pointer_down
+                || capabilities.user32_def_window_proc_a_pointer_release,
         )?;
         let runtime_stack = process
             .runtime
@@ -4740,6 +4744,8 @@ pub extern "C" fn vine_bridge_prepare_bgi(
                 user32_set_focus_same_window: user32_set_focus_same_window_enabled != 0,
                 user32_def_window_proc_a_pointer_down: user32_def_window_proc_a_pointer_down_enabled
                     != 0,
+                user32_def_window_proc_a_pointer_release:
+                    user32_def_window_proc_a_pointer_down_enabled == 2,
             },
         )
     })

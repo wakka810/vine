@@ -31,7 +31,7 @@ const privateTargetRunner = fs.readFileSync(
 );
 assert.match(
   privateTargetRunner,
-  /if \(expected\.completion\.requiredEntries !== undefined\) \{[\s\S]*?actual\.releaseCallbackEntry\.depth,[\s\S]*?actual\.queueDepthAtDispatchEntry,[\s\S]*?\} else if \(expected\.completion\.requiredPointerMessages !== undefined\)/u,
+  /if \(expected\.completion\.requiredEntries !== undefined\) \{[\s\S]*?actual\.releaseCallbackEntry\.depth,[\s\S]*?actual\.queueDepthAtDispatchEntry,[\s\S]*?if \(expected\.completion\.requiredCompletions !== undefined\) \{[\s\S]*?actual\.defWindowProcARelease\.sequence,[\s\S]*?actual\.releaseCallbackReturn\.frameId,[\s\S]*?actual\.activeCallbackDepthAtStop, 0[\s\S]*?\} else \{[\s\S]*?actual\.activeCallbackDepthAtStop, 1[\s\S]*?\}[\s\S]*?\} else if \(expected\.completion\.requiredPointerMessages !== undefined\)/u,
 );
 const checkpoint = loadCurrentCheckpoint(
   path.join(root, "docs", "current-checkpoint.json"),
@@ -71,7 +71,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 51);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 52);
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
 const lastPacingRequest = { requestId: "4708", sequence: 89_218 };
@@ -214,7 +214,9 @@ function validEvidence() {
           "checkpoint endpoint identity must include a module",
         );
         const manifestCompletion = structuredClone(
-          checkpoint.nextStructuredStop.completion,
+          checkpoint.activeRuntimeCheckpoint.latestEvidence
+            .capabilityCheckpointCompletion ??
+            checkpoint.nextStructuredStop.completion,
         );
         const { dispatchSequence, dispatchInstructionCount, ...completion } =
           manifestCompletion;
@@ -411,7 +413,8 @@ assert.deepEqual(
 );
 if (
   checkpoint.nextStructuredStop.kind === "capability-checkpoint" &&
-  checkpoint.nextStructuredStop.completion.requiredEntries !== undefined
+  checkpoint.nextStructuredStop.completion.requiredEntries !== undefined &&
+  checkpoint.nextStructuredStop.completion.requiredCompletions === undefined
 ) {
   const inheritedCompletionEvidence = validEvidence();
   for (const result of [

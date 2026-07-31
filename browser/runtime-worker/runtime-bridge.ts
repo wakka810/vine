@@ -334,6 +334,7 @@ export class RuntimeBridge {
     user32PointerButtonMessagesEnabled: boolean,
     user32SetFocusSameWindowEnabled: boolean,
     user32DefWindowProcAPointerDownEnabled: boolean,
+    user32DefWindowProcAPointerReleaseEnabled: boolean,
   ): BridgeOutput<PreparedMetadata> {
     const source = sourceManifest ?? emptyBridgeOutput;
     this.#setInput([executable, policy, source, writableProfile]);
@@ -362,7 +363,9 @@ export class RuntimeBridge {
         Number(user32WindowTimerCallbackDeliveryEnabled),
         Number(user32PointerButtonMessagesEnabled),
         Number(user32SetFocusSameWindowEnabled),
-        Number(user32DefWindowProcAPointerDownEnabled),
+        user32DefWindowProcAPointerReleaseEnabled
+          ? 2
+          : Number(user32DefWindowProcAPointerDownEnabled),
       ),
     );
   }

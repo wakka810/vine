@@ -144,6 +144,19 @@ and the published `MSG32` remains unchanged; no completed
 TypeScript does not create a callback stack, message queue, HWND relation, or
 release default-processing result.
 
+Protocol version 85's
+`user32-def-window-proc-a-pointer-release-continuation` completes the reached
+`DefWindowProcA(WM_LBUTTONUP)` and the enclosing callback path. User32 v35
+revalidates the live／visible same-owner active／focused／foreground window,
+released-button `wParam`, and logical-cursor-derived client `lParam`, then
+returns zero without guest-memory, LastError, window, queue, input, or capture
+mutation. The Worker observes that completion at callback depth one, runs the
+guest return, verifies the Rust-issued frame identity, and records the WndProc
+and outer `DispatchMessageA` result as zero after the callback stack reaches
+depth zero. It then stops at the following unfiltered `PeekMessageA`; no DOM
+default action, browser capture, HWND, message queue, or callback authority is
+introduced.
+
 After a guest API completion, Rust may return a `thread-switch` selected by the
 authoritative scheduler. The Worker saves the outgoing opaque engine context and
 restores the context associated with the selected runtime TID; it does not choose

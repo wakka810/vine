@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 84 as const/u);
+assert.match(protocol, /protocolVersion = 85 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -60,6 +60,10 @@ assert.match(
 );
 assert.match(
   protocol,
+  /"user32-def-window-proc-a-pointer-release-continuation"/u,
+);
+assert.match(
+  protocol,
   /capability: "winmm-time-get-time-action-continuation";[\s\S]*?setFocusActiveCallbackDepthAtStop: 1;[\s\S]*?activeCallbackDepthAtStop: 1;[\s\S]*?setFocus: RuntimeThreadCallSnapshot;[\s\S]*?lastCompletionSequence: number;[\s\S]*?lastCompletionInstructionCount: number;[\s\S]*?timeGetTime: RuntimeThreadCallSnapshot;[\s\S]*?nextArguments: \[number, number, number, number\];/u,
 );
 assert.match(
@@ -77,6 +81,10 @@ assert.match(
 assert.match(
   protocol,
   /capability: "user32-dispatch-message-a-pointer-release-continuation";[\s\S]*?releaseMessageQueued: false;[\s\S]*?translateMessageReleaseBytesPreserved: true;[\s\S]*?requiredEntries: 1;[\s\S]*?entryCount: number;[\s\S]*?lastEntrySequence: number;[\s\S]*?lastEntryInstructionCount: number;[\s\S]*?dispatchMessageReleaseActiveCallbackDepthAtEntry: 1;[\s\S]*?queueDepthAtDispatchEntry: 0;[\s\S]*?dispatchMessageReleaseBytesPreserved: true;[\s\S]*?dispatchMessageRelease: \{[\s\S]*?runtimeThreadId: number;[\s\S]*?symbol: "DispatchMessageA";[\s\S]*?pendingCallback: true;[\s\S]*?releaseCallbackEntry: \{[\s\S]*?runtimeThreadId: number;[\s\S]*?depth: 1;[\s\S]*?allocationStart: number;[\s\S]*?scratchAddress: number;[\s\S]*?scratchBytes: number;[\s\S]*?frameBytes: 20;[\s\S]*?returnSentinel: number;[\s\S]*?activeCallbackDepthAtStop: 1;[\s\S]*?nextArguments: \[number, number, number, number\];/u,
+);
+assert.match(
+  protocol,
+  /capability: "user32-def-window-proc-a-pointer-release-continuation";[\s\S]*?requiredCompletions: 1;[\s\S]*?requiredEntries: 1;[\s\S]*?defWindowProcAReleaseActiveCallbackDepthAtCompletion: 1;[\s\S]*?defWindowProcARelease: RuntimeThreadCallSnapshot;[\s\S]*?releaseCallbackReturn: \{[\s\S]*?action: "return";[\s\S]*?dispatchMessageReleaseResult: number;[\s\S]*?activeCallbackDepthAtStop: 0;[\s\S]*?nextArguments: \[number, number, number, number, number\];/u,
 );
 assert.match(protocol, /windowTimerDelivery\?: \{/u);
 assert.match(
@@ -126,6 +134,10 @@ assert.match(
   /user32-dispatch-message-a-pointer-release-continuation/u,
 );
 assert.match(
+  fullProbe,
+  /user32-def-window-proc-a-pointer-release-continuation/u,
+);
+assert.match(
   worker,
   /hasTimeGetTimeActionContinuation\([\s\S]{0,200}#timeGetTimeActionContinuationDispatching &&\s*completion\.implementationId === "winmm\.time-get-time\.v1"/u,
 );
@@ -162,8 +174,12 @@ assert.match(
   /#dispatchMessageAPointerReleaseContinuationDispatching[\s\S]*?metadata\.depth === 1[\s\S]*?metadata\.queuedThreadMessages\.length === 0[\s\S]*?releaseBytesAfter\.every\([\s\S]*?dispatchMessageReleaseActiveCallbackDepthAtEntry: 1[\s\S]*?dispatchMessageReleaseBytesPreserved: true[\s\S]*?releaseCallbackEntry: \{[\s\S]*?activeCallbackDepthAtStop: 1[\s\S]*?#bgiCheckpointPending = true/u,
 );
 assert.match(
+  worker,
+  /#defWindowProcAPointerReleaseContinuationEntry !== null[\s\S]*?completion\.implementationId === "user32\.def-window-proc-a\.v1"[\s\S]*?defWindowProcAReleaseActiveCallbackDepthAtCompletion: 1[\s\S]*?defWindowProcARelease: \{[\s\S]*?#defWindowProcAPointerReleaseContinuationCompletion !== null[\s\S]*?releaseCallbackReturn: \{[\s\S]*?dispatchMessageReleaseResult: result,[\s\S]*?activeCallbackDepthAtStop: 0[\s\S]*?#bgiCheckpointPending = true/u,
+);
+assert.match(
   bridge,
-  /user32DefWindowProcAPointerDownEnabled: boolean[\s\S]*?Number\(user32DefWindowProcAPointerDownEnabled\)/u,
+  /user32DefWindowProcAPointerDownEnabled: boolean[\s\S]*?user32DefWindowProcAPointerReleaseEnabled: boolean[\s\S]*?user32DefWindowProcAPointerReleaseEnabled[\s\S]*?\? 2[\s\S]*?: Number\(user32DefWindowProcAPointerDownEnabled\)/u,
 );
 assert.match(protocol, /kernel32-get-file-attributes-a/u);
 assert.match(protocol, /RuntimeGetFileAttributesACallSnapshot/u);

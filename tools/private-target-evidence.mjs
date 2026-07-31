@@ -74,6 +74,119 @@ function checkEqual(actual, expected, label, errors) {
   }
 }
 
+function capabilityCompletionFields(expected, includeDispatchBoundary = false) {
+  if (expected.requiredEntries !== undefined) {
+    return [
+      "capability",
+      "implementationId",
+      "requiredEntries",
+      "entryCount",
+      "lastEntrySequence",
+      "lastEntryInstructionCount",
+      ...(expected.requiredCompletions === undefined
+        ? []
+        : [
+            "requiredCompletions",
+            "completionCount",
+            "lastCompletionSequence",
+            "lastCompletionInstructionCount",
+          ]),
+    ];
+  }
+  return expected.requiredPointerMessages === undefined
+    ? [
+        "capability",
+        "implementationId",
+        "requiredCompletions",
+        "completionCount",
+        "lastCompletionSequence",
+        "lastCompletionInstructionCount",
+      ]
+    : [
+        "capability",
+        "implementationId",
+        "requiredPointerMessages",
+        "pointerMessageDeliveryCount",
+        "releaseMessageQueued",
+        "activeCallbackDepthAtStop",
+        ...(includeDispatchBoundary
+          ? ["dispatchSequence", "dispatchInstructionCount"]
+          : []),
+      ];
+}
+
+function validatePointerReleaseCompletion(completion, expected, label, errors) {
+  if (
+    expected.requiredEntries === undefined ||
+    expected.requiredCompletions === undefined
+  ) {
+    return;
+  }
+  const releaseCall = requireRecord(
+    completion.defWindowProcARelease,
+    `${label}.defWindowProcARelease`,
+    errors,
+  );
+  const callbackEntry = requireRecord(
+    completion.releaseCallbackEntry,
+    `${label}.releaseCallbackEntry`,
+    errors,
+  );
+  const callbackReturn = requireRecord(
+    completion.releaseCallbackReturn,
+    `${label}.releaseCallbackReturn`,
+    errors,
+  );
+  checkEqual(
+    releaseCall.sequence,
+    expected.lastCompletionSequence,
+    `${label}.defWindowProcARelease.sequence`,
+    errors,
+  );
+  checkEqual(
+    releaseCall.trapInstructionCount,
+    expected.lastCompletionInstructionCount,
+    `${label}.defWindowProcARelease.trapInstructionCount`,
+    errors,
+  );
+  checkEqual(
+    releaseCall.implementationId,
+    "user32.def-window-proc-a.v1",
+    `${label}.defWindowProcARelease.implementationId`,
+    errors,
+  );
+  checkEqual(
+    releaseCall.result?.value,
+    0,
+    `${label}.defWindowProcARelease.result.value`,
+    errors,
+  );
+  checkEqual(
+    callbackReturn.frameId,
+    callbackEntry.frameId,
+    `${label}.releaseCallbackReturn.frameId`,
+    errors,
+  );
+  checkEqual(
+    callbackReturn.result,
+    0,
+    `${label}.releaseCallbackReturn.result`,
+    errors,
+  );
+  checkEqual(
+    completion.dispatchMessageReleaseResult,
+    0,
+    `${label}.dispatchMessageReleaseResult`,
+    errors,
+  );
+  checkEqual(
+    completion.activeCallbackDepthAtStop,
+    0,
+    `${label}.activeCallbackDepthAtStop`,
+    errors,
+  );
+}
+
 function validateExecutionStateMachine(value, label, errors) {
   const stateMachine = requireRecord(value, label, errors);
   for (const scenario of ["success", "cancellation", "watchdog"]) {
@@ -448,33 +561,7 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
         `evidence.semantic.${label}.checkpointCompletion`,
         errors,
       );
-      for (const field of
-        expectedCompletion.requiredEntries !== undefined
-          ? [
-              "capability",
-              "implementationId",
-              "requiredEntries",
-              "entryCount",
-              "lastEntrySequence",
-              "lastEntryInstructionCount",
-            ]
-          : expectedCompletion.requiredPointerMessages === undefined
-            ? [
-              "capability",
-              "implementationId",
-              "requiredCompletions",
-              "completionCount",
-              "lastCompletionSequence",
-              "lastCompletionInstructionCount",
-            ]
-            : [
-                "capability",
-                "implementationId",
-                "requiredPointerMessages",
-                "pointerMessageDeliveryCount",
-                "releaseMessageQueued",
-                "activeCallbackDepthAtStop",
-              ]) {
+      for (const field of capabilityCompletionFields(expectedCompletion)) {
         checkEqual(
           completion[field],
           expectedCompletion[field],
@@ -482,6 +569,12 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
           errors,
         );
       }
+      validatePointerReleaseCompletion(
+        completion,
+        expectedCompletion,
+        `evidence.semantic.${label}.checkpointCompletion`,
+        errors,
+      );
       if (expectedCompletion.requiredPointerMessages !== undefined) {
         const dispatchEntry = requireRecord(
           completion.dispatchEntry,
@@ -685,35 +778,7 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
       errors,
     );
     const expectedCompletion = checkpoint.nextStructuredStop.completion;
-    for (const field of
-      expectedCompletion.requiredEntries !== undefined
-        ? [
-            "capability",
-            "implementationId",
-            "requiredEntries",
-            "entryCount",
-            "lastEntrySequence",
-            "lastEntryInstructionCount",
-          ]
-        : expectedCompletion.requiredPointerMessages === undefined
-          ? [
-            "capability",
-            "implementationId",
-            "requiredCompletions",
-            "completionCount",
-            "lastCompletionSequence",
-            "lastCompletionInstructionCount",
-          ]
-          : [
-              "capability",
-              "implementationId",
-              "requiredPointerMessages",
-              "pointerMessageDeliveryCount",
-              "releaseMessageQueued",
-              "activeCallbackDepthAtStop",
-              "dispatchSequence",
-              "dispatchInstructionCount",
-            ]) {
+    for (const field of capabilityCompletionFields(expectedCompletion, true)) {
       checkEqual(
         completion[field],
         expectedCompletion[field],

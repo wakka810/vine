@@ -216,9 +216,46 @@ function assertCapabilityCheckpoint(actual, expected) {
       actual.lastEntryInstructionCount,
     );
     assert.equal(actual.releaseCallbackEntry.depth, 1);
-    assert.equal(actual.activeCallbackDepthAtStop, 1);
     assert.equal(actual.queueDepthAtDispatchEntry, 0);
     assert.equal(actual.dispatchMessageReleaseBytesPreserved, true);
+    if (expected.completion.requiredCompletions !== undefined) {
+      assert.equal(
+        actual.requiredCompletions,
+        expected.completion.requiredCompletions,
+      );
+      assert.equal(actual.completionCount, expected.completion.completionCount);
+      assert.equal(
+        actual.lastCompletionSequence,
+        expected.completion.lastCompletionSequence,
+      );
+      assert.equal(
+        actual.lastCompletionInstructionCount,
+        expected.completion.lastCompletionInstructionCount,
+      );
+      assert.equal(
+        actual.defWindowProcARelease.sequence,
+        actual.lastCompletionSequence,
+      );
+      assert.equal(
+        actual.defWindowProcARelease.trapInstructionCount,
+        actual.lastCompletionInstructionCount,
+      );
+      assert.equal(
+        actual.defWindowProcARelease.implementationId,
+        "user32.def-window-proc-a.v1",
+      );
+      assert.equal(actual.defWindowProcARelease.result.value, 0);
+      assert.equal(actual.releaseCallbackReturn.action, "return");
+      assert.equal(
+        actual.releaseCallbackReturn.frameId,
+        actual.releaseCallbackEntry.frameId,
+      );
+      assert.equal(actual.releaseCallbackReturn.result, 0);
+      assert.equal(actual.dispatchMessageReleaseResult, 0);
+      assert.equal(actual.activeCallbackDepthAtStop, 0);
+    } else {
+      assert.equal(actual.activeCallbackDepthAtStop, 1);
+    }
   } else if (expected.completion.requiredPointerMessages !== undefined) {
     assert.equal(
       actual.requiredPointerMessages,

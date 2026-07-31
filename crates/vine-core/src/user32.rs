@@ -37,7 +37,8 @@ use crate::runtime::{
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 34;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 35;
+const USER32_COMPATIBILITY_POLICY_POINTER_DOWN_VERSION: u32 = 34;
 const USER32_COMPATIBILITY_POLICY_SET_FOCUS_VERSION: u32 = 33;
 const USER32_COMPATIBILITY_POLICY_POINTER_VERSION: u32 = 32;
 const USER32_COMPATIBILITY_POLICY_TIMER_VERSION: u32 = 31;
@@ -389,6 +390,8 @@ pub struct User32DefWindowProcAPointerDownPolicy {
     pub require_cursor_derived_client_l_param: bool,
 }
 
+pub type User32DefWindowProcAPointerReleasePolicy = User32DefWindowProcAPointerDownPolicy;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct User32SwapMouseButtonPolicy {
@@ -436,6 +439,8 @@ pub struct User32CompatibilityPolicy {
     pub set_focus: Option<User32SetFocusPolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub def_window_proc_a_pointer_down: Option<User32DefWindowProcAPointerDownPolicy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub def_window_proc_a_pointer_release: Option<User32DefWindowProcAPointerReleasePolicy>,
     pub monitor_from_window: Option<User32MonitorFromWindowPolicy>,
     pub get_monitor_info_a: Option<User32GetMonitorInfoAPolicy>,
     pub screen_dc: Option<User32ScreenDcPolicy>,
@@ -601,6 +606,7 @@ impl User32CompatibilityPolicy {
             pointer_button_messages: None,
             set_focus: None,
             def_window_proc_a_pointer_down: None,
+            def_window_proc_a_pointer_release: None,
             monitor_from_window: Some(User32MonitorFromWindowPolicy {
                 profile_id: "live-window-default-to-primary-v1".to_owned(),
                 flags: MONITOR_DEFAULTTOPRIMARY,
@@ -721,7 +727,7 @@ impl User32CompatibilityPolicy {
 
     pub fn controlled_v34() -> Self {
         let mut policy = Self::controlled_v33();
-        policy.schema_version = USER32_COMPATIBILITY_POLICY_VERSION;
+        policy.schema_version = USER32_COMPATIBILITY_POLICY_POINTER_DOWN_VERSION;
         policy.id =
             "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
                 .to_owned();
@@ -738,6 +744,25 @@ impl User32CompatibilityPolicy {
         policy
     }
 
+    pub fn controlled_v35() -> Self {
+        let mut policy = Self::controlled_v34();
+        policy.schema_version = USER32_COMPATIBILITY_POLICY_VERSION;
+        policy.id =
+            "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35"
+                .to_owned();
+        policy.def_window_proc_a_pointer_release = Some(User32DefWindowProcAPointerDownPolicy {
+            profile_id:
+                "same-current-thread-visible-active-focused-foreground-cursor-wm-lbuttonup-v1"
+                    .to_owned(),
+            message: WM_LBUTTONUP,
+            w_param: 0,
+            result: 0,
+            require_current_thread_visible_active_focused_foreground_window: true,
+            require_cursor_derived_client_l_param: true,
+        });
+        policy
+    }
+
     pub fn validate(&self) -> Result<(), ApiFault> {
         if self.schema != USER32_COMPATIBILITY_POLICY_SCHEMA
             || !matches!(
@@ -746,10 +771,12 @@ impl User32CompatibilityPolicy {
                     self.window_timer_delivery.is_some(),
                     self.pointer_button_messages.is_some(),
                     self.set_focus.is_some(),
-                    self.def_window_proc_a_pointer_down.is_some()
+                    self.def_window_proc_a_pointer_down.is_some(),
+                    self.def_window_proc_a_pointer_release.is_some()
                 ),
                 (
                     USER32_COMPATIBILITY_POLICY_BASE_VERSION,
+                    false,
                     false,
                     false,
                     false,
@@ -759,11 +786,13 @@ impl User32CompatibilityPolicy {
                     true,
                     false,
                     false,
+                    false,
                     false
                 ) | (
                     USER32_COMPATIBILITY_POLICY_POINTER_VERSION,
                     true,
                     true,
+                    false,
                     false,
                     false
                 ) | (
@@ -771,8 +800,23 @@ impl User32CompatibilityPolicy {
                     true,
                     true,
                     true,
+                    false,
                     false
-                ) | (USER32_COMPATIBILITY_POLICY_VERSION, true, true, true, true)
+                ) | (
+                    USER32_COMPATIBILITY_POLICY_POINTER_DOWN_VERSION,
+                    true,
+                    true,
+                    true,
+                    true,
+                    false
+                ) | (
+                    USER32_COMPATIBILITY_POLICY_VERSION,
+                    true,
+                    true,
+                    true,
+                    true,
+                    true
+                )
             )
             || self.id.is_empty()
             || self.id.len() > 128
@@ -1143,6 +1187,30 @@ impl User32CompatibilityPolicy {
                 "user32-compatibility-policy",
                 "user32-def-window-proc-a-pointer-down-profile-invalid",
                 "User32 DefWindowProcA pointer-down default processing requires the reached same-current-thread visible active focused foreground cursor-derived WM_LBUTTONDOWN profile",
+            ));
+        }
+        if let Some(profile) = self.def_window_proc_a_pointer_release.as_ref()
+            && (!valid_profile_id(&profile.profile_id)
+                || profile.profile_id
+                    != "same-current-thread-visible-active-focused-foreground-cursor-wm-lbuttonup-v1"
+                || profile.message != WM_LBUTTONUP
+                || profile.w_param != 0
+                || profile.result != 0
+                || !profile.require_current_thread_visible_active_focused_foreground_window
+                || !profile.require_cursor_derived_client_l_param
+                || self.pointer_button_messages.as_ref().is_none_or(|pointer| {
+                    pointer.left_button_up_message != profile.message
+                        || !pointer.require_visible_active_focused_foreground_window
+                })
+                || self.def_window_proc_a_pointer_down.is_none()
+                || self.set_focus.is_none()
+                || self.create_window_ex_a.is_none()
+                || self.input.cursor_position.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-def-window-proc-a-pointer-release-profile-invalid",
+                "User32 DefWindowProcA pointer-release default processing requires the reached same-current-thread visible active focused foreground cursor-derived WM_LBUTTONUP profile",
             ));
         }
         if let Some(profile) = self.monitor_from_window.as_ref()
@@ -5962,9 +6030,9 @@ fn handle_def_window_proc_a_immediate(
             "DefWindowProcA currently supports the creating owner thread only",
         ));
     }
-    if message == WM_LBUTTONDOWN {
+    if matches!(message, WM_LBUTTONDOWN | WM_LBUTTONUP) {
         return handle_def_window_proc_pointer_button(
-            policy, contract, w_param, l_param, &window, session,
+            policy, contract, message, w_param, l_param, &window, session,
         );
     }
     match (message, w_param, window.lifecycle) {
@@ -6148,57 +6216,95 @@ fn handle_def_window_proc_a_immediate(
 fn handle_def_window_proc_pointer_button(
     policy: &User32CompatibilityPolicy,
     contract: &ApiContract,
+    message: u32,
     w_param: u32,
     l_param: u32,
     window: &RuntimeWindow,
     session: &ExecutionSession<'_>,
 ) -> Result<ApiImmediate, ApiFault> {
-    let default_profile = policy
-        .def_window_proc_a_pointer_down
-        .as_ref()
-        .ok_or_else(|| {
-            ApiFault::unsupported(
+    let (default_profile, expected_profile_id, expected_w_param, phase) = match message {
+        WM_LBUTTONDOWN => (
+            policy
+                .def_window_proc_a_pointer_down
+                .as_ref()
+                .ok_or_else(|| {
+                    ApiFault::unsupported(
+                        "user32-windows",
+                        "def-window-proc-pointer-policy-disabled",
+                        "DefWindowProcA WM_LBUTTONDOWN requires the reached pointer-down default-processing profile",
+                    )
+                })?,
+            "same-current-thread-visible-active-focused-foreground-cursor-wm-lbuttondown-v1",
+            MK_LBUTTON,
+            "pointer-down",
+        ),
+        WM_LBUTTONUP => (
+            policy
+                .def_window_proc_a_pointer_release
+                .as_ref()
+                .ok_or_else(|| {
+                    ApiFault::unsupported(
+                        "user32-windows",
+                        "def-window-proc-pointer-release-policy-disabled",
+                        "DefWindowProcA WM_LBUTTONUP requires the reached pointer-release default-processing profile",
+                    )
+                })?,
+            "same-current-thread-visible-active-focused-foreground-cursor-wm-lbuttonup-v1",
+            0,
+            "pointer-release",
+        ),
+        _ => {
+            return Err(ApiFault::runtime_defect(
                 "user32-windows",
-                "def-window-proc-pointer-policy-disabled",
-                "DefWindowProcA WM_LBUTTONDOWN requires the reached pointer-down default-processing profile",
-            )
-        })?;
+                "def-window-proc-pointer-message-invalid",
+                "pointer-button default processing received an unsupported message",
+            ));
+        }
+    };
     let pointer_profile = policy.pointer_button_messages.as_ref().ok_or_else(|| {
         ApiFault::runtime_defect(
             "user32-windows",
             "def-window-proc-pointer-dependency-missing",
-            "validated pointer-down default processing has no pointer-button message profile",
+            format!("validated {phase} default processing has no pointer-button message profile"),
         )
     })?;
-    if default_profile.profile_id
-        != "same-current-thread-visible-active-focused-foreground-cursor-wm-lbuttondown-v1"
-        || default_profile.message != WM_LBUTTONDOWN
-        || default_profile.w_param != MK_LBUTTON
+    if default_profile.profile_id != expected_profile_id
+        || default_profile.message != message
+        || default_profile.w_param != expected_w_param
         || default_profile.result != 0
         || !default_profile.require_current_thread_visible_active_focused_foreground_window
         || !default_profile.require_cursor_derived_client_l_param
-        || pointer_profile.left_button_down_message != default_profile.message
-        || pointer_profile.left_button_key_mask != default_profile.w_param
+        || (message == WM_LBUTTONDOWN
+            && (pointer_profile.left_button_down_message != default_profile.message
+                || pointer_profile.left_button_key_mask != default_profile.w_param))
+        || (message == WM_LBUTTONUP
+            && pointer_profile.left_button_up_message != default_profile.message)
         || !pointer_profile.require_visible_active_focused_foreground_window
     {
         return Err(ApiFault::runtime_defect(
             "user32-windows",
             "def-window-proc-pointer-profile-invalid",
-            "validated pointer-down default-processing policy changed the reached WM_LBUTTONDOWN relation",
+            format!(
+                "validated {phase} default-processing policy changed the reached message relation"
+            ),
         ));
     }
     if w_param != default_profile.w_param {
         return Err(ApiFault::invalid_call(
             "user32-windows",
             "def-window-proc-pointer-wparam-mismatch",
-            "DefWindowProcA WM_LBUTTONDOWN requires the reached MK_LBUTTON key-state mask",
+            format!(
+                "DefWindowProcA message {message:#06x} requires wParam {expected_w_param:#010x}"
+            ),
         ));
     }
     if policy.set_focus.is_none() || policy.create_window_ex_a.is_none() {
         return Err(ApiFault::runtime_defect(
             "user32-windows",
             "def-window-proc-pointer-window-dependency-missing",
-            "validated pointer-down default processing has no SetFocus or CreateWindowExA dependency",
+            format!(
+                "validated {phase} default processing has no SetFocus or CreateWindowExA dependency"
+            ),
         ));
     }
     let handle = window.handle;
@@ -6224,7 +6330,9 @@ fn handle_def_window_proc_pointer_button(
         return Err(ApiFault::invalid_call(
             "user32-windows",
             "def-window-proc-pointer-window-relation-mismatch",
-            "DefWindowProcA WM_LBUTTONDOWN requires the same visible active focused foreground logical window",
+            format!(
+                "DefWindowProcA message {message:#06x} requires the same visible active focused foreground logical window"
+            ),
         ));
     }
     let cursor = session.runtime().cursor_position().ok_or_else(|| {
@@ -6291,7 +6399,7 @@ fn handle_def_window_proc_pointer_button(
             "user32-windows",
             "def-window-proc-pointer-lparam-mismatch",
             format!(
-                "DefWindowProcA WM_LBUTTONDOWN lParam {l_param:#010x} does not match the logical cursor-derived client position {expected_l_param:#010x}"
+                "DefWindowProcA message {message:#06x} lParam {l_param:#010x} does not match the logical cursor-derived client position {expected_l_param:#010x}"
             ),
         ));
     }
@@ -8286,8 +8394,9 @@ mod tests {
         pointer_default.validate().unwrap();
         assert_eq!(
             pointer_default.schema_version,
-            USER32_COMPATIBILITY_POLICY_VERSION
+            USER32_COMPATIBILITY_POLICY_POINTER_DOWN_VERSION
         );
+        assert!(pointer_default.def_window_proc_a_pointer_release.is_none());
         let pointer_default_profile = pointer_default
             .def_window_proc_a_pointer_down
             .as_ref()
@@ -8309,6 +8418,35 @@ mod tests {
         assert_eq!(
             invalid_pointer_default.validate().unwrap_err().code,
             "user32-def-window-proc-a-pointer-down-profile-invalid"
+        );
+
+        let pointer_release = User32CompatibilityPolicy::controlled_v35();
+        pointer_release.validate().unwrap();
+        assert_eq!(
+            pointer_release.schema_version,
+            USER32_COMPATIBILITY_POLICY_VERSION
+        );
+        let pointer_release_profile = pointer_release
+            .def_window_proc_a_pointer_release
+            .as_ref()
+            .unwrap();
+        assert_eq!(pointer_release_profile.message, WM_LBUTTONUP);
+        assert_eq!(pointer_release_profile.w_param, 0);
+        assert_eq!(pointer_release_profile.result, 0);
+        assert!(
+            pointer_release_profile.require_current_thread_visible_active_focused_foreground_window
+        );
+        assert!(pointer_release_profile.require_cursor_derived_client_l_param);
+
+        let mut invalid_pointer_release = User32CompatibilityPolicy::controlled_v35();
+        invalid_pointer_release
+            .def_window_proc_a_pointer_release
+            .as_mut()
+            .unwrap()
+            .w_param = MK_LBUTTON;
+        assert_eq!(
+            invalid_pointer_release.validate().unwrap_err().code,
+            "user32-def-window-proc-a-pointer-release-profile-invalid"
         );
 
         let mut invalid_monitor = User32CompatibilityPolicy::controlled_v30();

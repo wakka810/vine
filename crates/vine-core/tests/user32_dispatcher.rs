@@ -8127,6 +8127,123 @@ fn def_window_proc_pointer_down_returns_zero_without_mutating_runtime_or_memory(
 }
 
 #[test]
+fn def_window_proc_pointer_release_returns_zero_without_mutating_runtime_or_memory() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, _) = fixture.prepare_active_window_with_small_icon();
+    fixture.policy = User32CompatibilityPolicy::controlled_v35();
+    fixture
+        .runtime
+        .set_current_last_error(0x5a17_c0de)
+        .expect("seed DefWindowProcA pointer-release LastError");
+    fixture.configure_def_window_proc_args(window_handle, 0x0202, 0, 0x012c_0190);
+    let runtime_before = fixture.runtime.clone();
+    let memory_before = fixture.memory.stats();
+
+    let completion = match fixture.dispatch_configured_def_window_proc() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected pointer-release DefWindowProcA completion, got {other:?}"),
+    };
+
+    assert_eq!(completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(
+        completion.stack_pointer,
+        GuestAddress(DEF_WINDOW_PROC_STACK_POINTER + 20)
+    );
+    assert_eq!(completion.last_error, 0x5a17_c0de);
+    assert!(completion.guest_writes.is_empty());
+    assert_eq!(fixture.runtime, runtime_before);
+    assert_eq!(fixture.memory.stats(), memory_before);
+}
+
+#[test]
+fn def_window_proc_pointer_release_rejects_unreached_relations_without_mutation() {
+    let mut disabled = RegisterClassFixture::new();
+    let (disabled_handle, _) = disabled.prepare_active_window_with_small_icon();
+    disabled.policy = User32CompatibilityPolicy::controlled_v34();
+    disabled.configure_def_window_proc_args(disabled_handle, 0x0202, 0, 0x012c_0190);
+    let runtime_before = disabled.runtime.clone();
+    let memory_before = disabled.memory.stats();
+    let fault = match disabled.dispatch_configured_def_window_proc() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled pointer-release DefWindowProcA fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(
+        fault.code,
+        "def-window-proc-pointer-release-policy-disabled"
+    );
+    assert_eq!(disabled.runtime, runtime_before);
+    assert_eq!(disabled.memory.stats(), memory_before);
+
+    let mut malformed = RegisterClassFixture::new();
+    let (malformed_handle, _) = malformed.prepare_active_window_with_small_icon();
+    malformed.policy = User32CompatibilityPolicy::controlled_v35();
+    malformed
+        .policy
+        .def_window_proc_a_pointer_release
+        .as_mut()
+        .unwrap()
+        .result = 1;
+    malformed.configure_def_window_proc_args(malformed_handle, 0x0202, 0, 0x012c_0190);
+    let runtime_before = malformed.runtime.clone();
+    let memory_before = malformed.memory.stats();
+    let fault = match malformed.dispatch_configured_def_window_proc() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected malformed pointer-release policy fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::RuntimeDefect);
+    assert_eq!(
+        fault.code,
+        "user32-def-window-proc-a-pointer-release-profile-invalid"
+    );
+    assert_eq!(malformed.runtime, runtime_before);
+    assert_eq!(malformed.memory.stats(), memory_before);
+
+    malformed.policy = User32CompatibilityPolicy::controlled_v35();
+    malformed.configure_def_window_proc_args(malformed_handle, 0x0202, 0x0001, 0x012c_0190);
+    let runtime_before = malformed.runtime.clone();
+    let memory_before = malformed.memory.stats();
+    let fault = match malformed.dispatch_configured_def_window_proc() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected mismatched pointer-release key-state fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(fault.code, "def-window-proc-pointer-wparam-mismatch");
+    assert_eq!(malformed.runtime, runtime_before);
+    assert_eq!(malformed.memory.stats(), memory_before);
+
+    malformed.configure_def_window_proc_args(malformed_handle, 0x0202, 0, 0x012c_0191);
+    let runtime_before = malformed.runtime.clone();
+    let memory_before = malformed.memory.stats();
+    let fault = match malformed.dispatch_configured_def_window_proc() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected mismatched pointer-release coordinate fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(fault.code, "def-window-proc-pointer-lparam-mismatch");
+    assert_eq!(malformed.runtime, runtime_before);
+    assert_eq!(malformed.memory.stats(), memory_before);
+
+    let mut inactive = RegisterClassFixture::new();
+    let (inactive_handle, _) = inactive.prepare_created_window_with_small_icon();
+    inactive.policy = User32CompatibilityPolicy::controlled_v35();
+    inactive.configure_def_window_proc_args(inactive_handle, 0x0202, 0, 0x012c_0190);
+    let runtime_before = inactive.runtime.clone();
+    let memory_before = inactive.memory.stats();
+    let fault = match inactive.dispatch_configured_def_window_proc() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected inactive pointer-release window fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(
+        fault.code,
+        "def-window-proc-pointer-window-relation-mismatch"
+    );
+    assert_eq!(inactive.runtime, runtime_before);
+    assert_eq!(inactive.memory.stats(), memory_before);
+}
+
+#[test]
 fn def_window_proc_pointer_down_rejects_unreached_relations_without_mutation() {
     let mut disabled = RegisterClassFixture::new();
     let (disabled_handle, _) = disabled.prepare_active_window_with_small_icon();

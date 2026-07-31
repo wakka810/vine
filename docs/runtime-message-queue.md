@@ -158,10 +158,16 @@ translationを追加せず、TypeScriptにもmessage copyやWindows stateを作�
 続く`DispatchMessageA`は同じimmutable `MSG32`からlive HWND、owner thread、
 registered WndProc、pointer profileを再検証し、Rust callback authorityの
 stdcall `(hwnd, WM_LBUTTONUP, 0, 0x01680280)` frameへ入る。Entry時点ではrelease
-queueは空、MSG bytesは不変、callback depthは1である。これはpending
-`DispatchMessageA`とWndProc entryまでのreachability leafであり、callback result、
-外側のcall completion、release default processing、capture transitionを完了扱いに
-しない。WorkerはRustが発行したframe identityとimmutable snapshotだけを記録する。
+queueは空、MSG bytesは不変、callback depthは1である。
+
+そのWndProc内の`DefWindowProcA`はUser32 v35のrelease profileで同じlive／created／visible
+same-owner window、active／focused／foreground relation、released left-buttonのzero
+`wParam`、logical cursor由来のclient `lParam`をmutation前に検証する。成功はLRESULT 0で、
+LastError、guest bytes、window／input／queue／capture stateを変更しない。Guest return後は
+Rust-issued frame identityを照合してcallbackを一度だけretireし、外側の`DispatchMessageA`も0で
+完了してcallback depthを0へ戻す。v34以前はrelease variantをunsupportedのまま保ち、capture
+transition、move／wheel／double-click、nonclient／right-button default processingへ一般化しない。
+Workerはimmutable completionとframe relationだけを記録し、Windows callback／capture authorityを持たない。
 
 ## Lifecycle cleanup
 

@@ -1224,6 +1224,20 @@ empty queue、preserved MSG、completed-call semantic digest、terminal memory�
 最初のowned APIまで進めるが、このcheckpointはrelease `DefWindowProcA` dispatch、
 WndProc／外側`DispatchMessageA` completion、capture、visible responseをclaimしない。
 
+`user32-def-window-proc-a-pointer-release-continuation`は、そのrelease WndProc内の
+`DefWindowProcA(HWND,WM_LBUTTONUP,0,0x01680280)`とcallback unwindを一つのbounded leafとして
+閉じる。User32 v35はv34のdown profileを保持しながらrelease profileを追加し、live／created／visible／
+same-owner window、active／focused／foreground relation、zero key mask、logical cursor由来のclient
+`lParam`をmutation前に検証する。Native controlled oracleはdirect／`SendMessage` result 0、seeded
+LastError preserve、active／focus／foreground／capture不変を二回一致させる。Focused dispatcher testは
+v34でunsupported、malformed v35、wrong `wParam`／`lParam`／window relationのfailure atomicityと、
+x86 stdcall cleanup、zero guest write／RuntimeState mutationを固定する。Node／Chrome protocol v85／
+browser report schema 52はsequence 161,952のdefault completion、frame 34のreturn、outer
+`DispatchMessageA` result 0、callback depth 0、ordered semantic digest、terminal memory、および次の
+unfiltered `PeekMessageA`を一致させる。Exact instruction／artifact identityは
+`current-checkpoint.json`だけを正本とする。Capture transition、visible response、move／wheel／double-click、
+nonclient／right-button default processing、general message-loop breadthはclaimしない。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

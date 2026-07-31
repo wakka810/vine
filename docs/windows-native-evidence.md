@@ -6120,3 +6120,22 @@ validated zero-result, zero-mutation leaf rather than a silent general stub.
 This evidence does not establish release handling, capture transitions,
 double-click／nonclient processing, other mouse messages, or general
 `DefWindowProcA` behavior.
+
+## 183. Controlled `DefWindowProcA(WM_LBUTTONUP)` default processing
+
+The ignored C source is 3,613 bytes with SHA-256
+`0a0f59a8ce619889d7e0396ead995d8c219c8476b003e5cd426c8e157705cd15`;
+the generated 75,776-byte COFF x86-64 executable has SHA-256
+`f0a3f6195cc73186b0c9dbd2af93938c6cbb31584cd2d1956751860a5b6d6266`.
+It creates one active／focused／foreground window and forwards
+`WM_LBUTTONUP` (`514`) with `wParam = 0` and `lParam = 23593600` to
+`DefWindowProcA`. Two independent runs produce direct and enclosing
+`SendMessage` results of 0, preserve seeded LastError `0x5A17C0DE`, preserve
+the active／focus／foreground HWND relations, and keep capture NULL before and
+after the call. Source and executable remain under ignored `.work/` storage.
+
+This is a bounded host-semantic oracle; x86 stack cleanup is fixed separately
+by the controlled PE／dispatcher tests. It supports a validated release
+zero-result, zero-mutation leaf and does not establish capture acquisition,
+move／wheel／double-click, nonclient／right-button handling, or general
+`DefWindowProcA` behavior.
