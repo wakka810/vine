@@ -409,6 +409,31 @@ assert.deepEqual(
   validatePrivateTargetEvidence(validEvidence(), checkpoint),
   [],
 );
+if (
+  checkpoint.nextStructuredStop.kind === "capability-checkpoint" &&
+  checkpoint.nextStructuredStop.completion.requiredEntries !== undefined
+) {
+  const inheritedCompletionEvidence = validEvidence();
+  for (const result of [
+    inheritedCompletionEvidence.semantic.node,
+    inheritedCompletionEvidence.semantic.browser,
+  ]) {
+    Object.assign(result.checkpointCompletion, {
+      requiredCompletions: 1,
+      completionCount: 1,
+      lastCompletionSequence: 161_950,
+      lastCompletionInstructionCount: 321_462_431,
+    });
+  }
+  delete inheritedCompletionEvidence.payloadSha256;
+  assert.deepEqual(
+    validatePrivateTargetEvidence(
+      finalizePrivateTargetEvidence(inheritedCompletionEvidence),
+      checkpoint,
+    ),
+    [],
+  );
+}
 assert.deepEqual(
   validatePrivateTargetEvidenceDescendantPaths([
     "docs/private-target-evidence.json",

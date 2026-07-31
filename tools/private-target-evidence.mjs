@@ -449,8 +449,17 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
         errors,
       );
       for (const field of
-        expectedCompletion.requiredPointerMessages === undefined
+        expectedCompletion.requiredEntries !== undefined
           ? [
+              "capability",
+              "implementationId",
+              "requiredEntries",
+              "entryCount",
+              "lastEntrySequence",
+              "lastEntryInstructionCount",
+            ]
+          : expectedCompletion.requiredPointerMessages === undefined
+            ? [
               "capability",
               "implementationId",
               "requiredCompletions",
@@ -458,14 +467,14 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
               "lastCompletionSequence",
               "lastCompletionInstructionCount",
             ]
-          : [
-              "capability",
-              "implementationId",
-              "requiredPointerMessages",
-              "pointerMessageDeliveryCount",
-              "releaseMessageQueued",
-              "activeCallbackDepthAtStop",
-            ]) {
+            : [
+                "capability",
+                "implementationId",
+                "requiredPointerMessages",
+                "pointerMessageDeliveryCount",
+                "releaseMessageQueued",
+                "activeCallbackDepthAtStop",
+              ]) {
         checkEqual(
           completion[field],
           expectedCompletion[field],
@@ -677,8 +686,17 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
     );
     const expectedCompletion = checkpoint.nextStructuredStop.completion;
     for (const field of
-      expectedCompletion.requiredPointerMessages === undefined
+      expectedCompletion.requiredEntries !== undefined
         ? [
+            "capability",
+            "implementationId",
+            "requiredEntries",
+            "entryCount",
+            "lastEntrySequence",
+            "lastEntryInstructionCount",
+          ]
+        : expectedCompletion.requiredPointerMessages === undefined
+          ? [
             "capability",
             "implementationId",
             "requiredCompletions",
@@ -686,16 +704,16 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
             "lastCompletionSequence",
             "lastCompletionInstructionCount",
           ]
-        : [
-            "capability",
-            "implementationId",
-            "requiredPointerMessages",
-            "pointerMessageDeliveryCount",
-            "releaseMessageQueued",
-            "activeCallbackDepthAtStop",
-            "dispatchSequence",
-            "dispatchInstructionCount",
-          ]) {
+          : [
+              "capability",
+              "implementationId",
+              "requiredPointerMessages",
+              "pointerMessageDeliveryCount",
+              "releaseMessageQueued",
+              "activeCallbackDepthAtStop",
+              "dispatchSequence",
+              "dispatchInstructionCount",
+            ]) {
       checkEqual(
         completion[field],
         expectedCompletion[field],
