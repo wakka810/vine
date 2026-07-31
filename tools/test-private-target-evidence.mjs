@@ -71,7 +71,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 58);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 59);
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
 const lastPacingRequest = { requestId: "4708", sequence: 89_218 };
@@ -417,7 +417,9 @@ if (
   checkpoint.nextStructuredStop.completion.capability ===
     "user32-get-cursor-pos-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "user32-get-system-metrics-post-pointer-release-continuation"
+    "user32-get-system-metrics-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-system-metrics-caption-post-pointer-release-continuation"
 ) {
   const projectedBrowserWrite = validEvidence();
   delete projectedBrowserWrite.payloadSha256;
@@ -446,7 +448,9 @@ if (
   checkpoint.nextStructuredStop.completion.capability ===
     "user32-get-cursor-pos-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "user32-get-system-metrics-post-pointer-release-continuation"
+    "user32-get-system-metrics-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-system-metrics-caption-post-pointer-release-continuation"
 ) {
   const projectedBrowserWrite = validEvidence();
   delete projectedBrowserWrite.payloadSha256;
@@ -483,7 +487,9 @@ if (
   checkpoint.nextStructuredStop.completion.capability ===
     "user32-get-cursor-pos-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "user32-get-system-metrics-post-pointer-release-continuation"
+    "user32-get-system-metrics-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-system-metrics-caption-post-pointer-release-continuation"
 ) {
   const stalePostReleaseQueue = mutated((value) => {
     value.semantic.node.checkpointCompletion.postReleaseQueueDepthAfter = 1;
@@ -504,7 +510,9 @@ if (
   checkpoint.nextStructuredStop.completion.capability ===
     "user32-get-cursor-pos-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "user32-get-system-metrics-post-pointer-release-continuation"
+    "user32-get-system-metrics-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-system-metrics-caption-post-pointer-release-continuation"
 ) {
   const stalePostReleaseTick = mutated((value) => {
     value.semantic.browser.checkpointCompletion.timeGetTimePostRelease.tickCount.nextTickCount =
@@ -522,7 +530,9 @@ if (
   checkpoint.nextStructuredStop.completion.capability ===
     "user32-get-cursor-pos-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "user32-get-system-metrics-post-pointer-release-continuation"
+    "user32-get-system-metrics-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-system-metrics-caption-post-pointer-release-continuation"
 ) {
   const stalePostReleaseRect = mutated((value) => {
     value.semantic.node.checkpointCompletion.getWindowRectPostRelease.guestWrites[0].bytes[0] =
@@ -538,7 +548,9 @@ if (
   checkpoint.nextStructuredStop.completion.capability ===
     "user32-get-cursor-pos-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "user32-get-system-metrics-post-pointer-release-continuation"
+    "user32-get-system-metrics-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-system-metrics-caption-post-pointer-release-continuation"
 ) {
   const stalePostReleasePoint = mutated((value) => {
     value.semantic.node.checkpointCompletion.getCursorPosPostRelease.guestWrites[0].bytes[0] =
@@ -552,7 +564,9 @@ if (
 }
 if (
   checkpoint.nextStructuredStop.completion.capability ===
-  "user32-get-system-metrics-post-pointer-release-continuation"
+    "user32-get-system-metrics-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-system-metrics-caption-post-pointer-release-continuation"
 ) {
   const stalePostReleaseMetric = mutated((value) => {
     value.semantic.node.checkpointCompletion.getSystemMetricsPostRelease.result.value =
@@ -561,6 +575,23 @@ if (
   assert(
     validatePrivateTargetEvidence(stalePostReleaseMetric, checkpoint).some(
       (error) => error.includes("getSystemMetricsPostRelease.result.value"),
+    ),
+  );
+}
+if (
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-system-metrics-caption-post-pointer-release-continuation"
+) {
+  const stalePostReleaseCaptionMetric = mutated((value) => {
+    value.semantic.node.checkpointCompletion.getSystemMetricsCaptionPostRelease.result.value =
+      24;
+  });
+  assert(
+    validatePrivateTargetEvidence(
+      stalePostReleaseCaptionMetric,
+      checkpoint,
+    ).some((error) =>
+      error.includes("getSystemMetricsCaptionPostRelease.result.value"),
     ),
   );
 }

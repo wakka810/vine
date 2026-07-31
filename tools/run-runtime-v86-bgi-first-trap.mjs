@@ -223,6 +223,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-get-window-rect-post-pointer-release-continuation",
         "user32-get-cursor-pos-post-pointer-release-continuation",
         "user32-get-system-metrics-post-pointer-release-continuation",
+        "user32-get-system-metrics-caption-post-pointer-release-continuation",
         "kernel32-wait-for-single-object-ex",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -419,6 +420,7 @@ assert(
       "user32-get-window-rect-post-pointer-release-continuation",
       "user32-get-cursor-pos-post-pointer-release-continuation",
       "user32-get-system-metrics-post-pointer-release-continuation",
+      "user32-get-system-metrics-caption-post-pointer-release-continuation",
       "kernel32-wait-for-single-object-ex",
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
       "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -568,6 +570,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
       "user32-get-cursor-pos-post-pointer-release-continuation" ||
     genericRuntimeCapability ===
       "user32-get-system-metrics-post-pointer-release-continuation" ||
+    genericRuntimeCapability ===
+      "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
     genericRuntimeCapability ===
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     genericRuntimeCapability ===
@@ -931,9 +935,13 @@ const recurringTimerWindowCheckpointEnabled =
 const presentationProgressGatewayCheckpointEnabled =
   genericRuntimeCapability ===
   "primary-main-loop-presentation-progress-gateway";
-const getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled =
+const getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled =
   genericRuntimeCapability ===
-  "user32-get-system-metrics-post-pointer-release-continuation";
+    "user32-get-system-metrics-caption-post-pointer-release-continuation";
+const getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled =
+  getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled ||
+  genericRuntimeCapability ===
+    "user32-get-system-metrics-post-pointer-release-continuation";
 const getCursorPosPostPointerReleaseContinuationCheckpointEnabled =
   genericRuntimeCapability ===
     "user32-get-cursor-pos-post-pointer-release-continuation" ||
@@ -1073,7 +1081,16 @@ const recurringTimerBoundedWindowCheckpointEnabled =
   recurringTimerMultiCycleCheckpointEnabled ||
   recurringTimerWindowEvidenceEnabled;
 const recurringTimerWindowConfiguration =
-  getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled
+  getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled
+    ? {
+        capability:
+          "user32-get-system-metrics-caption-post-pointer-release-continuation",
+        implementationId:
+          "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      }
+    : getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled
     ? {
         capability:
           "user32-get-system-metrics-post-pointer-release-continuation",
@@ -1745,7 +1762,9 @@ const outputDirectory = path.join(
                       ? timeGetTimePostPointerReleaseRepeatBatchCheckpointEnabled
                         ? getWindowRectPostPointerReleaseContinuationCheckpointEnabled
                           ? getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled
-                            ? "v86-bgi-get-system-metrics-post-pointer-release-continuation"
+                            ? getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled
+                              ? "v86-bgi-get-system-metrics-caption-post-pointer-release-continuation"
+                              : "v86-bgi-get-system-metrics-post-pointer-release-continuation"
                             : getCursorPosPostPointerReleaseContinuationCheckpointEnabled
                             ? "v86-bgi-get-cursor-pos-post-pointer-release-continuation"
                             : "v86-bgi-get-window-rect-post-pointer-release-continuation"
@@ -6204,7 +6223,15 @@ async function run() {
       const sourceAfter = sourceIdentity(bgiPath);
       assert.deepEqual(sourceAfter, sourceBefore);
       if (timeGetTimePostPointerReleaseRepeatBatchCheckpointEnabled) {
-        if (getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled) {
+        if (
+          getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled
+        ) {
+          validateGetSystemMetricsCaptionPostPointerReleaseContinuationResult(
+            genericResult,
+          );
+        } else if (
+          getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled
+        ) {
           validateGetSystemMetricsPostPointerReleaseContinuationResult(
             genericResult,
           );
@@ -6602,7 +6629,9 @@ async function run() {
                             ? timeGetTimePostPointerReleaseRepeatBatchCheckpointEnabled
                               ? getWindowRectPostPointerReleaseContinuationCheckpointEnabled
                                 ? getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled
-                                  ? "bgi USER32 GetSystemMetrics post-pointer-release continuation"
+                                  ? getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled
+                                    ? "bgi USER32 GetSystemMetrics caption post-pointer-release continuation"
+                                    : "bgi USER32 GetSystemMetrics post-pointer-release continuation"
                                   : getCursorPosPostPointerReleaseContinuationCheckpointEnabled
                                   ? "bgi USER32 GetCursorPos post-pointer-release continuation"
                                   : "bgi USER32 GetWindowRect post-pointer-release continuation"
@@ -7375,6 +7404,8 @@ async function runGenericRuntimeReentry({
   let getCursorPosPostPointerReleaseContinuationEntry = null;
   let getSystemMetricsPostPointerReleaseDispatching = false;
   let getSystemMetricsPostPointerReleaseContinuationEntry = null;
+  let getSystemMetricsCaptionPostPointerReleaseDispatching = false;
+  let getSystemMetricsCaptionPostPointerReleaseContinuationEntry = null;
   let inputProgressAsyncKeyStateQuery = null;
   const inputProgressVirtualKey = actionInputProgressGatewayCheckpointEnabled
     ? 0x01
@@ -7920,6 +7951,25 @@ async function runGenericRuntimeReentry({
       assert.equal(continuation.finalState.esp, 0x006f_f8a0);
       getSystemMetricsPostPointerReleaseDispatching = true;
     }
+    if (
+      getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled &&
+      getSystemMetricsPostPointerReleaseContinuationEntry !== null &&
+      !getSystemMetricsCaptionPostPointerReleaseDispatching &&
+      endpoint !== null &&
+      endpoint.module.toLowerCase() === "user32.dll" &&
+      endpoint.symbol === "GetSystemMetrics"
+    ) {
+      assert.equal(activeCallbacks.length, 0);
+      assert.equal(endpoint.kind, "runtime-system-export");
+      assert.equal(endpoint.id, 203);
+      assert.equal(endpoint.address, 0x7f00_0ca0);
+      assert.equal(terminal.kind, "owned-import-thunk");
+      assert.equal(terminal.thunk.iatAddress, 0x100d_1404);
+      assert.deepEqual(terminal.stackWords.slice(1, 2), [4]);
+      assert.equal(terminal.returnAddress, 0x1008_8582);
+      assert.equal(continuation.finalState.esp, 0x006f_f8a0);
+      getSystemMetricsCaptionPostPointerReleaseDispatching = true;
+    }
 
     if (
       endpoint !== null &&
@@ -8204,7 +8254,8 @@ async function runGenericRuntimeReentry({
     }
     if (
       getSystemMetricsPostPointerReleaseContinuationEntry !== null &&
-      endpoint !== null
+      endpoint !== null &&
+      !getSystemMetricsCaptionPostPointerReleaseDispatching
     ) {
       assert.equal(activeCallbacks.length, 0);
       assert.equal(getSystemMetricsPostPointerReleaseDispatching, false);
@@ -8212,6 +8263,26 @@ async function runGenericRuntimeReentry({
         ...getSystemMetricsPostPointerReleaseContinuationEntry,
         setFocusActiveCallbackDepthAtStop:
           getSystemMetricsPostPointerReleaseContinuationEntry
+            .activeCallbackDepthAtStop,
+        activeCallbackDepthAtStop: activeCallbacks.length,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
+    if (
+      getSystemMetricsCaptionPostPointerReleaseContinuationEntry !== null &&
+      endpoint !== null
+    ) {
+      assert.equal(activeCallbacks.length, 0);
+      assert.equal(
+        getSystemMetricsCaptionPostPointerReleaseDispatching,
+        false,
+      );
+      checkpointCompletion = {
+        ...getSystemMetricsCaptionPostPointerReleaseContinuationEntry,
+        setFocusActiveCallbackDepthAtStop:
+          getSystemMetricsCaptionPostPointerReleaseContinuationEntry
             .activeCallbackDepthAtStop,
         activeCallbackDepthAtStop: activeCallbacks.length,
         instructionCount: 0,
@@ -9996,13 +10067,17 @@ async function runGenericRuntimeReentry({
       ]);
       getWindowRectPostPointerReleaseContinuationEntry = {
         ...timeGetTimePostPointerReleaseContinuationEntry,
-        capability: getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled
+        capability: getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled
+          ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
+          : getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled
           ? "user32-get-system-metrics-post-pointer-release-continuation"
           : getCursorPosPostPointerReleaseContinuationCheckpointEnabled
           ? "user32-get-cursor-pos-post-pointer-release-continuation"
           : "user32-get-window-rect-post-pointer-release-continuation",
         implementationId:
-          getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled
+          getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled
+            ? "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1"
+            : getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled
             ? "runtime.user32-get-system-metrics-post-pointer-release-continuation.v1"
             : getCursorPosPostPointerReleaseContinuationCheckpointEnabled
             ? "runtime.user32-get-cursor-pos-post-pointer-release-continuation.v1"
@@ -10056,11 +10131,15 @@ async function runGenericRuntimeReentry({
       });
       getCursorPosPostPointerReleaseContinuationEntry = {
         ...getWindowRectPostPointerReleaseContinuationEntry,
-        capability: getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled
+        capability: getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled
+          ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
+          : getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled
           ? "user32-get-system-metrics-post-pointer-release-continuation"
           : "user32-get-cursor-pos-post-pointer-release-continuation",
         implementationId:
-          getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled
+          getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled
+            ? "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1"
+            : getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled
             ? "runtime.user32-get-system-metrics-post-pointer-release-continuation.v1"
             : "runtime.user32-get-cursor-pos-post-pointer-release-continuation.v1",
         requiredCompletions: 1,
@@ -10099,9 +10178,13 @@ async function runGenericRuntimeReentry({
       getSystemMetricsPostPointerReleaseContinuationEntry = {
         ...getCursorPosPostPointerReleaseContinuationEntry,
         capability:
-          "user32-get-system-metrics-post-pointer-release-continuation",
+          getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled
+            ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
+            : "user32-get-system-metrics-post-pointer-release-continuation",
         implementationId:
-          "runtime.user32-get-system-metrics-post-pointer-release-continuation.v1",
+          getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled
+            ? "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1"
+            : "runtime.user32-get-system-metrics-post-pointer-release-continuation.v1",
         requiredCompletions: 1,
         completionCount: 1,
         lastCompletionSequence: call.sequence,
@@ -10115,6 +10198,45 @@ async function runGenericRuntimeReentry({
       };
       getCursorPosPostPointerReleaseContinuationEntry = null;
       getSystemMetricsPostPointerReleaseDispatching = false;
+    }
+    if (
+      getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled &&
+      getSystemMetricsCaptionPostPointerReleaseDispatching
+    ) {
+      assert(getSystemMetricsPostPointerReleaseContinuationEntry);
+      assert.equal(call.module.toLowerCase(), "user32.dll");
+      assert.equal(call.symbol, "GetSystemMetrics");
+      assert.equal(call.implementationId, "user32.get-system-metrics.v1");
+      assert.equal(call.sequence, 161_961);
+      assert.equal(call.occurrence, 67);
+      assert.equal(call.trapInstructionCount, 321_463_133);
+      assert.deepEqual(call.arguments, [4]);
+      assert.deepEqual(call.result, { action: "set", value: 23 });
+      assert.equal(call.returnAddress, 0x1008_8582);
+      assert.equal(call.stackPointerBefore, 0x006f_f8a0);
+      assert.equal(call.stackPointerAfter, 0x006f_f8a8);
+      assert.equal(call.lastError, 0);
+      assert.equal(activeCallbacks.length, 0);
+      assert.deepEqual(call.guestWrites, []);
+      getSystemMetricsCaptionPostPointerReleaseContinuationEntry = {
+        ...getSystemMetricsPostPointerReleaseContinuationEntry,
+        capability:
+          "user32-get-system-metrics-caption-post-pointer-release-continuation",
+        implementationId:
+          "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: call.trapInstructionCount,
+        getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion:
+          activeCallbacks.length,
+        getSystemMetricsCaptionPostRelease: {
+          ...structuredClone(call),
+          runtimeThreadId: currentThreadId,
+        },
+      };
+      getSystemMetricsPostPointerReleaseContinuationEntry = null;
+      getSystemMetricsCaptionPostPointerReleaseDispatching = false;
     }
     if (
       peekMessageAPointerReleaseContinuationCheckpointEnabled &&
@@ -27786,6 +27908,14 @@ function validatePostWaitCriticalSectionResult(result) {
 }
 
 function validateRecurringTimerBoundedWindowResult(result) {
+  if (
+    getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled
+  ) {
+    validateGetSystemMetricsCaptionPostPointerReleaseContinuationResult(
+      result,
+    );
+    return;
+  }
   if (getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled) {
     validateGetSystemMetricsPostPointerReleaseContinuationResult(result);
     return;
@@ -27867,6 +27997,87 @@ function validateRecurringTimerBoundedWindowResult(result) {
     return;
   }
   validateRecurringTimerWindowResult(result);
+}
+
+function validateGetSystemMetricsCaptionPostPointerReleaseContinuationResult(
+  result,
+) {
+  assert(
+    getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled,
+  );
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  const checkpoint = result.checkpointCompletion;
+  assert.equal(
+    checkpoint?.capability,
+    "user32-get-system-metrics-caption-post-pointer-release-continuation",
+  );
+  assert.equal(
+    checkpoint.implementationId,
+    "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1",
+  );
+  assert.equal(checkpoint.requiredCompletions, 1);
+  assert.equal(checkpoint.completionCount, 1);
+  assert.equal(checkpoint.lastCompletionSequence, 161_961);
+  assert.equal(checkpoint.lastCompletionInstructionCount, 321_463_133);
+  assert.equal(
+    checkpoint.getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion,
+    0,
+  );
+  const call = checkpoint.getSystemMetricsCaptionPostRelease;
+  assert.equal(call.runtimeThreadId, 8_192);
+  assert.equal(call.sequence, 161_961);
+  assert.equal(call.occurrence, 67);
+  assert.equal(call.trapInstructionCount, 321_463_133);
+  assert.equal(call.module.toLowerCase(), "user32.dll");
+  assert.equal(call.symbol, "GetSystemMetrics");
+  assert.equal(call.implementationId, "user32.get-system-metrics.v1");
+  assert.deepEqual(call.arguments, [4]);
+  assert.deepEqual(call.result, { action: "set", value: 23 });
+  assert.equal(call.returnAddress, 0x1008_8582);
+  assert.equal(call.stackPointerBefore, 0x006f_f8a0);
+  assert.equal(call.stackPointerAfter, 0x006f_f8a8);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.equal(checkpoint.activeCallbackDepthAtStop, 0);
+  assert.equal(checkpoint.instructionCount, 321_463_139);
+  assert.equal(result.supportedCalls.length, 161_961);
+  const { runtimeThreadId: _runtimeThreadId, ...expectedSupportedCall } = call;
+  assert.deepEqual(result.supportedCalls.at(-1), expectedSupportedCall);
+  assert.equal(result.terminal.instructionCount, checkpoint.instructionCount);
+  assert.deepEqual(checkpoint.nextEndpoint, {
+    id: 203,
+    address: 0x7f00_0ca0,
+    module: "USER32.dll",
+    symbol: { kind: "name", name: "GetSystemMetrics" },
+    disposition: "declared-runtime-export",
+    iatAddress: 0x100d_1404,
+  });
+  assert.deepEqual(checkpoint.nextArguments, [8, 0]);
+  assert.equal(checkpoint.nextReturnAddress, 0x1008_8590);
+  assert.equal(checkpoint.nextStackPointer, 0x006f_f8a0);
+  assert.equal(
+    checkpoint.memoryContentSha256,
+    "fa931794640b51f2ba74f421f727b3cf1e80dad88c6db7418781d1c3ccd9f2a8",
+  );
+  assert.equal(result.threadExecution.contextSwitches, 2_512);
+  assert.equal(result.writebacks.length, 165_115);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    244_481,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    43_070_698,
+  );
+  assert.equal(result.hostDeltas.length, 127_939);
+  assert.equal(result.finalGeneration, 296_336);
 }
 
 function validateGetSystemMetricsPostPointerReleaseContinuationResult(result) {
@@ -36187,7 +36398,17 @@ function buildGenericRuntimeReentryReport({
   }
   assert.equal(semanticCallDigest.count(), completedSupportedCalls.length);
   const supportedCallSemanticsSha256 = semanticCallDigest.digestHex();
-  if (getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled) {
+  if (
+    getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled
+  ) {
+    assert.equal(completedSupportedCalls.length, 161_961);
+    assert.equal(genericResult.supportedCalls.length, 161_961);
+    assert.notEqual(genericResult.supportedCalls.at(-1).pendingCallback, true);
+    assert.equal(
+      supportedCallSemanticsSha256,
+      "4c3df59720b48601c51755ae06eb7d7643660eeec435126672ccbdac01a86295",
+    );
+  } else if (getSystemMetricsPostPointerReleaseContinuationCheckpointEnabled) {
     assert.equal(completedSupportedCalls.length, 161_960);
     assert.equal(genericResult.supportedCalls.length, 161_960);
     assert.notEqual(genericResult.supportedCalls.at(-1).pendingCallback, true);
@@ -39104,8 +39325,13 @@ function buildGenericRuntimeReentryReport({
                                                                               "primary-main-loop-window-timer-callback-delivery-gateway"
                                                                             ? "BGI materialized one due WM_TIMER, completed TranslateMessage and TIMERPROC dispatch, and stopped before the next message poll"
                                                                             : genericResult
-                                                                                .checkpointCompletion
-                                                                                .capability ===
+                                                                              .checkpointCompletion
+                                                                              .capability ===
+                                                                                "user32-get-system-metrics-caption-post-pointer-release-continuation"
+                                                                              ? "BGI completed the post-pointer-release caption-height GetSystemMetrics read and stopped before the next owned endpoint"
+                                                                              : genericResult
+                                                                                  .checkpointCompletion
+                                                                                  .capability ===
                                                                                 "user32-get-system-metrics-post-pointer-release-continuation"
                                                                               ? "BGI completed the post-pointer-release GetSystemMetrics read and stopped before the next owned endpoint"
                                                                               : genericResult

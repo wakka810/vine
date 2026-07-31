@@ -665,7 +665,9 @@ function isInputProgressGatewayCheckpoint(
     profile === "winmm-time-get-time-post-pointer-release-repeat-batch" ||
     profile === "user32-get-window-rect-post-pointer-release-continuation" ||
     profile === "user32-get-cursor-pos-post-pointer-release-continuation" ||
-    profile === "user32-get-system-metrics-post-pointer-release-continuation"
+    profile === "user32-get-system-metrics-post-pointer-release-continuation" ||
+    profile ===
+      "user32-get-system-metrics-caption-post-pointer-release-continuation"
   );
 }
 
@@ -689,7 +691,9 @@ function isActionInputProgressGatewayCheckpoint(
     profile === "winmm-time-get-time-post-pointer-release-repeat-batch" ||
     profile === "user32-get-window-rect-post-pointer-release-continuation" ||
     profile === "user32-get-cursor-pos-post-pointer-release-continuation" ||
-    profile === "user32-get-system-metrics-post-pointer-release-continuation"
+    profile === "user32-get-system-metrics-post-pointer-release-continuation" ||
+    profile ===
+      "user32-get-system-metrics-caption-post-pointer-release-continuation"
   );
 }
 
@@ -726,7 +730,9 @@ function isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
     profile === "winmm-time-get-time-post-pointer-release-repeat-batch" ||
     profile === "user32-get-window-rect-post-pointer-release-continuation" ||
     profile === "user32-get-cursor-pos-post-pointer-release-continuation" ||
-    profile === "user32-get-system-metrics-post-pointer-release-continuation"
+    profile === "user32-get-system-metrics-post-pointer-release-continuation" ||
+    profile ===
+      "user32-get-system-metrics-caption-post-pointer-release-continuation"
   );
 }
 
@@ -831,7 +837,17 @@ function isGetSystemMetricsPostPointerReleaseContinuationCheckpoint(
 ): boolean {
   return (
     profile ===
-    "user32-get-system-metrics-post-pointer-release-continuation"
+      "user32-get-system-metrics-post-pointer-release-continuation" ||
+    isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(profile)
+  );
+}
+
+function isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile ===
+      "user32-get-system-metrics-caption-post-pointer-release-continuation"
   );
 }
 
@@ -939,7 +955,18 @@ function isRecurringTimerBoundedWindowCheckpoint(
 function recurringTimerWindowConfiguration(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  return isGetSystemMetricsPostPointerReleaseContinuationCheckpoint(profile)
+  return isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+    profile,
+  )
+    ? ({
+        capability:
+          "user32-get-system-metrics-caption-post-pointer-release-continuation",
+        implementationId:
+          "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      } as const)
+    : isGetSystemMetricsPostPointerReleaseContinuationCheckpoint(profile)
     ? ({
         capability:
           "user32-get-system-metrics-post-pointer-release-continuation",
@@ -1244,6 +1271,8 @@ function windowTimerCallbackRecurringBatchExpectation() {
 function inputProgressGatewayExpectation(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
+  const getSystemMetricsCaptionPostRelease =
+    isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(profile);
   const getSystemMetricsPostRelease =
     isGetSystemMetricsPostPointerReleaseContinuationCheckpoint(profile);
   const getCursorPosPostRelease =
@@ -1273,7 +1302,9 @@ function inputProgressGatewayExpectation(
     isWindowTimerCallbackActionInputProgressGatewayCheckpoint(profile);
   const action = isActionInputProgressGatewayCheckpoint(profile);
   return {
-    capability: getSystemMetricsPostRelease
+    capability: getSystemMetricsCaptionPostRelease
+      ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
+      : getSystemMetricsPostRelease
       ? "user32-get-system-metrics-post-pointer-release-continuation"
       : getCursorPosPostRelease
       ? "user32-get-cursor-pos-post-pointer-release-continuation"
@@ -1306,7 +1337,9 @@ function inputProgressGatewayExpectation(
       : action
       ? "primary-main-loop-action-input-progress-gateway"
       : "primary-main-loop-input-progress-gateway",
-    implementationId: getSystemMetricsPostRelease
+    implementationId: getSystemMetricsCaptionPostRelease
+      ? "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1"
+      : getSystemMetricsPostRelease
       ? "runtime.user32-get-system-metrics-post-pointer-release-continuation.v1"
       : getCursorPosPostRelease
       ? "runtime.user32-get-cursor-pos-post-pointer-release-continuation.v1"
@@ -2105,7 +2138,8 @@ type PostPointerReleaseContinuationCheckpoint = Extract<
       | "winmm-time-get-time-post-pointer-release-repeat-batch"
       | "user32-get-window-rect-post-pointer-release-continuation"
       | "user32-get-cursor-pos-post-pointer-release-continuation"
-      | "user32-get-system-metrics-post-pointer-release-continuation";
+      | "user32-get-system-metrics-post-pointer-release-continuation"
+      | "user32-get-system-metrics-caption-post-pointer-release-continuation";
   }
 >;
 
@@ -2173,6 +2207,24 @@ type GetSystemMetricsPostPointerReleaseContinuationCheckpoint =
     getCursorPosPostRelease: RuntimeThreadCallSnapshot;
     getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion: 0;
     getSystemMetricsPostRelease: RuntimeThreadCallSnapshot;
+  };
+
+type GetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint =
+  PostPointerReleaseContinuationCheckpoint & {
+    capability: "user32-get-system-metrics-caption-post-pointer-release-continuation";
+    implementationId: "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1";
+    timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0;
+    timeGetTimePostRelease: RuntimeThreadCallSnapshot;
+    maximumRepeatCompletions: 16;
+    timeGetTimePostReleaseCompletions: RuntimeThreadCallSnapshot[];
+    getWindowRectPostReleaseActiveCallbackDepthAtCompletion: 0;
+    getWindowRectPostRelease: RuntimeThreadCallSnapshot;
+    getCursorPosPostReleaseActiveCallbackDepthAtCompletion: 0;
+    getCursorPosPostRelease: RuntimeThreadCallSnapshot;
+    getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion: 0;
+    getSystemMetricsPostRelease: RuntimeThreadCallSnapshot;
+    getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion: 0;
+    getSystemMetricsCaptionPostRelease: RuntimeThreadCallSnapshot;
   };
 
 type PeekMessageAPostPointerReleaseContinuationEntry = Omit<
@@ -2279,6 +2331,30 @@ type TimeGetTimePostPointerReleaseContinuationEntry =
       | "nextReturnAddress"
       | "nextStackPointer"
       | "memoryContentSha256"
+    >
+  | Omit<
+      GetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint,
+      | "requiredCompletions"
+      | "completionCount"
+      | "timeGetTimePostReleaseActiveCallbackDepthAtCompletion"
+      | "timeGetTimePostRelease"
+      | "maximumRepeatCompletions"
+      | "timeGetTimePostReleaseCompletions"
+      | "getWindowRectPostReleaseActiveCallbackDepthAtCompletion"
+      | "getWindowRectPostRelease"
+      | "getCursorPosPostReleaseActiveCallbackDepthAtCompletion"
+      | "getCursorPosPostRelease"
+      | "getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion"
+      | "getSystemMetricsPostRelease"
+      | "getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion"
+      | "getSystemMetricsCaptionPostRelease"
+      | "activeCallbackDepthAtStop"
+      | "instructionCount"
+      | "nextEndpoint"
+      | "nextArguments"
+      | "nextReturnAddress"
+      | "nextStackPointer"
+      | "memoryContentSha256"
     >;
 
 type GetWindowRectPostPointerReleaseContinuationEntry =
@@ -2329,6 +2405,26 @@ type GetWindowRectPostPointerReleaseContinuationEntry =
       | "nextReturnAddress"
       | "nextStackPointer"
       | "memoryContentSha256"
+    >
+  | Omit<
+      GetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint,
+      | "requiredCompletions"
+      | "completionCount"
+      | "getWindowRectPostReleaseActiveCallbackDepthAtCompletion"
+      | "getWindowRectPostRelease"
+      | "getCursorPosPostReleaseActiveCallbackDepthAtCompletion"
+      | "getCursorPosPostRelease"
+      | "getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion"
+      | "getSystemMetricsPostRelease"
+      | "getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion"
+      | "getSystemMetricsCaptionPostRelease"
+      | "activeCallbackDepthAtStop"
+      | "instructionCount"
+      | "nextEndpoint"
+      | "nextArguments"
+      | "nextReturnAddress"
+      | "nextStackPointer"
+      | "memoryContentSha256"
     >;
 
 type GetCursorPosPostPointerReleaseContinuationEntry =
@@ -2361,14 +2457,64 @@ type GetCursorPosPostPointerReleaseContinuationEntry =
       | "nextReturnAddress"
       | "nextStackPointer"
       | "memoryContentSha256"
+    >
+  | Omit<
+      GetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint,
+      | "requiredCompletions"
+      | "completionCount"
+      | "getCursorPosPostReleaseActiveCallbackDepthAtCompletion"
+      | "getCursorPosPostRelease"
+      | "getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion"
+      | "getSystemMetricsPostRelease"
+      | "getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion"
+      | "getSystemMetricsCaptionPostRelease"
+      | "activeCallbackDepthAtStop"
+      | "instructionCount"
+      | "nextEndpoint"
+      | "nextArguments"
+      | "nextReturnAddress"
+      | "nextStackPointer"
+      | "memoryContentSha256"
     >;
 
-type GetSystemMetricsPostPointerReleaseContinuationEntry = Omit<
-  GetSystemMetricsPostPointerReleaseContinuationCheckpoint,
+type GetSystemMetricsPostPointerReleaseContinuationEntry =
+  | Omit<
+      GetSystemMetricsPostPointerReleaseContinuationCheckpoint,
+      | "requiredCompletions"
+      | "completionCount"
+      | "getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion"
+      | "getSystemMetricsPostRelease"
+      | "activeCallbackDepthAtStop"
+      | "instructionCount"
+      | "nextEndpoint"
+      | "nextArguments"
+      | "nextReturnAddress"
+      | "nextStackPointer"
+      | "memoryContentSha256"
+    >
+  | Omit<
+      GetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint,
+      | "requiredCompletions"
+      | "completionCount"
+      | "getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion"
+      | "getSystemMetricsPostRelease"
+      | "getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion"
+      | "getSystemMetricsCaptionPostRelease"
+      | "activeCallbackDepthAtStop"
+      | "instructionCount"
+      | "nextEndpoint"
+      | "nextArguments"
+      | "nextReturnAddress"
+      | "nextStackPointer"
+      | "memoryContentSha256"
+    >;
+
+type GetSystemMetricsCaptionPostPointerReleaseContinuationEntry = Omit<
+  GetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint,
   | "requiredCompletions"
   | "completionCount"
-  | "getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion"
-  | "getSystemMetricsPostRelease"
+  | "getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion"
+  | "getSystemMetricsCaptionPostRelease"
   | "activeCallbackDepthAtStop"
   | "instructionCount"
   | "nextEndpoint"
@@ -2922,6 +3068,9 @@ class BrowserRuntimeSession {
   #getSystemMetricsPostPointerReleaseContinuationEntry: GetSystemMetricsPostPointerReleaseContinuationEntry | null =
     null;
   #getSystemMetricsPostPointerReleaseContinuationDispatching = false;
+  #getSystemMetricsCaptionPostPointerReleaseContinuationEntry: GetSystemMetricsCaptionPostPointerReleaseContinuationEntry | null =
+    null;
+  #getSystemMetricsCaptionPostPointerReleaseContinuationDispatching = false;
   readonly #presentationProgressRenderCompletions: RuntimeThreadCallSnapshot[] =
     [];
   #presentationProgressPresentCompletion: RuntimeThreadCallSnapshot | null =
@@ -6444,6 +6593,37 @@ class BrowserRuntimeSession {
       );
       this.#getSystemMetricsPostPointerReleaseContinuationDispatching = true;
     }
+    if (
+      this.#getSystemMetricsCaptionPostPointerReleaseContinuationEntry !== null
+    ) {
+      const ownedEndpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpoint,
+      );
+      const engine = this.#requireEngine();
+      invariant(
+        isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+          ownedEndpoint?.id === 203 &&
+          ownedEndpoint.module?.toLowerCase() === "user32.dll" &&
+          ownedEndpoint.symbol?.kind === "name" &&
+          ownedEndpoint.symbol.name === "GetSystemMetrics" &&
+          stackPointer === 0x006f_f8a0 &&
+          engine.readGuestU32(stackPointer) === 0x1008_8582 &&
+          engine.readGuestU32(stackPointer + 4) === 4 &&
+          this.#report.instructions === 321_463_133 &&
+          this.#nextBgiCallSequence === 161_960 &&
+          this.#currentThreadId === 8_192 &&
+          this.#report.checkpointCompletion === null &&
+          !this.#getSystemMetricsCaptionPostPointerReleaseContinuationDispatching &&
+          this.#getSystemMetricsPostPointerReleaseContinuationEntry === null &&
+          !this.#getSystemMetricsPostPointerReleaseContinuationDispatching &&
+          this.#bgiCallbackCallSequences.size === 0,
+        "post-release GetSystemMetrics caption continuation reached a different API, sequence, stack frame, or callback state",
+      );
+      this.#getSystemMetricsCaptionPostPointerReleaseContinuationDispatching =
+        true;
+    }
     if (this.#defWindowProcAPointerReleaseContinuationEntry !== null) {
       const ownedEndpoint = this.#requirePrepared().endpoints.find(
         (candidate) => candidate.address === endpoint,
@@ -7455,6 +7635,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "user32-get-system-metrics-post-pointer-release-continuation" ||
           checkpoint.capability ===
+            "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
+          checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -7566,7 +7748,9 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "user32-get-cursor-pos-post-pointer-release-continuation" ||
       checkpoint.capability ===
-        "user32-get-system-metrics-post-pointer-release-continuation"
+        "user32-get-system-metrics-post-pointer-release-continuation" ||
+      checkpoint.capability ===
+        "user32-get-system-metrics-caption-post-pointer-release-continuation"
     ) {
       invariant(
         this.#bgiCallbackCallSequences.size === 0 &&
@@ -7582,6 +7766,9 @@ class BrowserRuntimeSession {
           !this.#getCursorPosPostPointerReleaseContinuationDispatching &&
           this.#getSystemMetricsPostPointerReleaseContinuationEntry === null &&
           !this.#getSystemMetricsPostPointerReleaseContinuationDispatching &&
+          this.#getSystemMetricsCaptionPostPointerReleaseContinuationEntry ===
+            null &&
+          !this.#getSystemMetricsCaptionPostPointerReleaseContinuationDispatching &&
           this.#peekMessageAPostPointerReleaseContinuationEntry === null &&
           !this.#peekMessageAPostPointerReleaseContinuationDispatching &&
           this.#peekMessageAPostPointerReleaseBytesBefore === null &&
@@ -7775,6 +7962,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "user32-get-system-metrics-post-pointer-release-continuation" ||
       checkpoint.capability ===
+        "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -7862,7 +8051,9 @@ class BrowserRuntimeSession {
                     checkpoint.capability ===
                       "user32-get-cursor-pos-post-pointer-release-continuation" ||
                     checkpoint.capability ===
-                      "user32-get-system-metrics-post-pointer-release-continuation"
+                      "user32-get-system-metrics-post-pointer-release-continuation" ||
+                    checkpoint.capability ===
+                      "user32-get-system-metrics-caption-post-pointer-release-continuation"
                   ? [
                       this.#requireEngine().readGuestU32(stackPointer + 4),
                       this.#requireEngine().readGuestU32(stackPointer + 8),
@@ -8025,6 +8216,37 @@ class BrowserRuntimeSession {
           checkpoint.memoryContentSha256 ===
             "d2a2edcf948a3d045a0d8394baa6a6cb7043862de2d047f849b77f8f7b06a3cf",
         `post-release GetSystemMetrics continuation reached a different next metric boundary: ${JSON.stringify(
+          {
+            instructions: this.#report.instructions,
+            nextEndpoint: checkpoint.nextEndpoint,
+            nextArguments: checkpoint.nextArguments,
+            nextReturnAddress: checkpoint.nextReturnAddress,
+            nextStackPointer: checkpoint.nextStackPointer,
+            memoryContentSha256: checkpoint.memoryContentSha256,
+          },
+        )}`,
+      );
+    }
+    if (
+      checkpoint.capability ===
+      "user32-get-system-metrics-caption-post-pointer-release-continuation"
+    ) {
+      invariant(
+        this.#report.instructions === 321_463_139 &&
+          checkpoint.instructionCount === 321_463_139 &&
+          checkpoint.nextEndpoint.id === 203 &&
+          checkpoint.nextEndpoint.address === 0x7f00_0ca0 &&
+          checkpoint.nextEndpoint.disposition === "declared-runtime-export" &&
+          checkpoint.nextEndpoint.iatAddress === 0x100d_1404 &&
+          checkpoint.nextEndpoint.module?.toLowerCase() === "user32.dll" &&
+          checkpoint.nextEndpoint.symbol?.kind === "name" &&
+          checkpoint.nextEndpoint.symbol.name === "GetSystemMetrics" &&
+          checkpoint.nextArguments.join(",") === "8,0" &&
+          checkpoint.nextReturnAddress === 0x1008_8590 &&
+          checkpoint.nextStackPointer === 0x006f_f8a0 &&
+          checkpoint.memoryContentSha256 ===
+            "fa931794640b51f2ba74f421f727b3cf1e80dad88c6db7418781d1c3ccd9f2a8",
+        `post-release GetSystemMetrics caption continuation reached a different next metric boundary: ${JSON.stringify(
           {
             instructions: this.#report.instructions,
             nextEndpoint: checkpoint.nextEndpoint,
@@ -8247,6 +8469,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "user32-get-system-metrics-post-pointer-release-continuation" ||
       checkpoint.capability ===
+        "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -8298,6 +8522,9 @@ class BrowserRuntimeSession {
                       : checkpoint.capability ===
                           "user32-translate-message-pointer-release-continuation"
                         ? "USER32 TranslateMessage pointer-release continuation checkpoint completed"
+                      : checkpoint.capability ===
+                          "user32-get-system-metrics-caption-post-pointer-release-continuation"
+                        ? "USER32 GetSystemMetrics caption post-pointer-release continuation checkpoint completed"
                       : checkpoint.capability ===
                           "user32-get-system-metrics-post-pointer-release-continuation"
                         ? "USER32 GetSystemMetrics post-pointer-release continuation checkpoint completed"
@@ -9203,13 +9430,27 @@ class BrowserRuntimeSession {
                 this.#configuration.capabilityProfile,
               )
             ) {
-              this.#timeGetTimePostPointerReleaseContinuationEntry = {
-                ...completedPostReleasePeek,
-                capability:
-                  "user32-get-system-metrics-post-pointer-release-continuation",
-                implementationId:
-                  "runtime.user32-get-system-metrics-post-pointer-release-continuation.v1",
-              } satisfies TimeGetTimePostPointerReleaseContinuationEntry;
+              if (
+                isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+                  this.#configuration.capabilityProfile,
+                )
+              ) {
+                this.#timeGetTimePostPointerReleaseContinuationEntry = {
+                  ...completedPostReleasePeek,
+                  capability:
+                    "user32-get-system-metrics-caption-post-pointer-release-continuation",
+                  implementationId:
+                    "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1",
+                } satisfies TimeGetTimePostPointerReleaseContinuationEntry;
+              } else {
+                this.#timeGetTimePostPointerReleaseContinuationEntry = {
+                  ...completedPostReleasePeek,
+                  capability:
+                    "user32-get-system-metrics-post-pointer-release-continuation",
+                  implementationId:
+                    "runtime.user32-get-system-metrics-post-pointer-release-continuation.v1",
+                } satisfies TimeGetTimePostPointerReleaseContinuationEntry;
+              }
             } else {
               this.#timeGetTimePostPointerReleaseContinuationEntry = {
                 ...completedPostReleasePeek,
@@ -9395,7 +9636,11 @@ class BrowserRuntimeSession {
             invariant(
               entry.capability ===
                 (getSystemMetricsContinuation
-                  ? "user32-get-system-metrics-post-pointer-release-continuation"
+                  ? isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+                      this.#configuration.capabilityProfile,
+                    )
+                    ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
+                    : "user32-get-system-metrics-post-pointer-release-continuation"
                   : getCursorPosContinuation
                   ? "user32-get-cursor-pos-post-pointer-release-continuation"
                   : "user32-get-window-rect-post-pointer-release-continuation") &&
@@ -9535,7 +9780,11 @@ class BrowserRuntimeSession {
             (isGetSystemMetricsPostPointerReleaseContinuationCheckpoint(
               this.#configuration.capabilityProfile,
             )
-              ? "user32-get-system-metrics-post-pointer-release-continuation"
+              ? isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+                  this.#configuration.capabilityProfile,
+                )
+                ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
+                : "user32-get-system-metrics-post-pointer-release-continuation"
               : "user32-get-cursor-pos-post-pointer-release-continuation") &&
             this.#getCursorPosPostPointerReleaseContinuationEntry === null &&
             !this.#getCursorPosPostPointerReleaseContinuationDispatching,
@@ -9650,7 +9899,11 @@ class BrowserRuntimeSession {
       ) {
         invariant(
           entry.capability ===
-            "user32-get-system-metrics-post-pointer-release-continuation" &&
+            (isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+              this.#configuration.capabilityProfile,
+            )
+              ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
+              : "user32-get-system-metrics-post-pointer-release-continuation") &&
             this.#getSystemMetricsPostPointerReleaseContinuationEntry ===
               null &&
             !this.#getSystemMetricsPostPointerReleaseContinuationDispatching,
@@ -9706,7 +9959,11 @@ class BrowserRuntimeSession {
       invariant(
         entry !== null &&
           entry.capability ===
-            "user32-get-system-metrics-post-pointer-release-continuation" &&
+            (isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+              this.#configuration.capabilityProfile,
+            )
+              ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
+              : "user32-get-system-metrics-post-pointer-release-continuation") &&
           this.#report.checkpointCompletion === null &&
           endpoint.id === 203 &&
           endpoint.module.toLowerCase() === "user32.dll" &&
@@ -9740,14 +9997,118 @@ class BrowserRuntimeSession {
           },
         )}`,
       );
+      const completedSystemMetricsCall = {
+        ...structuredClone(call),
+        runtimeThreadId: this.#currentThreadId,
+        trapInstructionCount: this.#report.instructions,
+        occurrence: implementationOccurrence,
+      } satisfies RuntimeThreadCallSnapshot;
+      if (
+        isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        )
+      ) {
+        invariant(
+          entry.capability ===
+              "user32-get-system-metrics-caption-post-pointer-release-continuation" &&
+            this.#getSystemMetricsCaptionPostPointerReleaseContinuationEntry ===
+              null &&
+            !this.#getSystemMetricsCaptionPostPointerReleaseContinuationDispatching,
+          "post-release GetSystemMetrics caption continuation was already armed",
+        );
+        this.#getSystemMetricsCaptionPostPointerReleaseContinuationEntry = {
+          ...entry,
+          lastCompletionSequence: sequence,
+          lastCompletionInstructionCount: this.#report.instructions,
+          getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion: 0,
+          getSystemMetricsPostRelease: completedSystemMetricsCall,
+        } satisfies GetSystemMetricsCaptionPostPointerReleaseContinuationEntry;
+      } else {
+        invariant(
+          entry.capability ===
+            "user32-get-system-metrics-post-pointer-release-continuation",
+          "post-release GetSystemMetrics continuation lost its capability identity",
+        );
+        this.#report.checkpointCompletion = {
+          ...entry,
+          requiredCompletions: 1,
+          completionCount: 1,
+          lastCompletionSequence: sequence,
+          lastCompletionInstructionCount: this.#report.instructions,
+          getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion: 0,
+          getSystemMetricsPostRelease: completedSystemMetricsCall,
+          activeCallbackDepthAtStop: 0,
+          instructionCount: 0,
+          nextEndpoint: {
+            id: 0,
+            address: 0,
+            disposition: "declared-runtime-export" as const,
+            iatAddress: 0,
+          },
+          nextArguments: [],
+          nextReturnAddress: 0,
+          nextStackPointer: 0,
+          memoryContentSha256: "",
+        } satisfies GetSystemMetricsPostPointerReleaseContinuationCheckpoint;
+        this.#bgiCheckpointPending = true;
+      }
+      this.#getSystemMetricsPostPointerReleaseContinuationEntry = null;
+      this.#getSystemMetricsPostPointerReleaseContinuationDispatching = false;
+    }
+    if (
+      isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#getSystemMetricsCaptionPostPointerReleaseContinuationDispatching &&
+      completion.implementationId === "user32.get-system-metrics.v1"
+    ) {
+      const entry =
+        this.#getSystemMetricsCaptionPostPointerReleaseContinuationEntry;
+      invariant(
+        entry !== null &&
+          entry.capability ===
+            "user32-get-system-metrics-caption-post-pointer-release-continuation" &&
+          this.#report.checkpointCompletion === null &&
+          endpoint.id === 203 &&
+          endpoint.module.toLowerCase() === "user32.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "GetSystemMetrics" &&
+          this.#currentThreadId === 8_192 &&
+          sequence === 161_961 &&
+          this.#report.instructions === 321_463_133 &&
+          implementationOccurrence === 67 &&
+          call.arguments.join(",") === "4" &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 23 &&
+          call.returnAddress === 0x1008_8582 &&
+          call.stackPointerBefore === 0x006f_f8a0 &&
+          call.stackPointerAfter === 0x006f_f8a8 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0 &&
+          this.#bgiCallbackCallSequences.size === 0,
+        `post-release GetSystemMetrics caption continuation changed its controlled metric or callback contract: ${JSON.stringify(
+          {
+            hasEntry: entry !== null,
+            hasCheckpoint: this.#report.checkpointCompletion !== null,
+            endpoint,
+            currentThreadId: this.#currentThreadId,
+            sequence,
+            instructionCount: this.#report.instructions,
+            implementationOccurrence,
+            call,
+            activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+          },
+        )}`,
+      );
       this.#report.checkpointCompletion = {
         ...entry,
         requiredCompletions: 1,
         completionCount: 1,
         lastCompletionSequence: sequence,
         lastCompletionInstructionCount: this.#report.instructions,
-        getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion: 0,
-        getSystemMetricsPostRelease: {
+        getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion: 0,
+        getSystemMetricsCaptionPostRelease: {
           ...structuredClone(call),
           runtimeThreadId: this.#currentThreadId,
           trapInstructionCount: this.#report.instructions,
@@ -9765,9 +10126,10 @@ class BrowserRuntimeSession {
         nextReturnAddress: 0,
         nextStackPointer: 0,
         memoryContentSha256: "",
-      } satisfies GetSystemMetricsPostPointerReleaseContinuationCheckpoint;
-      this.#getSystemMetricsPostPointerReleaseContinuationEntry = null;
-      this.#getSystemMetricsPostPointerReleaseContinuationDispatching = false;
+      } satisfies GetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint;
+      this.#getSystemMetricsCaptionPostPointerReleaseContinuationEntry = null;
+      this.#getSystemMetricsCaptionPostPointerReleaseContinuationDispatching =
+        false;
       this.#bgiCheckpointPending = true;
     }
     if (
@@ -19365,7 +19727,127 @@ class BrowserRuntimeSession {
         );
       }
       if (
+        isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report
+          .checkpointCompletion as GetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint | null;
+        const fixedMetric = checkpoint?.getSystemMetricsPostRelease;
+        const captionMetric =
+          checkpoint?.getSystemMetricsCaptionPostRelease;
+        invariant(
+          this.#report.supportedCallCount === 161_961 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "4c3df59720b48601c51755ae06eb7d7643660eeec435126672ccbdac01a86295" &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability ===
+              "user32-get-system-metrics-caption-post-pointer-release-continuation" &&
+            checkpoint.implementationId ===
+              "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1" &&
+            checkpoint.requiredCompletions === 1 &&
+            checkpoint.completionCount === 1 &&
+            checkpoint.lastCompletionSequence === 161_961 &&
+            checkpoint.lastCompletionInstructionCount === 321_463_133 &&
+            checkpoint.getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion ===
+              0 &&
+            fixedMetric !== undefined &&
+            fixedMetric.runtimeThreadId === 8_192 &&
+            fixedMetric.sequence === 161_960 &&
+            fixedMetric.occurrence === 66 &&
+            fixedMetric.trapInstructionCount === 321_463_128 &&
+            fixedMetric.arguments.join(",") === "7" &&
+            "action" in fixedMetric.result &&
+            fixedMetric.result.action === "set" &&
+            fixedMetric.result.value === 3 &&
+            fixedMetric.guestWrites.length === 0 &&
+            checkpoint.getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion ===
+              0 &&
+            captionMetric !== undefined &&
+            captionMetric.runtimeThreadId === 8_192 &&
+            captionMetric.sequence === 161_961 &&
+            captionMetric.occurrence === 67 &&
+            captionMetric.trapInstructionCount === 321_463_133 &&
+            captionMetric.module.toLowerCase() === "user32.dll" &&
+            captionMetric.symbol === "GetSystemMetrics" &&
+            captionMetric.implementationId ===
+              "user32.get-system-metrics.v1" &&
+            captionMetric.arguments.join(",") === "4" &&
+            "action" in captionMetric.result &&
+            captionMetric.result.action === "set" &&
+            captionMetric.result.value === 23 &&
+            captionMetric.returnAddress === 0x1008_8582 &&
+            captionMetric.stackPointerBefore === 0x006f_f8a0 &&
+            captionMetric.stackPointerAfter === 0x006f_f8a8 &&
+            captionMetric.lastError === 0 &&
+            captionMetric.guestWrites.length === 0 &&
+            checkpoint.activeCallbackDepthAtStop === 0 &&
+            checkpoint.instructionCount === 321_463_139 &&
+            checkpoint.nextEndpoint.id === 203 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0ca0 &&
+            checkpoint.nextEndpoint.disposition ===
+              "declared-runtime-export" &&
+            checkpoint.nextEndpoint.module?.toLowerCase() === "user32.dll" &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "GetSystemMetrics" &&
+            checkpoint.nextEndpoint.iatAddress === 0x100d_1404 &&
+            checkpoint.nextArguments.join(",") === "8,0" &&
+            checkpoint.nextReturnAddress === 0x1008_8590 &&
+            checkpoint.nextStackPointer === 0x006f_f8a0 &&
+            checkpoint.memoryContentSha256 ===
+              "fa931794640b51f2ba74f421f727b3cf1e80dad88c6db7418781d1c3ccd9f2a8" &&
+            this.#report.instructions === 321_463_139 &&
+            Number(this.#generation) === 314_975 &&
+            this.#report.writebackBatches === 183_860 &&
+            this.#report.writebackPages === 282_522 &&
+            this.#report.mappingDeltas === 127_939 &&
+            this.#report.mappingDirtyPages === 150_344 &&
+            this.#report.slices === 183_867 &&
+            this.#report.budgetYields === 18_752 &&
+            execution.transitionCount === 588_692 &&
+            this.#report.contextSwitches === 2_512 &&
+            this.#bridge?.callCount() === 489_407 &&
+            this.#bgiCallbackCallSequences.size === 0 &&
+            this.#timeGetTimePostPointerReleaseContinuationEntry === null &&
+            !this.#timeGetTimePostPointerReleaseContinuationDispatching &&
+            this.#timeGetTimePostPointerReleaseRepeatCompletions.length === 4 &&
+            this.#getWindowRectPostPointerReleaseContinuationEntry === null &&
+            !this.#getWindowRectPostPointerReleaseContinuationDispatching &&
+            this.#getCursorPosPostPointerReleaseContinuationEntry === null &&
+            !this.#getCursorPosPostPointerReleaseContinuationDispatching &&
+            this.#getSystemMetricsPostPointerReleaseContinuationEntry ===
+              null &&
+            !this.#getSystemMetricsPostPointerReleaseContinuationDispatching &&
+            this.#getSystemMetricsCaptionPostPointerReleaseContinuationEntry ===
+              null &&
+            !this.#getSystemMetricsCaptionPostPointerReleaseContinuationDispatching,
+          `post-release GetSystemMetrics caption continuation changed: ${JSON.stringify(
+            {
+              supportedCallCount: this.#report.supportedCallCount,
+              supportedCallSemanticsSha256:
+                this.#report.supportedCallSemanticsSha256,
+              checkpoint,
+              instructions: this.#report.instructions,
+              finalGeneration: Number(this.#generation),
+              writebackBatches: this.#report.writebackBatches,
+              writebackPages: this.#report.writebackPages,
+              mappingDeltas: this.#report.mappingDeltas,
+              mappingDirtyPages: this.#report.mappingDirtyPages,
+              slices: this.#report.slices,
+              budgetYields: this.#report.budgetYields,
+              contextSwitches: this.#report.contextSwitches,
+              transitionCount: execution.transitionCount,
+              wasmBridgeCalls: this.#bridge?.callCount(),
+            },
+          )}`,
+        );
+      }
+      if (
         isGetSystemMetricsPostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        !isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
           this.#configuration.capabilityProfile,
         ) &&
         terminal.outcome === "checkpoint-complete"

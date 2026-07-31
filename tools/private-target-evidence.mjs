@@ -143,9 +143,13 @@ function validatePointerReleaseCompletion(
     `${label}.releaseCallbackReturn`,
     errors,
   );
-  const postReleaseGetSystemMetrics =
+  const postReleaseGetSystemMetricsCaption =
     expected.capability ===
-    "user32-get-system-metrics-post-pointer-release-continuation";
+    "user32-get-system-metrics-caption-post-pointer-release-continuation";
+  const postReleaseGetSystemMetrics =
+    postReleaseGetSystemMetricsCaption ||
+    expected.capability ===
+      "user32-get-system-metrics-post-pointer-release-continuation";
   const postReleaseGetCursorPos =
     postReleaseGetSystemMetrics ||
     expected.capability ===
@@ -166,7 +170,9 @@ function validatePointerReleaseCompletion(
     postReleaseTimeGetTime ||
     expected.capability ===
       "user32-peek-message-a-post-pointer-release-continuation";
-  const finalCallName = postReleaseGetSystemMetrics
+  const finalCallName = postReleaseGetSystemMetricsCaption
+    ? "getSystemMetricsCaptionPostRelease"
+    : postReleaseGetSystemMetrics
     ? "getSystemMetricsPostRelease"
     : postReleaseGetCursorPos
     ? "getCursorPosPostRelease"
@@ -198,7 +204,13 @@ function validatePointerReleaseCompletion(
         errors,
       )
     : {};
-  const finalCall = postReleaseGetSystemMetrics
+  const finalCall = postReleaseGetSystemMetricsCaption
+    ? requireRecord(
+        completion.getSystemMetricsCaptionPostRelease,
+        `${label}.getSystemMetricsCaptionPostRelease`,
+        errors,
+      )
+    : postReleaseGetSystemMetrics
     ? requireRecord(
         completion.getSystemMetricsPostRelease,
         `${label}.getSystemMetricsPostRelease`,
@@ -682,6 +694,57 @@ function validatePointerReleaseCompletion(
         actual,
         expectedValue,
         `${label}.getSystemMetricsPostRelease.${field}`,
+        errors,
+      );
+    }
+  }
+  if (postReleaseGetSystemMetricsCaption) {
+    const getSystemMetricsCaption = requireRecord(
+      completion.getSystemMetricsCaptionPostRelease,
+      `${label}.getSystemMetricsCaptionPostRelease`,
+      errors,
+    );
+    const guestWrites = Array.isArray(getSystemMetricsCaption.guestWrites)
+      ? getSystemMetricsCaption.guestWrites
+      : (errors.push(
+          `${label}.getSystemMetricsCaptionPostRelease.guestWrites must be an array`,
+        ),
+        []);
+    for (const [field, actual, expectedValue] of [
+      ["sequence", getSystemMetricsCaption.sequence, 161_961],
+      ["runtimeThreadId", getSystemMetricsCaption.runtimeThreadId, 8_192],
+      ["module", getSystemMetricsCaption.module?.toLowerCase(), "user32.dll"],
+      ["symbol", getSystemMetricsCaption.symbol, "GetSystemMetrics"],
+      ["occurrence", getSystemMetricsCaption.occurrence, 67],
+      [
+        "trapInstructionCount",
+        getSystemMetricsCaption.trapInstructionCount,
+        321_463_133,
+      ],
+      [
+        "implementationId",
+        getSystemMetricsCaption.implementationId,
+        "user32.get-system-metrics.v1",
+      ],
+      ["arguments", getSystemMetricsCaption.arguments?.join(","), "4"],
+      ["result.action", getSystemMetricsCaption.result?.action, "set"],
+      ["result.value", getSystemMetricsCaption.result?.value, 23],
+      ["returnAddress", getSystemMetricsCaption.returnAddress, 268_993_922],
+      ["stackPointerBefore", getSystemMetricsCaption.stackPointerBefore, 7_338_144],
+      ["stackPointerAfter", getSystemMetricsCaption.stackPointerAfter, 7_338_152],
+      ["lastError", getSystemMetricsCaption.lastError, 0],
+      ["guestWrites.length", guestWrites.length, 0],
+      [
+        "activeCallbackDepthAtCompletion",
+        completion
+          .getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion,
+        0,
+      ],
+    ]) {
+      checkEqual(
+        actual,
+        expectedValue,
+        `${label}.getSystemMetricsCaptionPostRelease.${field}`,
         errors,
       );
     }

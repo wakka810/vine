@@ -1298,6 +1298,15 @@ memoryを一致させ、次の同一export `USER32.dll!GetSystemMetrics(4)`で�
 metricsをauthorityへimportせず、未到達metric、multi-monitor、DPI scaling、host nonclient theme追従は
 claimしない。Exact instruction／artifact identityは`current-checkpoint.json`だけを正本とする。
 
+`user32-get-system-metrics-caption-post-pointer-release-continuation`は、その次の
+`GetSystemMetrics(SM_CYCAPTION)`を同じRust handlerとauthority境界で完了し、versioned User32 policyの
+caption height `23`を返す。Protocol v92／browser report schema 59のNode／Chromeはsequence／occurrence／
+instruction、stdcall stack、同一runtime thread、LastError preserve、zero guest write、empty queue、callback
+depth zero、直前のfixed-frame readを含む継承evidence、ordered semantic digest、terminal memoryを一致させ、
+次の同一export `USER32.dll!GetSystemMetrics(8)`で停止する。Host／browser caption measurementやtheme、DPI、
+multi-monitor authorityをimportせず、未到達metric variantはclaimしない。Exact instruction／artifact identityは
+`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

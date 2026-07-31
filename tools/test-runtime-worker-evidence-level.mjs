@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 91 as const/u);
+assert.match(protocol, /protocolVersion = 92 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -84,6 +84,10 @@ assert.match(
 );
 assert.match(
   protocol,
+  /"user32-get-system-metrics-caption-post-pointer-release-continuation"/u,
+);
+assert.match(
+  protocol,
   /capability: "winmm-time-get-time-action-continuation";[\s\S]*?setFocusActiveCallbackDepthAtStop: 1;[\s\S]*?activeCallbackDepthAtStop: 1;[\s\S]*?setFocus: RuntimeThreadCallSnapshot;[\s\S]*?lastCompletionSequence: number;[\s\S]*?lastCompletionInstructionCount: number;[\s\S]*?timeGetTime: RuntimeThreadCallSnapshot;[\s\S]*?nextArguments: \[number, number, number, number\];/u,
 );
 assert.match(
@@ -129,6 +133,10 @@ assert.match(
 assert.match(
   protocol,
   /capability:[\s\S]*?"user32-get-system-metrics-post-pointer-release-continuation";[\s\S]*?implementationId:[\s\S]*?"runtime\.user32-get-system-metrics-post-pointer-release-continuation\.v1";[\s\S]*?requiredCompletions: 1;[\s\S]*?completionCount: 1;[\s\S]*?maximumRepeatCompletions: 16;[\s\S]*?timeGetTimePostReleaseCompletions: RuntimeThreadCallSnapshot\[\];[\s\S]*?getWindowRectPostRelease: RuntimeThreadCallSnapshot;[\s\S]*?getCursorPosPostRelease: RuntimeThreadCallSnapshot;[\s\S]*?getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion: 0;[\s\S]*?getSystemMetricsPostRelease: RuntimeThreadCallSnapshot;/u,
+);
+assert.match(
+  protocol,
+  /capability:[\s\S]*?"user32-get-system-metrics-caption-post-pointer-release-continuation";[\s\S]*?implementationId:[\s\S]*?"runtime\.user32-get-system-metrics-caption-post-pointer-release-continuation\.v1";[\s\S]*?requiredCompletions: 1;[\s\S]*?completionCount: 1;[\s\S]*?getSystemMetricsPostRelease: RuntimeThreadCallSnapshot;[\s\S]*?getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion: 0;[\s\S]*?getSystemMetricsCaptionPostRelease: RuntimeThreadCallSnapshot;/u,
 );
 assert.match(protocol, /windowTimerDelivery\?: \{/u);
 assert.match(

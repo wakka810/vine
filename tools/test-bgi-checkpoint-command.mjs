@@ -63,6 +63,12 @@ const genericRunner = fs.readFileSync(
   path.join(root, "tools", "run-runtime-v86-bgi-first-trap.mjs"),
   "utf8",
 );
+assert(
+  browserRunner.includes(
+    `const runtimeProtocol = "${manifest.browserCheckpoint.browserRuntimeProtocol}";`,
+  ),
+  "browser BGI runner protocol must match the current checkpoint",
+);
 assert.match(
   genericRunner,
   /acquireWritableProfileLease\(writableProfile, crypto\.randomUUID\(\)\)/u,
