@@ -14887,7 +14887,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "primary-main-loop-pointer-message-action-progress-gateway" => {
                     GenericRuntimeCapability::User32PointerButtonMessages
                 }
-                "user32-set-focus-action-continuation" => {
+                "user32-set-focus-action-continuation"
+                | "winmm-time-get-time-action-continuation" => {
                     GenericRuntimeCapability::User32SetFocusSameWindow
                 }
                 "kernel32-leave-critical-section" => {

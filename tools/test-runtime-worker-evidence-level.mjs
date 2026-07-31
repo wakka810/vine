@@ -12,7 +12,7 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 79 as const/u);
+assert.match(protocol, /protocolVersion = 80 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -40,6 +40,11 @@ assert.match(
   /"primary-main-loop-pointer-message-action-progress-gateway"/u,
 );
 assert.match(protocol, /"user32-set-focus-action-continuation"/u);
+assert.match(protocol, /"winmm-time-get-time-action-continuation"/u);
+assert.match(
+  protocol,
+  /capability: "winmm-time-get-time-action-continuation";[\s\S]*?setFocusActiveCallbackDepthAtStop: 1;[\s\S]*?activeCallbackDepthAtStop: 1;[\s\S]*?setFocus: RuntimeThreadCallSnapshot;[\s\S]*?lastCompletionSequence: number;[\s\S]*?lastCompletionInstructionCount: number;[\s\S]*?timeGetTime: RuntimeThreadCallSnapshot;[\s\S]*?nextArguments: \[number, number, number, number\];/u,
+);
 assert.match(protocol, /windowTimerDelivery\?: \{/u);
 assert.match(
   protocol,
@@ -69,6 +74,11 @@ assert.match(
 assert.match(
   fullProbe,
   /primary-main-loop-pointer-message-action-progress-gateway/u,
+);
+assert.match(fullProbe, /winmm-time-get-time-action-continuation/u);
+assert.match(
+  worker,
+  /isTimeGetTimeActionContinuationCheckpoint\([\s\S]{0,200}#timeGetTimeActionContinuationDispatching &&\s*completion\.implementationId === "winmm\.time-get-time\.v1"/u,
 );
 assert.match(protocol, /kernel32-get-file-attributes-a/u);
 assert.match(protocol, /RuntimeGetFileAttributesACallSnapshot/u);

@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `user32-set-focus-action-continuation`: 161945 calls across 131 endpoint contracts / 129 APIs, memory generation 296315 |
+| Runtime diagnostics | `winmm-time-get-time-action-continuation`: 161946 calls across 131 endpoint contracts / 129 APIs, memory generation 296316 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `user32-set-focus-action-continuation` completed 1 same-window focus operation by instruction 321462324; verification stopped at `WINMM.dll!timeGetTime` on instruction 321462368 (`user32-set-focus-action-continuation-checkpoint-complete`) |
+| Next structured stop | `winmm-time-get-time-action-continuation` completed 1 process-clock sample by instruction 321462368; verification stopped at `USER32.dll!DefWindowProcA` on instruction 321462401 (`winmm-time-get-time-action-continuation-checkpoint-complete`) |
 
-The active semantic report is 3,029,834 bytes with SHA-256
-`0d66bbd8fb9263fb41e376e666dcc5189c9c8d845622cff70003bb74b5904915`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 3,030,689 bytes with SHA-256
+`58035a214bba10cc9100b89240ef7fdb7b22e24161a4d5403c280f2c02cbfded`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

@@ -653,7 +653,8 @@ function isInputProgressGatewayCheckpoint(
     profile ===
       "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
     profile === "primary-main-loop-pointer-message-action-progress-gateway" ||
-    profile === "user32-set-focus-action-continuation"
+    profile === "user32-set-focus-action-continuation" ||
+    profile === "winmm-time-get-time-action-continuation"
   );
 }
 
@@ -665,7 +666,8 @@ function isActionInputProgressGatewayCheckpoint(
     profile ===
       "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
     profile === "primary-main-loop-pointer-message-action-progress-gateway" ||
-    profile === "user32-set-focus-action-continuation"
+    profile === "user32-set-focus-action-continuation" ||
+    profile === "winmm-time-get-time-action-continuation"
   );
 }
 
@@ -690,7 +692,8 @@ function isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
     profile ===
       "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
     profile === "primary-main-loop-pointer-message-action-progress-gateway" ||
-    profile === "user32-set-focus-action-continuation"
+    profile === "user32-set-focus-action-continuation" ||
+    profile === "winmm-time-get-time-action-continuation"
   );
 }
 
@@ -706,12 +709,27 @@ function isSetFocusActionContinuationCheckpoint(
   return profile === "user32-set-focus-action-continuation";
 }
 
+function isTimeGetTimeActionContinuationCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "winmm-time-get-time-action-continuation";
+}
+
+function hasSetFocusActionContinuation(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isSetFocusActionContinuationCheckpoint(profile) ||
+    isTimeGetTimeActionContinuationCheckpoint(profile)
+  );
+}
+
 function hasPointerMessageActionProgressGateway(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isPointerMessageActionProgressGatewayCheckpoint(profile) ||
-    isSetFocusActionContinuationCheckpoint(profile)
+    hasSetFocusActionContinuation(profile)
   );
 }
 
@@ -756,7 +774,15 @@ function isRecurringTimerBoundedWindowCheckpoint(
 function recurringTimerWindowConfiguration(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  return isSetFocusActionContinuationCheckpoint(profile)
+  return isTimeGetTimeActionContinuationCheckpoint(profile)
+    ? ({
+        capability: "winmm-time-get-time-action-continuation",
+        implementationId:
+          "runtime.winmm-time-get-time-action-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      } as const)
+    : isSetFocusActionContinuationCheckpoint(profile)
     ? ({
         capability: "user32-set-focus-action-continuation",
         implementationId: "runtime.user32-set-focus-action-continuation.v1",
@@ -960,12 +986,15 @@ function inputProgressGatewayExpectation(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
   const pointer = hasPointerMessageActionProgressGateway(profile);
+  const timeGetTime = isTimeGetTimeActionContinuationCheckpoint(profile);
   const setFocus = isSetFocusActionContinuationCheckpoint(profile);
   const combined =
     isWindowTimerCallbackActionInputProgressGatewayCheckpoint(profile);
   const action = isActionInputProgressGatewayCheckpoint(profile);
   return {
-    capability: setFocus
+    capability: timeGetTime
+      ? "winmm-time-get-time-action-continuation"
+      : setFocus
       ? "user32-set-focus-action-continuation"
       : pointer
       ? "primary-main-loop-pointer-message-action-progress-gateway"
@@ -974,7 +1003,9 @@ function inputProgressGatewayExpectation(
       : action
       ? "primary-main-loop-action-input-progress-gateway"
       : "primary-main-loop-input-progress-gateway",
-    implementationId: setFocus
+    implementationId: timeGetTime
+      ? "runtime.winmm-time-get-time-action-continuation.v1"
+      : setFocus
       ? "runtime.user32-set-focus-action-continuation.v1"
       : pointer
       ? "runtime.main-loop-pointer-message-action-progress-gateway.v1"
@@ -1163,6 +1194,7 @@ function includesPostHeapTimeGetTimeEvidence(
 ): boolean {
   return (
     isPostHeapTimeGetTimeCheckpoint(profile) ||
+    isTimeGetTimeActionContinuationCheckpoint(profile) ||
     isPostClockCriticalSectionCheckpoint(profile) ||
     isPostWaitCriticalSectionCheckpoint(profile) ||
     isPostTimerWaitCriticalSectionCheckpoint(profile) ||
@@ -1589,6 +1621,24 @@ type SetFocusActionContinuationEntry = Omit<
   | "requiredCompletions"
   | "completionCount"
   | "setFocus"
+  | "instructionCount"
+  | "nextEndpoint"
+  | "nextArguments"
+  | "nextReturnAddress"
+  | "nextStackPointer"
+  | "memoryContentSha256"
+>;
+
+type TimeGetTimeActionContinuationCheckpoint = Extract<
+  NonNullable<SessionReport["checkpointCompletion"]>,
+  { capability: "winmm-time-get-time-action-continuation" }
+>;
+
+type TimeGetTimeActionContinuationEntry = Omit<
+  TimeGetTimeActionContinuationCheckpoint,
+  | "lastCompletionSequence"
+  | "lastCompletionInstructionCount"
+  | "timeGetTime"
   | "instructionCount"
   | "nextEndpoint"
   | "nextArguments"
@@ -2096,6 +2146,10 @@ class BrowserRuntimeSession {
   #setFocusActionContinuationEntry: SetFocusActionContinuationEntry | null =
     null;
   #setFocusActionContinuationDispatching = false;
+  #timeGetTimeActionContinuationEntry: TimeGetTimeActionContinuationEntry | null =
+    null;
+  #timeGetTimeActionContinuationAwaitingDispatch = false;
+  #timeGetTimeActionContinuationDispatching = false;
   readonly #presentationProgressRenderCompletions: RuntimeThreadCallSnapshot[] =
     [];
   #presentationProgressPresentCompletion: RuntimeThreadCallSnapshot | null =
@@ -2451,7 +2505,7 @@ class BrowserRuntimeSession {
               isPointerMessageActionProgressGatewayCheckpoint(
                 this.#configuration.capabilityProfile,
               ),
-              isSetFocusActionContinuationCheckpoint(
+              hasSetFocusActionContinuation(
                 this.#configuration.capabilityProfile,
               ),
             )
@@ -2514,7 +2568,7 @@ class BrowserRuntimeSession {
         const cursor = preparedOutput.metadata.runtime.cursorPosition;
         invariant(
           preparedOutput.metadata.runtime.user32Policy ===
-            (isSetFocusActionContinuationCheckpoint(
+            (hasSetFocusActionContinuation(
               this.#configuration.capabilityProfile,
             )
               ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
@@ -5149,7 +5203,7 @@ class BrowserRuntimeSession {
       ) {
         this.#pointerMessageActionGatewayAwaitingSetFocus = false;
         if (
-          isSetFocusActionContinuationCheckpoint(
+          hasSetFocusActionContinuation(
             this.#configuration.capabilityProfile,
           )
         ) {
@@ -5174,6 +5228,28 @@ class BrowserRuntimeSession {
           return;
         }
       }
+    }
+    if (this.#timeGetTimeActionContinuationAwaitingDispatch) {
+      const ownedEndpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpoint,
+      );
+      invariant(
+        isTimeGetTimeActionContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+          ownedEndpoint?.module?.toLowerCase() === "winmm.dll" &&
+          ownedEndpoint.symbol?.kind === "name" &&
+          ownedEndpoint.symbol.name === "timeGetTime" &&
+          this.#report.checkpointCompletion === null &&
+          this.#timeGetTimeActionContinuationEntry !== null &&
+          !this.#timeGetTimeActionContinuationDispatching &&
+          this.#setFocusActionContinuationEntry === null &&
+          !this.#setFocusActionContinuationDispatching &&
+          this.#bgiCallbackCallSequences.size === 1,
+        "timeGetTime action continuation reached a different API or lost its live WndProc frame",
+      );
+      this.#timeGetTimeActionContinuationAwaitingDispatch = false;
+      this.#timeGetTimeActionContinuationDispatching = true;
     }
     if (this.#bgiCheckpointPending) {
       this.#completeBgiCapabilityCheckpoint(endpoint, stackPointer);
@@ -5336,7 +5412,7 @@ class BrowserRuntimeSession {
               activeCallbackDepthAtStop: 1,
             };
             if (
-              isSetFocusActionContinuationCheckpoint(
+              hasSetFocusActionContinuation(
                 this.#configuration.capabilityProfile,
               )
             ) {
@@ -5689,7 +5765,7 @@ class BrowserRuntimeSession {
             this.#configuration.capabilityProfile,
           );
         const compatibilityPolicyId =
-          isSetFocusActionContinuationCheckpoint(
+          hasSetFocusActionContinuation(
             this.#configuration.capabilityProfile,
           )
             ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
@@ -5754,7 +5830,7 @@ class BrowserRuntimeSession {
     ) {
       if (this.#report.isIconic === null) {
         const compatibilityPolicyId =
-          isSetFocusActionContinuationCheckpoint(
+          hasSetFocusActionContinuation(
             this.#configuration.capabilityProfile,
           )
             ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
@@ -5927,6 +6003,8 @@ class BrowserRuntimeSession {
             "primary-main-loop-pointer-message-action-progress-gateway" ||
           checkpoint.capability === "user32-set-focus-action-continuation" ||
           checkpoint.capability ===
+            "winmm-time-get-time-action-continuation" ||
+          checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -6022,6 +6100,7 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "primary-main-loop-pointer-message-action-progress-gateway" ||
       checkpoint.capability === "user32-set-focus-action-continuation" ||
+      checkpoint.capability === "winmm-time-get-time-action-continuation" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
@@ -6073,6 +6152,14 @@ class BrowserRuntimeSession {
                 : checkpoint.capability ===
                     "user32-set-focus-action-continuation"
                   ? []
+                : checkpoint.capability ===
+                    "winmm-time-get-time-action-continuation"
+                  ? [
+                      this.#requireEngine().readGuestU32(stackPointer + 4),
+                      this.#requireEngine().readGuestU32(stackPointer + 8),
+                      this.#requireEngine().readGuestU32(stackPointer + 12),
+                      this.#requireEngine().readGuestU32(stackPointer + 16),
+                    ]
                 : checkpoint.capability ===
                       "primary-main-loop-recurring-timer-cycle-batch" ||
                     checkpoint.capability ===
@@ -6163,6 +6250,7 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "primary-main-loop-pointer-message-action-progress-gateway" ||
       checkpoint.capability === "user32-set-focus-action-continuation" ||
+      checkpoint.capability === "winmm-time-get-time-action-continuation" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
@@ -6203,6 +6291,9 @@ class BrowserRuntimeSession {
                       : checkpoint.capability ===
                           "user32-set-focus-action-continuation"
                         ? "USER32 SetFocus action continuation checkpoint completed"
+                      : checkpoint.capability ===
+                          "winmm-time-get-time-action-continuation"
+                        ? "WinMM timeGetTime action continuation checkpoint completed"
                       : checkpoint.capability ===
                           "primary-main-loop-pointer-message-action-progress-gateway"
                         ? "Primary main-loop pointer message action progress gateway completed"
@@ -6625,7 +6716,7 @@ class BrowserRuntimeSession {
       implementationOccurrence,
     );
     if (
-      isSetFocusActionContinuationCheckpoint(
+      hasSetFocusActionContinuation(
         this.#configuration.capabilityProfile,
       ) &&
       completion.implementationId ===
@@ -6654,11 +6745,99 @@ class BrowserRuntimeSession {
         trapInstructionCount: this.#report.instructions,
         occurrence: implementationOccurrence,
       } satisfies RuntimeThreadCallSnapshot;
+      if (
+        isTimeGetTimeActionContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        )
+      ) {
+        this.#timeGetTimeActionContinuationEntry = {
+          ...entry,
+          capability: "winmm-time-get-time-action-continuation",
+          implementationId:
+            "runtime.winmm-time-get-time-action-continuation.v1",
+          setFocusActiveCallbackDepthAtStop:
+            entry.activeCallbackDepthAtStop,
+          activeCallbackDepthAtStop: entry.activeCallbackDepthAtStop,
+          requiredCompletions: 1,
+          completionCount: 1,
+          setFocus,
+        } satisfies TimeGetTimeActionContinuationEntry;
+        this.#timeGetTimeActionContinuationAwaitingDispatch = true;
+      } else {
+        this.#report.checkpointCompletion = {
+          ...entry,
+          requiredCompletions: 1,
+          completionCount: 1,
+          setFocus,
+          instructionCount: 0,
+          nextEndpoint: {
+            id: 0,
+            address: 0,
+            disposition: "declared-runtime-export" as const,
+            iatAddress: 0,
+          },
+          nextArguments: [],
+          nextReturnAddress: 0,
+          nextStackPointer: 0,
+          memoryContentSha256: "",
+        } satisfies SetFocusActionContinuationCheckpoint;
+        this.#bgiCheckpointPending = true;
+      }
+      this.#setFocusActionContinuationEntry = null;
+      this.#setFocusActionContinuationDispatching = false;
+    }
+    if (
+      isTimeGetTimeActionContinuationCheckpoint(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#timeGetTimeActionContinuationDispatching &&
+      completion.implementationId === "winmm.time-get-time.v1"
+    ) {
+      const entry = this.#timeGetTimeActionContinuationEntry;
+      const tickCount = call.tickCount;
+      invariant(
+        this.#timeGetTimeActionContinuationDispatching &&
+          entry !== null &&
+          this.#report.checkpointCompletion === null &&
+          endpoint.module.toLowerCase() === "winmm.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "timeGetTime" &&
+          this.#currentThreadId === 8_192 &&
+          call.arguments.length === 0 &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          tickCount !== undefined &&
+          call.result.value === tickCount.returnedTickCount &&
+          tickCount.nextTickCount ===
+            ((tickCount.returnedTickCount + tickCount.incrementPerRead) >>>
+              0) &&
+          tickCount.incrementPerRead === 1 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0 &&
+          this.#bgiCallbackCallSequences.size === 1,
+        `timeGetTime action continuation changed its process-clock or live-callback contract: ${JSON.stringify(
+          {
+            dispatching: this.#timeGetTimeActionContinuationDispatching,
+            hasEntry: entry !== null,
+            hasCheckpoint: this.#report.checkpointCompletion !== null,
+            endpoint,
+            currentThreadId: this.#currentThreadId,
+            call,
+            activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+          },
+        )}`,
+      );
+      const timeGetTime = {
+        ...structuredClone(call),
+        runtimeThreadId: this.#currentThreadId,
+        trapInstructionCount: this.#report.instructions,
+        occurrence: implementationOccurrence,
+      } satisfies RuntimeThreadCallSnapshot;
       this.#report.checkpointCompletion = {
         ...entry,
-        requiredCompletions: 1,
-        completionCount: 1,
-        setFocus,
+        lastCompletionSequence: sequence,
+        lastCompletionInstructionCount: this.#report.instructions,
+        timeGetTime,
         instructionCount: 0,
         nextEndpoint: {
           id: 0,
@@ -6666,13 +6845,13 @@ class BrowserRuntimeSession {
           disposition: "declared-runtime-export" as const,
           iatAddress: 0,
         },
-        nextArguments: [],
+        nextArguments: [0, 0, 0, 0],
         nextReturnAddress: 0,
         nextStackPointer: 0,
         memoryContentSha256: "",
-      } satisfies SetFocusActionContinuationCheckpoint;
-      this.#setFocusActionContinuationEntry = null;
-      this.#setFocusActionContinuationDispatching = false;
+      } satisfies TimeGetTimeActionContinuationCheckpoint;
+      this.#timeGetTimeActionContinuationEntry = null;
+      this.#timeGetTimeActionContinuationDispatching = false;
       this.#bgiCheckpointPending = true;
     }
     this.#recordD3d9RecreatedTextureCall(call);
@@ -11259,7 +11438,7 @@ class BrowserRuntimeSession {
       firstCall: structuredClone(firstCall.call),
       lastCall: structuredClone(lastCall.call),
       compatibilityPolicyId:
-        isSetFocusActionContinuationCheckpoint(
+        hasSetFocusActionContinuation(
           this.#configuration.capabilityProfile,
         )
           ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
@@ -15761,6 +15940,104 @@ class BrowserRuntimeSession {
             heapPageMaterializations:
               this.#report.heapPageMaterializations?.length,
             sourceReads: this.#report.sourceReads.length,
+          })}`,
+        );
+      }
+      if (
+        isTimeGetTimeActionContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report
+          .checkpointCompletion as TimeGetTimeActionContinuationCheckpoint | null;
+        const setFocus = checkpoint?.setFocus;
+        const timeGetTime = checkpoint?.timeGetTime;
+        invariant(
+          this.#report.supportedCallCount === 161_946 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "76d10d5a5fc53ddf14496b6a6b223233cb690df235574cae38f6e4c2c7afdd46" &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability ===
+              "winmm-time-get-time-action-continuation" &&
+            checkpoint.implementationId ===
+              "runtime.winmm-time-get-time-action-continuation.v1" &&
+            checkpoint.requiredPointerMessages === 1 &&
+            checkpoint.pointerMessageDeliveryCount === 1 &&
+            checkpoint.releaseMessageQueued &&
+            checkpoint.setFocusActiveCallbackDepthAtStop === 1 &&
+            checkpoint.activeCallbackDepthAtStop === 1 &&
+            checkpoint.requiredCompletions === 1 &&
+            checkpoint.completionCount === 1 &&
+            checkpoint.lastCompletionSequence === 161_947 &&
+            checkpoint.lastCompletionInstructionCount === 321_462_368 &&
+            checkpoint.dispatchEntry.sequence === 161_942 &&
+            checkpoint.dispatchEntry.trapInstructionCount === 321_462_086 &&
+            checkpoint.callbackEntry.frameId === 33 &&
+            checkpoint.callbackEntry.target === 0x1009_2550 &&
+            setFocus?.sequence === 161_946 &&
+            setFocus.runtimeThreadId === 8_192 &&
+            setFocus.trapInstructionCount === 321_462_324 &&
+            setFocus.occurrence === 1 &&
+            setFocus.implementationId ===
+              "user32.set-focus.same-current-window.v1" &&
+            timeGetTime?.sequence === 161_947 &&
+            timeGetTime.runtimeThreadId === 8_192 &&
+            timeGetTime.trapInstructionCount === 321_462_368 &&
+            timeGetTime.occurrence === 218 &&
+            timeGetTime.module.toLowerCase() === "winmm.dll" &&
+            timeGetTime.symbol === "timeGetTime" &&
+            timeGetTime.implementationId === "winmm.time-get-time.v1" &&
+            timeGetTime.arguments.length === 0 &&
+            "action" in timeGetTime.result &&
+            timeGetTime.result.action === "set" &&
+            timeGetTime.result.value === 3_601_223 &&
+            timeGetTime.returnAddress === 0x1009_1ebf &&
+            timeGetTime.stackPointerBefore === 0x006f_f508 &&
+            timeGetTime.stackPointerAfter === 0x006f_f50c &&
+            timeGetTime.lastError === 0 &&
+            timeGetTime.guestWrites.length === 0 &&
+            timeGetTime.tickCount?.returnedTickCount === 3_601_223 &&
+            timeGetTime.tickCount.nextTickCount === 3_601_224 &&
+            timeGetTime.tickCount.incrementPerRead === 1 &&
+            checkpoint.instructionCount === 321_462_401 &&
+            checkpoint.nextEndpoint.id === 233 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0e80 &&
+            checkpoint.nextEndpoint.module?.toLowerCase() === "user32.dll" &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "DefWindowProcA" &&
+            checkpoint.nextEndpoint.iatAddress === 0x100d_147c &&
+            checkpoint.nextArguments.join(",") ===
+              "1208025089,513,1,23593600" &&
+            checkpoint.nextReturnAddress === 0x1009_33bf &&
+            checkpoint.nextStackPointer === 0x006f_f50c &&
+            checkpoint.memoryContentSha256 ===
+              "fcfa916b3f18936ba6df5107491dd2cbf0f08f738bd8de67154682f6da31280f" &&
+            this.#report.instructions === 321_462_401 &&
+            Number(this.#generation) === 314_955 &&
+            this.#report.writebackBatches === 183_844 &&
+            this.#report.writebackPages === 282_497 &&
+            this.#report.mappingDeltas === 127_935 &&
+            this.#report.mappingDirtyPages === 150_340 &&
+            this.#report.contextSwitches === 2_512 &&
+            this.#report.stackGrowths.length === 11 &&
+            this.#report.heapPageMaterializations?.length === 3_108 &&
+            this.#report.sourceReads.length === 94 &&
+            this.#report.pointerInput.receivedMessages === 2 &&
+            this.#report.pointerInput.queuedBeforePrepare === 2 &&
+            this.#report.pointerInput.receipts.length === 2,
+          `timeGetTime action continuation changed: ${JSON.stringify({
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            checkpoint,
+            instructions: this.#report.instructions,
+            finalGeneration: Number(this.#generation),
+            writebackBatches: this.#report.writebackBatches,
+            writebackPages: this.#report.writebackPages,
+            mappingDeltas: this.#report.mappingDeltas,
+            mappingDirtyPages: this.#report.mappingDirtyPages,
+            contextSwitches: this.#report.contextSwitches,
           })}`,
         );
       }

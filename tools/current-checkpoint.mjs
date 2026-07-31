@@ -205,8 +205,13 @@ export function validateCurrentCheckpoint(manifest) {
   const setFocusActionContinuationActive =
     root.activeRuntimeCheckpoint?.profile ===
     "user32-set-focus-action-continuation";
+  const timeGetTimeActionContinuationActive =
+    root.activeRuntimeCheckpoint?.profile ===
+    "winmm-time-get-time-action-continuation";
+  const setFocusEvidenceActive =
+    setFocusActionContinuationActive || timeGetTimeActionContinuationActive;
   const pointerMessageEvidenceActive =
-    pointerMessageActionProgressGatewayActive || setFocusActionContinuationActive;
+    pointerMessageActionProgressGatewayActive || setFocusEvidenceActive;
   const windowTimerCallbackDeliveryActive =
     windowTimerCallbackRecurringBatchActive ||
     windowTimerCallbackDeliveryGatewayActive ||
@@ -227,21 +232,21 @@ export function validateCurrentCheckpoint(manifest) {
   const presentationProgressGatewayActive =
     inputProgressGatewayActive || presentationProgressGatewayCheckpointActive;
   const expectedUser32PolicySchemaVersion =
-    setFocusActionContinuationActive
+    setFocusEvidenceActive
       ? 33
       : pointerMessageActionProgressGatewayActive
         ? 32
       : windowTimerCallbackDeliveryActive
         ? 31
         : 30;
-  const expectedUser32PolicyId = setFocusActionContinuationActive
+  const expectedUser32PolicyId = setFocusEvidenceActive
     ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
     : pointerMessageActionProgressGatewayActive
       ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
       : windowTimerCallbackDeliveryActive
         ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
         : "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30";
-  const expectedUser32PolicySource = setFocusActionContinuationActive
+  const expectedUser32PolicySource = setFocusEvidenceActive
     ? "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v33"
     : pointerMessageActionProgressGatewayActive
       ? "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v32"
@@ -1149,7 +1154,27 @@ export function validateCurrentCheckpoint(manifest) {
                                             : mainLoopContinuationActive
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
-  const profileExpectations = setFocusActionContinuationActive
+  const profileExpectations = timeGetTimeActionContinuationActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_935,
+        browserMappingDirtyPages: 150_340,
+        browserSuccessExecutionTransitions: 588_647,
+        browserFinalGeneration: 314_955,
+        browserReportSchemaVersion: 47,
+        latestSchema:
+          "vine.v86-bgi-winmm-time-get-time-action-continuation",
+        latestWritebackBatches: 165_099,
+        latestWritebackDirtyPages: 244_456,
+        latestWritebackChangedBytes: 43_070_440,
+        latestHostDeltaBatches: 127_935,
+        latestFinalMemoryGeneration: 296_316,
+        semanticCallDigestSha256:
+          "76d10d5a5fc53ddf14496b6a6b223233cb690df235574cae38f6e4c2c7afdd46",
+        memoryContentSha256:
+          "fcfa916b3f18936ba6df5107491dd2cbf0f08f738bd8de67154682f6da31280f",
+      }
+    : setFocusActionContinuationActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_935,
@@ -2742,8 +2767,10 @@ export function validateCurrentCheckpoint(manifest) {
       "browserCheckpoint.bgiBenchmark must identify a threshold gate outcome",
     );
   }
-  const expectedBrowserRuntimeProtocol = setFocusActionContinuationActive
-    ? "vine.browser-runtime-worker.v79"
+  const expectedBrowserRuntimeProtocol = timeGetTimeActionContinuationActive
+    ? "vine.browser-runtime-worker.v80"
+    : setFocusActionContinuationActive
+      ? "vine.browser-runtime-worker.v79"
     : pointerMessageActionProgressGatewayActive
       ? "vine.browser-runtime-worker.v78"
     : windowTimerCallbackActionInputProgressGatewayActive
@@ -3537,8 +3564,10 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (setFocusActionContinuationActive
-        ? 46
+      (timeGetTimeActionContinuationActive
+        ? 47
+        : setFocusActionContinuationActive
+          ? 46
         : pointerMessageActionProgressGatewayActive
           ? 45
         : windowTimerCallbackActionInputProgressGatewayActive
@@ -13970,7 +13999,7 @@ export function validateCurrentCheckpoint(manifest) {
         errors,
       )
     : {};
-  const setFocusPolicy = setFocusActionContinuationActive
+  const setFocusPolicy = setFocusEvidenceActive
     ? requireRecord(
         user32Policy.setFocus,
         "activeRuntimeCheckpoint.user32CompatibilityPolicy.setFocus",
@@ -14076,7 +14105,7 @@ export function validateCurrentCheckpoint(manifest) {
         pointerButtonMessages.controlKeyMask !== 8 ||
         pointerButtonMessages.requireVisibleActiveFocusedForegroundWindow !==
           true)) ||
-    (setFocusActionContinuationActive &&
+    (setFocusEvidenceActive &&
       (setFocusPolicy.profileId !==
         "same-current-thread-active-focused-foreground-window-v1" ||
         setFocusPolicy.requireCurrentThreadActiveFocusedForegroundWindow !==
@@ -20575,7 +20604,9 @@ export function validateCurrentCheckpoint(manifest) {
       "result-ignored-global-flag-set-and-continue" ||
     latestEvidence.nativeCreateWindowExAExecutableHashUnchanged !== true ||
     latestEvidence.implementation !==
-      (setFocusActionContinuationActive
+      (timeGetTimeActionContinuationActive
+        ? "Rust-owned winmm.time-get-time.v1 reuses RuntimeProcessState process-clock authority inside the live WndProc, returns and advances the shared DWORD tick by one, and preserves queued pointer release, callback depth, LastError, and guest memory without browser clock or WinMM state authority"
+        : setFocusActionContinuationActive
         ? "Rust-owned same-current-thread SetFocus validates the live active, focused, foreground logical window and returns its existing handle without state, guest-memory, LastError, host-focus, or browser-focus mutation"
         : pointerMessageActionProgressGatewayActive
         ? "Rust-owned normalized pointer-button ingress atomically composes logical button state, cursor coordinates, foreground-client mapping, current-thread message queueing, MSG32 publication, WndProc dispatch, and queued release evidence without browser Windows-state authority"
@@ -24471,6 +24502,198 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.pointerReleaseMessageQueued !== true
     ) {
       errors.push("SetFocus action continuation checkpoint stop is invalid");
+    }
+  }
+  if (timeGetTimeActionContinuationActive) {
+    const expectedCapability = "winmm-time-get-time-action-continuation";
+    const expectedImplementation =
+      "runtime.winmm-time-get-time-action-continuation.v1";
+    const validateTimeGetTimeCheckpoint = (completion, label) => {
+      const setFocus = completion.setFocus ?? {};
+      const window = setFocus.window ?? {};
+      const timeGetTime = completion.timeGetTime ?? {};
+      const tickCount = timeGetTime.tickCount ?? {};
+      const nextEndpoint = completion.nextEndpoint ?? {};
+      if (
+        completion.capability !== expectedCapability ||
+        completion.implementationId !== expectedImplementation ||
+        completion.requiredPointerMessages !== 1 ||
+        completion.pointerMessageDeliveryCount !== 1 ||
+        completion.inputBaseline?.cycleCount !== 253 ||
+        completion.inputBaseline?.lastCompletionSequence !== 161_901 ||
+        completion.inputBaseline?.lastCompletionInstructionCount !==
+          321_459_074 ||
+        completion.inputEvents?.length !== 2 ||
+        completion.inputQuery?.sequence !== 161_932 ||
+        completion.inputQuery?.trapInstructionCount !== 321_461_595 ||
+        completion.peekMessage?.sequence !== 161_940 ||
+        completion.peekMessage?.trapInstructionCount !== 321_462_072 ||
+        completion.translateMessage?.sequence !== 161_941 ||
+        completion.translateMessage?.trapInstructionCount !== 321_462_082 ||
+        completion.dispatchEntry?.sequence !== 161_942 ||
+        completion.dispatchEntry?.trapInstructionCount !== 321_462_086 ||
+        completion.callbackEntry?.frameId !== 33 ||
+        completion.callbackEntry?.target !== 269_034_832 ||
+        completion.releaseMessageQueued !== true ||
+        completion.setFocusActiveCallbackDepthAtStop !== 1 ||
+        completion.activeCallbackDepthAtStop !== 1 ||
+        completion.requiredCompletions !== 1 ||
+        completion.completionCount !== 1 ||
+        setFocus.sequence !== 161_946 ||
+        setFocus.trapInstructionCount !== 321_462_324 ||
+        setFocus.runtimeThreadId !== 8_192 ||
+        setFocus.occurrence !== 1 ||
+        setFocus.module?.toLowerCase() !== "user32.dll" ||
+        setFocus.symbol !== "SetFocus" ||
+        setFocus.implementationId !==
+          "user32.set-focus.same-current-window.v1" ||
+        setFocus.arguments?.join(",") !== "1208025089" ||
+        setFocus.result?.action !== "set" ||
+        setFocus.result?.value !== 1_208_025_089 ||
+        setFocus.returnAddress !== 269_037_003 ||
+        setFocus.stackPointerBefore !== 7_337_240 ||
+        setFocus.stackPointerAfter !== 7_337_248 ||
+        setFocus.lastError !== 0 ||
+        setFocus.guestWrites?.length !== 0 ||
+        window.id !== 1 ||
+        window.handle !== 1_208_025_089 ||
+        window.namespace !== "vine.logical-window.v1" ||
+        window.ownerThreadId !== 8_192 ||
+        setFocus.runtimeThreadId !== window.ownerThreadId ||
+        window.lifecycle?.state !== "created" ||
+        window.visible !== true ||
+        window.topmost !== false ||
+        completion.lastCompletionSequence !== 161_947 ||
+        completion.lastCompletionInstructionCount !== 321_462_368 ||
+        timeGetTime.sequence !== 161_947 ||
+        timeGetTime.trapInstructionCount !== 321_462_368 ||
+        timeGetTime.runtimeThreadId !== 8_192 ||
+        timeGetTime.occurrence !== 218 ||
+        timeGetTime.module?.toLowerCase() !== "winmm.dll" ||
+        timeGetTime.symbol !== "timeGetTime" ||
+        timeGetTime.implementationId !== "winmm.time-get-time.v1" ||
+        timeGetTime.arguments?.length !== 0 ||
+        timeGetTime.result?.action !== "set" ||
+        timeGetTime.result?.value !== 3_601_223 ||
+        timeGetTime.returnAddress !== 269_033_151 ||
+        timeGetTime.stackPointerBefore !== 7_337_224 ||
+        timeGetTime.stackPointerAfter !== 7_337_228 ||
+        timeGetTime.lastError !== 0 ||
+        timeGetTime.guestWrites?.length !== 0 ||
+        tickCount.returnedTickCount !== 3_601_223 ||
+        tickCount.nextTickCount !== 3_601_224 ||
+        tickCount.incrementPerRead !== 1 ||
+        completion.instructionCount !== 321_462_401 ||
+        nextEndpoint.id !== 233 ||
+        nextEndpoint.address !== 2_130_710_144 ||
+        nextEndpoint.module?.toLowerCase() !== "user32.dll" ||
+        nextEndpoint.symbol?.kind !== "name" ||
+        nextEndpoint.symbol?.name !== "DefWindowProcA" ||
+        nextEndpoint.disposition !== "declared-runtime-export" ||
+        nextEndpoint.iatAddress !== 269_292_668 ||
+        completion.nextArguments?.join(",") !==
+          "1208025089,513,1,23593600" ||
+        completion.nextReturnAddress !== 269_038_527 ||
+        completion.nextStackPointer !== 7_337_228 ||
+        completion.memoryContentSha256 !==
+          "fcfa916b3f18936ba6df5107491dd2cbf0f08f738bd8de67154682f6da31280f"
+      ) {
+        errors.push(
+          `${label} timeGetTime action checkpoint evidence is invalid`,
+        );
+      }
+    };
+
+    validateTimeGetTimeCheckpoint(
+      bgiBrowserEvidence.checkpointCompletion ?? {},
+      "browser BGI",
+    );
+    validateTimeGetTimeCheckpoint(
+      latestEvidence.capabilityCheckpointCompletion ?? {},
+      "latest",
+    );
+    for (const evidence of [bgiBrowserEvidence, latestEvidence]) {
+      if (
+        evidence.windowTimerBrowserTimerCreated !== false ||
+        evidence.windowTimerQueueAuthority !==
+          "rust-runtime-thread-message-queue" ||
+        evidence.dispatchMessageACallbackResultPolicy !==
+          "ignore-and-return-zero"
+      ) {
+        errors.push(
+          "window timer callback recurring evidence is invalid for the timeGetTime action checkpoint",
+        );
+      }
+    }
+    const expectedCompletion = currentStop.completion ?? {};
+    const expectedEndpoint = currentStop.nextEndpoint ?? {};
+    if (
+      currentStop.kind !== "capability-checkpoint" ||
+      currentStop.nextCheckpoint !==
+        "user32-def-window-proc-a-action-continuation" ||
+      currentStop.pausedHistoricalCheckpoint !== expectedCapability ||
+      currentStop.instructionCount !== 321_462_401 ||
+      currentStop.capabilityCluster !==
+        "user32-default-window-proc-action-continuation" ||
+      currentStop.reason !==
+        "winmm-time-get-time-action-continuation-checkpoint-complete" ||
+      expectedCompletion.capability !== expectedCapability ||
+      expectedCompletion.implementationId !== expectedImplementation ||
+      expectedCompletion.requiredCompletions !== 1 ||
+      expectedCompletion.completionCount !== 1 ||
+      expectedCompletion.lastCompletionSequence !== 161_947 ||
+      expectedCompletion.lastCompletionInstructionCount !== 321_462_368 ||
+      expectedEndpoint.endpointKind !== "runtime-system-export" ||
+      expectedEndpoint.endpointId !== 233 ||
+      expectedEndpoint.api?.toLowerCase() !==
+        "user32.dll!defwindowproca" ||
+      expectedEndpoint.endpointAddress !== "0x7f000e80" ||
+      expectedEndpoint.iatAddress !== "0x100d147c" ||
+      expectedEndpoint.observedModule?.toLowerCase() !== "user32.dll" ||
+      expectedEndpoint.observedSymbol !== "DefWindowProcA" ||
+      expectedEndpoint.disposition !== "declared-runtime-export" ||
+      expectedEndpoint.arguments?.join(",") !==
+        "0x48010001,0x00000201,0x00000001,0x01680280" ||
+      expectedEndpoint.returnAddress !== "0x100933bf" ||
+      expectedEndpoint.stackPointer !== "0x006ff50c" ||
+      active.runtimeKernelBoundary?.capabilityExpansionPausedAt !==
+        "user32-def-window-proc-a-action-continuation" ||
+      active.runtimeHeapBacking?.capabilityExpansionPausedAt !==
+        "user32-def-window-proc-a-action-continuation" ||
+      bgiBrowserEvidence.nodeOracleReportBytes !== 3_030_689 ||
+      bgiBrowserEvidence.nodeOracleReportSha256 !==
+        "58035a214bba10cc9100b89240ef7fdb7b22e24161a4d5403c280f2c02cbfded" ||
+      bgiBrowserEvidence.browserReportBytes !== 2_735_974 ||
+      bgiBrowserEvidence.browserReportSha256 !==
+        "ba7d5092b5b159f5f21ccf813ca4cca0ff08b94e53801a24233b996d7343f5c5" ||
+      bgiBrowserEvidence.runtimeWorkerBytes !== 714_319 ||
+      bgiBrowserEvidence.runtimeWorkerSha256 !==
+        "62f15928c682ce2fb836b8102718464f7f725deff5e830a9d518c326ab18ddce" ||
+      bgiBrowserEvidence.runtimeCoreWasmBytes !== 5_191_303 ||
+      bgiBrowserEvidence.runtimeCoreWasmSha256 !==
+        "248feea6a66df1ed8d87f17ca811ea97f03490f12f14fe0cbf5e378028acfe3c" ||
+      bgiBrowserEvidence.statusMessagesObserved !== 24_344 ||
+      bgiBrowserEvidence.statusMessagesRetained !== 4_096 ||
+      bgiBrowserEvidence.pointerInputReceivedMessages !== 2 ||
+      bgiBrowserEvidence.pointerInputQueuedBeforePrepare !== 2 ||
+      bgiBrowserEvidence.pointerInputReceiptCount !== 2 ||
+      bgiBrowserEvidence.pointerMessageDeliveryCount !== 1 ||
+      bgiBrowserEvidence.pointerReleaseMessageQueued !== true ||
+      latestEvidence.reportBytes !== 3_030_689 ||
+      latestEvidence.reportSha256 !==
+        "58035a214bba10cc9100b89240ef7fdb7b22e24161a4d5403c280f2c02cbfded" ||
+      latestEvidence.browserReportBytes !== 2_735_974 ||
+      latestEvidence.browserReportSha256 !==
+        "ba7d5092b5b159f5f21ccf813ca4cca0ff08b94e53801a24233b996d7343f5c5" ||
+      latestEvidence.browserReportSchemaVersion !== 47 ||
+      latestEvidence.browserRuntimeProtocol !==
+        "vine.browser-runtime-worker.v80" ||
+      latestEvidence.pointerInputReceivedMessages !== 2 ||
+      latestEvidence.pointerInputReceiptCount !== 2 ||
+      latestEvidence.pointerMessageDeliveryCount !== 1 ||
+      latestEvidence.pointerReleaseMessageQueued !== true
+    ) {
+      errors.push("timeGetTime action continuation checkpoint stop is invalid");
     }
   }
   if (inputProgressGatewayActive && !pointerMessageEvidenceActive) {
@@ -29448,8 +29671,12 @@ export function renderReadmeStatus(manifest) {
                                                           ? "zero-input startup key queries"
                                                           : next.completion
                                                                 .capability ===
-                                                              "user32-set-focus-action-continuation"
-                                                            ? "same-window focus operation"
+                                                              "winmm-time-get-time-action-continuation"
+                                                            ? "process-clock sample"
+                                                            : next.completion
+                                                                  .capability ===
+                                                                "user32-set-focus-action-continuation"
+                                                              ? "same-window focus operation"
                                                           : "recurring waits"
         } ` +
         `by instruction ${next.completion.lastCompletionInstructionCount}; verification stopped at ` +

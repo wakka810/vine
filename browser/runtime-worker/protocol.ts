@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 79 as const;
+export const protocolVersion = 80 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -67,6 +67,7 @@ export type BgiCapabilityProfile =
   | "primary-main-loop-window-timer-callback-action-input-progress-gateway"
   | "primary-main-loop-pointer-message-action-progress-gateway"
   | "user32-set-focus-action-continuation"
+  | "winmm-time-get-time-action-continuation"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
@@ -2420,6 +2421,70 @@ export interface SessionReport {
             | { kind: "ordinal"; ordinal: number };
         };
         nextArguments: [];
+        nextReturnAddress: number;
+        nextStackPointer: number;
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "winmm-time-get-time-action-continuation";
+        implementationId: "runtime.winmm-time-get-time-action-continuation.v1";
+        requiredPointerMessages: 1;
+        pointerMessageDeliveryCount: number;
+        inputBaseline: {
+          cycleCount: 253;
+          lastCompletionSequence: number;
+          lastCompletionInstructionCount: number;
+          presentOccurrence: number;
+          renderCompletionCount: number;
+        };
+        inputEvents: [
+          RuntimePointerButtonInputBoundaryEvidence,
+          RuntimePointerButtonInputBoundaryEvidence,
+        ];
+        inputQuery: RuntimeThreadCallSnapshot;
+        peekMessage: RuntimeThreadCallSnapshot;
+        translateMessage: RuntimeThreadCallSnapshot;
+        dispatchEntry: {
+          sequence: number;
+          module: string;
+          symbol: "DispatchMessageA";
+          occurrence: number;
+          trapInstructionCount: number;
+          arguments: [number];
+          pendingCallback: true;
+          implementationId:
+            "user32.dispatch-message-a.window-timer-pointer-callback.v2";
+        };
+        callbackEntry: {
+          action: "enter";
+          sequence: number;
+          frameId: number;
+          instructionCount: number;
+          target: number;
+          stackPointer: number;
+          arguments: [number, number, number, number];
+        };
+        releaseMessageQueued: true;
+        setFocusActiveCallbackDepthAtStop: 1;
+        activeCallbackDepthAtStop: 1;
+        requiredCompletions: 1;
+        completionCount: 1;
+        setFocus: RuntimeThreadCallSnapshot;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        timeGetTime: RuntimeThreadCallSnapshot;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          disposition: "declared-runtime-export";
+          iatAddress: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        nextArguments: [number, number, number, number];
         nextReturnAddress: number;
         nextStackPointer: number;
         memoryContentSha256: string;

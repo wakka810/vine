@@ -1299,7 +1299,7 @@ detachedSetFocusThread.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpoi
   8_193;
 assert.ok(
   validateCurrentCheckpoint(detachedSetFocusThread).some((error) =>
-    error.includes("latest SetFocus action checkpoint evidence"),
+    error.includes("latest timeGetTime action checkpoint evidence"),
   ),
 );
 
@@ -1308,7 +1308,25 @@ detachedBrowserSetFocusThread.browserCheckpoint.bgiRuntimeEvidence.checkpointCom
   8_193;
 assert.ok(
   validateCurrentCheckpoint(detachedBrowserSetFocusThread).some((error) =>
-    error.includes("browser BGI SetFocus action checkpoint evidence"),
+    error.includes("browser BGI timeGetTime action checkpoint evidence"),
+  ),
+);
+
+const detachedTimeGetTimeThread = structuredClone(manifest);
+detachedTimeGetTimeThread.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.timeGetTime.runtimeThreadId =
+  8_193;
+assert.ok(
+  validateCurrentCheckpoint(detachedTimeGetTimeThread).some((error) =>
+    error.includes("latest timeGetTime action checkpoint evidence"),
+  ),
+);
+
+const staleBrowserTimeGetTimeTick = structuredClone(manifest);
+staleBrowserTimeGetTimeTick.browserCheckpoint.bgiRuntimeEvidence.checkpointCompletion.timeGetTime.tickCount.nextTickCount =
+  3_601_225;
+assert.ok(
+  validateCurrentCheckpoint(staleBrowserTimeGetTimeTick).some((error) =>
+    error.includes("browser BGI timeGetTime action checkpoint evidence"),
   ),
 );
 

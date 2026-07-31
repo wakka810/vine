@@ -145,9 +145,10 @@ back-buffer state. It then closes the exact active scene through
 `Present(NULL,NULL,NULL,NULL)`. Rust publishes immutable frame sequence 1 and
 renews the discard back buffer; the Worker preflights bounded WebGL2 capacity
 before guest execution, validates the complete snapshot, and publishes one black
-1280x720 frame before guest resume. The active checkpoint stops before the
-already-supported `WINMM.dll!timeGetTime`; readable title content, subsequent
-frames, resize, and device／context loss recovery remain unclaimed. Exact current
+1280x720 frame before guest resume. Later action continuations reuse the
+already-supported `WINMM.dll!timeGetTime` through the Rust-owned process clock
+without importing browser timing. Readable title content, subsequent frames,
+resize, and device／context loss recovery remain unclaimed. Exact current endpoint,
 artifact, report, blocker, and resume-condition identities remain manifest-owned.
 
 The canonical commit-bound private target gate is:

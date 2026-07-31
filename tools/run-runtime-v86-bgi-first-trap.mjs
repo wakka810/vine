@@ -211,6 +211,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "primary-main-loop-window-timer-callback-action-input-progress-gateway",
         "primary-main-loop-pointer-message-action-progress-gateway",
         "user32-set-focus-action-continuation",
+        "winmm-time-get-time-action-continuation",
         "kernel32-wait-for-single-object-ex",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -395,6 +396,7 @@ assert(
       "primary-main-loop-window-timer-callback-action-input-progress-gateway",
       "primary-main-loop-pointer-message-action-progress-gateway",
       "user32-set-focus-action-continuation",
+      "winmm-time-get-time-action-continuation",
       "kernel32-wait-for-single-object-ex",
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
       "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -521,6 +523,7 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability ===
       "primary-main-loop-pointer-message-action-progress-gateway" ||
     genericRuntimeCapability === "user32-set-focus-action-continuation" ||
+    genericRuntimeCapability === "winmm-time-get-time-action-continuation" ||
     genericRuntimeCapability ===
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     genericRuntimeCapability ===
@@ -892,7 +895,8 @@ const inputProgressGatewayCheckpointEnabled =
     "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
   genericRuntimeCapability ===
     "primary-main-loop-pointer-message-action-progress-gateway" ||
-  genericRuntimeCapability === "user32-set-focus-action-continuation";
+  genericRuntimeCapability === "user32-set-focus-action-continuation" ||
+  genericRuntimeCapability === "winmm-time-get-time-action-continuation";
 const windowTimerCallbackDeliveryGatewayCheckpointEnabled =
   genericRuntimeCapability ===
   "primary-main-loop-window-timer-callback-delivery-gateway";
@@ -904,9 +908,13 @@ const windowTimerCallbackActionInputProgressGatewayCheckpointEnabled =
     "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
   genericRuntimeCapability ===
     "primary-main-loop-pointer-message-action-progress-gateway" ||
-  genericRuntimeCapability === "user32-set-focus-action-continuation";
+  genericRuntimeCapability === "user32-set-focus-action-continuation" ||
+  genericRuntimeCapability === "winmm-time-get-time-action-continuation";
 const setFocusActionContinuationCheckpointEnabled =
-  genericRuntimeCapability === "user32-set-focus-action-continuation";
+  genericRuntimeCapability === "user32-set-focus-action-continuation" ||
+  genericRuntimeCapability === "winmm-time-get-time-action-continuation";
+const timeGetTimeActionContinuationCheckpointEnabled =
+  genericRuntimeCapability === "winmm-time-get-time-action-continuation";
 const pointerMessageActionProgressGatewayCheckpointEnabled =
   genericRuntimeCapability ===
     "primary-main-loop-pointer-message-action-progress-gateway" ||
@@ -938,7 +946,15 @@ const recurringTimerBoundedWindowCheckpointEnabled =
   recurringTimerMultiCycleCheckpointEnabled ||
   recurringTimerWindowEvidenceEnabled;
 const recurringTimerWindowConfiguration =
-  setFocusActionContinuationCheckpointEnabled
+  timeGetTimeActionContinuationCheckpointEnabled
+    ? {
+        capability: "winmm-time-get-time-action-continuation",
+        implementationId:
+          "runtime.winmm-time-get-time-action-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      }
+    : setFocusActionContinuationCheckpointEnabled
     ? {
         capability: "user32-set-focus-action-continuation",
         implementationId: "runtime.user32-set-focus-action-continuation.v1",
@@ -1501,7 +1517,9 @@ const outputDirectory = path.join(
             ? "v86-bgi-primary-main-loop-recurring-timer-cycle-batch"
             : recurringTimerBoundedWindowCheckpointEnabled
               ? setFocusActionContinuationCheckpointEnabled
-                ? "v86-bgi-set-focus-action-continuation"
+                ? timeGetTimeActionContinuationCheckpointEnabled
+                  ? "v86-bgi-time-get-time-action-continuation"
+                  : "v86-bgi-set-focus-action-continuation"
                 : `v86-bgi-${recurringTimerWindowConfiguration.capability}`
               : postHeapTimeGetTimeCheckpointEnabled
                 ? "v86-bgi-time-get-time-post-heap-reuse"
@@ -5941,7 +5959,9 @@ async function run() {
       sessionCompleted = true;
       const sourceAfter = sourceIdentity(bgiPath);
       assert.deepEqual(sourceAfter, sourceBefore);
-      if (setFocusActionContinuationCheckpointEnabled) {
+      if (timeGetTimeActionContinuationCheckpointEnabled) {
+        validateTimeGetTimeActionContinuationResult(genericResult);
+      } else if (setFocusActionContinuationCheckpointEnabled) {
         validateSetFocusActionContinuationResult(genericResult);
       } else if (pointerMessageActionProgressGatewayCheckpointEnabled) {
         validatePointerMessageActionProgressGatewayResult(genericResult);
@@ -6300,7 +6320,9 @@ async function run() {
                 : recurringTimerBoundedWindowCheckpointEnabled
                   ? pointerMessageActionProgressGatewayCheckpointEnabled
                     ? setFocusActionContinuationCheckpointEnabled
-                      ? "bgi USER32 SetFocus action continuation"
+                      ? timeGetTimeActionContinuationCheckpointEnabled
+                        ? "bgi WINMM timeGetTime action continuation"
+                        : "bgi USER32 SetFocus action continuation"
                       : "bgi primary main-loop pointer message action progress gateway"
                     : windowTimerCallbackActionInputProgressGatewayCheckpointEnabled
                     ? "bgi primary main-loop window timer callback action input progress gateway"
@@ -7019,6 +7041,7 @@ async function runGenericRuntimeReentry({
     : inputProgressKeyboardEvents;
   let pointerMessageActionGatewayEntry = null;
   let setFocusActionContinuationEntry = null;
+  let timeGetTimeActionContinuationEntry = null;
   let inputProgressAsyncKeyStateQuery = null;
   const inputProgressVirtualKey = actionInputProgressGatewayCheckpointEnabled
     ? 0x01
@@ -7497,6 +7520,21 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
+      timeGetTimeActionContinuationEntry !== null &&
+      endpoint !== null
+    ) {
+      checkpointCompletion = {
+        ...timeGetTimeActionContinuationEntry,
+        setFocusActiveCallbackDepthAtStop:
+          timeGetTimeActionContinuationEntry.activeCallbackDepthAtStop,
+        activeCallbackDepthAtStop: activeCallbacks.length,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
+    if (
+      !timeGetTimeActionContinuationCheckpointEnabled &&
       setFocusActionContinuationEntry !== null &&
       checkpointCompletion === null &&
       endpoint !== null
@@ -7533,6 +7571,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "winmm-time-get-time-action-continuation"
+            ? "winmm-time-get-time-action-continuation-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "user32-set-focus-action-continuation"
             ? "user32-set-focus-action-continuation-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -7706,6 +7747,10 @@ async function runGenericRuntimeReentry({
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (postCriticalSectionSetWaitableTimerCheckpointEnabled) {
         checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 4);
+        checkpointCompletion.nextReturnAddress = terminal.returnAddress;
+        checkpointCompletion.nextStackPointer = continuation.finalState.esp;
+      } else if (timeGetTimeActionContinuationCheckpointEnabled) {
+        checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 5);
         checkpointCompletion.nextReturnAddress = terminal.returnAddress;
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (setFocusActionContinuationCheckpointEnabled) {
@@ -8796,6 +8841,45 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
+      timeGetTimeActionContinuationCheckpointEnabled &&
+      setFocusActionContinuationEntry !== null &&
+      call.implementationId === "winmm.time-get-time.v1"
+    ) {
+      assert.equal(timeGetTimeActionContinuationEntry, null);
+      assert.equal(call.module.toLowerCase(), "winmm.dll");
+      assert.equal(call.symbol, "timeGetTime");
+      assert.deepEqual(call.arguments, []);
+      assert.equal(call.result.action, "set");
+      assert.equal(
+        call.sequence,
+        setFocusActionContinuationEntry.setFocus.sequence + 1,
+      );
+      assert.equal(call.returnAddress, 0x1009_1ebf);
+      assert.equal(call.stackPointerAfter, call.stackPointerBefore + 4);
+      assert.equal(call.lastError, 0);
+      assert.deepEqual(call.guestWrites, []);
+      assert.equal(call.tickCount?.returnedTickCount, call.result.value);
+      assert.equal(
+        call.tickCount.nextTickCount,
+        (call.result.value + call.tickCount.incrementPerRead) >>> 0,
+      );
+      assert.equal(call.tickCount.incrementPerRead, 1);
+      timeGetTimeActionContinuationEntry = {
+        ...setFocusActionContinuationEntry,
+        capability: "winmm-time-get-time-action-continuation",
+        implementationId:
+          "runtime.winmm-time-get-time-action-continuation.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: call.trapInstructionCount,
+        timeGetTime: {
+          ...structuredClone(call),
+          runtimeThreadId: currentThreadId,
+        },
+      };
+    }
+    if (
       presentationProgressEvidenceEnabled &&
       sequence > presentationProgressBaseline.lastCompletionSequence &&
       (call.implementationId ===
@@ -9288,7 +9372,10 @@ async function runGenericRuntimeReentry({
                 : completedCycleCount >=
                     recurringTimerWindowConfiguration.requiredCycles &&
                   criticalSectionWindowBalanced;
-          if (recurringTimerCheckpointReady) {
+          if (
+            recurringTimerCheckpointReady &&
+            !timeGetTimeActionContinuationCheckpointEnabled
+          ) {
             assert.equal(checkpointCompletion, null);
             assert(recurringTimerMultiCycleFirstBoundary !== null);
             const firstCompletion = recurringTimerMultiCycleCompletions[0];
@@ -26150,6 +26237,10 @@ function validatePostWaitCriticalSectionResult(result) {
 }
 
 function validateRecurringTimerBoundedWindowResult(result) {
+  if (timeGetTimeActionContinuationCheckpointEnabled) {
+    validateTimeGetTimeActionContinuationResult(result);
+    return;
+  }
   if (setFocusActionContinuationCheckpointEnabled) {
     validateSetFocusActionContinuationResult(result);
     return;
@@ -26183,6 +26274,86 @@ function validateRecurringTimerBoundedWindowResult(result) {
     return;
   }
   validateRecurringTimerWindowResult(result);
+}
+
+function validateTimeGetTimeActionContinuationResult(result) {
+  assert(timeGetTimeActionContinuationCheckpointEnabled);
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 1);
+  const checkpoint = result.checkpointCompletion;
+  assert.equal(
+    checkpoint?.capability,
+    "winmm-time-get-time-action-continuation",
+  );
+  assert.equal(
+    checkpoint.implementationId,
+    "runtime.winmm-time-get-time-action-continuation.v1",
+  );
+  assert.equal(checkpoint.requiredCompletions, 1);
+  assert.equal(checkpoint.completionCount, 1);
+  assert.equal(checkpoint.lastCompletionSequence, 161_947);
+  assert.equal(checkpoint.lastCompletionInstructionCount, 321_462_368);
+  assert.equal(checkpoint.requiredPointerMessages, 1);
+  assert.equal(checkpoint.pointerMessageDeliveryCount, 1);
+  assert.equal(checkpoint.releaseMessageQueued, true);
+  assert.equal(checkpoint.activeCallbackDepthAtStop, 1);
+  assert.equal(checkpoint.setFocusActiveCallbackDepthAtStop, 1);
+  assert.equal(checkpoint.setFocus.sequence, 161_946);
+  assert.equal(
+    checkpoint.setFocus.implementationId,
+    "user32.set-focus.same-current-window.v1",
+  );
+  assert.equal(checkpoint.timeGetTime.runtimeThreadId, 8_192);
+  assert.equal(checkpoint.timeGetTime.sequence, 161_947);
+  assert.equal(checkpoint.timeGetTime.occurrence, 218);
+  assert.equal(
+    checkpoint.timeGetTime.trapInstructionCount,
+    321_462_368,
+  );
+  assert.equal(checkpoint.timeGetTime.module.toLowerCase(), "winmm.dll");
+  assert.equal(checkpoint.timeGetTime.symbol, "timeGetTime");
+  assert.equal(
+    checkpoint.timeGetTime.implementationId,
+    "winmm.time-get-time.v1",
+  );
+  assert.deepEqual(checkpoint.timeGetTime.arguments, []);
+  assert.deepEqual(checkpoint.timeGetTime.result, {
+    action: "set",
+    value: 3_601_223,
+  });
+  assert.equal(checkpoint.timeGetTime.returnAddress, 0x1009_1ebf);
+  assert.equal(checkpoint.timeGetTime.stackPointerBefore, 0x006f_f508);
+  assert.equal(checkpoint.timeGetTime.stackPointerAfter, 0x006f_f50c);
+  assert.equal(checkpoint.timeGetTime.lastError, 0);
+  assert.deepEqual(checkpoint.timeGetTime.guestWrites, []);
+  assert.deepEqual(checkpoint.timeGetTime.tickCount, {
+    returnedTickCount: 3_601_223,
+    nextTickCount: 3_601_224,
+    incrementPerRead: 1,
+  });
+  assert.equal(checkpoint.instructionCount, 321_462_401);
+  assert.deepEqual(checkpoint.nextEndpoint, {
+    id: 233,
+    address: 0x7f00_0e80,
+    module: "USER32.dll",
+    symbol: { kind: "name", name: "DefWindowProcA" },
+    disposition: "declared-runtime-export",
+    iatAddress: 0x100d_147c,
+  });
+  assert.deepEqual(checkpoint.nextArguments, [
+    0x4801_0001,
+    0x0201,
+    1,
+    23_593_600,
+  ]);
+  assert.equal(checkpoint.nextReturnAddress, 0x1009_33bf);
+  assert.equal(checkpoint.nextStackPointer, 0x006f_f50c);
+  assert.equal(
+    checkpoint.memoryContentSha256,
+    "fcfa916b3f18936ba6df5107491dd2cbf0f08f738bd8de67154682f6da31280f",
+  );
+  assert.equal(result.terminal.instructionCount, checkpoint.instructionCount);
+  assert.equal(result.supportedCalls.at(-1).symbol, "timeGetTime");
 }
 
 function validateSetFocusActionContinuationResult(result) {

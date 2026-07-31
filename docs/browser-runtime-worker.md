@@ -3,9 +3,9 @@
 ## Status
 
 - Status: Verified controlled fixture and private BGI semantic checkpoint
-- Date: 2026-07-30
-- Browser: Chrome `150.0.7871.187`
-- Protocol: `vine.browser-runtime-worker` version `78`
+- Date: 2026-07-31
+- Browser: current acceptance build is manifest-owned
+- Protocol: `vine.browser-runtime-worker`; current version is manifest-owned
 - Runtime core: Rust/Wasm, zero imports; current artifact identity is manifest-owned
 - CPU mirror: pinned source-v86 adapter in a dedicated Runtime Worker
 - Controlled PE32 fixture: `browser-vertical.exe`
@@ -78,6 +78,14 @@ Windows queue, HWND, cursor, key table, message ID, callback stack, or second
 generation. Protocol version 78 remains the pointer-message stop; version 77
 remains the integrated action／window-timer regression; versions 76, 75, and 74
 retain the earlier recurring, single-delivery, and pointer-polling profiles.
+
+Protocol version 80's `winmm-time-get-time-action-continuation` keeps that Rust-owned
+pointer, message, window, and callback state intact while the active WndProc
+executes the existing `winmm.time-get-time.v1` handler. `RuntimeProcessState`
+returns and advances the shared DWORD tick by its policy increment; the queued
+button release and callback depth remain unchanged until the next User32
+endpoint. The Worker compares the immutable completion evidence but samples no
+browser clock and owns no WinMM or message-queue state.
 
 After a guest API completion, Rust may return a `thread-switch` selected by the
 authoritative scheduler. The Worker saves the outgoing opaque engine context and

@@ -1162,6 +1162,15 @@ writes 0、protocol v79／browser report schema 46を一致させ、checkpoint i
 transition message、capture、release dispatch、browser focus stateはこのbounded leafのclaim外であり、
 exact値とartifact identityは`current-checkpoint.json`だけを正本とする。
 
+続く`winmm-time-get-time-action-continuation`は、同じWndProc callbackとruntime thread `8192`のまま、
+既存`winmm.time-get-time.v1` handlerを一回だけ完了する。Node／Chromeはsequence 161,947／instruction
+321,462,368、shared process tick `3,601,223 -> 3,601,224`、LastError preserve、zero guest write、
+queued `WM_LBUTTONUP`、active callback depth 1、ordered semantic digest、terminal memoryを一致させ、
+instruction 321,462,401の`USER32.dll!DefWindowProcA`へ停止する。Clock authorityは引き続き
+`RuntimeProcessState`だけにあり、TypeScriptはbrowser clockやWinMM stateを複製しない。これは既存clock
+contractのreachability leafであり、elapsed-time精度、timer-resolution連動、release dispatch、visible response、
+general timing behaviorをclaimしない。Exact artifact identityは`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、
