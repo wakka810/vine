@@ -15,7 +15,10 @@ import {
   validatePrivateTargetEvidenceDescendantPaths,
   validatePrivateTargetEvidence,
 } from "./private-target-evidence.mjs";
-import { projectWaitableTimerPacingRequests } from "./private-target-report-shape.mjs";
+import {
+  projectCapabilityCheckpointCompletion,
+  projectWaitableTimerPacingRequests,
+} from "./private-target-report-shape.mjs";
 import {
   formatManifestRuntimeEndpointIdentity,
   formatRuntimeEndpointSymbol,
@@ -113,6 +116,33 @@ assert.throws(
       lastPacingRequest,
     }),
   /matching first and last samples/u,
+);
+
+const callBackedCompletion = {
+  capability: "user32-set-focus-action-continuation",
+  requiredCompletions: 1,
+  completionCount: 1,
+  setFocus: {
+    sequence: 161_946,
+    trapInstructionCount: 321_462_324,
+    runtimeThreadId: 8_192,
+    window: { ownerThreadId: 8_192 },
+  },
+};
+assert.deepEqual(projectCapabilityCheckpointCompletion(callBackedCompletion), {
+  ...callBackedCompletion,
+  lastCompletionSequence: 161_946,
+  lastCompletionInstructionCount: 321_462_324,
+});
+assert.equal(
+  Object.hasOwn(callBackedCompletion, "lastCompletionSequence"),
+  false,
+);
+const wrongOwnerCompletion = structuredClone(callBackedCompletion);
+wrongOwnerCompletion.setFocus.window.ownerThreadId = 8_193;
+assert.throws(
+  () => projectCapabilityCheckpointCompletion(wrongOwnerCompletion),
+  /requires the SetFocus owner thread/u,
 );
 
 assert.equal(

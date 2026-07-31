@@ -18,7 +18,10 @@ import {
   PRIVATE_TARGET_EVIDENCE_SCHEMA,
   PRIVATE_TARGET_EVIDENCE_VERSION,
 } from "./private-target-evidence.mjs";
-import { projectWaitableTimerPacingRequests } from "./private-target-report-shape.mjs";
+import {
+  projectCapabilityCheckpointCompletion,
+  projectWaitableTimerPacingRequests,
+} from "./private-target-report-shape.mjs";
 import {
   formatManifestRuntimeEndpointIdentity,
   formatRuntimeEndpointSymbol,
@@ -210,27 +213,17 @@ function assertCapabilityCheckpoint(actual, expected) {
       expected.completion.activeCallbackDepthAtStop,
     );
   } else {
-    assert.equal(actual.requiredCompletions, expected.completion.requiredCompletions);
-    assert.equal(actual.completionCount, expected.completion.completionCount);
-    const lastCompletionSequence =
-      actual.lastCompletionSequence ?? actual.setFocus?.sequence;
-    const lastCompletionInstructionCount =
-      actual.lastCompletionInstructionCount ??
-      actual.setFocus?.trapInstructionCount;
+    const projected = projectCapabilityCheckpointCompletion(actual);
+    assert.equal(projected.requiredCompletions, expected.completion.requiredCompletions);
+    assert.equal(projected.completionCount, expected.completion.completionCount);
     assert.equal(
-      lastCompletionSequence,
+      projected.lastCompletionSequence,
       expected.completion.lastCompletionSequence,
     );
     assert.equal(
-      lastCompletionInstructionCount,
+      projected.lastCompletionInstructionCount,
       expected.completion.lastCompletionInstructionCount,
     );
-    if (actual.setFocus !== undefined) {
-      assert.equal(
-        actual.setFocus.runtimeThreadId,
-        actual.setFocus.window.ownerThreadId,
-      );
-    }
   }
   assert.equal(actual.instructionCount, expected.instructionCount);
   assert.equal(actual.nextEndpoint.id, expected.nextEndpoint.endpointId);
@@ -873,7 +866,11 @@ const evidence = finalizePrivateTargetEvidence({
           ? nodeReport.checkpointCompletion.memoryContentSha256
           : nodeReport.firstUnsupported.memoryContentSha256,
       ...(checkpoint.nextStructuredStop.kind === "capability-checkpoint"
-        ? { checkpointCompletion: structuredClone(nodeReport.checkpointCompletion) }
+        ? {
+            checkpointCompletion: projectCapabilityCheckpointCompletion(
+              nodeReport.checkpointCompletion,
+            ),
+          }
         : {}),
       writebackBatches: nodeReport.synchronization.writebackBatches,
       dirtyPages: nodeReport.synchronization.dirtyPages,
@@ -893,7 +890,7 @@ const evidence = finalizePrivateTargetEvidence({
           : browserReport.success.report.firstUnsupported.memoryContentSha256,
       ...(checkpoint.nextStructuredStop.kind === "capability-checkpoint"
         ? {
-            checkpointCompletion: structuredClone(
+            checkpointCompletion: projectCapabilityCheckpointCompletion(
               browserReport.success.report.checkpointCompletion,
             ),
           }

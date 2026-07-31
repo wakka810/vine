@@ -68,3 +68,50 @@ export function projectWaitableTimerPacingRequests(waitableTimerWait) {
   }
   return { totalCount, sampledRequests: [first, last] };
 }
+
+export function projectCapabilityCheckpointCompletion(completion) {
+  const projected = structuredClone(
+    requireRecord(completion, "capability checkpoint completion"),
+  );
+  const hasSequence = Object.hasOwn(projected, "lastCompletionSequence");
+  const hasInstructionCount = Object.hasOwn(
+    projected,
+    "lastCompletionInstructionCount",
+  );
+  if (hasSequence !== hasInstructionCount) {
+    throw new TypeError(
+      "capability checkpoint completion must have both direct last-completion fields",
+    );
+  }
+  if (hasSequence || projected.setFocus === undefined) {
+    return projected;
+  }
+
+  const setFocus = requireRecord(
+    projected.setFocus,
+    "capability checkpoint completion setFocus",
+  );
+  const window = requireRecord(
+    setFocus.window,
+    "capability checkpoint completion setFocus window",
+  );
+  if (
+    !Number.isSafeInteger(setFocus.sequence) ||
+    !Number.isSafeInteger(setFocus.trapInstructionCount)
+  ) {
+    throw new TypeError(
+      "call-backed capability checkpoint completion requires integer sequence fields",
+    );
+  }
+  if (
+    !Number.isSafeInteger(setFocus.runtimeThreadId) ||
+    setFocus.runtimeThreadId !== window.ownerThreadId
+  ) {
+    throw new TypeError(
+      "call-backed capability checkpoint completion requires the SetFocus owner thread",
+    );
+  }
+  projected.lastCompletionSequence = setFocus.sequence;
+  projected.lastCompletionInstructionCount = setFocus.trapInstructionCount;
+  return projected;
+}
