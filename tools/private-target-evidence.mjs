@@ -143,9 +143,13 @@ function validatePointerReleaseCompletion(
     `${label}.releaseCallbackReturn`,
     errors,
   );
-  const postIsIconicGetAsyncKeyStateScan =
+  const postInputScanTestCooperativeLevel =
     expected.capability ===
-    "user32-get-async-key-state-post-is-iconic-clock-continuation";
+    "d3d9-test-cooperative-level-post-input-scan-continuation";
+  const postIsIconicGetAsyncKeyStateScan =
+    postInputScanTestCooperativeLevel ||
+    expected.capability ===
+      "user32-get-async-key-state-post-is-iconic-clock-continuation";
   const postIsIconicTimeGetTime =
     postIsIconicGetAsyncKeyStateScan ||
     expected.capability ===
@@ -186,7 +190,9 @@ function validatePointerReleaseCompletion(
     postReleaseTimeGetTime ||
     expected.capability ===
       "user32-peek-message-a-post-pointer-release-continuation";
-  const finalCallName = postIsIconicGetAsyncKeyStateScan
+  const finalCallName = postInputScanTestCooperativeLevel
+    ? "d3d9TestCooperativeLevelPostInputScan"
+    : postIsIconicGetAsyncKeyStateScan
     ? "getAsyncKeyStatePostIsIconicClockLast"
     : postIsIconicTimeGetTime
     ? "timeGetTimePostIsIconic"
@@ -228,7 +234,13 @@ function validatePointerReleaseCompletion(
         errors,
       )
     : {};
-  const finalCall = postIsIconicGetAsyncKeyStateScan
+  const finalCall = postInputScanTestCooperativeLevel
+    ? requireRecord(
+        completion.d3d9TestCooperativeLevelPostInputScan,
+        `${label}.d3d9TestCooperativeLevelPostInputScan`,
+        errors,
+      )
+    : postIsIconicGetAsyncKeyStateScan
     ? requireRecord(
         completion.getAsyncKeyStatePostIsIconicClockLast,
         `${label}.getAsyncKeyStatePostIsIconicClockLast`,
@@ -967,19 +979,35 @@ function validatePointerReleaseCompletion(
         ),
         []);
     for (const [field, actual, expectedValue] of [
-      ["requiredCompletions", completion.requiredCompletions, 38],
-      ["completionCount", completion.completionCount, 38],
-      ["firstCompletionSequence", completion.firstCompletionSequence, 161_965],
+      [
+        "requiredCompletions",
+        completion.requiredCompletions,
+        postInputScanTestCooperativeLevel ? 1 : 38,
+      ],
+      [
+        "completionCount",
+        completion.completionCount,
+        postInputScanTestCooperativeLevel ? 1 : 38,
+      ],
+      [
+        "firstCompletionSequence",
+        completion.firstCompletionSequence,
+        postInputScanTestCooperativeLevel ? 162_080 : 161_965,
+      ],
       [
         "firstCompletionInstructionCount",
         completion.firstCompletionInstructionCount,
-        321_463_448,
+        postInputScanTestCooperativeLevel ? 321_468_292 : 321_463_448,
       ],
-      ["lastCompletionSequence", completion.lastCompletionSequence, 162_079],
+      [
+        "lastCompletionSequence",
+        completion.lastCompletionSequence,
+        postInputScanTestCooperativeLevel ? 162_080 : 162_079,
+      ],
       [
         "lastCompletionInstructionCount",
         completion.lastCompletionInstructionCount,
-        321_468_229,
+        postInputScanTestCooperativeLevel ? 321_468_292 : 321_468_229,
       ],
       [
         "scanVirtualKeys",
@@ -1031,6 +1059,61 @@ function validatePointerReleaseCompletion(
         actual,
         expectedValue,
         `${label}.getAsyncKeyStatePostIsIconicClock.${field}`,
+        errors,
+      );
+    }
+  }
+  if (postInputScanTestCooperativeLevel) {
+    const call = requireRecord(
+      completion.d3d9TestCooperativeLevelPostInputScan,
+      `${label}.d3d9TestCooperativeLevelPostInputScan`,
+      errors,
+    );
+    const guestWrites = Array.isArray(call.guestWrites)
+      ? call.guestWrites
+      : (errors.push(
+          `${label}.d3d9TestCooperativeLevelPostInputScan.guestWrites must be an array`,
+        ),
+        []);
+    for (const [field, actual, expectedValue] of [
+      [
+        "prerequisiteScanCompletionSequence",
+        completion.prerequisiteScanCompletionSequence,
+        162_079,
+      ],
+      [
+        "prerequisiteScanCompletionInstructionCount",
+        completion.prerequisiteScanCompletionInstructionCount,
+        321_468_229,
+      ],
+      [
+        "activeCallbackDepthAtCompletion",
+        completion.d3d9TestCooperativeLevelPostInputScanActiveCallbackDepthAtCompletion,
+        0,
+      ],
+      ["sequence", call.sequence, 162_080],
+      ["runtimeThreadId", call.runtimeThreadId, 8_192],
+      ["module", call.module?.toLowerCase(), "<com>"],
+      ["symbol", call.symbol, "IDirect3DDevice9.TestCooperativeLevel"],
+      ["occurrence", call.occurrence, 11],
+      ["trapInstructionCount", call.trapInstructionCount, 321_468_292],
+      ["interface", call.interface, "IDirect3DDevice9"],
+      ["vtableSlot", call.vtableSlot, 3],
+      ["arguments", call.arguments?.join(","), "16842756"],
+      ["result.kind", call.result?.kind, "h-result"],
+      ["result.value", call.result?.value, 0],
+      ["returnAddress", call.returnAddress, 268_807_629],
+      ["stackPointerBefore", call.stackPointerBefore, 7_338_228],
+      ["stackPointerAfter", call.stackPointerAfter, 7_338_236],
+      ["referenceCount", call.referenceCount, 5],
+      ["objectRetired", call.objectRetired, false],
+      ["guestWrites.length", guestWrites.length, 0],
+      ["cumulativeCompletions", completion.cumulativeCompletions, 9],
+    ]) {
+      checkEqual(
+        actual,
+        expectedValue,
+        `${label}.d3d9TestCooperativeLevelPostInputScan.${field}`,
         errors,
       );
     }

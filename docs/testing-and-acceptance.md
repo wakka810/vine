@@ -1347,6 +1347,16 @@ write、callback depth zero、ordered semantic digest、terminal memoryを一致
 非zero input、未観測virtual key、非foreground keyboard policyはclaimしない。Exact instruction／artifact
 identityは`current-checkpoint.json`だけを正本とする。
 
+`d3d9-test-cooperative-level-post-input-scan-continuation`は、そのlive-device queryを既存の
+`IDirect3DDevice9::TestCooperativeLevel` semantic handlerで完了する。Rustはlive graphics-device／COM
+associationを検証してoperational `D3D_OK`を返し、guest memory、reference count、object lifetime、LastError、
+browser resourceを変更しない。Protocol v97／browser report schema 64のNode／Chromeは、直前の38-key
+zero-input scanをprerequisiteとして保持し、9回目のcumulative completion、sequence／occurrence／instruction、
+COM this pointer／vtable slot、stdcall stack、同一runtime thread、reference count 5、zero guest write、
+ordered semantic digest、terminal memoryを一致させ、次の`KERNEL32.dll!SetWaitableTimer`で停止する。
+Device lost／not-reset transition、Reset、browser context loss連携、recoveryは拡張せず、exact instruction／
+artifact identityは`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

@@ -208,9 +208,13 @@ export function validateCurrentCheckpoint(manifest) {
   const timeGetTimeActionContinuationActive =
     root.activeRuntimeCheckpoint?.profile ===
     "winmm-time-get-time-action-continuation";
-  const getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive =
+  const d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive =
     root.activeRuntimeCheckpoint?.profile ===
-    "user32-get-async-key-state-post-is-iconic-clock-continuation";
+    "d3d9-test-cooperative-level-post-input-scan-continuation";
+  const getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive =
+    d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive ||
+    root.activeRuntimeCheckpoint?.profile ===
+      "user32-get-async-key-state-post-is-iconic-clock-continuation";
   const timeGetTimePostIsIconicContinuationCheckpointActive =
     getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive ||
     root.activeRuntimeCheckpoint?.profile ===
@@ -1282,7 +1286,27 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+    d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_995,
+        browserMappingDirtyPages: 150_400,
+        browserSuccessExecutionTransitions: 589_075,
+        browserFinalGeneration: 315_150,
+        browserReportSchemaVersion: 64,
+        latestSchema:
+          "vine.v86-bgi-d3d9-test-cooperative-level-post-input-scan-continuation",
+        latestWritebackBatches: 165_234,
+        latestWritebackDirtyPages: 244_665,
+        latestWritebackChangedBytes: 43_072_391,
+        latestHostDeltaBatches: 127_995,
+        latestFinalMemoryGeneration: 296_511,
+        semanticCallDigestSha256:
+          "3cd3948ee3c588f736c2af6704e5baedee26271c89069259a086cf2aa6872c15",
+        memoryContentSha256:
+          "872be2df28fe82af65fc86d20ee986773ca81f4a1b1439edbed0c34f241117ae",
+      }
+    : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_995,
@@ -3219,7 +3243,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+    d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+      ? "vine.browser-runtime-worker.v97"
+      : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
       ? "vine.browser-runtime-worker.v96"
       : timeGetTimePostIsIconicContinuationCheckpointActive
       ? "vine.browser-runtime-worker.v95"
@@ -4048,7 +4074,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+      (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+        ? 64
+        : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
         ? 63
         : timeGetTimePostIsIconicContinuationCheckpointActive
         ? 62
@@ -21241,7 +21269,9 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureBefore !== null ||
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureAfter !== null)) ||
     latestEvidence.implementation !==
-      (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+      (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+        ? "Rust-owned IDirect3DDevice9::TestCooperativeLevel consumes the reached post-input-scan live-device query as an operational S_OK read without guest-memory, reference-count, object-lifetime, LastError, or browser-resource mutation, preserves the completed deterministic 38-key zero-input scan as prerequisite evidence, and stops at the next KERNEL32!SetWaitableTimer boundary"
+        : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
         ? "Rust-owned user32.get-async-key-state.v1 completes the reached deterministic 38-key zero-input scan in the observed virtual-key order, returns zero for every query while preserving LastError, callback depth zero, guest memory, and authoritative input state, and stops at the next live IDirect3DDevice9::TestCooperativeLevel boundary without importing host or browser key state"
         : timeGetTimePostIsIconicContinuationCheckpointActive
         ? "Rust-owned winmm.time-get-time.v1 samples the authoritative RuntimeProcessState logical tick after the reached IsIconic read, returns 3601228, advances the shared process clock to 3601229, preserves LastError, callback depth zero, and guest memory, and imports no host or browser clock"
@@ -25846,7 +25876,9 @@ export function validateCurrentCheckpoint(manifest) {
   }
   if (translateMessagePointerReleaseContinuationActive) {
     const expectedCapability =
-      getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+      d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+        ? "d3d9-test-cooperative-level-post-input-scan-continuation"
+        : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
         ? "user32-get-async-key-state-post-is-iconic-clock-continuation"
         : timeGetTimePostIsIconicContinuationCheckpointActive
         ? "winmm-time-get-time-post-is-iconic-continuation"
@@ -25874,7 +25906,9 @@ export function validateCurrentCheckpoint(manifest) {
         ? "user32-dispatch-message-a-pointer-release-continuation"
         : "user32-translate-message-pointer-release-continuation";
     const expectedImplementation =
-      getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+      d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+        ? "runtime.d3d9-test-cooperative-level-post-input-scan-continuation.v1"
+        : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
         ? "runtime.user32-get-async-key-state-post-is-iconic-clock-continuation.v1"
         : timeGetTimePostIsIconicContinuationCheckpointActive
         ? "runtime.winmm-time-get-time-post-is-iconic-continuation.v1"
@@ -25902,7 +25936,9 @@ export function validateCurrentCheckpoint(manifest) {
         ? "runtime.user32-dispatch-message-a-pointer-release-continuation.v1"
         : "runtime.user32-translate-message-pointer-release-continuation.v1";
     const evidenceCapabilityLabel =
-      getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+      d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+        ? "post-input-scan TestCooperativeLevel"
+        : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
         ? "post-IsIconic GetAsyncKeyState scan"
         : timeGetTimePostIsIconicContinuationCheckpointActive
         ? "post-IsIconic timeGetTime"
@@ -25981,6 +26017,8 @@ export function validateCurrentCheckpoint(manifest) {
         completion.getAsyncKeyStatePostIsIconicClockFirst ?? {};
       const getAsyncKeyStatePostIsIconicClockLast =
         completion.getAsyncKeyStatePostIsIconicClockLast ?? {};
+      const d3d9TestCooperativeLevelPostInputScan =
+        completion.d3d9TestCooperativeLevelPostInputScan ?? {};
       const nextEndpoint = completion.nextEndpoint ?? {};
       const dispatchMessageReleaseInvalid =
         (peekMessageAPostPointerReleaseContinuationCheckpointActive ||
@@ -26027,7 +26065,9 @@ export function validateCurrentCheckpoint(manifest) {
         (peekMessageAPostPointerReleaseContinuationCheckpointActive ||
           defWindowProcAPointerReleaseContinuationCheckpointActive) &&
         (completion.lastCompletionSequence !==
-          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+          (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+            ? 162_080
+            : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
             ? 162_079
             : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 161_964
@@ -26051,7 +26091,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 161_953
             : 161_952) ||
           completion.lastCompletionInstructionCount !==
-            (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+              ? 321_468_292
+              : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
               ? 321_468_229
               : timeGetTimePostIsIconicContinuationCheckpointActive
               ? 321_463_291
@@ -26260,12 +26302,30 @@ export function validateCurrentCheckpoint(manifest) {
           timeGetTimePostIsIconicTickCount.incrementPerRead !== 1);
       const getAsyncKeyStatePostIsIconicClockInvalid =
         getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive &&
-        (completion.requiredCompletions !== 38 ||
-          completion.completionCount !== 38 ||
-          completion.firstCompletionSequence !== 161_965 ||
-          completion.firstCompletionInstructionCount !== 321_463_448 ||
-          completion.lastCompletionSequence !== 162_079 ||
-          completion.lastCompletionInstructionCount !== 321_468_229 ||
+        (completion.requiredCompletions !==
+            (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+              ? 1
+              : 38) ||
+          completion.completionCount !==
+            (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+              ? 1
+              : 38) ||
+          completion.firstCompletionSequence !==
+            (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+              ? 162_080
+              : 161_965) ||
+          completion.firstCompletionInstructionCount !==
+            (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+              ? 321_468_292
+              : 321_463_448) ||
+          completion.lastCompletionSequence !==
+            (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+              ? 162_080
+              : 162_079) ||
+          completion.lastCompletionInstructionCount !==
+            (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+              ? 321_468_292
+              : 321_468_229) ||
           completion.scanVirtualKeys?.join(",") !==
             "14,15,13,16,27,38,33,40,34,37,39,49,97,50,98,51,99,52,100,53,101,54,102,55,103,56,104,57,105,48,96,9,17,1,2,4,5,6" ||
           completion.result?.action !== "set" ||
@@ -26317,6 +26377,38 @@ export function validateCurrentCheckpoint(manifest) {
             7_338_192 ||
           getAsyncKeyStatePostIsIconicClockLast.lastError !== 0 ||
           getAsyncKeyStatePostIsIconicClockLast.guestWrites?.length !== 0);
+      const d3d9TestCooperativeLevelPostInputScanInvalid =
+        d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive &&
+        (completion.prerequisiteScanCompletionSequence !== 162_079 ||
+          completion.prerequisiteScanCompletionInstructionCount !==
+            321_468_229 ||
+          completion.d3d9TestCooperativeLevelPostInputScanActiveCallbackDepthAtCompletion !==
+            0 ||
+          d3d9TestCooperativeLevelPostInputScan.sequence !== 162_080 ||
+          d3d9TestCooperativeLevelPostInputScan.trapInstructionCount !==
+            321_468_292 ||
+          d3d9TestCooperativeLevelPostInputScan.runtimeThreadId !== 8_192 ||
+          d3d9TestCooperativeLevelPostInputScan.occurrence !== 11 ||
+          d3d9TestCooperativeLevelPostInputScan.module?.toLowerCase() !==
+            "<com>" ||
+          d3d9TestCooperativeLevelPostInputScan.symbol !==
+            "IDirect3DDevice9.TestCooperativeLevel" ||
+          d3d9TestCooperativeLevelPostInputScan.interface !==
+            "IDirect3DDevice9" ||
+          d3d9TestCooperativeLevelPostInputScan.vtableSlot !== 3 ||
+          d3d9TestCooperativeLevelPostInputScan.arguments?.join(",") !==
+            "16842756" ||
+          d3d9TestCooperativeLevelPostInputScan.result?.kind !== "h-result" ||
+          d3d9TestCooperativeLevelPostInputScan.result?.value !== 0 ||
+          d3d9TestCooperativeLevelPostInputScan.returnAddress !== 268_807_629 ||
+          d3d9TestCooperativeLevelPostInputScan.stackPointerBefore !==
+            7_338_228 ||
+          d3d9TestCooperativeLevelPostInputScan.stackPointerAfter !==
+            7_338_236 ||
+          d3d9TestCooperativeLevelPostInputScan.referenceCount !== 5 ||
+          d3d9TestCooperativeLevelPostInputScan.objectRetired !== false ||
+          d3d9TestCooperativeLevelPostInputScan.guestWrites?.length !== 0 ||
+          completion.cumulativeCompletions !== 9);
       if (
         completion.capability !== expectedCapability ||
         completion.implementationId !== expectedImplementation ||
@@ -26438,7 +26530,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 1
               : 0) ||
         completion.requiredCompletions !==
-          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+          (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+            ? 1
+            : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
             ? 38
             : getWindowRectPostPointerReleaseContinuationCheckpointActive
             ? 1
@@ -26446,7 +26540,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 4
               : 1) ||
         completion.completionCount !==
-          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+          (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+            ? 1
+            : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
             ? 38
             : getWindowRectPostPointerReleaseContinuationCheckpointActive
             ? 1
@@ -26546,7 +26642,9 @@ export function validateCurrentCheckpoint(manifest) {
         releaseWrite.address !== 7_338_216 ||
         releaseWrite.bytes?.join(",") !== expectedMessageBytes ||
         completion.lastCompletionSequence !==
-          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+          (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+            ? 162_080
+            : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
             ? 162_079
             : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 161_964
@@ -26572,7 +26670,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 161_952
             : 161_950) ||
         completion.lastCompletionInstructionCount !==
-          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+          (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+            ? 321_468_292
+            : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
             ? 321_468_229
             : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 321_463_291
@@ -26624,8 +26724,11 @@ export function validateCurrentCheckpoint(manifest) {
         isIconicPostReleaseInvalid ||
         timeGetTimePostIsIconicInvalid ||
         getAsyncKeyStatePostIsIconicClockInvalid ||
+        d3d9TestCooperativeLevelPostInputScanInvalid ||
         completion.instructionCount !==
-          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+          (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+            ? 321_468_343
+            : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
             ? 321_468_292
             : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 321_463_448
@@ -26653,7 +26756,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 321_462_499
             : 321_462_435) ||
         nextEndpoint.id !==
-          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+          (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+            ? 118
+            : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
             ? 0
             : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 231
@@ -26679,7 +26784,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 233
             : 182) ||
         nextEndpoint.address !==
-          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+          (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+            ? 2_130_708_304
+            : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
             ? 16_846_944
             : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 2_130_710_112
@@ -26705,7 +26812,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 2_130_710_144
             : 2_130_709_328) ||
         nextEndpoint.module?.toLowerCase() !==
-          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+          (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+            ? "kernel32.dll"
+            : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
             ? "<com>"
             : timeGetTimePostIsIconicContinuationCheckpointActive
             ? "user32.dll"
@@ -26720,7 +26829,9 @@ export function validateCurrentCheckpoint(manifest) {
             : "user32.dll") ||
         nextEndpoint.symbol?.kind !== "name" ||
         nextEndpoint.symbol?.name !==
-          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+          (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+            ? "SetWaitableTimer"
+            : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
             ? "interface-1-slot-3"
             : timeGetTimePostIsIconicContinuationCheckpointActive
             ? "GetAsyncKeyState"
@@ -26746,11 +26857,15 @@ export function validateCurrentCheckpoint(manifest) {
             ? "DefWindowProcA"
             : "DispatchMessageA") ||
         nextEndpoint.disposition !==
-          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+          (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+            ? "declared-runtime-export"
+            : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
             ? "declared-com-method"
             : "declared-runtime-export") ||
         nextEndpoint.iatAddress !==
-          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+          (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+            ? 269_292_160
+            : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
             ? undefined
             : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 269_292_660
@@ -26776,12 +26891,15 @@ export function validateCurrentCheckpoint(manifest) {
             ? 269_292_668
             : 269_292_464) ||
         (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive &&
+          !d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive &&
           (nextEndpoint.interfaceIndex !== 1 ||
             nextEndpoint.vtableSlot !== 3 ||
             nextEndpoint.interface !== "IDirect3DDevice9" ||
             nextEndpoint.method !== "TestCooperativeLevel")) ||
         completion.nextArguments?.join(",") !==
-          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+          (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+            ? "1459683329,7338224,0,0,0,0"
+            : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
             ? "16842756"
             : timeGetTimePostIsIconicContinuationCheckpointActive
             ? "14,0"
@@ -26807,7 +26925,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? "1208025089,514,0,23593600"
             : "7338216") ||
         completion.nextReturnAddress !==
-          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+          (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+            ? 268_764_679
+            : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
             ? 268_807_629
             : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 268_862_469
@@ -26833,7 +26953,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 269_038_527
             : 269_039_532) ||
         completion.nextStackPointer !==
-          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+          (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+            ? 7_338_196
+            : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
             ? 7_338_228
             : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 7_337_996
@@ -26861,7 +26983,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 7_337_228
             : 7_338_196) ||
         completion.memoryContentSha256 !==
-          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+          (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+            ? "872be2df28fe82af65fc86d20ee986773ca81f4a1b1439edbed0c34f241117ae"
+            : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
             ? "d4e6ec50e875a134762e7abeea2d49bbad4c2be754b407741de025ca7d78b2be"
             : timeGetTimePostIsIconicContinuationCheckpointActive
             ? "57976ebffcc035e81358e80479bd1848454c08d85c6f024676df353ad444aaae"
@@ -26924,7 +27048,48 @@ export function validateCurrentCheckpoint(manifest) {
     const expectedCompletion = currentStop.completion ?? {};
     const expectedEndpoint = currentStop.nextEndpoint ?? {};
     const releaseCheckpointExpectation =
-      getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+      d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+        ? {
+            nextCheckpoint:
+              "kernel32-set-waitable-timer-post-test-cooperative-level-continuation",
+            instructionCount: 321_468_343,
+            capabilityCluster: "kernel32-waitable-timer-arm-continuation",
+            reason:
+              "d3d9-test-cooperative-level-post-input-scan-continuation-checkpoint-complete",
+            endpointKind: "runtime-system-export",
+            endpointId: 118,
+            endpointApi: "kernel32.dll!setwaitabletimer",
+            endpointModule: "kernel32.dll",
+            endpointAddress: "0x7f000750",
+            iatAddress: "0x100d1280",
+            observedSymbol: "SetWaitableTimer",
+            disposition: "declared-runtime-export",
+            arguments:
+              "0x57010001,0x006ff8f0,0x00000000,0x00000000,0x00000000,0x00000000",
+            returnAddress: "0x10050607",
+            stackPointer: "0x006ff8d4",
+            nodeReportBytes: 3_054_964,
+            nodeReportSha256:
+              "d42bbc7edee3b6db4860fbaa442c418fb5972cdda9e763fedb6b351ecf03754b",
+            browserReportBytes: 2_756_626,
+            browserReportSha256:
+              "11c6ff9c2a169f1f1dbc81987f82086bce36d54bf32dd03800b7b4778877ab41",
+            browserReportSchemaVersion: 64,
+            browserRuntimeProtocol: "vine.browser-runtime-worker.v97",
+            runtimeWorkerBytes: 979_911,
+            runtimeWorkerSha256:
+              "216f8f6a742da65270236c75f9d3b90691720b2d71d51f4a39d4e627ef87c82e",
+            runtimeCoreWasmBytes: 5_203_550,
+            runtimeCoreWasmSha256:
+              "c80211c37e0837ab521689c39fbf10388e4950c6b8cd4403a72c6fdd5436b400",
+            cpuSlices: 183_986,
+            writebackBatches: 183_979,
+            writebackPages: 282_706,
+            hostDeltaBatches: 127_995,
+            wasmBridgeCalls: 489_710,
+            statusMessagesObserved: 24_363,
+          }
+        : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
         ? {
             nextCheckpoint:
               "d3d9-test-cooperative-level-post-input-scan-continuation",
@@ -27468,7 +27633,23 @@ export function validateCurrentCheckpoint(manifest) {
               statusMessagesObserved: 24_345,
             };
     const expectedCompletionBoundaryInvalid =
-      getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+      d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+        ? expectedCompletion.requiredCompletions !== 1 ||
+          expectedCompletion.completionCount !== 1 ||
+          expectedCompletion.prerequisiteScanCompletionSequence !== 162_079 ||
+          expectedCompletion.prerequisiteScanCompletionInstructionCount !==
+            321_468_229 ||
+          expectedCompletion.firstCompletionSequence !== 162_080 ||
+          expectedCompletion.firstCompletionInstructionCount !== 321_468_292 ||
+          expectedCompletion.lastCompletionSequence !== 162_080 ||
+          expectedCompletion.lastCompletionInstructionCount !== 321_468_292 ||
+          expectedCompletion.cumulativeCompletions !== 9 ||
+          expectedCompletion.maximumRepeatCompletions !== 16 ||
+          expectedCompletion.requiredEntries !== 1 ||
+          expectedCompletion.entryCount !== 1 ||
+          expectedCompletion.lastEntrySequence !== 161_951 ||
+          expectedCompletion.lastEntryInstructionCount !== 321_462_435
+        : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
         ? expectedCompletion.requiredCompletions !== 38 ||
           expectedCompletion.completionCount !== 38 ||
           expectedCompletion.firstCompletionSequence !== 161_965 ||
@@ -27621,6 +27802,7 @@ export function validateCurrentCheckpoint(manifest) {
         (releaseCheckpointExpectation.disposition ??
           "declared-runtime-export") ||
       (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive &&
+        !d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive &&
         (expectedEndpoint.interfaceIndex !== 1 ||
           expectedEndpoint.vtableSlot !== 3 ||
           expectedEndpoint.interface !== "IDirect3DDevice9" ||
@@ -27747,7 +27929,9 @@ export function validateCurrentCheckpoint(manifest) {
         const calls = completion.timeGetTimePostReleaseCompletions ?? [];
         if (
           completion.requiredCompletions !==
-            (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+              ? 1
+              : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
               ? 38
               : isIconicPostPointerReleaseContinuationCheckpointActive
               ? 1
@@ -27763,7 +27947,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 1
               : 4) ||
           completion.completionCount !==
-            (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+              ? 1
+              : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
               ? 38
               : isIconicPostPointerReleaseContinuationCheckpointActive
               ? 1
@@ -27779,7 +27965,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 1
               : 4) ||
           completion.lastCompletionSequence !==
-            (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+              ? 162_080
+              : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
               ? 162_079
               : timeGetTimePostIsIconicContinuationCheckpointActive
               ? 161_964
@@ -27797,7 +27985,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 161_958
               : 161_957) ||
           completion.lastCompletionInstructionCount !==
-            (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+              ? 321_468_292
+              : getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
               ? 321_468_229
               : timeGetTimePostIsIconicContinuationCheckpointActive
               ? 321_463_291
@@ -31047,7 +31237,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 3
             : 1;
     const testCooperativeLevelCompletionCount =
-      pointerMessageEvidenceActive
+      d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+        ? 9
+        : pointerMessageEvidenceActive
         ? 8
         : mainLoopPollCompletionCount;
     const scanVirtualKeys = [
@@ -31329,7 +31521,10 @@ export function validateCurrentCheckpoint(manifest) {
           present: 2,
           textureLockRect: 1,
           textureUnlockRect: 1,
-          testCooperativeLevel: testCooperativeLevelCompletionCount,
+          testCooperativeLevel:
+            d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
+              ? 8
+              : testCooperativeLevelCompletionCount,
         },
         nextSubsystemGateway: user32PeekMessageAActive
           ? null
@@ -32982,6 +33177,12 @@ export function renderReadmeStatus(manifest) {
   const nextSummary =
     next.kind === "capability-checkpoint"
       ? next.completion.capability ===
+        "d3d9-test-cooperative-level-post-input-scan-continuation"
+        ? `\`${next.completion.capability}\` completed the reached operational S_OK live-device query at ` +
+          `sequence ${next.completion.lastCompletionSequence} / instruction ${next.completion.lastCompletionInstructionCount}; ` +
+          `verification stopped at the next \`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +
+          `(\`${next.reason}\`)`
+        : next.completion.capability ===
         "user32-get-async-key-state-post-is-iconic-clock-continuation"
         ? `\`${next.completion.capability}\` completed the reached deterministic 38-key zero-input scan through ` +
           `sequence ${next.completion.lastCompletionSequence} / instruction ${next.completion.lastCompletionInstructionCount}; ` +

@@ -223,9 +223,13 @@ function assertCapabilityCheckpoint(
     assert.equal(actual.queueDepthAtDispatchEntry, 0);
     assert.equal(actual.dispatchMessageReleaseBytesPreserved, true);
     if (expected.completion.requiredCompletions !== undefined) {
-      const postIsIconicGetAsyncKeyStateScan =
+      const postInputScanTestCooperativeLevel =
         expected.completion.capability ===
-        "user32-get-async-key-state-post-is-iconic-clock-continuation";
+        "d3d9-test-cooperative-level-post-input-scan-continuation";
+      const postIsIconicGetAsyncKeyStateScan =
+        postInputScanTestCooperativeLevel ||
+        expected.completion.capability ===
+          "user32-get-async-key-state-post-is-iconic-clock-continuation";
       const postIsIconicTimeGetTime =
         postIsIconicGetAsyncKeyStateScan ||
         expected.completion.capability ===
@@ -280,8 +284,14 @@ function assertCapabilityCheckpoint(
         expected.completion.lastCompletionInstructionCount,
       );
       if (postIsIconicGetAsyncKeyStateScan) {
-        assert.equal(actual.firstCompletionSequence, 161_965);
-        assert.equal(actual.firstCompletionInstructionCount, 321_463_448);
+        assert.equal(
+          actual.firstCompletionSequence,
+          postInputScanTestCooperativeLevel ? 162_080 : 161_965,
+        );
+        assert.equal(
+          actual.firstCompletionInstructionCount,
+          postInputScanTestCooperativeLevel ? 321_468_292 : 321_463_448,
+        );
         assert.deepEqual(actual.scanVirtualKeys, [
           14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98,
           51, 99, 52, 100, 53, 101, 54, 102, 55, 103, 56, 104, 57, 105,
@@ -347,6 +357,36 @@ function assertCapabilityCheckpoint(
           assert.equal(sample.lastError, 0);
           assert.equal(sample.guestWrites.length, 0);
         }
+      }
+      if (postInputScanTestCooperativeLevel) {
+        assert.equal(actual.prerequisiteScanCompletionSequence, 162_079);
+        assert.equal(
+          actual.prerequisiteScanCompletionInstructionCount,
+          321_468_229,
+        );
+        assert.equal(
+          actual.d3d9TestCooperativeLevelPostInputScanActiveCallbackDepthAtCompletion,
+          0,
+        );
+        const call = actual.d3d9TestCooperativeLevelPostInputScan;
+        assert(call !== undefined);
+        assert.equal(call.sequence, 162_080);
+        assert.equal(call.trapInstructionCount, 321_468_292);
+        assert.equal(call.runtimeThreadId, 8_192);
+        assert.equal(call.module.toLowerCase(), "<com>");
+        assert.equal(call.symbol, "IDirect3DDevice9.TestCooperativeLevel");
+        assert.equal(call.occurrence, 11);
+        assert.equal(call.interface, "IDirect3DDevice9");
+        assert.equal(call.vtableSlot, 3);
+        assert.deepEqual(call.arguments, [0x0101_0004]);
+        assert.deepEqual(call.result, { kind: "h-result", value: 0 });
+        assert.equal(call.returnAddress, 268_807_629);
+        assert.equal(call.stackPointerBefore, 7_338_228);
+        assert.equal(call.stackPointerAfter, 7_338_236);
+        assert.equal(call.referenceCount, 5);
+        assert.equal(call.objectRetired, false);
+        assert.deepEqual(call.guestWrites, []);
+        assert.equal(actual.cumulativeCompletions, 9);
       }
       if (postReleasePeek) {
         assert.equal(

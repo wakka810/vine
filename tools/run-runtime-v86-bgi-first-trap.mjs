@@ -228,6 +228,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-is-iconic-post-pointer-release-continuation",
         "winmm-time-get-time-post-is-iconic-continuation",
         "user32-get-async-key-state-post-is-iconic-clock-continuation",
+        "d3d9-test-cooperative-level-post-input-scan-continuation",
         "kernel32-wait-for-single-object-ex",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -429,6 +430,7 @@ assert(
       "user32-is-iconic-post-pointer-release-continuation",
       "winmm-time-get-time-post-is-iconic-continuation",
       "user32-get-async-key-state-post-is-iconic-clock-continuation",
+      "d3d9-test-cooperative-level-post-input-scan-continuation",
       "kernel32-wait-for-single-object-ex",
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
       "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -588,6 +590,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
       "winmm-time-get-time-post-is-iconic-continuation" ||
     genericRuntimeCapability ===
       "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
+    genericRuntimeCapability ===
+      "d3d9-test-cooperative-level-post-input-scan-continuation" ||
     genericRuntimeCapability ===
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     genericRuntimeCapability ===
@@ -951,7 +955,11 @@ const recurringTimerWindowCheckpointEnabled =
 const presentationProgressGatewayCheckpointEnabled =
   genericRuntimeCapability ===
   "primary-main-loop-presentation-progress-gateway";
+const d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled =
+  genericRuntimeCapability ===
+  "d3d9-test-cooperative-level-post-input-scan-continuation";
 const getAsyncKeyStatePostIsIconicClockContinuationCheckpointEnabled =
+  d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled ||
   genericRuntimeCapability ===
   "user32-get-async-key-state-post-is-iconic-clock-continuation";
 const timeGetTimePostIsIconicContinuationCheckpointEnabled =
@@ -1113,7 +1121,16 @@ const recurringTimerBoundedWindowCheckpointEnabled =
   recurringTimerMultiCycleCheckpointEnabled ||
   recurringTimerWindowEvidenceEnabled;
 const recurringTimerWindowConfiguration =
-  getAsyncKeyStatePostIsIconicClockContinuationCheckpointEnabled
+  d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled
+    ? {
+        capability:
+          "d3d9-test-cooperative-level-post-input-scan-continuation",
+        implementationId:
+          "runtime.d3d9-test-cooperative-level-post-input-scan-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      }
+    : getAsyncKeyStatePostIsIconicClockContinuationCheckpointEnabled
     ? {
         capability:
           "user32-get-async-key-state-post-is-iconic-clock-continuation",
@@ -1833,7 +1850,9 @@ const outputDirectory = path.join(
                                 ? isIconicPostPointerReleaseContinuationCheckpointEnabled
                                   ? timeGetTimePostIsIconicContinuationCheckpointEnabled
                                     ? getAsyncKeyStatePostIsIconicClockContinuationCheckpointEnabled
-                                      ? "v86-bgi-get-async-key-state-post-is-iconic-clock-continuation"
+                                      ? d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled
+                                        ? "v86-bgi-d3d9-test-cooperative-level-post-input-scan-continuation"
+                                        : "v86-bgi-get-async-key-state-post-is-iconic-clock-continuation"
                                       : "v86-bgi-time-get-time-post-is-iconic-continuation"
                                     : "v86-bgi-is-iconic-post-pointer-release-continuation"
                                   : "v86-bgi-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
@@ -6297,7 +6316,13 @@ async function run() {
       const sourceAfter = sourceIdentity(bgiPath);
       assert.deepEqual(sourceAfter, sourceBefore);
       if (timeGetTimePostPointerReleaseRepeatBatchCheckpointEnabled) {
-        if (getAsyncKeyStatePostIsIconicClockContinuationCheckpointEnabled) {
+        if (
+          d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled
+        ) {
+          validateD3d9TestCooperativeLevelPostInputScanContinuationResult(
+            genericResult,
+          );
+        } else if (getAsyncKeyStatePostIsIconicClockContinuationCheckpointEnabled) {
           validateGetAsyncKeyStatePostIsIconicClockContinuationResult(
             genericResult,
           );
@@ -6724,7 +6749,9 @@ async function run() {
                                       ? isIconicPostPointerReleaseContinuationCheckpointEnabled
                                         ? timeGetTimePostIsIconicContinuationCheckpointEnabled
                                           ? getAsyncKeyStatePostIsIconicClockContinuationCheckpointEnabled
-                                            ? "bgi USER32 GetAsyncKeyState post-IsIconic clock scan continuation"
+                                            ? d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled
+                                              ? "bgi D3D9 TestCooperativeLevel post-input-scan continuation"
+                                              : "bgi USER32 GetAsyncKeyState post-IsIconic clock scan continuation"
                                             : "bgi WINMM timeGetTime post-IsIconic continuation"
                                           : "bgi USER32 IsIconic post-pointer-release continuation"
                                         : "bgi USER32 GetSystemMetrics fixed-frame height post-pointer-release continuation"
@@ -7200,6 +7227,11 @@ async function run() {
                                                 : genericResult
                                                       .checkpointCompletion
                                                       .capability ===
+                                                    "d3d9-test-cooperative-level-post-input-scan-continuation"
+                                                  ? `${genericResult.checkpointCompletion.completionCount} post-input-scan cooperative-level query completed`
+                                                : genericResult
+                                                      .checkpointCompletion
+                                                      .capability ===
                                                     "user32-get-async-key-state-post-is-iconic-clock-continuation"
                                                   ? `${genericResult.checkpointCompletion.completionCount} zero-input async-key queries completed`
                                                 : `${genericResult.checkpointCompletion.completionCount} recurring waits completed`),
@@ -7518,6 +7550,7 @@ async function runGenericRuntimeReentry({
   let timeGetTimePostIsIconicContinuationEntry = null;
   let getAsyncKeyStatePostIsIconicClockPrerequisite = null;
   const getAsyncKeyStatePostIsIconicClockCompletions = [];
+  let d3d9TestCooperativeLevelPostInputScanPrerequisite = null;
   let inputProgressAsyncKeyStateQuery = null;
   const inputProgressVirtualKey = actionInputProgressGatewayCheckpointEnabled
     ? 0x01
@@ -8674,6 +8707,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "d3d9-test-cooperative-level-post-input-scan-continuation"
+            ? "d3d9-test-cooperative-level-post-input-scan-continuation-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "user32-get-async-key-state-post-is-iconic-clock-continuation"
             ? "user32-get-async-key-state-post-is-iconic-clock-continuation-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -8846,7 +8882,23 @@ async function runGenericRuntimeReentry({
         recurringTimerCycleCheckpointEnabled ||
         recurringTimerBoundedWindowCheckpointEnabled
       ) {
-        if (getAsyncKeyStatePostIsIconicClockContinuationCheckpointEnabled) {
+        if (
+          d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled
+        ) {
+          if (terminal.kind === "owned-com-method") {
+            checkpointCompletion.nextEndpoint.disposition =
+              "declared-com-method";
+            checkpointCompletion.nextEndpoint.interfaceIndex =
+              terminal.interfaceIndex;
+            checkpointCompletion.nextEndpoint.vtableSlot = terminal.vtableSlot;
+          } else {
+            assert.equal(terminal.kind, "owned-import-thunk");
+            checkpointCompletion.nextEndpoint.disposition =
+              "declared-runtime-export";
+            checkpointCompletion.nextEndpoint.iatAddress =
+              terminal.thunk.iatAddress;
+          }
+        } else if (getAsyncKeyStatePostIsIconicClockContinuationCheckpointEnabled) {
           assert.equal(terminal.kind, "owned-com-method");
           checkpointCompletion.nextEndpoint.disposition =
             "declared-com-method";
@@ -8891,6 +8943,12 @@ async function runGenericRuntimeReentry({
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (postCriticalSectionSetWaitableTimerCheckpointEnabled) {
         checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 4);
+        checkpointCompletion.nextReturnAddress = terminal.returnAddress;
+        checkpointCompletion.nextStackPointer = continuation.finalState.esp;
+      } else if (
+        d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled
+      ) {
+        checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 7);
         checkpointCompletion.nextReturnAddress = terminal.returnAddress;
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (getAsyncKeyStatePostIsIconicClockContinuationCheckpointEnabled) {
@@ -10671,7 +10729,7 @@ async function runGenericRuntimeReentry({
         user32AsyncKeyStateInitialScanVirtualKeys.length
       ) {
         const firstCall = getAsyncKeyStatePostIsIconicClockCompletions[0];
-        checkpointCompletion = {
+        const completedGetAsyncKeyStatePostIsIconicClockScan = {
           ...getAsyncKeyStatePostIsIconicClockPrerequisite,
           capability:
             "user32-get-async-key-state-post-is-iconic-clock-continuation",
@@ -10698,11 +10756,76 @@ async function runGenericRuntimeReentry({
             getAsyncKeyStatePostIsIconicClockPrerequisite
               .activeCallbackDepthAtStop,
           activeCallbackDepthAtStop: activeCallbacks.length,
-          instructionCount: 0,
-          nextEndpoint: null,
-          memoryContentSha256: "",
         };
+        if (
+          d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled
+        ) {
+          assert.equal(
+            d3d9TestCooperativeLevelPostInputScanPrerequisite,
+            null,
+          );
+          d3d9TestCooperativeLevelPostInputScanPrerequisite =
+            completedGetAsyncKeyStatePostIsIconicClockScan;
+          getAsyncKeyStatePostIsIconicClockPrerequisite = null;
+        } else {
+          checkpointCompletion = {
+            ...completedGetAsyncKeyStatePostIsIconicClockScan,
+            instructionCount: 0,
+            nextEndpoint: null,
+            memoryContentSha256: "",
+          };
+        }
       }
+    }
+    if (
+      d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled &&
+      d3d9TestCooperativeLevelPostInputScanPrerequisite !== null &&
+      call.interface === "IDirect3DDevice9" &&
+      call.vtableSlot === 3
+    ) {
+      const prerequisite =
+        d3d9TestCooperativeLevelPostInputScanPrerequisite;
+      assert.equal(call.symbol, "IDirect3DDevice9.TestCooperativeLevel");
+      assert.deepEqual(call.arguments, [0x0101_0004]);
+      assert.deepEqual(call.result, { kind: "h-result", value: 0 });
+      assert.equal(call.returnAddress, 0x1005_adcd);
+      assert.equal(call.stackPointerBefore, 0x006f_f8f4);
+      assert.equal(call.stackPointerAfter, 0x006f_f8fc);
+      assert.equal(call.referenceCount, 5);
+      assert.equal(call.objectRetired, false);
+      assert.deepEqual(call.guestWrites, []);
+      assert.equal(activeCallbacks.length, 0);
+      const completedCall = {
+        ...structuredClone(call),
+        runtimeThreadId: currentThreadId,
+      };
+      checkpointCompletion = {
+        ...prerequisite,
+        capability:
+          "d3d9-test-cooperative-level-post-input-scan-continuation",
+        implementationId:
+          "runtime.d3d9-test-cooperative-level-post-input-scan-continuation.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        prerequisiteScanCompletionSequence: prerequisite.lastCompletionSequence,
+        prerequisiteScanCompletionInstructionCount:
+          prerequisite.lastCompletionInstructionCount,
+        firstCompletionSequence: call.sequence,
+        firstCompletionInstructionCount: call.trapInstructionCount,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: call.trapInstructionCount,
+        d3d9TestCooperativeLevelPostInputScanActiveCallbackDepthAtCompletion:
+          activeCallbacks.length,
+        d3d9TestCooperativeLevelPostInputScan: completedCall,
+        cumulativeCompletions: 9,
+        setFocusActiveCallbackDepthAtStop:
+          prerequisite.setFocusActiveCallbackDepthAtStop,
+        activeCallbackDepthAtStop: activeCallbacks.length,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+      d3d9TestCooperativeLevelPostInputScanPrerequisite = null;
     }
     if (
       peekMessageAPointerReleaseContinuationCheckpointEnabled &&
@@ -28374,6 +28497,12 @@ function validatePostWaitCriticalSectionResult(result) {
 }
 
 function validateRecurringTimerBoundedWindowResult(result) {
+  if (
+    d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled
+  ) {
+    validateD3d9TestCooperativeLevelPostInputScanContinuationResult(result);
+    return;
+  }
   if (getAsyncKeyStatePostIsIconicClockContinuationCheckpointEnabled) {
     validateGetAsyncKeyStatePostIsIconicClockContinuationResult(result);
     return;
@@ -28485,6 +28614,121 @@ function validateRecurringTimerBoundedWindowResult(result) {
     return;
   }
   validateRecurringTimerWindowResult(result);
+}
+
+function validateD3d9TestCooperativeLevelPostInputScanContinuationResult(
+  result,
+) {
+  assert(d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled);
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  const checkpoint = result.checkpointCompletion;
+  assert.equal(
+    checkpoint?.capability,
+    "d3d9-test-cooperative-level-post-input-scan-continuation",
+  );
+  assert.equal(
+    checkpoint.implementationId,
+    "runtime.d3d9-test-cooperative-level-post-input-scan-continuation.v1",
+  );
+  assert.equal(checkpoint.requiredCompletions, 1);
+  assert.equal(checkpoint.completionCount, 1);
+  assert.equal(checkpoint.prerequisiteScanCompletionSequence, 162_079);
+  assert.equal(
+    checkpoint.prerequisiteScanCompletionInstructionCount,
+    321_468_229,
+  );
+  assert.equal(
+    checkpoint.d3d9TestCooperativeLevelPostInputScanActiveCallbackDepthAtCompletion,
+    0,
+  );
+  const call = checkpoint.d3d9TestCooperativeLevelPostInputScan;
+  assert.equal(call.runtimeThreadId, 8_192);
+  assert.equal(call.interface, "IDirect3DDevice9");
+  assert.equal(call.vtableSlot, 3);
+  assert.equal(call.symbol, "IDirect3DDevice9.TestCooperativeLevel");
+  assert.deepEqual(call.arguments, [0x0101_0004]);
+  assert.deepEqual(call.result, { kind: "h-result", value: 0 });
+  assert.equal(call.returnAddress, 0x1005_adcd);
+  assert.equal(call.stackPointerBefore, 0x006f_f8f4);
+  assert.equal(call.stackPointerAfter, 0x006f_f8fc);
+  assert.equal(call.referenceCount, 5);
+  assert.equal(call.objectRetired, false);
+  assert.deepEqual(call.guestWrites, []);
+  assert.equal(checkpoint.cumulativeCompletions, 9);
+  assert.equal(checkpoint.setFocusActiveCallbackDepthAtStop, 1);
+  assert.equal(checkpoint.activeCallbackDepthAtStop, 0);
+  assert.equal(checkpoint.firstCompletionSequence, 162_080);
+  assert.equal(checkpoint.firstCompletionInstructionCount, 321_468_292);
+  assert.equal(checkpoint.lastCompletionSequence, 162_080);
+  assert.equal(checkpoint.lastCompletionInstructionCount, 321_468_292);
+  assert.equal(call.sequence, 162_080);
+  assert.equal(call.trapInstructionCount, 321_468_292);
+  assert.equal(result.supportedCalls.length, 162_080);
+  const { runtimeThreadId: _runtimeThreadId, ...expectedSupportedCall } = call;
+  assert.deepEqual(result.supportedCalls.at(-1), expectedSupportedCall);
+  const digest = new SemanticCallDigest();
+  for (const supportedCall of result.supportedCalls) {
+    digest.update(supportedCall);
+  }
+  assert.equal(
+    digest.digestHex(),
+    "3cd3948ee3c588f736c2af6704e5baedee26271c89069259a086cf2aa6872c15",
+  );
+  assert.equal(result.terminal.instructionCount, checkpoint.instructionCount);
+  assert.equal(checkpoint.instructionCount, 321_468_343);
+  assert.deepEqual(checkpoint.nextEndpoint, {
+    id: 118,
+    address: 0x7f00_0750,
+    module: "KERNEL32.dll",
+    symbol: { kind: "name", name: "SetWaitableTimer" },
+    disposition: "declared-runtime-export",
+    iatAddress: 0x100d_1280,
+  });
+  assert.deepEqual(checkpoint.nextArguments, [
+    0x5701_0001,
+    0x006f_f8f0,
+    0,
+    0,
+    0,
+    0,
+  ]);
+  assert.equal(checkpoint.nextReturnAddress, 0x1005_0607);
+  assert.equal(checkpoint.nextStackPointer, 0x006f_f8d4);
+  assert.equal(
+    checkpoint.memoryContentSha256,
+    "872be2df28fe82af65fc86d20ee986773ca81f4a1b1439edbed0c34f241117ae",
+  );
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 118);
+  assert.equal(result.terminal.terminal.thunk.iatAddress, 0x100d_1280);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_0607);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 7), [
+    0x5701_0001,
+    0x006f_f8f0,
+    0,
+    0,
+    0,
+    0,
+  ]);
+  assert.equal(result.threadExecution.contextSwitches, 2_514);
+  assert.equal(result.writebacks.length, 165_234);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    244_665,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    43_072_391,
+  );
+  assert.equal(result.hostDeltas.length, 127_995);
+  assert.equal(result.finalGeneration, 296_511);
 }
 
 function validateGetAsyncKeyStatePostIsIconicClockContinuationResult(result) {
@@ -37251,7 +37495,15 @@ function buildGenericRuntimeReentryReport({
   }
   assert.equal(semanticCallDigest.count(), completedSupportedCalls.length);
   const supportedCallSemanticsSha256 = semanticCallDigest.digestHex();
-  if (getAsyncKeyStatePostIsIconicClockContinuationCheckpointEnabled) {
+  if (d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled) {
+    assert.equal(completedSupportedCalls.length, 162_080);
+    assert.equal(genericResult.supportedCalls.length, 162_080);
+    assert.notEqual(genericResult.supportedCalls.at(-1).pendingCallback, true);
+    assert.equal(
+      supportedCallSemanticsSha256,
+      "3cd3948ee3c588f736c2af6704e5baedee26271c89069259a086cf2aa6872c15",
+    );
+  } else if (getAsyncKeyStatePostIsIconicClockContinuationCheckpointEnabled) {
     assert.equal(completedSupportedCalls.length, 162_079);
     assert.equal(genericResult.supportedCalls.length, 162_079);
     assert.notEqual(genericResult.supportedCalls.at(-1).pendingCallback, true);
@@ -40216,6 +40468,11 @@ function buildGenericRuntimeReentryReport({
                                                                             : genericResult
                                                                               .checkpointCompletion
                                                                               .capability ===
+                                                                                "d3d9-test-cooperative-level-post-input-scan-continuation"
+                                                                              ? "BGI completed the mutation-free live-device TestCooperativeLevel query after the bounded post-input scan and stopped before the next owned endpoint"
+                                                                              : genericResult
+                                                                                  .checkpointCompletion
+                                                                                  .capability ===
                                                                                 "user32-get-async-key-state-post-is-iconic-clock-continuation"
                                                                               ? "BGI completed the bounded zero-input GetAsyncKeyState scan after the post-IsIconic clock read and stopped before the next owned endpoint"
                                                                               : genericResult

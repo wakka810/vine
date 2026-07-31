@@ -106,9 +106,13 @@ const setFocusActionContinuationProfile =
   bgiProfile === "user32-set-focus-action-continuation";
 const timeGetTimeActionContinuationProfile =
   bgiProfile === "winmm-time-get-time-action-continuation";
-const getAsyncKeyStatePostIsIconicClockContinuationProfile =
+const d3d9TestCooperativeLevelPostInputScanContinuationProfile =
   bgiProfile ===
-  "user32-get-async-key-state-post-is-iconic-clock-continuation";
+  "d3d9-test-cooperative-level-post-input-scan-continuation";
+const getAsyncKeyStatePostIsIconicClockContinuationProfile =
+  d3d9TestCooperativeLevelPostInputScanContinuationProfile ||
+  bgiProfile ===
+    "user32-get-async-key-state-post-is-iconic-clock-continuation";
 const timeGetTimePostIsIconicContinuationProfile =
   getAsyncKeyStatePostIsIconicClockContinuationProfile ||
   bgiProfile === "winmm-time-get-time-post-is-iconic-continuation";
@@ -318,7 +322,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v96";
+const runtimeProtocol = "vine.browser-runtime-worker.v97";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -1021,6 +1025,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-is-iconic-post-pointer-release-continuation",
         "winmm-time-get-time-post-is-iconic-continuation",
         "user32-get-async-key-state-post-is-iconic-clock-continuation",
+        "d3d9-test-cooperative-level-post-input-scan-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1113,6 +1118,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-is-iconic-post-pointer-release-continuation",
         "winmm-time-get-time-post-is-iconic-continuation",
         "user32-get-async-key-state-post-is-iconic-clock-continuation",
+        "d3d9-test-cooperative-level-post-input-scan-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1205,6 +1211,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-is-iconic-post-pointer-release-continuation",
         "winmm-time-get-time-post-is-iconic-continuation",
         "user32-get-async-key-state-post-is-iconic-clock-continuation",
+        "d3d9-test-cooperative-level-post-input-scan-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
@@ -3455,7 +3462,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           present: 2,
           textureLockRect: 1,
           textureUnlockRect: 1,
-          testCooperativeLevel: pointerMessageEvidenceProfile
+          testCooperativeLevel:
+            d3d9TestCooperativeLevelPostInputScanContinuationProfile
+              ? 9
+              : pointerMessageEvidenceProfile
             ? 8
             : inputProgressEvidenceProfile
             ? 16
@@ -6387,7 +6397,9 @@ function validateBgiEquivalence(browser, oracle) {
       oracleCheckpoint.capability ===
         "winmm-time-get-time-post-is-iconic-continuation" ||
       oracleCheckpoint.capability ===
-        "user32-get-async-key-state-post-is-iconic-clock-continuation"
+        "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
+      oracleCheckpoint.capability ===
+        "d3d9-test-cooperative-level-post-input-scan-continuation"
     ) {
       const normalizeThreadCall = (call) => ({
         ...normalizeSemanticCall(call),
@@ -6678,6 +6690,26 @@ function validateBgiEquivalence(browser, oracle) {
                     .runtimeThreadId,
               },
             }),
+        ...(candidate.d3d9TestCooperativeLevelPostInputScan === undefined
+          ? {}
+          : {
+              prerequisiteScanCompletionSequence:
+                candidate.prerequisiteScanCompletionSequence,
+              prerequisiteScanCompletionInstructionCount:
+                candidate.prerequisiteScanCompletionInstructionCount,
+              d3d9TestCooperativeLevelPostInputScanActiveCallbackDepthAtCompletion:
+                candidate
+                  .d3d9TestCooperativeLevelPostInputScanActiveCallbackDepthAtCompletion,
+              d3d9TestCooperativeLevelPostInputScan: {
+                ...normalizeThreadCall(
+                  candidate.d3d9TestCooperativeLevelPostInputScan,
+                ),
+                runtimeThreadId:
+                  candidate.d3d9TestCooperativeLevelPostInputScan
+                    .runtimeThreadId,
+              },
+              cumulativeCompletions: candidate.cumulativeCompletions,
+            }),
         instructionCount: candidate.instructionCount,
         nextEndpoint: {
           ...candidate.nextEndpoint,
@@ -6822,6 +6854,121 @@ function validateBgiEquivalence(browser, oracle) {
         assert.equal(browser.report.wasmBridgeCalls, 489_708);
         assert.equal(browser.statusMessagesObserved, 24_363);
         assert.equal(browser.statusMessagesRetained, 4_096);
+      }
+      if (
+        oracleCheckpoint.capability ===
+        "d3d9-test-cooperative-level-post-input-scan-continuation"
+      ) {
+        assert.equal(oracle.supportedCallCount, 162_080);
+        assert.equal(
+          oracle.supportedCallSemanticsSha256,
+          "3cd3948ee3c588f736c2af6704e5baedee26271c89069259a086cf2aa6872c15",
+        );
+        assert.equal(
+          oracleCheckpoint.implementationId,
+          "runtime.d3d9-test-cooperative-level-post-input-scan-continuation.v1",
+        );
+        assert.equal(oracleCheckpoint.requiredCompletions, 1);
+        assert.equal(oracleCheckpoint.completionCount, 1);
+        assert.equal(
+          oracleCheckpoint.prerequisiteScanCompletionSequence,
+          162_079,
+        );
+        assert.equal(
+          oracleCheckpoint.prerequisiteScanCompletionInstructionCount,
+          321_468_229,
+        );
+        assert.equal(oracleCheckpoint.firstCompletionSequence, 162_080);
+        assert.equal(
+          oracleCheckpoint.firstCompletionInstructionCount,
+          321_468_292,
+        );
+        assert.equal(oracleCheckpoint.lastCompletionSequence, 162_080);
+        assert.equal(
+          oracleCheckpoint.lastCompletionInstructionCount,
+          321_468_292,
+        );
+        const completion =
+          oracleCheckpoint.d3d9TestCooperativeLevelPostInputScan;
+        assert.deepEqual(
+          {
+            sequence: completion.sequence,
+            occurrence: completion.occurrence,
+            trapInstructionCount: completion.trapInstructionCount,
+            interface: completion.interface,
+            vtableSlot: completion.vtableSlot,
+            arguments: completion.arguments,
+            result: completion.result,
+            returnAddress: completion.returnAddress,
+            stackPointerBefore: completion.stackPointerBefore,
+            stackPointerAfter: completion.stackPointerAfter,
+            referenceCount: completion.referenceCount,
+            objectRetired: completion.objectRetired,
+            guestWrites: completion.guestWrites,
+            runtimeThreadId: completion.runtimeThreadId,
+          },
+          {
+            sequence: 162_080,
+            occurrence: 11,
+            trapInstructionCount: 321_468_292,
+            interface: "IDirect3DDevice9",
+            vtableSlot: 3,
+            arguments: [0x0101_0004],
+            result: { kind: "h-result", value: 0 },
+            returnAddress: 0x1005_adcd,
+            stackPointerBefore: 0x006f_f8f4,
+            stackPointerAfter: 0x006f_f8fc,
+            referenceCount: 5,
+            objectRetired: false,
+            guestWrites: [],
+            runtimeThreadId: 8_192,
+          },
+        );
+        assert.equal(oracleCheckpoint.cumulativeCompletions, 9);
+        assert.equal(oracleCheckpoint.activeCallbackDepthAtStop, 0);
+        assert.equal(oracleCheckpoint.instructionCount, 321_468_343);
+        assert.deepEqual(oracleCheckpoint.nextEndpoint, {
+          id: 118,
+          address: 0x7f00_0750,
+          disposition: "declared-runtime-export",
+          iatAddress: 0x100d_1280,
+          module: "KERNEL32.dll",
+          symbol: { kind: "name", name: "SetWaitableTimer" },
+        });
+        assert.deepEqual(oracleCheckpoint.nextArguments, [
+          0x5701_0001,
+          0x006f_f8f0,
+          0,
+          0,
+          0,
+          0,
+        ]);
+        assert.equal(oracleCheckpoint.nextReturnAddress, 0x1005_0607);
+        assert.equal(oracleCheckpoint.nextStackPointer, 0x006f_f8d4);
+        assert.equal(
+          oracleCheckpoint.memoryContentSha256,
+          "872be2df28fe82af65fc86d20ee986773ca81f4a1b1439edbed0c34f241117ae",
+        );
+        assert.equal(oracle.synchronization.writebackBatches, 165_234);
+        assert.equal(oracle.synchronization.dirtyPages, 244_665);
+        assert.equal(oracle.synchronization.changedBytes, 43_072_391);
+        assert.equal(oracle.synchronization.hostDeltaBatches, 127_995);
+        assert.equal(oracle.synchronization.finalGeneration, 296_511);
+        assert.equal(oracle.threadExecution.contextSwitches, 2_514);
+        assert.equal(browser.report.instructions, 321_468_343);
+        assert.equal(browser.report.initialGeneration, 27);
+        assert.equal(browser.report.finalGeneration, 315_150);
+        assert.equal(browser.report.writebackBatches, 183_979);
+        assert.equal(browser.report.writebackPages, 282_706);
+        assert.equal(browser.report.mappingDeltas, 127_995);
+        assert.equal(browser.report.mappingDirtyPages, 150_400);
+        assert.equal(browser.report.slices, 183_986);
+        assert.equal(browser.report.budgetYields, 18_752);
+        assert.equal(browser.report.executionTransitionCount, 589_075);
+        assert.equal(browser.report.contextSwitches, 2_514);
+        assert.equal(browser.report.callbackEntries, 34);
+        assert.equal(browser.report.maximumCallbackDepth, 3);
+        assert.equal(browser.report.wasmBridgeCalls, 489_710);
       }
       if (
         oracleCheckpoint.capability ===

@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 96 as const;
+export const protocolVersion = 97 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -84,6 +84,7 @@ export type BgiCapabilityProfile =
   | "user32-is-iconic-post-pointer-release-continuation"
   | "winmm-time-get-time-post-is-iconic-continuation"
   | "user32-get-async-key-state-post-is-iconic-clock-continuation"
+  | "d3d9-test-cooperative-level-post-input-scan-continuation"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
@@ -3091,7 +3092,11 @@ export interface SessionReport {
               interface: "IDirect3DDevice9";
               method: "TestCooperativeLevel";
             };
-        nextArguments: [] | [number] | [number, number];
+        nextArguments:
+          | []
+          | [number]
+          | [number, number]
+          | [number, number, number, number, number, number];
         nextReturnAddress: number;
         nextStackPointer: number;
         memoryContentSha256: string;
@@ -3296,6 +3301,46 @@ export interface SessionReport {
             getAsyncKeyStatePostIsIconicClockActiveCallbackDepthAtCompletion: 0;
             getAsyncKeyStatePostIsIconicClockFirst: RuntimeThreadCallSnapshot;
             getAsyncKeyStatePostIsIconicClockLast: RuntimeThreadCallSnapshot;
+          }
+        | {
+            capability:
+              "d3d9-test-cooperative-level-post-input-scan-continuation";
+            implementationId:
+              "runtime.d3d9-test-cooperative-level-post-input-scan-continuation.v1";
+            requiredCompletions: 1;
+            completionCount: 1;
+            timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0;
+            timeGetTimePostRelease: RuntimeThreadCallSnapshot;
+            maximumRepeatCompletions: 16;
+            timeGetTimePostReleaseCompletions: RuntimeThreadCallSnapshot[];
+            getWindowRectPostReleaseActiveCallbackDepthAtCompletion: 0;
+            getWindowRectPostRelease: RuntimeThreadCallSnapshot;
+            getCursorPosPostReleaseActiveCallbackDepthAtCompletion: 0;
+            getCursorPosPostRelease: RuntimeThreadCallSnapshot;
+            getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion: 0;
+            getSystemMetricsPostRelease: RuntimeThreadCallSnapshot;
+            getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion: 0;
+            getSystemMetricsCaptionPostRelease: RuntimeThreadCallSnapshot;
+            getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion: 0;
+            getSystemMetricsFixedFrameHeightPostRelease: RuntimeThreadCallSnapshot;
+            isIconicPostReleaseActiveCallbackDepthAtCompletion: 0;
+            isIconicPostRelease: RuntimeThreadCallSnapshot;
+            timeGetTimePostIsIconicActiveCallbackDepthAtCompletion: 0;
+            timeGetTimePostIsIconic: RuntimeThreadCallSnapshot;
+            prerequisiteScanCompletionSequence: number;
+            prerequisiteScanCompletionInstructionCount: number;
+            scanVirtualKeys: number[];
+            result: { action: "set"; value: 0 };
+            lastError: 0;
+            guestWriteBytes: 0;
+            getAsyncKeyStatePostIsIconicClockActiveCallbackDepthAtCompletion: 0;
+            getAsyncKeyStatePostIsIconicClockFirst: RuntimeThreadCallSnapshot;
+            getAsyncKeyStatePostIsIconicClockLast: RuntimeThreadCallSnapshot;
+            firstCompletionSequence: number;
+            firstCompletionInstructionCount: number;
+            d3d9TestCooperativeLevelPostInputScanActiveCallbackDepthAtCompletion: 0;
+            d3d9TestCooperativeLevelPostInputScan: RuntimeThreadCallSnapshot;
+            cumulativeCompletions: 9;
           }
       ))
     | {

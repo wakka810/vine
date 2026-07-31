@@ -15056,7 +15056,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
                 | "user32-is-iconic-post-pointer-release-continuation"
                 | "winmm-time-get-time-post-is-iconic-continuation"
-                | "user32-get-async-key-state-post-is-iconic-clock-continuation" => {
+                | "user32-get-async-key-state-post-is-iconic-clock-continuation"
+                | "d3d9-test-cooperative-level-post-input-scan-continuation" => {
                     GenericRuntimeCapability::User32DefWindowProcPointerRelease
                 }
                 "kernel32-leave-critical-section" => {
