@@ -107,9 +107,11 @@ commitし、その消費後にも2件のTIMERPROCを完了する合成profileを
 guest-visible clockへ流入させないinput／timer compositionは閉じたが、third `Present`やvisible responseには進まない。
 続くprofileは同じ`RuntimeInput` mapping、logical cursor、foreground window、`RuntimeMessages`、scheduler wakeをjoint
 preflightし、`WM_LBUTTONDOWN`をWndProcへdispatchしてmatching releaseをRust queueに保持した。Queued pointer
-message productionの成立性riskは閉じた。残るriskは`SetFocus` continuationとrelease dispatch、capture／move／wheel、
-replacement／`KillTimer` race、background freeze／resumeとcatch-upをscheduler、message queue、page lifecycleで
-順序付けることである。
+message productionの成立性riskは閉じた。続くSetFocus continuationは、同じcurrent-threadのactive／focused／
+foreground windowに対するidempotent return、LastError／window／guest-memory不変、NULL／unknown／stale／
+異なるwindowのmutation-free rejectionまでをRust／Node／Chromeで閉じた。残るriskはfocus transition message、
+cross-thread focus、release dispatch、capture／move／wheel、replacement／`KillTimer` race、background
+freeze／resumeとcatch-upをscheduler、message queue、page lifecycleで順序付けることである。
 
 Primary `CreateThread`／`ResumeThread`のlogical identity、stack／TEB／FS bootstrap、typed handle、suspend count、
 Worker context registrationに加え、直後の`SetThreadPriority`でabove-normal logical stateをthread ownerへ保存する

@@ -4428,6 +4428,26 @@ impl RuntimeUser32 {
         self.window_relation_handle(self.foreground_window)
     }
 
+    pub(super) fn resolve_same_window_focus(
+        &self,
+        window_handle: u32,
+        owner_thread_id: RuntimeThreadId,
+    ) -> Result<u32, RuntimeStateError> {
+        let window = self.window(window_handle)?;
+        self.validate_created_window_owner(window, owner_thread_id)?;
+        if self.active_windows.get(&owner_thread_id).copied() != Some(window.id)
+            || self.focused_windows.get(&owner_thread_id).copied() != Some(window.id)
+            || self.foreground_window != Some(window.id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "set-focus-current-window-relation-mismatch",
+                "bounded SetFocus requires the current-thread active, focused, foreground logical window",
+            ));
+        }
+        Ok(window.handle)
+    }
+
     fn window_relation_handle(
         &self,
         window_id: Option<RuntimeWindowId>,

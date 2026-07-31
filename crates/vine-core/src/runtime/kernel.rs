@@ -7994,6 +7994,15 @@ impl RuntimeKernel {
         self.user32.foreground_window_handle()
     }
 
+    pub(crate) fn set_focus_same_window(
+        &self,
+        window_handle: u32,
+    ) -> Result<u32, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        self.user32
+            .resolve_same_window_focus(window_handle, self.current_thread_id())
+    }
+
     fn validate_window_creation_authority(
         &self,
         request: &RuntimeWindowCreationRequest,

@@ -37,7 +37,8 @@ use crate::runtime::{
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 32;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 33;
+const USER32_COMPATIBILITY_POLICY_POINTER_VERSION: u32 = 32;
 const USER32_COMPATIBILITY_POLICY_TIMER_VERSION: u32 = 31;
 const USER32_COMPATIBILITY_POLICY_BASE_VERSION: u32 = 30;
 pub const ENUM_DISPLAY_MONITORS_IMPLEMENTATION: &str = "user32.enum-display-monitors.v1";
@@ -68,6 +69,7 @@ pub const DISPATCH_MESSAGE_A_IMPLEMENTATION: &str =
 pub const IS_ICONIC_IMPLEMENTATION: &str = "user32.is-iconic.logical-window-style.v1";
 pub const GET_FOREGROUND_WINDOW_IMPLEMENTATION: &str = "user32.get-foreground-window.v1";
 pub const GET_ASYNC_KEY_STATE_IMPLEMENTATION: &str = "user32.get-async-key-state.v1";
+pub const SET_FOCUS_IMPLEMENTATION: &str = "user32.set-focus.same-current-window.v1";
 pub const SET_RECT_IMPLEMENTATION: &str = "user32.set-rect.v1";
 pub const GET_DC_IMPLEMENTATION: &str = "user32.get-dc.window-or-screen-acquisition.v2";
 pub const FILL_RECT_IMPLEMENTATION: &str = "user32.fill-rect.logical-surface.v1";
@@ -370,6 +372,13 @@ pub struct User32GetAsyncKeyStatePolicy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct User32SetFocusPolicy {
+    pub profile_id: String,
+    pub require_current_thread_active_focused_foreground_window: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct User32SwapMouseButtonPolicy {
     pub profile_id: String,
 }
@@ -411,6 +420,8 @@ pub struct User32CompatibilityPolicy {
     pub window_timer_delivery: Option<User32WindowTimerDeliveryPolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pointer_button_messages: Option<RuntimePointerButtonMessageProfile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub set_focus: Option<User32SetFocusPolicy>,
     pub monitor_from_window: Option<User32MonitorFromWindowPolicy>,
     pub get_monitor_info_a: Option<User32GetMonitorInfoAPolicy>,
     pub screen_dc: Option<User32ScreenDcPolicy>,
@@ -574,6 +585,7 @@ impl User32CompatibilityPolicy {
             }),
             window_timer_delivery: None,
             pointer_button_messages: None,
+            set_focus: None,
             monitor_from_window: Some(User32MonitorFromWindowPolicy {
                 profile_id: "live-window-default-to-primary-v1".to_owned(),
                 flags: MONITOR_DEFAULTTOPRIMARY,
@@ -659,7 +671,7 @@ impl User32CompatibilityPolicy {
 
     pub fn controlled_v32() -> Self {
         let mut policy = Self::controlled_v31();
-        policy.schema_version = USER32_COMPATIBILITY_POLICY_VERSION;
+        policy.schema_version = USER32_COMPATIBILITY_POLICY_POINTER_VERSION;
         policy.id =
             "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
                 .to_owned();
@@ -679,17 +691,44 @@ impl User32CompatibilityPolicy {
         policy
     }
 
+    pub fn controlled_v33() -> Self {
+        let mut policy = Self::controlled_v32();
+        policy.schema_version = USER32_COMPATIBILITY_POLICY_VERSION;
+        policy.id =
+            "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
+                .to_owned();
+        policy.set_focus = Some(User32SetFocusPolicy {
+            profile_id: "same-current-thread-active-focused-foreground-window-v1".to_owned(),
+            require_current_thread_active_focused_foreground_window: true,
+        });
+        policy
+    }
+
     pub fn validate(&self) -> Result<(), ApiFault> {
         if self.schema != USER32_COMPATIBILITY_POLICY_SCHEMA
             || !matches!(
                 (
                     self.schema_version,
                     self.window_timer_delivery.is_some(),
-                    self.pointer_button_messages.is_some()
+                    self.pointer_button_messages.is_some(),
+                    self.set_focus.is_some()
                 ),
-                (USER32_COMPATIBILITY_POLICY_BASE_VERSION, false, false)
-                    | (USER32_COMPATIBILITY_POLICY_TIMER_VERSION, true, false)
-                    | (USER32_COMPATIBILITY_POLICY_VERSION, true, true)
+                (
+                    USER32_COMPATIBILITY_POLICY_BASE_VERSION,
+                    false,
+                    false,
+                    false
+                ) | (
+                    USER32_COMPATIBILITY_POLICY_TIMER_VERSION,
+                    true,
+                    false,
+                    false
+                ) | (
+                    USER32_COMPATIBILITY_POLICY_POINTER_VERSION,
+                    true,
+                    true,
+                    false
+                ) | (USER32_COMPATIBILITY_POLICY_VERSION, true, true, true)
             )
             || self.id.is_empty()
             || self.id.len() > 128
@@ -1023,6 +1062,19 @@ impl User32CompatibilityPolicy {
                 "user32-compatibility-policy",
                 "user32-pointer-button-message-profile-invalid",
                 "User32 pointer messages require normalized primary/secondary input for the visible active focused foreground logical window",
+            ));
+        }
+        if let Some(profile) = self.set_focus.as_ref()
+            && (!valid_profile_id(&profile.profile_id)
+                || profile.profile_id != "same-current-thread-active-focused-foreground-window-v1"
+                || !profile.require_current_thread_active_focused_foreground_window
+                || self.pointer_button_messages.is_none()
+                || self.create_window_ex_a.is_none())
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-set-focus-profile-invalid",
+                "User32 SetFocus requires the reached same-current-thread active, focused, foreground logical window profile",
             ));
         }
         if let Some(profile) = self.monitor_from_window.as_ref()
@@ -1454,6 +1506,10 @@ pub fn dispatch_user32_api_with_policy(
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
         }
+        SET_FOCUS_IMPLEMENTATION => match handle_set_focus(policy, contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
         SET_RECT_IMPLEMENTATION => match handle_set_rect(contract, frame) {
             Ok(immediate) => ApiHandlerResult::Immediate(immediate),
             Err(fault) => ApiHandlerResult::Fault(fault),
@@ -2221,6 +2277,42 @@ fn handle_get_foreground_window(
     Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
         namespace: LOGICAL_WINDOW_HANDLE_NAMESPACE.to_owned(),
         value: handle,
+    }))
+}
+
+fn handle_set_focus(
+    policy: &User32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let profile = policy.set_focus.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-windows",
+            "set-focus-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable logical focus assignment",
+                policy.id
+            ),
+        )
+    })?;
+    if profile.profile_id != "same-current-thread-active-focused-foreground-window-v1"
+        || !profile.require_current_thread_active_focused_foreground_window
+    {
+        return Err(ApiFault::runtime_defect(
+            "user32-windows",
+            "set-focus-profile-invalid",
+            "validated SetFocus policy changed its bounded current-window relation",
+        ));
+    }
+    let window_handle = required_argument(contract, frame, 0, "window handle")?;
+    let previous_window = session
+        .runtime()
+        .set_focus_same_window(window_handle)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+        namespace: LOGICAL_WINDOW_HANDLE_NAMESPACE.to_owned(),
+        value: previous_window,
     }))
 }
 
@@ -6714,6 +6806,7 @@ pub fn user32_contract_for_endpoint(
         "IsIconic" => Ok(Some(is_iconic_contract(endpoint)?)),
         "GetForegroundWindow" => Ok(Some(get_foreground_window_contract(endpoint)?)),
         "GetAsyncKeyState" => Ok(Some(get_async_key_state_contract(endpoint)?)),
+        "SetFocus" => Ok(Some(set_focus_contract(endpoint)?)),
         "SetRect" => Ok(Some(set_rect_contract(endpoint)?)),
         "MonitorFromWindow" => Ok(Some(monitor_from_window_contract(endpoint)?)),
         "GetMonitorInfoA" => Ok(Some(get_monitor_info_a_contract(endpoint)?)),
@@ -7211,6 +7304,26 @@ pub fn get_async_key_state_contract(
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: GET_ASYNC_KEY_STATE_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn set_focus_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![logical_window_handle_argument("window", true)],
+            return_value: ApiReturnSchema::LogicalHandle {
+                namespace: LOGICAL_WINDOW_HANDLE_NAMESPACE.to_owned(),
+                nullable: true,
+            },
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::Preserve,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: SET_FOCUS_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -7894,7 +8007,10 @@ mod tests {
 
         let pointer = User32CompatibilityPolicy::controlled_v32();
         pointer.validate().unwrap();
-        assert_eq!(pointer.schema_version, USER32_COMPATIBILITY_POLICY_VERSION);
+        assert_eq!(
+            pointer.schema_version,
+            USER32_COMPATIBILITY_POLICY_POINTER_VERSION
+        );
         let pointer_profile = pointer.pointer_button_messages.as_ref().unwrap();
         assert_eq!(pointer_profile.normalized_position_denominator, 65_536);
         assert_eq!(pointer_profile.left_button_down_message, WM_LBUTTONDOWN);
@@ -7911,6 +8027,27 @@ mod tests {
         assert_eq!(
             invalid_pointer.validate().unwrap_err().code,
             "user32-pointer-button-message-profile-invalid"
+        );
+
+        let focus = User32CompatibilityPolicy::controlled_v33();
+        focus.validate().unwrap();
+        assert_eq!(focus.schema_version, USER32_COMPATIBILITY_POLICY_VERSION);
+        let focus_profile = focus.set_focus.as_ref().unwrap();
+        assert_eq!(
+            focus_profile.profile_id,
+            "same-current-thread-active-focused-foreground-window-v1"
+        );
+        assert!(focus_profile.require_current_thread_active_focused_foreground_window);
+
+        let mut invalid_focus = User32CompatibilityPolicy::controlled_v33();
+        invalid_focus
+            .set_focus
+            .as_mut()
+            .unwrap()
+            .require_current_thread_active_focused_foreground_window = false;
+        assert_eq!(
+            invalid_focus.validate().unwrap_err().code,
+            "user32-set-focus-profile-invalid"
         );
 
         let mut invalid_monitor = User32CompatibilityPolicy::controlled_v30();

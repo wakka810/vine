@@ -1152,6 +1152,16 @@ bounded pointer down dispatchとqueued releaseのacceptanceであり、`SetFocus
 move／wheel、visible response、general message orderingをclaimしない。Exact値とartifact identityは
 `current-checkpoint.json`だけを正本とする。
 
+続く`user32-set-focus-action-continuation`は、直前のWndProc dispatchが残した同じlive windowについて、
+same-current-thread／active／focused／foreground relationをRustの`RuntimeUser32` ownerがpreflightし、
+`SetFocus(hwnd)`をidempotentに完了することを要求する。Native controlled oracleは同じHWNDを返し、seeded
+LastError、logical window snapshot、guest memoryを変更せず、callerが戻り値を直後に上書きすることを固定する。
+Node／Chromeはsequence 161,946、trap instruction 321,462,324、return `0x48010001`、LastError 0、guest
+writes 0、protocol v79／browser report schema 46を一致させ、checkpoint instruction 321,462,368の
+`WINMM.dll!timeGetTime` (ID 8)へ停止する。NULL、unknown／stale／異なるwindow、cross-thread、focus
+transition message、capture、release dispatch、browser focus stateはこのbounded leafのclaim外であり、
+exact値とartifact identityは`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

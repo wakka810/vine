@@ -14,24 +14,24 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `primary-main-loop-pointer-message-action-progress-gateway`: 161944 calls across 130 endpoint contracts / 128 APIs, memory generation 296314 |
+| Runtime diagnostics | `user32-set-focus-action-continuation`: 161945 calls across 131 endpoint contracts / 129 APIs, memory generation 296315 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `primary-main-loop-pointer-message-action-progress-gateway` dispatched 1 pointer message by instruction 321462086 and retained the matching release; verification stopped at `USER32.dll!SetFocus` on instruction 321462324 (`primary-main-loop-pointer-message-action-progress-gateway-checkpoint-complete`) |
+| Next structured stop | `user32-set-focus-action-continuation` completed 1 same-window focus operation by instruction 321462324; verification stopped at `WINMM.dll!timeGetTime` on instruction 321462368 (`user32-set-focus-action-continuation-checkpoint-complete`) |
 
-The active semantic report is 3,027,938 bytes with SHA-256
-`bdd56d4e78cb608dece62bbba0f2dd15daba6e2933caa7e70c0280cbdca9ac80`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 3,029,834 bytes with SHA-256
+`0d66bbd8fb9263fb41e376e666dcc5189c9c8d845622cff70003bb74b5904915`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
 | ID | Milestone | Status | Evidence boundary |
 |---|---|---|---|
 | `boot-and-process-initialization` | Boot and process initialization | `in-progress` | Primary executable reaches the current structured stop after creating and resuming one guest thread; title entry and child workload completion are not complete |
-| `logical-window-and-message-flow` | Logical window and message flow | `in-progress` | Primary logical window creation, activation, paint, and owner-thread timers pass. A normalized primary-button down is mapped by Rust to foreground client coordinates, atomically queued as WM_LBUTTONDOWN, removed by PeekMessageA, translated, and dispatched to the registered WndProc in Node and Chrome; the matching WM_LBUTTONUP remains queued at the SetFocus continuation stop. Replacement, KillTimer, capture, move/wheel, filtered and cross-thread retrieval, and general message-flow breadth remain partial. |
+| `logical-window-and-message-flow` | Logical window and message flow | `in-progress` | Primary logical window creation, activation, paint, and owner-thread timers pass. A normalized primary-button down is mapped by Rust to foreground client coordinates, atomically queued as WM_LBUTTONDOWN, removed by PeekMessageA, translated, and dispatched to the registered WndProc in Node and Chrome. The same current-thread active, focused, foreground window then completes idempotent SetFocus without state or guest-memory mutation; the matching WM_LBUTTONUP remains queued at the following timeGetTime stop. Replacement, KillTimer, focus-transition messages, cross-thread focus, capture, move/wheel, filtered and cross-thread retrieval, and general message-flow breadth remain partial. |
 | `immutable-source-asset-access` | Immutable source asset access | `in-progress` | Primary system.arc opens through the immutable boot-archive snapshot mount and completes bounded header, index, and ipl._bp member reads while BGI.gdb stays writable profile state; remaining archives and general asset breadth are not claimed |
-| `first-present-readable-screen` | First present and readable screen | `in-progress` | Controlled Canvas pixel passes; the primary D3D9 logical device completes two bounded scene/draw/present cycles and synchronous Worker WebGL2 materialization. The pointer-message profile dispatches WM_LBUTTONDOWN and retains the release message while preserving the 1280x720 black browser frame and reaches no third Present. Readable title content, visible action response, resize, device loss/recovery, general stack overflow/SEH, and long-run stability remain unproven. |
-| `user-input-consumption` | User input consumption | `in-progress` | The active Node/Chrome-equivalent profile commits normalized primary-button down and up events through Rust-owned input, cursor, window, message queue, wait, and guest-memory authorities. GetAsyncKeyState(VK_LBUTTON) consumes 0xFFFF8001; PeekMessageA removes WM_LBUTTONDOWN, TranslateMessage returns false, DispatchMessageA enters the registered WndProc, and WM_LBUTTONUP remains queued before SetFocus. Visible gameplay response, pointer capture/move/wheel, DirectInput keyboard/mouse devices, and general input remain unproven. |
+| `first-present-readable-screen` | First present and readable screen | `in-progress` | Controlled Canvas pixel passes; the primary D3D9 logical device completes two bounded scene/draw/present cycles and synchronous Worker WebGL2 materialization. The pointer-action continuation dispatches WM_LBUTTONDOWN, completes same-window SetFocus, and retains the release message while preserving the 1280x720 black browser frame and reaching no third Present. Readable title content, visible action response, resize, device loss/recovery, general stack overflow/SEH, and long-run stability remain unproven. |
+| `user-input-consumption` | User input consumption | `in-progress` | The active Node/Chrome-equivalent profile commits normalized primary-button down and up events through Rust-owned input, cursor, window, message queue, wait, and guest-memory authorities. GetAsyncKeyState(VK_LBUTTON) consumes 0xFFFF8001; PeekMessageA removes WM_LBUTTONDOWN, TranslateMessage returns false, DispatchMessageA enters the registered WndProc, and same-window SetFocus completes while WM_LBUTTONUP remains queued. Visible gameplay response, release dispatch, focus-transition messages, pointer capture/move/wheel, DirectInput keyboard/mouse devices, and general input remain unproven. |
 | `audible-output` | Audible output | `fixture-only` | Controlled 880 Hz browser pulse passes; primary DirectSound8 reaches an 88,200-byte zero-filled secondary sample backing through Lock/Unlock and accepts looping Play, while browser audio transport, audible primary output, and WinMM audio are not reached |
 | `save-browser-restart-load` | Save, browser restart, and load | `not-reached` | Rust-owned writable profile and SQLite generation/idempotency/rollback foundation pass; controlled guest browser commit, restart, and load are not demonstrated |
 | `representative-flow` | Representative scenario flow | `not-reached` | No primary representative flow is claimed |
@@ -167,6 +167,7 @@ The active semantic report is 3,027,938 bytes with SHA-256
 - `USER32.dll!IsIconic`
 - `USER32.dll!TranslateMessage`
 - `USER32.dll!DispatchMessageA`
+- `USER32.dll!SetFocus`
 
 ### Reproduce Current Checkpoint
 

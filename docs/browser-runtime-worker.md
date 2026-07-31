@@ -64,18 +64,20 @@ changed pages, which the Worker atomically reconciles into Rust before
 classifying or resuming the guest. The upper loop does not know how changes are
 discovered.
 
-Protocol version 78 carries normalized pointer-button events to one Rust-owned
-foreground-client message transaction. Rust validates the input profile, focused
-foreground window, client mapping, current-thread queue capacity, logical cursor,
-message identity, and scheduler wake before committing any owner. The primary
-button down becomes `WM_LBUTTONDOWN`, is published by `PeekMessageA`, validated by
-`TranslateMessage`, and dispatched to the registered WndProc; the matching
-`WM_LBUTTONUP` remains in the authoritative Rust queue at the following `SetFocus`
-stop. The Worker records receipts and the queued-release snapshot but creates no
+Protocol version 79 carries normalized pointer-button events through one
+Rust-owned foreground-client message transaction and the same-window `SetFocus`
+continuation. Rust validates the input profile, focused foreground window, client
+mapping, current-thread queue capacity, logical cursor, message identity, and
+scheduler wake before committing any owner. The primary button down becomes
+`WM_LBUTTONDOWN`, is published by `PeekMessageA`, validated by `TranslateMessage`,
+and dispatched to the registered WndProc; the matching `WM_LBUTTONUP` remains in
+the authoritative Rust queue while `SetFocus(hwnd)` is checked as an idempotent
+same-current-thread/active/focused/foreground operation. The Worker records
+receipts, the queued-release snapshot, and the SetFocus completion but creates no
 Windows queue, HWND, cursor, key table, message ID, callback stack, or second
-generation. Protocol version 77 remains the integrated action／window-timer
-regression; versions 76, 75, and 74 retain the earlier recurring, single-delivery,
-and pointer-polling profiles.
+generation. Protocol version 78 remains the pointer-message stop; version 77
+remains the integrated action／window-timer regression; versions 76, 75, and 74
+retain the earlier recurring, single-delivery, and pointer-polling profiles.
 
 After a guest API completion, Rust may return a `thread-switch` selected by the
 authoritative scheduler. The Worker saves the outgoing opaque engine context and

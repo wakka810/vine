@@ -193,6 +193,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     postHeapTimeGetTimeEnabled: number,
     user32WindowTimerCallbackDeliveryEnabled: number,
     user32PointerButtonMessagesEnabled: number,
+    user32SetFocusSameWindowEnabled: number,
   ): number;
   vine_bridge_prepare_source_read(
     executableLength: number,
@@ -330,6 +331,7 @@ export class RuntimeBridge {
     postHeapTimeGetTimeEnabled: boolean,
     user32WindowTimerCallbackDeliveryEnabled: boolean,
     user32PointerButtonMessagesEnabled: boolean,
+    user32SetFocusSameWindowEnabled: boolean,
   ): BridgeOutput<PreparedMetadata> {
     const source = sourceManifest ?? emptyBridgeOutput;
     this.#setInput([executable, policy, source, writableProfile]);
@@ -357,6 +359,7 @@ export class RuntimeBridge {
         Number(postHeapTimeGetTimeEnabled),
         Number(user32WindowTimerCallbackDeliveryEnabled),
         Number(user32PointerButtonMessagesEnabled),
+        Number(user32SetFocusSameWindowEnabled),
       ),
     );
   }

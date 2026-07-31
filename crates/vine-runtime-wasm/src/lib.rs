@@ -103,6 +103,7 @@ struct BgiCheckpointCapabilities {
     post_heap_time_get_time: bool,
     user32_window_timer_callback_delivery: bool,
     user32_pointer_button_messages: bool,
+    user32_set_focus_same_window: bool,
 }
 
 impl Bridge {
@@ -734,7 +735,9 @@ impl BrowserRuntime {
             .runtime
             .register_writable_profile(writable_profile)
             .map_err(error_string)?;
-        let user32_policy = if capabilities.user32_pointer_button_messages {
+        let user32_policy = if capabilities.user32_set_focus_same_window {
+            User32CompatibilityPolicy::controlled_v33()
+        } else if capabilities.user32_pointer_button_messages {
             User32CompatibilityPolicy::controlled_v32()
         } else if capabilities.user32_window_timer_callback_delivery {
             User32CompatibilityPolicy::controlled_v31()
@@ -882,7 +885,8 @@ impl BrowserRuntime {
             capabilities.set_rect,
             capabilities.user32_async_key_state_initial_scan,
             capabilities.user32_window_timer_callback_delivery
-                || capabilities.user32_pointer_button_messages,
+                || capabilities.user32_pointer_button_messages
+                || capabilities.user32_set_focus_same_window,
         )?;
         let runtime_stack = process
             .runtime
@@ -1886,6 +1890,7 @@ impl BrowserRuntime {
                             completion.implementation_id.as_str(),
                             "user32.set-window-long-a.gwl-style.v1"
                                 | "shell32.drag-accept-files.logical-window-style-v1"
+                                | vine_core::SET_FOCUS_IMPLEMENTATION
                         ) {
                             let handle = completion.frame.argument_u32(0).ok_or_else(|| {
                                 format!(
@@ -4569,6 +4574,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
     post_heap_time_get_time_enabled: u32,
     user32_window_timer_callback_delivery_enabled: u32,
     user32_pointer_button_messages_enabled: u32,
+    user32_set_focus_same_window_enabled: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_bgi(
@@ -4597,6 +4603,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
                 user32_window_timer_callback_delivery: user32_window_timer_callback_delivery_enabled
                     != 0,
                 user32_pointer_button_messages: user32_pointer_button_messages_enabled != 0,
+                user32_set_focus_same_window: user32_set_focus_same_window_enabled != 0,
             },
         )
     })

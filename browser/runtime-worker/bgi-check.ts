@@ -80,6 +80,7 @@ const d3d9Canvas =
     "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
   capabilityProfile ===
     "primary-main-loop-pointer-message-action-progress-gateway" ||
+  capabilityProfile === "user32-set-focus-action-continuation" ||
   capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
   capabilityProfile ===
@@ -191,7 +192,8 @@ const startMessage = {
             capabilityProfile ===
               "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
             capabilityProfile ===
-              "primary-main-loop-pointer-message-action-progress-gateway"
+              "primary-main-loop-pointer-message-action-progress-gateway" ||
+            capabilityProfile === "user32-set-focus-action-continuation"
           ? 340_000_000
           : capabilityProfile === "runtime-trapless-execution-budget" ||
               capabilityProfile === "kernel32-heap-free-large-buffer" ||
@@ -302,6 +304,7 @@ const startMessage = {
         "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
       capabilityProfile ===
         "primary-main-loop-pointer-message-action-progress-gateway" ||
+      capabilityProfile === "user32-set-focus-action-continuation" ||
       capabilityProfile ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
       capabilityProfile ===
@@ -354,10 +357,12 @@ if (
   capabilityProfile === "primary-main-loop-action-input-progress-gateway" ||
   capabilityProfile ===
     "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
-  capabilityProfile === "primary-main-loop-pointer-message-action-progress-gateway"
+  capabilityProfile === "primary-main-loop-pointer-message-action-progress-gateway" ||
+  capabilityProfile === "user32-set-focus-action-continuation"
 ) {
   const pointerMessageInput =
-    capabilityProfile === "primary-main-loop-pointer-message-action-progress-gateway";
+    capabilityProfile === "primary-main-loop-pointer-message-action-progress-gateway" ||
+    capabilityProfile === "user32-set-focus-action-continuation";
   const actionInput =
     capabilityProfile === "primary-main-loop-action-input-progress-gateway" ||
     capabilityProfile ===
@@ -536,6 +541,7 @@ function parseCapabilityProfile(
     value ===
       "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
     value === "primary-main-loop-pointer-message-action-progress-gateway" ||
+    value === "user32-set-focus-action-continuation" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-critical-section"

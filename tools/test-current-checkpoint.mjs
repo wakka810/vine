@@ -1294,6 +1294,24 @@ assert.ok(
   ),
 );
 
+const detachedSetFocusThread = structuredClone(manifest);
+detachedSetFocusThread.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.setFocus.runtimeThreadId =
+  8_193;
+assert.ok(
+  validateCurrentCheckpoint(detachedSetFocusThread).some((error) =>
+    error.includes("latest SetFocus action checkpoint evidence"),
+  ),
+);
+
+const detachedBrowserSetFocusThread = structuredClone(manifest);
+detachedBrowserSetFocusThread.browserCheckpoint.bgiRuntimeEvidence.checkpointCompletion.setFocus.runtimeThreadId =
+  8_193;
+assert.ok(
+  validateCurrentCheckpoint(detachedBrowserSetFocusThread).some((error) =>
+    error.includes("browser BGI SetFocus action checkpoint evidence"),
+  ),
+);
+
 const sample = `before\n${README_STATUS_START}\nstale\n${README_STATUS_END}\nafter\n`;
 assert.equal(
   replaceReadmeStatus(sample, rendered),

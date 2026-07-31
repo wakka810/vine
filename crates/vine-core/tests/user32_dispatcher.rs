@@ -34,10 +34,10 @@ use vine_core::{
     get_window_rect_contract, imm_associate_context_contract, imm_get_default_ime_wnd_contract,
     is_iconic_contract, load_cursor_a_contract, load_icon_a_contract, load_image_a_contract,
     materialize_pe32_image, monitor_from_window_contract, peek_message_a_contract,
-    register_class_ex_a_contract, release_dc_contract, send_message_a_contract, set_rect_contract,
-    set_timer_contract, set_window_long_a_contract, set_window_pos_contract, show_window_contract,
-    swap_mouse_button_contract, translate_message_contract, update_window_contract,
-    user32_contract_for_endpoint,
+    register_class_ex_a_contract, release_dc_contract, send_message_a_contract, set_focus_contract,
+    set_rect_contract, set_timer_contract, set_window_long_a_contract, set_window_pos_contract,
+    show_window_contract, swap_mouse_button_contract, translate_message_contract,
+    update_window_contract, user32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -125,6 +125,10 @@ const GET_FOREGROUND_WINDOW_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00
 const GET_FOREGROUND_WINDOW_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 100);
 const GET_FOREGROUND_WINDOW_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2280;
 const GET_FOREGROUND_WINDOW_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_390e);
+const SET_FOCUS_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0d00);
+const SET_FOCUS_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 132);
+const SET_FOCUS_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2f60;
+const SET_FOCUS_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1009_2dcb);
 const GET_ASYNC_KEY_STATE_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0e60);
 const GET_ASYNC_KEY_STATE_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 104);
 const GET_ASYNC_KEY_STATE_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x22a0;
@@ -1211,6 +1215,7 @@ struct RegisterClassFixture {
     begin_paint_endpoint: ApiEndpointIdentity,
     end_paint_endpoint: ApiEndpointIdentity,
     get_foreground_window_endpoint: ApiEndpointIdentity,
+    set_focus_endpoint: ApiEndpointIdentity,
     get_async_key_state_endpoint: ApiEndpointIdentity,
     get_client_rect_endpoint: ApiEndpointIdentity,
     get_window_rect_endpoint: ApiEndpointIdentity,
@@ -1322,6 +1327,7 @@ impl RegisterClassFixture {
                 GET_FOREGROUND_WINDOW_IAT_ADDRESS,
                 GET_FOREGROUND_WINDOW_ENDPOINT_ADDRESS,
             ),
+            (SET_FOCUS_IAT_ADDRESS, SET_FOCUS_ENDPOINT_ADDRESS),
             (
                 GET_ASYNC_KEY_STATE_IAT_ADDRESS,
                 GET_ASYNC_KEY_STATE_ENDPOINT_ADDRESS,
@@ -1818,6 +1824,21 @@ impl RegisterClassFixture {
                 name_rva: vine_core::Rva(0),
             },
         });
+        let set_focus_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(209),
+            address: SET_FOCUS_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_141c),
+            iat_address: SET_FOCUS_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "SetFocus".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
         let get_async_key_state_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
             id: ImportThunkId(231),
             address: GET_ASYNC_KEY_STATE_ENDPOINT_ADDRESS,
@@ -2105,6 +2126,7 @@ impl RegisterClassFixture {
                 begin_paint_endpoint.clone(),
                 end_paint_endpoint.clone(),
                 get_foreground_window_endpoint.clone(),
+                set_focus_endpoint.clone(),
                 get_async_key_state_endpoint.clone(),
                 get_client_rect_endpoint.clone(),
                 get_window_rect_endpoint.clone(),
@@ -2148,6 +2170,7 @@ impl RegisterClassFixture {
                 end_paint_contract(end_paint_endpoint.clone()).expect("EndPaint contract"),
                 get_foreground_window_contract(get_foreground_window_endpoint.clone())
                     .expect("GetForegroundWindow contract"),
+                set_focus_contract(set_focus_endpoint.clone()).expect("SetFocus contract"),
                 get_async_key_state_contract(get_async_key_state_endpoint.clone())
                     .expect("GetAsyncKeyState contract"),
                 get_client_rect_contract(get_client_rect_endpoint.clone())
@@ -2212,6 +2235,7 @@ impl RegisterClassFixture {
             begin_paint_endpoint,
             end_paint_endpoint,
             get_foreground_window_endpoint,
+            set_focus_endpoint,
             get_async_key_state_endpoint,
             get_client_rect_endpoint,
             get_window_rect_endpoint,
@@ -2655,6 +2679,22 @@ impl RegisterClassFixture {
             self.get_foreground_window_endpoint.clone(),
             GuestAddress(GET_FOREGROUND_WINDOW_STACK_POINTER),
             GET_FOREGROUND_WINDOW_RETURN_ADDRESS,
+        )
+    }
+
+    fn configure_set_focus(&mut self, window_handle: u32) {
+        self.write_live_words(
+            GuestAddress(SET_FOCUS_STACK_POINTER),
+            &[SET_FOCUS_RETURN_ADDRESS.0, window_handle],
+        );
+        self.acknowledge_pending_delta();
+    }
+
+    fn dispatch_set_focus(&mut self) -> DispatchOutcome {
+        self.dispatch_endpoint(
+            self.set_focus_endpoint.clone(),
+            GuestAddress(SET_FOCUS_STACK_POINTER),
+            SET_FOCUS_RETURN_ADDRESS,
         )
     }
 
@@ -3708,6 +3748,40 @@ fn get_foreground_window_contract_is_zero_argument_stdcall_and_preserves_last_er
     let contract = get_foreground_window_contract(endpoint).expect("GetForegroundWindow contract");
     assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
     assert!(contract.abi.arguments.is_empty());
+    assert_eq!(
+        contract.abi.return_value,
+        ApiReturnSchema::LogicalHandle {
+            namespace: "vine.logical-window.v1".to_owned(),
+            nullable: true,
+        }
+    );
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
+fn set_focus_contract_is_nullable_window_stdcall_with_nullable_previous_window_result() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(209),
+        address: SET_FOCUS_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_141c),
+        iat_address: SET_FOCUS_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "SetFocus".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = set_focus_contract(endpoint).expect("SetFocus contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 1);
     assert_eq!(
         contract.abi.return_value,
         ApiReturnSchema::LogicalHandle {
@@ -7853,6 +7927,89 @@ fn get_foreground_window_reads_process_relation_without_mutation() {
     );
     assert_eq!(fixture.runtime, active_runtime);
     assert_eq!(fixture.runtime.current_last_error().unwrap(), 0x2468_1357);
+}
+
+#[test]
+fn set_focus_same_current_window_returns_previous_handle_without_state_or_message_mutation() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, _) = fixture.prepare_active_window_with_small_icon();
+    fixture.policy = User32CompatibilityPolicy::controlled_v33();
+    fixture
+        .runtime
+        .set_current_last_error(0x2468_1357)
+        .expect("seed SetFocus LastError");
+    fixture.configure_set_focus(window_handle);
+    let runtime_before = fixture.runtime.clone();
+    let memory_before = fixture.memory.stats();
+    let completion = match fixture.dispatch_set_focus() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected same-window SetFocus completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(window_handle));
+    assert_eq!(
+        completion.stack_pointer,
+        GuestAddress(SET_FOCUS_STACK_POINTER + 8)
+    );
+    assert_eq!(completion.last_error, 0x2468_1357);
+    assert!(completion.guest_writes.is_empty());
+    assert_eq!(fixture.runtime, runtime_before);
+    assert_eq!(fixture.memory.stats(), memory_before);
+    assert_eq!(
+        fixture.runtime.active_window_handle().unwrap(),
+        Some(window_handle)
+    );
+    assert_eq!(
+        fixture.runtime.focused_window_handle().unwrap(),
+        Some(window_handle)
+    );
+    assert_eq!(
+        fixture.runtime.foreground_window_handle().unwrap(),
+        Some(window_handle)
+    );
+}
+
+#[test]
+fn set_focus_rejects_unreached_variants_before_mutation() {
+    let mut disabled = RegisterClassFixture::new();
+    let (window_handle, _) = disabled.prepare_active_window_with_small_icon();
+    disabled.configure_set_focus(window_handle);
+    let runtime_before = disabled.runtime.clone();
+    let memory_before = disabled.memory.stats();
+    let fault = match disabled.dispatch_set_focus() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled SetFocus fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(fault.code, "set-focus-policy-disabled");
+    assert_eq!(disabled.runtime, runtime_before);
+    assert_eq!(disabled.memory.stats(), memory_before);
+
+    let mut unfocused = RegisterClassFixture::new();
+    let (unfocused_handle, _) = unfocused.prepare_created_window_with_small_icon();
+    unfocused.policy = User32CompatibilityPolicy::controlled_v33();
+    unfocused.configure_set_focus(unfocused_handle);
+    let runtime_before = unfocused.runtime.clone();
+    let memory_before = unfocused.memory.stats();
+    let fault = match unfocused.dispatch_set_focus() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected bounded relation fault, got {other:?}"),
+    };
+    assert_eq!(fault.code, "set-focus-current-window-relation-mismatch");
+    assert_eq!(unfocused.runtime, runtime_before);
+    assert_eq!(unfocused.memory.stats(), memory_before);
+
+    let mut null_window = RegisterClassFixture::new();
+    null_window.policy = User32CompatibilityPolicy::controlled_v33();
+    null_window.configure_set_focus(0);
+    let runtime_before = null_window.runtime.clone();
+    let memory_before = null_window.memory.stats();
+    let fault = match null_window.dispatch_set_focus() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected NULL SetFocus fault, got {other:?}"),
+    };
+    assert_eq!(fault.code, "window-handle-unknown");
+    assert_eq!(null_window.runtime, runtime_before);
+    assert_eq!(null_window.memory.stats(), memory_before);
 }
 
 #[test]

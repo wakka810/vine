@@ -652,7 +652,8 @@ function isInputProgressGatewayCheckpoint(
     profile === "primary-main-loop-action-input-progress-gateway" ||
     profile ===
       "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
-    profile === "primary-main-loop-pointer-message-action-progress-gateway"
+    profile === "primary-main-loop-pointer-message-action-progress-gateway" ||
+    profile === "user32-set-focus-action-continuation"
   );
 }
 
@@ -663,7 +664,8 @@ function isActionInputProgressGatewayCheckpoint(
     profile === "primary-main-loop-action-input-progress-gateway" ||
     profile ===
       "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
-    profile === "primary-main-loop-pointer-message-action-progress-gateway"
+    profile === "primary-main-loop-pointer-message-action-progress-gateway" ||
+    profile === "user32-set-focus-action-continuation"
   );
 }
 
@@ -687,7 +689,8 @@ function isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
   return (
     profile ===
       "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
-    profile === "primary-main-loop-pointer-message-action-progress-gateway"
+    profile === "primary-main-loop-pointer-message-action-progress-gateway" ||
+    profile === "user32-set-focus-action-continuation"
   );
 }
 
@@ -695,6 +698,21 @@ function isPointerMessageActionProgressGatewayCheckpoint(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return profile === "primary-main-loop-pointer-message-action-progress-gateway";
+}
+
+function isSetFocusActionContinuationCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "user32-set-focus-action-continuation";
+}
+
+function hasPointerMessageActionProgressGateway(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isPointerMessageActionProgressGatewayCheckpoint(profile) ||
+    isSetFocusActionContinuationCheckpoint(profile)
+  );
 }
 
 function hasWindowTimerCallbackDelivery(
@@ -738,7 +756,14 @@ function isRecurringTimerBoundedWindowCheckpoint(
 function recurringTimerWindowConfiguration(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  return isPointerMessageActionProgressGatewayCheckpoint(profile)
+  return isSetFocusActionContinuationCheckpoint(profile)
+    ? ({
+        capability: "user32-set-focus-action-continuation",
+        implementationId: "runtime.user32-set-focus-action-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      } as const)
+    : isPointerMessageActionProgressGatewayCheckpoint(profile)
     ? ({
         capability: "primary-main-loop-pointer-message-action-progress-gateway",
         implementationId:
@@ -934,19 +959,24 @@ function windowTimerCallbackRecurringBatchExpectation() {
 function inputProgressGatewayExpectation(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  const pointer = isPointerMessageActionProgressGatewayCheckpoint(profile);
+  const pointer = hasPointerMessageActionProgressGateway(profile);
+  const setFocus = isSetFocusActionContinuationCheckpoint(profile);
   const combined =
     isWindowTimerCallbackActionInputProgressGatewayCheckpoint(profile);
   const action = isActionInputProgressGatewayCheckpoint(profile);
   return {
-    capability: pointer
+    capability: setFocus
+      ? "user32-set-focus-action-continuation"
+      : pointer
       ? "primary-main-loop-pointer-message-action-progress-gateway"
       : combined
       ? "primary-main-loop-window-timer-callback-action-input-progress-gateway"
       : action
       ? "primary-main-loop-action-input-progress-gateway"
       : "primary-main-loop-input-progress-gateway",
-    implementationId: pointer
+    implementationId: setFocus
+      ? "runtime.user32-set-focus-action-continuation.v1"
+      : pointer
       ? "runtime.main-loop-pointer-message-action-progress-gateway.v1"
       : combined
       ? "runtime.main-loop-window-timer-callback-action-input-progress-gateway.v1"
@@ -1537,6 +1567,36 @@ type PointerMessageActionProgressGatewayCheckpoint = Extract<
   { capability: "primary-main-loop-pointer-message-action-progress-gateway" }
 >;
 
+type PointerMessageGatewayEvidence = Omit<
+  PointerMessageActionProgressGatewayCheckpoint,
+  | "capability"
+  | "implementationId"
+  | "instructionCount"
+  | "nextEndpoint"
+  | "nextArguments"
+  | "nextReturnAddress"
+  | "nextStackPointer"
+  | "memoryContentSha256"
+>;
+
+type SetFocusActionContinuationCheckpoint = Extract<
+  NonNullable<SessionReport["checkpointCompletion"]>,
+  { capability: "user32-set-focus-action-continuation" }
+>;
+
+type SetFocusActionContinuationEntry = Omit<
+  SetFocusActionContinuationCheckpoint,
+  | "requiredCompletions"
+  | "completionCount"
+  | "setFocus"
+  | "instructionCount"
+  | "nextEndpoint"
+  | "nextArguments"
+  | "nextReturnAddress"
+  | "nextStackPointer"
+  | "memoryContentSha256"
+>;
+
 type WindowTimerCallbackDeliveryGatewayCheckpoint = Extract<
   NonNullable<SessionReport["checkpointCompletion"]>,
   { capability: "primary-main-loop-window-timer-callback-delivery-gateway" }
@@ -2033,6 +2093,9 @@ class BrowserRuntimeSession {
   #pointerMessagePeekCall: RuntimeThreadCallSnapshot | null = null;
   #pointerMessageTranslateCall: RuntimeThreadCallSnapshot | null = null;
   #pointerMessageActionGatewayAwaitingSetFocus = false;
+  #setFocusActionContinuationEntry: SetFocusActionContinuationEntry | null =
+    null;
+  #setFocusActionContinuationDispatching = false;
   readonly #presentationProgressRenderCompletions: RuntimeThreadCallSnapshot[] =
     [];
   #presentationProgressPresentCompletion: RuntimeThreadCallSnapshot | null =
@@ -2388,6 +2451,9 @@ class BrowserRuntimeSession {
               isPointerMessageActionProgressGatewayCheckpoint(
                 this.#configuration.capabilityProfile,
               ),
+              isSetFocusActionContinuationCheckpoint(
+                this.#configuration.capabilityProfile,
+              ),
             )
           : workload === "controlled-source-read"
             ? bridge.prepareSourceRead(
@@ -2448,7 +2514,11 @@ class BrowserRuntimeSession {
         const cursor = preparedOutput.metadata.runtime.cursorPosition;
         invariant(
           preparedOutput.metadata.runtime.user32Policy ===
-            (isPointerMessageActionProgressGatewayCheckpoint(
+            (isSetFocusActionContinuationCheckpoint(
+              this.#configuration.capabilityProfile,
+            )
+              ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
+              : isPointerMessageActionProgressGatewayCheckpoint(
               this.#configuration.capabilityProfile,
             )
               ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
@@ -3289,7 +3359,7 @@ class BrowserRuntimeSession {
       this.#configuration.capabilityProfile,
     );
     if (
-      isPointerMessageActionProgressGatewayCheckpoint(
+      hasPointerMessageActionProgressGateway(
         this.#configuration.capabilityProfile,
       )
     ) {
@@ -3555,7 +3625,7 @@ class BrowserRuntimeSession {
     occurrence: number,
   ): void {
     if (
-      !isPointerMessageActionProgressGatewayCheckpoint(
+      !hasPointerMessageActionProgressGateway(
         this.#configuration.capabilityProfile,
       ) ||
       this.#inputProgressPointerEvents.length !== 2 ||
@@ -5077,17 +5147,32 @@ class BrowserRuntimeSession {
         ownedEndpoint.symbol?.kind === "name" &&
         ownedEndpoint.symbol.name === "SetFocus"
       ) {
-        const checkpoint = this.#report.checkpointCompletion;
-        invariant(
-          checkpoint?.capability ===
-            "primary-main-loop-pointer-message-action-progress-gateway" &&
-            this.#bgiCallbackCallSequences.size === 1,
-          "pointer message gateway reached SetFocus without its live WndProc frame",
-        );
         this.#pointerMessageActionGatewayAwaitingSetFocus = false;
-        this.#bgiCheckpointPending = true;
-        this.#completeBgiCapabilityCheckpoint(endpoint, stackPointer);
-        return;
+        if (
+          isSetFocusActionContinuationCheckpoint(
+            this.#configuration.capabilityProfile,
+          )
+        ) {
+          invariant(
+            this.#report.checkpointCompletion === null &&
+              this.#setFocusActionContinuationEntry !== null &&
+              !this.#setFocusActionContinuationDispatching &&
+              this.#bgiCallbackCallSequences.size === 1,
+            "SetFocus continuation reached SetFocus without its live WndProc frame",
+          );
+          this.#setFocusActionContinuationDispatching = true;
+        } else {
+          const checkpoint = this.#report.checkpointCompletion;
+          invariant(
+            checkpoint?.capability ===
+              "primary-main-loop-pointer-message-action-progress-gateway" &&
+              this.#bgiCallbackCallSequences.size === 1,
+            "pointer message gateway reached SetFocus without its live WndProc frame",
+          );
+          this.#bgiCheckpointPending = true;
+          this.#completeBgiCapabilityCheckpoint(endpoint, stackPointer);
+          return;
+        }
       }
     }
     if (this.#bgiCheckpointPending) {
@@ -5163,7 +5248,7 @@ class BrowserRuntimeSession {
             };
           }
           if (
-            isPointerMessageActionProgressGatewayCheckpoint(
+            hasPointerMessageActionProgressGateway(
               this.#configuration.capabilityProfile,
             ) &&
             metadata.target === 0x1009_2550 &&
@@ -5219,11 +5304,7 @@ class BrowserRuntimeSession {
                   JSON.stringify(up.receipt.message),
               "pointer message gateway lost its Peek/Translate/Dispatch or queued-release relation",
             );
-            const checkpoint: PointerMessageActionProgressGatewayCheckpoint = {
-              capability:
-                "primary-main-loop-pointer-message-action-progress-gateway",
-              implementationId:
-                "runtime.main-loop-pointer-message-action-progress-gateway.v1",
+            const gatewayEvidence: PointerMessageGatewayEvidence = {
               requiredPointerMessages: 1,
               pointerMessageDeliveryCount: 1,
               inputBaseline: structuredClone(this.#inputProgressBaseline),
@@ -5253,19 +5334,39 @@ class BrowserRuntimeSession {
               },
               releaseMessageQueued: true,
               activeCallbackDepthAtStop: 1,
-              instructionCount: 0,
-              nextEndpoint: {
-                id: 0,
-                address: 0,
-                disposition: "declared-runtime-export",
-                iatAddress: 0,
-              },
-              nextArguments: [0],
-              nextReturnAddress: 0,
-              nextStackPointer: 0,
-              memoryContentSha256: "",
             };
-            this.#report.checkpointCompletion = checkpoint;
+            if (
+              isSetFocusActionContinuationCheckpoint(
+                this.#configuration.capabilityProfile,
+              )
+            ) {
+              this.#setFocusActionContinuationEntry = {
+                capability: "user32-set-focus-action-continuation",
+                implementationId:
+                  "runtime.user32-set-focus-action-continuation.v1",
+                ...gatewayEvidence,
+              };
+            } else {
+              const checkpoint: PointerMessageActionProgressGatewayCheckpoint = {
+                capability:
+                  "primary-main-loop-pointer-message-action-progress-gateway",
+                implementationId:
+                  "runtime.main-loop-pointer-message-action-progress-gateway.v1",
+                ...gatewayEvidence,
+                instructionCount: 0,
+                nextEndpoint: {
+                  id: 0,
+                  address: 0,
+                  disposition: "declared-runtime-export",
+                  iatAddress: 0,
+                },
+                nextArguments: [0],
+                nextReturnAddress: 0,
+                nextStackPointer: 0,
+                memoryContentSha256: "",
+              };
+              this.#report.checkpointCompletion = checkpoint;
+            }
             this.#pointerMessageActionGatewayAwaitingSetFocus = true;
           }
           if (
@@ -5588,9 +5689,13 @@ class BrowserRuntimeSession {
             this.#configuration.capabilityProfile,
           );
         const compatibilityPolicyId =
-          isPointerMessageActionProgressGatewayCheckpoint(
+          isSetFocusActionContinuationCheckpoint(
             this.#configuration.capabilityProfile,
           )
+            ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
+            : isPointerMessageActionProgressGatewayCheckpoint(
+              this.#configuration.capabilityProfile,
+            )
             ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
             : windowTimerDelivery
               ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
@@ -5649,9 +5754,13 @@ class BrowserRuntimeSession {
     ) {
       if (this.#report.isIconic === null) {
         const compatibilityPolicyId =
-          isPointerMessageActionProgressGatewayCheckpoint(
+          isSetFocusActionContinuationCheckpoint(
             this.#configuration.capabilityProfile,
           )
+            ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
+            : isPointerMessageActionProgressGatewayCheckpoint(
+              this.#configuration.capabilityProfile,
+            )
             ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
             : hasWindowTimerCallbackDelivery(
                   this.#configuration.capabilityProfile,
@@ -5816,6 +5925,7 @@ class BrowserRuntimeSession {
             "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
           checkpoint.capability ===
             "primary-main-loop-pointer-message-action-progress-gateway" ||
+          checkpoint.capability === "user32-set-focus-action-continuation" ||
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
@@ -5911,6 +6021,7 @@ class BrowserRuntimeSession {
         "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
       checkpoint.capability ===
         "primary-main-loop-pointer-message-action-progress-gateway" ||
+      checkpoint.capability === "user32-set-focus-action-continuation" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
@@ -5959,6 +6070,9 @@ class BrowserRuntimeSession {
                   ? [
                       this.#requireEngine().readGuestU32(stackPointer + 4),
                     ]
+                : checkpoint.capability ===
+                    "user32-set-focus-action-continuation"
+                  ? []
                 : checkpoint.capability ===
                       "primary-main-loop-recurring-timer-cycle-batch" ||
                     checkpoint.capability ===
@@ -6048,6 +6162,7 @@ class BrowserRuntimeSession {
         "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
       checkpoint.capability ===
         "primary-main-loop-pointer-message-action-progress-gateway" ||
+      checkpoint.capability === "user32-set-focus-action-continuation" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
@@ -6085,6 +6200,9 @@ class BrowserRuntimeSession {
                     : checkpoint.capability ===
                         "kernel32-enter-critical-section-post-timer-rearm-wait-batch"
                       ? "Post-timer-rearm-wait critical-section batch checkpoint completed"
+                      : checkpoint.capability ===
+                          "user32-set-focus-action-continuation"
+                        ? "USER32 SetFocus action continuation checkpoint completed"
                       : checkpoint.capability ===
                           "primary-main-loop-pointer-message-action-progress-gateway"
                         ? "Primary main-loop pointer message action progress gateway completed"
@@ -6316,6 +6434,8 @@ class BrowserRuntimeSession {
       completion.implementationId === "user32.set-window-pos.v5" ||
       completion.implementationId === "user32.set-window-long-a.gwl-style.v1" ||
       completion.implementationId ===
+        "user32.set-focus.same-current-window.v1" ||
+      completion.implementationId ===
         "user32.update-window.full-client-paint.v1" ||
       completion.implementationId ===
         "shell32.drag-accept-files.logical-window-style-v1";
@@ -6504,6 +6624,57 @@ class BrowserRuntimeSession {
       completion.implementationId,
       implementationOccurrence,
     );
+    if (
+      isSetFocusActionContinuationCheckpoint(
+        this.#configuration.capabilityProfile,
+      ) &&
+      completion.implementationId ===
+        "user32.set-focus.same-current-window.v1"
+    ) {
+      const entry = this.#setFocusActionContinuationEntry;
+      invariant(
+        this.#setFocusActionContinuationDispatching &&
+          entry !== null &&
+          this.#report.checkpointCompletion === null &&
+          endpoint.module.toLowerCase() === "user32.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "SetFocus" &&
+          call.arguments.length === 1 &&
+          call.arguments[0] === 0x4801_0001 &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 0x4801_0001 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0,
+        "SetFocus continuation completion changed its bounded semantic contract",
+      );
+      const setFocus = {
+        ...structuredClone(call),
+        runtimeThreadId: this.#currentThreadId,
+        trapInstructionCount: this.#report.instructions,
+        occurrence: implementationOccurrence,
+      } satisfies RuntimeThreadCallSnapshot;
+      this.#report.checkpointCompletion = {
+        ...entry,
+        requiredCompletions: 1,
+        completionCount: 1,
+        setFocus,
+        instructionCount: 0,
+        nextEndpoint: {
+          id: 0,
+          address: 0,
+          disposition: "declared-runtime-export" as const,
+          iatAddress: 0,
+        },
+        nextArguments: [],
+        nextReturnAddress: 0,
+        nextStackPointer: 0,
+        memoryContentSha256: "",
+      } satisfies SetFocusActionContinuationCheckpoint;
+      this.#setFocusActionContinuationEntry = null;
+      this.#setFocusActionContinuationDispatching = false;
+      this.#bgiCheckpointPending = true;
+    }
     this.#recordD3d9RecreatedTextureCall(call);
     this.#recordSetRectCall(call);
     if (
@@ -7926,7 +8097,7 @@ class BrowserRuntimeSession {
             completedCycleCount === configuration.maximumCycles;
           const inputProgressConsumed =
             this.#inputProgressAsyncKeyStateQuery !== null &&
-            (isPointerMessageActionProgressGatewayCheckpoint(
+            (hasPointerMessageActionProgressGateway(
               this.#configuration.capabilityProfile,
             )
               ? this.#inputProgressPointerEvents.length === 2
@@ -8111,7 +8282,7 @@ class BrowserRuntimeSession {
                 };
                 if (inputCheckpoint) {
                   invariant(
-                    !isPointerMessageActionProgressGatewayCheckpoint(
+                    !hasPointerMessageActionProgressGateway(
                       this.#configuration.capabilityProfile,
                     ),
                     "pointer message gateway missed its active WndProc stop",
@@ -11054,7 +11225,7 @@ class BrowserRuntimeSession {
     const deferredInputTraceReady = isInputProgressGatewayCheckpoint(
       this.#configuration.capabilityProfile,
     )
-      ? isPointerMessageActionProgressGatewayCheckpoint(
+      ? hasPointerMessageActionProgressGateway(
           this.#configuration.capabilityProfile,
         )
         ? this.#report.pointerInput.receivedMessages === 2 &&
@@ -11088,9 +11259,13 @@ class BrowserRuntimeSession {
       firstCall: structuredClone(firstCall.call),
       lastCall: structuredClone(lastCall.call),
       compatibilityPolicyId:
-        isPointerMessageActionProgressGatewayCheckpoint(
+        isSetFocusActionContinuationCheckpoint(
           this.#configuration.capabilityProfile,
         )
+          ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
+          : isPointerMessageActionProgressGatewayCheckpoint(
+            this.#configuration.capabilityProfile,
+          )
           ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
           : hasWindowTimerCallbackDelivery(
                 this.#configuration.capabilityProfile,
@@ -15075,7 +15250,7 @@ class BrowserRuntimeSession {
         isInputProgressGatewayCheckpoint(
           this.#configuration.capabilityProfile,
         ) &&
-        !isPointerMessageActionProgressGatewayCheckpoint(
+        !hasPointerMessageActionProgressGateway(
           this.#configuration.capabilityProfile,
         ) &&
         terminal.outcome === "checkpoint-complete"
@@ -15586,6 +15761,91 @@ class BrowserRuntimeSession {
             heapPageMaterializations:
               this.#report.heapPageMaterializations?.length,
             sourceReads: this.#report.sourceReads.length,
+          })}`,
+        );
+      }
+      if (
+        isSetFocusActionContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report
+          .checkpointCompletion as SetFocusActionContinuationCheckpoint | null;
+        const setFocus = checkpoint?.setFocus;
+        invariant(
+          this.#report.supportedCallCount === 161_945 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "060968314767f7d450e8dfdee7ed937eccf13e306aa7819ea15c6509aefaeeda" &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability ===
+              "user32-set-focus-action-continuation" &&
+            checkpoint.implementationId ===
+              "runtime.user32-set-focus-action-continuation.v1" &&
+            checkpoint.requiredPointerMessages === 1 &&
+            checkpoint.pointerMessageDeliveryCount === 1 &&
+            checkpoint.releaseMessageQueued &&
+            checkpoint.activeCallbackDepthAtStop === 1 &&
+            checkpoint.requiredCompletions === 1 &&
+            checkpoint.completionCount === 1 &&
+            checkpoint.dispatchEntry.sequence === 161_942 &&
+            checkpoint.dispatchEntry.trapInstructionCount === 321_462_086 &&
+            checkpoint.callbackEntry.frameId === 33 &&
+            checkpoint.callbackEntry.target === 0x1009_2550 &&
+            setFocus?.sequence === 161_946 &&
+            setFocus.runtimeThreadId === 8_192 &&
+            setFocus.trapInstructionCount === 321_462_324 &&
+            setFocus.occurrence === 1 &&
+            setFocus.module.toLowerCase() === "user32.dll" &&
+            setFocus.symbol === "SetFocus" &&
+            setFocus.implementationId ===
+              "user32.set-focus.same-current-window.v1" &&
+            setFocus.arguments.join(",") === "1208025089" &&
+            "action" in setFocus.result &&
+            setFocus.result.action === "set" &&
+            setFocus.result.value === 0x4801_0001 &&
+            setFocus.lastError === 0 &&
+            setFocus.guestWrites.length === 0 &&
+            setFocus.window?.handle === 0x4801_0001 &&
+            setFocus.window.ownerThreadId === 8_192 &&
+            setFocus.window.lifecycle.state === "created" &&
+            checkpoint.instructionCount === 321_462_368 &&
+            checkpoint.nextEndpoint.id === 8 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0070 &&
+            checkpoint.nextEndpoint.module?.toLowerCase() === "winmm.dll" &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "timeGetTime" &&
+            checkpoint.nextEndpoint.iatAddress === 0x100d_14e4 &&
+            checkpoint.nextArguments.length === 0 &&
+            checkpoint.nextReturnAddress === 0x1009_1ebf &&
+            checkpoint.nextStackPointer === 0x006f_f508 &&
+            checkpoint.memoryContentSha256 ===
+              "c914db56be54e00d4d8b1ea47753777d07c45cf180c31fa763555f103bddac4e" &&
+            this.#report.instructions === 321_462_368 &&
+            Number(this.#generation) === 314_954 &&
+            this.#report.writebackBatches === 183_843 &&
+            this.#report.writebackPages === 282_494 &&
+            this.#report.mappingDeltas === 127_935 &&
+            this.#report.mappingDirtyPages === 150_340 &&
+            this.#report.contextSwitches === 2_512 &&
+            this.#report.stackGrowths.length === 11 &&
+            this.#report.heapPageMaterializations?.length === 3_108 &&
+            this.#report.sourceReads.length === 94 &&
+            this.#report.pointerInput.receivedMessages === 2 &&
+            this.#report.pointerInput.queuedBeforePrepare === 2 &&
+            this.#report.pointerInput.receipts.length === 2,
+          `SetFocus action continuation changed: ${JSON.stringify({
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            checkpoint,
+            instructions: this.#report.instructions,
+            finalGeneration: Number(this.#generation),
+            writebackBatches: this.#report.writebackBatches,
+            writebackPages: this.#report.writebackPages,
+            mappingDeltas: this.#report.mappingDeltas,
+            mappingDirtyPages: this.#report.mappingDirtyPages,
+            contextSwitches: this.#report.contextSwitches,
           })}`,
         );
       }
