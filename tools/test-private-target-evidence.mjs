@@ -362,8 +362,8 @@ function validEvidence() {
       browserBuildManifest: artifact("build-manifest.json"),
       runtimeCoreWasm: artifact(
         "runtime-core.wasm",
-        checkpoint.browserCheckpoint.browserRuntimeCoreWasm.sha256,
-        checkpoint.browserCheckpoint.browserRuntimeCoreWasm.bytes,
+        browser.runtimeCoreWasmSha256,
+        browser.runtimeCoreWasmBytes,
       ),
       v86AdapterWasm: artifact(
         "v86-adapter.wasm",
@@ -466,6 +466,16 @@ for (const [label, evidence, expected] of [
       value.semantic.browser.callSemanticsSha256 = sha("c");
     }),
     "checkpoint digest",
+  ],
+  [
+    "runtime core Wasm artifact mismatch",
+    mutated((value) => {
+      value.artifacts.runtimeCoreWasm.sha256 =
+        checkpoint.browserCheckpoint.browserRuntimeCoreWasm.sha256;
+      value.artifacts.runtimeCoreWasm.bytes =
+        checkpoint.browserCheckpoint.browserRuntimeCoreWasm.bytes;
+    }),
+    "evidence.artifacts.runtimeCoreWasm",
   ],
   [
     "structured stop mismatch",

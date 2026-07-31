@@ -834,13 +834,13 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
   }
   checkEqual(
     artifacts.runtimeCoreWasm.bytes,
-    checkpoint.browserCheckpoint.browserRuntimeCoreWasm.bytes,
+    expectedBrowser.runtimeCoreWasmBytes,
     "evidence.artifacts.runtimeCoreWasm.bytes",
     errors,
   );
   checkEqual(
     artifacts.runtimeCoreWasm.sha256,
-    checkpoint.browserCheckpoint.browserRuntimeCoreWasm.sha256,
+    expectedBrowser.runtimeCoreWasmSha256,
     "evidence.artifacts.runtimeCoreWasm.sha256",
     errors,
   );
