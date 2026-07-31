@@ -413,6 +413,33 @@ assert.deepEqual(
 );
 if (
   checkpoint.nextStructuredStop.completion.capability ===
+  "user32-get-window-rect-post-pointer-release-continuation"
+) {
+  const projectedBrowserWrite = validEvidence();
+  delete projectedBrowserWrite.payloadSha256;
+  delete projectedBrowserWrite.semantic.browser.checkpointCompletion
+    .getWindowRectPostRelease.guestWrites[0].result;
+  assert.deepEqual(
+    validatePrivateTargetEvidence(
+      finalizePrivateTargetEvidence(projectedBrowserWrite),
+      checkpoint,
+    ),
+    [],
+  );
+
+  const missingNodeWriteReceipt = mutated((value) => {
+    delete value.semantic.node.checkpointCompletion.getWindowRectPostRelease
+      .guestWrites[0].result;
+  });
+  assert(
+    validatePrivateTargetEvidence(missingNodeWriteReceipt, checkpoint).some(
+      (error) =>
+        error.includes("getWindowRectPostRelease.guestWrites[0].result"),
+    ),
+  );
+}
+if (
+  checkpoint.nextStructuredStop.completion.capability ===
     "user32-peek-message-a-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
     "winmm-time-get-time-post-pointer-release-continuation" ||

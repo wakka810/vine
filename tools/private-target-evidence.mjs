@@ -115,7 +115,13 @@ function capabilityCompletionFields(expected, includeDispatchBoundary = false) {
       ];
 }
 
-function validatePointerReleaseCompletion(completion, expected, label, errors) {
+function validatePointerReleaseCompletion(
+  completion,
+  expected,
+  label,
+  errors,
+  { requireWriteReceipt = false } = {},
+) {
   if (
     expected.requiredEntries === undefined ||
     expected.requiredCompletions === undefined
@@ -477,27 +483,34 @@ function validatePointerReleaseCompletion(completion, expected, label, errors) {
       `${label}.getWindowRectPostRelease.guestWrites[0].bytes`,
       errors,
     );
-    for (const [field, actual, expectedValue] of [
-      ["bytesWritten", rectWrite.result?.bytesWritten, 16],
-      ["dirtyPages", rectWrite.result?.dirtyPages, 1],
-      ["invalidation.dataTlb", rectWrite.result?.invalidation?.dataTlb, false],
-      [
-        "invalidation.instructionFetch",
-        rectWrite.result?.invalidation?.instructionFetch,
-        false,
-      ],
-      [
-        "invalidation.generatedCode",
-        rectWrite.result?.invalidation?.generatedCode,
-        false,
-      ],
-    ]) {
-      checkEqual(
-        actual,
-        expectedValue,
-        `${label}.getWindowRectPostRelease.guestWrites[0].result.${field}`,
+    if (requireWriteReceipt || rectWrite.result !== undefined) {
+      const writeResult = requireRecord(
+        rectWrite.result,
+        `${label}.getWindowRectPostRelease.guestWrites[0].result`,
         errors,
       );
+      for (const [field, actual, expectedValue] of [
+        ["bytesWritten", writeResult.bytesWritten, 16],
+        ["dirtyPages", writeResult.dirtyPages, 1],
+        ["invalidation.dataTlb", writeResult.invalidation?.dataTlb, false],
+        [
+          "invalidation.instructionFetch",
+          writeResult.invalidation?.instructionFetch,
+          false,
+        ],
+        [
+          "invalidation.generatedCode",
+          writeResult.invalidation?.generatedCode,
+          false,
+        ],
+      ]) {
+        checkEqual(
+          actual,
+          expectedValue,
+          `${label}.getWindowRectPostRelease.guestWrites[0].result.${field}`,
+          errors,
+        );
+      }
     }
   }
   checkEqual(
@@ -925,6 +938,7 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
         expectedCompletion,
         `evidence.semantic.${label}.checkpointCompletion`,
         errors,
+        { requireWriteReceipt: label === "node" },
       );
       if (expectedCompletion.requiredPointerMessages !== undefined) {
         const dispatchEntry = requireRecord(

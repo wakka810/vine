@@ -186,7 +186,11 @@ function optionalHex32(value) {
   return value === undefined ? undefined : hex32(value);
 }
 
-function assertCapabilityCheckpoint(actual, expected) {
+function assertCapabilityCheckpoint(
+  actual,
+  expected,
+  { requireWriteReceipt = false } = {},
+) {
   assert(actual !== null, "capability checkpoint metadata is missing");
   assert.equal(actual.capability, expected.completion.capability);
   assert.equal(actual.implementationId, expected.completion.implementationId);
@@ -369,20 +373,24 @@ function assertCapabilityCheckpoint(actual, expected) {
         assert.deepEqual(getWindowRect.guestWrites[0].bytes, [
           61, 1, 0, 0, 154, 0, 0, 0, 67, 6, 0, 0, 135, 3, 0, 0,
         ]);
-        assert.equal(getWindowRect.guestWrites[0].result.bytesWritten, 16);
-        assert.equal(getWindowRect.guestWrites[0].result.dirtyPages, 1);
-        assert.equal(
-          getWindowRect.guestWrites[0].result.invalidation.dataTlb,
-          false,
-        );
-        assert.equal(
-          getWindowRect.guestWrites[0].result.invalidation.instructionFetch,
-          false,
-        );
-        assert.equal(
-          getWindowRect.guestWrites[0].result.invalidation.generatedCode,
-          false,
-        );
+        if (requireWriteReceipt) {
+          assert.equal(getWindowRect.guestWrites[0].result.bytesWritten, 16);
+          assert.equal(getWindowRect.guestWrites[0].result.dirtyPages, 1);
+          assert.equal(
+            getWindowRect.guestWrites[0].result.invalidation.dataTlb,
+            false,
+          );
+          assert.equal(
+            getWindowRect.guestWrites[0].result.invalidation.instructionFetch,
+            false,
+          );
+          assert.equal(
+            getWindowRect.guestWrites[0].result.invalidation.generatedCode,
+            false,
+          );
+        } else {
+          assert.equal(getWindowRect.guestWrites[0].result, undefined);
+        }
       } else if (!postReleasePeek) {
         assert.equal(
           actual.defWindowProcARelease.sequence,
@@ -629,7 +637,9 @@ function assertReportSemantics({
   assert.equal(nodeReport.synchronization.finalGeneration, expectedBrowser.nodeFinalGeneration);
   if (expectedNext.kind === "capability-checkpoint") {
     assert.equal(nodeReport.firstUnsupported, null);
-    assertCapabilityCheckpoint(nodeReport.checkpointCompletion, expectedNext);
+    assertCapabilityCheckpoint(nodeReport.checkpointCompletion, expectedNext, {
+      requireWriteReceipt: true,
+    });
     assert.equal(
       nodeReport.checkpointCompletion.memoryContentSha256,
       expectedBrowser.memoryContentSha256,
