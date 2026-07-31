@@ -219,9 +219,13 @@ function assertCapabilityCheckpoint(actual, expected) {
     assert.equal(actual.queueDepthAtDispatchEntry, 0);
     assert.equal(actual.dispatchMessageReleaseBytesPreserved, true);
     if (expected.completion.requiredCompletions !== undefined) {
-      const postReleasePeek =
+      const postReleaseTimeGetTime =
         expected.completion.capability ===
-        "user32-peek-message-a-post-pointer-release-continuation";
+        "winmm-time-get-time-post-pointer-release-continuation";
+      const postReleasePeek =
+        postReleaseTimeGetTime ||
+        expected.completion.capability ===
+          "user32-peek-message-a-post-pointer-release-continuation";
       assert.equal(
         actual.requiredCompletions,
         expected.completion.requiredCompletions,
@@ -238,11 +242,11 @@ function assertCapabilityCheckpoint(actual, expected) {
       if (postReleasePeek) {
         assert.equal(
           actual.peekMessagePostRelease.sequence,
-          actual.lastCompletionSequence,
+          161_953,
         );
         assert.equal(
           actual.peekMessagePostRelease.trapInstructionCount,
-          actual.lastCompletionInstructionCount,
+          321_462_521,
         );
         assert.equal(
           actual.peekMessagePostRelease.implementationId,
@@ -252,7 +256,34 @@ function assertCapabilityCheckpoint(actual, expected) {
         assert.equal(actual.postReleaseQueueDepthBefore, 0);
         assert.equal(actual.postReleaseQueueDepthAfter, 0);
         assert.equal(actual.postReleaseMessageBytesPreserved, true);
-      } else {
+      }
+      if (postReleaseTimeGetTime) {
+        assert.equal(
+          actual.timeGetTimePostRelease.sequence,
+          actual.lastCompletionSequence,
+        );
+        assert.equal(
+          actual.timeGetTimePostRelease.trapInstructionCount,
+          actual.lastCompletionInstructionCount,
+        );
+        assert.equal(
+          actual.timeGetTimePostRelease.implementationId,
+          "winmm.time-get-time.v1",
+        );
+        assert.equal(actual.timeGetTimePostRelease.result.value, 3_601_224);
+        assert.equal(
+          actual.timeGetTimePostRelease.tickCount.returnedTickCount,
+          3_601_224,
+        );
+        assert.equal(
+          actual.timeGetTimePostRelease.tickCount.nextTickCount,
+          3_601_225,
+        );
+        assert.equal(
+          actual.timeGetTimePostRelease.tickCount.incrementPerRead,
+          1,
+        );
+      } else if (!postReleasePeek) {
         assert.equal(
           actual.defWindowProcARelease.sequence,
           actual.lastCompletionSequence,

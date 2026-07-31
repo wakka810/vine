@@ -137,10 +137,25 @@ function validatePointerReleaseCompletion(completion, expected, label, errors) {
     `${label}.releaseCallbackReturn`,
     errors,
   );
-  const postReleasePeek =
+  const postReleaseTimeGetTime =
     expected.capability ===
-    "user32-peek-message-a-post-pointer-release-continuation";
-  const finalCall = postReleasePeek
+    "winmm-time-get-time-post-pointer-release-continuation";
+  const postReleasePeek =
+    postReleaseTimeGetTime ||
+    expected.capability ===
+      "user32-peek-message-a-post-pointer-release-continuation";
+  const finalCallName = postReleaseTimeGetTime
+    ? "timeGetTimePostRelease"
+    : postReleasePeek
+      ? "peekMessagePostRelease"
+      : "defWindowProcARelease";
+  const finalCall = postReleaseTimeGetTime
+    ? requireRecord(
+        completion.timeGetTimePostRelease,
+        `${label}.timeGetTimePostRelease`,
+        errors,
+      )
+    : postReleasePeek
     ? requireRecord(
         completion.peekMessagePostRelease,
         `${label}.peekMessagePostRelease`,
@@ -150,24 +165,29 @@ function validatePointerReleaseCompletion(completion, expected, label, errors) {
   checkEqual(
     finalCall.sequence,
     expected.lastCompletionSequence,
-    `${label}.${postReleasePeek ? "peekMessagePostRelease" : "defWindowProcARelease"}.sequence`,
+    `${label}.${finalCallName}.sequence`,
     errors,
   );
   checkEqual(
     finalCall.trapInstructionCount,
     expected.lastCompletionInstructionCount,
-    `${label}.${postReleasePeek ? "peekMessagePostRelease" : "defWindowProcARelease"}.trapInstructionCount`,
+    `${label}.${finalCallName}.trapInstructionCount`,
     errors,
   );
   if (postReleasePeek) {
+    const peekCall = requireRecord(
+      completion.peekMessagePostRelease,
+      `${label}.peekMessagePostRelease`,
+      errors,
+    );
     checkEqual(
-      finalCall.implementationId,
+      peekCall.implementationId,
       "user32.peek-message-a.current-thread.v1",
       `${label}.peekMessagePostRelease.implementationId`,
       errors,
     );
     checkEqual(
-      finalCall.result?.value,
+      peekCall.result?.value,
       0,
       `${label}.peekMessagePostRelease.result.value`,
       errors,
@@ -188,6 +208,38 @@ function validatePointerReleaseCompletion(completion, expected, label, errors) {
       completion.postReleaseMessageBytesPreserved,
       true,
       `${label}.postReleaseMessageBytesPreserved`,
+      errors,
+    );
+  }
+  if (postReleaseTimeGetTime) {
+    checkEqual(
+      finalCall.implementationId,
+      "winmm.time-get-time.v1",
+      `${label}.timeGetTimePostRelease.implementationId`,
+      errors,
+    );
+    checkEqual(
+      finalCall.result?.value,
+      3_601_224,
+      `${label}.timeGetTimePostRelease.result.value`,
+      errors,
+    );
+    checkEqual(
+      finalCall.tickCount?.returnedTickCount,
+      3_601_224,
+      `${label}.timeGetTimePostRelease.tickCount.returnedTickCount`,
+      errors,
+    );
+    checkEqual(
+      finalCall.tickCount?.nextTickCount,
+      3_601_225,
+      `${label}.timeGetTimePostRelease.tickCount.nextTickCount`,
+      errors,
+    );
+    checkEqual(
+      finalCall.tickCount?.incrementPerRead,
+      1,
+      `${label}.timeGetTimePostRelease.tickCount.incrementPerRead`,
       errors,
     );
   }

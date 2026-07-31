@@ -660,7 +660,8 @@ function isInputProgressGatewayCheckpoint(
     profile === "user32-translate-message-pointer-release-continuation" ||
     profile === "user32-dispatch-message-a-pointer-release-continuation" ||
     profile === "user32-def-window-proc-a-pointer-release-continuation" ||
-    profile === "user32-peek-message-a-post-pointer-release-continuation"
+    profile === "user32-peek-message-a-post-pointer-release-continuation" ||
+    profile === "winmm-time-get-time-post-pointer-release-continuation"
   );
 }
 
@@ -679,7 +680,8 @@ function isActionInputProgressGatewayCheckpoint(
     profile === "user32-translate-message-pointer-release-continuation" ||
     profile === "user32-dispatch-message-a-pointer-release-continuation" ||
     profile === "user32-def-window-proc-a-pointer-release-continuation" ||
-    profile === "user32-peek-message-a-post-pointer-release-continuation"
+    profile === "user32-peek-message-a-post-pointer-release-continuation" ||
+    profile === "winmm-time-get-time-post-pointer-release-continuation"
   );
 }
 
@@ -711,7 +713,8 @@ function isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
     profile === "user32-translate-message-pointer-release-continuation" ||
     profile === "user32-dispatch-message-a-pointer-release-continuation" ||
     profile === "user32-def-window-proc-a-pointer-release-continuation" ||
-    profile === "user32-peek-message-a-post-pointer-release-continuation"
+    profile === "user32-peek-message-a-post-pointer-release-continuation" ||
+    profile === "winmm-time-get-time-post-pointer-release-continuation"
   );
 }
 
@@ -769,7 +772,16 @@ function isDefWindowProcAPointerReleaseContinuationCheckpoint(
 function isPeekMessageAPostPointerReleaseContinuationCheckpoint(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "user32-peek-message-a-post-pointer-release-continuation";
+  return (
+    profile === "user32-peek-message-a-post-pointer-release-continuation" ||
+    isTimeGetTimePostPointerReleaseContinuationCheckpoint(profile)
+  );
+}
+
+function isTimeGetTimePostPointerReleaseContinuationCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "winmm-time-get-time-post-pointer-release-continuation";
 }
 
 function hasDispatchMessageAPointerReleaseContinuation(
@@ -876,7 +888,16 @@ function isRecurringTimerBoundedWindowCheckpoint(
 function recurringTimerWindowConfiguration(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  return isPeekMessageAPostPointerReleaseContinuationCheckpoint(profile)
+  return isTimeGetTimePostPointerReleaseContinuationCheckpoint(profile)
+    ? ({
+        capability:
+          "winmm-time-get-time-post-pointer-release-continuation",
+        implementationId:
+          "runtime.winmm-time-get-time-post-pointer-release-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      } as const)
+    : isPeekMessageAPostPointerReleaseContinuationCheckpoint(profile)
     ? ({
         capability:
           "user32-peek-message-a-post-pointer-release-continuation",
@@ -1137,6 +1158,8 @@ function windowTimerCallbackRecurringBatchExpectation() {
 function inputProgressGatewayExpectation(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
+  const timeGetTimePostRelease =
+    isTimeGetTimePostPointerReleaseContinuationCheckpoint(profile);
   const peekMessagePostRelease =
     isPeekMessageAPostPointerReleaseContinuationCheckpoint(profile);
   const defWindowProcARelease =
@@ -1156,7 +1179,9 @@ function inputProgressGatewayExpectation(
     isWindowTimerCallbackActionInputProgressGatewayCheckpoint(profile);
   const action = isActionInputProgressGatewayCheckpoint(profile);
   return {
-    capability: peekMessagePostRelease
+    capability: timeGetTimePostRelease
+      ? "winmm-time-get-time-post-pointer-release-continuation"
+      : peekMessagePostRelease
       ? "user32-peek-message-a-post-pointer-release-continuation"
       : defWindowProcARelease
       ? "user32-def-window-proc-a-pointer-release-continuation"
@@ -1179,7 +1204,9 @@ function inputProgressGatewayExpectation(
       : action
       ? "primary-main-loop-action-input-progress-gateway"
       : "primary-main-loop-input-progress-gateway",
-    implementationId: peekMessagePostRelease
+    implementationId: timeGetTimePostRelease
+      ? "runtime.winmm-time-get-time-post-pointer-release-continuation.v1"
+      : peekMessagePostRelease
       ? "runtime.user32-peek-message-a-post-pointer-release-continuation.v1"
       : defWindowProcARelease
       ? "runtime.user32-def-window-proc-a-pointer-release-continuation.v1"
@@ -1959,12 +1986,28 @@ type DefWindowProcAPointerReleaseContinuationCompletion = Omit<
   | "memoryContentSha256"
 >;
 
-type PeekMessageAPostPointerReleaseContinuationCheckpoint = Extract<
+type PostPointerReleaseContinuationCheckpoint = Extract<
   NonNullable<SessionReport["checkpointCompletion"]>,
   {
-    capability: "user32-peek-message-a-post-pointer-release-continuation";
+    capability:
+      | "user32-peek-message-a-post-pointer-release-continuation"
+      | "winmm-time-get-time-post-pointer-release-continuation";
   }
 >;
+
+type PeekMessageAPostPointerReleaseContinuationCheckpoint =
+  PostPointerReleaseContinuationCheckpoint & {
+    capability: "user32-peek-message-a-post-pointer-release-continuation";
+    implementationId: "runtime.user32-peek-message-a-post-pointer-release-continuation.v1";
+  };
+
+type TimeGetTimePostPointerReleaseContinuationCheckpoint =
+  PostPointerReleaseContinuationCheckpoint & {
+    capability: "winmm-time-get-time-post-pointer-release-continuation";
+    implementationId: "runtime.winmm-time-get-time-post-pointer-release-continuation.v1";
+    timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0;
+    timeGetTimePostRelease: RuntimeThreadCallSnapshot;
+  };
 
 type PeekMessageAPostPointerReleaseContinuationEntry = Omit<
   PeekMessageAPostPointerReleaseContinuationCheckpoint,
@@ -1973,6 +2016,19 @@ type PeekMessageAPostPointerReleaseContinuationEntry = Omit<
   | "postReleaseQueueDepthAfter"
   | "postReleaseMessageBytesPreserved"
   | "peekMessagePostRelease"
+  | "activeCallbackDepthAtStop"
+  | "instructionCount"
+  | "nextEndpoint"
+  | "nextArguments"
+  | "nextReturnAddress"
+  | "nextStackPointer"
+  | "memoryContentSha256"
+>;
+
+type TimeGetTimePostPointerReleaseContinuationEntry = Omit<
+  TimeGetTimePostPointerReleaseContinuationCheckpoint,
+  | "timeGetTimePostReleaseActiveCallbackDepthAtCompletion"
+  | "timeGetTimePostRelease"
   | "activeCallbackDepthAtStop"
   | "instructionCount"
   | "nextEndpoint"
@@ -2512,6 +2568,9 @@ class BrowserRuntimeSession {
     null;
   #peekMessageAPostPointerReleaseContinuationDispatching = false;
   #peekMessageAPostPointerReleaseBytesBefore: Uint8Array | null = null;
+  #timeGetTimePostPointerReleaseContinuationEntry: TimeGetTimePostPointerReleaseContinuationEntry | null =
+    null;
+  #timeGetTimePostPointerReleaseContinuationDispatching = false;
   readonly #presentationProgressRenderCompletions: RuntimeThreadCallSnapshot[] =
     [];
   #presentationProgressPresentCompletion: RuntimeThreadCallSnapshot | null =
@@ -5890,6 +5949,34 @@ class BrowserRuntimeSession {
       this.#peekMessageAPostPointerReleaseBytesBefore = outputBytes.slice();
       this.#peekMessageAPostPointerReleaseContinuationDispatching = true;
     }
+    if (this.#timeGetTimePostPointerReleaseContinuationEntry !== null) {
+      const ownedEndpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpoint,
+      );
+      const engine = this.#requireEngine();
+      invariant(
+        isTimeGetTimePostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+          ownedEndpoint?.id === 8 &&
+          ownedEndpoint.module?.toLowerCase() === "winmm.dll" &&
+          ownedEndpoint.symbol?.kind === "name" &&
+          ownedEndpoint.symbol.name === "timeGetTime" &&
+          stackPointer === 0x006f_f904 &&
+          engine.readGuestU32(stackPointer) === 0x1009_1ebf &&
+          this.#report.instructions === 321_462_555 &&
+          this.#nextBgiCallSequence === 161_953 &&
+          this.#currentThreadId === 8_192 &&
+          this.#report.checkpointCompletion === null &&
+          !this.#timeGetTimePostPointerReleaseContinuationDispatching &&
+          this.#peekMessageAPostPointerReleaseContinuationEntry === null &&
+          !this.#peekMessageAPostPointerReleaseContinuationDispatching &&
+          this.#peekMessageAPostPointerReleaseBytesBefore === null &&
+          this.#bgiCallbackCallSequences.size === 0,
+        "post-release timeGetTime continuation reached a different API, stack frame, or callback state",
+      );
+      this.#timeGetTimePostPointerReleaseContinuationDispatching = true;
+    }
     if (this.#defWindowProcAPointerReleaseContinuationEntry !== null) {
       const ownedEndpoint = this.#requirePrepared().endpoints.find(
         (candidate) => candidate.address === endpoint,
@@ -6891,6 +6978,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "user32-peek-message-a-post-pointer-release-continuation" ||
           checkpoint.capability ===
+            "winmm-time-get-time-post-pointer-release-continuation" ||
+          checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -6989,6 +7078,35 @@ class BrowserRuntimeSession {
           !this.#peekMessageAPointerReleaseContinuationAwaitingDispatch &&
           !this.#peekMessageAPointerReleaseContinuationDispatching,
         "post-release PeekMessageA continuation stopped with live continuation or callback state",
+      );
+      checkpoint.activeCallbackDepthAtStop = 0;
+    }
+    if (
+      checkpoint.capability ===
+      "winmm-time-get-time-post-pointer-release-continuation"
+    ) {
+      invariant(
+        this.#bgiCallbackCallSequences.size === 0 &&
+          this.#timeGetTimePostPointerReleaseContinuationEntry === null &&
+          !this.#timeGetTimePostPointerReleaseContinuationDispatching &&
+          this.#peekMessageAPostPointerReleaseContinuationEntry === null &&
+          !this.#peekMessageAPostPointerReleaseContinuationDispatching &&
+          this.#peekMessageAPostPointerReleaseBytesBefore === null &&
+          this.#defWindowProcAPointerReleaseContinuationEntry === null &&
+          this.#defWindowProcAPointerReleaseContinuationCompletion === null &&
+          this.#dispatchMessageAPointerReleaseContinuationEntry === null &&
+          !this.#dispatchMessageAPointerReleaseContinuationAwaitingDispatch &&
+          !this.#dispatchMessageAPointerReleaseContinuationDispatching &&
+          this.#dispatchMessageAPointerReleaseBytesBefore === null &&
+          this.#translateMessagePointerReleaseContinuationEntry === null &&
+          !this.#translateMessagePointerReleaseContinuationAwaitingDispatch &&
+          !this.#translateMessagePointerReleaseContinuationDispatching &&
+          this.#translateMessagePointerReleaseBytesBefore === null &&
+          this.#peekMessageAPointerReleaseContinuationEntry === null &&
+          !this.#peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind &&
+          !this.#peekMessageAPointerReleaseContinuationAwaitingDispatch &&
+          !this.#peekMessageAPointerReleaseContinuationDispatching,
+        "post-release timeGetTime continuation stopped with live continuation or callback state",
       );
       checkpoint.activeCallbackDepthAtStop = 0;
     }
@@ -7154,6 +7272,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "user32-peek-message-a-post-pointer-release-continuation" ||
       checkpoint.capability ===
+        "winmm-time-get-time-post-pointer-release-continuation" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -7232,6 +7352,9 @@ class BrowserRuntimeSession {
                     "user32-peek-message-a-post-pointer-release-continuation"
                   ? []
                 : checkpoint.capability ===
+                    "winmm-time-get-time-post-pointer-release-continuation"
+                  ? []
+                : checkpoint.capability ===
                     "user32-def-window-proc-a-pointer-release-continuation"
                   ? [
                       this.#requireEngine().readGuestU32(stackPointer + 4),
@@ -7306,6 +7429,37 @@ class BrowserRuntimeSession {
                         : [];
       checkpoint.nextReturnAddress = returnAddress;
       checkpoint.nextStackPointer = stackPointer;
+    }
+    if (
+      checkpoint.capability ===
+      "winmm-time-get-time-post-pointer-release-continuation"
+    ) {
+      invariant(
+        this.#report.instructions === 321_462_721 &&
+          checkpoint.instructionCount === 321_462_721 &&
+          checkpoint.nextEndpoint.id === 8 &&
+          checkpoint.nextEndpoint.address === 0x7f00_0070 &&
+          checkpoint.nextEndpoint.disposition === "declared-runtime-export" &&
+          checkpoint.nextEndpoint.iatAddress === 0x100d_14e4 &&
+          checkpoint.nextEndpoint.module?.toLowerCase() === "winmm.dll" &&
+          checkpoint.nextEndpoint.symbol?.kind === "name" &&
+          checkpoint.nextEndpoint.symbol.name === "timeGetTime" &&
+          checkpoint.nextArguments.length === 0 &&
+          checkpoint.nextReturnAddress === 0x1009_1ebf &&
+          checkpoint.nextStackPointer === 0x006f_f794 &&
+          checkpoint.memoryContentSha256 ===
+            "98474db8134f2b2be561cec20f73a615ba37b21580c38bc57178a2be05bdb099",
+        `post-release timeGetTime continuation reached a different next timeGetTime endpoint: ${JSON.stringify(
+          {
+            instructions: this.#report.instructions,
+            nextEndpoint: checkpoint.nextEndpoint,
+            nextArguments: checkpoint.nextArguments,
+            nextReturnAddress: checkpoint.nextReturnAddress,
+            nextStackPointer: checkpoint.nextStackPointer,
+            memoryContentSha256: checkpoint.memoryContentSha256,
+          },
+        )}`,
+      );
     }
     if (
       checkpoint.capability ===
@@ -7446,6 +7600,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "user32-peek-message-a-post-pointer-release-continuation" ||
       checkpoint.capability ===
+        "winmm-time-get-time-post-pointer-release-continuation" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -7497,6 +7653,9 @@ class BrowserRuntimeSession {
                       : checkpoint.capability ===
                           "user32-translate-message-pointer-release-continuation"
                         ? "USER32 TranslateMessage pointer-release continuation checkpoint completed"
+                      : checkpoint.capability ===
+                          "winmm-time-get-time-post-pointer-release-continuation"
+                        ? "WinMM timeGetTime post-pointer-release continuation checkpoint completed"
                       : checkpoint.capability ===
                           "user32-peek-message-a-post-pointer-release-continuation"
                         ? "USER32 PeekMessageA post-pointer-release continuation checkpoint completed"
@@ -8345,17 +8504,117 @@ class BrowserRuntimeSession {
           },
         )}`,
       );
-      this.#report.checkpointCompletion = {
+      const completedPostReleasePeek = {
         ...entry,
-        requiredCompletions: 1,
-        completionCount: 1,
+        requiredCompletions: 1 as const,
+        completionCount: 1 as const,
         lastCompletionSequence: sequence,
         lastCompletionInstructionCount: this.#report.instructions,
-        peekMessagePostReleaseActiveCallbackDepthAtCompletion: 0,
-        postReleaseQueueDepthBefore: 0,
-        postReleaseQueueDepthAfter: queuedThreadMessages.length,
-        postReleaseMessageBytesPreserved: true,
+        peekMessagePostReleaseActiveCallbackDepthAtCompletion: 0 as const,
+        postReleaseQueueDepthBefore: 0 as const,
+        postReleaseQueueDepthAfter: 0 as const,
+        postReleaseMessageBytesPreserved: true as const,
         peekMessagePostRelease: {
+          ...structuredClone(call),
+          runtimeThreadId: this.#currentThreadId,
+          trapInstructionCount: this.#report.instructions,
+          occurrence: implementationOccurrence,
+        },
+      };
+      if (
+        isTimeGetTimePostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        )
+      ) {
+        invariant(
+          this.#timeGetTimePostPointerReleaseContinuationEntry === null &&
+            !this.#timeGetTimePostPointerReleaseContinuationDispatching,
+          "post-release timeGetTime continuation was already armed",
+        );
+        this.#timeGetTimePostPointerReleaseContinuationEntry = {
+          ...completedPostReleasePeek,
+          capability:
+            "winmm-time-get-time-post-pointer-release-continuation",
+          implementationId:
+            "runtime.winmm-time-get-time-post-pointer-release-continuation.v1",
+        } satisfies TimeGetTimePostPointerReleaseContinuationEntry;
+      } else {
+        this.#report.checkpointCompletion = {
+          ...completedPostReleasePeek,
+          activeCallbackDepthAtStop: 0,
+          instructionCount: 0,
+          nextEndpoint: {
+            id: 0,
+            address: 0,
+            disposition: "declared-runtime-export" as const,
+            iatAddress: 0,
+          },
+          nextArguments: [],
+          nextReturnAddress: 0,
+          nextStackPointer: 0,
+          memoryContentSha256: "",
+        } satisfies PeekMessageAPostPointerReleaseContinuationCheckpoint;
+        this.#bgiCheckpointPending = true;
+      }
+      this.#peekMessageAPostPointerReleaseContinuationEntry = null;
+      this.#peekMessageAPostPointerReleaseContinuationDispatching = false;
+      this.#peekMessageAPostPointerReleaseBytesBefore = null;
+    }
+    if (
+      isTimeGetTimePostPointerReleaseContinuationCheckpoint(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#timeGetTimePostPointerReleaseContinuationDispatching &&
+      completion.implementationId === "winmm.time-get-time.v1"
+    ) {
+      const entry = this.#timeGetTimePostPointerReleaseContinuationEntry;
+      const tickCount = call.tickCount;
+      invariant(
+        entry !== null &&
+          this.#report.checkpointCompletion === null &&
+          endpoint.id === 8 &&
+          endpoint.module.toLowerCase() === "winmm.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "timeGetTime" &&
+          this.#currentThreadId === 8_192 &&
+          sequence === 161_954 &&
+          this.#report.instructions === 321_462_555 &&
+          implementationOccurrence === 219 &&
+          call.arguments.length === 0 &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 3_601_224 &&
+          call.returnAddress === 0x1009_1ebf &&
+          call.stackPointerBefore === 0x006f_f904 &&
+          call.stackPointerAfter === 0x006f_f908 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0 &&
+          tickCount?.returnedTickCount === 3_601_224 &&
+          tickCount.nextTickCount === 3_601_225 &&
+          tickCount.incrementPerRead === 1 &&
+          tickCount.returnedTickCount ===
+            entry.timeGetTime.tickCount?.nextTickCount &&
+          this.#bgiCallbackCallSequences.size === 0,
+        `post-release timeGetTime continuation changed its process-clock or callback contract: ${JSON.stringify(
+          {
+            hasEntry: entry !== null,
+            hasCheckpoint: this.#report.checkpointCompletion !== null,
+            endpoint,
+            currentThreadId: this.#currentThreadId,
+            sequence,
+            instructionCount: this.#report.instructions,
+            implementationOccurrence,
+            call,
+            activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+          },
+        )}`,
+      );
+      this.#report.checkpointCompletion = {
+        ...entry,
+        lastCompletionSequence: sequence,
+        lastCompletionInstructionCount: this.#report.instructions,
+        timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0,
+        timeGetTimePostRelease: {
           ...structuredClone(call),
           runtimeThreadId: this.#currentThreadId,
           trapInstructionCount: this.#report.instructions,
@@ -8373,10 +8632,9 @@ class BrowserRuntimeSession {
         nextReturnAddress: 0,
         nextStackPointer: 0,
         memoryContentSha256: "",
-      } satisfies PeekMessageAPostPointerReleaseContinuationCheckpoint;
-      this.#peekMessageAPostPointerReleaseContinuationEntry = null;
-      this.#peekMessageAPostPointerReleaseContinuationDispatching = false;
-      this.#peekMessageAPostPointerReleaseBytesBefore = null;
+      } satisfies TimeGetTimePostPointerReleaseContinuationCheckpoint;
+      this.#timeGetTimePostPointerReleaseContinuationEntry = null;
+      this.#timeGetTimePostPointerReleaseContinuationDispatching = false;
       this.#bgiCheckpointPending = true;
     }
     if (
@@ -17974,7 +18232,105 @@ class BrowserRuntimeSession {
         );
       }
       if (
+        isTimeGetTimePostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report
+          .checkpointCompletion as TimeGetTimePostPointerReleaseContinuationCheckpoint | null;
+        const timeGetTimePostRelease = checkpoint?.timeGetTimePostRelease;
+        invariant(
+          this.#report.supportedCallCount === 161_954 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "f3af63c202507aa5c593ac89707cc4fa65f49044fece05307bdfe65870ae91de" &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability ===
+              "winmm-time-get-time-post-pointer-release-continuation" &&
+            checkpoint.implementationId ===
+              "runtime.winmm-time-get-time-post-pointer-release-continuation.v1" &&
+            checkpoint.requiredCompletions === 1 &&
+            checkpoint.completionCount === 1 &&
+            checkpoint.lastCompletionSequence === 161_954 &&
+            checkpoint.lastCompletionInstructionCount === 321_462_555 &&
+            checkpoint.timeGetTimePostReleaseActiveCallbackDepthAtCompletion ===
+              0 &&
+            timeGetTimePostRelease?.runtimeThreadId === 8_192 &&
+            timeGetTimePostRelease.sequence === 161_954 &&
+            timeGetTimePostRelease.occurrence === 219 &&
+            timeGetTimePostRelease.trapInstructionCount === 321_462_555 &&
+            timeGetTimePostRelease.module.toLowerCase() === "winmm.dll" &&
+            timeGetTimePostRelease.symbol === "timeGetTime" &&
+            timeGetTimePostRelease.implementationId ===
+              "winmm.time-get-time.v1" &&
+            timeGetTimePostRelease.arguments.length === 0 &&
+            "action" in timeGetTimePostRelease.result &&
+            timeGetTimePostRelease.result.action === "set" &&
+            timeGetTimePostRelease.result.value === 3_601_224 &&
+            timeGetTimePostRelease.returnAddress === 0x1009_1ebf &&
+            timeGetTimePostRelease.stackPointerBefore === 0x006f_f904 &&
+            timeGetTimePostRelease.stackPointerAfter === 0x006f_f908 &&
+            timeGetTimePostRelease.lastError === 0 &&
+            timeGetTimePostRelease.guestWrites.length === 0 &&
+            timeGetTimePostRelease.tickCount?.returnedTickCount ===
+              3_601_224 &&
+            timeGetTimePostRelease.tickCount.nextTickCount === 3_601_225 &&
+            timeGetTimePostRelease.tickCount.incrementPerRead === 1 &&
+            checkpoint.activeCallbackDepthAtStop === 0 &&
+            checkpoint.instructionCount === 321_462_721 &&
+            checkpoint.nextEndpoint.id === 8 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0070 &&
+            checkpoint.nextEndpoint.disposition ===
+              "declared-runtime-export" &&
+            checkpoint.nextEndpoint.module?.toLowerCase() === "winmm.dll" &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "timeGetTime" &&
+            checkpoint.nextEndpoint.iatAddress === 0x100d_14e4 &&
+            checkpoint.nextArguments.length === 0 &&
+            checkpoint.nextReturnAddress === 0x1009_1ebf &&
+            checkpoint.nextStackPointer === 0x006f_f794 &&
+            checkpoint.memoryContentSha256 ===
+              "98474db8134f2b2be561cec20f73a615ba37b21580c38bc57178a2be05bdb099" &&
+            this.#report.instructions === 321_462_721 &&
+            Number(this.#generation) === 314_966 &&
+            this.#report.writebackBatches === 183_853 &&
+            this.#report.writebackPages === 282_510 &&
+            this.#report.mappingDeltas === 127_937 &&
+            this.#report.mappingDirtyPages === 150_342 &&
+            this.#report.slices === 183_860 &&
+            this.#report.budgetYields === 18_752 &&
+            this.#report.contextSwitches === 2_512 &&
+            this.#bgiCallbackCallSequences.size === 0 &&
+            this.#timeGetTimePostPointerReleaseContinuationEntry === null &&
+            !this.#timeGetTimePostPointerReleaseContinuationDispatching &&
+            this.#peekMessageAPostPointerReleaseContinuationEntry === null &&
+            !this.#peekMessageAPostPointerReleaseContinuationDispatching &&
+            this.#peekMessageAPostPointerReleaseBytesBefore === null,
+          `post-release timeGetTime continuation changed: ${JSON.stringify(
+            {
+              supportedCallCount: this.#report.supportedCallCount,
+              supportedCallSemanticsSha256:
+                this.#report.supportedCallSemanticsSha256,
+              checkpoint,
+              instructions: this.#report.instructions,
+              finalGeneration: Number(this.#generation),
+              writebackBatches: this.#report.writebackBatches,
+              writebackPages: this.#report.writebackPages,
+              mappingDeltas: this.#report.mappingDeltas,
+              mappingDirtyPages: this.#report.mappingDirtyPages,
+              slices: this.#report.slices,
+              budgetYields: this.#report.budgetYields,
+              contextSwitches: this.#report.contextSwitches,
+              activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+            },
+          )}`,
+        );
+      }
+      if (
         isPeekMessageAPostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        !isTimeGetTimePostPointerReleaseContinuationCheckpoint(
           this.#configuration.capabilityProfile,
         ) &&
         terminal.outcome === "checkpoint-complete"

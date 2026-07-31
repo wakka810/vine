@@ -218,6 +218,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-dispatch-message-a-pointer-release-continuation",
         "user32-def-window-proc-a-pointer-release-continuation",
         "user32-peek-message-a-post-pointer-release-continuation",
+        "winmm-time-get-time-post-pointer-release-continuation",
         "kernel32-wait-for-single-object-ex",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -409,6 +410,7 @@ assert(
       "user32-dispatch-message-a-pointer-release-continuation",
       "user32-def-window-proc-a-pointer-release-continuation",
       "user32-peek-message-a-post-pointer-release-continuation",
+      "winmm-time-get-time-post-pointer-release-continuation",
       "kernel32-wait-for-single-object-ex",
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
       "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -548,6 +550,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
       "user32-def-window-proc-a-pointer-release-continuation" ||
     genericRuntimeCapability ===
       "user32-peek-message-a-post-pointer-release-continuation" ||
+    genericRuntimeCapability ===
+      "winmm-time-get-time-post-pointer-release-continuation" ||
     genericRuntimeCapability ===
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     genericRuntimeCapability ===
@@ -911,9 +915,13 @@ const recurringTimerWindowCheckpointEnabled =
 const presentationProgressGatewayCheckpointEnabled =
   genericRuntimeCapability ===
   "primary-main-loop-presentation-progress-gateway";
+const timeGetTimePostPointerReleaseContinuationCheckpointEnabled =
+  genericRuntimeCapability ===
+  "winmm-time-get-time-post-pointer-release-continuation";
 const peekMessageAPostPointerReleaseContinuationCheckpointEnabled =
   genericRuntimeCapability ===
-  "user32-peek-message-a-post-pointer-release-continuation";
+    "user32-peek-message-a-post-pointer-release-continuation" ||
+  timeGetTimePostPointerReleaseContinuationCheckpointEnabled;
 const inputProgressGatewayCheckpointEnabled =
   genericRuntimeCapability === "primary-main-loop-input-progress-gateway" ||
   genericRuntimeCapability ===
@@ -1033,7 +1041,16 @@ const recurringTimerBoundedWindowCheckpointEnabled =
   recurringTimerMultiCycleCheckpointEnabled ||
   recurringTimerWindowEvidenceEnabled;
 const recurringTimerWindowConfiguration =
-  peekMessageAPostPointerReleaseContinuationCheckpointEnabled
+  timeGetTimePostPointerReleaseContinuationCheckpointEnabled
+    ? {
+        capability:
+          "winmm-time-get-time-post-pointer-release-continuation",
+        implementationId:
+          "runtime.winmm-time-get-time-post-pointer-release-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      }
+    : peekMessageAPostPointerReleaseContinuationCheckpointEnabled
     ? {
         capability:
           "user32-peek-message-a-post-pointer-release-continuation",
@@ -1657,7 +1674,9 @@ const outputDirectory = path.join(
                 ? dispatchMessageAPointerReleaseContinuationCheckpointEnabled
                   ? defWindowProcAPointerReleaseContinuationCheckpointEnabled
                     ? peekMessageAPostPointerReleaseContinuationCheckpointEnabled
-                      ? "v86-bgi-peek-message-a-post-pointer-release-continuation"
+                      ? timeGetTimePostPointerReleaseContinuationCheckpointEnabled
+                        ? "v86-bgi-time-get-time-post-pointer-release-continuation"
+                        : "v86-bgi-peek-message-a-post-pointer-release-continuation"
                       : "v86-bgi-def-window-proc-a-pointer-release-continuation"
                     : "v86-bgi-dispatch-message-a-pointer-release-continuation"
                   : translateMessagePointerReleaseContinuationCheckpointEnabled
@@ -6108,7 +6127,9 @@ async function run() {
       sessionCompleted = true;
       const sourceAfter = sourceIdentity(bgiPath);
       assert.deepEqual(sourceAfter, sourceBefore);
-      if (peekMessageAPostPointerReleaseContinuationCheckpointEnabled) {
+      if (timeGetTimePostPointerReleaseContinuationCheckpointEnabled) {
+        validateTimeGetTimePostPointerReleaseContinuationResult(genericResult);
+      } else if (peekMessageAPostPointerReleaseContinuationCheckpointEnabled) {
         validatePeekMessageAPostPointerReleaseContinuationResult(genericResult);
       } else if (defWindowProcAPointerReleaseContinuationCheckpointEnabled) {
         validateDefWindowProcAPointerReleaseContinuationResult(genericResult);
@@ -6484,7 +6505,9 @@ async function run() {
                       ? dispatchMessageAPointerReleaseContinuationCheckpointEnabled
                         ? defWindowProcAPointerReleaseContinuationCheckpointEnabled
                           ? peekMessageAPostPointerReleaseContinuationCheckpointEnabled
-                            ? "bgi USER32 PeekMessageA post-pointer-release continuation"
+                            ? timeGetTimePostPointerReleaseContinuationCheckpointEnabled
+                              ? "bgi WINMM timeGetTime post-pointer-release continuation"
+                              : "bgi USER32 PeekMessageA post-pointer-release continuation"
                             : "bgi USER32 DefWindowProcA pointer release continuation"
                           : "bgi USER32 DispatchMessageA pointer release continuation"
                         : translateMessagePointerReleaseContinuationCheckpointEnabled
@@ -7240,6 +7263,8 @@ async function runGenericRuntimeReentry({
   let peekMessageAPostPointerReleaseDispatching = false;
   let peekMessageAPostPointerReleaseContinuationEntry = null;
   let peekMessageAPostPointerReleaseBytesBefore = null;
+  let timeGetTimePostPointerReleaseDispatching = false;
+  let timeGetTimePostPointerReleaseContinuationEntry = null;
   let inputProgressAsyncKeyStateQuery = null;
   const inputProgressVirtualKey = actionInputProgressGatewayCheckpointEnabled
     ? 0x01
@@ -7681,6 +7706,26 @@ async function runGenericRuntimeReentry({
       );
       peekMessageAPostPointerReleaseDispatching = true;
     }
+    if (
+      timeGetTimePostPointerReleaseContinuationCheckpointEnabled &&
+      peekMessageAPostPointerReleaseContinuationEntry !== null &&
+      timeGetTimePostPointerReleaseContinuationEntry === null &&
+      !timeGetTimePostPointerReleaseDispatching &&
+      endpoint !== null
+    ) {
+      assert.equal(activeCallbacks.length, 0);
+      assert.equal(endpoint.kind, "runtime-system-export");
+      assert.equal(endpoint.id, 8);
+      assert.equal(endpoint.address, 0x7f00_0070);
+      assert.equal(endpoint.module.toLowerCase(), "winmm.dll");
+      assert.equal(endpoint.symbol, "timeGetTime");
+      assert.equal(terminal.kind, "owned-import-thunk");
+      assert.equal(terminal.thunk.iatAddress, 0x100d_14e4);
+      assert.deepEqual(terminal.stackWords.slice(1, 1), []);
+      assert.equal(terminal.returnAddress, 0x1009_1ebf);
+      assert.equal(continuation.finalState.esp, 0x006f_f904);
+      timeGetTimePostPointerReleaseDispatching = true;
+    }
 
     if (
       endpoint !== null &&
@@ -7905,7 +7950,25 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
+      timeGetTimePostPointerReleaseContinuationEntry !== null &&
+      endpoint !== null
+    ) {
+      assert.equal(activeCallbacks.length, 0);
+      assert.equal(timeGetTimePostPointerReleaseDispatching, false);
+      checkpointCompletion = {
+        ...timeGetTimePostPointerReleaseContinuationEntry,
+        setFocusActiveCallbackDepthAtStop:
+          timeGetTimePostPointerReleaseContinuationEntry
+            .activeCallbackDepthAtStop,
+        activeCallbackDepthAtStop: activeCallbacks.length,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
+    if (
       peekMessageAPostPointerReleaseContinuationEntry !== null &&
+      !timeGetTimePostPointerReleaseContinuationCheckpointEnabled &&
       endpoint !== null
     ) {
       assert.equal(activeCallbacks.length, 0);
@@ -8062,6 +8125,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "winmm-time-get-time-post-pointer-release-continuation"
+            ? "winmm-time-get-time-post-pointer-release-continuation-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "user32-peek-message-a-post-pointer-release-continuation"
             ? "user32-peek-message-a-post-pointer-release-continuation-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -8256,6 +8322,12 @@ async function runGenericRuntimeReentry({
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (postCriticalSectionSetWaitableTimerCheckpointEnabled) {
         checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 4);
+        checkpointCompletion.nextReturnAddress = terminal.returnAddress;
+        checkpointCompletion.nextStackPointer = continuation.finalState.esp;
+      } else if (
+        timeGetTimePostPointerReleaseContinuationCheckpointEnabled
+      ) {
+        checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 1);
         checkpointCompletion.nextReturnAddress = terminal.returnAddress;
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (
@@ -9540,6 +9612,61 @@ async function runGenericRuntimeReentry({
       peekMessageAPostPointerReleaseDispatching = false;
       peekMessageAPostPointerReleaseBytesBefore = null;
       defWindowProcAPointerReleaseContinuationEntry = null;
+    }
+    if (
+      timeGetTimePostPointerReleaseContinuationCheckpointEnabled &&
+      timeGetTimePostPointerReleaseDispatching
+    ) {
+      assert.equal(timeGetTimePostPointerReleaseContinuationEntry, null);
+      assert(peekMessageAPostPointerReleaseContinuationEntry);
+      assert.equal(call.module.toLowerCase(), "winmm.dll");
+      assert.equal(call.symbol, "timeGetTime");
+      assert.equal(call.implementationId, "winmm.time-get-time.v1");
+      assert.equal(
+        call.sequence,
+        peekMessageAPostPointerReleaseContinuationEntry.peekMessagePostRelease
+          .sequence + 1,
+      );
+      assert.equal(call.occurrence, 219);
+      assert.equal(call.trapInstructionCount, 321_462_555);
+      assert.deepEqual(call.arguments, []);
+      assert.equal(call.result.action, "set");
+      assert.equal(call.returnAddress, 0x1009_1ebf);
+      assert.equal(call.stackPointerBefore, 0x006f_f904);
+      assert.equal(call.stackPointerAfter, 0x006f_f908);
+      assert.equal(call.lastError, 0);
+      assert.equal(activeCallbacks.length, 0);
+      assert.deepEqual(call.guestWrites, []);
+      assert.equal(
+        call.tickCount?.returnedTickCount,
+        peekMessageAPostPointerReleaseContinuationEntry.timeGetTime.tickCount
+          .nextTickCount,
+      );
+      assert.equal(call.tickCount.returnedTickCount, call.result.value);
+      assert.equal(
+        call.tickCount.nextTickCount,
+        (call.result.value + call.tickCount.incrementPerRead) >>> 0,
+      );
+      assert.equal(call.tickCount.incrementPerRead, 1);
+      timeGetTimePostPointerReleaseContinuationEntry = {
+        ...peekMessageAPostPointerReleaseContinuationEntry,
+        capability:
+          "winmm-time-get-time-post-pointer-release-continuation",
+        implementationId:
+          "runtime.winmm-time-get-time-post-pointer-release-continuation.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: call.trapInstructionCount,
+        timeGetTimePostReleaseActiveCallbackDepthAtCompletion:
+          activeCallbacks.length,
+        timeGetTimePostRelease: {
+          ...structuredClone(call),
+          runtimeThreadId: currentThreadId,
+        },
+      };
+      timeGetTimePostPointerReleaseDispatching = false;
+      peekMessageAPostPointerReleaseContinuationEntry = null;
     }
     if (
       peekMessageAPointerReleaseContinuationCheckpointEnabled &&
@@ -27211,6 +27338,10 @@ function validatePostWaitCriticalSectionResult(result) {
 }
 
 function validateRecurringTimerBoundedWindowResult(result) {
+  if (timeGetTimePostPointerReleaseContinuationCheckpointEnabled) {
+    validateTimeGetTimePostPointerReleaseContinuationResult(result);
+    return;
+  }
   if (peekMessageAPostPointerReleaseContinuationCheckpointEnabled) {
     validatePeekMessageAPostPointerReleaseContinuationResult(result);
     return;
@@ -27272,6 +27403,94 @@ function validateRecurringTimerBoundedWindowResult(result) {
     return;
   }
   validateRecurringTimerWindowResult(result);
+}
+
+function validateTimeGetTimePostPointerReleaseContinuationResult(result) {
+  assert(timeGetTimePostPointerReleaseContinuationCheckpointEnabled);
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  const checkpoint = result.checkpointCompletion;
+  assert.equal(
+    checkpoint?.capability,
+    "winmm-time-get-time-post-pointer-release-continuation",
+  );
+  assert.equal(
+    checkpoint.implementationId,
+    "runtime.winmm-time-get-time-post-pointer-release-continuation.v1",
+  );
+  assert.equal(checkpoint.requiredCompletions, 1);
+  assert.equal(checkpoint.completionCount, 1);
+  assert.equal(checkpoint.lastCompletionSequence, 161_954);
+  assert.equal(checkpoint.lastCompletionInstructionCount, 321_462_555);
+  assert.equal(
+    checkpoint.timeGetTimePostReleaseActiveCallbackDepthAtCompletion,
+    0,
+  );
+  assert.equal(checkpoint.setFocusActiveCallbackDepthAtStop, 1);
+  assert.equal(checkpoint.activeCallbackDepthAtStop, 0);
+  assert.equal(checkpoint.timeGetTimePostRelease.runtimeThreadId, 8_192);
+  assert.equal(checkpoint.timeGetTimePostRelease.sequence, 161_954);
+  assert.equal(checkpoint.timeGetTimePostRelease.occurrence, 219);
+  assert.equal(
+    checkpoint.timeGetTimePostRelease.trapInstructionCount,
+    321_462_555,
+  );
+  assert.equal(
+    checkpoint.timeGetTimePostRelease.implementationId,
+    "winmm.time-get-time.v1",
+  );
+  assert.deepEqual(checkpoint.timeGetTimePostRelease.arguments, []);
+  assert.deepEqual(checkpoint.timeGetTimePostRelease.result, {
+    action: "set",
+    value: 3_601_224,
+  });
+  assert.equal(checkpoint.timeGetTimePostRelease.returnAddress, 0x1009_1ebf);
+  assert.equal(checkpoint.timeGetTimePostRelease.stackPointerBefore, 0x006f_f904);
+  assert.equal(checkpoint.timeGetTimePostRelease.stackPointerAfter, 0x006f_f908);
+  assert.equal(checkpoint.timeGetTimePostRelease.lastError, 0);
+  assert.deepEqual(checkpoint.timeGetTimePostRelease.guestWrites, []);
+  assert.deepEqual(checkpoint.timeGetTimePostRelease.tickCount, {
+    returnedTickCount: 3_601_224,
+    nextTickCount: 3_601_225,
+    incrementPerRead: 1,
+  });
+  assert.equal(checkpoint.instructionCount, 321_462_721);
+  assert.deepEqual(checkpoint.nextEndpoint, {
+    id: 8,
+    address: 0x7f00_0070,
+    module: "WINMM.dll",
+    symbol: { kind: "name", name: "timeGetTime" },
+    disposition: "declared-runtime-export",
+    iatAddress: 0x100d_14e4,
+  });
+  assert.deepEqual(checkpoint.nextArguments, []);
+  assert.equal(checkpoint.nextReturnAddress, 0x1009_1ebf);
+  assert.equal(checkpoint.nextStackPointer, 0x006f_f794);
+  assert.equal(
+    checkpoint.memoryContentSha256,
+    "98474db8134f2b2be561cec20f73a615ba37b21580c38bc57178a2be05bdb099",
+  );
+  assert.equal(result.terminal.instructionCount, checkpoint.instructionCount);
+  assert.equal(result.supportedCalls.length, 161_954);
+  assert.equal(result.supportedCalls.at(-1).symbol, "timeGetTime");
+  assert.equal(result.writebacks.length, 165_108);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    244_469,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    43_070_560,
+  );
+  assert.equal(result.hostDeltas.length, 127_937);
+  assert.equal(result.finalGeneration, 296_327);
+  assert.equal(result.threadExecution.contextSwitches, 2_512);
 }
 
 function validatePeekMessageAPostPointerReleaseContinuationResult(result) {
@@ -35091,7 +35310,15 @@ function buildGenericRuntimeReentryReport({
   }
   assert.equal(semanticCallDigest.count(), completedSupportedCalls.length);
   const supportedCallSemanticsSha256 = semanticCallDigest.digestHex();
-  if (peekMessageAPostPointerReleaseContinuationCheckpointEnabled) {
+  if (timeGetTimePostPointerReleaseContinuationCheckpointEnabled) {
+    assert.equal(completedSupportedCalls.length, 161_954);
+    assert.equal(genericResult.supportedCalls.length, 161_954);
+    assert.notEqual(genericResult.supportedCalls.at(-1).pendingCallback, true);
+    assert.equal(
+      supportedCallSemanticsSha256,
+      "f3af63c202507aa5c593ac89707cc4fa65f49044fece05307bdfe65870ae91de",
+    );
+  } else if (peekMessageAPostPointerReleaseContinuationCheckpointEnabled) {
     assert.equal(completedSupportedCalls.length, 161_953);
     assert.equal(genericResult.supportedCalls.length, 161_953);
     assert.notEqual(genericResult.supportedCalls.at(-1).pendingCallback, true);
@@ -37809,6 +38036,9 @@ function buildGenericRuntimeReentryReport({
             code: "capability-checkpoint-complete",
             message:
               genericResult.checkpointCompletion.capability ===
+              "winmm-time-get-time-post-pointer-release-continuation"
+                ? "BGI completed post-release timeGetTime from the Rust process clock and stopped before the next owned endpoint"
+                : genericResult.checkpointCompletion.capability ===
               "user32-peek-message-a-post-pointer-release-continuation"
                 ? "BGI completed the empty post-release PeekMessageA without changing MSG, LastError, or the Rust queue and stopped before timeGetTime"
                 : genericResult.checkpointCompletion.capability ===

@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 86 as const/u);
+assert.match(protocol, /protocolVersion = 87 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -92,7 +92,11 @@ assert.match(
 );
 assert.match(
   protocol,
-  /capability:[\s\S]*?"user32-peek-message-a-post-pointer-release-continuation";[\s\S]*?requiredCompletions: 1;[\s\S]*?requiredEntries: 1;[\s\S]*?defWindowProcAReleaseActiveCallbackDepthAtCompletion: 1;[\s\S]*?peekMessagePostReleaseActiveCallbackDepthAtCompletion: 0;[\s\S]*?postReleaseQueueDepthBefore: 0;[\s\S]*?postReleaseQueueDepthAfter: 0;[\s\S]*?postReleaseMessageBytesPreserved: true;[\s\S]*?peekMessagePostRelease: RuntimeThreadCallSnapshot;[\s\S]*?activeCallbackDepthAtStop: 0;[\s\S]*?nextArguments: \[\];/u,
+  /requiredCompletions: 1;[\s\S]*?requiredEntries: 1;[\s\S]*?defWindowProcAReleaseActiveCallbackDepthAtCompletion: 1;[\s\S]*?peekMessagePostReleaseActiveCallbackDepthAtCompletion: 0;[\s\S]*?postReleaseQueueDepthBefore: 0;[\s\S]*?postReleaseQueueDepthAfter: 0;[\s\S]*?postReleaseMessageBytesPreserved: true;[\s\S]*?peekMessagePostRelease: RuntimeThreadCallSnapshot;[\s\S]*?activeCallbackDepthAtStop: 0;[\s\S]*?nextArguments: \[\];[\s\S]*?capability:[\s\S]*?"user32-peek-message-a-post-pointer-release-continuation";/u,
+);
+assert.match(
+  protocol,
+  /capability:[\s\S]*?"winmm-time-get-time-post-pointer-release-continuation";[\s\S]*?implementationId:[\s\S]*?"runtime\.winmm-time-get-time-post-pointer-release-continuation\.v1";[\s\S]*?timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0;[\s\S]*?timeGetTimePostRelease: RuntimeThreadCallSnapshot;/u,
 );
 assert.match(protocol, /windowTimerDelivery\?: \{/u);
 assert.match(
@@ -195,7 +199,11 @@ assert.match(
 );
 assert.match(
   worker,
-  /#peekMessageAPostPointerReleaseContinuationDispatching &&[\s\S]*?completion\.implementationId ===[\s\S]*?"user32\.peek-message-a\.current-thread\.v1"[\s\S]*?queuedThreadMessages\.length === 0[\s\S]*?postReleaseQueueDepthBefore: 0[\s\S]*?postReleaseQueueDepthAfter: queuedThreadMessages\.length[\s\S]*?postReleaseMessageBytesPreserved: true[\s\S]*?peekMessagePostRelease: \{[\s\S]*?#bgiCheckpointPending = true/u,
+  /#peekMessageAPostPointerReleaseContinuationDispatching &&[\s\S]*?completion\.implementationId ===[\s\S]*?"user32\.peek-message-a\.current-thread\.v1"[\s\S]*?queuedThreadMessages\.length === 0[\s\S]*?postReleaseQueueDepthBefore: 0 as const[\s\S]*?postReleaseQueueDepthAfter: 0 as const[\s\S]*?postReleaseMessageBytesPreserved: true as const[\s\S]*?peekMessagePostRelease: \{[\s\S]*?#bgiCheckpointPending = true/u,
+);
+assert.match(
+  worker,
+  /#timeGetTimePostPointerReleaseContinuationDispatching &&[\s\S]*?completion\.implementationId === "winmm\.time-get-time\.v1"[\s\S]*?tickCount\?\.returnedTickCount === 3_601_224[\s\S]*?tickCount\.nextTickCount === 3_601_225[\s\S]*?timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0[\s\S]*?timeGetTimePostRelease: \{[\s\S]*?#bgiCheckpointPending = true/u,
 );
 assert.match(
   bridge,

@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `user32-peek-message-a-post-pointer-release-continuation`: 161953 calls across 131 endpoint contracts / 129 APIs, memory generation 296326 |
+| Runtime diagnostics | `winmm-time-get-time-post-pointer-release-continuation`: 161954 calls across 131 endpoint contracts / 129 APIs, memory generation 296327 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `user32-peek-message-a-post-pointer-release-continuation` entered 1 pointer-release WndProc callback by instruction 321462435; verification stopped at `WINMM.dll!timeGetTime` on instruction 321462555 (`user32-peek-message-a-post-pointer-release-continuation-checkpoint-complete`) |
+| Next structured stop | `winmm-time-get-time-post-pointer-release-continuation` completed the post-release process-clock read at sequence 161954 / instruction 321462555; verification stopped at the next `WINMM.dll!timeGetTime` on instruction 321462721 (`winmm-time-get-time-post-pointer-release-continuation-checkpoint-complete`) |
 
-The active semantic report is 3,039,473 bytes with SHA-256
-`20dc38755d69a5d6fd0b1e66a18eb0d8aadaf7d7c5eb4f36e72f5d75bacdded9`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 3,040,166 bytes with SHA-256
+`0504123769eb410ce3594b319a43e78367d6394e6a8a2727a98d28bc3a289d6b`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

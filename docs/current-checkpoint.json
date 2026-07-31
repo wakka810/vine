@@ -185,7 +185,7 @@
     "workload": "private-bgi-generic-session",
     "bgiSession": "semantic-equivalence-passed",
     "bgiBenchmark": "threshold-passed",
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v86",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v87",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json",
     "browserRuntimeWorker": true,
     "browserRuntimeCoreWasm": {
@@ -361,15 +361,15 @@
       "sourceSha256": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
       "nodeRole": "semantic-oracle-only",
       "runtimeStateAuthority": "rust-wasm-in-runtime-worker",
-      "guestInstructions": 321462555,
-      "cpuSlices": 183859,
+      "guestInstructions": 321462721,
+      "cpuSlices": 183860,
       "budgetYields": 18752,
-      "supportedCalls": 161953,
+      "supportedCalls": 161954,
       "evidenceLevel": "summary",
       "callSemanticsAlgorithm": "sha256-canonical-json-v1",
-      "callSemanticsSha256": "15a113d7914ec12a9f54df3a4916c35f2829dc10b3bfca067b0a8cf6b5f6757a",
-      "writebackBatches": 183852,
-      "writebackPages": 282506,
+      "callSemanticsSha256": "f3af63c202507aa5c593ac89707cc4fa65f49044fece05307bdfe65870ae91de",
+      "writebackBatches": 183853,
+      "writebackPages": 282510,
       "hostDeltaBatches": 127937,
       "callbackEntries": 34,
       "callbackReplacements": 15,
@@ -1242,7 +1242,7 @@
       "virtualAllocNodeCompletions": 1,
       "virtualAllocChromeCompletions": 1,
       "virtualAllocNodeChromeOrderedSemanticsMatched": true,
-      "successExecutionTransitionCount": 588668,
+      "successExecutionTransitionCount": 588671,
       "monitorFromWindowCompletions": 2,
       "monitorFromWindowSequence": 17842,
       "monitorFromWindowArguments": [
@@ -3656,13 +3656,13 @@
       "apiGuestWriteSemanticBytesRetainedInRust": true,
       "apiGuestWriteBinaryDeltaAuthority": "rust-guest-memory-binary-delta",
       "initialGeneration": 27,
-      "finalGeneration": 314965,
-      "nodeFinalGeneration": 296326,
+      "finalGeneration": 314966,
+      "nodeFinalGeneration": 296327,
       "generationEquivalence": "not-required-across-different-slice-reconciliation-boundaries",
-      "memoryContentSha256": "ad248923d1c232778ed6860164ebe1ad9fe4ffcea00154e758abbbca4f538e66",
+      "memoryContentSha256": "98474db8134f2b2be561cec20f73a615ba37b21580c38bc57178a2be05bdb099",
       "checkpointCompletion": {
-        "capability": "user32-peek-message-a-post-pointer-release-continuation",
-        "implementationId": "runtime.user32-peek-message-a-post-pointer-release-continuation.v1",
+        "capability": "winmm-time-get-time-post-pointer-release-continuation",
+        "implementationId": "runtime.winmm-time-get-time-post-pointer-release-continuation.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -4207,8 +4207,8 @@
         "translateMessageReleaseActiveCallbackDepthAtCompletion": 0,
         "queueDepthAtTranslateCompletion": 0,
         "translateMessageReleaseBytesPreserved": true,
-        "lastCompletionSequence": 161953,
-        "lastCompletionInstructionCount": 321462521,
+        "lastCompletionSequence": 161954,
+        "lastCompletionInstructionCount": 321462555,
         "translateMessageRelease": {
           "sequence": 161950,
           "module": "user32.dll",
@@ -4333,7 +4333,32 @@
           "guestWrites": [],
           "runtimeThreadId": 8192
         },
-        "instructionCount": 321462555,
+        "timeGetTimePostReleaseActiveCallbackDepthAtCompletion": 0,
+        "timeGetTimePostRelease": {
+          "sequence": 161954,
+          "module": "winmm.dll",
+          "symbol": "timeGetTime",
+          "arguments": [],
+          "result": {
+            "action": "set",
+            "value": 3601224
+          },
+          "implementationId": "winmm.time-get-time.v1",
+          "returnAddress": 269033151,
+          "stackPointerBefore": 7338244,
+          "stackPointerAfter": 7338248,
+          "lastError": 0,
+          "guestWrites": [],
+          "tickCount": {
+            "incrementPerRead": 1,
+            "nextTickCount": 3601225,
+            "returnedTickCount": 3601224
+          },
+          "runtimeThreadId": 8192,
+          "trapInstructionCount": 321462555,
+          "occurrence": 219
+        },
+        "instructionCount": 321462721,
         "nextEndpoint": {
           "address": 2130706544,
           "disposition": "declared-runtime-export",
@@ -4347,8 +4372,8 @@
         },
         "nextArguments": [],
         "nextReturnAddress": 269033151,
-        "nextStackPointer": 7338244,
-        "memoryContentSha256": "ad248923d1c232778ed6860164ebe1ad9fe4ffcea00154e758abbbca4f538e66"
+        "nextStackPointer": 7337876,
+        "memoryContentSha256": "98474db8134f2b2be561cec20f73a615ba37b21580c38bc57178a2be05bdb099"
       },
       "nextCapabilityCluster": "user32-api-contract",
       "nextEndpoint": "USER32.dll!IsIconic",
@@ -4374,7 +4399,7 @@
       ],
       "initialCurrentDirectoryGeneration": 0,
       "setCurrentDirectoryGeneration": 1,
-      "wasmBridgeCalls": 489389,
+      "wasmBridgeCalls": 489391,
       "runtimeCoreLinearMemoryBytes": 62062592,
       "executionEngineLinearMemoryBytes": 76939264,
       "maximumSliceMilliseconds": 2.4549999833106995,
@@ -4394,11 +4419,11 @@
       "sourceReadCompletions": 94,
       "sourceReadPayloadSha256": "6c35f5f2c35cf7e544f2478e490e580621a123e6bdc6bb6c5e9122aae0573f60",
       "sourceReadPendingAfterCleanup": 0,
-      "nodeOracleReportBytes": 3039473,
-      "nodeOracleReportSha256": "20dc38755d69a5d6fd0b1e66a18eb0d8aadaf7d7c5eb4f36e72f5d75bacdded9",
-      "browserReportSchemaVersion": 53,
-      "browserReportBytes": 2742913,
-      "browserReportSha256": "add462ff38d2a6a4388460e44f4f0ee521fd2da80ea14f161c0c351b8148d070",
+      "nodeOracleReportBytes": 3040166,
+      "nodeOracleReportSha256": "0504123769eb410ce3594b319a43e78367d6394e6a8a2727a98d28bc3a289d6b",
+      "browserReportSchemaVersion": 54,
+      "browserReportBytes": 2743746,
+      "browserReportSha256": "bd5ce90e78e7a996e1cb8ab00b003781990ccec524d0c4a08a31305e5ca05956",
       "archiveSourceReadCompletions": 3,
       "archiveSourceSnapshotId": "primary-boot-archives-v1",
       "archiveSourceReadOffsets": [
@@ -4485,8 +4510,8 @@
       "createDirectoryANodeChromeOrderedSemanticsMatched": true,
       "runtimeCoreWasmBytes": 5203550,
       "runtimeCoreWasmSha256": "c80211c37e0837ab521689c39fbf10388e4950c6b8cd4403a72c6fdd5436b400",
-      "runtimeWorkerBytes": 821733,
-      "runtimeWorkerSha256": "d6b88e91d6f9f11d8055a699e4fcd669bc749fdabe07d6281cceeaf2c32ddf8b",
+      "runtimeWorkerBytes": 835553,
+      "runtimeWorkerSha256": "2b24bdfed898102cff324fcc72c50268b3ed1d04f735a1f10a692ebf09525bac",
       "d3d9TextureLockRectImplemented": true,
       "d3d9TextureLockRectCompletions": 1,
       "d3d9TextureLockRectSequence": 148198,
@@ -4720,7 +4745,7 @@
       "mainLoopInputOutcome": "input-consumed-with-post-input-timer-no-presentation-progress",
       "setWaitableTimerNodeCompletions": 11541,
       "setWaitableTimerChromeCompletions": 11541,
-      "browserRuntimeProtocol": "vine.browser-runtime-worker.v86",
+      "browserRuntimeProtocol": "vine.browser-runtime-worker.v87",
       "windowTimerDeliveryImplemented": true,
       "windowTimerDeliveryCompatibilityPolicyId": "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35",
       "windowTimerDeliveryProfileId": "current-thread-empty-queue-coalesced-window-timer-callback-v1",
@@ -4910,9 +4935,9 @@
     "decisionScope": "controlled-browser-runtime-baseline"
   },
   "activeRuntimeCheckpoint": {
-    "runtimeKernelCheckpoint": "user32-peek-message-a-post-pointer-release-continuation",
+    "runtimeKernelCheckpoint": "winmm-time-get-time-post-pointer-release-continuation",
     "status": "checkpoint-complete",
-    "profile": "user32-peek-message-a-post-pointer-release-continuation",
+    "profile": "winmm-time-get-time-post-pointer-release-continuation",
     "runtimeStateAuthority": "rust",
     "runtimeStateScope": "single-process-controlled-and-api-created-thread-wait-message-heap-module-dll-lifecycle-critical-section-named-mutex-pointer-decoding-fls-allocation-private-heap-allocation-fls-value-interlocked-increment-second-heap-allocation-standard-input-handle-file-type-standard-output-handle-standard-output-file-type-standard-error-handle-standard-error-file-type-set-handle-count-policy-process-command-line-wide-environment-copy-lifetime-windows-932-wide-and-multibyte-conversion-one-byte-uninitialized-heap-buffer-thread-last-error-read-write-thread-local-storage-read-fiber-local-storage-read-active-code-page-read-544-byte-uninitialized-heap-buffer-active-code-page-information-output-ctype1-classification-ja-jp-lowercase-and-uppercase-mapping-interlocked-decrement-process-image-path-ansi-copy-16-byte-uninitialized-heap-buffer-4-byte-zeroed-environment-pointer-table-one-byte-private-heap-free-128-byte-zeroed-heap-buffer-explicit-processor-feature-presence-process-unhandled-exception-filter-private-heap-size-query-default-critical-section-initialization-active-code-page-selector-nul-terminated-conversion-process-current-directory-ansi-identity-current-thread-pseudo-handle-dynamic-resolution-thread-logical-affinity-mask-deterministic-monotonic-tick-progression-deterministic-high-resolution-performance-frequency-and-counter-progression-x86-virtual-system-information-single-logical-monitor-enumeration-and-work-area-query-per-thread-com-apartment-initialization-system-default-lang-id-read-process-image-drive-type-query-logical-mouse-button-mapping-focused-virtual-key-state-and-pressed-since-query-winmm-timer-capabilities-logical-winmm-timer-resolution-request-lifetime-policy-owned-ansi-os-version-information-manual-reset-unnamed-waitable-timer-identity-handle-lifetime-relative-one-shot-arm-nonsignaled-reset-logical-expiration-clock-and-bounded-finite-alertable-wait-pe-resource-catalog-module-shared-icon-identity-and-process-lifetime-system-arrow-and-module-resource-shared-cursor-identity-and-process-lifetime-process-local-window-class-identity-atom-module-wndproc-resource-reference-and-lifetime-logical-system-metrics-read-process-large-private-heap-permanent-slot-lazy-page-materialization-logical-top-level-window-five-message-synchronous-creation-callback-lifecycle-dedicated-scratch-small-icon-size-metrics-module-shared-small-icon-load-image-selection-same-thread-synchronous-wm-seticon-small-icon-relation-and-initial-offscreen-show-hide-position-visibility-callback-free-dynamic-runtime-system-module-identity-reference-and-attach-state-d3d9-device-render-state-texture-binding-flexible-vertex-format-stream-source-binding-draw-submission-lifetime-directinput8-root-com-identity-lifetime-directinput8-empty-attached-game-controller-enumeration-directsound8-root-com-audio-identity-lifetime-priority-cooperative-window-relation-primary-and-secondary-logical-audio-buffer-descriptor-format-lazy-sample-backing-lock-content-playback-and-com-lifetime-logical-window-timer-registration-identity-owner-thread-interval-callback-and-process-lifetime-guest-thread-stack-teb-bootstrap-suspend-resume-lifetime-logical-priority-and-explicit-api-boundary-yield-primary-screen-dc-acquisition-lifetime-bounded-cp932-font-enumeration-callback-catalog-logical-font-object-creation-null-source-compatible-memory-dc-dib-lifecycle-selected-font-outline-metrics-output-bounded-cp932-text-raster-into-selected-dib-and-logical-gdiplus-startup-session-token-lifetime-logical-window-file-drop-acceptance-runtime-vfs-registered-file-and-derived-directory-attribute-query-runtime-vfs-durable-writable-directory-create-same-active-window-repeat-position-validation-only-callback-current-thread-unfiltered-nonblocking-message-peek-and-optional-remove-logical-window-minimized-state-query-from-effective-style-logical-window-timer-expiry-low-priority-wm-timer-materialization-translate-noop-and-validated-timerproc-dispatch-foreground-client-pointer-button-message-production-and-wndproc-dispatch-with-queued-release-same-current-thread-active-focused-foreground-set-focus-idempotent-read-same-current-thread-visible-active-focused-foreground-cursor-derived-wm-lbuttondown-default-window-processing-current-thread-unfiltered-pm-remove-wm-lbuttonup-msg32-write-and-empty-queue-read-only-wm-lbuttonup-translate-from-guest-memory-with-empty-current-thread-queue-wm-lbuttonup-dispatch-defwindowproc-zero-result-and-callback-unwind",
     "runtimeVirtualMemoryScope": "null-preferred-96m-reserve-top-down-page-readwrite-without-commit-decommit-or-release",
@@ -5028,7 +5053,7 @@
     "hostCompletionModel": "scheduler-event",
     "genericDispatcherApiCount": 129,
     "genericDispatcherContractCount": 131,
-    "genericDispatcherCallOccurrenceCount": 161953,
+    "genericDispatcherCallOccurrenceCount": 161954,
     "genericDispatcherApis": [
       "KERNEL32.dll!GetSystemTimeAsFileTime",
       "KERNEL32.dll!GetCurrentProcessId",
@@ -5378,7 +5403,7 @@
         "kernel32_virtual_memory_dispatcher::owner_capacity_failure_is_atomic_across_allocator_and_guest_memory",
         "kernel32_virtual_memory_dispatcher::guest_region_overlap_rejects_before_allocator_commit_or_owner_id_advance"
       ],
-      "capabilityExpansionPausedAt": "winmm-time-get-time-post-pointer-release-continuation"
+      "capabilityExpansionPausedAt": "winmm-time-get-time-post-pointer-release-second-continuation"
     },
     "runtimeObjectModel": {
       "schema": "vine.runtime-object-table.v2",
@@ -10259,7 +10284,7 @@
       "guestHeapAllocOtherFlags": false,
       "guestHeapAllocReturnAddress": "0x20000000",
       "guestHeapAllocFailureReturnSemantics": false,
-      "capabilityExpansionPausedAt": "winmm-time-get-time-post-pointer-release-continuation"
+      "capabilityExpansionPausedAt": "winmm-time-get-time-post-pointer-release-second-continuation"
     },
     "processAddressSpaceAllocator": {
       "schema": "vine.process-address-space-allocator.v1",
@@ -12381,7 +12406,7 @@
       "reportSha256": "da95600680cdb922a2952a7045ac5ace1b6f2510f5f553773343854e2f2310a1"
     },
     "latestEvidence": {
-      "schema": "vine.v86-bgi-user32-peek-message-a-post-pointer-release-continuation",
+      "schema": "vine.v86-bgi-winmm-time-get-time-post-pointer-release-continuation",
       "nativeSleepZeroOracleProfile": "x86-sleep-zero-ready-competitor-v1",
       "nativeSleepZeroOracleArchitecture": "coff-i386",
       "nativeSleepZeroOracleSourceBytes": 6481,
@@ -14162,9 +14187,9 @@
       "nativeDefWindowProcPointerReleaseOracleForegroundPreserved": true,
       "nativeDefWindowProcPointerReleaseOracleCaptureBefore": null,
       "nativeDefWindowProcPointerReleaseOracleCaptureAfter": null,
-      "implementation": "Rust-owned user32.peek-message-a.current-thread.v1 completes the reached current-thread unfiltered PM_REMOVE call on the authoritative empty queue by returning FALSE without guest-memory writes, queue mutation, LastError mutation, callback state, or browser message authority, and preserves the prior 28-byte WM_LBUTTONUP MSG32 output before continuing to the process clock",
+      "implementation": "Rust-owned winmm.time-get-time.v1 reuses RuntimeProcessState process-clock authority after pointer-release default processing and empty current-thread polling, returns and advances the shared DWORD tick by one, and preserves the empty queue, callback depth zero, LastError, and guest memory without browser clock or WinMM state authority",
       "implementedApiContractCount": 131,
-      "genericSupportedCallCount": 161953,
+      "genericSupportedCallCount": 161954,
       "createWindowExAImplemented": true,
       "createWindowExASequence": 1388,
       "createWindowExAInstructionCount": 11476236,
@@ -14481,11 +14506,11 @@
       "initializeCriticalSectionDeltaAddress": "0x100fd000",
       "initializeCriticalSectionDeltaOwner": 1,
       "initializeCriticalSectionDeltaPayloadSha256": "80eb4797e4759ad5c9f4c484abf155aa7008a2ef8bfdffad9c17319ae36ef0fb",
-      "writebackBatches": 165107,
-      "writebackDirtyPages": 244465,
-      "writebackChangedBytes": 43070511,
+      "writebackBatches": 165108,
+      "writebackDirtyPages": 244469,
+      "writebackChangedBytes": 43070560,
       "hostDeltaBatches": 127937,
-      "finalMemoryGeneration": 296326,
+      "finalMemoryGeneration": 296327,
       "allocationDeltaSequence": 198,
       "allocationDeltaFromGeneration": 281,
       "allocationDeltaGeneration": 282,
@@ -14686,7 +14711,7 @@
         "browserResourceCreated": false,
         "nodeChromeOrderedSemanticsMatched": true
       },
-      "memoryContentSha256": "ad248923d1c232778ed6860164ebe1ad9fe4ffcea00154e758abbbca4f538e66",
+      "memoryContentSha256": "98474db8134f2b2be561cec20f73a615ba37b21580c38bc57178a2be05bdb099",
       "enterCriticalSectionCheckpointCompletions": 3,
       "enterCriticalSectionSequences": [
         18699,
@@ -18531,7 +18556,7 @@
       "directSoundSetCooperativeLevelChromeCompletions": 1,
       "directSoundSetCooperativeLevelNodeChromeOrderedSemanticsMatched": true,
       "semanticCallDigestAlgorithm": "sha256-canonical-json-v1",
-      "semanticCallDigestSha256": "15a113d7914ec12a9f54df3a4916c35f2829dc10b3bfca067b0a8cf6b5f6757a",
+      "semanticCallDigestSha256": "f3af63c202507aa5c593ac89707cc4fa65f49044fece05307bdfe65870ae91de",
       "nativeDirectSoundInitialBuffersPrimaryTraceBytes": 382086,
       "nativeDirectSoundInitialBuffersPrimaryTraceLines": 801,
       "nativeDirectSoundInitialBuffersPrimaryTraceSha256": "6d924745fb6b61efa7992ec4ccda6cd553bab625348b0734876216e12af37f33",
@@ -22334,8 +22359,8 @@
       "d3d9PresentFailureAtomicity": true,
       "d3d9PresentNodeChromeOrderedSemanticsMatched": true,
       "capabilityCheckpointCompletion": {
-        "capability": "user32-peek-message-a-post-pointer-release-continuation",
-        "implementationId": "runtime.user32-peek-message-a-post-pointer-release-continuation.v1",
+        "capability": "winmm-time-get-time-post-pointer-release-continuation",
+        "implementationId": "runtime.winmm-time-get-time-post-pointer-release-continuation.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -22782,8 +22807,8 @@
           },
           "runtimeThreadId": 8192
         },
-        "lastCompletionSequence": 161953,
-        "lastCompletionInstructionCount": 321462521,
+        "lastCompletionSequence": 161954,
+        "lastCompletionInstructionCount": 321462555,
         "defWindowProcAActiveCallbackDepthAtCompletion": 1,
         "defWindowProcA": {
           "sequence": 161948,
@@ -23024,7 +23049,32 @@
           "guestWrites": [],
           "runtimeThreadId": 8192
         },
-        "instructionCount": 321462555,
+        "timeGetTimePostReleaseActiveCallbackDepthAtCompletion": 0,
+        "timeGetTimePostRelease": {
+          "sequence": 161954,
+          "module": "WINMM.dll",
+          "symbol": "timeGetTime",
+          "occurrence": 219,
+          "trapInstructionCount": 321462555,
+          "arguments": [],
+          "result": {
+            "action": "set",
+            "value": 3601224
+          },
+          "implementationId": "winmm.time-get-time.v1",
+          "returnAddress": 269033151,
+          "stackPointerBefore": 7338244,
+          "stackPointerAfter": 7338248,
+          "lastError": 0,
+          "guestWrites": [],
+          "tickCount": {
+            "returnedTickCount": 3601224,
+            "nextTickCount": 3601225,
+            "incrementPerRead": 1
+          },
+          "runtimeThreadId": 8192
+        },
+        "instructionCount": 321462721,
         "nextEndpoint": {
           "id": 8,
           "address": 2130706544,
@@ -23036,10 +23086,10 @@
           "disposition": "declared-runtime-export",
           "iatAddress": 269292772
         },
-        "memoryContentSha256": "ad248923d1c232778ed6860164ebe1ad9fe4ffcea00154e758abbbca4f538e66",
+        "memoryContentSha256": "98474db8134f2b2be561cec20f73a615ba37b21580c38bc57178a2be05bdb099",
         "nextArguments": [],
         "nextReturnAddress": 269033151,
-        "nextStackPointer": 7338244
+        "nextStackPointer": 7337876
       },
       "firstStructuredStopInstructionCount": 148745317,
       "firstStructuredStopCapabilityCluster": "user32-api-contract",
@@ -23062,8 +23112,8 @@
       "firstStructuredStopVtableSlot": null,
       "firstStructuredStopMethod": null,
       "firstStructuredStopThisPointer": null,
-      "reportBytes": 3039473,
-      "reportSha256": "20dc38755d69a5d6fd0b1e66a18eb0d8aadaf7d7c5eb4f36e72f5d75bacdded9",
+      "reportBytes": 3040166,
+      "reportSha256": "0504123769eb410ce3594b319a43e78367d6394e6a8a2727a98d28bc3a289d6b",
       "archiveSourceSnapshotId": "primary-boot-archives-v1",
       "archiveSourceManifest": "fixtures/source-snapshots/primary-boot-archives-v1.json",
       "archiveSourceMountRoot": "C:\\Vine",
@@ -23241,10 +23291,10 @@
       "privateReportSchemaVersion": 1,
       "privateReportBytes": 2872852,
       "privateReportSha256": "2564cefc0c4b912be0ea00171b8af08c610c68de0c11322f39e261ae88303748",
-      "browserReportSchemaVersion": 53,
-      "browserReportBytes": 2742913,
-      "browserReportSha256": "add462ff38d2a6a4388460e44f4f0ee521fd2da80ea14f161c0c351b8148d070",
-      "browserRuntimeProtocol": "vine.browser-runtime-worker.v86",
+      "browserReportSchemaVersion": 54,
+      "browserReportBytes": 2743746,
+      "browserReportSha256": "bd5ce90e78e7a996e1cb8ab00b003781990ccec524d0c4a08a31305e5ca05956",
+      "browserRuntimeProtocol": "vine.browser-runtime-worker.v87",
       "d3d9TextureLockRectImplemented": true,
       "d3d9TextureLockRectSequence": 148198,
       "d3d9TextureLockRectInstructionCount": 147769351,
@@ -23345,7 +23395,7 @@
         11974074,
         321511657
       ],
-      "genericSupportedCallSemanticsSha256": "15a113d7914ec12a9f54df3a4916c35f2829dc10b3bfca067b0a8cf6b5f6757a",
+      "genericSupportedCallSemanticsSha256": "f3af63c202507aa5c593ac89707cc4fa65f49044fece05307bdfe65870ae91de",
       "mainLoopInputBoundary": {
         "cycleCount": 253,
         "lastCompletionSequence": 161901,
@@ -23664,7 +23714,7 @@
       "dispatchMessageAChromeCompletions": 3,
       "peekMessageAGuestWriteAddress": "0x006ff8e8",
       "peekMessageAGuestWriteHex": "01000148130100000100000000960910daf23600c00300001c020000",
-      "guestInstructions": 321462555,
+      "guestInstructions": 321462721,
       "waitForSingleObjectExCompletions": 11540,
       "waitForSingleObjectExPacingTimerIds": [
         "2",
@@ -23682,18 +23732,18 @@
   "activeBlocker": null,
   "nextStructuredStop": {
     "kind": "capability-checkpoint",
-    "nextCheckpoint": "winmm-time-get-time-post-pointer-release-continuation",
-    "pausedHistoricalCheckpoint": "user32-peek-message-a-post-pointer-release-continuation",
-    "instructionCount": 321462555,
-    "capabilityCluster": "user32-pointer-message-release-continuation",
-    "reason": "user32-peek-message-a-post-pointer-release-continuation-checkpoint-complete",
+    "nextCheckpoint": "winmm-time-get-time-post-pointer-release-second-continuation",
+    "pausedHistoricalCheckpoint": "winmm-time-get-time-post-pointer-release-continuation",
+    "instructionCount": 321462721,
+    "capabilityCluster": "winmm-post-pointer-release-process-clock-continuation",
+    "reason": "winmm-time-get-time-post-pointer-release-continuation-checkpoint-complete",
     "completion": {
-      "capability": "user32-peek-message-a-post-pointer-release-continuation",
-      "implementationId": "runtime.user32-peek-message-a-post-pointer-release-continuation.v1",
+      "capability": "winmm-time-get-time-post-pointer-release-continuation",
+      "implementationId": "runtime.winmm-time-get-time-post-pointer-release-continuation.v1",
       "requiredCompletions": 1,
       "completionCount": 1,
-      "lastCompletionSequence": 161953,
-      "lastCompletionInstructionCount": 321462521,
+      "lastCompletionSequence": 161954,
+      "lastCompletionInstructionCount": 321462555,
       "requiredEntries": 1,
       "entryCount": 1,
       "lastEntrySequence": 161951,
@@ -23710,7 +23760,7 @@
       "disposition": "declared-runtime-export",
       "arguments": [],
       "returnAddress": "0x10091ebf",
-      "stackPointer": "0x006ff904"
+      "stackPointer": "0x006ff794"
     }
   }
 }

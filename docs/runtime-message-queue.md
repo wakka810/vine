@@ -176,6 +176,11 @@ Callbackと外側のdispatchがretireした直後の次のcurrent-thread unfilte
 plan／commit、browser message importは発生しない。このempty-queue leafはfiltered／cross-thread
 retrieval、`WM_QUIT`、blocking waitへ一般化せず、次のprocess-clock readへだけ継続する。
 
+その直後の`timeGetTime`は同じcallback depth 0／empty queue relationを保持したまま、
+`RuntimeProcessState`が所有するprocess tickだけをsample／commitする。Message subsystemはclockを
+所有せず、WinMM completionもqueue、既存`MSG32` bytes、LastErrorへ書き戻さない。Workerはこの
+cross-subsystem不変条件を観測するだけで、browser clockや第二のmessage authorityを導入しない。
+
 ## Lifecycle cleanup
 
 Thread exit requestはowned queued messagesをcallback／host request／wait registration／scheduler eventと

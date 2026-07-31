@@ -30,7 +30,7 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "entered 1 pointer-release WndProc callback by instruction 321462435",
+    "completed the post-release process-clock read at sequence 161954 / instruction 321462555",
   ),
 );
 assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmark));
@@ -1638,6 +1638,33 @@ for (const { label, mutate, expected } of dispatchReleaseMutations) {
     `post-release PeekMessageA pointer-release validator accepted mutated ${label}`,
   );
 }
+
+const stalePostReleaseTick = structuredClone(manifest);
+stalePostReleaseTick.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.timeGetTimePostRelease.tickCount.nextTickCount =
+  3_601_224;
+assert.ok(
+  validateCurrentCheckpoint(stalePostReleaseTick).some((error) =>
+    error.includes("latest post-release timeGetTime evidence"),
+  ),
+);
+
+const browserOwnedPostReleaseClock = structuredClone(manifest);
+browserOwnedPostReleaseClock.browserCheckpoint.bgiRuntimeEvidence.checkpointCompletion.timeGetTimePostRelease.result.value =
+  3_601_225;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedPostReleaseClock).some((error) =>
+    error.includes("browser BGI post-release timeGetTime evidence"),
+  ),
+);
+
+const stalePostReleaseClockStack = structuredClone(manifest);
+stalePostReleaseClockStack.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.timeGetTimePostRelease.stackPointerAfter =
+  7_338_244;
+assert.ok(
+  validateCurrentCheckpoint(stalePostReleaseClockStack).some((error) =>
+    error.includes("latest post-release timeGetTime evidence"),
+  ),
+);
 
 const sample = `before\n${README_STATUS_START}\nstale\n${README_STATUS_END}\nafter\n`;
 assert.equal(

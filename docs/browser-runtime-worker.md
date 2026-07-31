@@ -166,6 +166,16 @@ The Worker records the empty queue snapshot and unchanged bytes at callback dept
 zero, then stops at the following `WINMM.dll!timeGetTime`; it neither polls a DOM
 queue nor creates a browser-side Windows message or clock authority.
 
+Protocol version 87's
+`winmm-time-get-time-post-pointer-release-continuation` resumes from that empty
+queue boundary and completes the reached zero-argument `timeGetTime` through the
+existing Rust `RuntimeProcessState` clock plan/commit. The returned DWORD is the
+previous next tick, the next sample advances by the configured increment of one,
+and LastError, guest memory, callback depth zero, and the empty queue remain
+unchanged. The Worker records the immutable call and tick relation, then stops at
+the following owned `timeGetTime`; it does not sample `performance.now()` or own a
+parallel WinMM clock.
+
 After a guest API completion, Rust may return a `thread-switch` selected by the
 authoritative scheduler. The Worker saves the outgoing opaque engine context and
 restores the context associated with the selected runtime TID; it does not choose

@@ -1250,6 +1250,15 @@ preserved MSG bytes、ordered semantic digest、terminal memory、および次�
 `current-checkpoint.json`だけを正本とする。Filtered／cross-thread retrieval、`WM_QUIT`、blocking
 wait、visible response、browser clock import、general message-loop breadthはclaimしない。
 
+`winmm-time-get-time-post-pointer-release-continuation`は、そのempty-poll直後に到達した
+zero-argument `timeGetTime`を既存`winmm.time-get-time.v1`と`RuntimeProcessState`のprocess clockで
+完了する。Node／Chrome protocol v87／browser report schema 54はsequence 161,954、returned tick
+3,601,224、next tick 3,601,225、increment 1、LastError preserve、zero guest write、callback depth 0、
+empty queue、ordered semantic digest、terminal memoryを一致させ、次の同一`WINMM.dll!timeGetTime()`で
+停止する。Focused validatorはtick relation、stdcall stack、runtime thread、failure-free mutation境界を固定する。
+Exact instruction／artifact identityは`current-checkpoint.json`だけを正本とする。Host／browser clock、
+native millisecond precision、wraparound consumer、長時間timing behaviorはclaimしない。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

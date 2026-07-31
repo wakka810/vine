@@ -116,6 +116,14 @@ disabled／invalid policy failure atomicity. Node and Chrome execute the same se
 handlers through the generic endpoint catalog; TypeScript stores no parallel
 capability or request profile.
 
+The reached post-pointer-release continuation reuses this same contract after
+the release callback has retired and an empty `PeekMessageA(PM_REMOVE)` has
+completed. It fixes the previous next tick as the returned value, one-step clock
+advance, zero guest writes, LastError preservation, callback depth zero, and an
+unchanged empty Rust message queue before continuing to the next `timeGetTime`.
+This is additional consumer reachability evidence, not a second WinMM clock or
+a browser-time synchronization policy.
+
 ## Non-claims
 
 - No periodic callback, wait deadline, sleep, multimedia timer event, audio

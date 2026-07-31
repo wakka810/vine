@@ -71,7 +71,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 53);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 54);
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
 const lastPacingRequest = { requestId: "4708", sequence: 89_218 };
@@ -413,7 +413,9 @@ assert.deepEqual(
 );
 if (
   checkpoint.nextStructuredStop.completion.capability ===
-  "user32-peek-message-a-post-pointer-release-continuation"
+    "user32-peek-message-a-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "winmm-time-get-time-post-pointer-release-continuation"
 ) {
   const stalePostReleaseQueue = mutated((value) => {
     value.semantic.node.checkpointCompletion.postReleaseQueueDepthAfter = 1;
@@ -421,6 +423,20 @@ if (
   assert(
     validatePrivateTargetEvidence(stalePostReleaseQueue, checkpoint).some(
       (error) => error.includes("postReleaseQueueDepthAfter"),
+    ),
+  );
+}
+if (
+  checkpoint.nextStructuredStop.completion.capability ===
+  "winmm-time-get-time-post-pointer-release-continuation"
+) {
+  const stalePostReleaseTick = mutated((value) => {
+    value.semantic.browser.checkpointCompletion.timeGetTimePostRelease.tickCount.nextTickCount =
+      3_601_224;
+  });
+  assert(
+    validatePrivateTargetEvidence(stalePostReleaseTick, checkpoint).some(
+      (error) => error.includes("timeGetTimePostRelease.tickCount.nextTickCount"),
     ),
   );
 }

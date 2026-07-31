@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 86 as const;
+export const protocolVersion = 87 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -74,6 +74,7 @@ export type BgiCapabilityProfile =
   | "user32-dispatch-message-a-pointer-release-continuation"
   | "user32-def-window-proc-a-pointer-release-continuation"
   | "user32-peek-message-a-post-pointer-release-continuation"
+  | "winmm-time-get-time-post-pointer-release-continuation"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
@@ -2952,11 +2953,7 @@ export interface SessionReport {
         nextStackPointer: number;
         memoryContentSha256: string;
       }
-    | {
-        capability:
-          "user32-peek-message-a-post-pointer-release-continuation";
-        implementationId:
-          "runtime.user32-peek-message-a-post-pointer-release-continuation.v1";
+    | ({
         requiredPointerMessages: 1;
         pointerMessageDeliveryCount: number;
         inputBaseline: {
@@ -3079,7 +3076,22 @@ export interface SessionReport {
         nextReturnAddress: number;
         nextStackPointer: number;
         memoryContentSha256: string;
-      }
+      } & (
+        | {
+            capability:
+              "user32-peek-message-a-post-pointer-release-continuation";
+            implementationId:
+              "runtime.user32-peek-message-a-post-pointer-release-continuation.v1";
+          }
+        | {
+            capability:
+              "winmm-time-get-time-post-pointer-release-continuation";
+            implementationId:
+              "runtime.winmm-time-get-time-post-pointer-release-continuation.v1";
+            timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0;
+            timeGetTimePostRelease: RuntimeThreadCallSnapshot;
+          }
+      ))
     | {
         capability: "primary-main-loop-window-timer-callback-delivery-gateway";
         implementationId: "runtime.main-loop-window-timer-callback-delivery-gateway.v1";
