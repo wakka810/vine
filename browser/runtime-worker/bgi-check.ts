@@ -97,6 +97,8 @@ const d3d9Canvas =
   capabilityProfile ===
     "winmm-time-get-time-post-pointer-release-continuation" ||
   capabilityProfile ===
+    "winmm-time-get-time-post-pointer-release-repeat-batch" ||
+  capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
   capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
@@ -223,7 +225,9 @@ const startMessage = {
             capabilityProfile ===
               "user32-peek-message-a-post-pointer-release-continuation" ||
             capabilityProfile ===
-              "winmm-time-get-time-post-pointer-release-continuation"
+              "winmm-time-get-time-post-pointer-release-continuation" ||
+            capabilityProfile ===
+              "winmm-time-get-time-post-pointer-release-repeat-batch"
           ? 340_000_000
           : capabilityProfile === "runtime-trapless-execution-budget" ||
               capabilityProfile === "kernel32-heap-free-large-buffer" ||
@@ -351,6 +355,8 @@ const startMessage = {
       capabilityProfile ===
         "winmm-time-get-time-post-pointer-release-continuation" ||
       capabilityProfile ===
+        "winmm-time-get-time-post-pointer-release-repeat-batch" ||
+      capabilityProfile ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
       capabilityProfile ===
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
@@ -417,7 +423,9 @@ if (
   capabilityProfile ===
     "user32-peek-message-a-post-pointer-release-continuation" ||
   capabilityProfile ===
-    "winmm-time-get-time-post-pointer-release-continuation"
+    "winmm-time-get-time-post-pointer-release-continuation" ||
+  capabilityProfile ===
+    "winmm-time-get-time-post-pointer-release-repeat-batch"
 ) {
   const pointerMessageInput =
     capabilityProfile === "primary-main-loop-pointer-message-action-progress-gateway" ||
@@ -435,7 +443,9 @@ if (
     capabilityProfile ===
       "user32-peek-message-a-post-pointer-release-continuation" ||
     capabilityProfile ===
-      "winmm-time-get-time-post-pointer-release-continuation";
+      "winmm-time-get-time-post-pointer-release-continuation" ||
+    capabilityProfile ===
+      "winmm-time-get-time-post-pointer-release-repeat-batch";
   const actionInput =
     capabilityProfile === "primary-main-loop-action-input-progress-gateway" ||
     capabilityProfile ===
@@ -623,6 +633,7 @@ function parseCapabilityProfile(
     value === "user32-def-window-proc-a-pointer-release-continuation" ||
     value === "user32-peek-message-a-post-pointer-release-continuation" ||
     value === "winmm-time-get-time-post-pointer-release-continuation" ||
+    value === "winmm-time-get-time-post-pointer-release-repeat-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-critical-section"

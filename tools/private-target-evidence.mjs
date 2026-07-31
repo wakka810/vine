@@ -137,9 +137,13 @@ function validatePointerReleaseCompletion(completion, expected, label, errors) {
     `${label}.releaseCallbackReturn`,
     errors,
   );
-  const postReleaseTimeGetTime =
+  const postReleaseTimeGetTimeRepeatBatch =
     expected.capability ===
-    "winmm-time-get-time-post-pointer-release-continuation";
+    "winmm-time-get-time-post-pointer-release-repeat-batch";
+  const postReleaseTimeGetTime =
+    postReleaseTimeGetTimeRepeatBatch ||
+    expected.capability ===
+      "winmm-time-get-time-post-pointer-release-continuation";
   const postReleasePeek =
     postReleaseTimeGetTime ||
     expected.capability ===
@@ -149,8 +153,22 @@ function validatePointerReleaseCompletion(completion, expected, label, errors) {
     : postReleasePeek
       ? "peekMessagePostRelease"
       : "defWindowProcARelease";
-  const finalCall = postReleaseTimeGetTime
+  const repeatCompletions = postReleaseTimeGetTimeRepeatBatch
+    ? Array.isArray(completion.timeGetTimePostReleaseCompletions)
+      ? completion.timeGetTimePostReleaseCompletions
+      : (errors.push(
+          `${label}.timeGetTimePostReleaseCompletions must be an array`,
+        ),
+        [])
+    : [];
+  const finalCall = postReleaseTimeGetTimeRepeatBatch
     ? requireRecord(
+        repeatCompletions.at(-1),
+        `${label}.timeGetTimePostReleaseCompletions[last]`,
+        errors,
+      )
+    : postReleaseTimeGetTime
+      ? requireRecord(
         completion.timeGetTimePostRelease,
         `${label}.timeGetTimePostRelease`,
         errors,
@@ -212,6 +230,9 @@ function validatePointerReleaseCompletion(completion, expected, label, errors) {
     );
   }
   if (postReleaseTimeGetTime) {
+    const expectedReturnedTickCount = postReleaseTimeGetTimeRepeatBatch
+      ? 3_601_227
+      : 3_601_224;
     checkEqual(
       finalCall.implementationId,
       "winmm.time-get-time.v1",
@@ -220,19 +241,19 @@ function validatePointerReleaseCompletion(completion, expected, label, errors) {
     );
     checkEqual(
       finalCall.result?.value,
-      3_601_224,
+      expectedReturnedTickCount,
       `${label}.timeGetTimePostRelease.result.value`,
       errors,
     );
     checkEqual(
       finalCall.tickCount?.returnedTickCount,
-      3_601_224,
+      expectedReturnedTickCount,
       `${label}.timeGetTimePostRelease.tickCount.returnedTickCount`,
       errors,
     );
     checkEqual(
       finalCall.tickCount?.nextTickCount,
-      3_601_225,
+      expectedReturnedTickCount + 1,
       `${label}.timeGetTimePostRelease.tickCount.nextTickCount`,
       errors,
     );
@@ -242,6 +263,149 @@ function validatePointerReleaseCompletion(completion, expected, label, errors) {
       `${label}.timeGetTimePostRelease.tickCount.incrementPerRead`,
       errors,
     );
+    if (postReleaseTimeGetTimeRepeatBatch) {
+      const expectedSamples = [
+        {
+          sequence: 161_954,
+          occurrence: 219,
+          instructionCount: 321_462_555,
+          stackPointerBefore: 7_338_244,
+          returnedTickCount: 3_601_224,
+        },
+        {
+          sequence: 161_955,
+          occurrence: 220,
+          instructionCount: 321_462_721,
+          stackPointerBefore: 7_337_876,
+          returnedTickCount: 3_601_225,
+        },
+        {
+          sequence: 161_956,
+          occurrence: 221,
+          instructionCount: 321_462_906,
+          stackPointerBefore: 7_338_216,
+          returnedTickCount: 3_601_226,
+        },
+        {
+          sequence: 161_957,
+          occurrence: 222,
+          instructionCount: 321_463_010,
+          stackPointerBefore: 7_338_236,
+          returnedTickCount: 3_601_227,
+        },
+      ];
+      checkEqual(
+        completion.maximumRepeatCompletions,
+        16,
+        `${label}.maximumRepeatCompletions`,
+        errors,
+      );
+      checkEqual(
+        repeatCompletions.length,
+        4,
+        `${label}.timeGetTimePostReleaseCompletions.length`,
+        errors,
+      );
+      for (const [index, expectedSample] of expectedSamples.entries()) {
+        const sample = requireRecord(
+          repeatCompletions[index],
+          `${label}.timeGetTimePostReleaseCompletions[${index}]`,
+          errors,
+        );
+        const sampleLabel = `${label}.timeGetTimePostReleaseCompletions[${index}]`;
+        checkEqual(sample.sequence, expectedSample.sequence, `${sampleLabel}.sequence`, errors);
+        checkEqual(sample.occurrence, expectedSample.occurrence, `${sampleLabel}.occurrence`, errors);
+        checkEqual(
+          sample.trapInstructionCount,
+          expectedSample.instructionCount,
+          `${sampleLabel}.trapInstructionCount`,
+          errors,
+        );
+        checkEqual(sample.runtimeThreadId, 8_192, `${sampleLabel}.runtimeThreadId`, errors);
+        checkEqual(sample.module?.toLowerCase(), "winmm.dll", `${sampleLabel}.module`, errors);
+        checkEqual(sample.symbol, "timeGetTime", `${sampleLabel}.symbol`, errors);
+        checkEqual(
+          sample.implementationId,
+          "winmm.time-get-time.v1",
+          `${sampleLabel}.implementationId`,
+          errors,
+        );
+        checkEqual(
+          Array.isArray(sample.arguments) ? sample.arguments.length : -1,
+          0,
+          `${sampleLabel}.arguments.length`,
+          errors,
+        );
+        checkEqual(sample.result?.action, "set", `${sampleLabel}.result.action`, errors);
+        checkEqual(
+          sample.result?.value,
+          expectedSample.returnedTickCount,
+          `${sampleLabel}.result.value`,
+          errors,
+        );
+        checkEqual(sample.returnAddress, 269_033_151, `${sampleLabel}.returnAddress`, errors);
+        checkEqual(
+          sample.stackPointerBefore,
+          expectedSample.stackPointerBefore,
+          `${sampleLabel}.stackPointerBefore`,
+          errors,
+        );
+        checkEqual(
+          sample.stackPointerAfter,
+          expectedSample.stackPointerBefore + 4,
+          `${sampleLabel}.stackPointerAfter`,
+          errors,
+        );
+        checkEqual(sample.lastError, 0, `${sampleLabel}.lastError`, errors);
+        checkEqual(
+          Array.isArray(sample.guestWrites) ? sample.guestWrites.length : -1,
+          0,
+          `${sampleLabel}.guestWrites.length`,
+          errors,
+        );
+        checkEqual(
+          sample.tickCount?.returnedTickCount,
+          expectedSample.returnedTickCount,
+          `${sampleLabel}.tickCount.returnedTickCount`,
+          errors,
+        );
+        checkEqual(
+          sample.tickCount?.nextTickCount,
+          expectedSample.returnedTickCount + 1,
+          `${sampleLabel}.tickCount.nextTickCount`,
+          errors,
+        );
+        checkEqual(
+          sample.tickCount?.incrementPerRead,
+          1,
+          `${sampleLabel}.tickCount.incrementPerRead`,
+          errors,
+        );
+      }
+      const firstCall = requireRecord(
+        completion.timeGetTimePostRelease,
+        `${label}.timeGetTimePostRelease`,
+        errors,
+      );
+      checkEqual(
+        firstCall.sequence,
+        161_954,
+        `${label}.timeGetTimePostRelease.sequence`,
+        errors,
+      );
+      checkEqual(
+        firstCall.tickCount?.returnedTickCount,
+        3_601_224,
+        `${label}.timeGetTimePostRelease.tickCount.returnedTickCount`,
+        errors,
+      );
+      checkEqual(
+        firstCall.tickCount?.nextTickCount,
+        3_601_225,
+        `${label}.timeGetTimePostRelease.tickCount.nextTickCount`,
+        errors,
+      );
+    }
   }
   checkEqual(
     releaseCall.implementationId,

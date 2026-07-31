@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 87 as const/u);
+assert.match(protocol, /protocolVersion = 88 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -68,6 +68,10 @@ assert.match(
 );
 assert.match(
   protocol,
+  /"winmm-time-get-time-post-pointer-release-repeat-batch"/u,
+);
+assert.match(
+  protocol,
   /capability: "winmm-time-get-time-action-continuation";[\s\S]*?setFocusActiveCallbackDepthAtStop: 1;[\s\S]*?activeCallbackDepthAtStop: 1;[\s\S]*?setFocus: RuntimeThreadCallSnapshot;[\s\S]*?lastCompletionSequence: number;[\s\S]*?lastCompletionInstructionCount: number;[\s\S]*?timeGetTime: RuntimeThreadCallSnapshot;[\s\S]*?nextArguments: \[number, number, number, number\];/u,
 );
 assert.match(
@@ -92,11 +96,15 @@ assert.match(
 );
 assert.match(
   protocol,
-  /requiredCompletions: 1;[\s\S]*?requiredEntries: 1;[\s\S]*?defWindowProcAReleaseActiveCallbackDepthAtCompletion: 1;[\s\S]*?peekMessagePostReleaseActiveCallbackDepthAtCompletion: 0;[\s\S]*?postReleaseQueueDepthBefore: 0;[\s\S]*?postReleaseQueueDepthAfter: 0;[\s\S]*?postReleaseMessageBytesPreserved: true;[\s\S]*?peekMessagePostRelease: RuntimeThreadCallSnapshot;[\s\S]*?activeCallbackDepthAtStop: 0;[\s\S]*?nextArguments: \[\];[\s\S]*?capability:[\s\S]*?"user32-peek-message-a-post-pointer-release-continuation";/u,
+  /requiredEntries: 1;[\s\S]*?defWindowProcAReleaseActiveCallbackDepthAtCompletion: 1;[\s\S]*?peekMessagePostReleaseActiveCallbackDepthAtCompletion: 0;[\s\S]*?postReleaseQueueDepthBefore: 0;[\s\S]*?postReleaseQueueDepthAfter: 0;[\s\S]*?postReleaseMessageBytesPreserved: true;[\s\S]*?peekMessagePostRelease: RuntimeThreadCallSnapshot;[\s\S]*?activeCallbackDepthAtStop: 0;[\s\S]*?nextArguments: \[\] \| \[number, number\];[\s\S]*?capability:[\s\S]*?"user32-peek-message-a-post-pointer-release-continuation";[\s\S]*?requiredCompletions: 1;/u,
 );
 assert.match(
   protocol,
   /capability:[\s\S]*?"winmm-time-get-time-post-pointer-release-continuation";[\s\S]*?implementationId:[\s\S]*?"runtime\.winmm-time-get-time-post-pointer-release-continuation\.v1";[\s\S]*?timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0;[\s\S]*?timeGetTimePostRelease: RuntimeThreadCallSnapshot;/u,
+);
+assert.match(
+  protocol,
+  /capability:[\s\S]*?"winmm-time-get-time-post-pointer-release-repeat-batch";[\s\S]*?implementationId:[\s\S]*?"runtime\.winmm-time-get-time-post-pointer-release-repeat-batch\.v1";[\s\S]*?requiredCompletions: 4;[\s\S]*?completionCount: 4;[\s\S]*?maximumRepeatCompletions: 16;[\s\S]*?timeGetTimePostReleaseCompletions: RuntimeThreadCallSnapshot\[\];/u,
 );
 assert.match(protocol, /windowTimerDelivery\?: \{/u);
 assert.match(
@@ -154,6 +162,10 @@ assert.match(
   /user32-peek-message-a-post-pointer-release-continuation/u,
 );
 assert.match(
+  fullProbe,
+  /winmm-time-get-time-post-pointer-release-repeat-batch/u,
+);
+assert.match(
   worker,
   /hasTimeGetTimeActionContinuation\([\s\S]{0,200}#timeGetTimeActionContinuationDispatching &&\s*completion\.implementationId === "winmm\.time-get-time\.v1"/u,
 );
@@ -203,7 +215,7 @@ assert.match(
 );
 assert.match(
   worker,
-  /#timeGetTimePostPointerReleaseContinuationDispatching &&[\s\S]*?completion\.implementationId === "winmm\.time-get-time\.v1"[\s\S]*?tickCount\?\.returnedTickCount === 3_601_224[\s\S]*?tickCount\.nextTickCount === 3_601_225[\s\S]*?timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0[\s\S]*?timeGetTimePostRelease: \{[\s\S]*?#bgiCheckpointPending = true/u,
+  /#timeGetTimePostPointerReleaseContinuationDispatching &&[\s\S]*?completion\.implementationId === "winmm\.time-get-time\.v1"[\s\S]*?timeGetTimePostPointerReleaseRepeatCompletions\.push\(completedCall\)[\s\S]*?maximumRepeatCompletions: 16[\s\S]*?timeGetTimePostReleaseCompletions: completions[\s\S]*?#bgiCheckpointPending = true/u,
 );
 assert.match(
   bridge,

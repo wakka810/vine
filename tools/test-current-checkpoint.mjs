@@ -30,7 +30,7 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "completed the post-release process-clock read at sequence 161954 / instruction 321462555",
+    "completed 4 contiguous post-release process-clock reads through sequence 161957 / instruction 321463010",
   ),
 );
 assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmark));
@@ -1269,7 +1269,7 @@ browserOwnedWindowTimer.browserCheckpoint.bgiRuntimeEvidence.windowTimerBrowserT
 assert.ok(
   validateCurrentCheckpoint(browserOwnedWindowTimer).some((error) =>
     error.includes(
-      "queue authority evidence is invalid for the post-release PeekMessageA pointer-release checkpoint",
+      "queue authority evidence is invalid for the post-release timeGetTime repeat batch pointer-release checkpoint",
     ),
   ),
 );
@@ -1289,7 +1289,7 @@ detachedWindowTimerQueue.activeRuntimeCheckpoint.latestEvidence.windowTimerQueue
 assert.ok(
   validateCurrentCheckpoint(detachedWindowTimerQueue).some((error) =>
     error.includes(
-      "queue authority evidence is invalid for the post-release PeekMessageA pointer-release checkpoint",
+      "queue authority evidence is invalid for the post-release timeGetTime repeat batch pointer-release checkpoint",
     ),
   ),
 );
@@ -1300,7 +1300,7 @@ consumedTimerProcResult.activeRuntimeCheckpoint.latestEvidence.dispatchMessageAC
 assert.ok(
   validateCurrentCheckpoint(consumedTimerProcResult).some((error) =>
     error.includes(
-      "queue authority evidence is invalid for the post-release PeekMessageA pointer-release checkpoint",
+      "queue authority evidence is invalid for the post-release timeGetTime repeat batch pointer-release checkpoint",
     ),
   ),
 );
@@ -1311,7 +1311,7 @@ detachedSetFocusThread.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpoi
 assert.ok(
   validateCurrentCheckpoint(detachedSetFocusThread).some((error) =>
     error.includes(
-      "latest post-release PeekMessageA pointer-release checkpoint evidence",
+      "latest post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1322,7 +1322,7 @@ detachedBrowserSetFocusThread.browserCheckpoint.bgiRuntimeEvidence.checkpointCom
 assert.ok(
   validateCurrentCheckpoint(detachedBrowserSetFocusThread).some((error) =>
     error.includes(
-      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
+      "browser BGI post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1333,7 +1333,7 @@ detachedTimeGetTimeThread.activeRuntimeCheckpoint.latestEvidence.capabilityCheck
 assert.ok(
   validateCurrentCheckpoint(detachedTimeGetTimeThread).some((error) =>
     error.includes(
-      "latest post-release PeekMessageA pointer-release checkpoint evidence",
+      "latest post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1344,7 +1344,7 @@ staleBrowserTimeGetTimeTick.browserCheckpoint.bgiRuntimeEvidence.checkpointCompl
 assert.ok(
   validateCurrentCheckpoint(staleBrowserTimeGetTimeTick).some((error) =>
     error.includes(
-      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
+      "browser BGI post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1355,7 +1355,7 @@ detachedDefWindowProcAThread.activeRuntimeCheckpoint.latestEvidence.capabilityCh
 assert.ok(
   validateCurrentCheckpoint(detachedDefWindowProcAThread).some((error) =>
     error.includes(
-      "latest post-release PeekMessageA pointer-release checkpoint evidence",
+      "latest post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1366,7 +1366,7 @@ mutatedBrowserDefWindowProcAResult.browserCheckpoint.bgiRuntimeEvidence.checkpoi
 assert.ok(
   validateCurrentCheckpoint(mutatedBrowserDefWindowProcAResult).some((error) =>
     error.includes(
-      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
+      "browser BGI post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1377,7 +1377,7 @@ retainedPointerRelease.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpoi
 assert.ok(
   validateCurrentCheckpoint(retainedPointerRelease).some((error) =>
     error.includes(
-      "latest post-release PeekMessageA pointer-release checkpoint evidence",
+      "latest post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1388,7 +1388,7 @@ staleBrowserReleaseQueueDepth.browserCheckpoint.bgiRuntimeEvidence.checkpointCom
 assert.ok(
   validateCurrentCheckpoint(staleBrowserReleaseQueueDepth).some((error) =>
     error.includes(
-      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
+      "browser BGI post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1399,7 +1399,7 @@ stalePointerPeekTimerMetadata.browserCheckpoint.bgiRuntimeEvidence.checkpointCom
 assert.ok(
   validateCurrentCheckpoint(stalePointerPeekTimerMetadata).some((error) =>
     error.includes(
-      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
+      "browser BGI post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1410,7 +1410,7 @@ mutatedReleaseMessageBytes.activeRuntimeCheckpoint.latestEvidence.capabilityChec
 assert.ok(
   validateCurrentCheckpoint(mutatedReleaseMessageBytes).some((error) =>
     error.includes(
-      "latest post-release PeekMessageA pointer-release checkpoint evidence",
+      "latest post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1421,7 +1421,7 @@ mutatedInheritedPointerInput.activeRuntimeCheckpoint.latestEvidence.capabilityCh
 assert.ok(
   validateCurrentCheckpoint(mutatedInheritedPointerInput).some((error) =>
     error.includes(
-      "latest post-release PeekMessageA pointer-release checkpoint evidence",
+      "latest post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1432,7 +1432,7 @@ mutatedInheritedDispatchEntry.browserCheckpoint.bgiRuntimeEvidence.checkpointCom
 assert.ok(
   validateCurrentCheckpoint(mutatedInheritedDispatchEntry).some((error) =>
     error.includes(
-      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
+      "browser BGI post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1443,7 +1443,7 @@ mutatedInheritedCallbackEntry.activeRuntimeCheckpoint.latestEvidence.capabilityC
 assert.ok(
   validateCurrentCheckpoint(mutatedInheritedCallbackEntry).some((error) =>
     error.includes(
-      "latest post-release PeekMessageA pointer-release checkpoint evidence",
+      "latest post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1454,7 +1454,7 @@ mutatedTranslateMessageResult.activeRuntimeCheckpoint.latestEvidence.capabilityC
 assert.ok(
   validateCurrentCheckpoint(mutatedTranslateMessageResult).some((error) =>
     error.includes(
-      "latest post-release PeekMessageA pointer-release checkpoint evidence",
+      "latest post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1465,7 +1465,7 @@ injectedTranslateTimerMetadata.browserCheckpoint.bgiRuntimeEvidence.checkpointCo
 assert.ok(
   validateCurrentCheckpoint(injectedTranslateTimerMetadata).some((error) =>
     error.includes(
-      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
+      "browser BGI post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1477,7 +1477,7 @@ injectedTranslateGuestWrite.activeRuntimeCheckpoint.latestEvidence.capabilityChe
 assert.ok(
   validateCurrentCheckpoint(injectedTranslateGuestWrite).some((error) =>
     error.includes(
-      "latest post-release PeekMessageA pointer-release checkpoint evidence",
+      "latest post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1488,7 +1488,7 @@ staleTranslateQueueDepth.browserCheckpoint.bgiRuntimeEvidence.checkpointCompleti
 assert.ok(
   validateCurrentCheckpoint(staleTranslateQueueDepth).some((error) =>
     error.includes(
-      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
+      "browser BGI post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1499,7 +1499,7 @@ unpreservedTranslateMessageBytes.activeRuntimeCheckpoint.latestEvidence.capabili
 assert.ok(
   validateCurrentCheckpoint(unpreservedTranslateMessageBytes).some((error) =>
     error.includes(
-      "latest post-release PeekMessageA pointer-release checkpoint evidence",
+      "latest post-release timeGetTime repeat batch pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1527,7 +1527,7 @@ stalePointerReleaseStop.nextStructuredStop.nextEndpoint.endpointId = 182;
 assert.ok(
   validateCurrentCheckpoint(stalePointerReleaseStop).some((error) =>
     error.includes(
-      "post-release PeekMessageA pointer-release continuation checkpoint stop is invalid",
+      "post-release timeGetTime repeat batch pointer-release continuation checkpoint stop is invalid",
     ),
   ),
 );
@@ -1566,7 +1566,7 @@ const dispatchReleaseMutations = [
       candidate.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.dispatchMessageRelease.pendingCallback =
         false;
     },
-    expected: "latest post-release PeekMessageA pointer-release checkpoint evidence",
+    expected: "latest post-release timeGetTime repeat batch pointer-release checkpoint evidence",
   },
   {
     label: "queue depth",
@@ -1575,7 +1575,7 @@ const dispatchReleaseMutations = [
         1;
     },
     expected:
-      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
+      "browser BGI post-release timeGetTime repeat batch pointer-release checkpoint evidence",
   },
   {
     label: "MSG preservation",
@@ -1583,7 +1583,7 @@ const dispatchReleaseMutations = [
       candidate.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.dispatchMessageReleaseBytesPreserved =
         false;
     },
-    expected: "latest post-release PeekMessageA pointer-release checkpoint evidence",
+    expected: "latest post-release timeGetTime repeat batch pointer-release checkpoint evidence",
   },
   {
     label: "callback frame identity",
@@ -1592,7 +1592,7 @@ const dispatchReleaseMutations = [
         35;
     },
     expected:
-      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
+      "browser BGI post-release timeGetTime repeat batch pointer-release checkpoint evidence",
   },
   {
     label: "active callback depth",
@@ -1600,7 +1600,7 @@ const dispatchReleaseMutations = [
       candidate.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.activeCallbackDepthAtStop =
         1;
     },
-    expected: "latest post-release PeekMessageA pointer-release checkpoint evidence",
+    expected: "latest post-release timeGetTime repeat batch pointer-release checkpoint evidence",
   },
   {
     label: "release default result",
@@ -1608,7 +1608,7 @@ const dispatchReleaseMutations = [
       candidate.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.defWindowProcARelease.result.value =
         1;
     },
-    expected: "latest post-release PeekMessageA pointer-release checkpoint evidence",
+    expected: "latest post-release timeGetTime repeat batch pointer-release checkpoint evidence",
   },
   {
     label: "release callback return",
@@ -1617,7 +1617,7 @@ const dispatchReleaseMutations = [
         1;
     },
     expected:
-      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
+      "browser BGI post-release timeGetTime repeat batch pointer-release checkpoint evidence",
   },
   {
     label: "next endpoint",
@@ -1625,7 +1625,7 @@ const dispatchReleaseMutations = [
       candidate.nextStructuredStop.nextEndpoint.endpointId = 182;
     },
     expected:
-      "post-release PeekMessageA pointer-release continuation checkpoint stop is invalid",
+      "post-release timeGetTime repeat batch pointer-release continuation checkpoint stop is invalid",
   },
 ];
 for (const { label, mutate, expected } of dispatchReleaseMutations) {
@@ -1635,7 +1635,7 @@ for (const { label, mutate, expected } of dispatchReleaseMutations) {
     validateCurrentCheckpoint(candidate).some((error) =>
       error.includes(expected),
     ),
-    `post-release PeekMessageA pointer-release validator accepted mutated ${label}`,
+    `post-release timeGetTime repeat batch pointer-release validator accepted mutated ${label}`,
   );
 }
 
@@ -1663,6 +1663,32 @@ stalePostReleaseClockStack.activeRuntimeCheckpoint.latestEvidence.capabilityChec
 assert.ok(
   validateCurrentCheckpoint(stalePostReleaseClockStack).some((error) =>
     error.includes("latest post-release timeGetTime evidence"),
+  ),
+);
+
+const staleSecondPostReleaseTick = structuredClone(manifest);
+staleSecondPostReleaseTick.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.timeGetTimePostReleaseCompletions[1].tickCount.nextTickCount =
+  3_601_225;
+assert.ok(
+  validateCurrentCheckpoint(staleSecondPostReleaseTick).some((error) =>
+    error.includes("latest post-release timeGetTime repeat batch evidence"),
+  ),
+);
+
+const truncatedBrowserPostReleaseBatch = structuredClone(manifest);
+truncatedBrowserPostReleaseBatch.browserCheckpoint.bgiRuntimeEvidence.checkpointCompletion.timeGetTimePostReleaseCompletions.pop();
+assert.ok(
+  validateCurrentCheckpoint(truncatedBrowserPostReleaseBatch).some((error) =>
+    error.includes("browser BGI post-release timeGetTime repeat batch evidence"),
+  ),
+);
+
+const unboundedPostReleaseBatch = structuredClone(manifest);
+unboundedPostReleaseBatch.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.maximumRepeatCompletions =
+  17;
+assert.ok(
+  validateCurrentCheckpoint(unboundedPostReleaseBatch).some((error) =>
+    error.includes("latest post-release timeGetTime repeat batch evidence"),
   ),
 );
 

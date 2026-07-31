@@ -106,8 +106,11 @@ const setFocusActionContinuationProfile =
   bgiProfile === "user32-set-focus-action-continuation";
 const timeGetTimeActionContinuationProfile =
   bgiProfile === "winmm-time-get-time-action-continuation";
+const timeGetTimePostPointerReleaseRepeatBatchProfile =
+  bgiProfile === "winmm-time-get-time-post-pointer-release-repeat-batch";
 const timeGetTimePostPointerReleaseContinuationProfile =
-  bgiProfile === "winmm-time-get-time-post-pointer-release-continuation";
+  bgiProfile === "winmm-time-get-time-post-pointer-release-continuation" ||
+  timeGetTimePostPointerReleaseRepeatBatchProfile;
 const peekMessageAPostPointerReleaseContinuationProfile =
   bgiProfile === "user32-peek-message-a-post-pointer-release-continuation" ||
   timeGetTimePostPointerReleaseContinuationProfile;
@@ -286,7 +289,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v87";
+const runtimeProtocol = "vine.browser-runtime-worker.v88";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -980,6 +983,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-def-window-proc-a-pointer-release-continuation",
         "user32-peek-message-a-post-pointer-release-continuation",
         "winmm-time-get-time-post-pointer-release-continuation",
+        "winmm-time-get-time-post-pointer-release-repeat-batch",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1063,6 +1067,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-def-window-proc-a-pointer-release-continuation",
         "user32-peek-message-a-post-pointer-release-continuation",
         "winmm-time-get-time-post-pointer-release-continuation",
+        "winmm-time-get-time-post-pointer-release-repeat-batch",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1146,6 +1151,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-def-window-proc-a-pointer-release-continuation",
         "user32-peek-message-a-post-pointer-release-continuation",
         "winmm-time-get-time-post-pointer-release-continuation",
+        "winmm-time-get-time-post-pointer-release-repeat-batch",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
@@ -6294,7 +6300,9 @@ function validateBgiEquivalence(browser, oracle) {
       oracleCheckpoint.capability ===
         "user32-peek-message-a-post-pointer-release-continuation" ||
       oracleCheckpoint.capability ===
-        "winmm-time-get-time-post-pointer-release-continuation"
+        "winmm-time-get-time-post-pointer-release-continuation" ||
+      oracleCheckpoint.capability ===
+        "winmm-time-get-time-post-pointer-release-repeat-batch"
     ) {
       const normalizeThreadCall = (call) => ({
         ...normalizeSemanticCall(call),
@@ -6455,6 +6463,20 @@ function validateBgiEquivalence(browser, oracle) {
                 tickCount: candidate.timeGetTimePostRelease.tickCount,
               },
             }),
+        ...(candidate.timeGetTimePostReleaseCompletions === undefined
+          ? {}
+          : {
+              maximumRepeatCompletions:
+                candidate.maximumRepeatCompletions,
+              timeGetTimePostReleaseCompletions:
+                candidate.timeGetTimePostReleaseCompletions.map(
+                  (completion) => ({
+                    ...normalizeThreadCall(completion),
+                    runtimeThreadId: completion.runtimeThreadId,
+                    tickCount: completion.tickCount,
+                  }),
+                ),
+            }),
         instructionCount: candidate.instructionCount,
         nextEndpoint: {
           ...candidate.nextEndpoint,
@@ -6470,6 +6492,72 @@ function validateBgiEquivalence(browser, oracle) {
         oracleCheckpoint.capability,
         "Chrome Worker reached a different pointer-message capability",
       );
+      if (
+        oracleCheckpoint.capability ===
+        "winmm-time-get-time-post-pointer-release-repeat-batch"
+      ) {
+        assert.equal(oracle.supportedCallCount, 161_957);
+        assert.equal(
+          oracle.supportedCallSemanticsSha256,
+          "103c51e071e81d2548d97009caf4ec21f0aae06cd596854ce1b2972391646948",
+        );
+        assert.equal(
+          oracleCheckpoint.implementationId,
+          "runtime.winmm-time-get-time-post-pointer-release-repeat-batch.v1",
+        );
+        assert.equal(oracleCheckpoint.requiredCompletions, 4);
+        assert.equal(oracleCheckpoint.completionCount, 4);
+        assert.equal(oracleCheckpoint.lastCompletionSequence, 161_957);
+        assert.equal(
+          oracleCheckpoint.lastCompletionInstructionCount,
+          321_463_010,
+        );
+        assert.equal(oracleCheckpoint.maximumRepeatCompletions, 16);
+        assert.equal(
+          oracleCheckpoint.timeGetTimePostReleaseCompletions.length,
+          4,
+        );
+        assert.equal(oracleCheckpoint.instructionCount, 321_463_115);
+        assert.deepEqual(oracleCheckpoint.nextEndpoint, {
+          id: 228,
+          address: 0x7f00_0e30,
+          module: "USER32.dll",
+          symbol: { kind: "name", name: "GetWindowRect" },
+          disposition: "declared-runtime-export",
+          iatAddress: 0x100d_1468,
+        });
+        assert.deepEqual(oracleCheckpoint.nextArguments, [
+          0x4801_0001, 0x006f_f8bc,
+        ]);
+        assert.equal(oracleCheckpoint.nextReturnAddress, 0x1008_8558);
+        assert.equal(oracleCheckpoint.nextStackPointer, 0x006f_f89c);
+        assert.equal(
+          oracleCheckpoint.memoryContentSha256,
+          "a9d1a45f4b8d5ba37bc1d0477f15f642eaf5ec9352b97b11b5d1c40667c8b1b0",
+        );
+        assert.equal(oracle.synchronization.writebackBatches, 165_111);
+        assert.equal(oracle.synchronization.dirtyPages, 244_477);
+        assert.equal(oracle.synchronization.changedBytes, 43_070_683);
+        assert.equal(oracle.synchronization.hostDeltaBatches, 127_937);
+        assert.equal(oracle.synchronization.finalGeneration, 296_330);
+        assert.equal(oracle.threadExecution.contextSwitches, 2_512);
+        assert.equal(browser.report.writebackBatches, 183_856);
+        assert.equal(browser.report.writebackPages, 282_518);
+        assert.equal(browser.report.mappingDeltas, 127_937);
+        assert.equal(browser.report.mappingDirtyPages, 150_342);
+        assert.equal(browser.report.instructions, 321_463_115);
+        assert.equal(browser.report.slices, 183_863);
+        assert.equal(browser.report.budgetYields, 18_752);
+        assert.equal(browser.report.executionTransitionCount, 588_680);
+        assert.equal(browser.report.initialGeneration, 27);
+        assert.equal(browser.report.finalGeneration, 314_969);
+        assert.equal(browser.report.contextSwitches, 2_512);
+        assert.equal(browser.report.callbackEntries, 34);
+        assert.equal(browser.report.maximumCallbackDepth, 3);
+        assert.equal(browser.report.wasmBridgeCalls, 489_397);
+        assert.equal(browser.statusMessagesObserved, 24_347);
+        assert.equal(browser.statusMessagesRetained, 4_096);
+      }
       if (
         oracleCheckpoint.capability ===
         "winmm-time-get-time-post-pointer-release-continuation"

@@ -124,6 +124,14 @@ unchanged empty Rust message queue before continuing to the next `timeGetTime`.
 This is additional consumer reachability evidence, not a second WinMM clock or
 a browser-time synchronization policy.
 
+The following convergence path reaches four contiguous `timeGetTime` calls in
+total. The repeat-batch profile applies the same plan/commit independently to
+each call, requires the returned tick to equal the prior call's next tick, and
+preserves stdcall cleanup, LastError, guest memory, callback depth zero, and the
+empty queue throughout. Evidence collection is bounded to 16 completions and
+terminates at the first heterogeneous owned endpoint, `GetWindowRect`; neither
+the repetition count nor the Worker becomes clock authority.
+
 ## Non-claims
 
 - No periodic callback, wait deadline, sleep, multimedia timer event, audio

@@ -71,7 +71,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 54);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 55);
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
 const lastPacingRequest = { requestId: "4708", sequence: 89_218 };
@@ -415,7 +415,9 @@ if (
   checkpoint.nextStructuredStop.completion.capability ===
     "user32-peek-message-a-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "winmm-time-get-time-post-pointer-release-continuation"
+    "winmm-time-get-time-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "winmm-time-get-time-post-pointer-release-repeat-batch"
 ) {
   const stalePostReleaseQueue = mutated((value) => {
     value.semantic.node.checkpointCompletion.postReleaseQueueDepthAfter = 1;
@@ -428,7 +430,9 @@ if (
 }
 if (
   checkpoint.nextStructuredStop.completion.capability ===
-  "winmm-time-get-time-post-pointer-release-continuation"
+    "winmm-time-get-time-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "winmm-time-get-time-post-pointer-release-repeat-batch"
 ) {
   const stalePostReleaseTick = mutated((value) => {
     value.semantic.browser.checkpointCompletion.timeGetTimePostRelease.tickCount.nextTickCount =

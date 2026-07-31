@@ -219,9 +219,13 @@ function assertCapabilityCheckpoint(actual, expected) {
     assert.equal(actual.queueDepthAtDispatchEntry, 0);
     assert.equal(actual.dispatchMessageReleaseBytesPreserved, true);
     if (expected.completion.requiredCompletions !== undefined) {
-      const postReleaseTimeGetTime =
+      const postReleaseTimeGetTimeRepeatBatch =
         expected.completion.capability ===
-        "winmm-time-get-time-post-pointer-release-continuation";
+        "winmm-time-get-time-post-pointer-release-repeat-batch";
+      const postReleaseTimeGetTime =
+        postReleaseTimeGetTimeRepeatBatch ||
+        expected.completion.capability ===
+          "winmm-time-get-time-post-pointer-release-continuation";
       const postReleasePeek =
         postReleaseTimeGetTime ||
         expected.completion.capability ===
@@ -258,31 +262,79 @@ function assertCapabilityCheckpoint(actual, expected) {
         assert.equal(actual.postReleaseMessageBytesPreserved, true);
       }
       if (postReleaseTimeGetTime) {
+        const finalTimeGetTime = postReleaseTimeGetTimeRepeatBatch
+          ? actual.timeGetTimePostReleaseCompletions.at(-1)
+          : actual.timeGetTimePostRelease;
+        assert(finalTimeGetTime !== undefined);
         assert.equal(
-          actual.timeGetTimePostRelease.sequence,
+          finalTimeGetTime.sequence,
           actual.lastCompletionSequence,
         );
         assert.equal(
-          actual.timeGetTimePostRelease.trapInstructionCount,
+          finalTimeGetTime.trapInstructionCount,
           actual.lastCompletionInstructionCount,
         );
         assert.equal(
-          actual.timeGetTimePostRelease.implementationId,
+          finalTimeGetTime.implementationId,
           "winmm.time-get-time.v1",
         );
-        assert.equal(actual.timeGetTimePostRelease.result.value, 3_601_224);
         assert.equal(
-          actual.timeGetTimePostRelease.tickCount.returnedTickCount,
-          3_601_224,
+          finalTimeGetTime.result.value,
+          postReleaseTimeGetTimeRepeatBatch ? 3_601_227 : 3_601_224,
         );
         assert.equal(
-          actual.timeGetTimePostRelease.tickCount.nextTickCount,
-          3_601_225,
+          finalTimeGetTime.tickCount.returnedTickCount,
+          postReleaseTimeGetTimeRepeatBatch ? 3_601_227 : 3_601_224,
         );
         assert.equal(
-          actual.timeGetTimePostRelease.tickCount.incrementPerRead,
+          finalTimeGetTime.tickCount.nextTickCount,
+          postReleaseTimeGetTimeRepeatBatch ? 3_601_228 : 3_601_225,
+        );
+        assert.equal(
+          finalTimeGetTime.tickCount.incrementPerRead,
           1,
         );
+        if (postReleaseTimeGetTimeRepeatBatch) {
+          assert.equal(actual.maximumRepeatCompletions, 16);
+          assert.equal(actual.timeGetTimePostReleaseCompletions.length, 4);
+          assert.deepEqual(
+            actual.timeGetTimePostReleaseCompletions.map((sample) => ({
+              sequence: sample.sequence,
+              occurrence: sample.occurrence,
+              instructionCount: sample.trapInstructionCount,
+              stackPointerBefore: sample.stackPointerBefore,
+              returnedTickCount: sample.tickCount.returnedTickCount,
+              nextTickCount: sample.tickCount.nextTickCount,
+            })),
+            [
+              { sequence: 161_954, occurrence: 219, instructionCount: 321_462_555, stackPointerBefore: 7_338_244, returnedTickCount: 3_601_224, nextTickCount: 3_601_225 },
+              { sequence: 161_955, occurrence: 220, instructionCount: 321_462_721, stackPointerBefore: 7_337_876, returnedTickCount: 3_601_225, nextTickCount: 3_601_226 },
+              { sequence: 161_956, occurrence: 221, instructionCount: 321_462_906, stackPointerBefore: 7_338_216, returnedTickCount: 3_601_226, nextTickCount: 3_601_227 },
+              { sequence: 161_957, occurrence: 222, instructionCount: 321_463_010, stackPointerBefore: 7_338_236, returnedTickCount: 3_601_227, nextTickCount: 3_601_228 },
+            ],
+          );
+          assert(
+            actual.timeGetTimePostReleaseCompletions.every(
+              (sample) =>
+                sample.runtimeThreadId === 8_192 &&
+                sample.module.toLowerCase() === "winmm.dll" &&
+                sample.symbol === "timeGetTime" &&
+                sample.implementationId === "winmm.time-get-time.v1" &&
+                sample.arguments.length === 0 &&
+                sample.result.action === "set" &&
+                sample.returnAddress === 269_033_151 &&
+                sample.stackPointerAfter === sample.stackPointerBefore + 4 &&
+                sample.lastError === 0 &&
+                sample.guestWrites.length === 0 &&
+                sample.tickCount.incrementPerRead === 1,
+            ),
+          );
+          assert.equal(actual.timeGetTimePostRelease.sequence, 161_954);
+          assert.equal(
+            actual.timeGetTimePostRelease.tickCount.returnedTickCount,
+            3_601_224,
+          );
+        }
       } else if (!postReleasePeek) {
         assert.equal(
           actual.defWindowProcARelease.sequence,

@@ -181,6 +181,11 @@ retrieval、`WM_QUIT`、blocking waitへ一般化せず、次のprocess-clock re
 所有せず、WinMM completionもqueue、既存`MSG32` bytes、LastErrorへ書き戻さない。Workerはこの
 cross-subsystem不変条件を観測するだけで、browser clockや第二のmessage authorityを導入しない。
 
+同じmain-loop convergence pathで続く4回の`timeGetTime`も、この関係を一回ごとに再検証する。
+各sampleは前回のnext tickだけを消費し、message collection、queue index、callback frame、既存
+`MSG32` bytesを変更しない。Batch evidenceの最大保持数は16に制限し、最初の異種owned endpoint
+`GetWindowRect`で終了するため、message subsystemへ反復回数やclock authorityを追加しない。
+
 ## Lifecycle cleanup
 
 Thread exit requestはowned queued messagesをcallback／host request／wait registration／scheduler eventと

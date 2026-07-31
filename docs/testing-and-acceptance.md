@@ -1259,6 +1259,15 @@ empty queue、ordered semantic digest、terminal memoryを一致させ、次の�
 Exact instruction／artifact identityは`current-checkpoint.json`だけを正本とする。Host／browser clock、
 native millisecond precision、wraparound consumer、長時間timing behaviorはclaimしない。
 
+`winmm-time-get-time-post-pointer-release-repeat-batch`は上記single-sample境界を同じhandlerのまま
+4回のcontiguous completionへ拡張する。Protocol v88／browser report schema 55のNode／Chromeは、
+sequence／occurrence／instruction、同一runtime thread、stdcall stack、returned tickからnext tickへの
+一段ずつの連鎖、LastError／guest write／empty queue／callback depth不変を各sampleで一致させる。
+Evidence保持は最大16 completionに制限し、4回目の後に現れる最初の異種owned endpoint
+`USER32.dll!GetWindowRect(HWND,RECT*)`で停止する。Exact instruction／artifact identityは
+`current-checkpoint.json`だけを正本とし、wall-clock precision、長時間drift、wraparound、一般的な
+sampling cadenceはclaimしない。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

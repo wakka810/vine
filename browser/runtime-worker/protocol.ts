@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 87 as const;
+export const protocolVersion = 88 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -75,6 +75,7 @@ export type BgiCapabilityProfile =
   | "user32-def-window-proc-a-pointer-release-continuation"
   | "user32-peek-message-a-post-pointer-release-continuation"
   | "winmm-time-get-time-post-pointer-release-continuation"
+  | "winmm-time-get-time-post-pointer-release-repeat-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
@@ -2433,7 +2434,7 @@ export interface SessionReport {
             | { kind: "name"; name: string }
             | { kind: "ordinal"; ordinal: number };
         };
-        nextArguments: [];
+        nextArguments: [] | [number, number];
         nextReturnAddress: number;
         nextStackPointer: number;
         memoryContentSha256: string;
@@ -2998,8 +2999,6 @@ export interface SessionReport {
         translateMessageReleaseActiveCallbackDepthAtCompletion: 0;
         queueDepthAtTranslateCompletion: 0;
         translateMessageReleaseBytesPreserved: true;
-        requiredCompletions: 1;
-        completionCount: 1;
         setFocus: RuntimeThreadCallSnapshot;
         timeGetTime: RuntimeThreadCallSnapshot;
         defWindowProcA: RuntimeThreadCallSnapshot;
@@ -3072,7 +3071,7 @@ export interface SessionReport {
             | { kind: "name"; name: string }
             | { kind: "ordinal"; ordinal: number };
         };
-        nextArguments: [];
+        nextArguments: [] | [number, number];
         nextReturnAddress: number;
         nextStackPointer: number;
         memoryContentSha256: string;
@@ -3082,14 +3081,30 @@ export interface SessionReport {
               "user32-peek-message-a-post-pointer-release-continuation";
             implementationId:
               "runtime.user32-peek-message-a-post-pointer-release-continuation.v1";
+            requiredCompletions: 1;
+            completionCount: 1;
           }
         | {
             capability:
               "winmm-time-get-time-post-pointer-release-continuation";
             implementationId:
               "runtime.winmm-time-get-time-post-pointer-release-continuation.v1";
+            requiredCompletions: 1;
+            completionCount: 1;
             timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0;
             timeGetTimePostRelease: RuntimeThreadCallSnapshot;
+          }
+        | {
+            capability:
+              "winmm-time-get-time-post-pointer-release-repeat-batch";
+            implementationId:
+              "runtime.winmm-time-get-time-post-pointer-release-repeat-batch.v1";
+            requiredCompletions: 4;
+            completionCount: 4;
+            timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0;
+            timeGetTimePostRelease: RuntimeThreadCallSnapshot;
+            maximumRepeatCompletions: 16;
+            timeGetTimePostReleaseCompletions: RuntimeThreadCallSnapshot[];
           }
       ))
     | {

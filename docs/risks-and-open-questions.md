@@ -123,10 +123,12 @@ LastError preserve／zero-mutationで完了し、Rust-issued frame identityを�
 `DispatchMessageA`をcallback depth 0までretireするため、release default-processing／call-completion
 riskも閉じた。その直後のempty `PeekMessageA(PM_REMOVE)`も`FALSE`、zero guest write、
 LastError／queue／callback depth／既存release `MSG32` preserveとしてNode／Chromeで一致し、
-post-release empty-pollのauthority／mutation riskを閉じた。直後の`timeGetTime`も既存
-`RuntimeProcessState` process clockを再利用し、returned／next tick、LastError／guest-memory／queue／
-callback depth不変をNode／Chromeで一致させた。次の到達点は同じcallsiteへ戻る二回目の
-`timeGetTime`である。残るriskはcapture transition／move／wheel／double-click／
+post-release empty-pollのauthority／mutation riskを閉じた。直後から続く4回の`timeGetTime`も既存
+`RuntimeProcessState` process clockを再利用し、各returned／next tickの連鎖、stdcall cleanup、
+LastError／guest-memory／queue／callback depth不変をNode／Chromeで一致させた。16回を上限とする
+bounded batchは最初の異種owned endpointである`GetWindowRect`まで収束したため、同一callの反復を
+未知APIとして追うriskも閉じた。次の到達点は既存User32 window-geometry contractである。残るriskは
+capture transition／move／wheel／double-click／
 nonclient default processing、replacement／`KillTimer` race、background freeze／resumeとcatch-upを
 scheduler、message queue、page lifecycleで順序付けることである。
 

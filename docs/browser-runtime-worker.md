@@ -176,6 +176,16 @@ unchanged. The Worker records the immutable call and tick relation, then stops a
 the following owned `timeGetTime`; it does not sample `performance.now()` or own a
 parallel WinMM clock.
 
+Protocol version 88's
+`winmm-time-get-time-post-pointer-release-repeat-batch` keeps the same Rust-owned
+process-clock contract active through four contiguous reached samples. Each
+completion must consume the previous next tick, advance it by one, preserve
+stdcall cleanup, LastError, guest memory, callback depth zero, and the empty
+queue, and remain ordered on the same runtime thread. The Worker retains the
+four immutable call snapshots under a bounded maximum of 16 and stops at the
+first heterogeneous owned endpoint, `USER32.dll!GetWindowRect`; it still owns no
+clock, message queue, or WinMM state.
+
 After a guest API completion, Rust may return a `thread-switch` selected by the
 authoritative scheduler. The Worker saves the outgoing opaque engine context and
 restores the context associated with the selected runtime TID; it does not choose
