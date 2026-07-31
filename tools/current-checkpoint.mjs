@@ -25888,9 +25888,9 @@ export function validateCurrentCheckpoint(manifest) {
             nodeReportBytes: 3_038_095,
             nodeReportSha256:
               "5057da591eb7a44c84030f8b53eef3096317c535aba67021227946f94f45947e",
-            browserReportBytes: 2_741_463,
+            browserReportBytes: 2_741_459,
             browserReportSha256:
-              "2f6b088d642d3774dc1323a650091cffda0d7cc39463dd7338b9d0edf07540c5",
+              "834f88dadb7f088b0a3e4bef4b607bfe955bbd7f1d14327ed169f0540f8361d9",
             browserReportSchemaVersion: 52,
             browserRuntimeProtocol: "vine.browser-runtime-worker.v85",
             runtimeWorkerBytes: 805_807,
