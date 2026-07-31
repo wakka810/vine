@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-31T08:25:36.663Z",
+  "recordedAt": "2026-07-31T09:18:21.672Z",
   "repository": {
-    "implementationCommit": "9c641d9e654966b7fe11ee1459723c4607a04062",
-    "implementationTree": "abd71758d9b31425568f23f3af8cf0882710e0bf",
-    "headCommit": "9c641d9e654966b7fe11ee1459723c4607a04062",
+    "implementationCommit": "f822bf7997f15520cbd6fa26ea10c901cd2b4412",
+    "implementationTree": "3eaf4b9af8f6a778b6d2dc9625815d43ad737ed8",
+    "headCommit": "f822bf7997f15520cbd6fa26ea10c901cd2b4412",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,15 +27,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "user32-peek-message-a-pointer-release-continuation",
-    "runtimeProfile": "user32-peek-message-a-pointer-release-continuation",
+    "runtimeCheckpoint": "user32-translate-message-pointer-release-continuation",
+    "runtimeProfile": "user32-translate-message-pointer-release-continuation",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-user32-peek-message-a-pointer-release-continuation",
+    "nodeReportSchema": "vine.v86-bgi-user32-translate-message-pointer-release-continuation",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v82",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v83",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -70,14 +70,14 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 131,
-      "supportedCalls": 161949,
-      "callSemanticsSha256": "7754804351d4e484a945df77b22300fad26444360bacaf8550e3ce0ee0c3d0de",
-      "instructions": 321462431,
-      "finalGeneration": 296320,
-      "memoryContentSha256": "3083e677a1fb9192ce07e416829d58b875965b2e60265363682d5ae91db0e542",
+      "supportedCalls": 161950,
+      "callSemanticsSha256": "477a479e2ce3f9c8ee67e509c5ae9e65c9c870c569898c8163e92e7b5680e473",
+      "instructions": 321462435,
+      "finalGeneration": 296321,
+      "memoryContentSha256": "2f9626f3b3d8b8a0643ef7d1f454d44c37de4067cabe87d706d5a991e48d68d1",
       "checkpointCompletion": {
-        "capability": "user32-peek-message-a-pointer-release-continuation",
-        "implementationId": "runtime.user32-peek-message-a-pointer-release-continuation.v1",
+        "capability": "user32-translate-message-pointer-release-continuation",
+        "implementationId": "runtime.user32-translate-message-pointer-release-continuation.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -524,8 +524,8 @@
           },
           "runtimeThreadId": 8192
         },
-        "lastCompletionSequence": 161949,
-        "lastCompletionInstructionCount": 321462423,
+        "lastCompletionSequence": 161950,
+        "lastCompletionInstructionCount": 321462431,
         "defWindowProcAActiveCallbackDepthAtCompletion": 1,
         "defWindowProcA": {
           "sequence": 161948,
@@ -638,41 +638,65 @@
           ],
           "runtimeThreadId": 8192
         },
+        "translateMessageReleaseActiveCallbackDepthAtCompletion": 0,
+        "queueDepthAtTranslateCompletion": 0,
+        "translateMessageReleaseBytesPreserved": true,
+        "translateMessageRelease": {
+          "sequence": 161950,
+          "module": "USER32.dll",
+          "symbol": "TranslateMessage",
+          "occurrence": 4,
+          "trapInstructionCount": 321462431,
+          "arguments": [
+            7338216
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.translate-message.window-timer-pointer-noop.v2",
+          "returnAddress": 269039522,
+          "stackPointerBefore": 7338196,
+          "stackPointerAfter": 7338204,
+          "lastError": 0,
+          "guestWrites": [],
+          "runtimeThreadId": 8192
+        },
         "setFocusActiveCallbackDepthAtStop": 1,
-        "instructionCount": 321462431,
+        "instructionCount": 321462435,
         "nextEndpoint": {
-          "id": 162,
-          "address": 2130709008,
+          "id": 182,
+          "address": 2130709328,
           "module": "USER32.dll",
           "symbol": {
             "kind": "name",
-            "name": "TranslateMessage"
+            "name": "DispatchMessageA"
           },
           "disposition": "declared-runtime-export",
-          "iatAddress": 269292384
+          "iatAddress": 269292464
         },
-        "memoryContentSha256": "3083e677a1fb9192ce07e416829d58b875965b2e60265363682d5ae91db0e542",
+        "memoryContentSha256": "2f9626f3b3d8b8a0643ef7d1f454d44c37de4067cabe87d706d5a991e48d68d1",
         "nextArguments": [
           7338216
         ],
-        "nextReturnAddress": 269039522,
+        "nextReturnAddress": 269039532,
         "nextStackPointer": 7338196
       },
-      "writebackBatches": 165102,
-      "dirtyPages": 244459,
-      "changedBytes": 43070470,
+      "writebackBatches": 165103,
+      "dirtyPages": 244460,
+      "changedBytes": 43070471,
       "hostDeltaBatches": 127936
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 161949,
-      "callSemanticsSha256": "7754804351d4e484a945df77b22300fad26444360bacaf8550e3ce0ee0c3d0de",
-      "instructions": 321462431,
-      "finalGeneration": 314959,
-      "memoryContentSha256": "3083e677a1fb9192ce07e416829d58b875965b2e60265363682d5ae91db0e542",
+      "supportedCalls": 161950,
+      "callSemanticsSha256": "477a479e2ce3f9c8ee67e509c5ae9e65c9c870c569898c8163e92e7b5680e473",
+      "instructions": 321462435,
+      "finalGeneration": 314960,
+      "memoryContentSha256": "2f9626f3b3d8b8a0643ef7d1f454d44c37de4067cabe87d706d5a991e48d68d1",
       "checkpointCompletion": {
-        "capability": "user32-peek-message-a-pointer-release-continuation",
-        "implementationId": "runtime.user32-peek-message-a-pointer-release-continuation.v1",
+        "capability": "user32-translate-message-pointer-release-continuation",
+        "implementationId": "runtime.user32-translate-message-pointer-release-continuation.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -1155,8 +1179,6 @@
         "queueDepthBefore": 1,
         "queueDepthAfter": 0,
         "peekMessageReleaseActiveCallbackDepthAtCompletion": 0,
-        "lastCompletionSequence": 161949,
-        "lastCompletionInstructionCount": 321462423,
         "peekMessageRelease": {
           "sequence": 161949,
           "module": "user32.dll",
@@ -1216,30 +1238,56 @@
           "trapInstructionCount": 321462423,
           "occurrence": 11
         },
-        "instructionCount": 321462431,
+        "translateMessageReleaseActiveCallbackDepthAtCompletion": 0,
+        "queueDepthAtTranslateCompletion": 0,
+        "translateMessageReleaseBytesPreserved": true,
+        "lastCompletionSequence": 161950,
+        "lastCompletionInstructionCount": 321462431,
+        "translateMessageRelease": {
+          "sequence": 161950,
+          "module": "user32.dll",
+          "symbol": "TranslateMessage",
+          "arguments": [
+            7338216
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.translate-message.window-timer-pointer-noop.v2",
+          "returnAddress": 269039522,
+          "stackPointerBefore": 7338196,
+          "stackPointerAfter": 7338204,
+          "lastError": 0,
+          "guestWrites": [],
+          "runtimeThreadId": 8192,
+          "trapInstructionCount": 321462431,
+          "occurrence": 4
+        },
+        "instructionCount": 321462435,
         "nextEndpoint": {
-          "address": 2130709008,
+          "address": 2130709328,
           "disposition": "declared-runtime-export",
-          "iatAddress": 269292384,
-          "id": 162,
+          "iatAddress": 269292464,
+          "id": 182,
           "module": "user32.dll",
           "symbol": {
             "kind": "name",
-            "name": "TranslateMessage"
+            "name": "DispatchMessageA"
           }
         },
         "nextArguments": [
           7338216
         ],
-        "nextReturnAddress": 269039522,
+        "nextReturnAddress": 269039532,
         "nextStackPointer": 7338196,
-        "memoryContentSha256": "3083e677a1fb9192ce07e416829d58b875965b2e60265363682d5ae91db0e542"
+        "memoryContentSha256": "2f9626f3b3d8b8a0643ef7d1f454d44c37de4067cabe87d706d5a991e48d68d1"
       },
-      "wasmBridgeCalls": 489378,
+      "wasmBridgeCalls": 489380,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 588655,
+          "transitionCount": 588658,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -1286,32 +1334,32 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "user32-translate-message-pointer-release-continuation",
-      "pausedHistoricalCheckpoint": "user32-peek-message-a-pointer-release-continuation",
-      "instructionCount": 321462431,
+      "nextCheckpoint": "user32-dispatch-message-a-pointer-release-continuation",
+      "pausedHistoricalCheckpoint": "user32-translate-message-pointer-release-continuation",
+      "instructionCount": 321462435,
       "capabilityCluster": "user32-pointer-message-release-continuation",
-      "reason": "user32-peek-message-a-pointer-release-continuation-checkpoint-complete",
+      "reason": "user32-translate-message-pointer-release-continuation-checkpoint-complete",
       "completion": {
-        "capability": "user32-peek-message-a-pointer-release-continuation",
-        "implementationId": "runtime.user32-peek-message-a-pointer-release-continuation.v1",
+        "capability": "user32-translate-message-pointer-release-continuation",
+        "implementationId": "runtime.user32-translate-message-pointer-release-continuation.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "lastCompletionSequence": 161949,
-        "lastCompletionInstructionCount": 321462423
+        "lastCompletionSequence": 161950,
+        "lastCompletionInstructionCount": 321462431
       },
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
-        "endpointId": 162,
-        "api": "USER32.dll!TranslateMessage",
-        "endpointAddress": "0x7f000a10",
-        "iatAddress": "0x100d1360",
+        "endpointId": 182,
+        "api": "USER32.dll!DispatchMessageA",
+        "endpointAddress": "0x7f000b50",
+        "iatAddress": "0x100d13b0",
         "observedModule": "USER32.dll",
-        "observedSymbol": "TranslateMessage",
+        "observedSymbol": "DispatchMessageA",
         "disposition": "declared-runtime-export",
         "arguments": [
           "0x006ff8e8"
         ],
-        "returnAddress": "0x100937a2",
+        "returnAddress": "0x100937ac",
         "stackPointer": "0x006ff8d4"
       }
     },
@@ -1328,14 +1376,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-peek-message-a-pointer-release-continuation/report.json",
-      "bytes": 3034774,
-      "sha256": "9a8702367f56c6545958be218382f7ee3724b7ae788346cba0b6c9392152e777"
+      "path": ".work/v86-bgi-translate-message-pointer-release-continuation/report.json",
+      "bytes": 3035523,
+      "sha256": "0806df4f0ed97afbae76337d4f2b964f01d27d2e26e25779a340e6aac9f79164"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2738239,
-      "sha256": "db43ea6ff01efd888a5568fe0b6f25f9292a38e1abd9337c5ab4c08bf731aa31"
+      "bytes": 2739084,
+      "sha256": "01d7776800acddb353b6d877a82525823c785626d9f952a1d690dad54c0ffce1"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -1350,12 +1398,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3766,
-      "sha256": "09c3cee8f71c302249df2a09e69e8ec2f52904b5b3cdf4a7560eff25305f1973"
+      "sha256": "34ffbd2647adb0c19ff1cb73c761e927eea4e84aa973668139d44249aafbf957"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 5200170,
-      "sha256": "b9819ab1a770ecad241987919200fa6d92090925900d852b6bf2d1298b4d515f"
+      "bytes": 5201469,
+      "sha256": "07616e2cc825f7a28b904eba1a36f504924b34d55c473db899987b619d38e316"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -1387,5 +1435,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "9bab005927da046a4487a7059bf97fff1c0822a95360cd8ba82b6a52bad9c5c2"
+  "payloadSha256": "a61f0c381e6a74c7a0ec845ec2ad9c436dfdabb034c490325a35645a76348fbd"
 }
