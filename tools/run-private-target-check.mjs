@@ -212,14 +212,25 @@ function assertCapabilityCheckpoint(actual, expected) {
   } else {
     assert.equal(actual.requiredCompletions, expected.completion.requiredCompletions);
     assert.equal(actual.completionCount, expected.completion.completionCount);
+    const lastCompletionSequence =
+      actual.lastCompletionSequence ?? actual.setFocus?.sequence;
+    const lastCompletionInstructionCount =
+      actual.lastCompletionInstructionCount ??
+      actual.setFocus?.trapInstructionCount;
     assert.equal(
-      actual.lastCompletionSequence,
+      lastCompletionSequence,
       expected.completion.lastCompletionSequence,
     );
     assert.equal(
-      actual.lastCompletionInstructionCount,
+      lastCompletionInstructionCount,
       expected.completion.lastCompletionInstructionCount,
     );
+    if (actual.setFocus !== undefined) {
+      assert.equal(
+        actual.setFocus.runtimeThreadId,
+        actual.setFocus.window.ownerThreadId,
+      );
+    }
   }
   assert.equal(actual.instructionCount, expected.instructionCount);
   assert.equal(actual.nextEndpoint.id, expected.nextEndpoint.endpointId);
