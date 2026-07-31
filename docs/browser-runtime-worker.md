@@ -157,6 +157,15 @@ depth zero. It then stops at the following unfiltered `PeekMessageA`; no DOM
 default action, browser capture, HWND, message queue, or callback authority is
 introduced.
 
+Protocol version 86's
+`user32-peek-message-a-post-pointer-release-continuation` completes that exact
+post-unwind `PeekMessageA(MSG*, 0, 0, 0, PM_REMOVE)` against the authoritative
+empty current-thread queue. Rust returns `FALSE` with no guest write or queue
+mutation and preserves LastError plus the prior 28-byte `WM_LBUTTONUP` output.
+The Worker records the empty queue snapshot and unchanged bytes at callback depth
+zero, then stops at the following `WINMM.dll!timeGetTime`; it neither polls a DOM
+queue nor creates a browser-side Windows message or clock authority.
+
 After a guest API completion, Rust may return a `thread-switch` selected by the
 authoritative scheduler. The Worker saves the outgoing opaque engine context and
 restores the context associated with the selected runtime TID; it does not choose

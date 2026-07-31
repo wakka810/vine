@@ -169,6 +169,13 @@ Rust-issued frame identityを照合してcallbackを一度だけretireし、外�
 transition、move／wheel／double-click、nonclient／right-button default processingへ一般化しない。
 Workerはimmutable completionとframe relationだけを記録し、Windows callback／capture authorityを持たない。
 
+Callbackと外側のdispatchがretireした直後の次のcurrent-thread unfiltered
+`PeekMessageA(MSG*, 0, 0, 0, PM_REMOVE)`は、authoritative queueが空であることを
+同じRust handlerで確認して`FALSE`を返す。Output先の28-byte `MSG32`は直前に公開した
+`WM_LBUTTONUP` bytesのまま、LastErrorとcallback depth 0も不変であり、guest write、queue
+plan／commit、browser message importは発生しない。このempty-queue leafはfiltered／cross-thread
+retrieval、`WM_QUIT`、blocking waitへ一般化せず、次のprocess-clock readへだけ継続する。
+
 ## Lifecycle cleanup
 
 Thread exit requestはowned queued messagesをcallback／host request／wait registration／scheduler eventと

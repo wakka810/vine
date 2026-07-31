@@ -3802,6 +3802,16 @@ fn bgi_pointer_release_queue_metadata(
     let Some(pointer_profile) = policy.pointer_button_messages.as_ref() else {
         return Ok(None);
     };
+    if should_emit_bgi_empty_peek_queue_metadata(
+        &completion.implementation_id,
+        completion.eax,
+        completion.guest_writes.len(),
+    ) {
+        return runtime
+            .queued_thread_messages(runtime.current_thread_id())
+            .map(Some)
+            .map_err(error_string);
+    }
     let completed_message = if completion.implementation_id
         == vine_core::TRANSLATE_MESSAGE_IMPLEMENTATION
     {
@@ -3836,6 +3846,16 @@ fn bgi_pointer_release_queue_metadata(
         .queued_thread_messages(runtime.current_thread_id())
         .map(Some)
         .map_err(error_string)
+}
+
+fn should_emit_bgi_empty_peek_queue_metadata(
+    implementation_id: &str,
+    eax: RegisterUpdate,
+    guest_write_count: usize,
+) -> bool {
+    implementation_id == vine_core::PEEK_MESSAGE_A_IMPLEMENTATION
+        && eax == RegisterUpdate::Set(0)
+        && guest_write_count == 0
 }
 
 fn bgi_imm32_completion_metadata(
@@ -5168,5 +5188,29 @@ mod tests {
             bgi_completed_peek_message_id_from_write(0x1000, 0x1000, &message[..27], 27).is_err()
         );
         assert!(bgi_completed_peek_message_id_from_write(0x1000, 0x1000, &message, 27).is_err());
+    }
+
+    #[test]
+    fn empty_peek_metadata_requires_false_without_guest_writes() {
+        assert!(should_emit_bgi_empty_peek_queue_metadata(
+            vine_core::PEEK_MESSAGE_A_IMPLEMENTATION,
+            RegisterUpdate::Set(0),
+            0,
+        ));
+        assert!(!should_emit_bgi_empty_peek_queue_metadata(
+            vine_core::PEEK_MESSAGE_A_IMPLEMENTATION,
+            RegisterUpdate::Set(1),
+            0,
+        ));
+        assert!(!should_emit_bgi_empty_peek_queue_metadata(
+            vine_core::PEEK_MESSAGE_A_IMPLEMENTATION,
+            RegisterUpdate::Set(0),
+            1,
+        ));
+        assert!(!should_emit_bgi_empty_peek_queue_metadata(
+            vine_core::TRANSLATE_MESSAGE_IMPLEMENTATION,
+            RegisterUpdate::Set(0),
+            0,
+        ));
     }
 }

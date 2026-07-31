@@ -137,18 +137,60 @@ function validatePointerReleaseCompletion(completion, expected, label, errors) {
     `${label}.releaseCallbackReturn`,
     errors,
   );
+  const postReleasePeek =
+    expected.capability ===
+    "user32-peek-message-a-post-pointer-release-continuation";
+  const finalCall = postReleasePeek
+    ? requireRecord(
+        completion.peekMessagePostRelease,
+        `${label}.peekMessagePostRelease`,
+        errors,
+      )
+    : releaseCall;
   checkEqual(
-    releaseCall.sequence,
+    finalCall.sequence,
     expected.lastCompletionSequence,
-    `${label}.defWindowProcARelease.sequence`,
+    `${label}.${postReleasePeek ? "peekMessagePostRelease" : "defWindowProcARelease"}.sequence`,
     errors,
   );
   checkEqual(
-    releaseCall.trapInstructionCount,
+    finalCall.trapInstructionCount,
     expected.lastCompletionInstructionCount,
-    `${label}.defWindowProcARelease.trapInstructionCount`,
+    `${label}.${postReleasePeek ? "peekMessagePostRelease" : "defWindowProcARelease"}.trapInstructionCount`,
     errors,
   );
+  if (postReleasePeek) {
+    checkEqual(
+      finalCall.implementationId,
+      "user32.peek-message-a.current-thread.v1",
+      `${label}.peekMessagePostRelease.implementationId`,
+      errors,
+    );
+    checkEqual(
+      finalCall.result?.value,
+      0,
+      `${label}.peekMessagePostRelease.result.value`,
+      errors,
+    );
+    checkEqual(
+      completion.postReleaseQueueDepthBefore,
+      0,
+      `${label}.postReleaseQueueDepthBefore`,
+      errors,
+    );
+    checkEqual(
+      completion.postReleaseQueueDepthAfter,
+      0,
+      `${label}.postReleaseQueueDepthAfter`,
+      errors,
+    );
+    checkEqual(
+      completion.postReleaseMessageBytesPreserved,
+      true,
+      `${label}.postReleaseMessageBytesPreserved`,
+      errors,
+    );
+  }
   checkEqual(
     releaseCall.implementationId,
     "user32.def-window-proc-a.v1",

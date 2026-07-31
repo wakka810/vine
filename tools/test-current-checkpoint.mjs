@@ -1269,7 +1269,7 @@ browserOwnedWindowTimer.browserCheckpoint.bgiRuntimeEvidence.windowTimerBrowserT
 assert.ok(
   validateCurrentCheckpoint(browserOwnedWindowTimer).some((error) =>
     error.includes(
-      "queue authority evidence is invalid for the DefWindowProcA pointer-release checkpoint",
+      "queue authority evidence is invalid for the post-release PeekMessageA pointer-release checkpoint",
     ),
   ),
 );
@@ -1289,7 +1289,7 @@ detachedWindowTimerQueue.activeRuntimeCheckpoint.latestEvidence.windowTimerQueue
 assert.ok(
   validateCurrentCheckpoint(detachedWindowTimerQueue).some((error) =>
     error.includes(
-      "queue authority evidence is invalid for the DefWindowProcA pointer-release checkpoint",
+      "queue authority evidence is invalid for the post-release PeekMessageA pointer-release checkpoint",
     ),
   ),
 );
@@ -1300,7 +1300,7 @@ consumedTimerProcResult.activeRuntimeCheckpoint.latestEvidence.dispatchMessageAC
 assert.ok(
   validateCurrentCheckpoint(consumedTimerProcResult).some((error) =>
     error.includes(
-      "queue authority evidence is invalid for the DefWindowProcA pointer-release checkpoint",
+      "queue authority evidence is invalid for the post-release PeekMessageA pointer-release checkpoint",
     ),
   ),
 );
@@ -1311,7 +1311,7 @@ detachedSetFocusThread.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpoi
 assert.ok(
   validateCurrentCheckpoint(detachedSetFocusThread).some((error) =>
     error.includes(
-      "latest DefWindowProcA pointer-release checkpoint evidence",
+      "latest post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1322,7 +1322,7 @@ detachedBrowserSetFocusThread.browserCheckpoint.bgiRuntimeEvidence.checkpointCom
 assert.ok(
   validateCurrentCheckpoint(detachedBrowserSetFocusThread).some((error) =>
     error.includes(
-      "browser BGI DefWindowProcA pointer-release checkpoint evidence",
+      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1333,7 +1333,7 @@ detachedTimeGetTimeThread.activeRuntimeCheckpoint.latestEvidence.capabilityCheck
 assert.ok(
   validateCurrentCheckpoint(detachedTimeGetTimeThread).some((error) =>
     error.includes(
-      "latest DefWindowProcA pointer-release checkpoint evidence",
+      "latest post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1344,7 +1344,7 @@ staleBrowserTimeGetTimeTick.browserCheckpoint.bgiRuntimeEvidence.checkpointCompl
 assert.ok(
   validateCurrentCheckpoint(staleBrowserTimeGetTimeTick).some((error) =>
     error.includes(
-      "browser BGI DefWindowProcA pointer-release checkpoint evidence",
+      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1355,7 +1355,7 @@ detachedDefWindowProcAThread.activeRuntimeCheckpoint.latestEvidence.capabilityCh
 assert.ok(
   validateCurrentCheckpoint(detachedDefWindowProcAThread).some((error) =>
     error.includes(
-      "latest DefWindowProcA pointer-release checkpoint evidence",
+      "latest post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1366,7 +1366,7 @@ mutatedBrowserDefWindowProcAResult.browserCheckpoint.bgiRuntimeEvidence.checkpoi
 assert.ok(
   validateCurrentCheckpoint(mutatedBrowserDefWindowProcAResult).some((error) =>
     error.includes(
-      "browser BGI DefWindowProcA pointer-release checkpoint evidence",
+      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1377,7 +1377,7 @@ retainedPointerRelease.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpoi
 assert.ok(
   validateCurrentCheckpoint(retainedPointerRelease).some((error) =>
     error.includes(
-      "latest DefWindowProcA pointer-release checkpoint evidence",
+      "latest post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1388,7 +1388,7 @@ staleBrowserReleaseQueueDepth.browserCheckpoint.bgiRuntimeEvidence.checkpointCom
 assert.ok(
   validateCurrentCheckpoint(staleBrowserReleaseQueueDepth).some((error) =>
     error.includes(
-      "browser BGI DefWindowProcA pointer-release checkpoint evidence",
+      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1399,7 +1399,7 @@ stalePointerPeekTimerMetadata.browserCheckpoint.bgiRuntimeEvidence.checkpointCom
 assert.ok(
   validateCurrentCheckpoint(stalePointerPeekTimerMetadata).some((error) =>
     error.includes(
-      "browser BGI DefWindowProcA pointer-release checkpoint evidence",
+      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1410,7 +1410,7 @@ mutatedReleaseMessageBytes.activeRuntimeCheckpoint.latestEvidence.capabilityChec
 assert.ok(
   validateCurrentCheckpoint(mutatedReleaseMessageBytes).some((error) =>
     error.includes(
-      "latest DefWindowProcA pointer-release checkpoint evidence",
+      "latest post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1421,7 +1421,7 @@ mutatedInheritedPointerInput.activeRuntimeCheckpoint.latestEvidence.capabilityCh
 assert.ok(
   validateCurrentCheckpoint(mutatedInheritedPointerInput).some((error) =>
     error.includes(
-      "latest DefWindowProcA pointer-release checkpoint evidence",
+      "latest post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1432,7 +1432,7 @@ mutatedInheritedDispatchEntry.browserCheckpoint.bgiRuntimeEvidence.checkpointCom
 assert.ok(
   validateCurrentCheckpoint(mutatedInheritedDispatchEntry).some((error) =>
     error.includes(
-      "browser BGI DefWindowProcA pointer-release checkpoint evidence",
+      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1443,7 +1443,7 @@ mutatedInheritedCallbackEntry.activeRuntimeCheckpoint.latestEvidence.capabilityC
 assert.ok(
   validateCurrentCheckpoint(mutatedInheritedCallbackEntry).some((error) =>
     error.includes(
-      "latest DefWindowProcA pointer-release checkpoint evidence",
+      "latest post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1454,7 +1454,7 @@ mutatedTranslateMessageResult.activeRuntimeCheckpoint.latestEvidence.capabilityC
 assert.ok(
   validateCurrentCheckpoint(mutatedTranslateMessageResult).some((error) =>
     error.includes(
-      "latest DefWindowProcA pointer-release checkpoint evidence",
+      "latest post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1465,7 +1465,7 @@ injectedTranslateTimerMetadata.browserCheckpoint.bgiRuntimeEvidence.checkpointCo
 assert.ok(
   validateCurrentCheckpoint(injectedTranslateTimerMetadata).some((error) =>
     error.includes(
-      "browser BGI DefWindowProcA pointer-release checkpoint evidence",
+      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1477,7 +1477,7 @@ injectedTranslateGuestWrite.activeRuntimeCheckpoint.latestEvidence.capabilityChe
 assert.ok(
   validateCurrentCheckpoint(injectedTranslateGuestWrite).some((error) =>
     error.includes(
-      "latest DefWindowProcA pointer-release checkpoint evidence",
+      "latest post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1488,7 +1488,7 @@ staleTranslateQueueDepth.browserCheckpoint.bgiRuntimeEvidence.checkpointCompleti
 assert.ok(
   validateCurrentCheckpoint(staleTranslateQueueDepth).some((error) =>
     error.includes(
-      "browser BGI DefWindowProcA pointer-release checkpoint evidence",
+      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1499,7 +1499,7 @@ unpreservedTranslateMessageBytes.activeRuntimeCheckpoint.latestEvidence.capabili
 assert.ok(
   validateCurrentCheckpoint(unpreservedTranslateMessageBytes).some((error) =>
     error.includes(
-      "latest DefWindowProcA pointer-release checkpoint evidence",
+      "latest post-release PeekMessageA pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1527,8 +1527,35 @@ stalePointerReleaseStop.nextStructuredStop.nextEndpoint.endpointId = 182;
 assert.ok(
   validateCurrentCheckpoint(stalePointerReleaseStop).some((error) =>
     error.includes(
-      "DefWindowProcA pointer-release continuation checkpoint stop is invalid",
+      "post-release PeekMessageA pointer-release continuation checkpoint stop is invalid",
     ),
+  ),
+);
+
+const stalePostReleaseQueue = structuredClone(manifest);
+stalePostReleaseQueue.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.postReleaseQueueDepthAfter =
+  1;
+assert.ok(
+  validateCurrentCheckpoint(stalePostReleaseQueue).some((error) =>
+    error.includes("latest post-release PeekMessageA evidence"),
+  ),
+);
+
+const mutatedBrowserPostReleasePeek = structuredClone(manifest);
+mutatedBrowserPostReleasePeek.browserCheckpoint.bgiRuntimeEvidence.checkpointCompletion.peekMessagePostRelease.result.value =
+  1;
+assert.ok(
+  validateCurrentCheckpoint(mutatedBrowserPostReleasePeek).some((error) =>
+    error.includes("browser BGI post-release PeekMessageA evidence"),
+  ),
+);
+
+const unpreservedPostReleaseMessage = structuredClone(manifest);
+unpreservedPostReleaseMessage.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.postReleaseMessageBytesPreserved =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(unpreservedPostReleaseMessage).some((error) =>
+    error.includes("latest post-release PeekMessageA evidence"),
   ),
 );
 
@@ -1539,7 +1566,7 @@ const dispatchReleaseMutations = [
       candidate.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.dispatchMessageRelease.pendingCallback =
         false;
     },
-    expected: "latest DefWindowProcA pointer-release checkpoint evidence",
+    expected: "latest post-release PeekMessageA pointer-release checkpoint evidence",
   },
   {
     label: "queue depth",
@@ -1548,7 +1575,7 @@ const dispatchReleaseMutations = [
         1;
     },
     expected:
-      "browser BGI DefWindowProcA pointer-release checkpoint evidence",
+      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
   },
   {
     label: "MSG preservation",
@@ -1556,7 +1583,7 @@ const dispatchReleaseMutations = [
       candidate.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.dispatchMessageReleaseBytesPreserved =
         false;
     },
-    expected: "latest DefWindowProcA pointer-release checkpoint evidence",
+    expected: "latest post-release PeekMessageA pointer-release checkpoint evidence",
   },
   {
     label: "callback frame identity",
@@ -1565,7 +1592,7 @@ const dispatchReleaseMutations = [
         35;
     },
     expected:
-      "browser BGI DefWindowProcA pointer-release checkpoint evidence",
+      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
   },
   {
     label: "active callback depth",
@@ -1573,7 +1600,7 @@ const dispatchReleaseMutations = [
       candidate.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.activeCallbackDepthAtStop =
         1;
     },
-    expected: "latest DefWindowProcA pointer-release checkpoint evidence",
+    expected: "latest post-release PeekMessageA pointer-release checkpoint evidence",
   },
   {
     label: "release default result",
@@ -1581,7 +1608,7 @@ const dispatchReleaseMutations = [
       candidate.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.defWindowProcARelease.result.value =
         1;
     },
-    expected: "latest DefWindowProcA pointer-release checkpoint evidence",
+    expected: "latest post-release PeekMessageA pointer-release checkpoint evidence",
   },
   {
     label: "release callback return",
@@ -1590,7 +1617,7 @@ const dispatchReleaseMutations = [
         1;
     },
     expected:
-      "browser BGI DefWindowProcA pointer-release checkpoint evidence",
+      "browser BGI post-release PeekMessageA pointer-release checkpoint evidence",
   },
   {
     label: "next endpoint",
@@ -1598,7 +1625,7 @@ const dispatchReleaseMutations = [
       candidate.nextStructuredStop.nextEndpoint.endpointId = 182;
     },
     expected:
-      "DefWindowProcA pointer-release continuation checkpoint stop is invalid",
+      "post-release PeekMessageA pointer-release continuation checkpoint stop is invalid",
   },
 ];
 for (const { label, mutate, expected } of dispatchReleaseMutations) {
@@ -1608,7 +1635,7 @@ for (const { label, mutate, expected } of dispatchReleaseMutations) {
     validateCurrentCheckpoint(candidate).some((error) =>
       error.includes(expected),
     ),
-    `DefWindowProcA pointer-release validator accepted mutated ${label}`,
+    `post-release PeekMessageA pointer-release validator accepted mutated ${label}`,
   );
 }
 

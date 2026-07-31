@@ -6136,7 +6136,11 @@ fn run_v86_generic_runtime_session(
                                 &completion,
                                 session.memory(),
                             )? == Some(release_message);
-                            if release_peek || release_translate {
+                            let empty_peek = completion.implementation_id
+                                == PEEK_MESSAGE_A_IMPLEMENTATION
+                                && completion.eax == RegisterUpdate::Set(0)
+                                && completion.guest_writes.is_empty();
+                            if release_peek || release_translate || empty_peek {
                                 Some(
                                     session
                                         .runtime()
@@ -15041,7 +15045,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "user32-dispatch-message-a-pointer-release-continuation" => {
                     GenericRuntimeCapability::User32DefWindowProcPointerDown
                 }
-                "user32-def-window-proc-a-pointer-release-continuation" => {
+                "user32-def-window-proc-a-pointer-release-continuation"
+                | "user32-peek-message-a-post-pointer-release-continuation" => {
                     GenericRuntimeCapability::User32DefWindowProcPointerRelease
                 }
                 "kernel32-leave-critical-section" => {

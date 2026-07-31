@@ -121,7 +121,10 @@ live window／owner／WndProc／pointer relationを再検証してrelease WndPro
 入るところまで閉じた。続くexplicit User32 v35 gateはrelease `DefWindowProcA`をzero-result／
 LastError preserve／zero-mutationで完了し、Rust-issued frame identityを使ってWndProcと外側
 `DispatchMessageA`をcallback depth 0までretireするため、release default-processing／call-completion
-riskも閉じた。残るriskはcapture transition／move／wheel／double-click／
+riskも閉じた。その直後のempty `PeekMessageA(PM_REMOVE)`も`FALSE`、zero guest write、
+LastError／queue／callback depth／既存release `MSG32` preserveとしてNode／Chromeで一致し、
+post-release empty-pollのauthority／mutation riskを閉じた。次の到達点は同じprocess clock authorityを
+再利用する`timeGetTime`である。残るriskはcapture transition／move／wheel／double-click／
 nonclient default processing、replacement／`KillTimer` race、background freeze／resumeとcatch-upを
 scheduler、message queue、page lifecycleで順序付けることである。
 

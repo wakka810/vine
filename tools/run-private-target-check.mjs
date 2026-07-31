@@ -219,6 +219,9 @@ function assertCapabilityCheckpoint(actual, expected) {
     assert.equal(actual.queueDepthAtDispatchEntry, 0);
     assert.equal(actual.dispatchMessageReleaseBytesPreserved, true);
     if (expected.completion.requiredCompletions !== undefined) {
+      const postReleasePeek =
+        expected.completion.capability ===
+        "user32-peek-message-a-post-pointer-release-continuation";
       assert.equal(
         actual.requiredCompletions,
         expected.completion.requiredCompletions,
@@ -232,14 +235,33 @@ function assertCapabilityCheckpoint(actual, expected) {
         actual.lastCompletionInstructionCount,
         expected.completion.lastCompletionInstructionCount,
       );
-      assert.equal(
-        actual.defWindowProcARelease.sequence,
-        actual.lastCompletionSequence,
-      );
-      assert.equal(
-        actual.defWindowProcARelease.trapInstructionCount,
-        actual.lastCompletionInstructionCount,
-      );
+      if (postReleasePeek) {
+        assert.equal(
+          actual.peekMessagePostRelease.sequence,
+          actual.lastCompletionSequence,
+        );
+        assert.equal(
+          actual.peekMessagePostRelease.trapInstructionCount,
+          actual.lastCompletionInstructionCount,
+        );
+        assert.equal(
+          actual.peekMessagePostRelease.implementationId,
+          "user32.peek-message-a.current-thread.v1",
+        );
+        assert.equal(actual.peekMessagePostRelease.result.value, 0);
+        assert.equal(actual.postReleaseQueueDepthBefore, 0);
+        assert.equal(actual.postReleaseQueueDepthAfter, 0);
+        assert.equal(actual.postReleaseMessageBytesPreserved, true);
+      } else {
+        assert.equal(
+          actual.defWindowProcARelease.sequence,
+          actual.lastCompletionSequence,
+        );
+        assert.equal(
+          actual.defWindowProcARelease.trapInstructionCount,
+          actual.lastCompletionInstructionCount,
+        );
+      }
       assert.equal(
         actual.defWindowProcARelease.implementationId,
         "user32.def-window-proc-a.v1",

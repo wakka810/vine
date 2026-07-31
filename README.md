@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `user32-def-window-proc-a-pointer-release-continuation`: 161952 calls across 131 endpoint contracts / 129 APIs, memory generation 296325 |
+| Runtime diagnostics | `user32-peek-message-a-post-pointer-release-continuation`: 161953 calls across 131 endpoint contracts / 129 APIs, memory generation 296326 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `user32-def-window-proc-a-pointer-release-continuation` entered 1 pointer-release WndProc callback by instruction 321462435; verification stopped at `USER32.dll!PeekMessageA` on instruction 321462521 (`user32-def-window-proc-a-pointer-release-continuation-checkpoint-complete`) |
+| Next structured stop | `user32-peek-message-a-post-pointer-release-continuation` entered 1 pointer-release WndProc callback by instruction 321462435; verification stopped at `WINMM.dll!timeGetTime` on instruction 321462555 (`user32-peek-message-a-post-pointer-release-continuation-checkpoint-complete`) |
 
-The active semantic report is 3,038,095 bytes with SHA-256
-`5057da591eb7a44c84030f8b53eef3096317c535aba67021227946f94f45947e`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 3,039,473 bytes with SHA-256
+`20dc38755d69a5d6fd0b1e66a18eb0d8aadaf7d7c5eb4f36e72f5d75bacdded9`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
