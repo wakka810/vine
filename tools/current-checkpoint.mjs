@@ -25966,9 +25966,9 @@ export function validateCurrentCheckpoint(manifest) {
             nodeReportBytes: 3_039_473,
             nodeReportSha256:
               "20dc38755d69a5d6fd0b1e66a18eb0d8aadaf7d7c5eb4f36e72f5d75bacdded9",
-            browserReportBytes: 2_742_915,
+            browserReportBytes: 2_742_913,
             browserReportSha256:
-              "4d16a9a2d94028eb76d312ce2e0789a898c7e7d135c868bf139bd6f884b405a9",
+              "add462ff38d2a6a4388460e44f4f0ee521fd2da80ea14f161c0c351b8148d070",
             browserReportSchemaVersion: 53,
             browserRuntimeProtocol: "vine.browser-runtime-worker.v86",
             runtimeWorkerBytes: 821_733,
@@ -26356,9 +26356,9 @@ export function validateCurrentCheckpoint(manifest) {
       bgiBrowserEvidence.nodeOracleReportBytes !== 3_039_473 ||
       bgiBrowserEvidence.nodeOracleReportSha256 !==
         "20dc38755d69a5d6fd0b1e66a18eb0d8aadaf7d7c5eb4f36e72f5d75bacdded9" ||
-      bgiBrowserEvidence.browserReportBytes !== 2_742_915 ||
+      bgiBrowserEvidence.browserReportBytes !== 2_742_913 ||
       bgiBrowserEvidence.browserReportSha256 !==
-        "4d16a9a2d94028eb76d312ce2e0789a898c7e7d135c868bf139bd6f884b405a9" ||
+        "add462ff38d2a6a4388460e44f4f0ee521fd2da80ea14f161c0c351b8148d070" ||
       bgiBrowserEvidence.browserReportSchemaVersion !== 53 ||
       bgiBrowserEvidence.browserRuntimeProtocol !==
         "vine.browser-runtime-worker.v86" ||
@@ -26380,9 +26380,9 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.reportBytes !== 3_039_473 ||
       latestEvidence.reportSha256 !==
         "20dc38755d69a5d6fd0b1e66a18eb0d8aadaf7d7c5eb4f36e72f5d75bacdded9" ||
-      latestEvidence.browserReportBytes !== 2_742_915 ||
+      latestEvidence.browserReportBytes !== 2_742_913 ||
       latestEvidence.browserReportSha256 !==
-        "4d16a9a2d94028eb76d312ce2e0789a898c7e7d135c868bf139bd6f884b405a9" ||
+        "add462ff38d2a6a4388460e44f4f0ee521fd2da80ea14f161c0c351b8148d070" ||
       latestEvidence.browserReportSchemaVersion !== 53 ||
       latestEvidence.browserRuntimeProtocol !==
         "vine.browser-runtime-worker.v86"
