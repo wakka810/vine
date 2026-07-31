@@ -6100,3 +6100,23 @@ No third `Present` occurs during the batch. The next evidence question combines
 the already validated primary left-button action with recurring callback
 delivery; replacement, `KillTimer`, NULL-HWND IDs, filtered／cross-thread
 retrieval, and background lifecycle remain outside this checkpoint.
+
+## 182. Controlled `DefWindowProcA(WM_LBUTTONDOWN)` default processing
+
+The local ignored C oracle, compiled as COFF x86-64, has SHA-256
+`f7f0e6fe33c19b64e99486e670fc11395c41bcc2bfd6552a36eb53927508ac98`.
+It creates one active／focused／foreground window and forwards
+`WM_LBUTTONDOWN` (`513`) with `wParam = 1` and `lParam = 23593600` to
+`DefWindowProcA`. Across two independent runs, the direct default-procedure
+result and the enclosing `SendMessage` result are both 0, seeded LastError
+`0x5A17C0DE` is preserved, and the active／focus／foreground／capture relations
+are unchanged. The source and generated oracle remain outside Git.
+
+Immutable BGI i386 disassembly provides the caller consumer. The call at
+absolute address `0x004933B9` invokes `DefWindowProcA`; its returned EAX remains
+unchanged through `0x004933D3`, where it is the WndProc LRESULT. The runtime
+therefore implements this reached client-area left-button-down variant as a
+validated zero-result, zero-mutation leaf rather than a silent general stub.
+This evidence does not establish release handling, capture transitions,
+double-click／nonclient processing, other mouse messages, or general
+`DefWindowProcA` behavior.

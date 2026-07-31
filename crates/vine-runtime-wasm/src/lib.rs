@@ -104,6 +104,7 @@ struct BgiCheckpointCapabilities {
     user32_window_timer_callback_delivery: bool,
     user32_pointer_button_messages: bool,
     user32_set_focus_same_window: bool,
+    user32_def_window_proc_a_pointer_down: bool,
 }
 
 impl Bridge {
@@ -735,7 +736,9 @@ impl BrowserRuntime {
             .runtime
             .register_writable_profile(writable_profile)
             .map_err(error_string)?;
-        let user32_policy = if capabilities.user32_set_focus_same_window {
+        let user32_policy = if capabilities.user32_def_window_proc_a_pointer_down {
+            User32CompatibilityPolicy::controlled_v34()
+        } else if capabilities.user32_set_focus_same_window {
             User32CompatibilityPolicy::controlled_v33()
         } else if capabilities.user32_pointer_button_messages {
             User32CompatibilityPolicy::controlled_v32()
@@ -886,7 +889,8 @@ impl BrowserRuntime {
             capabilities.user32_async_key_state_initial_scan,
             capabilities.user32_window_timer_callback_delivery
                 || capabilities.user32_pointer_button_messages
-                || capabilities.user32_set_focus_same_window,
+                || capabilities.user32_set_focus_same_window
+                || capabilities.user32_def_window_proc_a_pointer_down,
         )?;
         let runtime_stack = process
             .runtime
@@ -2762,10 +2766,11 @@ impl BrowserRuntime {
                     ..
                 } = &self.target
                 {
-                    if user32_policy.window_timer_delivery.is_some()
-                        && completion.implementation_id
-                            == vine_core::DISPATCH_MESSAGE_A_IMPLEMENTATION
-                    {
+                    if should_emit_bgi_window_timer_callback_metadata(
+                        user32_policy.window_timer_delivery.is_some(),
+                        completion.implementation_id.as_str(),
+                        completion_policy,
+                    ) {
                         metadata["windowTimer"] =
                             json!(latest_delivered_window_timer(&self.runtime)?);
                     }
@@ -3650,6 +3655,19 @@ fn latest_delivered_window_timer(
         .ok_or_else(|| {
             "window-timer callback completion has no delivered Rust timer state".to_owned()
         })
+}
+
+fn should_emit_bgi_window_timer_callback_metadata(
+    window_timer_delivery_enabled: bool,
+    implementation_id: &str,
+    completion_policy: GuestCallbackCompletionPolicy,
+) -> bool {
+    window_timer_delivery_enabled
+        && implementation_id == vine_core::DISPATCH_MESSAGE_A_IMPLEMENTATION
+        && matches!(
+            completion_policy,
+            GuestCallbackCompletionPolicy::ReturnConstantU32 { .. }
+        )
 }
 
 fn bgi_window_timer_completion_metadata(
@@ -4575,6 +4593,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
     user32_window_timer_callback_delivery_enabled: u32,
     user32_pointer_button_messages_enabled: u32,
     user32_set_focus_same_window_enabled: u32,
+    user32_def_window_proc_a_pointer_down_enabled: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_bgi(
@@ -4604,6 +4623,8 @@ pub extern "C" fn vine_bridge_prepare_bgi(
                     != 0,
                 user32_pointer_button_messages: user32_pointer_button_messages_enabled != 0,
                 user32_set_focus_same_window: user32_set_focus_same_window_enabled != 0,
+                user32_def_window_proc_a_pointer_down: user32_def_window_proc_a_pointer_down_enabled
+                    != 0,
             },
         )
     })
@@ -4980,4 +5001,23 @@ pub extern "C" fn vine_bridge_finish(exit_code: u32) -> u32 {
         let metadata = bridge.runtime_mut()?.finish(exit_code)?;
         bridge.set_output(metadata, Vec::new(), Vec::new())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dispatch_message_window_timer_metadata_excludes_pointer_window_procedure_completion() {
+        assert!(should_emit_bgi_window_timer_callback_metadata(
+            true,
+            vine_core::DISPATCH_MESSAGE_A_IMPLEMENTATION,
+            GuestCallbackCompletionPolicy::ReturnConstantU32 { value: 0 },
+        ));
+        assert!(!should_emit_bgi_window_timer_callback_metadata(
+            true,
+            vine_core::DISPATCH_MESSAGE_A_IMPLEMENTATION,
+            GuestCallbackCompletionPolicy::ReturnU32,
+        ));
+    }
 }

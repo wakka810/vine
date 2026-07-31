@@ -654,7 +654,8 @@ function isInputProgressGatewayCheckpoint(
       "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
     profile === "primary-main-loop-pointer-message-action-progress-gateway" ||
     profile === "user32-set-focus-action-continuation" ||
-    profile === "winmm-time-get-time-action-continuation"
+    profile === "winmm-time-get-time-action-continuation" ||
+    profile === "user32-def-window-proc-a-action-continuation"
   );
 }
 
@@ -667,7 +668,8 @@ function isActionInputProgressGatewayCheckpoint(
       "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
     profile === "primary-main-loop-pointer-message-action-progress-gateway" ||
     profile === "user32-set-focus-action-continuation" ||
-    profile === "winmm-time-get-time-action-continuation"
+    profile === "winmm-time-get-time-action-continuation" ||
+    profile === "user32-def-window-proc-a-action-continuation"
   );
 }
 
@@ -693,7 +695,8 @@ function isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
       "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
     profile === "primary-main-loop-pointer-message-action-progress-gateway" ||
     profile === "user32-set-focus-action-continuation" ||
-    profile === "winmm-time-get-time-action-continuation"
+    profile === "winmm-time-get-time-action-continuation" ||
+    profile === "user32-def-window-proc-a-action-continuation"
   );
 }
 
@@ -715,12 +718,27 @@ function isTimeGetTimeActionContinuationCheckpoint(
   return profile === "winmm-time-get-time-action-continuation";
 }
 
+function isDefWindowProcAActionContinuationCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "user32-def-window-proc-a-action-continuation";
+}
+
+function hasTimeGetTimeActionContinuation(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isTimeGetTimeActionContinuationCheckpoint(profile) ||
+    isDefWindowProcAActionContinuationCheckpoint(profile)
+  );
+}
+
 function hasSetFocusActionContinuation(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isSetFocusActionContinuationCheckpoint(profile) ||
-    isTimeGetTimeActionContinuationCheckpoint(profile)
+    hasTimeGetTimeActionContinuation(profile)
   );
 }
 
@@ -774,7 +792,15 @@ function isRecurringTimerBoundedWindowCheckpoint(
 function recurringTimerWindowConfiguration(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  return isTimeGetTimeActionContinuationCheckpoint(profile)
+  return isDefWindowProcAActionContinuationCheckpoint(profile)
+    ? ({
+        capability: "user32-def-window-proc-a-action-continuation",
+        implementationId:
+          "runtime.user32-def-window-proc-a-action-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      } as const)
+    : isTimeGetTimeActionContinuationCheckpoint(profile)
     ? ({
         capability: "winmm-time-get-time-action-continuation",
         implementationId:
@@ -986,13 +1012,17 @@ function inputProgressGatewayExpectation(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
   const pointer = hasPointerMessageActionProgressGateway(profile);
+  const defWindowProcA =
+    isDefWindowProcAActionContinuationCheckpoint(profile);
   const timeGetTime = isTimeGetTimeActionContinuationCheckpoint(profile);
   const setFocus = isSetFocusActionContinuationCheckpoint(profile);
   const combined =
     isWindowTimerCallbackActionInputProgressGatewayCheckpoint(profile);
   const action = isActionInputProgressGatewayCheckpoint(profile);
   return {
-    capability: timeGetTime
+    capability: defWindowProcA
+      ? "user32-def-window-proc-a-action-continuation"
+      : timeGetTime
       ? "winmm-time-get-time-action-continuation"
       : setFocus
       ? "user32-set-focus-action-continuation"
@@ -1003,7 +1033,9 @@ function inputProgressGatewayExpectation(
       : action
       ? "primary-main-loop-action-input-progress-gateway"
       : "primary-main-loop-input-progress-gateway",
-    implementationId: timeGetTime
+    implementationId: defWindowProcA
+      ? "runtime.user32-def-window-proc-a-action-continuation.v1"
+      : timeGetTime
       ? "runtime.winmm-time-get-time-action-continuation.v1"
       : setFocus
       ? "runtime.user32-set-focus-action-continuation.v1"
@@ -1194,7 +1226,7 @@ function includesPostHeapTimeGetTimeEvidence(
 ): boolean {
   return (
     isPostHeapTimeGetTimeCheckpoint(profile) ||
-    isTimeGetTimeActionContinuationCheckpoint(profile) ||
+    hasTimeGetTimeActionContinuation(profile) ||
     isPostClockCriticalSectionCheckpoint(profile) ||
     isPostWaitCriticalSectionCheckpoint(profile) ||
     isPostTimerWaitCriticalSectionCheckpoint(profile) ||
@@ -1639,6 +1671,26 @@ type TimeGetTimeActionContinuationEntry = Omit<
   | "lastCompletionSequence"
   | "lastCompletionInstructionCount"
   | "timeGetTime"
+  | "instructionCount"
+  | "nextEndpoint"
+  | "nextArguments"
+  | "nextReturnAddress"
+  | "nextStackPointer"
+  | "memoryContentSha256"
+>;
+
+type DefWindowProcAActionContinuationCheckpoint = Extract<
+  NonNullable<SessionReport["checkpointCompletion"]>,
+  { capability: "user32-def-window-proc-a-action-continuation" }
+>;
+
+type DefWindowProcAActionContinuationEntry = Omit<
+  DefWindowProcAActionContinuationCheckpoint,
+  | "lastCompletionSequence"
+  | "lastCompletionInstructionCount"
+  | "defWindowProcAActiveCallbackDepthAtCompletion"
+  | "activeCallbackDepthAtStop"
+  | "defWindowProcA"
   | "instructionCount"
   | "nextEndpoint"
   | "nextArguments"
@@ -2150,6 +2202,10 @@ class BrowserRuntimeSession {
     null;
   #timeGetTimeActionContinuationAwaitingDispatch = false;
   #timeGetTimeActionContinuationDispatching = false;
+  #defWindowProcAActionContinuationEntry: DefWindowProcAActionContinuationEntry | null =
+    null;
+  #defWindowProcAActionContinuationAwaitingDispatch = false;
+  #defWindowProcAActionContinuationDispatching = false;
   readonly #presentationProgressRenderCompletions: RuntimeThreadCallSnapshot[] =
     [];
   #presentationProgressPresentCompletion: RuntimeThreadCallSnapshot | null =
@@ -2508,6 +2564,9 @@ class BrowserRuntimeSession {
               hasSetFocusActionContinuation(
                 this.#configuration.capabilityProfile,
               ),
+              isDefWindowProcAActionContinuationCheckpoint(
+                this.#configuration.capabilityProfile,
+              ),
             )
           : workload === "controlled-source-read"
             ? bridge.prepareSourceRead(
@@ -2568,9 +2627,13 @@ class BrowserRuntimeSession {
         const cursor = preparedOutput.metadata.runtime.cursorPosition;
         invariant(
           preparedOutput.metadata.runtime.user32Policy ===
-            (hasSetFocusActionContinuation(
+            (isDefWindowProcAActionContinuationCheckpoint(
               this.#configuration.capabilityProfile,
             )
+              ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
+              : hasSetFocusActionContinuation(
+                    this.#configuration.capabilityProfile,
+                  )
               ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
               : isPointerMessageActionProgressGatewayCheckpoint(
               this.#configuration.capabilityProfile,
@@ -5234,7 +5297,7 @@ class BrowserRuntimeSession {
         (candidate) => candidate.address === endpoint,
       );
       invariant(
-        isTimeGetTimeActionContinuationCheckpoint(
+        hasTimeGetTimeActionContinuation(
           this.#configuration.capabilityProfile,
         ) &&
           ownedEndpoint?.module?.toLowerCase() === "winmm.dll" &&
@@ -5245,11 +5308,45 @@ class BrowserRuntimeSession {
           !this.#timeGetTimeActionContinuationDispatching &&
           this.#setFocusActionContinuationEntry === null &&
           !this.#setFocusActionContinuationDispatching &&
+          this.#defWindowProcAActionContinuationEntry === null &&
+          !this.#defWindowProcAActionContinuationAwaitingDispatch &&
+          !this.#defWindowProcAActionContinuationDispatching &&
           this.#bgiCallbackCallSequences.size === 1,
         "timeGetTime action continuation reached a different API or lost its live WndProc frame",
       );
       this.#timeGetTimeActionContinuationAwaitingDispatch = false;
       this.#timeGetTimeActionContinuationDispatching = true;
+    }
+    if (this.#defWindowProcAActionContinuationAwaitingDispatch) {
+      const ownedEndpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpoint,
+      );
+      const engine = this.#requireEngine();
+      invariant(
+        isDefWindowProcAActionContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+          ownedEndpoint?.id === 233 &&
+          ownedEndpoint.module?.toLowerCase() === "user32.dll" &&
+          ownedEndpoint.symbol?.kind === "name" &&
+          ownedEndpoint.symbol.name === "DefWindowProcA" &&
+          stackPointer === 0x006f_f50c &&
+          engine.readGuestU32(stackPointer) === 0x1009_33bf &&
+          engine.readGuestU32(stackPointer + 4) === 0x4801_0001 &&
+          engine.readGuestU32(stackPointer + 8) === 0x0201 &&
+          engine.readGuestU32(stackPointer + 12) === 1 &&
+          engine.readGuestU32(stackPointer + 16) === 0x0168_0280 &&
+          this.#report.checkpointCompletion === null &&
+          this.#defWindowProcAActionContinuationEntry !== null &&
+          !this.#defWindowProcAActionContinuationDispatching &&
+          this.#timeGetTimeActionContinuationEntry === null &&
+          !this.#timeGetTimeActionContinuationAwaitingDispatch &&
+          !this.#timeGetTimeActionContinuationDispatching &&
+          this.#bgiCallbackCallSequences.size === 1,
+        "DefWindowProcA action continuation reached a different API or lost its live WndProc frame",
+      );
+      this.#defWindowProcAActionContinuationAwaitingDispatch = false;
+      this.#defWindowProcAActionContinuationDispatching = true;
     }
     if (this.#bgiCheckpointPending) {
       this.#completeBgiCapabilityCheckpoint(endpoint, stackPointer);
@@ -5765,9 +5862,13 @@ class BrowserRuntimeSession {
             this.#configuration.capabilityProfile,
           );
         const compatibilityPolicyId =
-          hasSetFocusActionContinuation(
+          isDefWindowProcAActionContinuationCheckpoint(
             this.#configuration.capabilityProfile,
           )
+            ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
+            : hasSetFocusActionContinuation(
+                  this.#configuration.capabilityProfile,
+                )
             ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
             : isPointerMessageActionProgressGatewayCheckpoint(
               this.#configuration.capabilityProfile,
@@ -5830,9 +5931,13 @@ class BrowserRuntimeSession {
     ) {
       if (this.#report.isIconic === null) {
         const compatibilityPolicyId =
-          hasSetFocusActionContinuation(
+          isDefWindowProcAActionContinuationCheckpoint(
             this.#configuration.capabilityProfile,
           )
+            ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
+            : hasSetFocusActionContinuation(
+                  this.#configuration.capabilityProfile,
+                )
             ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
             : isPointerMessageActionProgressGatewayCheckpoint(
               this.#configuration.capabilityProfile,
@@ -6005,6 +6110,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "winmm-time-get-time-action-continuation" ||
           checkpoint.capability ===
+            "user32-def-window-proc-a-action-continuation" ||
+          checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -6020,6 +6127,22 @@ class BrowserRuntimeSession {
             : "kernel32-wait-for-single-object-ex-v1"),
       "BGI capability checkpoint has no matching compatibility profile",
     );
+    if (
+      checkpoint.capability ===
+      "user32-def-window-proc-a-action-continuation"
+    ) {
+      invariant(
+        this.#bgiCallbackCallSequences.size === 0 &&
+          this.#defWindowProcAActionContinuationEntry === null &&
+          !this.#defWindowProcAActionContinuationAwaitingDispatch &&
+          !this.#defWindowProcAActionContinuationDispatching &&
+          this.#timeGetTimeActionContinuationEntry === null &&
+          !this.#timeGetTimeActionContinuationAwaitingDispatch &&
+          !this.#timeGetTimeActionContinuationDispatching,
+        "DefWindowProcA action continuation stopped before its WndProc callback retired",
+      );
+      checkpoint.activeCallbackDepthAtStop = 0;
+    }
     const endpoint =
       this.#requirePrepared().endpoints.find(
         (candidate) => candidate.address === endpointAddress,
@@ -6102,6 +6225,8 @@ class BrowserRuntimeSession {
       checkpoint.capability === "user32-set-focus-action-continuation" ||
       checkpoint.capability === "winmm-time-get-time-action-continuation" ||
       checkpoint.capability ===
+        "user32-def-window-proc-a-action-continuation" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -6159,6 +6284,15 @@ class BrowserRuntimeSession {
                       this.#requireEngine().readGuestU32(stackPointer + 8),
                       this.#requireEngine().readGuestU32(stackPointer + 12),
                       this.#requireEngine().readGuestU32(stackPointer + 16),
+                    ]
+                : checkpoint.capability ===
+                    "user32-def-window-proc-a-action-continuation"
+                  ? [
+                      this.#requireEngine().readGuestU32(stackPointer + 4),
+                      this.#requireEngine().readGuestU32(stackPointer + 8),
+                      this.#requireEngine().readGuestU32(stackPointer + 12),
+                      this.#requireEngine().readGuestU32(stackPointer + 16),
+                      this.#requireEngine().readGuestU32(stackPointer + 20),
                     ]
                 : checkpoint.capability ===
                       "primary-main-loop-recurring-timer-cycle-batch" ||
@@ -6252,6 +6386,8 @@ class BrowserRuntimeSession {
       checkpoint.capability === "user32-set-focus-action-continuation" ||
       checkpoint.capability === "winmm-time-get-time-action-continuation" ||
       checkpoint.capability ===
+        "user32-def-window-proc-a-action-continuation" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -6294,6 +6430,9 @@ class BrowserRuntimeSession {
                       : checkpoint.capability ===
                           "winmm-time-get-time-action-continuation"
                         ? "WinMM timeGetTime action continuation checkpoint completed"
+                      : checkpoint.capability ===
+                          "user32-def-window-proc-a-action-continuation"
+                        ? "USER32 DefWindowProcA action continuation checkpoint completed"
                       : checkpoint.capability ===
                           "primary-main-loop-pointer-message-action-progress-gateway"
                         ? "Primary main-loop pointer message action progress gateway completed"
@@ -6484,7 +6623,15 @@ class BrowserRuntimeSession {
         windowTimerCallbackCompleting);
     invariant(
       windowTimerMetadataExpected === (metadata.windowTimer !== undefined),
-      "BGI window timer completion metadata mismatch",
+      `BGI window timer completion metadata mismatch: ${JSON.stringify({
+        profile: this.#configuration.capabilityProfile,
+        implementationId: completion.implementationId,
+        kind: metadata.kind,
+        frameId: "frameId" in metadata ? metadata.frameId : undefined,
+        windowTimerMetadataExpected,
+        hasWindowTimerMetadata: metadata.windowTimer !== undefined,
+        windowTimerCallbackFrameId: this.#windowTimerCallbackEntry?.frameId,
+      })}`,
     );
     const isCreateThread =
       completion.implementationId === "kernel32.create-thread.v1";
@@ -6746,7 +6893,7 @@ class BrowserRuntimeSession {
         occurrence: implementationOccurrence,
       } satisfies RuntimeThreadCallSnapshot;
       if (
-        isTimeGetTimeActionContinuationCheckpoint(
+        hasTimeGetTimeActionContinuation(
           this.#configuration.capabilityProfile,
         )
       ) {
@@ -6787,7 +6934,7 @@ class BrowserRuntimeSession {
       this.#setFocusActionContinuationDispatching = false;
     }
     if (
-      isTimeGetTimeActionContinuationCheckpoint(
+      hasTimeGetTimeActionContinuation(
         this.#configuration.capabilityProfile,
       ) &&
       this.#timeGetTimeActionContinuationDispatching &&
@@ -6833,11 +6980,99 @@ class BrowserRuntimeSession {
         trapInstructionCount: this.#report.instructions,
         occurrence: implementationOccurrence,
       } satisfies RuntimeThreadCallSnapshot;
+      if (
+        isDefWindowProcAActionContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        )
+      ) {
+        this.#defWindowProcAActionContinuationEntry = {
+          ...entry,
+          capability: "user32-def-window-proc-a-action-continuation",
+          implementationId:
+            "runtime.user32-def-window-proc-a-action-continuation.v1",
+          timeGetTimeActiveCallbackDepthAtCompletion: 1,
+          timeGetTime,
+        } satisfies DefWindowProcAActionContinuationEntry;
+        this.#defWindowProcAActionContinuationAwaitingDispatch = true;
+      } else {
+        this.#report.checkpointCompletion = {
+          ...entry,
+          lastCompletionSequence: sequence,
+          lastCompletionInstructionCount: this.#report.instructions,
+          timeGetTime,
+          instructionCount: 0,
+          nextEndpoint: {
+            id: 0,
+            address: 0,
+            disposition: "declared-runtime-export" as const,
+            iatAddress: 0,
+          },
+          nextArguments: [0, 0, 0, 0],
+          nextReturnAddress: 0,
+          nextStackPointer: 0,
+          memoryContentSha256: "",
+        } satisfies TimeGetTimeActionContinuationCheckpoint;
+        this.#bgiCheckpointPending = true;
+      }
+      this.#timeGetTimeActionContinuationEntry = null;
+      this.#timeGetTimeActionContinuationDispatching = false;
+    }
+    if (
+      isDefWindowProcAActionContinuationCheckpoint(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#defWindowProcAActionContinuationDispatching &&
+      completion.implementationId === "user32.def-window-proc-a.v1"
+    ) {
+      const entry = this.#defWindowProcAActionContinuationEntry;
+      invariant(
+        this.#defWindowProcAActionContinuationDispatching &&
+          entry !== null &&
+          this.#report.checkpointCompletion === null &&
+          endpoint.id === 233 &&
+          endpoint.module.toLowerCase() === "user32.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "DefWindowProcA" &&
+          this.#currentThreadId === 8_192 &&
+          call.arguments.length === 4 &&
+          call.arguments[0] === 0x4801_0001 &&
+          call.arguments[1] === 0x0201 &&
+          call.arguments[2] === 1 &&
+          call.arguments[3] === 0x0168_0280 &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 0 &&
+          call.returnAddress === 0x1009_33bf &&
+          call.stackPointerBefore === 0x006f_f50c &&
+          call.stackPointerAfter === 0x006f_f520 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0 &&
+          this.#bgiCallbackCallSequences.size === 1,
+        `DefWindowProcA action continuation changed its bounded WM_LBUTTONDOWN or live-callback contract: ${JSON.stringify(
+          {
+            dispatching: this.#defWindowProcAActionContinuationDispatching,
+            hasEntry: entry !== null,
+            hasCheckpoint: this.#report.checkpointCompletion !== null,
+            endpoint,
+            currentThreadId: this.#currentThreadId,
+            call,
+            activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+          },
+        )}`,
+      );
+      const defWindowProcA = {
+        ...structuredClone(call),
+        runtimeThreadId: this.#currentThreadId,
+        trapInstructionCount: this.#report.instructions,
+        occurrence: implementationOccurrence,
+      } satisfies RuntimeThreadCallSnapshot;
       this.#report.checkpointCompletion = {
         ...entry,
         lastCompletionSequence: sequence,
         lastCompletionInstructionCount: this.#report.instructions,
-        timeGetTime,
+        defWindowProcAActiveCallbackDepthAtCompletion: 1,
+        activeCallbackDepthAtStop: 0,
+        defWindowProcA,
         instructionCount: 0,
         nextEndpoint: {
           id: 0,
@@ -6845,13 +7080,13 @@ class BrowserRuntimeSession {
           disposition: "declared-runtime-export" as const,
           iatAddress: 0,
         },
-        nextArguments: [0, 0, 0, 0],
+        nextArguments: [0, 0, 0, 0, 0],
         nextReturnAddress: 0,
         nextStackPointer: 0,
         memoryContentSha256: "",
-      } satisfies TimeGetTimeActionContinuationCheckpoint;
-      this.#timeGetTimeActionContinuationEntry = null;
-      this.#timeGetTimeActionContinuationDispatching = false;
+      } satisfies DefWindowProcAActionContinuationCheckpoint;
+      this.#defWindowProcAActionContinuationEntry = null;
+      this.#defWindowProcAActionContinuationDispatching = false;
       this.#bgiCheckpointPending = true;
     }
     this.#recordD3d9RecreatedTextureCall(call);
@@ -11438,9 +11673,13 @@ class BrowserRuntimeSession {
       firstCall: structuredClone(firstCall.call),
       lastCall: structuredClone(lastCall.call),
       compatibilityPolicyId:
-        hasSetFocusActionContinuation(
+        isDefWindowProcAActionContinuationCheckpoint(
           this.#configuration.capabilityProfile,
         )
+          ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
+          : hasSetFocusActionContinuation(
+                this.#configuration.capabilityProfile,
+              )
           ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
           : isPointerMessageActionProgressGatewayCheckpoint(
             this.#configuration.capabilityProfile,
@@ -15940,6 +16179,89 @@ class BrowserRuntimeSession {
             heapPageMaterializations:
               this.#report.heapPageMaterializations?.length,
             sourceReads: this.#report.sourceReads.length,
+          })}`,
+        );
+      }
+      if (
+        isDefWindowProcAActionContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report
+          .checkpointCompletion as DefWindowProcAActionContinuationCheckpoint | null;
+        const defWindowProcA = checkpoint?.defWindowProcA;
+        invariant(
+          this.#report.supportedCallCount === 161_948 &&
+            /^[0-9a-f]{64}$/u.test(
+              this.#report.supportedCallSemanticsSha256,
+            ) &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability ===
+              "user32-def-window-proc-a-action-continuation" &&
+            checkpoint.implementationId ===
+              "runtime.user32-def-window-proc-a-action-continuation.v1" &&
+            checkpoint.requiredPointerMessages === 1 &&
+            checkpoint.pointerMessageDeliveryCount === 1 &&
+            checkpoint.releaseMessageQueued &&
+            checkpoint.setFocusActiveCallbackDepthAtStop === 1 &&
+            checkpoint.timeGetTimeActiveCallbackDepthAtCompletion === 1 &&
+            checkpoint.defWindowProcAActiveCallbackDepthAtCompletion === 1 &&
+            checkpoint.activeCallbackDepthAtStop === 0 &&
+            checkpoint.requiredCompletions === 1 &&
+            checkpoint.completionCount === 1 &&
+            checkpoint.lastCompletionSequence === 161_948 &&
+            checkpoint.lastCompletionInstructionCount === 321_462_401 &&
+            checkpoint.dispatchEntry.sequence === 161_942 &&
+            checkpoint.dispatchEntry.trapInstructionCount === 321_462_086 &&
+            checkpoint.callbackEntry.frameId === 33 &&
+            checkpoint.callbackEntry.target === 0x1009_2550 &&
+            checkpoint.setFocus.sequence === 161_946 &&
+            checkpoint.timeGetTime.sequence === 161_947 &&
+            defWindowProcA?.sequence === 161_948 &&
+            defWindowProcA.runtimeThreadId === 8_192 &&
+            defWindowProcA.trapInstructionCount === 321_462_401 &&
+            defWindowProcA.occurrence === 26 &&
+            defWindowProcA.module.toLowerCase() === "user32.dll" &&
+            defWindowProcA.symbol === "DefWindowProcA" &&
+            defWindowProcA.implementationId ===
+              "user32.def-window-proc-a.v1" &&
+            defWindowProcA.arguments.join(",") ===
+              "1208025089,513,1,23593600" &&
+            "action" in defWindowProcA.result &&
+            defWindowProcA.result.action === "set" &&
+            defWindowProcA.result.value === 0 &&
+            defWindowProcA.returnAddress === 0x1009_33bf &&
+            defWindowProcA.stackPointerBefore === 0x006f_f50c &&
+            defWindowProcA.stackPointerAfter === 0x006f_f520 &&
+            defWindowProcA.lastError === 0 &&
+            defWindowProcA.guestWrites.length === 0 &&
+            checkpoint.instructionCount === 321_462_423 &&
+            checkpoint.nextEndpoint.id === 164 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0a30 &&
+            checkpoint.nextEndpoint.module?.toLowerCase() === "user32.dll" &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "PeekMessageA" &&
+            checkpoint.nextEndpoint.iatAddress === 0x100d_1368 &&
+            checkpoint.nextArguments.join(",") ===
+              "7338216,0,0,0,1" &&
+            checkpoint.nextReturnAddress === 0x1009_37bb &&
+            checkpoint.nextStackPointer === 0x006f_f8c4 &&
+            /^[0-9a-f]{64}$/u.test(checkpoint.memoryContentSha256) &&
+            this.#report.instructions === 321_462_423 &&
+            this.#bgiCallbackCallSequences.size === 0,
+          `DefWindowProcA action continuation changed: ${JSON.stringify({
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            checkpoint,
+            instructions: this.#report.instructions,
+            finalGeneration: Number(this.#generation),
+            writebackBatches: this.#report.writebackBatches,
+            writebackPages: this.#report.writebackPages,
+            mappingDeltas: this.#report.mappingDeltas,
+            mappingDirtyPages: this.#report.mappingDirtyPages,
+            contextSwitches: this.#report.contextSwitches,
           })}`,
         );
       }

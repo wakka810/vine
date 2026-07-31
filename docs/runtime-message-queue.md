@@ -130,6 +130,15 @@ Win32 mapping、`wParam` key mask、packed client-coordinate `lParam`、logical 
 残り、Worker evidenceはcopy snapshotからそのrelationを確認する。TypeScriptはqueue head、message ID、
 HWND relation、Win32 button stateを所有しない。
 
+Reached WndProcは`SetFocus`と`timeGetTime`の後に同じdown payloadを`DefWindowProcA`へ渡す。User32 v34の
+explicit default-processing profileはv33のSetFocus-only境界を維持しつつ既存pointer-button profileへ接続し、
+live／created／visible same-owner window、active／focused／
+foreground relation、`MK_LBUTTON`、logical screen cursorから導出したsigned client coordinateとpacked
+`lParam`を検証する。成功はLRESULT 0であり、LastError、guest bytes、window／input／queue state、
+allocatorを変更せず、capture authorityも導入しないため、matching upは同じqueue head relationのまま残る。このcontractは
+reached client `WM_LBUTTONDOWN`だけであり、v33以前はunsupportedのまま保つ。Release、capture transition、double-click、nonclient、
+right-buttonのdefault processingへ一般化しない。
+
 ## Lifecycle cleanup
 
 Thread exit requestはowned queued messagesをcallback／host request／wait registration／scheduler eventと
@@ -162,10 +171,10 @@ This checkpoint does not implement window／queue creation rules, filtered or cr
 WM_QUIT special return, generated paint, general `DispatchMessage`, cross-process post, broadcast, or quota
 parity. Window-timer delivery remains limited to the reached live-HWND／ID 1／20 ms／TIMERPROC profile. Pointer
 production is limited to normalized primary／secondary button messages for the visible active focused foreground
-window; the reached case fixes down dispatch and a queued matching release. Pointer move／wheel, capture,
-double-click, nonclient translation, replacement race, `KillTimer`, NULL-HWND allocated IDs, visible action
-response, and background freeze／resume remain unproven. Existing W2 message／paint flow remains a separate
-fixed JavaScript harness.
+window; the reached case fixes down dispatch, bounded client-down default processing, and a queued matching
+release. Pointer move／wheel, capture transition, double-click, nonclient translation, replacement race,
+`KillTimer`, NULL-HWND allocated IDs, visible action response, and background freeze／resume remain unproven.
+Existing W2 message／paint flow remains a separate fixed JavaScript harness.
 This is partial evidence for `P1-SCH-01`／`REQ-UI-02`, not their completion.
 
 The controlled private-heap dependency is implemented in

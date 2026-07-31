@@ -1263,7 +1263,9 @@ browserOwnedWindowTimer.browserCheckpoint.bgiRuntimeEvidence.windowTimerBrowserT
   true;
 assert.ok(
   validateCurrentCheckpoint(browserOwnedWindowTimer).some((error) =>
-    error.includes("window timer callback recurring evidence"),
+    error.includes(
+      "callback unwind evidence is invalid for the DefWindowProcA action checkpoint",
+    ),
   ),
 );
 
@@ -1281,7 +1283,9 @@ detachedWindowTimerQueue.activeRuntimeCheckpoint.latestEvidence.windowTimerQueue
   "typescript-worker-message-queue";
 assert.ok(
   validateCurrentCheckpoint(detachedWindowTimerQueue).some((error) =>
-    error.includes("window timer callback recurring evidence"),
+    error.includes(
+      "callback unwind evidence is invalid for the DefWindowProcA action checkpoint",
+    ),
   ),
 );
 
@@ -1290,7 +1294,9 @@ consumedTimerProcResult.activeRuntimeCheckpoint.latestEvidence.dispatchMessageAC
   "return-guest-result";
 assert.ok(
   validateCurrentCheckpoint(consumedTimerProcResult).some((error) =>
-    error.includes("window timer callback recurring evidence"),
+    error.includes(
+      "callback unwind evidence is invalid for the DefWindowProcA action checkpoint",
+    ),
   ),
 );
 
@@ -1299,7 +1305,7 @@ detachedSetFocusThread.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpoi
   8_193;
 assert.ok(
   validateCurrentCheckpoint(detachedSetFocusThread).some((error) =>
-    error.includes("latest timeGetTime action checkpoint evidence"),
+    error.includes("latest DefWindowProcA action checkpoint evidence"),
   ),
 );
 
@@ -1308,7 +1314,7 @@ detachedBrowserSetFocusThread.browserCheckpoint.bgiRuntimeEvidence.checkpointCom
   8_193;
 assert.ok(
   validateCurrentCheckpoint(detachedBrowserSetFocusThread).some((error) =>
-    error.includes("browser BGI timeGetTime action checkpoint evidence"),
+    error.includes("browser BGI DefWindowProcA action checkpoint evidence"),
   ),
 );
 
@@ -1317,7 +1323,7 @@ detachedTimeGetTimeThread.activeRuntimeCheckpoint.latestEvidence.capabilityCheck
   8_193;
 assert.ok(
   validateCurrentCheckpoint(detachedTimeGetTimeThread).some((error) =>
-    error.includes("latest timeGetTime action checkpoint evidence"),
+    error.includes("latest DefWindowProcA action checkpoint evidence"),
   ),
 );
 
@@ -1326,7 +1332,44 @@ staleBrowserTimeGetTimeTick.browserCheckpoint.bgiRuntimeEvidence.checkpointCompl
   3_601_225;
 assert.ok(
   validateCurrentCheckpoint(staleBrowserTimeGetTimeTick).some((error) =>
-    error.includes("browser BGI timeGetTime action checkpoint evidence"),
+    error.includes("browser BGI DefWindowProcA action checkpoint evidence"),
+  ),
+);
+
+const detachedDefWindowProcAThread = structuredClone(manifest);
+detachedDefWindowProcAThread.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.defWindowProcA.runtimeThreadId =
+  8_193;
+assert.ok(
+  validateCurrentCheckpoint(detachedDefWindowProcAThread).some((error) =>
+    error.includes("latest DefWindowProcA action checkpoint evidence"),
+  ),
+);
+
+const mutatedBrowserDefWindowProcAResult = structuredClone(manifest);
+mutatedBrowserDefWindowProcAResult.browserCheckpoint.bgiRuntimeEvidence.checkpointCompletion.defWindowProcA.result.value =
+  1;
+assert.ok(
+  validateCurrentCheckpoint(mutatedBrowserDefWindowProcAResult).some((error) =>
+    error.includes("browser BGI DefWindowProcA action checkpoint evidence"),
+  ),
+);
+
+const staleDefWindowProcAPolicy = structuredClone(manifest);
+staleDefWindowProcAPolicy.activeRuntimeCheckpoint.user32CompatibilityPolicy.defWindowProcAPointerDown.requireCursorDerivedClientLParam =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(staleDefWindowProcAPolicy).some((error) =>
+    error.includes("active User32 compatibility policy boundary"),
+  ),
+);
+
+const stalePointerReleaseStop = structuredClone(manifest);
+stalePointerReleaseStop.nextStructuredStop.nextEndpoint.endpointId = 233;
+assert.ok(
+  validateCurrentCheckpoint(stalePointerReleaseStop).some((error) =>
+    error.includes(
+      "DefWindowProcA action continuation checkpoint stop is invalid",
+    ),
   ),
 );
 

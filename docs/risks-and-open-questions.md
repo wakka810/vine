@@ -109,9 +109,13 @@ guest-visible clockへ流入させないinput／timer compositionは閉じたが
 preflightし、`WM_LBUTTONDOWN`をWndProcへdispatchしてmatching releaseをRust queueに保持した。Queued pointer
 message productionの成立性riskは閉じた。続くSetFocus continuationは、同じcurrent-threadのactive／focused／
 foreground windowに対するidempotent return、LastError／window／guest-memory不変、NULL／unknown／stale／
-異なるwindowのmutation-free rejectionまでをRust／Node／Chromeで閉じた。残るriskはfocus transition message、
-cross-thread focus、release dispatch、capture／move／wheel、replacement／`KillTimer` race、background
-freeze／resumeとcatch-upをscheduler、message queue、page lifecycleで順序付けることである。
+異なるwindowのmutation-free rejectionまでをRust／Node／Chromeで閉じた。Active WndProc内の既存
+`timeGetTime` continuationに続き、explicit User32 v34 gateを持つclient `WM_LBUTTONDOWN`の
+`DefWindowProcA`もlogical cursor／window
+relationを再検証するLRESULT 0／LastError preserve／zero-mutation leafとして閉じた。残るriskはfocus
+transition message、cross-thread focus、release dispatch、capture transition／move／wheel／double-click／
+nonclient default processing、replacement／`KillTimer` race、background freeze／resumeとcatch-upを
+scheduler、message queue、page lifecycleで順序付けることである。
 
 Primary `CreateThread`／`ResumeThread`のlogical identity、stack／TEB／FS bootstrap、typed handle、suspend count、
 Worker context registrationに加え、直後の`SetThreadPriority`でabove-normal logical stateをthread ownerへ保存する

@@ -106,8 +106,13 @@ const setFocusActionContinuationProfile =
   bgiProfile === "user32-set-focus-action-continuation";
 const timeGetTimeActionContinuationProfile =
   bgiProfile === "winmm-time-get-time-action-continuation";
+const defWindowProcAActionContinuationProfile =
+  bgiProfile === "user32-def-window-proc-a-action-continuation";
+const timeGetTimeEvidenceProfile =
+  timeGetTimeActionContinuationProfile ||
+  defWindowProcAActionContinuationProfile;
 const setFocusEvidenceProfile =
-  setFocusActionContinuationProfile || timeGetTimeActionContinuationProfile;
+  setFocusActionContinuationProfile || timeGetTimeEvidenceProfile;
 const pointerMessageEvidenceProfile =
   pointerMessageActionProgressGatewayProfile || setFocusEvidenceProfile;
 const actionInputProgressGatewayProfile =
@@ -263,7 +268,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v80";
+const runtimeProtocol = "vine.browser-runtime-worker.v81";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -950,6 +955,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-pointer-message-action-progress-gateway",
         "user32-set-focus-action-continuation",
         "winmm-time-get-time-action-continuation",
+        "user32-def-window-proc-a-action-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1026,6 +1032,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-pointer-message-action-progress-gateway",
         "user32-set-focus-action-continuation",
         "winmm-time-get-time-action-continuation",
+        "user32-def-window-proc-a-action-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1102,6 +1109,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "primary-main-loop-pointer-message-action-progress-gateway",
         "user32-set-focus-action-continuation",
         "winmm-time-get-time-action-continuation",
+        "user32-def-window-proc-a-action-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
@@ -3249,7 +3257,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.deepEqual(scan.lastCall.result, { action: "set", value: 0 });
         assert.equal(
           scan.compatibilityPolicyId,
-          setFocusEvidenceProfile
+          defWindowProcAActionContinuationProfile
+            ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
+            : setFocusEvidenceProfile
             ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
             : pointerMessageEvidenceProfile
               ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
@@ -3621,7 +3631,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         }
         assert.equal(
           peek.compatibilityPolicyId,
-          setFocusEvidenceProfile
+          defWindowProcAActionContinuationProfile
+            ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
+            : setFocusEvidenceProfile
             ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
             : pointerMessageActionProgressGatewayProfile
               ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
@@ -3830,7 +3842,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         }
         assert.equal(
           iconic.compatibilityPolicyId,
-          setFocusEvidenceProfile
+          defWindowProcAActionContinuationProfile
+            ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
+            : setFocusEvidenceProfile
             ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
             : pointerMessageActionProgressGatewayProfile
               ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
@@ -6170,7 +6184,10 @@ function validateBgiEquivalence(browser, oracle) {
       oracleCheckpoint.capability ===
         "primary-main-loop-pointer-message-action-progress-gateway" ||
       oracleCheckpoint.capability === "user32-set-focus-action-continuation" ||
-      oracleCheckpoint.capability === "winmm-time-get-time-action-continuation"
+      oracleCheckpoint.capability ===
+        "winmm-time-get-time-action-continuation" ||
+      oracleCheckpoint.capability ===
+        "user32-def-window-proc-a-action-continuation"
     ) {
       const normalizeThreadCall = (call) => ({
         ...normalizeSemanticCall(call),
@@ -6213,10 +6230,27 @@ function validateBgiEquivalence(browser, oracle) {
                 candidate.lastCompletionInstructionCount,
               setFocusActiveCallbackDepthAtStop:
                 candidate.setFocusActiveCallbackDepthAtStop,
+              ...(candidate.timeGetTimeActiveCallbackDepthAtCompletion ===
+              undefined
+                ? {}
+                : {
+                    timeGetTimeActiveCallbackDepthAtCompletion:
+                      candidate.timeGetTimeActiveCallbackDepthAtCompletion,
+                  }),
               timeGetTime: {
                 ...normalizeThreadCall(candidate.timeGetTime),
                 runtimeThreadId: candidate.timeGetTime.runtimeThreadId,
                 tickCount: candidate.timeGetTime.tickCount,
+              },
+            }),
+        ...(candidate.defWindowProcA === undefined
+          ? {}
+          : {
+              defWindowProcAActiveCallbackDepthAtCompletion:
+                candidate.defWindowProcAActiveCallbackDepthAtCompletion,
+              defWindowProcA: {
+                ...normalizeThreadCall(candidate.defWindowProcA),
+                runtimeThreadId: candidate.defWindowProcA.runtimeThreadId,
               },
             }),
         instructionCount: candidate.instructionCount,
@@ -6234,6 +6268,113 @@ function validateBgiEquivalence(browser, oracle) {
         oracleCheckpoint.capability,
         "Chrome Worker reached a different pointer-message capability",
       );
+      if (
+        oracleCheckpoint.capability ===
+        "user32-def-window-proc-a-action-continuation"
+      ) {
+        assert.equal(oracle.supportedCallCount, 161_948);
+        assert.match(
+          oracle.supportedCallSemanticsSha256,
+          /^[0-9a-f]{64}$/u,
+        );
+        assert.equal(
+          oracleCheckpoint.implementationId,
+          "runtime.user32-def-window-proc-a-action-continuation.v1",
+        );
+        assert.equal(oracleCheckpoint.requiredCompletions, 1);
+        assert.equal(oracleCheckpoint.completionCount, 1);
+        assert.equal(oracleCheckpoint.lastCompletionSequence, 161_948);
+        assert.equal(
+          oracleCheckpoint.lastCompletionInstructionCount,
+          321_462_401,
+        );
+        assert.equal(oracleCheckpoint.requiredPointerMessages, 1);
+        assert.equal(oracleCheckpoint.pointerMessageDeliveryCount, 1);
+        assert.equal(oracleCheckpoint.releaseMessageQueued, true);
+        assert.equal(
+          oracleCheckpoint.setFocusActiveCallbackDepthAtStop,
+          1,
+        );
+        assert.equal(
+          oracleCheckpoint.timeGetTimeActiveCallbackDepthAtCompletion,
+          1,
+        );
+        assert.equal(
+          oracleCheckpoint.defWindowProcAActiveCallbackDepthAtCompletion,
+          1,
+        );
+        assert.equal(oracleCheckpoint.activeCallbackDepthAtStop, 0);
+        assert.equal(oracleCheckpoint.setFocus.sequence, 161_946);
+        assert.equal(oracleCheckpoint.timeGetTime.sequence, 161_947);
+        assert.equal(
+          oracleCheckpoint.defWindowProcA.runtimeThreadId,
+          8_192,
+        );
+        assert.equal(oracleCheckpoint.defWindowProcA.sequence, 161_948);
+        assert.equal(oracleCheckpoint.defWindowProcA.occurrence, 26);
+        assert.equal(
+          oracleCheckpoint.defWindowProcA.trapInstructionCount,
+          321_462_401,
+        );
+        assert.equal(
+          oracleCheckpoint.defWindowProcA.module.toLowerCase(),
+          "user32.dll",
+        );
+        assert.equal(
+          oracleCheckpoint.defWindowProcA.symbol,
+          "DefWindowProcA",
+        );
+        assert.equal(
+          oracleCheckpoint.defWindowProcA.implementationId,
+          "user32.def-window-proc-a.v1",
+        );
+        assert.deepEqual(oracleCheckpoint.defWindowProcA.arguments, [
+          0x4801_0001,
+          0x0201,
+          1,
+          0x0168_0280,
+        ]);
+        assert.deepEqual(oracleCheckpoint.defWindowProcA.result, {
+          action: "set",
+          value: 0,
+        });
+        assert.equal(
+          oracleCheckpoint.defWindowProcA.returnAddress,
+          0x1009_33bf,
+        );
+        assert.equal(
+          oracleCheckpoint.defWindowProcA.stackPointerBefore,
+          0x006f_f50c,
+        );
+        assert.equal(
+          oracleCheckpoint.defWindowProcA.stackPointerAfter,
+          0x006f_f520,
+        );
+        assert.equal(oracleCheckpoint.defWindowProcA.lastError, 0);
+        assert.deepEqual(oracleCheckpoint.defWindowProcA.guestWrites, []);
+        assert.equal(oracleCheckpoint.instructionCount, 321_462_423);
+        assert.deepEqual(oracleCheckpoint.nextEndpoint, {
+          id: 164,
+          address: 0x7f00_0a30,
+          module: "USER32.dll",
+          symbol: { kind: "name", name: "PeekMessageA" },
+          disposition: "declared-runtime-export",
+          iatAddress: 0x100d_1368,
+        });
+        assert.deepEqual(oracleCheckpoint.nextArguments, [
+          0x006f_f8e8,
+          0,
+          0,
+          0,
+          1,
+        ]);
+        assert.equal(oracleCheckpoint.nextReturnAddress, 0x1009_37bb);
+        assert.equal(oracleCheckpoint.nextStackPointer, 0x006f_f8c4);
+        assert.match(
+          oracleCheckpoint.memoryContentSha256,
+          /^[0-9a-f]{64}$/u,
+        );
+      }
       if (
         oracleCheckpoint.capability ===
         "winmm-time-get-time-action-continuation"

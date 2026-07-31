@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 80 as const;
+export const protocolVersion = 81 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -68,6 +68,7 @@ export type BgiCapabilityProfile =
   | "primary-main-loop-pointer-message-action-progress-gateway"
   | "user32-set-focus-action-continuation"
   | "winmm-time-get-time-action-continuation"
+  | "user32-def-window-proc-a-action-continuation"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
@@ -1436,7 +1437,8 @@ export interface SessionReport {
       | "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30"
       | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
       | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
-      | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33";
+      | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
+      | "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34";
     cursorPosition: RuntimeCursorPositionSnapshot;
     cursorStateAuthority: "rust-runtime-input-cursor-position";
     keyboardProfileId: "foreground-focused-virtual-key-state-v1";
@@ -1484,7 +1486,8 @@ export interface SessionReport {
       | "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30"
       | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
       | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
-      | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33";
+      | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
+      | "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34";
     profileId:
       | "current-thread-unfiltered-peek-message-a-v1"
       | "current-thread-empty-queue-coalesced-window-timer-callback-v1";
@@ -1504,7 +1507,8 @@ export interface SessionReport {
       | "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30"
       | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
       | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
-      | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33";
+      | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
+      | "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34";
     profileId: "logical-window-effective-style-is-iconic-v1";
     windowStateAuthority: "rust-runtime-user32-logical-window";
     minimizedStyleMask: 536870912;
@@ -2485,6 +2489,73 @@ export interface SessionReport {
             | { kind: "ordinal"; ordinal: number };
         };
         nextArguments: [number, number, number, number];
+        nextReturnAddress: number;
+        nextStackPointer: number;
+        memoryContentSha256: string;
+      }
+    | {
+        capability: "user32-def-window-proc-a-action-continuation";
+        implementationId: "runtime.user32-def-window-proc-a-action-continuation.v1";
+        requiredPointerMessages: 1;
+        pointerMessageDeliveryCount: number;
+        inputBaseline: {
+          cycleCount: 253;
+          lastCompletionSequence: number;
+          lastCompletionInstructionCount: number;
+          presentOccurrence: number;
+          renderCompletionCount: number;
+        };
+        inputEvents: [
+          RuntimePointerButtonInputBoundaryEvidence,
+          RuntimePointerButtonInputBoundaryEvidence,
+        ];
+        inputQuery: RuntimeThreadCallSnapshot;
+        peekMessage: RuntimeThreadCallSnapshot;
+        translateMessage: RuntimeThreadCallSnapshot;
+        dispatchEntry: {
+          sequence: number;
+          module: string;
+          symbol: "DispatchMessageA";
+          occurrence: number;
+          trapInstructionCount: number;
+          arguments: [number];
+          pendingCallback: true;
+          implementationId:
+            "user32.dispatch-message-a.window-timer-pointer-callback.v2";
+        };
+        callbackEntry: {
+          action: "enter";
+          sequence: number;
+          frameId: number;
+          instructionCount: number;
+          target: number;
+          stackPointer: number;
+          arguments: [number, number, number, number];
+        };
+        releaseMessageQueued: true;
+        setFocusActiveCallbackDepthAtStop: 1;
+        timeGetTimeActiveCallbackDepthAtCompletion: 1;
+        defWindowProcAActiveCallbackDepthAtCompletion: 1;
+        activeCallbackDepthAtStop: 0;
+        requiredCompletions: 1;
+        completionCount: 1;
+        setFocus: RuntimeThreadCallSnapshot;
+        timeGetTime: RuntimeThreadCallSnapshot;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        defWindowProcA: RuntimeThreadCallSnapshot;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          disposition: "declared-runtime-export";
+          iatAddress: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        nextArguments: [number, number, number, number, number];
         nextReturnAddress: number;
         nextStackPointer: number;
         memoryContentSha256: string;

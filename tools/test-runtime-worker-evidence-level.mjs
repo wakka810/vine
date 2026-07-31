@@ -9,10 +9,11 @@ const read = (relativePath) =>
 
 const protocol = read("browser/runtime-worker/protocol.ts");
 const worker = read("browser/runtime-worker/runtime-worker.ts");
+const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 80 as const/u);
+assert.match(protocol, /protocolVersion = 81 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -43,7 +44,15 @@ assert.match(protocol, /"user32-set-focus-action-continuation"/u);
 assert.match(protocol, /"winmm-time-get-time-action-continuation"/u);
 assert.match(
   protocol,
+  /"user32-def-window-proc-a-action-continuation"/u,
+);
+assert.match(
+  protocol,
   /capability: "winmm-time-get-time-action-continuation";[\s\S]*?setFocusActiveCallbackDepthAtStop: 1;[\s\S]*?activeCallbackDepthAtStop: 1;[\s\S]*?setFocus: RuntimeThreadCallSnapshot;[\s\S]*?lastCompletionSequence: number;[\s\S]*?lastCompletionInstructionCount: number;[\s\S]*?timeGetTime: RuntimeThreadCallSnapshot;[\s\S]*?nextArguments: \[number, number, number, number\];/u,
+);
+assert.match(
+  protocol,
+  /capability: "user32-def-window-proc-a-action-continuation";[\s\S]*?timeGetTimeActiveCallbackDepthAtCompletion: 1;[\s\S]*?defWindowProcAActiveCallbackDepthAtCompletion: 1;[\s\S]*?activeCallbackDepthAtStop: 0;[\s\S]*?timeGetTime: RuntimeThreadCallSnapshot;[\s\S]*?lastCompletionSequence: number;[\s\S]*?lastCompletionInstructionCount: number;[\s\S]*?defWindowProcA: RuntimeThreadCallSnapshot;[\s\S]*?nextArguments: \[number, number, number, number, number\];/u,
 );
 assert.match(protocol, /windowTimerDelivery\?: \{/u);
 assert.match(
@@ -77,8 +86,24 @@ assert.match(
 );
 assert.match(fullProbe, /winmm-time-get-time-action-continuation/u);
 assert.match(
+  fullProbe,
+  /user32-def-window-proc-a-action-continuation/u,
+);
+assert.match(
   worker,
-  /isTimeGetTimeActionContinuationCheckpoint\([\s\S]{0,200}#timeGetTimeActionContinuationDispatching &&\s*completion\.implementationId === "winmm\.time-get-time\.v1"/u,
+  /hasTimeGetTimeActionContinuation\([\s\S]{0,200}#timeGetTimeActionContinuationDispatching &&\s*completion\.implementationId === "winmm\.time-get-time\.v1"/u,
+);
+assert.match(
+  worker,
+  /#defWindowProcAActionContinuationAwaitingDispatch[\s\S]*?ownedEndpoint\.symbol\.name === "DefWindowProcA"[\s\S]*?#defWindowProcAActionContinuationDispatching = true/u,
+);
+assert.match(
+  worker,
+  /#defWindowProcAActionContinuationDispatching &&\s*completion\.implementationId === "user32\.def-window-proc-a\.v1"/u,
+);
+assert.match(
+  bridge,
+  /user32DefWindowProcAPointerDownEnabled: boolean[\s\S]*?Number\(user32DefWindowProcAPointerDownEnabled\)/u,
 );
 assert.match(protocol, /kernel32-get-file-attributes-a/u);
 assert.match(protocol, /RuntimeGetFileAttributesACallSnapshot/u);

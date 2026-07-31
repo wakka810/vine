@@ -87,6 +87,25 @@ button release and callback depth remain unchanged until the next User32
 endpoint. The Worker compares the immutable completion evidence but samples no
 browser clock and owns no WinMM or message-queue state.
 
+Protocol version 81's `user32-def-window-proc-a-action-continuation` completes
+the reached `DefWindowProcA(WM_LBUTTONDOWN)` inside that same WndProc. An
+explicit User32 v34 default-processing profile preserves the v33 SetFocus-only
+boundary. Rust validates the live／created／visible same-owner window,
+active／focused／foreground relations, pointer-message key mask, and logical cursor-derived
+client `lParam`, then returns LRESULT 0 while preserving LastError, guest
+memory, window／input／queue state, the queued button release, and callback
+depth. No capture authority or transition is introduced. The Worker records
+immutable completion evidence only; it neither invokes
+DOM default handling nor creates browser capture, HWND, cursor, queue, or User32
+state.
+
+Because the same `DispatchMessageA` semantic handler covers both timer and
+pointer callbacks, callback-completion evidence distinguishes them by the
+Rust-issued completion policy. A timer snapshot is attached only to the
+constant-result timer callback, never merely because a `DispatchMessageA`
+callback completed; pointer callbacks retain their own result and do not
+masquerade as timer delivery.
+
 After a guest API completion, Rust may return a `thread-switch` selected by the
 authoritative scheduler. The Worker saves the outgoing opaque engine context and
 restores the context associated with the selected runtime TID; it does not choose

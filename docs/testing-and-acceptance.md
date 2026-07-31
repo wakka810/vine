@@ -1171,6 +1171,20 @@ instruction 321,462,401の`USER32.dll!DefWindowProcA`へ停止する。Clock aut
 contractのreachability leafであり、elapsed-time精度、timer-resolution連動、release dispatch、visible response、
 general timing behaviorをclaimしない。Exact artifact identityは`current-checkpoint.json`だけを正本とする。
 
+続く`user32-def-window-proc-a-action-continuation`は、同じactive WndProc内の
+`DefWindowProcA(hwnd,WM_LBUTTONDOWN,MK_LBUTTON,0x01680280)`を、既存のRust-owned pointer-button
+profileへ接続するexplicit User32 v34 default-processing profileとして実装する。v33のSetFocus-only shapeは
+このmessage variantを拒否したまま維持する。Handlerはlive／created／visible／same-owner window、active／focused／foreground
+relation、logical cursorから導出したclient座標とpacked `lParam`をmutation前に検証し、LRESULT 0、
+LastError preserve、zero guest write／window／input／queue mutationで完了し、capture authorityを導入してはならない。
+Focused dispatcher fixtureはv33／malformed v34 policy、wrong `wParam`／`lParam`、wrong visible／active
+window relationをmutation-freeに拒否することを固定する。
+Queued matching `WM_LBUTTONUP`とactive callback depthは維持する。Node／Chrome protocol v81は同じ
+completion、ordered semantic digest、terminal memoryと次のowned endpointを一致させ、exact値とartifact
+identityは`current-checkpoint.json`だけを正本とする。これはreached client-area primary-button downの
+default processingだけを固定し、release dispatch、capture transition、double-click、nonclient／right-button
+default processing、visible response、general `DefWindowProcA` semanticsをclaimしない。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、
