@@ -1288,6 +1288,16 @@ Browser pointer、DOM window geometry、HWND lifetimeはauthorityへimportせず
 cursor mapping、未到達metric variantはclaimしない。Exact instruction／artifact identityは
 `current-checkpoint.json`だけを正本とする。
 
+`user32-get-system-metrics-post-pointer-release-continuation`は、続く
+`GetSystemMetrics(SM_CXFIXEDFRAME)`を既存の`user32.get-system-metrics.v1`で完了する。Rustは
+`RuntimeDisplays`のsingle-primary-display authorityとversioned User32 nonclient policyを検証し、
+fixed-frame width `3`を返す。Protocol v91／browser report schema 58のNode／Chromeはsequence／
+occurrence／instruction、stdcall stack、同一runtime thread、LastError preserve、zero guest write、
+empty queue、callback depth zero、継承したPOINT／RECT／4 clock sample、ordered semantic digest、terminal
+memoryを一致させ、次の同一export `USER32.dll!GetSystemMetrics(4)`で停止する。Host／browser display
+metricsをauthorityへimportせず、未到達metric、multi-monitor、DPI scaling、host nonclient theme追従は
+claimしない。Exact instruction／artifact identityは`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

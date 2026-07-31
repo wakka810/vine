@@ -223,7 +223,11 @@ function assertCapabilityCheckpoint(
     assert.equal(actual.queueDepthAtDispatchEntry, 0);
     assert.equal(actual.dispatchMessageReleaseBytesPreserved, true);
     if (expected.completion.requiredCompletions !== undefined) {
+      const postReleaseGetSystemMetrics =
+        expected.completion.capability ===
+        "user32-get-system-metrics-post-pointer-release-continuation";
       const postReleaseGetCursorPos =
+        postReleaseGetSystemMetrics ||
         expected.completion.capability ===
         "user32-get-cursor-pos-post-pointer-release-continuation";
       const postReleaseGetWindowRect =
@@ -399,10 +403,10 @@ function assertCapabilityCheckpoint(
       if (postReleaseGetCursorPos) {
         const getCursorPos = actual.getCursorPosPostRelease;
         assert(getCursorPos !== undefined);
-        assert.equal(getCursorPos.sequence, actual.lastCompletionSequence);
+        assert.equal(getCursorPos.sequence, 161_959);
         assert.equal(
           getCursorPos.trapInstructionCount,
-          actual.lastCompletionInstructionCount,
+          321_463_119,
         );
         assert.equal(getCursorPos.runtimeThreadId, 8_192);
         assert.equal(getCursorPos.module.toLowerCase(), "user32.dll");
@@ -444,6 +448,37 @@ function assertCapabilityCheckpoint(
           );
         } else {
           assert.equal(getCursorPos.guestWrites[0].result, undefined);
+        }
+        if (postReleaseGetSystemMetrics) {
+          const getSystemMetrics = actual.getSystemMetricsPostRelease;
+          assert(getSystemMetrics !== undefined);
+          assert.equal(getSystemMetrics.sequence, actual.lastCompletionSequence);
+          assert.equal(
+            getSystemMetrics.trapInstructionCount,
+            actual.lastCompletionInstructionCount,
+          );
+          assert.equal(getSystemMetrics.runtimeThreadId, 8_192);
+          assert.equal(getSystemMetrics.module.toLowerCase(), "user32.dll");
+          assert.equal(getSystemMetrics.symbol, "GetSystemMetrics");
+          assert.equal(getSystemMetrics.occurrence, 66);
+          assert.equal(
+            getSystemMetrics.implementationId,
+            "user32.get-system-metrics.v1",
+          );
+          assert.deepEqual(getSystemMetrics.arguments, [7]);
+          assert.deepEqual(getSystemMetrics.result, {
+            action: "set",
+            value: 3,
+          });
+          assert.equal(getSystemMetrics.returnAddress, 268_993_910);
+          assert.equal(getSystemMetrics.stackPointerBefore, 7_338_144);
+          assert.equal(getSystemMetrics.stackPointerAfter, 7_338_152);
+          assert.equal(getSystemMetrics.lastError, 0);
+          assert.equal(getSystemMetrics.guestWrites.length, 0);
+          assert.equal(
+            actual.getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion,
+            0,
+          );
         }
       } else if (!postReleasePeek) {
         assert.equal(

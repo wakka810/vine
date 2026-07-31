@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `user32-get-window-rect-post-pointer-release-continuation`: 161959 calls across 131 endpoint contracts / 129 APIs, memory generation 296334 |
+| Runtime diagnostics | `user32-get-cursor-pos-post-pointer-release-continuation`: 161960 calls across 131 endpoint contracts / 129 APIs, memory generation 296335 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `user32-get-cursor-pos-post-pointer-release-continuation` published the post-release logical screen cursor POINT at sequence 161959 / instruction 321463119; verification stopped at the next `USER32.dll!GetSystemMetrics` on instruction 321463128 (`user32-get-cursor-pos-post-pointer-release-continuation-checkpoint-complete`) |
+| Next structured stop | `user32-get-system-metrics-post-pointer-release-continuation` returned the reached policy-owned fixed-frame width at sequence 161960 / instruction 321463128; verification stopped at the next `USER32.dll!GetSystemMetrics` on instruction 321463133 (`user32-get-system-metrics-post-pointer-release-continuation-checkpoint-complete`) |
 
-The active semantic report is 3,045,371 bytes with SHA-256
-`cf1e640f903d3a6baed1850df5f97cde8dd31c640130fc514742eca360fa22f9`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 3,046,014 bytes with SHA-256
+`6b22c0068485e973402022fdd93b555b44ad45d0b60843ccef4aa496e121d46d`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
