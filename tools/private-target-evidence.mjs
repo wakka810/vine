@@ -137,9 +137,13 @@ function validatePointerReleaseCompletion(completion, expected, label, errors) {
     `${label}.releaseCallbackReturn`,
     errors,
   );
-  const postReleaseTimeGetTimeRepeatBatch =
+  const postReleaseGetWindowRect =
     expected.capability ===
-    "winmm-time-get-time-post-pointer-release-repeat-batch";
+    "user32-get-window-rect-post-pointer-release-continuation";
+  const postReleaseTimeGetTimeRepeatBatch =
+    postReleaseGetWindowRect ||
+    expected.capability ===
+      "winmm-time-get-time-post-pointer-release-repeat-batch";
   const postReleaseTimeGetTime =
     postReleaseTimeGetTimeRepeatBatch ||
     expected.capability ===
@@ -148,11 +152,13 @@ function validatePointerReleaseCompletion(completion, expected, label, errors) {
     postReleaseTimeGetTime ||
     expected.capability ===
       "user32-peek-message-a-post-pointer-release-continuation";
-  const finalCallName = postReleaseTimeGetTime
-    ? "timeGetTimePostRelease"
-    : postReleasePeek
-      ? "peekMessagePostRelease"
-      : "defWindowProcARelease";
+  const finalCallName = postReleaseGetWindowRect
+    ? "getWindowRectPostRelease"
+    : postReleaseTimeGetTime
+      ? "timeGetTimePostRelease"
+      : postReleasePeek
+        ? "peekMessagePostRelease"
+        : "defWindowProcARelease";
   const repeatCompletions = postReleaseTimeGetTimeRepeatBatch
     ? Array.isArray(completion.timeGetTimePostReleaseCompletions)
       ? completion.timeGetTimePostReleaseCompletions
@@ -161,7 +167,7 @@ function validatePointerReleaseCompletion(completion, expected, label, errors) {
         ),
         [])
     : [];
-  const finalCall = postReleaseTimeGetTimeRepeatBatch
+  const finalTimeGetTime = postReleaseTimeGetTimeRepeatBatch
     ? requireRecord(
         repeatCompletions.at(-1),
         `${label}.timeGetTimePostReleaseCompletions[last]`,
@@ -173,13 +179,22 @@ function validatePointerReleaseCompletion(completion, expected, label, errors) {
         `${label}.timeGetTimePostRelease`,
         errors,
       )
-    : postReleasePeek
+    : {};
+  const finalCall = postReleaseGetWindowRect
     ? requireRecord(
-        completion.peekMessagePostRelease,
-        `${label}.peekMessagePostRelease`,
+        completion.getWindowRectPostRelease,
+        `${label}.getWindowRectPostRelease`,
         errors,
       )
-    : releaseCall;
+    : postReleaseTimeGetTime
+      ? finalTimeGetTime
+      : postReleasePeek
+        ? requireRecord(
+            completion.peekMessagePostRelease,
+            `${label}.peekMessagePostRelease`,
+            errors,
+          )
+        : releaseCall;
   checkEqual(
     finalCall.sequence,
     expected.lastCompletionSequence,
@@ -234,31 +249,31 @@ function validatePointerReleaseCompletion(completion, expected, label, errors) {
       ? 3_601_227
       : 3_601_224;
     checkEqual(
-      finalCall.implementationId,
+      finalTimeGetTime.implementationId,
       "winmm.time-get-time.v1",
       `${label}.timeGetTimePostRelease.implementationId`,
       errors,
     );
     checkEqual(
-      finalCall.result?.value,
+      finalTimeGetTime.result?.value,
       expectedReturnedTickCount,
       `${label}.timeGetTimePostRelease.result.value`,
       errors,
     );
     checkEqual(
-      finalCall.tickCount?.returnedTickCount,
+      finalTimeGetTime.tickCount?.returnedTickCount,
       expectedReturnedTickCount,
       `${label}.timeGetTimePostRelease.tickCount.returnedTickCount`,
       errors,
     );
     checkEqual(
-      finalCall.tickCount?.nextTickCount,
+      finalTimeGetTime.tickCount?.nextTickCount,
       expectedReturnedTickCount + 1,
       `${label}.timeGetTimePostRelease.tickCount.nextTickCount`,
       errors,
     );
     checkEqual(
-      finalCall.tickCount?.incrementPerRead,
+      finalTimeGetTime.tickCount?.incrementPerRead,
       1,
       `${label}.timeGetTimePostRelease.tickCount.incrementPerRead`,
       errors,
@@ -403,6 +418,84 @@ function validatePointerReleaseCompletion(completion, expected, label, errors) {
         firstCall.tickCount?.nextTickCount,
         3_601_225,
         `${label}.timeGetTimePostRelease.tickCount.nextTickCount`,
+        errors,
+      );
+    }
+  }
+  if (postReleaseGetWindowRect) {
+    const getWindowRect = requireRecord(
+      completion.getWindowRectPostRelease,
+      `${label}.getWindowRectPostRelease`,
+      errors,
+    );
+    const guestWrites = Array.isArray(getWindowRect.guestWrites)
+      ? getWindowRect.guestWrites
+      : (errors.push(
+          `${label}.getWindowRectPostRelease.guestWrites must be an array`,
+        ),
+        []);
+    const rectWrite = requireRecord(
+      guestWrites[0],
+      `${label}.getWindowRectPostRelease.guestWrites[0]`,
+      errors,
+    );
+    for (const [field, actual, expectedValue] of [
+      ["runtimeThreadId", getWindowRect.runtimeThreadId, 8_192],
+      ["module", getWindowRect.module?.toLowerCase(), "user32.dll"],
+      ["symbol", getWindowRect.symbol, "GetWindowRect"],
+      ["occurrence", getWindowRect.occurrence, 17],
+      [
+        "implementationId",
+        getWindowRect.implementationId,
+        "user32.get-window-rect.v1",
+      ],
+      ["arguments", getWindowRect.arguments?.join(","), "1208025089,7338172"],
+      ["result.action", getWindowRect.result?.action, "set"],
+      ["result.value", getWindowRect.result?.value, 1],
+      ["returnAddress", getWindowRect.returnAddress, 268_993_880],
+      ["stackPointerBefore", getWindowRect.stackPointerBefore, 7_338_140],
+      ["stackPointerAfter", getWindowRect.stackPointerAfter, 7_338_152],
+      ["lastError", getWindowRect.lastError, 0],
+      ["guestWrites.length", guestWrites.length, 1],
+    ]) {
+      checkEqual(
+        actual,
+        expectedValue,
+        `${label}.getWindowRectPostRelease.${field}`,
+        errors,
+      );
+    }
+    checkEqual(
+      rectWrite.address,
+      7_338_172,
+      `${label}.getWindowRectPostRelease.guestWrites[0].address`,
+      errors,
+    );
+    checkEqual(
+      rectWrite.bytes?.join(","),
+      "61,1,0,0,154,0,0,0,67,6,0,0,135,3,0,0",
+      `${label}.getWindowRectPostRelease.guestWrites[0].bytes`,
+      errors,
+    );
+    for (const [field, actual, expectedValue] of [
+      ["bytesWritten", rectWrite.result?.bytesWritten, 16],
+      ["dirtyPages", rectWrite.result?.dirtyPages, 1],
+      ["invalidation.dataTlb", rectWrite.result?.invalidation?.dataTlb, false],
+      [
+        "invalidation.instructionFetch",
+        rectWrite.result?.invalidation?.instructionFetch,
+        false,
+      ],
+      [
+        "invalidation.generatedCode",
+        rectWrite.result?.invalidation?.generatedCode,
+        false,
+      ],
+    ]) {
+      checkEqual(
+        actual,
+        expectedValue,
+        `${label}.getWindowRectPostRelease.guestWrites[0].result.${field}`,
         errors,
       );
     }

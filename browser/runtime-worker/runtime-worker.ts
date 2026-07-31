@@ -662,7 +662,8 @@ function isInputProgressGatewayCheckpoint(
     profile === "user32-def-window-proc-a-pointer-release-continuation" ||
     profile === "user32-peek-message-a-post-pointer-release-continuation" ||
     profile === "winmm-time-get-time-post-pointer-release-continuation" ||
-    profile === "winmm-time-get-time-post-pointer-release-repeat-batch"
+    profile === "winmm-time-get-time-post-pointer-release-repeat-batch" ||
+    profile === "user32-get-window-rect-post-pointer-release-continuation"
   );
 }
 
@@ -683,7 +684,8 @@ function isActionInputProgressGatewayCheckpoint(
     profile === "user32-def-window-proc-a-pointer-release-continuation" ||
     profile === "user32-peek-message-a-post-pointer-release-continuation" ||
     profile === "winmm-time-get-time-post-pointer-release-continuation" ||
-    profile === "winmm-time-get-time-post-pointer-release-repeat-batch"
+    profile === "winmm-time-get-time-post-pointer-release-repeat-batch" ||
+    profile === "user32-get-window-rect-post-pointer-release-continuation"
   );
 }
 
@@ -717,7 +719,8 @@ function isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
     profile === "user32-def-window-proc-a-pointer-release-continuation" ||
     profile === "user32-peek-message-a-post-pointer-release-continuation" ||
     profile === "winmm-time-get-time-post-pointer-release-continuation" ||
-    profile === "winmm-time-get-time-post-pointer-release-repeat-batch"
+    profile === "winmm-time-get-time-post-pointer-release-repeat-batch" ||
+    profile === "user32-get-window-rect-post-pointer-release-continuation"
   );
 }
 
@@ -793,7 +796,18 @@ function isTimeGetTimePostPointerReleaseContinuationCheckpoint(
 function isTimeGetTimePostPointerReleaseRepeatBatchCheckpoint(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "winmm-time-get-time-post-pointer-release-repeat-batch";
+  return (
+    profile === "winmm-time-get-time-post-pointer-release-repeat-batch" ||
+    isGetWindowRectPostPointerReleaseContinuationCheckpoint(profile)
+  );
+}
+
+function isGetWindowRectPostPointerReleaseContinuationCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile === "user32-get-window-rect-post-pointer-release-continuation"
+  );
 }
 
 function hasDispatchMessageAPointerReleaseContinuation(
@@ -900,7 +914,16 @@ function isRecurringTimerBoundedWindowCheckpoint(
 function recurringTimerWindowConfiguration(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  return isTimeGetTimePostPointerReleaseRepeatBatchCheckpoint(profile)
+  return isGetWindowRectPostPointerReleaseContinuationCheckpoint(profile)
+    ? ({
+        capability:
+          "user32-get-window-rect-post-pointer-release-continuation",
+        implementationId:
+          "runtime.user32-get-window-rect-post-pointer-release-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      } as const)
+    : isTimeGetTimePostPointerReleaseRepeatBatchCheckpoint(profile)
     ? ({
         capability: "winmm-time-get-time-post-pointer-release-repeat-batch",
         implementationId:
@@ -1178,6 +1201,8 @@ function windowTimerCallbackRecurringBatchExpectation() {
 function inputProgressGatewayExpectation(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
+  const getWindowRectPostRelease =
+    isGetWindowRectPostPointerReleaseContinuationCheckpoint(profile);
   const timeGetTimePostReleaseRepeatBatch =
     isTimeGetTimePostPointerReleaseRepeatBatchCheckpoint(profile);
   const timeGetTimePostRelease =
@@ -1201,7 +1226,9 @@ function inputProgressGatewayExpectation(
     isWindowTimerCallbackActionInputProgressGatewayCheckpoint(profile);
   const action = isActionInputProgressGatewayCheckpoint(profile);
   return {
-    capability: timeGetTimePostReleaseRepeatBatch
+    capability: getWindowRectPostRelease
+      ? "user32-get-window-rect-post-pointer-release-continuation"
+      : timeGetTimePostReleaseRepeatBatch
       ? "winmm-time-get-time-post-pointer-release-repeat-batch"
       : timeGetTimePostRelease
       ? "winmm-time-get-time-post-pointer-release-continuation"
@@ -1228,7 +1255,9 @@ function inputProgressGatewayExpectation(
       : action
       ? "primary-main-loop-action-input-progress-gateway"
       : "primary-main-loop-input-progress-gateway",
-    implementationId: timeGetTimePostReleaseRepeatBatch
+    implementationId: getWindowRectPostRelease
+      ? "runtime.user32-get-window-rect-post-pointer-release-continuation.v1"
+      : timeGetTimePostReleaseRepeatBatch
       ? "runtime.winmm-time-get-time-post-pointer-release-repeat-batch.v1"
       : timeGetTimePostRelease
       ? "runtime.winmm-time-get-time-post-pointer-release-continuation.v1"
@@ -2018,7 +2047,8 @@ type PostPointerReleaseContinuationCheckpoint = Extract<
     capability:
       | "user32-peek-message-a-post-pointer-release-continuation"
       | "winmm-time-get-time-post-pointer-release-continuation"
-      | "winmm-time-get-time-post-pointer-release-repeat-batch";
+      | "winmm-time-get-time-post-pointer-release-repeat-batch"
+      | "user32-get-window-rect-post-pointer-release-continuation";
   }
 >;
 
@@ -2044,6 +2074,18 @@ type TimeGetTimePostPointerReleaseRepeatBatchCheckpoint =
     timeGetTimePostRelease: RuntimeThreadCallSnapshot;
     maximumRepeatCompletions: 16;
     timeGetTimePostReleaseCompletions: RuntimeThreadCallSnapshot[];
+  };
+
+type GetWindowRectPostPointerReleaseContinuationCheckpoint =
+  PostPointerReleaseContinuationCheckpoint & {
+    capability: "user32-get-window-rect-post-pointer-release-continuation";
+    implementationId: "runtime.user32-get-window-rect-post-pointer-release-continuation.v1";
+    timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0;
+    timeGetTimePostRelease: RuntimeThreadCallSnapshot;
+    maximumRepeatCompletions: 16;
+    timeGetTimePostReleaseCompletions: RuntimeThreadCallSnapshot[];
+    getWindowRectPostReleaseActiveCallbackDepthAtCompletion: 0;
+    getWindowRectPostRelease: RuntimeThreadCallSnapshot;
   };
 
 type PeekMessageAPostPointerReleaseContinuationEntry = Omit<
@@ -2090,7 +2132,40 @@ type TimeGetTimePostPointerReleaseContinuationEntry =
       | "nextReturnAddress"
       | "nextStackPointer"
       | "memoryContentSha256"
+    >
+  | Omit<
+      GetWindowRectPostPointerReleaseContinuationCheckpoint,
+      | "requiredCompletions"
+      | "completionCount"
+      | "timeGetTimePostReleaseActiveCallbackDepthAtCompletion"
+      | "timeGetTimePostRelease"
+      | "maximumRepeatCompletions"
+      | "timeGetTimePostReleaseCompletions"
+      | "getWindowRectPostReleaseActiveCallbackDepthAtCompletion"
+      | "getWindowRectPostRelease"
+      | "activeCallbackDepthAtStop"
+      | "instructionCount"
+      | "nextEndpoint"
+      | "nextArguments"
+      | "nextReturnAddress"
+      | "nextStackPointer"
+      | "memoryContentSha256"
     >;
+
+type GetWindowRectPostPointerReleaseContinuationEntry = Omit<
+  GetWindowRectPostPointerReleaseContinuationCheckpoint,
+  | "requiredCompletions"
+  | "completionCount"
+  | "getWindowRectPostReleaseActiveCallbackDepthAtCompletion"
+  | "getWindowRectPostRelease"
+  | "activeCallbackDepthAtStop"
+  | "instructionCount"
+  | "nextEndpoint"
+  | "nextArguments"
+  | "nextReturnAddress"
+  | "nextStackPointer"
+  | "memoryContentSha256"
+>;
 
 type WindowTimerCallbackDeliveryGatewayCheckpoint = Extract<
   NonNullable<SessionReport["checkpointCompletion"]>,
@@ -2627,6 +2702,9 @@ class BrowserRuntimeSession {
   #timeGetTimePostPointerReleaseContinuationDispatching = false;
   readonly #timeGetTimePostPointerReleaseRepeatCompletions: RuntimeThreadCallSnapshot[] =
     [];
+  #getWindowRectPostPointerReleaseContinuationEntry: GetWindowRectPostPointerReleaseContinuationEntry | null =
+    null;
+  #getWindowRectPostPointerReleaseContinuationDispatching = false;
   readonly #presentationProgressRenderCompletions: RuntimeThreadCallSnapshot[] =
     [];
   #presentationProgressPresentCompletion: RuntimeThreadCallSnapshot | null =
@@ -6063,6 +6141,36 @@ class BrowserRuntimeSession {
       );
       this.#timeGetTimePostPointerReleaseContinuationDispatching = true;
     }
+    if (this.#getWindowRectPostPointerReleaseContinuationEntry !== null) {
+      const ownedEndpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpoint,
+      );
+      const engine = this.#requireEngine();
+      invariant(
+        isGetWindowRectPostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+          ownedEndpoint?.id === 228 &&
+          ownedEndpoint.module?.toLowerCase() === "user32.dll" &&
+          ownedEndpoint.symbol?.kind === "name" &&
+          ownedEndpoint.symbol.name === "GetWindowRect" &&
+          stackPointer === 0x006f_f89c &&
+          engine.readGuestU32(stackPointer) === 0x1008_8558 &&
+          engine.readGuestU32(stackPointer + 4) === 0x4801_0001 &&
+          engine.readGuestU32(stackPointer + 8) === 0x006f_f8bc &&
+          this.#report.instructions === 321_463_115 &&
+          this.#nextBgiCallSequence === 161_957 &&
+          this.#currentThreadId === 8_192 &&
+          this.#report.checkpointCompletion === null &&
+          !this.#getWindowRectPostPointerReleaseContinuationDispatching &&
+          this.#timeGetTimePostPointerReleaseContinuationEntry === null &&
+          !this.#timeGetTimePostPointerReleaseContinuationDispatching &&
+          this.#timeGetTimePostPointerReleaseRepeatCompletions.length === 4 &&
+          this.#bgiCallbackCallSequences.size === 0,
+        "post-release GetWindowRect continuation reached a different API, sequence, stack frame, or callback state",
+      );
+      this.#getWindowRectPostPointerReleaseContinuationDispatching = true;
+    }
     if (this.#defWindowProcAPointerReleaseContinuationEntry !== null) {
       const ownedEndpoint = this.#requirePrepared().endpoints.find(
         (candidate) => candidate.address === endpoint,
@@ -7068,6 +7176,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "winmm-time-get-time-post-pointer-release-repeat-batch" ||
           checkpoint.capability ===
+            "user32-get-window-rect-post-pointer-release-continuation" ||
+          checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -7173,7 +7283,9 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "winmm-time-get-time-post-pointer-release-continuation" ||
       checkpoint.capability ===
-        "winmm-time-get-time-post-pointer-release-repeat-batch"
+        "winmm-time-get-time-post-pointer-release-repeat-batch" ||
+      checkpoint.capability ===
+        "user32-get-window-rect-post-pointer-release-continuation"
     ) {
       invariant(
         this.#bgiCallbackCallSequences.size === 0 &&
@@ -7183,6 +7295,8 @@ class BrowserRuntimeSession {
               4) &&
           this.#timeGetTimePostPointerReleaseContinuationEntry === null &&
           !this.#timeGetTimePostPointerReleaseContinuationDispatching &&
+          this.#getWindowRectPostPointerReleaseContinuationEntry === null &&
+          !this.#getWindowRectPostPointerReleaseContinuationDispatching &&
           this.#peekMessageAPostPointerReleaseContinuationEntry === null &&
           !this.#peekMessageAPostPointerReleaseContinuationDispatching &&
           this.#peekMessageAPostPointerReleaseBytesBefore === null &&
@@ -7370,6 +7484,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "winmm-time-get-time-post-pointer-release-repeat-batch" ||
       checkpoint.capability ===
+        "user32-get-window-rect-post-pointer-release-continuation" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -7451,7 +7567,9 @@ class BrowserRuntimeSession {
                     "winmm-time-get-time-post-pointer-release-continuation"
                   ? []
                 : checkpoint.capability ===
-                    "winmm-time-get-time-post-pointer-release-repeat-batch"
+                      "winmm-time-get-time-post-pointer-release-repeat-batch" ||
+                    checkpoint.capability ===
+                      "user32-get-window-rect-post-pointer-release-continuation"
                   ? [
                       this.#requireEngine().readGuestU32(stackPointer + 4),
                       this.#requireEngine().readGuestU32(stackPointer + 8),
@@ -7531,6 +7649,37 @@ class BrowserRuntimeSession {
                         : [];
       checkpoint.nextReturnAddress = returnAddress;
       checkpoint.nextStackPointer = stackPointer;
+    }
+    if (
+      checkpoint.capability ===
+      "user32-get-window-rect-post-pointer-release-continuation"
+    ) {
+      invariant(
+        this.#report.instructions === 321_463_119 &&
+          checkpoint.instructionCount === 321_463_119 &&
+          checkpoint.nextEndpoint.id === 190 &&
+          checkpoint.nextEndpoint.address === 0x7f00_0bd0 &&
+          checkpoint.nextEndpoint.disposition === "declared-runtime-export" &&
+          checkpoint.nextEndpoint.iatAddress === 0x100d_13d0 &&
+          checkpoint.nextEndpoint.module?.toLowerCase() === "user32.dll" &&
+          checkpoint.nextEndpoint.symbol?.kind === "name" &&
+          checkpoint.nextEndpoint.symbol.name === "GetCursorPos" &&
+          checkpoint.nextArguments.join(",") === "7338164,0" &&
+          checkpoint.nextReturnAddress === 0x1008_8563 &&
+          checkpoint.nextStackPointer === 0x006f_f8a0 &&
+          checkpoint.memoryContentSha256 ===
+            "75cab525352438b4b85f2def0a5e834d3ce48650ba61d290c65194cc0124ea5b",
+        `post-release GetWindowRect continuation reached a different GetCursorPos boundary: ${JSON.stringify(
+          {
+            instructions: this.#report.instructions,
+            nextEndpoint: checkpoint.nextEndpoint,
+            nextArguments: checkpoint.nextArguments,
+            nextReturnAddress: checkpoint.nextReturnAddress,
+            nextStackPointer: checkpoint.nextStackPointer,
+            memoryContentSha256: checkpoint.memoryContentSha256,
+          },
+        )}`,
+      );
     }
     if (
       checkpoint.capability ===
@@ -7737,6 +7886,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "winmm-time-get-time-post-pointer-release-repeat-batch" ||
       checkpoint.capability ===
+        "user32-get-window-rect-post-pointer-release-continuation" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -7788,6 +7939,9 @@ class BrowserRuntimeSession {
                       : checkpoint.capability ===
                           "user32-translate-message-pointer-release-continuation"
                         ? "USER32 TranslateMessage pointer-release continuation checkpoint completed"
+                      : checkpoint.capability ===
+                          "user32-get-window-rect-post-pointer-release-continuation"
+                        ? "USER32 GetWindowRect post-pointer-release continuation checkpoint completed"
                       : checkpoint.capability ===
                           "winmm-time-get-time-post-pointer-release-repeat-batch"
                         ? "WinMM timeGetTime post-pointer-release repeat batch checkpoint completed"
@@ -8670,6 +8824,18 @@ class BrowserRuntimeSession {
           "post-release timeGetTime continuation was already armed",
         );
         if (
+          isGetWindowRectPostPointerReleaseContinuationCheckpoint(
+            this.#configuration.capabilityProfile,
+          )
+        ) {
+          this.#timeGetTimePostPointerReleaseContinuationEntry = {
+            ...completedPostReleasePeek,
+            capability:
+              "user32-get-window-rect-post-pointer-release-continuation",
+            implementationId:
+              "runtime.user32-get-window-rect-post-pointer-release-continuation.v1",
+          } satisfies TimeGetTimePostPointerReleaseContinuationEntry;
+        } else if (
           isTimeGetTimePostPointerReleaseRepeatBatchCheckpoint(
             this.#configuration.capabilityProfile,
           )
@@ -8723,6 +8889,10 @@ class BrowserRuntimeSession {
       const tickCount = call.tickCount;
       const repeatBatch =
         isTimeGetTimePostPointerReleaseRepeatBatchCheckpoint(
+          this.#configuration.capabilityProfile,
+        );
+      const getWindowRectContinuation =
+        isGetWindowRectPostPointerReleaseContinuationCheckpoint(
           this.#configuration.capabilityProfile,
         );
       const repeatIndex =
@@ -8810,11 +8980,6 @@ class BrowserRuntimeSession {
         occurrence: implementationOccurrence,
       } satisfies RuntimeThreadCallSnapshot;
       if (repeatBatch) {
-        invariant(
-          entry.capability ===
-            "winmm-time-get-time-post-pointer-release-repeat-batch",
-          "post-release timeGetTime repeat batch lost its capability identity",
-        );
         this.#timeGetTimePostPointerReleaseRepeatCompletions.push(completedCall);
         if (this.#timeGetTimePostPointerReleaseRepeatCompletions.length === 4) {
           const completions = structuredClone(
@@ -8825,31 +8990,56 @@ class BrowserRuntimeSession {
             firstCompletion !== undefined,
             "post-release timeGetTime repeat batch completed without a first sample",
           );
-          this.#report.checkpointCompletion = {
-            ...entry,
-            requiredCompletions: 4,
-            completionCount: 4,
-            lastCompletionSequence: sequence,
-            lastCompletionInstructionCount: this.#report.instructions,
-            timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0,
-            timeGetTimePostRelease: firstCompletion,
-            maximumRepeatCompletions: 16,
-            timeGetTimePostReleaseCompletions: completions,
-            activeCallbackDepthAtStop: 0,
-            instructionCount: 0,
-            nextEndpoint: {
-              id: 0,
-              address: 0,
-              disposition: "declared-runtime-export" as const,
-              iatAddress: 0,
-            },
-            nextArguments: [],
-            nextReturnAddress: 0,
-            nextStackPointer: 0,
-            memoryContentSha256: "",
-          } satisfies TimeGetTimePostPointerReleaseRepeatBatchCheckpoint;
+          if (getWindowRectContinuation) {
+            invariant(
+              entry.capability ===
+                "user32-get-window-rect-post-pointer-release-continuation" &&
+                this.#getWindowRectPostPointerReleaseContinuationEntry ===
+                null &&
+                !this.#getWindowRectPostPointerReleaseContinuationDispatching,
+              "post-release GetWindowRect continuation was already armed",
+            );
+            this.#getWindowRectPostPointerReleaseContinuationEntry = {
+              ...entry,
+              lastCompletionSequence: sequence,
+              lastCompletionInstructionCount: this.#report.instructions,
+              timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0,
+              timeGetTimePostRelease: firstCompletion,
+              maximumRepeatCompletions: 16,
+              timeGetTimePostReleaseCompletions: completions,
+            } satisfies GetWindowRectPostPointerReleaseContinuationEntry;
+          } else {
+            invariant(
+              entry.capability ===
+                "winmm-time-get-time-post-pointer-release-repeat-batch",
+              "post-release timeGetTime repeat batch lost its capability identity",
+            );
+            this.#report.checkpointCompletion = {
+              ...entry,
+              requiredCompletions: 4,
+              completionCount: 4,
+              lastCompletionSequence: sequence,
+              lastCompletionInstructionCount: this.#report.instructions,
+              timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0,
+              timeGetTimePostRelease: firstCompletion,
+              maximumRepeatCompletions: 16,
+              timeGetTimePostReleaseCompletions: completions,
+              activeCallbackDepthAtStop: 0,
+              instructionCount: 0,
+              nextEndpoint: {
+                id: 0,
+                address: 0,
+                disposition: "declared-runtime-export" as const,
+                iatAddress: 0,
+              },
+              nextArguments: [],
+              nextReturnAddress: 0,
+              nextStackPointer: 0,
+              memoryContentSha256: "",
+            } satisfies TimeGetTimePostPointerReleaseRepeatBatchCheckpoint;
+            this.#bgiCheckpointPending = true;
+          }
           this.#timeGetTimePostPointerReleaseContinuationEntry = null;
-          this.#bgiCheckpointPending = true;
         }
       } else {
         invariant(
@@ -8880,6 +9070,85 @@ class BrowserRuntimeSession {
         this.#bgiCheckpointPending = true;
       }
       this.#timeGetTimePostPointerReleaseContinuationDispatching = false;
+    }
+    if (
+      isGetWindowRectPostPointerReleaseContinuationCheckpoint(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#getWindowRectPostPointerReleaseContinuationDispatching &&
+      completion.implementationId === "user32.get-window-rect.v1"
+    ) {
+      const entry =
+        this.#getWindowRectPostPointerReleaseContinuationEntry;
+      const write = call.guestWrites[0];
+      invariant(
+        entry !== null &&
+          this.#report.checkpointCompletion === null &&
+          endpoint.id === 228 &&
+          endpoint.module.toLowerCase() === "user32.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "GetWindowRect" &&
+          this.#currentThreadId === 8_192 &&
+          sequence === 161_958 &&
+          this.#report.instructions === 321_463_115 &&
+          implementationOccurrence === 17 &&
+          call.arguments.join(",") === "1208025089,7338172" &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 1 &&
+          call.returnAddress === 0x1008_8558 &&
+          call.stackPointerBefore === 0x006f_f89c &&
+          call.stackPointerAfter === 0x006f_f8a8 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 1 &&
+          write?.address === 0x006f_f8bc &&
+          "bytes" in write &&
+          write.bytes.join(",") ===
+            "61,1,0,0,154,0,0,0,67,6,0,0,135,3,0,0" &&
+          this.#bgiCallbackCallSequences.size === 0,
+        `post-release GetWindowRect continuation changed its geometry write or callback contract: ${JSON.stringify(
+          {
+            hasEntry: entry !== null,
+            hasCheckpoint: this.#report.checkpointCompletion !== null,
+            endpoint,
+            currentThreadId: this.#currentThreadId,
+            sequence,
+            instructionCount: this.#report.instructions,
+            implementationOccurrence,
+            call,
+            activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+          },
+        )}`,
+      );
+      this.#report.checkpointCompletion = {
+        ...entry,
+        requiredCompletions: 1,
+        completionCount: 1,
+        lastCompletionSequence: sequence,
+        lastCompletionInstructionCount: this.#report.instructions,
+        getWindowRectPostReleaseActiveCallbackDepthAtCompletion: 0,
+        getWindowRectPostRelease: {
+          ...structuredClone(call),
+          runtimeThreadId: this.#currentThreadId,
+          trapInstructionCount: this.#report.instructions,
+          occurrence: implementationOccurrence,
+        },
+        activeCallbackDepthAtStop: 0,
+        instructionCount: 0,
+        nextEndpoint: {
+          id: 0,
+          address: 0,
+          disposition: "declared-runtime-export" as const,
+          iatAddress: 0,
+        },
+        nextArguments: [],
+        nextReturnAddress: 0,
+        nextStackPointer: 0,
+        memoryContentSha256: "",
+      } satisfies GetWindowRectPostPointerReleaseContinuationCheckpoint;
+      this.#getWindowRectPostPointerReleaseContinuationEntry = null;
+      this.#getWindowRectPostPointerReleaseContinuationDispatching = false;
+      this.#bgiCheckpointPending = true;
     }
     if (
       hasPeekMessageAPointerReleaseContinuation(
@@ -18476,7 +18745,117 @@ class BrowserRuntimeSession {
         );
       }
       if (
+        isGetWindowRectPostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report
+          .checkpointCompletion as GetWindowRectPostPointerReleaseContinuationCheckpoint | null;
+        const completions = checkpoint?.timeGetTimePostReleaseCompletions;
+        const getWindowRect = checkpoint?.getWindowRectPostRelease;
+        const write = getWindowRect?.guestWrites[0];
+        invariant(
+          this.#report.supportedCallCount === 161_958 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "b19207accb1716be7ad4f0b2953e6041a7652002268e204710eef866d05291a7" &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability ===
+              "user32-get-window-rect-post-pointer-release-continuation" &&
+            checkpoint.implementationId ===
+              "runtime.user32-get-window-rect-post-pointer-release-continuation.v1" &&
+            checkpoint.requiredCompletions === 1 &&
+            checkpoint.completionCount === 1 &&
+            checkpoint.lastCompletionSequence === 161_958 &&
+            checkpoint.lastCompletionInstructionCount === 321_463_115 &&
+            checkpoint.timeGetTimePostReleaseActiveCallbackDepthAtCompletion ===
+              0 &&
+            checkpoint.maximumRepeatCompletions === 16 &&
+            completions?.length === 4 &&
+            completions
+              .map(
+                (completion) =>
+                  `${completion.sequence}:${completion.occurrence}:${completion.trapInstructionCount}:${completion.stackPointerBefore}:${"action" in completion.result && completion.result.action === "set" ? completion.result.value : -1}:${completion.tickCount?.returnedTickCount}:${completion.tickCount?.nextTickCount}`,
+              )
+              .join(",") ===
+              "161954:219:321462555:7338244:3601224:3601224:3601225,161955:220:321462721:7337876:3601225:3601225:3601226,161956:221:321462906:7338216:3601226:3601226:3601227,161957:222:321463010:7338236:3601227:3601227:3601228" &&
+            checkpoint.timeGetTimePostRelease === completions[0] &&
+            checkpoint.getWindowRectPostReleaseActiveCallbackDepthAtCompletion ===
+              0 &&
+            getWindowRect?.runtimeThreadId === 8_192 &&
+            getWindowRect.sequence === 161_958 &&
+            getWindowRect.occurrence === 17 &&
+            getWindowRect.trapInstructionCount === 321_463_115 &&
+            getWindowRect.module.toLowerCase() === "user32.dll" &&
+            getWindowRect.symbol === "GetWindowRect" &&
+            getWindowRect.implementationId === "user32.get-window-rect.v1" &&
+            getWindowRect.arguments.join(",") === "1208025089,7338172" &&
+            "action" in getWindowRect.result &&
+            getWindowRect.result.action === "set" &&
+            getWindowRect.result.value === 1 &&
+            getWindowRect.returnAddress === 0x1008_8558 &&
+            getWindowRect.stackPointerBefore === 0x006f_f89c &&
+            getWindowRect.stackPointerAfter === 0x006f_f8a8 &&
+            getWindowRect.lastError === 0 &&
+            getWindowRect.guestWrites.length === 1 &&
+            write?.address === 0x006f_f8bc &&
+            "bytes" in write &&
+            write.bytes.join(",") ===
+              "61,1,0,0,154,0,0,0,67,6,0,0,135,3,0,0" &&
+            checkpoint.activeCallbackDepthAtStop === 0 &&
+            checkpoint.instructionCount === 321_463_119 &&
+            checkpoint.nextEndpoint.id === 190 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0bd0 &&
+            checkpoint.nextEndpoint.disposition ===
+              "declared-runtime-export" &&
+            checkpoint.nextEndpoint.module?.toLowerCase() === "user32.dll" &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "GetCursorPos" &&
+            checkpoint.nextEndpoint.iatAddress === 0x100d_13d0 &&
+            checkpoint.nextArguments.join(",") === "7338164,0" &&
+            checkpoint.nextReturnAddress === 0x1008_8563 &&
+            checkpoint.nextStackPointer === 0x006f_f8a0 &&
+            checkpoint.memoryContentSha256 ===
+              "75cab525352438b4b85f2def0a5e834d3ce48650ba61d290c65194cc0124ea5b" &&
+            this.#report.instructions === 321_463_119 &&
+            Number(this.#generation) === 314_971 &&
+            this.#report.writebackBatches === 183_857 &&
+            this.#report.writebackPages === 282_519 &&
+            this.#report.mappingDeltas === 127_938 &&
+            this.#report.mappingDirtyPages === 150_343 &&
+            this.#report.slices === 183_864 &&
+            this.#report.budgetYields === 18_752 &&
+            execution.transitionCount === 588_683 &&
+            this.#report.contextSwitches === 2_512 &&
+            this.#bridge?.callCount() === 489_400 &&
+            this.#bgiCallbackCallSequences.size === 0 &&
+            this.#timeGetTimePostPointerReleaseContinuationEntry === null &&
+            !this.#timeGetTimePostPointerReleaseContinuationDispatching &&
+            this.#timeGetTimePostPointerReleaseRepeatCompletions.length === 4 &&
+            this.#getWindowRectPostPointerReleaseContinuationEntry === null &&
+            !this.#getWindowRectPostPointerReleaseContinuationDispatching,
+          `post-release GetWindowRect continuation changed: ${JSON.stringify({
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            checkpoint,
+            instructions: this.#report.instructions,
+            finalGeneration: Number(this.#generation),
+            writebackBatches: this.#report.writebackBatches,
+            writebackPages: this.#report.writebackPages,
+            mappingDeltas: this.#report.mappingDeltas,
+            mappingDirtyPages: this.#report.mappingDirtyPages,
+            slices: this.#report.slices,
+            budgetYields: this.#report.budgetYields,
+            contextSwitches: this.#report.contextSwitches,
+          })}`,
+        );
+      }
+      if (
         isTimeGetTimePostPointerReleaseRepeatBatchCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        !isGetWindowRectPostPointerReleaseContinuationCheckpoint(
           this.#configuration.capabilityProfile,
         ) &&
         terminal.outcome === "checkpoint-complete"

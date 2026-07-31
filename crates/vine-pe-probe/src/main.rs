@@ -15048,7 +15048,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-def-window-proc-a-pointer-release-continuation"
                 | "user32-peek-message-a-post-pointer-release-continuation"
                 | "winmm-time-get-time-post-pointer-release-continuation"
-                | "winmm-time-get-time-post-pointer-release-repeat-batch" => {
+                | "winmm-time-get-time-post-pointer-release-repeat-batch"
+                | "user32-get-window-rect-post-pointer-release-continuation" => {
                     GenericRuntimeCapability::User32DefWindowProcPointerRelease
                 }
                 "kernel32-leave-critical-section" => {

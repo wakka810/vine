@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `winmm-time-get-time-post-pointer-release-repeat-batch`: 161957 calls across 131 endpoint contracts / 129 APIs, memory generation 296330 |
+| Runtime diagnostics | `winmm-time-get-time-post-pointer-release-repeat-batch`: 161958 calls across 131 endpoint contracts / 129 APIs, memory generation 296332 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `winmm-time-get-time-post-pointer-release-repeat-batch` completed 4 contiguous post-release process-clock reads through sequence 161957 / instruction 321463010; verification stopped at the next heterogeneous `USER32.dll!GetWindowRect` on instruction 321463115 (`winmm-time-get-time-post-pointer-release-repeat-batch-checkpoint-complete`) |
+| Next structured stop | `user32-get-window-rect-post-pointer-release-continuation` published the post-release logical outer window RECT at sequence 161958 / instruction 321463115; verification stopped at the next `USER32.dll!GetCursorPos` on instruction 321463119 (`user32-get-window-rect-post-pointer-release-continuation-checkpoint-complete`) |
 
-The active semantic report is 3,043,011 bytes with SHA-256
-`f4c362b2c19d21910c56f7870d055414f7af04678cea961bd0e894c1893e92df`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 3,044,268 bytes with SHA-256
+`83c6e52b4a244bff0bd67a58226d80cc8ea0875f8482aa846483e7075e7c6e9e`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

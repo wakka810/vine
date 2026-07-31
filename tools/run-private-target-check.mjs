@@ -219,9 +219,13 @@ function assertCapabilityCheckpoint(actual, expected) {
     assert.equal(actual.queueDepthAtDispatchEntry, 0);
     assert.equal(actual.dispatchMessageReleaseBytesPreserved, true);
     if (expected.completion.requiredCompletions !== undefined) {
-      const postReleaseTimeGetTimeRepeatBatch =
+      const postReleaseGetWindowRect =
         expected.completion.capability ===
-        "winmm-time-get-time-post-pointer-release-repeat-batch";
+        "user32-get-window-rect-post-pointer-release-continuation";
+      const postReleaseTimeGetTimeRepeatBatch =
+        postReleaseGetWindowRect ||
+        expected.completion.capability ===
+          "winmm-time-get-time-post-pointer-release-repeat-batch";
       const postReleaseTimeGetTime =
         postReleaseTimeGetTimeRepeatBatch ||
         expected.completion.capability ===
@@ -268,11 +272,13 @@ function assertCapabilityCheckpoint(actual, expected) {
         assert(finalTimeGetTime !== undefined);
         assert.equal(
           finalTimeGetTime.sequence,
-          actual.lastCompletionSequence,
+          postReleaseGetWindowRect ? 161_957 : actual.lastCompletionSequence,
         );
         assert.equal(
           finalTimeGetTime.trapInstructionCount,
-          actual.lastCompletionInstructionCount,
+          postReleaseGetWindowRect
+            ? 321_463_010
+            : actual.lastCompletionInstructionCount,
         );
         assert.equal(
           finalTimeGetTime.implementationId,
@@ -335,6 +341,48 @@ function assertCapabilityCheckpoint(actual, expected) {
             3_601_224,
           );
         }
+      }
+      if (postReleaseGetWindowRect) {
+        const getWindowRect = actual.getWindowRectPostRelease;
+        assert(getWindowRect !== undefined);
+        assert.equal(getWindowRect.sequence, actual.lastCompletionSequence);
+        assert.equal(
+          getWindowRect.trapInstructionCount,
+          actual.lastCompletionInstructionCount,
+        );
+        assert.equal(getWindowRect.runtimeThreadId, 8_192);
+        assert.equal(getWindowRect.module.toLowerCase(), "user32.dll");
+        assert.equal(getWindowRect.symbol, "GetWindowRect");
+        assert.equal(getWindowRect.occurrence, 17);
+        assert.equal(
+          getWindowRect.implementationId,
+          "user32.get-window-rect.v1",
+        );
+        assert.deepEqual(getWindowRect.arguments, [1_208_025_089, 7_338_172]);
+        assert.deepEqual(getWindowRect.result, { action: "set", value: 1 });
+        assert.equal(getWindowRect.returnAddress, 268_993_880);
+        assert.equal(getWindowRect.stackPointerBefore, 7_338_140);
+        assert.equal(getWindowRect.stackPointerAfter, 7_338_152);
+        assert.equal(getWindowRect.lastError, 0);
+        assert.equal(getWindowRect.guestWrites.length, 1);
+        assert.equal(getWindowRect.guestWrites[0].address, 7_338_172);
+        assert.deepEqual(getWindowRect.guestWrites[0].bytes, [
+          61, 1, 0, 0, 154, 0, 0, 0, 67, 6, 0, 0, 135, 3, 0, 0,
+        ]);
+        assert.equal(getWindowRect.guestWrites[0].result.bytesWritten, 16);
+        assert.equal(getWindowRect.guestWrites[0].result.dirtyPages, 1);
+        assert.equal(
+          getWindowRect.guestWrites[0].result.invalidation.dataTlb,
+          false,
+        );
+        assert.equal(
+          getWindowRect.guestWrites[0].result.invalidation.instructionFetch,
+          false,
+        );
+        assert.equal(
+          getWindowRect.guestWrites[0].result.invalidation.generatedCode,
+          false,
+        );
       } else if (!postReleasePeek) {
         assert.equal(
           actual.defWindowProcARelease.sequence,

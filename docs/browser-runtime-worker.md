@@ -186,6 +186,16 @@ four immutable call snapshots under a bounded maximum of 16 and stops at the
 first heterogeneous owned endpoint, `USER32.dll!GetWindowRect`; it still owns no
 clock, message queue, or WinMM state.
 
+Protocol version 89's
+`user32-get-window-rect-post-pointer-release-continuation` completes that reached
+`GetWindowRect(HWND, RECT*)` against the Rust-owned live logical window. The
+User32 handler validates the window and complete output span before atomically
+publishing the authoritative outer rectangle `[317, 154, 1603, 903]`, returns
+`TRUE`, and preserves LastError and callback depth zero. The Worker retains the
+four inherited clock samples plus the immutable window-rectangle call snapshot,
+then stops at `USER32.dll!GetCursorPos`; it does not read DOM or browser window
+geometry and owns no HWND, RECT, or window lifetime state.
+
 After a guest API completion, Rust may return a `thread-switch` selected by the
 authoritative scheduler. The Worker saves the outgoing opaque engine context and
 restores the context associated with the selected runtime TID; it does not choose

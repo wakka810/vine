@@ -1268,6 +1268,16 @@ Evidence保持は最大16 completionに制限し、4回目の後に現れる最�
 `current-checkpoint.json`だけを正本とし、wall-clock precision、長時間drift、wraparound、一般的な
 sampling cadenceはclaimしない。
 
+`user32-get-window-rect-post-pointer-release-continuation`は、その異種endpointを既存の
+`user32.get-window-rect.v1`で完了する。Rustはlive logical HWNDと16-byte output spanをpreflightし、
+authoritative outer RECT `[317,154,1603,903]`を一回のguest writeでpublishして`TRUE`を返す。
+Protocol v89／browser report schema 56のNode／Chromeはsequence／occurrence／instruction、stdcall
+stack、同一runtime thread、RECT bytes、LastError preserve、empty queue、callback depth zero、継承した
+4 clock sample、ordered semantic digest、terminal memoryを一致させ、次の
+`USER32.dll!GetCursorPos(POINT*)`で停止する。Browser／DOM geometry、HWND lifetime、RECT authorityは
+importせず、未到達のmulti-window placementやhost display追従はclaimしない。Exact instruction／
+artifact identityは`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、
