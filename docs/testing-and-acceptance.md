@@ -1327,6 +1327,16 @@ window stateをauthorityへimportせず、minimize／restore transition、invali
 multi-window behaviorはclaimしない。Exact instruction／artifact identityは`current-checkpoint.json`だけを
 正本とする。
 
+`winmm-time-get-time-post-is-iconic-continuation`は、続く`timeGetTime()`を既存の
+`winmm.time-get-time.v1`で完了する。Rustは`RuntimeProcessState`の共有logical tickだけを読み、
+`3601228`を返して次値を`3601229`へ進める。Protocol v95／browser report schema 62の
+Node／Chromeはsequence／occurrence／instruction、stdcall stack、同一runtime thread、LastError preserve、
+zero guest write、callback depth zero、直前の`IsIconic`と4 clock sampleを含む継承evidence、ordered
+semantic digest、terminal memoryを一致させ、次の`USER32.dll!GetAsyncKeyState(14)`で停止する。
+Host／browser clockをauthorityへimportせず、timer resolutionによるclock変形、wall-clock同期、未到達の
+wraparound consumerはclaimしない。Exact instruction／artifact identityは`current-checkpoint.json`だけを
+正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

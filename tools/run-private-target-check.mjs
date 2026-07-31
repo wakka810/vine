@@ -223,7 +223,11 @@ function assertCapabilityCheckpoint(
     assert.equal(actual.queueDepthAtDispatchEntry, 0);
     assert.equal(actual.dispatchMessageReleaseBytesPreserved, true);
     if (expected.completion.requiredCompletions !== undefined) {
+      const postIsIconicTimeGetTime =
+        expected.completion.capability ===
+        "winmm-time-get-time-post-is-iconic-continuation";
       const postReleaseIsIconic =
+        postIsIconicTimeGetTime ||
         expected.completion.capability ===
         "user32-is-iconic-post-pointer-release-continuation";
       const postReleaseGetSystemMetricsFixedFrameHeight =
@@ -582,10 +586,17 @@ function assertCapabilityCheckpoint(
               if (postReleaseIsIconic) {
                 const isIconic = actual.isIconicPostRelease;
                 assert(isIconic !== undefined);
-                assert.equal(isIconic.sequence, actual.lastCompletionSequence);
+                assert.equal(
+                  isIconic.sequence,
+                  postIsIconicTimeGetTime
+                    ? 161_963
+                    : actual.lastCompletionSequence,
+                );
                 assert.equal(
                   isIconic.trapInstructionCount,
-                  actual.lastCompletionInstructionCount,
+                  postIsIconicTimeGetTime
+                    ? 321_463_282
+                    : actual.lastCompletionInstructionCount,
                 );
                 assert.equal(isIconic.runtimeThreadId, 8_192);
                 assert.equal(isIconic.module.toLowerCase(), "user32.dll");
@@ -607,6 +618,42 @@ function assertCapabilityCheckpoint(
                 assert.equal(isIconic.guestWrites.length, 0);
                 assert.equal(
                   actual.isIconicPostReleaseActiveCallbackDepthAtCompletion,
+                  0,
+                );
+              }
+              if (postIsIconicTimeGetTime) {
+                const timeGetTime = actual.timeGetTimePostIsIconic;
+                assert(timeGetTime !== undefined);
+                assert.equal(timeGetTime.sequence, actual.lastCompletionSequence);
+                assert.equal(
+                  timeGetTime.trapInstructionCount,
+                  actual.lastCompletionInstructionCount,
+                );
+                assert.equal(timeGetTime.runtimeThreadId, 8_192);
+                assert.equal(timeGetTime.module.toLowerCase(), "winmm.dll");
+                assert.equal(timeGetTime.symbol, "timeGetTime");
+                assert.equal(timeGetTime.occurrence, 223);
+                assert.equal(
+                  timeGetTime.implementationId,
+                  "winmm.time-get-time.v1",
+                );
+                assert.deepEqual(timeGetTime.arguments, []);
+                assert.deepEqual(timeGetTime.result, {
+                  action: "set",
+                  value: 3_601_228,
+                });
+                assert.equal(timeGetTime.returnAddress, 269_033_151);
+                assert.equal(timeGetTime.stackPointerBefore, 7_338_200);
+                assert.equal(timeGetTime.stackPointerAfter, 7_338_204);
+                assert.equal(timeGetTime.lastError, 0);
+                assert.equal(timeGetTime.guestWrites.length, 0);
+                assert.deepEqual(timeGetTime.tickCount, {
+                  returnedTickCount: 3_601_228,
+                  nextTickCount: 3_601_229,
+                  incrementPerRead: 1,
+                });
+                assert.equal(
+                  actual.timeGetTimePostIsIconicActiveCallbackDepthAtCompletion,
                   0,
                 );
               }

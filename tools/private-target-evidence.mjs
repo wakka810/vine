@@ -143,7 +143,11 @@ function validatePointerReleaseCompletion(
     `${label}.releaseCallbackReturn`,
     errors,
   );
+  const postIsIconicTimeGetTime =
+    expected.capability ===
+    "winmm-time-get-time-post-is-iconic-continuation";
   const postReleaseIsIconic =
+    postIsIconicTimeGetTime ||
     expected.capability ===
     "user32-is-iconic-post-pointer-release-continuation";
   const postReleaseGetSystemMetricsFixedFrameHeight =
@@ -178,7 +182,9 @@ function validatePointerReleaseCompletion(
     postReleaseTimeGetTime ||
     expected.capability ===
       "user32-peek-message-a-post-pointer-release-continuation";
-  const finalCallName = postReleaseIsIconic
+  const finalCallName = postIsIconicTimeGetTime
+    ? "timeGetTimePostIsIconic"
+    : postReleaseIsIconic
     ? "isIconicPostRelease"
     : postReleaseGetSystemMetricsFixedFrameHeight
     ? "getSystemMetricsFixedFrameHeightPostRelease"
@@ -216,7 +222,13 @@ function validatePointerReleaseCompletion(
         errors,
       )
     : {};
-  const finalCall = postReleaseIsIconic
+  const finalCall = postIsIconicTimeGetTime
+    ? requireRecord(
+        completion.timeGetTimePostIsIconic,
+        `${label}.timeGetTimePostIsIconic`,
+        errors,
+      )
+    : postReleaseIsIconic
     ? requireRecord(
         completion.isIconicPostRelease,
         `${label}.isIconicPostRelease`,
@@ -866,6 +878,55 @@ function validatePointerReleaseCompletion(
         actual,
         expectedValue,
         `${label}.isIconicPostRelease.${field}`,
+        errors,
+      );
+    }
+  }
+  if (postIsIconicTimeGetTime) {
+    const timeGetTime = requireRecord(
+      completion.timeGetTimePostIsIconic,
+      `${label}.timeGetTimePostIsIconic`,
+      errors,
+    );
+    const guestWrites = Array.isArray(timeGetTime.guestWrites)
+      ? timeGetTime.guestWrites
+      : (errors.push(
+          `${label}.timeGetTimePostIsIconic.guestWrites must be an array`,
+        ),
+        []);
+    for (const [field, actual, expectedValue] of [
+      ["sequence", timeGetTime.sequence, 161_964],
+      ["runtimeThreadId", timeGetTime.runtimeThreadId, 8_192],
+      ["module", timeGetTime.module?.toLowerCase(), "winmm.dll"],
+      ["symbol", timeGetTime.symbol, "timeGetTime"],
+      ["occurrence", timeGetTime.occurrence, 223],
+      ["trapInstructionCount", timeGetTime.trapInstructionCount, 321_463_291],
+      ["implementationId", timeGetTime.implementationId, "winmm.time-get-time.v1"],
+      ["arguments", timeGetTime.arguments?.join(","), ""],
+      ["result.action", timeGetTime.result?.action, "set"],
+      ["result.value", timeGetTime.result?.value, 3_601_228],
+      ["returnAddress", timeGetTime.returnAddress, 269_033_151],
+      ["stackPointerBefore", timeGetTime.stackPointerBefore, 7_338_200],
+      ["stackPointerAfter", timeGetTime.stackPointerAfter, 7_338_204],
+      ["lastError", timeGetTime.lastError, 0],
+      ["guestWrites.length", guestWrites.length, 0],
+      [
+        "tickCount.returnedTickCount",
+        timeGetTime.tickCount?.returnedTickCount,
+        3_601_228,
+      ],
+      ["tickCount.nextTickCount", timeGetTime.tickCount?.nextTickCount, 3_601_229],
+      ["tickCount.incrementPerRead", timeGetTime.tickCount?.incrementPerRead, 1],
+      [
+        "activeCallbackDepthAtCompletion",
+        completion.timeGetTimePostIsIconicActiveCallbackDepthAtCompletion,
+        0,
+      ],
+    ]) {
+      checkEqual(
+        actual,
+        expectedValue,
+        `${label}.timeGetTimePostIsIconic.${field}`,
         errors,
       );
     }

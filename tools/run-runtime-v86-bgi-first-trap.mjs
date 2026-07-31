@@ -226,6 +226,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-get-system-metrics-caption-post-pointer-release-continuation",
         "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
         "user32-is-iconic-post-pointer-release-continuation",
+        "winmm-time-get-time-post-is-iconic-continuation",
         "kernel32-wait-for-single-object-ex",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -425,6 +426,7 @@ assert(
       "user32-get-system-metrics-caption-post-pointer-release-continuation",
       "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
       "user32-is-iconic-post-pointer-release-continuation",
+      "winmm-time-get-time-post-is-iconic-continuation",
       "kernel32-wait-for-single-object-ex",
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
       "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -580,6 +582,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
       "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
     genericRuntimeCapability ===
       "user32-is-iconic-post-pointer-release-continuation" ||
+    genericRuntimeCapability ===
+      "winmm-time-get-time-post-is-iconic-continuation" ||
     genericRuntimeCapability ===
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     genericRuntimeCapability ===
@@ -943,7 +947,11 @@ const recurringTimerWindowCheckpointEnabled =
 const presentationProgressGatewayCheckpointEnabled =
   genericRuntimeCapability ===
   "primary-main-loop-presentation-progress-gateway";
+const timeGetTimePostIsIconicContinuationCheckpointEnabled =
+  genericRuntimeCapability ===
+    "winmm-time-get-time-post-is-iconic-continuation";
 const isIconicPostPointerReleaseContinuationCheckpointEnabled =
+  timeGetTimePostIsIconicContinuationCheckpointEnabled ||
   genericRuntimeCapability ===
     "user32-is-iconic-post-pointer-release-continuation";
 const getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointEnabled =
@@ -1097,7 +1105,15 @@ const recurringTimerBoundedWindowCheckpointEnabled =
   recurringTimerMultiCycleCheckpointEnabled ||
   recurringTimerWindowEvidenceEnabled;
 const recurringTimerWindowConfiguration =
-  isIconicPostPointerReleaseContinuationCheckpointEnabled
+  timeGetTimePostIsIconicContinuationCheckpointEnabled
+    ? {
+        capability: "winmm-time-get-time-post-is-iconic-continuation",
+        implementationId:
+          "runtime.winmm-time-get-time-post-is-iconic-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      }
+    : isIconicPostPointerReleaseContinuationCheckpointEnabled
     ? {
         capability: "user32-is-iconic-post-pointer-release-continuation",
         implementationId:
@@ -1798,7 +1814,9 @@ const outputDirectory = path.join(
                             ? getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled
                               ? getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointEnabled
                                 ? isIconicPostPointerReleaseContinuationCheckpointEnabled
-                                  ? "v86-bgi-is-iconic-post-pointer-release-continuation"
+                                  ? timeGetTimePostIsIconicContinuationCheckpointEnabled
+                                    ? "v86-bgi-time-get-time-post-is-iconic-continuation"
+                                    : "v86-bgi-is-iconic-post-pointer-release-continuation"
                                   : "v86-bgi-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
                                 : "v86-bgi-get-system-metrics-caption-post-pointer-release-continuation"
                               : "v86-bgi-get-system-metrics-post-pointer-release-continuation"
@@ -6261,6 +6279,10 @@ async function run() {
       assert.deepEqual(sourceAfter, sourceBefore);
       if (timeGetTimePostPointerReleaseRepeatBatchCheckpointEnabled) {
         if (
+          timeGetTimePostIsIconicContinuationCheckpointEnabled
+        ) {
+          validateTimeGetTimePostIsIconicContinuationResult(genericResult);
+        } else if (
           isIconicPostPointerReleaseContinuationCheckpointEnabled
         ) {
           validateIsIconicPostPointerReleaseContinuationResult(genericResult);
@@ -6679,7 +6701,9 @@ async function run() {
                                   ? getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointEnabled
                                     ? getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointEnabled
                                       ? isIconicPostPointerReleaseContinuationCheckpointEnabled
-                                        ? "bgi USER32 IsIconic post-pointer-release continuation"
+                                        ? timeGetTimePostIsIconicContinuationCheckpointEnabled
+                                          ? "bgi WINMM timeGetTime post-IsIconic continuation"
+                                          : "bgi USER32 IsIconic post-pointer-release continuation"
                                         : "bgi USER32 GetSystemMetrics fixed-frame height post-pointer-release continuation"
                                       : "bgi USER32 GetSystemMetrics caption post-pointer-release continuation"
                                     : "bgi USER32 GetSystemMetrics post-pointer-release continuation"
@@ -7462,6 +7486,8 @@ async function runGenericRuntimeReentry({
     null;
   let isIconicPostPointerReleaseDispatching = false;
   let isIconicPostPointerReleaseContinuationEntry = null;
+  let timeGetTimePostIsIconicDispatching = false;
+  let timeGetTimePostIsIconicContinuationEntry = null;
   let inputProgressAsyncKeyStateQuery = null;
   const inputProgressVirtualKey = actionInputProgressGatewayCheckpointEnabled
     ? 0x01
@@ -8065,6 +8091,25 @@ async function runGenericRuntimeReentry({
       assert.equal(continuation.finalState.esp, 0x006f_f8d8);
       isIconicPostPointerReleaseDispatching = true;
     }
+    if (
+      timeGetTimePostIsIconicContinuationCheckpointEnabled &&
+      timeGetTimePostIsIconicContinuationEntry !== null &&
+      !timeGetTimePostIsIconicDispatching &&
+      endpoint !== null &&
+      endpoint.module.toLowerCase() === "winmm.dll" &&
+      endpoint.symbol === "timeGetTime"
+    ) {
+      assert.equal(activeCallbacks.length, 0);
+      assert.equal(endpoint.kind, "runtime-system-export");
+      assert.equal(endpoint.id, 8);
+      assert.equal(endpoint.address, 0x7f00_0070);
+      assert.equal(terminal.kind, "owned-import-thunk");
+      assert.equal(terminal.thunk.iatAddress, 0x100d_14e4);
+      assert.deepEqual(terminal.stackWords.slice(1, 1), []);
+      assert.equal(terminal.returnAddress, 0x1009_1ebf);
+      assert.equal(continuation.finalState.esp, 0x006f_f8d8);
+      timeGetTimePostIsIconicDispatching = true;
+    }
 
     if (
       endpoint !== null &&
@@ -8425,6 +8470,22 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
+      timeGetTimePostIsIconicContinuationEntry !== null &&
+      !timeGetTimePostIsIconicDispatching &&
+      endpoint !== null
+    ) {
+      assert.equal(activeCallbacks.length, 0);
+      checkpointCompletion = {
+        ...timeGetTimePostIsIconicContinuationEntry,
+        setFocusActiveCallbackDepthAtStop:
+          timeGetTimePostIsIconicContinuationEntry.activeCallbackDepthAtStop,
+        activeCallbackDepthAtStop: activeCallbacks.length,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
+    if (
       peekMessageAPostPointerReleaseContinuationEntry !== null &&
       !timeGetTimePostPointerReleaseContinuationCheckpointEnabled &&
       endpoint !== null
@@ -8583,6 +8644,12 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "winmm-time-get-time-post-is-iconic-continuation"
+            ? "winmm-time-get-time-post-is-iconic-continuation-checkpoint-complete"
+            : checkpointCompletion.capability ===
+          "user32-is-iconic-post-pointer-release-continuation"
+            ? "user32-is-iconic-post-pointer-release-continuation-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "winmm-time-get-time-post-pointer-release-continuation"
             ? "winmm-time-get-time-post-pointer-release-continuation-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -10449,7 +10516,7 @@ async function runGenericRuntimeReentry({
       assert.equal(call.lastError, 0);
       assert.equal(activeCallbacks.length, 0);
       assert.deepEqual(call.guestWrites, []);
-      isIconicPostPointerReleaseContinuationEntry = {
+      const completedIsIconicEntry = {
         ...getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry,
         capability: "user32-is-iconic-post-pointer-release-continuation",
         implementationId:
@@ -10465,9 +10532,57 @@ async function runGenericRuntimeReentry({
           runtimeThreadId: currentThreadId,
         },
       };
+      if (timeGetTimePostIsIconicContinuationCheckpointEnabled) {
+        timeGetTimePostIsIconicContinuationEntry = {
+          ...completedIsIconicEntry,
+          capability: "winmm-time-get-time-post-is-iconic-continuation",
+          implementationId:
+            "runtime.winmm-time-get-time-post-is-iconic-continuation.v1",
+        };
+      } else {
+        isIconicPostPointerReleaseContinuationEntry = completedIsIconicEntry;
+      }
       getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry =
         null;
       isIconicPostPointerReleaseDispatching = false;
+    }
+    if (
+      timeGetTimePostIsIconicContinuationCheckpointEnabled &&
+      timeGetTimePostIsIconicDispatching
+    ) {
+      const entry = timeGetTimePostIsIconicContinuationEntry;
+      assert(entry);
+      assert.equal(call.module.toLowerCase(), "winmm.dll");
+      assert.equal(call.symbol, "timeGetTime");
+      assert.equal(call.implementationId, "winmm.time-get-time.v1");
+      assert.deepEqual(call.arguments, []);
+      assert.equal(call.result.action, "set");
+      assert.equal(call.returnAddress, 0x1009_1ebf);
+      assert.equal(call.stackPointerBefore, 0x006f_f8d8);
+      assert.equal(call.stackPointerAfter, 0x006f_f8dc);
+      assert.equal(call.lastError, 0);
+      assert.equal(activeCallbacks.length, 0);
+      assert.deepEqual(call.guestWrites, []);
+      assert.equal(call.tickCount.returnedTickCount, call.result.value);
+      assert.equal(
+        call.tickCount.nextTickCount,
+        (call.result.value + call.tickCount.incrementPerRead) >>> 0,
+      );
+      assert.equal(call.tickCount.incrementPerRead, 1);
+      timeGetTimePostIsIconicContinuationEntry = {
+        ...entry,
+        requiredCompletions: 1,
+        completionCount: 1,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: call.trapInstructionCount,
+        timeGetTimePostIsIconicActiveCallbackDepthAtCompletion:
+          activeCallbacks.length,
+        timeGetTimePostIsIconic: {
+          ...structuredClone(call),
+          runtimeThreadId: currentThreadId,
+        },
+      };
+      timeGetTimePostIsIconicDispatching = false;
     }
     if (
       peekMessageAPointerReleaseContinuationCheckpointEnabled &&
@@ -28140,6 +28255,12 @@ function validatePostWaitCriticalSectionResult(result) {
 
 function validateRecurringTimerBoundedWindowResult(result) {
   if (
+    timeGetTimePostIsIconicContinuationCheckpointEnabled
+  ) {
+    validateTimeGetTimePostIsIconicContinuationResult(result);
+    return;
+  }
+  if (
     isIconicPostPointerReleaseContinuationCheckpointEnabled
   ) {
     validateIsIconicPostPointerReleaseContinuationResult(result);
@@ -28242,6 +28363,88 @@ function validateRecurringTimerBoundedWindowResult(result) {
     return;
   }
   validateRecurringTimerWindowResult(result);
+}
+
+function validateTimeGetTimePostIsIconicContinuationResult(result) {
+  assert(timeGetTimePostIsIconicContinuationCheckpointEnabled);
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  const checkpoint = result.checkpointCompletion;
+  assert.equal(
+    checkpoint?.capability,
+    "winmm-time-get-time-post-is-iconic-continuation",
+  );
+  assert.equal(
+    checkpoint.implementationId,
+    "runtime.winmm-time-get-time-post-is-iconic-continuation.v1",
+  );
+  assert.equal(checkpoint.requiredCompletions, 1);
+  assert.equal(checkpoint.completionCount, 1);
+  assert.equal(checkpoint.lastCompletionSequence, 161_964);
+  assert.equal(checkpoint.lastCompletionInstructionCount, 321_463_291);
+  assert.equal(
+    checkpoint.timeGetTimePostIsIconicActiveCallbackDepthAtCompletion,
+    0,
+  );
+  const call = checkpoint.timeGetTimePostIsIconic;
+  assert.equal(call.runtimeThreadId, 8_192);
+  assert.equal(call.sequence, 161_964);
+  assert.equal(call.occurrence, 223);
+  assert.equal(call.trapInstructionCount, 321_463_291);
+  assert.equal(call.module.toLowerCase(), "winmm.dll");
+  assert.equal(call.symbol, "timeGetTime");
+  assert.equal(call.implementationId, "winmm.time-get-time.v1");
+  assert.deepEqual(call.arguments, []);
+  assert.deepEqual(call.result, { action: "set", value: 3_601_228 });
+  assert.equal(call.returnAddress, 0x1009_1ebf);
+  assert.equal(call.stackPointerBefore, 0x006f_f8d8);
+  assert.equal(call.stackPointerAfter, 0x006f_f8dc);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.deepEqual(call.tickCount, {
+    returnedTickCount: 3_601_228,
+    nextTickCount: 3_601_229,
+    incrementPerRead: 1,
+  });
+  assert.equal(checkpoint.activeCallbackDepthAtStop, 0);
+  assert.equal(result.supportedCalls.length, 161_964);
+  const { runtimeThreadId: _runtimeThreadId, ...expectedSupportedCall } = call;
+  assert.deepEqual(result.supportedCalls.at(-1), expectedSupportedCall);
+  assert.equal(result.terminal.instructionCount, checkpoint.instructionCount);
+  assert.equal(checkpoint.instructionCount, 321_463_448);
+  assert.deepEqual(checkpoint.nextEndpoint, {
+    id: 231,
+    address: 0x7f00_0e60,
+    module: "USER32.dll",
+    symbol: { kind: "name", name: "GetAsyncKeyState" },
+    disposition: "declared-runtime-export",
+    iatAddress: 0x100d_1474,
+  });
+  assert.deepEqual(checkpoint.nextArguments, [14, 0]);
+  assert.equal(checkpoint.nextReturnAddress, 0x1006_8405);
+  assert.equal(checkpoint.nextStackPointer, 0x006f_f80c);
+  assert.equal(
+    checkpoint.memoryContentSha256,
+    "57976ebffcc035e81358e80479bd1848454c08d85c6f024676df353ad444aaae",
+  );
+  assert.equal(result.threadExecution.contextSwitches, 2_512);
+  assert.equal(result.writebacks.length, 165_118);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    244_485,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    43_070_925,
+  );
+  assert.equal(result.hostDeltas.length, 127_939);
+  assert.equal(result.finalGeneration, 296_339);
 }
 
 function validateIsIconicPostPointerReleaseContinuationResult(result) {
@@ -36806,6 +37009,16 @@ function buildGenericRuntimeReentryReport({
   assert.equal(semanticCallDigest.count(), completedSupportedCalls.length);
   const supportedCallSemanticsSha256 = semanticCallDigest.digestHex();
   if (
+    timeGetTimePostIsIconicContinuationCheckpointEnabled
+  ) {
+    assert.equal(completedSupportedCalls.length, 161_964);
+    assert.equal(genericResult.supportedCalls.length, 161_964);
+    assert.notEqual(genericResult.supportedCalls.at(-1).pendingCallback, true);
+    assert.equal(
+      supportedCallSemanticsSha256,
+      "893826b9bf64219e935d14b5455cff43a62df40ea8292aceabbea73dd724606e",
+    );
+  } else if (
     isIconicPostPointerReleaseContinuationCheckpointEnabled
   ) {
     assert.equal(completedSupportedCalls.length, 161_963);
@@ -39754,6 +39967,11 @@ function buildGenericRuntimeReentryReport({
                                                                             : genericResult
                                                                               .checkpointCompletion
                                                                               .capability ===
+                                                                                "winmm-time-get-time-post-is-iconic-continuation"
+                                                                              ? "BGI completed the post-IsIconic timeGetTime process-clock read and stopped before the next owned endpoint"
+                                                                              : genericResult
+                                                                                  .checkpointCompletion
+                                                                                  .capability ===
                                                                                 "user32-is-iconic-post-pointer-release-continuation"
                                                                               ? "BGI completed the post-pointer-release IsIconic minimized-state query and stopped before the next owned endpoint"
                                                                               : genericResult

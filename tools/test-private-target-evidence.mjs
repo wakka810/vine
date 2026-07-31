@@ -71,7 +71,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 61);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 62);
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
 const lastPacingRequest = { requestId: "4708", sequence: 89_218 };
@@ -615,7 +615,9 @@ if (
   checkpoint.nextStructuredStop.completion.capability ===
     "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "user32-is-iconic-post-pointer-release-continuation"
+    "user32-is-iconic-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "winmm-time-get-time-post-is-iconic-continuation"
 ) {
   const stalePostReleaseFixedFrameHeightMetric = mutated((value) => {
     value.semantic.node.checkpointCompletion.getSystemMetricsFixedFrameHeightPostRelease.result.value =
@@ -634,7 +636,9 @@ if (
 }
 if (
   checkpoint.nextStructuredStop.completion.capability ===
-    "user32-is-iconic-post-pointer-release-continuation"
+    "user32-is-iconic-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "winmm-time-get-time-post-is-iconic-continuation"
 ) {
   const staleIsIconicResult = mutated((value) => {
     value.semantic.node.checkpointCompletion.isIconicPostRelease.result.value =
@@ -643,6 +647,21 @@ if (
   assert(
     validatePrivateTargetEvidence(staleIsIconicResult, checkpoint).some(
       (error) => error.includes("isIconicPostRelease.result.value"),
+    ),
+  );
+}
+if (
+  checkpoint.nextStructuredStop.completion.capability ===
+  "winmm-time-get-time-post-is-iconic-continuation"
+) {
+  const staleTimeGetTimeTick = mutated((value) => {
+    value.semantic.node.checkpointCompletion.timeGetTimePostIsIconic.tickCount.nextTickCount =
+      3_601_230;
+  });
+  assert(
+    validatePrivateTargetEvidence(staleTimeGetTimeTick, checkpoint).some(
+      (error) =>
+        error.includes("timeGetTimePostIsIconic.tickCount.nextTickCount"),
     ),
   );
 }
