@@ -190,7 +190,36 @@ function assertCapabilityCheckpoint(actual, expected) {
   assert(actual !== null, "capability checkpoint metadata is missing");
   assert.equal(actual.capability, expected.completion.capability);
   assert.equal(actual.implementationId, expected.completion.implementationId);
-  if (expected.completion.requiredPointerMessages !== undefined) {
+  if (expected.completion.requiredEntries !== undefined) {
+    assert.equal(actual.requiredEntries, expected.completion.requiredEntries);
+    assert.equal(actual.entryCount, expected.completion.entryCount);
+    assert.equal(
+      actual.lastEntrySequence,
+      expected.completion.lastEntrySequence,
+    );
+    assert.equal(
+      actual.lastEntryInstructionCount,
+      expected.completion.lastEntryInstructionCount,
+    );
+    assert.equal(actual.dispatchMessageRelease.pendingCallback, true);
+    assert.equal(
+      actual.dispatchMessageRelease.sequence,
+      actual.lastEntrySequence,
+    );
+    assert.equal(
+      actual.dispatchMessageRelease.trapInstructionCount,
+      actual.lastEntryInstructionCount,
+    );
+    assert.equal(actual.releaseCallbackEntry.sequence, actual.lastEntrySequence);
+    assert.equal(
+      actual.releaseCallbackEntry.instructionCount,
+      actual.lastEntryInstructionCount,
+    );
+    assert.equal(actual.releaseCallbackEntry.depth, 1);
+    assert.equal(actual.activeCallbackDepthAtStop, 1);
+    assert.equal(actual.queueDepthAtDispatchEntry, 0);
+    assert.equal(actual.dispatchMessageReleaseBytesPreserved, true);
+  } else if (expected.completion.requiredPointerMessages !== undefined) {
     assert.equal(
       actual.requiredPointerMessages,
       expected.completion.requiredPointerMessages,

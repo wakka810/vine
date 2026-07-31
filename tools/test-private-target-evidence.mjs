@@ -25,6 +25,14 @@ import {
 } from "./runtime-endpoint-symbol.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const privateTargetRunner = fs.readFileSync(
+  path.join(root, "tools", "run-private-target-check.mjs"),
+  "utf8",
+);
+assert.match(
+  privateTargetRunner,
+  /if \(expected\.completion\.requiredEntries !== undefined\) \{[\s\S]*?actual\.releaseCallbackEntry\.depth,[\s\S]*?actual\.queueDepthAtDispatchEntry,[\s\S]*?\} else if \(expected\.completion\.requiredPointerMessages !== undefined\)/u,
+);
 const checkpoint = loadCurrentCheckpoint(
   path.join(root, "docs", "current-checkpoint.json"),
 );
