@@ -5414,13 +5414,25 @@ fn pointer_button_ingress_commits_input_queue_and_window_proc_dispatch_atomicall
     );
 
     fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 1);
-    assert!(matches!(
-        fixture.dispatch_peek_message_a(),
-        DispatchOutcome::Immediate(ref completion)
-            if completion.eax == RegisterUpdate::Set(1)
-                && completion.guest_writes[0].write.bytes == up.message.to_x86_msg_bytes()
-    ));
+    let release_peek = match fixture.dispatch_peek_message_a() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected pointer-release PeekMessageA completion, got {other:?}"),
+    };
+    assert_eq!(release_peek.eax, RegisterUpdate::Set(1));
+    assert_eq!(release_peek.last_error, sentinel);
+    assert_eq!(release_peek.guest_writes.len(), 1);
+    assert_eq!(
+        release_peek.guest_writes[0].write.bytes,
+        up.message.to_x86_msg_bytes()
+    );
     fixture.acknowledge_pending_delta();
+    assert!(
+        fixture
+            .runtime
+            .queued_thread_messages(RuntimeThreadId(THREAD_ID))
+            .unwrap()
+            .is_empty()
+    );
 
     for message in 0..4_096 {
         fixture

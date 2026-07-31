@@ -632,6 +632,47 @@ impl GenericRuntimeWindowTimer {
     }
 }
 
+fn generic_runtime_successful_peek_message_output(
+    completion: &ApiImmediateCompletion,
+) -> Result<Option<u32>, LoaderError> {
+    const X86_MSG_BYTE_LENGTH: usize = 28;
+
+    if completion.implementation_id != PEEK_MESSAGE_A_IMPLEMENTATION
+        || !matches!(completion.eax, RegisterUpdate::Set(value) if value != 0)
+    {
+        return Ok(None);
+    }
+    let output_address = completion.frame.argument_u32(0).ok_or_else(|| {
+        LoaderError::runtime_defect(
+            "runtime-reentry",
+            "peek-message-output-argument-missing",
+            "successful PeekMessageA completion has no MSG output argument",
+        )
+    })?;
+    let [write] = completion.guest_writes.as_slice() else {
+        return Err(LoaderError::runtime_defect(
+            "runtime-reentry",
+            "peek-message-output-write-invalid",
+            "successful PeekMessageA completion must contain exactly one guest write",
+        ));
+    };
+    if write.write.address.0 != output_address
+        || write.write.bytes.len() != X86_MSG_BYTE_LENGTH
+        || write.result.bytes_written != X86_MSG_BYTE_LENGTH
+    {
+        return Err(LoaderError::runtime_defect(
+            "runtime-reentry",
+            "peek-message-output-write-invalid",
+            "successful PeekMessageA completion must write one complete x86 MSG to its output pointer",
+        ));
+    }
+    Ok(Some(u32::from_le_bytes(
+        write.write.bytes[4..8]
+            .try_into()
+            .expect("validated x86 MSG message field width"),
+    )))
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GenericRuntimeCompletion {
@@ -671,6 +712,8 @@ struct GenericRuntimeCompletion {
     paint: Option<GenericRuntimePaintCompletion>,
     #[serde(skip_serializing_if = "Option::is_none")]
     window_timer: Option<GenericRuntimeWindowTimer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    queued_thread_messages: Option<Vec<RuntimeThreadMessage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     thread_affinity: Option<GenericRuntimeThreadAffinity>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -5328,6 +5371,7 @@ fn run_v86_generic_runtime_session(
                             window,
                             paint,
                             window_timer,
+                            queued_thread_messages: None,
                             thread_affinity: None,
                             thread_priority: None,
                             imm32: None,
@@ -6028,6 +6072,31 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
+                        let queued_thread_messages = if def_window_proc_pointer_down_enabled
+                            && generic_runtime_successful_peek_message_output(&completion)?
+                                == Some(
+                                    user32_policy
+                                        .pointer_button_messages
+                                        .as_ref()
+                                        .ok_or_else(|| {
+                                            LoaderError::runtime_defect(
+                                                "runtime-reentry",
+                                                "pointer-button-message-policy-missing",
+                                                "DefWindowProcA continuation requires the User32 pointer-button message profile",
+                                            )
+                                        })?
+                                        .left_button_up_message,
+                                )
+                        {
+                            Some(
+                                session
+                                    .runtime()
+                                    .queued_thread_messages(session.runtime().current_thread_id())
+                                    .map_err(runtime_state_error)?,
+                            )
+                        } else {
+                            None
+                        };
                         let thread_affinity = if completion.implementation_id
                             == "kernel32.set-thread-affinity-mask.v1"
                         {
@@ -6321,6 +6390,7 @@ fn run_v86_generic_runtime_session(
                                 window,
                                 paint,
                                 window_timer,
+                                queued_thread_messages,
                                 thread_affinity,
                                 thread_priority,
                                 imm32,
@@ -6684,6 +6754,7 @@ fn run_v86_generic_runtime_session(
                                 window: None,
                                 paint: None,
                                 window_timer: None,
+                                queued_thread_messages: None,
                                 thread_affinity: None,
                                 thread_priority: None,
                                 imm32: None,
@@ -6802,6 +6873,7 @@ fn run_v86_generic_runtime_session(
                                 window: None,
                                 paint: None,
                                 window_timer: None,
+                                queued_thread_messages: None,
                                 thread_affinity: None,
                                 thread_priority: None,
                                 imm32: None,
@@ -14909,7 +14981,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "winmm-time-get-time-action-continuation" => {
                     GenericRuntimeCapability::User32SetFocusSameWindow
                 }
-                "user32-def-window-proc-a-action-continuation" => {
+                "user32-def-window-proc-a-action-continuation"
+                | "user32-peek-message-a-pointer-release-continuation" => {
                     GenericRuntimeCapability::User32DefWindowProcPointerDown
                 }
                 "kernel32-leave-critical-section" => {

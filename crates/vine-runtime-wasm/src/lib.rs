@@ -1945,6 +1945,13 @@ impl BrowserRuntime {
                         )? {
                             metadata["windowTimer"] = json!(window_timer);
                         }
+                        if let Some(queued_thread_messages) = bgi_pointer_release_queue_metadata(
+                            &completion,
+                            &self.runtime,
+                            user32_policy,
+                        )? {
+                            metadata["queuedThreadMessages"] = json!(queued_thread_messages);
+                        }
                         if let Some(virtual_memory) = bgi_virtual_memory_completion_metadata(
                             &completion,
                             &self.runtime,
@@ -3670,6 +3677,64 @@ fn should_emit_bgi_window_timer_callback_metadata(
         )
 }
 
+fn bgi_completed_peek_message_id(
+    completion: &ApiImmediateCompletion,
+) -> Result<Option<u32>, String> {
+    if completion.implementation_id != vine_core::PEEK_MESSAGE_A_IMPLEMENTATION {
+        return Ok(None);
+    }
+    let RegisterUpdate::Set(result) = completion.eax else {
+        return Err("PeekMessageA completion did not set BOOL in EAX".to_owned());
+    };
+    if result == 0 {
+        if !completion.guest_writes.is_empty() {
+            return Err("empty PeekMessageA completion unexpectedly wrote guest memory".to_owned());
+        }
+        return Ok(None);
+    }
+    let output = completion.frame.argument_u32(0).ok_or_else(|| {
+        "successful PeekMessageA completion has no MSG output argument".to_owned()
+    })?;
+    let [write] = completion.guest_writes.as_slice() else {
+        return Err(
+            "successful PeekMessageA completion did not publish exactly one MSG guest write"
+                .to_owned(),
+        );
+    };
+    bgi_completed_peek_message_id_from_write(
+        output,
+        write.write.address.0,
+        &write.write.bytes,
+        write.result.bytes_written,
+    )
+    .map(Some)
+}
+
+fn bgi_completed_peek_message_id_from_write(
+    output: u32,
+    write_address: u32,
+    write_bytes: &[u8],
+    bytes_written: usize,
+) -> Result<u32, String> {
+    if write_address != output || write_bytes.len() != 28 || bytes_written != 28 {
+        return Err(
+            "successful PeekMessageA completion published a malformed MSG guest write".to_owned(),
+        );
+    }
+    Ok(u32::from_le_bytes(
+        write_bytes[4..8]
+            .try_into()
+            .expect("validated MSG message field width"),
+    ))
+}
+
+fn should_emit_bgi_window_timer_peek_metadata(
+    completed_message: Option<u32>,
+    window_timer_message: u32,
+) -> bool {
+    completed_message == Some(window_timer_message)
+}
+
 fn bgi_window_timer_completion_metadata(
     completion: &ApiImmediateCompletion,
     runtime: &RuntimeState,
@@ -3706,10 +3771,14 @@ fn bgi_window_timer_completion_metadata(
                 })
         }
         vine_core::PEEK_MESSAGE_A_IMPLEMENTATION => {
-            let RegisterUpdate::Set(result) = completion.eax else {
-                return Err("PeekMessageA completion did not set BOOL in EAX".to_owned());
-            };
-            if result == 0 {
+            let completed_message = bgi_completed_peek_message_id(completion)?;
+            let window_timer_message = policy
+                .window_timer_delivery
+                .as_ref()
+                .expect("validated window-timer delivery policy")
+                .message;
+            if !should_emit_bgi_window_timer_peek_metadata(completed_message, window_timer_message)
+            {
                 Ok(None)
             } else {
                 latest_delivered_window_timer(runtime).map(Some)
@@ -3717,6 +3786,26 @@ fn bgi_window_timer_completion_metadata(
         }
         _ => Ok(None),
     }
+}
+
+fn bgi_pointer_release_queue_metadata(
+    completion: &ApiImmediateCompletion,
+    runtime: &RuntimeState,
+    policy: &User32CompatibilityPolicy,
+) -> Result<Option<Vec<vine_core::RuntimeThreadMessage>>, String> {
+    let Some(completed_message) = bgi_completed_peek_message_id(completion)? else {
+        return Ok(None);
+    };
+    let Some(pointer_profile) = policy.pointer_button_messages.as_ref() else {
+        return Ok(None);
+    };
+    if completed_message != pointer_profile.left_button_up_message {
+        return Ok(None);
+    }
+    runtime
+        .queued_thread_messages(runtime.current_thread_id())
+        .map(Some)
+        .map_err(error_string)
 }
 
 fn bgi_imm32_completion_metadata(
@@ -5008,7 +5097,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dispatch_message_window_timer_metadata_excludes_pointer_window_procedure_completion() {
+    fn window_timer_metadata_excludes_pointer_dispatch_and_peek_completions() {
         assert!(should_emit_bgi_window_timer_callback_metadata(
             true,
             vine_core::DISPATCH_MESSAGE_A_IMPLEMENTATION,
@@ -5019,5 +5108,33 @@ mod tests {
             vine_core::DISPATCH_MESSAGE_A_IMPLEMENTATION,
             GuestCallbackCompletionPolicy::ReturnU32,
         ));
+        assert!(should_emit_bgi_window_timer_peek_metadata(
+            Some(0x0113),
+            0x0113,
+        ));
+        assert!(!should_emit_bgi_window_timer_peek_metadata(
+            Some(0x0201),
+            0x0113,
+        ));
+        assert!(!should_emit_bgi_window_timer_peek_metadata(
+            Some(0x0202),
+            0x0113,
+        ));
+        assert!(!should_emit_bgi_window_timer_peek_metadata(None, 0x0113,));
+    }
+
+    #[test]
+    fn peek_message_metadata_rejects_malformed_write_receipts() {
+        let mut message = [0_u8; 28];
+        message[4..8].copy_from_slice(&0x0202_u32.to_le_bytes());
+        assert_eq!(
+            bgi_completed_peek_message_id_from_write(0x1000, 0x1000, &message, 28),
+            Ok(0x0202),
+        );
+        assert!(bgi_completed_peek_message_id_from_write(0x1000, 0x1004, &message, 28).is_err());
+        assert!(
+            bgi_completed_peek_message_id_from_write(0x1000, 0x1000, &message[..27], 27).is_err()
+        );
+        assert!(bgi_completed_peek_message_id_from_write(0x1000, 0x1000, &message, 27).is_err());
     }
 }

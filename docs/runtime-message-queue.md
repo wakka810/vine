@@ -139,6 +139,16 @@ allocatorを変更せず、capture authorityも導入しないため、matching 
 reached client `WM_LBUTTONDOWN`だけであり、v33以前はunsupportedのまま保つ。Release、capture transition、double-click、nonclient、
 right-buttonのdefault processingへ一般化しない。
 
+WndProcと外側の`DispatchMessageA`がretireした後、既存のcurrent-thread
+`PeekMessageA(PM_REMOVE)` transactionはqueue headのmatching
+`WM_LBUTTONUP`を同じRust authorityから取り出す。成功はBOOL 1と28-byte
+`MSG32` writeをjoint commitし、HWND、message、zero key mask、packed client
+coordinate、shared tick、logical screen pointをqueue recordから公開する。Memory
+preflightまたはstale queue planが失敗した場合はguest bytesとqueueの双方を変更せず、
+成功時もLastErrorを保持する。このreachability leafの後はrelease queueが空であり、
+callback depthも0である。TypeScriptはmessage生成、dequeue、timestamp、point、
+HWND、またはqueue lifetimeを所有しない。
+
 ## Lifecycle cleanup
 
 Thread exit requestはowned queued messagesをcallback／host request／wait registration／scheduler eventと
@@ -171,8 +181,8 @@ This checkpoint does not implement window／queue creation rules, filtered or cr
 WM_QUIT special return, generated paint, general `DispatchMessage`, cross-process post, broadcast, or quota
 parity. Window-timer delivery remains limited to the reached live-HWND／ID 1／20 ms／TIMERPROC profile. Pointer
 production is limited to normalized primary／secondary button messages for the visible active focused foreground
-window; the reached case fixes down dispatch, bounded client-down default processing, and a queued matching
-release. Pointer move／wheel, capture transition, double-click, nonclient translation, replacement race,
+window; the reached case fixes down dispatch, bounded client-down default processing, and retrieval of the queued
+matching release. Release translation／dispatch, pointer move／wheel, capture transition, double-click, nonclient translation, replacement race,
 `KillTimer`, NULL-HWND allocated IDs, visible action response, and background freeze／resume remain unproven.
 Existing W2 message／paint flow remains a separate fixed JavaScript harness.
 This is partial evidence for `P1-SCH-01`／`REQ-UI-02`, not their completion.

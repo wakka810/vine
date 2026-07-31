@@ -106,6 +106,20 @@ constant-result timer callback, never merely because a `DispatchMessageA`
 callback completed; pointer callbacks retain their own result and do not
 masquerade as timer delivery.
 
+Protocol version 82's
+`user32-peek-message-a-pointer-release-continuation` resumes only after the
+pointer WndProc and its outer `DispatchMessageA` frame have retired. Rust then
+removes the already queued `WM_LBUTTONUP` with the existing
+`PeekMessageA(PM_REMOVE)` transaction, writes one 28-byte `MSG32`, preserves
+LastError, and leaves the callback depth at zero. The Worker arms this exact
+post-callback occurrence and records immutable completion evidence; it does not
+poll a DOM queue, construct the message, or own its HWND, timestamp,
+coordinates, removal, or queue lifetime.
+Successful Peek completion metadata is classified from the Rust-produced
+`MSG32`: only `WM_TIMER` carries a `windowTimer` snapshot, while the reached
+`WM_LBUTTONUP` carries the authoritative post-commit `queuedThreadMessages`
+snapshot used to prove that the release queue is empty.
+
 After a guest API completion, Rust may return a `thread-switch` selected by the
 authoritative scheduler. The Worker saves the outgoing opaque engine context and
 restores the context associated with the selected runtime TID; it does not choose

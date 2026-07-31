@@ -213,6 +213,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-set-focus-action-continuation",
         "winmm-time-get-time-action-continuation",
         "user32-def-window-proc-a-action-continuation",
+        "user32-peek-message-a-pointer-release-continuation",
         "kernel32-wait-for-single-object-ex",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -399,6 +400,7 @@ assert(
       "user32-set-focus-action-continuation",
       "winmm-time-get-time-action-continuation",
       "user32-def-window-proc-a-action-continuation",
+      "user32-peek-message-a-pointer-release-continuation",
       "kernel32-wait-for-single-object-ex",
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
       "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -528,6 +530,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "winmm-time-get-time-action-continuation" ||
     genericRuntimeCapability ===
       "user32-def-window-proc-a-action-continuation" ||
+    genericRuntimeCapability ===
+      "user32-peek-message-a-pointer-release-continuation" ||
     genericRuntimeCapability ===
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     genericRuntimeCapability ===
@@ -902,7 +906,9 @@ const inputProgressGatewayCheckpointEnabled =
   genericRuntimeCapability === "user32-set-focus-action-continuation" ||
   genericRuntimeCapability === "winmm-time-get-time-action-continuation" ||
   genericRuntimeCapability ===
-    "user32-def-window-proc-a-action-continuation";
+    "user32-def-window-proc-a-action-continuation" ||
+  genericRuntimeCapability ===
+    "user32-peek-message-a-pointer-release-continuation";
 const windowTimerCallbackDeliveryGatewayCheckpointEnabled =
   genericRuntimeCapability ===
   "primary-main-loop-window-timer-callback-delivery-gateway";
@@ -917,17 +923,25 @@ const windowTimerCallbackActionInputProgressGatewayCheckpointEnabled =
   genericRuntimeCapability === "user32-set-focus-action-continuation" ||
   genericRuntimeCapability === "winmm-time-get-time-action-continuation" ||
   genericRuntimeCapability ===
-    "user32-def-window-proc-a-action-continuation";
+    "user32-def-window-proc-a-action-continuation" ||
+  genericRuntimeCapability ===
+    "user32-peek-message-a-pointer-release-continuation";
 const setFocusActionContinuationCheckpointEnabled =
   genericRuntimeCapability === "user32-set-focus-action-continuation" ||
   genericRuntimeCapability === "winmm-time-get-time-action-continuation" ||
   genericRuntimeCapability ===
-    "user32-def-window-proc-a-action-continuation";
+    "user32-def-window-proc-a-action-continuation" ||
+  genericRuntimeCapability ===
+    "user32-peek-message-a-pointer-release-continuation";
 const timeGetTimeActionContinuationCheckpointEnabled =
   genericRuntimeCapability === "winmm-time-get-time-action-continuation";
+const peekMessageAPointerReleaseContinuationCheckpointEnabled =
+  genericRuntimeCapability ===
+  "user32-peek-message-a-pointer-release-continuation";
 const defWindowProcAActionContinuationCheckpointEnabled =
   genericRuntimeCapability ===
-  "user32-def-window-proc-a-action-continuation";
+    "user32-def-window-proc-a-action-continuation" ||
+  peekMessageAPointerReleaseContinuationCheckpointEnabled;
 const hasTimeGetTimeActionContinuationCheckpoint =
   timeGetTimeActionContinuationCheckpointEnabled ||
   defWindowProcAActionContinuationCheckpointEnabled;
@@ -964,7 +978,15 @@ const recurringTimerBoundedWindowCheckpointEnabled =
   recurringTimerMultiCycleCheckpointEnabled ||
   recurringTimerWindowEvidenceEnabled;
 const recurringTimerWindowConfiguration =
-  defWindowProcAActionContinuationCheckpointEnabled
+  peekMessageAPointerReleaseContinuationCheckpointEnabled
+    ? {
+        capability: "user32-peek-message-a-pointer-release-continuation",
+        implementationId:
+          "runtime.user32-peek-message-a-pointer-release-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      }
+    : defWindowProcAActionContinuationCheckpointEnabled
     ? {
         capability: "user32-def-window-proc-a-action-continuation",
         implementationId:
@@ -1543,7 +1565,9 @@ const outputDirectory = path.join(
             ? "v86-bgi-primary-main-loop-recurring-timer-cycle-batch"
             : recurringTimerBoundedWindowCheckpointEnabled
               ? setFocusActionContinuationCheckpointEnabled
-                ? defWindowProcAActionContinuationCheckpointEnabled
+                ? peekMessageAPointerReleaseContinuationCheckpointEnabled
+                  ? "v86-bgi-peek-message-a-pointer-release-continuation"
+                  : defWindowProcAActionContinuationCheckpointEnabled
                   ? "v86-bgi-def-window-proc-a-action-continuation"
                   : timeGetTimeActionContinuationCheckpointEnabled
                     ? "v86-bgi-time-get-time-action-continuation"
@@ -5987,7 +6011,9 @@ async function run() {
       sessionCompleted = true;
       const sourceAfter = sourceIdentity(bgiPath);
       assert.deepEqual(sourceAfter, sourceBefore);
-      if (defWindowProcAActionContinuationCheckpointEnabled) {
+      if (peekMessageAPointerReleaseContinuationCheckpointEnabled) {
+        validatePeekMessageAPointerReleaseContinuationResult(genericResult);
+      } else if (defWindowProcAActionContinuationCheckpointEnabled) {
         validateDefWindowProcAActionContinuationResult(genericResult);
       } else if (timeGetTimeActionContinuationCheckpointEnabled) {
         validateTimeGetTimeActionContinuationResult(genericResult);
@@ -6350,7 +6376,9 @@ async function run() {
                 : recurringTimerBoundedWindowCheckpointEnabled
                   ? pointerMessageActionProgressGatewayCheckpointEnabled
                     ? setFocusActionContinuationCheckpointEnabled
-                      ? defWindowProcAActionContinuationCheckpointEnabled
+                      ? peekMessageAPointerReleaseContinuationCheckpointEnabled
+                        ? "bgi USER32 PeekMessageA pointer release continuation"
+                        : defWindowProcAActionContinuationCheckpointEnabled
                         ? "bgi USER32 DefWindowProcA action continuation"
                         : timeGetTimeActionContinuationCheckpointEnabled
                           ? "bgi WINMM timeGetTime action continuation"
@@ -6709,6 +6737,9 @@ async function run() {
                 : genericResult.checkpointCompletion.capability ===
                     "user32-async-key-state-input"
                   ? `${genericResult.checkpointCompletion.completionCount} controlled async-key query completed`
+                  : genericResult.checkpointCompletion.capability ===
+                      "user32-peek-message-a-pointer-release-continuation"
+                    ? `WM_LBUTTONUP removed before ${genericResult.checkpointCompletion.nextEndpoint.symbol.name}`
                   : genericResult.checkpointCompletion.capability ===
                       "user32-set-focus-action-continuation"
                     ? `SetFocus completed before ${genericResult.checkpointCompletion.nextEndpoint.symbol.name}`
@@ -7075,6 +7106,9 @@ async function runGenericRuntimeReentry({
   let setFocusActionContinuationEntry = null;
   let timeGetTimeActionContinuationEntry = null;
   let defWindowProcAActionContinuationEntry = null;
+  let peekMessageAPointerReleaseAwaitingDispatch = false;
+  let peekMessageAPointerReleaseDispatching = false;
+  let peekMessageAPointerReleaseContinuationEntry = null;
   let inputProgressAsyncKeyStateQuery = null;
   const inputProgressVirtualKey = actionInputProgressGatewayCheckpointEnabled
     ? 0x01
@@ -7352,6 +7386,34 @@ async function runGenericRuntimeReentry({
       assert.equal(terminal.returnAddress, 0x1009_33bf);
       assert.equal(continuation.finalState.esp, 0x006f_f50c);
     }
+    if (
+      peekMessageAPointerReleaseContinuationCheckpointEnabled &&
+      peekMessageAPointerReleaseAwaitingDispatch
+    ) {
+      assert.equal(peekMessageAPointerReleaseDispatching, false);
+      assert.equal(peekMessageAPointerReleaseContinuationEntry, null);
+      assert(defWindowProcAActionContinuationEntry);
+      assert.equal(activeCallbacks.length, 0);
+      assert(endpoint);
+      assert.equal(endpoint.kind, "runtime-system-export");
+      assert.equal(endpoint.id, 164);
+      assert.equal(endpoint.address, 0x7f00_0a30);
+      assert.equal(endpoint.module.toLowerCase(), "user32.dll");
+      assert.equal(endpoint.symbol, "PeekMessageA");
+      assert.equal(terminal.kind, "owned-import-thunk");
+      assert.equal(terminal.thunk.iatAddress, 0x100d_1368);
+      assert.deepEqual(terminal.stackWords.slice(1, 6), [
+        0x006f_f8e8,
+        0,
+        0,
+        0,
+        1,
+      ]);
+      assert.equal(terminal.returnAddress, 0x1009_37bb);
+      assert.equal(continuation.finalState.esp, 0x006f_f8c4);
+      peekMessageAPointerReleaseAwaitingDispatch = false;
+      peekMessageAPointerReleaseDispatching = true;
+    }
 
     if (
       endpoint !== null &&
@@ -7576,6 +7638,24 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
+      peekMessageAPointerReleaseContinuationEntry !== null &&
+      endpoint !== null
+    ) {
+      assert.equal(peekMessageAPointerReleaseAwaitingDispatch, false);
+      assert.equal(peekMessageAPointerReleaseDispatching, false);
+      checkpointCompletion = {
+        ...peekMessageAPointerReleaseContinuationEntry,
+        setFocusActiveCallbackDepthAtStop:
+          peekMessageAPointerReleaseContinuationEntry
+            .activeCallbackDepthAtStop,
+        activeCallbackDepthAtStop: activeCallbacks.length,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
+    if (
+      !peekMessageAPointerReleaseContinuationCheckpointEnabled &&
       defWindowProcAActionContinuationEntry !== null &&
       endpoint !== null
     ) {
@@ -7642,6 +7722,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "user32-peek-message-a-pointer-release-continuation"
+            ? "user32-peek-message-a-pointer-release-continuation-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "user32-def-window-proc-a-action-continuation"
             ? "user32-def-window-proc-a-action-continuation-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -7821,6 +7904,12 @@ async function runGenericRuntimeReentry({
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (postCriticalSectionSetWaitableTimerCheckpointEnabled) {
         checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 4);
+        checkpointCompletion.nextReturnAddress = terminal.returnAddress;
+        checkpointCompletion.nextStackPointer = continuation.finalState.esp;
+      } else if (
+        peekMessageAPointerReleaseContinuationCheckpointEnabled
+      ) {
+        checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 2);
         checkpointCompletion.nextReturnAddress = terminal.returnAddress;
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (defWindowProcAActionContinuationCheckpointEnabled) {
@@ -8135,6 +8224,20 @@ async function runGenericRuntimeReentry({
         instructionCount: continuation.instructionCount,
         result: callbackResult,
       });
+      if (
+        peekMessageAPointerReleaseContinuationCheckpointEnabled &&
+        defWindowProcAActionContinuationEntry !== null &&
+        activeCallbacks.length === 0
+      ) {
+        assert.equal(active.endpoint.module.toLowerCase(), "user32.dll");
+        assert.equal(active.endpoint.symbol, "DispatchMessageA");
+        assert.equal(active.sequence, 161_942);
+        assert.equal(continuation.instructionCount, 321_462_414);
+        assert.equal(peekMessageAPointerReleaseAwaitingDispatch, false);
+        assert.equal(peekMessageAPointerReleaseDispatching, false);
+        assert.equal(peekMessageAPointerReleaseContinuationEntry, null);
+        peekMessageAPointerReleaseAwaitingDispatch = true;
+      }
       continuation = executeToNextOwnedTrap(
         offer,
         context,
@@ -8894,6 +8997,89 @@ async function runGenericRuntimeReentry({
       frozenSemanticCalls += 1;
     }
     supportedCalls.push(call);
+    if (
+      peekMessageAPointerReleaseContinuationCheckpointEnabled &&
+      peekMessageAPointerReleaseDispatching
+    ) {
+      assert.equal(peekMessageAPointerReleaseContinuationEntry, null);
+      assert(defWindowProcAActionContinuationEntry);
+      assert.equal(call.module.toLowerCase(), "user32.dll");
+      assert.equal(call.symbol, "PeekMessageA");
+      assert.equal(
+        call.implementationId,
+        "user32.peek-message-a.current-thread.v1",
+      );
+      assert.equal(call.sequence, 161_949);
+      assert.equal(call.occurrence, 11);
+      assert.equal(call.trapInstructionCount, 321_462_423);
+      assert.deepEqual(call.arguments, [0x006f_f8e8, 0, 0, 0, 1]);
+      assert.deepEqual(call.result, { action: "set", value: 1 });
+      assert.equal(call.returnAddress, 0x1009_37bb);
+      assert.equal(call.stackPointerBefore, 0x006f_f8c4);
+      assert.equal(call.stackPointerAfter, 0x006f_f8dc);
+      assert.equal(call.lastError, 0);
+      assert.equal(activeCallbacks.length, 0);
+      assert.equal(call.guestWrites.length, 1);
+      const [releaseWrite] = call.guestWrites;
+      assert.equal(releaseWrite.address, 0x006f_f8e8);
+      assert.deepEqual(
+        releaseWrite.bytes,
+        [...Buffer.from(
+          "0100014802020000000000008002680147f33600c00300001c020000",
+          "hex",
+        )],
+      );
+      assert.deepEqual(releaseWrite.result, {
+        bytesWritten: 28,
+        dirtyPages: 1,
+        invalidation: {
+          generation: 296_319,
+          dataTlb: false,
+          instructionFetch: false,
+          generatedCode: false,
+        },
+      });
+      assert.deepEqual(completionFrame.queuedThreadMessages, []);
+      const releaseMessage =
+        defWindowProcAActionContinuationEntry.inputEvents[1]?.receipt?.message;
+      assert.deepEqual(releaseMessage, {
+        id: 4,
+        source: { kind: "pointer-input", event_sequence: 2 },
+        targetThreadId: 8_192,
+        hwnd: 0x4801_0001,
+        message: 0x0202,
+        wParam: 0,
+        lParam: 0x0168_0280,
+        time: 3_601_223,
+        pointX: 960,
+        pointY: 540,
+      });
+      assert.equal(
+        defWindowProcAActionContinuationEntry.releaseMessageQueued,
+        true,
+      );
+      peekMessageAPointerReleaseContinuationEntry = {
+        ...defWindowProcAActionContinuationEntry,
+        capability: "user32-peek-message-a-pointer-release-continuation",
+        implementationId:
+          "runtime.user32-peek-message-a-pointer-release-continuation.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: call.trapInstructionCount,
+        peekMessageReleaseActiveCallbackDepthAtCompletion:
+          activeCallbacks.length,
+        releaseMessage: structuredClone(releaseMessage),
+        queueDepthBefore: 1,
+        queueDepthAfter: completionFrame.queuedThreadMessages.length,
+        releaseMessageQueued: false,
+        peekMessageRelease: {
+          ...structuredClone(call),
+          runtimeThreadId: currentThreadId,
+        },
+      };
+      peekMessageAPointerReleaseDispatching = false;
+    }
     if (
       setFocusActionContinuationCheckpointEnabled &&
       call.implementationId === "user32.set-focus.same-current-window.v1"
@@ -26369,6 +26555,10 @@ function validatePostWaitCriticalSectionResult(result) {
 }
 
 function validateRecurringTimerBoundedWindowResult(result) {
+  if (peekMessageAPointerReleaseContinuationCheckpointEnabled) {
+    validatePeekMessageAPointerReleaseContinuationResult(result);
+    return;
+  }
   if (defWindowProcAActionContinuationCheckpointEnabled) {
     validateDefWindowProcAActionContinuationResult(result);
     return;
@@ -26410,6 +26600,139 @@ function validateRecurringTimerBoundedWindowResult(result) {
     return;
   }
   validateRecurringTimerWindowResult(result);
+}
+
+function validatePeekMessageAPointerReleaseContinuationResult(result) {
+  assert(peekMessageAPointerReleaseContinuationCheckpointEnabled);
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  const checkpoint = result.checkpointCompletion;
+  assert.equal(
+    checkpoint?.capability,
+    "user32-peek-message-a-pointer-release-continuation",
+  );
+  assert.equal(
+    checkpoint.implementationId,
+    "runtime.user32-peek-message-a-pointer-release-continuation.v1",
+  );
+  assert.equal(checkpoint.requiredCompletions, 1);
+  assert.equal(checkpoint.completionCount, 1);
+  assert.equal(checkpoint.lastCompletionSequence, 161_949);
+  assert.equal(checkpoint.lastCompletionInstructionCount, 321_462_423);
+  assert.equal(checkpoint.requiredPointerMessages, 1);
+  assert.equal(checkpoint.pointerMessageDeliveryCount, 1);
+  assert.equal(checkpoint.releaseMessageQueued, false);
+  assert.equal(checkpoint.queueDepthBefore, 1);
+  assert.equal(checkpoint.queueDepthAfter, 0);
+  assert.equal(checkpoint.activeCallbackDepthAtStop, 0);
+  assert.equal(checkpoint.setFocusActiveCallbackDepthAtStop, 1);
+  assert.equal(checkpoint.timeGetTimeActiveCallbackDepthAtCompletion, 1);
+  assert.equal(
+    checkpoint.defWindowProcAActiveCallbackDepthAtCompletion,
+    1,
+  );
+  assert.equal(
+    checkpoint.peekMessageReleaseActiveCallbackDepthAtCompletion,
+    0,
+  );
+  assert.equal(checkpoint.setFocus.sequence, 161_946);
+  assert.equal(checkpoint.timeGetTime.sequence, 161_947);
+  assert.equal(checkpoint.defWindowProcA.sequence, 161_948);
+  assert.equal(checkpoint.defWindowProcA.occurrence, 26);
+  assert.equal(
+    checkpoint.defWindowProcA.trapInstructionCount,
+    321_462_401,
+  );
+  assert.deepEqual(checkpoint.releaseMessage, {
+    id: 4,
+    source: { kind: "pointer-input", event_sequence: 2 },
+    targetThreadId: 8_192,
+    hwnd: 0x4801_0001,
+    message: 0x0202,
+    wParam: 0,
+    lParam: 0x0168_0280,
+    time: 3_601_223,
+    pointX: 960,
+    pointY: 540,
+  });
+  const release = checkpoint.peekMessageRelease;
+  assert.equal(release.runtimeThreadId, 8_192);
+  assert.equal(release.sequence, 161_949);
+  assert.equal(release.occurrence, 11);
+  assert.equal(release.trapInstructionCount, 321_462_423);
+  assert.equal(release.module.toLowerCase(), "user32.dll");
+  assert.equal(release.symbol, "PeekMessageA");
+  assert.equal(
+    release.implementationId,
+    "user32.peek-message-a.current-thread.v1",
+  );
+  assert.deepEqual(release.arguments, [0x006f_f8e8, 0, 0, 0, 1]);
+  assert.deepEqual(release.result, { action: "set", value: 1 });
+  assert.equal(release.returnAddress, 0x1009_37bb);
+  assert.equal(release.stackPointerBefore, 0x006f_f8c4);
+  assert.equal(release.stackPointerAfter, 0x006f_f8dc);
+  assert.equal(release.lastError, 0);
+  assert.equal(release.guestWrites.length, 1);
+  assert.deepEqual(release.guestWrites[0], {
+    address: 0x006f_f8e8,
+    bytes: [...Buffer.from(
+      "0100014802020000000000008002680147f33600c00300001c020000",
+      "hex",
+    )],
+    result: {
+      bytesWritten: 28,
+      dirtyPages: 1,
+      invalidation: {
+        generation: 296_319,
+        dataTlb: false,
+        instructionFetch: false,
+        generatedCode: false,
+      },
+    },
+  });
+  assert.equal(checkpoint.instructionCount, 321_462_431);
+  assert.deepEqual(checkpoint.nextEndpoint, {
+    id: 162,
+    address: 0x7f00_0a10,
+    module: "USER32.dll",
+    symbol: { kind: "name", name: "TranslateMessage" },
+    disposition: "declared-runtime-export",
+    iatAddress: 0x100d_1360,
+  });
+  assert.deepEqual(checkpoint.nextArguments, [0x006f_f8e8]);
+  assert.equal(checkpoint.nextReturnAddress, 0x1009_37a2);
+  assert.equal(checkpoint.nextStackPointer, 0x006f_f8d4);
+  assert.equal(
+    checkpoint.memoryContentSha256,
+    "3083e677a1fb9192ce07e416829d58b875965b2e60265363682d5ae91db0e542",
+  );
+  assert.equal(result.terminal.instructionCount, checkpoint.instructionCount);
+  assert.equal(result.supportedCalls.length, 161_949);
+  assert.equal(result.supportedCalls.at(-1).symbol, "PeekMessageA");
+  assert.equal(result.writebacks.length, 165_102);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    244_459,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    43_070_470,
+  );
+  assert.equal(result.hostDeltas.length, 127_936);
+  assert.equal(result.finalGeneration, 296_320);
+  assert.equal(result.threadExecution.contextSwitches, 2_512);
+  const callbackReturn = result.callbackEvents.at(-1);
+  assert.equal(callbackReturn?.action, "return");
+  assert.equal(callbackReturn.sequence, 161_942);
+  assert.equal(callbackReturn.frameId, 33);
+  assert.equal(callbackReturn.instructionCount, 321_462_414);
+  assert.equal(callbackReturn.result, 0);
 }
 
 function validateDefWindowProcAActionContinuationResult(result) {
@@ -33675,6 +33998,12 @@ function buildGenericRuntimeReentryReport({
   }
   assert.equal(semanticCallDigest.count(), completedSupportedCalls.length);
   const supportedCallSemanticsSha256 = semanticCallDigest.digestHex();
+  if (peekMessageAPointerReleaseContinuationCheckpointEnabled) {
+    assert.equal(
+      supportedCallSemanticsSha256,
+      "7754804351d4e484a945df77b22300fad26444360bacaf8550e3ce0ee0c3d0de",
+    );
+  }
   const assertSummaryCompletionCount = (calls, expected, message) => {
     if (user32AsyncKeyStateInitialScanContinuationCheckpointEnabled) {
       assert(
@@ -36355,6 +36684,9 @@ function buildGenericRuntimeReentryReport({
             code: "capability-checkpoint-complete",
             message:
               genericResult.checkpointCompletion.capability ===
+              "user32-peek-message-a-pointer-release-continuation"
+                ? "BGI removed the queued WM_LBUTTONUP into MSG and stopped before TranslateMessageA"
+                : genericResult.checkpointCompletion.capability ===
               "runtime-trapless-execution-budget"
                 ? "BGI crossed the former trapless execution budget and stopped at the next runtime-owned endpoint"
                 : genericResult.checkpointCompletion.capability ===

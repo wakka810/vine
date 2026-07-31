@@ -1185,6 +1185,19 @@ identityは`current-checkpoint.json`だけを正本とする。これはreached 
 default processingだけを固定し、release dispatch、capture transition、double-click、nonclient／right-button
 default processing、visible response、general `DefWindowProcA` semanticsをclaimしない。
 
+続く`user32-peek-message-a-pointer-release-continuation`は、WndProcと外側の
+`DispatchMessageA`がretireしてactive callback depthが0になった後の最初の
+`PeekMessageA(MSG*,0,0,0,PM_REMOVE)`だけを明示的にarmする。既存User32 v34
+policyとRust queue handlerを再利用し、queued `WM_LBUTTONUP`から28-byte
+`MSG32`を原子的にwrite/dequeueしてBOOL 1を返し、LastErrorを保持する。Focused
+dispatcher testはrelease取得後のqueue empty、exact MSG bytes、LastError preserveを
+固定する。Node／Chromeは同じcompletion、guest write receipt、empty-release
+relation、semantic digest、terminal memory、および次のowned `TranslateMessage`
+endpointを一致させる。Exact値とartifact identityは`current-checkpoint.json`だけを
+正本とする。これは到達済みcurrent-thread unfiltered `PM_REMOVE` releaseだけであり、
+filtering／`PM_NOREMOVE`／`WM_QUIT`、release translation／dispatch、capture、
+visible response、general message loopをclaimしない。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

@@ -655,7 +655,8 @@ function isInputProgressGatewayCheckpoint(
     profile === "primary-main-loop-pointer-message-action-progress-gateway" ||
     profile === "user32-set-focus-action-continuation" ||
     profile === "winmm-time-get-time-action-continuation" ||
-    profile === "user32-def-window-proc-a-action-continuation"
+    profile === "user32-def-window-proc-a-action-continuation" ||
+    profile === "user32-peek-message-a-pointer-release-continuation"
   );
 }
 
@@ -669,7 +670,8 @@ function isActionInputProgressGatewayCheckpoint(
     profile === "primary-main-loop-pointer-message-action-progress-gateway" ||
     profile === "user32-set-focus-action-continuation" ||
     profile === "winmm-time-get-time-action-continuation" ||
-    profile === "user32-def-window-proc-a-action-continuation"
+    profile === "user32-def-window-proc-a-action-continuation" ||
+    profile === "user32-peek-message-a-pointer-release-continuation"
   );
 }
 
@@ -696,7 +698,8 @@ function isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
     profile === "primary-main-loop-pointer-message-action-progress-gateway" ||
     profile === "user32-set-focus-action-continuation" ||
     profile === "winmm-time-get-time-action-continuation" ||
-    profile === "user32-def-window-proc-a-action-continuation"
+    profile === "user32-def-window-proc-a-action-continuation" ||
+    profile === "user32-peek-message-a-pointer-release-continuation"
   );
 }
 
@@ -724,12 +727,27 @@ function isDefWindowProcAActionContinuationCheckpoint(
   return profile === "user32-def-window-proc-a-action-continuation";
 }
 
+function isPeekMessageAPointerReleaseContinuationCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "user32-peek-message-a-pointer-release-continuation";
+}
+
+function hasDefWindowProcAActionContinuation(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isDefWindowProcAActionContinuationCheckpoint(profile) ||
+    isPeekMessageAPointerReleaseContinuationCheckpoint(profile)
+  );
+}
+
 function hasTimeGetTimeActionContinuation(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isTimeGetTimeActionContinuationCheckpoint(profile) ||
-    isDefWindowProcAActionContinuationCheckpoint(profile)
+    hasDefWindowProcAActionContinuation(profile)
   );
 }
 
@@ -792,7 +810,15 @@ function isRecurringTimerBoundedWindowCheckpoint(
 function recurringTimerWindowConfiguration(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  return isDefWindowProcAActionContinuationCheckpoint(profile)
+  return isPeekMessageAPointerReleaseContinuationCheckpoint(profile)
+    ? ({
+        capability: "user32-peek-message-a-pointer-release-continuation",
+        implementationId:
+          "runtime.user32-peek-message-a-pointer-release-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      } as const)
+    : isDefWindowProcAActionContinuationCheckpoint(profile)
     ? ({
         capability: "user32-def-window-proc-a-action-continuation",
         implementationId:
@@ -1012,6 +1038,8 @@ function inputProgressGatewayExpectation(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
   const pointer = hasPointerMessageActionProgressGateway(profile);
+  const peekMessageRelease =
+    isPeekMessageAPointerReleaseContinuationCheckpoint(profile);
   const defWindowProcA =
     isDefWindowProcAActionContinuationCheckpoint(profile);
   const timeGetTime = isTimeGetTimeActionContinuationCheckpoint(profile);
@@ -1020,7 +1048,9 @@ function inputProgressGatewayExpectation(
     isWindowTimerCallbackActionInputProgressGatewayCheckpoint(profile);
   const action = isActionInputProgressGatewayCheckpoint(profile);
   return {
-    capability: defWindowProcA
+    capability: peekMessageRelease
+      ? "user32-peek-message-a-pointer-release-continuation"
+      : defWindowProcA
       ? "user32-def-window-proc-a-action-continuation"
       : timeGetTime
       ? "winmm-time-get-time-action-continuation"
@@ -1033,7 +1063,9 @@ function inputProgressGatewayExpectation(
       : action
       ? "primary-main-loop-action-input-progress-gateway"
       : "primary-main-loop-input-progress-gateway",
-    implementationId: defWindowProcA
+    implementationId: peekMessageRelease
+      ? "runtime.user32-peek-message-a-pointer-release-continuation.v1"
+      : defWindowProcA
       ? "runtime.user32-def-window-proc-a-action-continuation.v1"
       : timeGetTime
       ? "runtime.winmm-time-get-time-action-continuation.v1"
@@ -1422,6 +1454,7 @@ interface CompletionMetadata {
   heapAllocation?: RuntimeSupportedCallSnapshot["heapAllocation"];
   tickCount?: RuntimeSupportedCallSnapshot["tickCount"];
   heapFree?: RuntimeSupportedCallSnapshot["heapFree"];
+  queuedThreadMessages?: RuntimeThreadMessageSnapshot[];
   createdThread?: CreatedThreadMetadata;
   resumedThread?: ResumedThreadMetadata;
   threadSelection?: ApiBoundaryThreadSelection;
@@ -1691,6 +1724,30 @@ type DefWindowProcAActionContinuationEntry = Omit<
   | "defWindowProcAActiveCallbackDepthAtCompletion"
   | "activeCallbackDepthAtStop"
   | "defWindowProcA"
+  | "instructionCount"
+  | "nextEndpoint"
+  | "nextArguments"
+  | "nextReturnAddress"
+  | "nextStackPointer"
+  | "memoryContentSha256"
+>;
+
+type PeekMessageAPointerReleaseContinuationCheckpoint = Extract<
+  NonNullable<SessionReport["checkpointCompletion"]>,
+  { capability: "user32-peek-message-a-pointer-release-continuation" }
+>;
+
+type PeekMessageAPointerReleaseContinuationEntry = Omit<
+  PeekMessageAPointerReleaseContinuationCheckpoint,
+  | "releaseMessageQueued"
+  | "releaseMessage"
+  | "queueDepthBefore"
+  | "queueDepthAfter"
+  | "peekMessageReleaseActiveCallbackDepthAtCompletion"
+  | "activeCallbackDepthAtStop"
+  | "lastCompletionSequence"
+  | "lastCompletionInstructionCount"
+  | "peekMessageRelease"
   | "instructionCount"
   | "nextEndpoint"
   | "nextArguments"
@@ -2206,6 +2263,11 @@ class BrowserRuntimeSession {
     null;
   #defWindowProcAActionContinuationAwaitingDispatch = false;
   #defWindowProcAActionContinuationDispatching = false;
+  #peekMessageAPointerReleaseContinuationEntry: PeekMessageAPointerReleaseContinuationEntry | null =
+    null;
+  #peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind = false;
+  #peekMessageAPointerReleaseContinuationAwaitingDispatch = false;
+  #peekMessageAPointerReleaseContinuationDispatching = false;
   readonly #presentationProgressRenderCompletions: RuntimeThreadCallSnapshot[] =
     [];
   #presentationProgressPresentCompletion: RuntimeThreadCallSnapshot | null =
@@ -2564,7 +2626,7 @@ class BrowserRuntimeSession {
               hasSetFocusActionContinuation(
                 this.#configuration.capabilityProfile,
               ),
-              isDefWindowProcAActionContinuationCheckpoint(
+              hasDefWindowProcAActionContinuation(
                 this.#configuration.capabilityProfile,
               ),
             )
@@ -2627,7 +2689,7 @@ class BrowserRuntimeSession {
         const cursor = preparedOutput.metadata.runtime.cursorPosition;
         invariant(
           preparedOutput.metadata.runtime.user32Policy ===
-            (isDefWindowProcAActionContinuationCheckpoint(
+            (hasDefWindowProcAActionContinuation(
               this.#configuration.capabilityProfile,
             )
               ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
@@ -3756,6 +3818,16 @@ class BrowserRuntimeSession {
       trapInstructionCount: this.#report.instructions,
       occurrence,
     };
+    if (
+      isPeekMessageAPointerReleaseContinuationCheckpoint(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#report.checkpointCompletion?.capability ===
+        "user32-peek-message-a-pointer-release-continuation" &&
+      call.implementationId === "user32.peek-message-a.current-thread.v1"
+    ) {
+      return;
+    }
     if (
       call.implementationId === "user32.peek-message-a.current-thread.v1" &&
       "action" in call.result &&
@@ -5311,6 +5383,10 @@ class BrowserRuntimeSession {
           this.#defWindowProcAActionContinuationEntry === null &&
           !this.#defWindowProcAActionContinuationAwaitingDispatch &&
           !this.#defWindowProcAActionContinuationDispatching &&
+          this.#peekMessageAPointerReleaseContinuationEntry === null &&
+          !this.#peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind &&
+          !this.#peekMessageAPointerReleaseContinuationAwaitingDispatch &&
+          !this.#peekMessageAPointerReleaseContinuationDispatching &&
           this.#bgiCallbackCallSequences.size === 1,
         "timeGetTime action continuation reached a different API or lost its live WndProc frame",
       );
@@ -5323,7 +5399,7 @@ class BrowserRuntimeSession {
       );
       const engine = this.#requireEngine();
       invariant(
-        isDefWindowProcAActionContinuationCheckpoint(
+        hasDefWindowProcAActionContinuation(
           this.#configuration.capabilityProfile,
         ) &&
           ownedEndpoint?.id === 233 &&
@@ -5342,11 +5418,57 @@ class BrowserRuntimeSession {
           this.#timeGetTimeActionContinuationEntry === null &&
           !this.#timeGetTimeActionContinuationAwaitingDispatch &&
           !this.#timeGetTimeActionContinuationDispatching &&
+          this.#peekMessageAPointerReleaseContinuationEntry === null &&
+          !this.#peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind &&
+          !this.#peekMessageAPointerReleaseContinuationAwaitingDispatch &&
+          !this.#peekMessageAPointerReleaseContinuationDispatching &&
           this.#bgiCallbackCallSequences.size === 1,
         "DefWindowProcA action continuation reached a different API or lost its live WndProc frame",
       );
       this.#defWindowProcAActionContinuationAwaitingDispatch = false;
       this.#defWindowProcAActionContinuationDispatching = true;
+    }
+    invariant(
+      !this.#peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind,
+      "pointer-release PeekMessageA continuation reached another API before its WndProc and outer DispatchMessageA retired",
+    );
+    if (this.#peekMessageAPointerReleaseContinuationAwaitingDispatch) {
+      const ownedEndpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpoint,
+      );
+      const engine = this.#requireEngine();
+      invariant(
+        isPeekMessageAPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+          ownedEndpoint?.id === 164 &&
+          ownedEndpoint.module?.toLowerCase() === "user32.dll" &&
+          ownedEndpoint.symbol?.kind === "name" &&
+          ownedEndpoint.symbol.name === "PeekMessageA" &&
+          stackPointer === 0x006f_f8c4 &&
+          engine.readGuestU32(stackPointer) === 0x1009_37bb &&
+          engine.readGuestU32(stackPointer + 4) === 0x006f_f8e8 &&
+          engine.readGuestU32(stackPointer + 8) === 0 &&
+          engine.readGuestU32(stackPointer + 12) === 0 &&
+          engine.readGuestU32(stackPointer + 16) === 0 &&
+          engine.readGuestU32(stackPointer + 20) === 1 &&
+          this.#report.instructions === 321_462_423 &&
+          this.#nextBgiCallSequence === 161_948 &&
+          this.#currentThreadId === 8_192 &&
+          this.#report.checkpointCompletion === null &&
+          this.#peekMessageAPointerReleaseContinuationEntry !== null &&
+          !this.#peekMessageAPointerReleaseContinuationDispatching &&
+          this.#defWindowProcAActionContinuationEntry === null &&
+          !this.#defWindowProcAActionContinuationAwaitingDispatch &&
+          !this.#defWindowProcAActionContinuationDispatching &&
+          this.#timeGetTimeActionContinuationEntry === null &&
+          !this.#timeGetTimeActionContinuationAwaitingDispatch &&
+          !this.#timeGetTimeActionContinuationDispatching &&
+          this.#bgiCallbackCallSequences.size === 0,
+        "pointer-release PeekMessageA continuation reached a different API, stack frame, or callback state",
+      );
+      this.#peekMessageAPointerReleaseContinuationAwaitingDispatch = false;
+      this.#peekMessageAPointerReleaseContinuationDispatching = true;
     }
     if (this.#bgiCheckpointPending) {
       this.#completeBgiCapabilityCheckpoint(endpoint, stackPointer);
@@ -5862,7 +5984,7 @@ class BrowserRuntimeSession {
             this.#configuration.capabilityProfile,
           );
         const compatibilityPolicyId =
-          isDefWindowProcAActionContinuationCheckpoint(
+          hasDefWindowProcAActionContinuation(
             this.#configuration.capabilityProfile,
           )
             ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
@@ -5931,7 +6053,7 @@ class BrowserRuntimeSession {
     ) {
       if (this.#report.isIconic === null) {
         const compatibilityPolicyId =
-          isDefWindowProcAActionContinuationCheckpoint(
+          hasDefWindowProcAActionContinuation(
             this.#configuration.capabilityProfile,
           )
             ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
@@ -6112,6 +6234,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "user32-def-window-proc-a-action-continuation" ||
           checkpoint.capability ===
+            "user32-peek-message-a-pointer-release-continuation" ||
+          checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -6140,6 +6264,26 @@ class BrowserRuntimeSession {
           !this.#timeGetTimeActionContinuationAwaitingDispatch &&
           !this.#timeGetTimeActionContinuationDispatching,
         "DefWindowProcA action continuation stopped before its WndProc callback retired",
+      );
+      checkpoint.activeCallbackDepthAtStop = 0;
+    }
+    if (
+      checkpoint.capability ===
+      "user32-peek-message-a-pointer-release-continuation"
+    ) {
+      invariant(
+        this.#bgiCallbackCallSequences.size === 0 &&
+          this.#peekMessageAPointerReleaseContinuationEntry === null &&
+          !this.#peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind &&
+          !this.#peekMessageAPointerReleaseContinuationAwaitingDispatch &&
+          !this.#peekMessageAPointerReleaseContinuationDispatching &&
+          this.#defWindowProcAActionContinuationEntry === null &&
+          !this.#defWindowProcAActionContinuationAwaitingDispatch &&
+          !this.#defWindowProcAActionContinuationDispatching &&
+          this.#timeGetTimeActionContinuationEntry === null &&
+          !this.#timeGetTimeActionContinuationAwaitingDispatch &&
+          !this.#timeGetTimeActionContinuationDispatching,
+        "pointer-release PeekMessageA continuation stopped with live continuation or callback state",
       );
       checkpoint.activeCallbackDepthAtStop = 0;
     }
@@ -6227,6 +6371,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "user32-def-window-proc-a-action-continuation" ||
       checkpoint.capability ===
+        "user32-peek-message-a-pointer-release-continuation" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -6293,6 +6439,11 @@ class BrowserRuntimeSession {
                       this.#requireEngine().readGuestU32(stackPointer + 12),
                       this.#requireEngine().readGuestU32(stackPointer + 16),
                       this.#requireEngine().readGuestU32(stackPointer + 20),
+                    ]
+                : checkpoint.capability ===
+                    "user32-peek-message-a-pointer-release-continuation"
+                  ? [
+                      this.#requireEngine().readGuestU32(stackPointer + 4),
                     ]
                 : checkpoint.capability ===
                       "primary-main-loop-recurring-timer-cycle-batch" ||
@@ -6388,6 +6539,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "user32-def-window-proc-a-action-continuation" ||
       checkpoint.capability ===
+        "user32-peek-message-a-pointer-release-continuation" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -6433,6 +6586,9 @@ class BrowserRuntimeSession {
                       : checkpoint.capability ===
                           "user32-def-window-proc-a-action-continuation"
                         ? "USER32 DefWindowProcA action continuation checkpoint completed"
+                      : checkpoint.capability ===
+                          "user32-peek-message-a-pointer-release-continuation"
+                        ? "USER32 PeekMessageA pointer-release continuation checkpoint completed"
                       : checkpoint.capability ===
                           "primary-main-loop-pointer-message-action-progress-gateway"
                         ? "Primary main-loop pointer message action progress gateway completed"
@@ -6610,16 +6766,32 @@ class BrowserRuntimeSession {
         "user32.dispatch-message-a.window-timer-pointer-callback.v2" &&
       metadata.kind === "callback-complete" &&
       this.#windowTimerCallbackEntry?.frameId === metadata.frameId;
+    const peekMessageWrite = guestWrites[0]?.write;
+    const peekMessageBytes =
+      peekMessageWrite !== undefined && "bytes" in peekMessageWrite
+        ? peekMessageWrite.bytes
+        : undefined;
+    const peekMessageId =
+      peekMessageBytes !== undefined && peekMessageBytes.length === 28
+        ? ((peekMessageBytes[4] ?? 0) |
+            ((peekMessageBytes[5] ?? 0) << 8) |
+            ((peekMessageBytes[6] ?? 0) << 16) |
+            ((peekMessageBytes[7] ?? 0) << 24)) >>>
+          0
+        : null;
+    const windowTimerPeekCompleting =
+      completion.implementationId ===
+        "user32.peek-message-a.current-thread.v1" &&
+      completion.eax.action === "set" &&
+      completion.eax.value !== 0 &&
+      peekMessageId === 0x0113;
     const windowTimerMetadataExpected =
       windowTimerProfile &&
       ((completion.implementationId ===
         "user32.set-timer.live-window-callback-registration.v1" &&
         completion.eax.action === "set" &&
         completion.eax.value !== 0) ||
-        (completion.implementationId ===
-          "user32.peek-message-a.current-thread.v1" &&
-          completion.eax.action === "set" &&
-          completion.eax.value !== 0) ||
+        windowTimerPeekCompleting ||
         windowTimerCallbackCompleting);
     invariant(
       windowTimerMetadataExpected === (metadata.windowTimer !== undefined),
@@ -6629,6 +6801,7 @@ class BrowserRuntimeSession {
         kind: metadata.kind,
         frameId: "frameId" in metadata ? metadata.frameId : undefined,
         windowTimerMetadataExpected,
+        peekMessageId,
         hasWindowTimerMetadata: metadata.windowTimer !== undefined,
         windowTimerCallbackFrameId: this.#windowTimerCallbackEntry?.frameId,
       })}`,
@@ -6981,7 +7154,7 @@ class BrowserRuntimeSession {
         occurrence: implementationOccurrence,
       } satisfies RuntimeThreadCallSnapshot;
       if (
-        isDefWindowProcAActionContinuationCheckpoint(
+        hasDefWindowProcAActionContinuation(
           this.#configuration.capabilityProfile,
         )
       ) {
@@ -7018,7 +7191,7 @@ class BrowserRuntimeSession {
       this.#timeGetTimeActionContinuationDispatching = false;
     }
     if (
-      isDefWindowProcAActionContinuationCheckpoint(
+      hasDefWindowProcAActionContinuation(
         this.#configuration.capabilityProfile,
       ) &&
       this.#defWindowProcAActionContinuationDispatching &&
@@ -7066,13 +7239,152 @@ class BrowserRuntimeSession {
         trapInstructionCount: this.#report.instructions,
         occurrence: implementationOccurrence,
       } satisfies RuntimeThreadCallSnapshot;
+      if (
+        isPeekMessageAPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        )
+      ) {
+        invariant(
+          this.#peekMessageAPointerReleaseContinuationEntry === null &&
+            !this.#peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind &&
+            !this.#peekMessageAPointerReleaseContinuationAwaitingDispatch &&
+            !this.#peekMessageAPointerReleaseContinuationDispatching,
+          "pointer-release PeekMessageA continuation was already armed",
+        );
+        this.#peekMessageAPointerReleaseContinuationEntry = {
+          ...entry,
+          capability: "user32-peek-message-a-pointer-release-continuation",
+          implementationId:
+            "runtime.user32-peek-message-a-pointer-release-continuation.v1",
+          defWindowProcAActiveCallbackDepthAtCompletion: 1,
+          defWindowProcA,
+        } satisfies PeekMessageAPointerReleaseContinuationEntry;
+        this.#peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind =
+          true;
+      } else {
+        this.#report.checkpointCompletion = {
+          ...entry,
+          lastCompletionSequence: sequence,
+          lastCompletionInstructionCount: this.#report.instructions,
+          defWindowProcAActiveCallbackDepthAtCompletion: 1,
+          activeCallbackDepthAtStop: 0,
+          defWindowProcA,
+          instructionCount: 0,
+          nextEndpoint: {
+            id: 0,
+            address: 0,
+            disposition: "declared-runtime-export" as const,
+            iatAddress: 0,
+          },
+          nextArguments: [0, 0, 0, 0, 0],
+          nextReturnAddress: 0,
+          nextStackPointer: 0,
+          memoryContentSha256: "",
+        } satisfies DefWindowProcAActionContinuationCheckpoint;
+        this.#bgiCheckpointPending = true;
+      }
+      this.#defWindowProcAActionContinuationEntry = null;
+      this.#defWindowProcAActionContinuationDispatching = false;
+    }
+    if (
+      isPeekMessageAPointerReleaseContinuationCheckpoint(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#peekMessageAPointerReleaseContinuationDispatching &&
+      completion.implementationId ===
+        "user32.peek-message-a.current-thread.v1"
+    ) {
+      const entry = this.#peekMessageAPointerReleaseContinuationEntry;
+      const releaseWrite = call.guestWrites[0];
+      const queuedThreadMessages =
+        metadata.kind === "api-complete"
+          ? metadata.queuedThreadMessages
+          : undefined;
+      const releaseMessage = entry?.inputEvents[1].receipt.message;
+      invariant(
+        entry !== null &&
+          this.#report.checkpointCompletion === null &&
+          endpoint.id === 164 &&
+          endpoint.module.toLowerCase() === "user32.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "PeekMessageA" &&
+          this.#currentThreadId === 8_192 &&
+          sequence === 161_949 &&
+          this.#report.instructions === 321_462_423 &&
+          implementationOccurrence === 11 &&
+          call.arguments.length === 5 &&
+          call.arguments[0] === 0x006f_f8e8 &&
+          call.arguments[1] === 0 &&
+          call.arguments[2] === 0 &&
+          call.arguments[3] === 0 &&
+          call.arguments[4] === 1 &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 1 &&
+          call.returnAddress === 0x1009_37bb &&
+          call.stackPointerBefore === 0x006f_f8c4 &&
+          call.stackPointerAfter === 0x006f_f8dc &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 1 &&
+          releaseWrite !== undefined &&
+          "bytes" in releaseWrite &&
+          releaseWrite.address === 0x006f_f8e8 &&
+          releaseWrite.bytes.length === 28 &&
+          releaseWrite.bytes.join(",") ===
+            "1,0,1,72,2,2,0,0,0,0,0,0,128,2,104,1,71,243,54,0,192,3,0,0,28,2,0,0" &&
+          releaseMessage !== undefined &&
+          releaseMessage.id === 4 &&
+          releaseMessage.source.kind === "pointer-input" &&
+          releaseMessage.source.event_sequence === 2 &&
+          releaseMessage.targetThreadId === 8_192 &&
+          releaseMessage.hwnd === 0x4801_0001 &&
+          releaseMessage.message === 0x0202 &&
+          releaseMessage.wParam === 0 &&
+          releaseMessage.lParam === 0x0168_0280 &&
+          releaseMessage.time === 3_601_223 &&
+          releaseMessage.pointX === 960 &&
+          releaseMessage.pointY === 540 &&
+          queuedThreadMessages !== undefined &&
+          queuedThreadMessages.length === 0 &&
+          call.windowTimer === undefined &&
+          this.#bgiCallbackCallSequences.size === 0 &&
+          !this.#peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind &&
+          !this.#peekMessageAPointerReleaseContinuationAwaitingDispatch &&
+          this.#defWindowProcAActionContinuationEntry === null &&
+          !this.#defWindowProcAActionContinuationAwaitingDispatch &&
+          !this.#defWindowProcAActionContinuationDispatching,
+        `pointer-release PeekMessageA continuation changed its PM_REMOVE, MSG32 write, or post-commit Rust queue contract: ${JSON.stringify(
+          {
+            hasEntry: entry !== null,
+            hasCheckpoint: this.#report.checkpointCompletion !== null,
+            endpoint,
+            currentThreadId: this.#currentThreadId,
+            sequence,
+            instructionCount: this.#report.instructions,
+            implementationOccurrence,
+            call,
+            queuedThreadMessages,
+            activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+          },
+        )}`,
+      );
+      const peekMessageRelease = {
+        ...structuredClone(call),
+        runtimeThreadId: this.#currentThreadId,
+        trapInstructionCount: this.#report.instructions,
+        occurrence: implementationOccurrence,
+      } satisfies RuntimeThreadCallSnapshot;
       this.#report.checkpointCompletion = {
         ...entry,
+        releaseMessageQueued: false,
+        releaseMessage: structuredClone(releaseMessage),
+        queueDepthBefore: 1,
+        queueDepthAfter: queuedThreadMessages.length,
+        peekMessageReleaseActiveCallbackDepthAtCompletion: 0,
+        activeCallbackDepthAtStop: 0,
         lastCompletionSequence: sequence,
         lastCompletionInstructionCount: this.#report.instructions,
-        defWindowProcAActiveCallbackDepthAtCompletion: 1,
-        activeCallbackDepthAtStop: 0,
-        defWindowProcA,
+        peekMessageRelease,
         instructionCount: 0,
         nextEndpoint: {
           id: 0,
@@ -7080,13 +7392,13 @@ class BrowserRuntimeSession {
           disposition: "declared-runtime-export" as const,
           iatAddress: 0,
         },
-        nextArguments: [0, 0, 0, 0, 0],
+        nextArguments: [0],
         nextReturnAddress: 0,
         nextStackPointer: 0,
         memoryContentSha256: "",
-      } satisfies DefWindowProcAActionContinuationCheckpoint;
-      this.#defWindowProcAActionContinuationEntry = null;
-      this.#defWindowProcAActionContinuationDispatching = false;
+      } satisfies PeekMessageAPointerReleaseContinuationCheckpoint;
+      this.#peekMessageAPointerReleaseContinuationEntry = null;
+      this.#peekMessageAPointerReleaseContinuationDispatching = false;
       this.#bgiCheckpointPending = true;
     }
     this.#recordD3d9RecreatedTextureCall(call);
@@ -11673,7 +11985,7 @@ class BrowserRuntimeSession {
       firstCall: structuredClone(firstCall.call),
       lastCall: structuredClone(lastCall.call),
       compatibilityPolicyId:
-        isDefWindowProcAActionContinuationCheckpoint(
+        hasDefWindowProcAActionContinuation(
           this.#configuration.capabilityProfile,
         )
           ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
@@ -12301,6 +12613,35 @@ class BrowserRuntimeSession {
       );
       this.#bgiCallbackCallSequences.delete(metadata.frameId);
       this.#recordBgiCompletion(metadata, sequence, result);
+      if (
+        this.#peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind
+      ) {
+        const entry = this.#peekMessageAPointerReleaseContinuationEntry;
+        invariant(
+          isPeekMessageAPointerReleaseContinuationCheckpoint(
+            this.#configuration.capabilityProfile,
+          ) &&
+            entry !== null &&
+            this.#report.checkpointCompletion === null &&
+            metadata.frameId === entry.callbackEntry.frameId &&
+            metadata.remainingDepth === 0 &&
+            sequence === entry.dispatchEntry.sequence &&
+            result === 0 &&
+            metadata.completion.implementationId ===
+              "user32.dispatch-message-a.window-timer-pointer-callback.v2" &&
+            this.#report.instructions === 321_462_414 &&
+            this.#bgiCallbackCallSequences.size === 0 &&
+            this.#defWindowProcAActionContinuationEntry === null &&
+            !this.#defWindowProcAActionContinuationAwaitingDispatch &&
+            !this.#defWindowProcAActionContinuationDispatching &&
+            !this.#peekMessageAPointerReleaseContinuationAwaitingDispatch &&
+            !this.#peekMessageAPointerReleaseContinuationDispatching,
+          "pointer-release PeekMessageA continuation armed before its WndProc and outer DispatchMessageA retired",
+        );
+        this.#peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind =
+          false;
+        this.#peekMessageAPointerReleaseContinuationAwaitingDispatch = true;
+      }
     }
     this.#requireEngine().applyCpuResume(metadata.completion);
     const resumeState =
@@ -16179,6 +16520,127 @@ class BrowserRuntimeSession {
             heapPageMaterializations:
               this.#report.heapPageMaterializations?.length,
             sourceReads: this.#report.sourceReads.length,
+          })}`,
+        );
+      }
+      if (
+        isPeekMessageAPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report
+          .checkpointCompletion as PeekMessageAPointerReleaseContinuationCheckpoint | null;
+        const releaseMessage = checkpoint?.releaseMessage;
+        const peekMessageRelease = checkpoint?.peekMessageRelease;
+        const releaseWrite = peekMessageRelease?.guestWrites[0];
+        invariant(
+          this.#report.supportedCallCount === 161_949 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "7754804351d4e484a945df77b22300fad26444360bacaf8550e3ce0ee0c3d0de" &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability ===
+              "user32-peek-message-a-pointer-release-continuation" &&
+            checkpoint.implementationId ===
+              "runtime.user32-peek-message-a-pointer-release-continuation.v1" &&
+            checkpoint.requiredPointerMessages === 1 &&
+            checkpoint.pointerMessageDeliveryCount === 1 &&
+            checkpoint.releaseMessageQueued === false &&
+            checkpoint.setFocusActiveCallbackDepthAtStop === 1 &&
+            checkpoint.timeGetTimeActiveCallbackDepthAtCompletion === 1 &&
+            checkpoint.defWindowProcAActiveCallbackDepthAtCompletion === 1 &&
+            checkpoint.peekMessageReleaseActiveCallbackDepthAtCompletion ===
+              0 &&
+            checkpoint.activeCallbackDepthAtStop === 0 &&
+            checkpoint.requiredCompletions === 1 &&
+            checkpoint.completionCount === 1 &&
+            checkpoint.setFocus.sequence === 161_946 &&
+            checkpoint.timeGetTime.sequence === 161_947 &&
+            checkpoint.defWindowProcA.sequence === 161_948 &&
+            checkpoint.defWindowProcA.occurrence === 26 &&
+            checkpoint.queueDepthBefore === 1 &&
+            checkpoint.queueDepthAfter === 0 &&
+            releaseMessage?.id === 4 &&
+            releaseMessage.source.kind === "pointer-input" &&
+            releaseMessage.source.event_sequence === 2 &&
+            releaseMessage.targetThreadId === 8_192 &&
+            releaseMessage.hwnd === 0x4801_0001 &&
+            releaseMessage.message === 0x0202 &&
+            releaseMessage.wParam === 0 &&
+            releaseMessage.lParam === 0x0168_0280 &&
+            releaseMessage.time === 3_601_223 &&
+            releaseMessage.pointX === 960 &&
+            releaseMessage.pointY === 540 &&
+            checkpoint.lastCompletionSequence === 161_949 &&
+            checkpoint.lastCompletionInstructionCount === 321_462_423 &&
+            peekMessageRelease?.sequence === 161_949 &&
+            peekMessageRelease.runtimeThreadId === 8_192 &&
+            peekMessageRelease.trapInstructionCount === 321_462_423 &&
+            peekMessageRelease.occurrence === 11 &&
+            peekMessageRelease.module.toLowerCase() === "user32.dll" &&
+            peekMessageRelease.symbol === "PeekMessageA" &&
+            peekMessageRelease.implementationId ===
+              "user32.peek-message-a.current-thread.v1" &&
+            peekMessageRelease.arguments.join(",") ===
+              "7338216,0,0,0,1" &&
+            "action" in peekMessageRelease.result &&
+            peekMessageRelease.result.action === "set" &&
+            peekMessageRelease.result.value === 1 &&
+            peekMessageRelease.returnAddress === 0x1009_37bb &&
+            peekMessageRelease.stackPointerBefore === 0x006f_f8c4 &&
+            peekMessageRelease.stackPointerAfter === 0x006f_f8dc &&
+            peekMessageRelease.lastError === 0 &&
+            peekMessageRelease.guestWrites.length === 1 &&
+            releaseWrite !== undefined &&
+            "bytes" in releaseWrite &&
+            releaseWrite.address === 0x006f_f8e8 &&
+            releaseWrite.bytes.join(",") ===
+              "1,0,1,72,2,2,0,0,0,0,0,0,128,2,104,1,71,243,54,0,192,3,0,0,28,2,0,0" &&
+            peekMessageRelease.windowTimer === undefined &&
+            checkpoint.instructionCount === 321_462_431 &&
+            checkpoint.nextEndpoint.id === 162 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0a10 &&
+            checkpoint.nextEndpoint.module?.toLowerCase() === "user32.dll" &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "TranslateMessage" &&
+            checkpoint.nextEndpoint.iatAddress === 0x100d_1360 &&
+            checkpoint.nextArguments.join(",") === "7338216" &&
+            checkpoint.nextReturnAddress === 0x1009_37a2 &&
+            checkpoint.nextStackPointer === 0x006f_f8d4 &&
+            checkpoint.memoryContentSha256 ===
+              "3083e677a1fb9192ce07e416829d58b875965b2e60265363682d5ae91db0e542" &&
+            this.#report.instructions === 321_462_431 &&
+            this.#bgiCallbackCallSequences.size === 0 &&
+            this.#peekMessageAPointerReleaseContinuationEntry === null &&
+            !this.#peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind &&
+            !this.#peekMessageAPointerReleaseContinuationAwaitingDispatch &&
+            !this.#peekMessageAPointerReleaseContinuationDispatching &&
+            this.#defWindowProcAActionContinuationEntry === null &&
+            !this.#defWindowProcAActionContinuationAwaitingDispatch &&
+            !this.#defWindowProcAActionContinuationDispatching,
+          `pointer-release PeekMessageA continuation changed: ${JSON.stringify({
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            checkpoint,
+            instructions: this.#report.instructions,
+            finalGeneration: Number(this.#generation),
+            writebackBatches: this.#report.writebackBatches,
+            writebackPages: this.#report.writebackPages,
+            mappingDeltas: this.#report.mappingDeltas,
+            mappingDirtyPages: this.#report.mappingDirtyPages,
+            contextSwitches: this.#report.contextSwitches,
+            continuationState: {
+              hasEntry:
+                this.#peekMessageAPointerReleaseContinuationEntry !== null,
+              awaitingCallbackUnwind:
+                this
+                  .#peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind,
+              awaitingDispatch:
+                this.#peekMessageAPointerReleaseContinuationAwaitingDispatch,
+              dispatching:
+                this.#peekMessageAPointerReleaseContinuationDispatching,
+            },
           })}`,
         );
       }
