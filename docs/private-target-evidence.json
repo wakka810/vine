@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-31T22:21:58.947Z",
+  "recordedAt": "2026-07-31T23:14:43.369Z",
   "repository": {
-    "implementationCommit": "afa1c1e1bda527c32bff26e6bab69f3cd9a3a76c",
-    "implementationTree": "75dddee9424b0eed9204e212aa87941f9e89f162",
-    "headCommit": "afa1c1e1bda527c32bff26e6bab69f3cd9a3a76c",
+    "implementationCommit": "2949b8fa419a6755b6980ce0e219af1f0b7dd7d6",
+    "implementationTree": "b19e4e3468a97eb7cd3b69850464fb0fa78478c5",
+    "headCommit": "2949b8fa419a6755b6980ce0e219af1f0b7dd7d6",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -28,14 +28,14 @@
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
     "runtimeCheckpoint": "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
-    "runtimeProfile": "user32-get-async-key-state-post-is-iconic-clock-continuation",
+    "runtimeProfile": "d3d9-test-cooperative-level-post-input-scan-continuation",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-user32-get-async-key-state-post-is-iconic-clock-continuation",
+    "nodeReportSchema": "vine.v86-bgi-d3d9-test-cooperative-level-post-input-scan-continuation",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v96",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v97",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -70,14 +70,14 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 131,
-      "supportedCalls": 162079,
-      "callSemanticsSha256": "1d7b2f9fd9e3677a19611e3648e62a40a5f571131c1176636130b06d1bddf284",
-      "instructions": 321468292,
-      "finalGeneration": 296510,
-      "memoryContentSha256": "d4e6ec50e875a134762e7abeea2d49bbad4c2be754b407741de025ca7d78b2be",
+      "supportedCalls": 162080,
+      "callSemanticsSha256": "3cd3948ee3c588f736c2af6704e5baedee26271c89069259a086cf2aa6872c15",
+      "instructions": 321468343,
+      "finalGeneration": 296511,
+      "memoryContentSha256": "872be2df28fe82af65fc86d20ee986773ca81f4a1b1439edbed0c34f241117ae",
       "checkpointCompletion": {
-        "capability": "user32-get-async-key-state-post-is-iconic-clock-continuation",
-        "implementationId": "runtime.user32-get-async-key-state-post-is-iconic-clock-continuation.v1",
+        "capability": "d3d9-test-cooperative-level-post-input-scan-continuation",
+        "implementationId": "runtime.d3d9-test-cooperative-level-post-input-scan-continuation.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -428,8 +428,8 @@
         },
         "releaseMessageQueued": false,
         "activeCallbackDepthAtStop": 0,
-        "requiredCompletions": 38,
-        "completionCount": 38,
+        "requiredCompletions": 1,
+        "completionCount": 1,
         "setFocus": {
           "sequence": 161946,
           "module": "USER32.dll",
@@ -524,8 +524,8 @@
           },
           "runtimeThreadId": 8192
         },
-        "lastCompletionSequence": 162079,
-        "lastCompletionInstructionCount": 321468229,
+        "lastCompletionSequence": 162080,
+        "lastCompletionInstructionCount": 321468292,
         "defWindowProcAActiveCallbackDepthAtCompletion": 1,
         "defWindowProcA": {
           "sequence": 161948,
@@ -1103,8 +1103,8 @@
           },
           "runtimeThreadId": 8192
         },
-        "firstCompletionSequence": 161965,
-        "firstCompletionInstructionCount": 321463448,
+        "firstCompletionSequence": 162080,
+        "firstCompletionInstructionCount": 321468292,
         "scanVirtualKeys": [
           14,
           15,
@@ -1195,43 +1195,72 @@
           "runtimeThreadId": 8192
         },
         "setFocusActiveCallbackDepthAtStop": 1,
-        "instructionCount": 321468292,
-        "nextEndpoint": {
-          "id": 0,
-          "address": 16846944,
+        "prerequisiteScanCompletionSequence": 162079,
+        "prerequisiteScanCompletionInstructionCount": 321468229,
+        "d3d9TestCooperativeLevelPostInputScanActiveCallbackDepthAtCompletion": 0,
+        "d3d9TestCooperativeLevelPostInputScan": {
+          "sequence": 162080,
           "module": "<com>",
+          "symbol": "IDirect3DDevice9.TestCooperativeLevel",
+          "occurrence": 11,
+          "trapInstructionCount": 321468292,
+          "interface": "IDirect3DDevice9",
+          "vtableSlot": 3,
+          "arguments": [
+            16842756
+          ],
+          "result": {
+            "kind": "h-result",
+            "value": 0
+          },
+          "returnAddress": 268807629,
+          "stackPointerBefore": 7338228,
+          "stackPointerAfter": 7338236,
+          "referenceCount": 5,
+          "objectRetired": false,
+          "guestWrites": [],
+          "runtimeThreadId": 8192
+        },
+        "cumulativeCompletions": 9,
+        "instructionCount": 321468343,
+        "nextEndpoint": {
+          "id": 118,
+          "address": 2130708304,
+          "module": "KERNEL32.dll",
           "symbol": {
             "kind": "name",
-            "name": "interface-1-slot-3"
+            "name": "SetWaitableTimer"
           },
-          "disposition": "declared-com-method",
-          "interfaceIndex": 1,
-          "vtableSlot": 3,
-          "interface": "IDirect3DDevice9",
-          "method": "TestCooperativeLevel"
+          "disposition": "declared-runtime-export",
+          "iatAddress": 269292160
         },
-        "memoryContentSha256": "d4e6ec50e875a134762e7abeea2d49bbad4c2be754b407741de025ca7d78b2be",
+        "memoryContentSha256": "872be2df28fe82af65fc86d20ee986773ca81f4a1b1439edbed0c34f241117ae",
         "nextArguments": [
-          16842756
+          1459683329,
+          7338224,
+          0,
+          0,
+          0,
+          0
         ],
-        "nextReturnAddress": 268807629,
-        "nextStackPointer": 7338228
+        "nextReturnAddress": 268764679,
+        "nextStackPointer": 7338196
       },
-      "writebackBatches": 165233,
-      "dirtyPages": 244664,
-      "changedBytes": 43072357,
+      "writebackBatches": 165234,
+      "dirtyPages": 244665,
+      "changedBytes": 43072391,
       "hostDeltaBatches": 127995
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 162079,
-      "callSemanticsSha256": "1d7b2f9fd9e3677a19611e3648e62a40a5f571131c1176636130b06d1bddf284",
-      "instructions": 321468292,
-      "finalGeneration": 315149,
-      "memoryContentSha256": "d4e6ec50e875a134762e7abeea2d49bbad4c2be754b407741de025ca7d78b2be",
+      "supportedCalls": 162080,
+      "callSemanticsSha256": "3cd3948ee3c588f736c2af6704e5baedee26271c89069259a086cf2aa6872c15",
+      "instructions": 321468343,
+      "finalGeneration": 315150,
+      "memoryContentSha256": "872be2df28fe82af65fc86d20ee986773ca81f4a1b1439edbed0c34f241117ae",
       "checkpointCompletion": {
-        "capability": "user32-get-async-key-state-post-is-iconic-clock-continuation",
-        "implementationId": "runtime.user32-get-async-key-state-post-is-iconic-clock-continuation.v1",
+        "capability": "d3d9-test-cooperative-level-post-input-scan-continuation",
+        "implementationId": "runtime.d3d9-test-cooperative-level-post-input-scan-continuation.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -1575,8 +1604,8 @@
         "releaseMessageQueued": false,
         "activeCallbackDepthAtStop": 0,
         "setFocusActiveCallbackDepthAtStop": 1,
-        "requiredCompletions": 38,
-        "completionCount": 38,
+        "requiredCompletions": 1,
+        "completionCount": 1,
         "setFocus": {
           "sequence": 161946,
           "module": "user32.dll",
@@ -1776,8 +1805,8 @@
         "translateMessageReleaseActiveCallbackDepthAtCompletion": 0,
         "queueDepthAtTranslateCompletion": 0,
         "translateMessageReleaseBytesPreserved": true,
-        "lastCompletionSequence": 162079,
-        "lastCompletionInstructionCount": 321468229,
+        "lastCompletionSequence": 162080,
+        "lastCompletionInstructionCount": 321468292,
         "translateMessageRelease": {
           "sequence": 161950,
           "module": "user32.dll",
@@ -2220,8 +2249,8 @@
           "trapInstructionCount": 321463291,
           "occurrence": 223
         },
-        "firstCompletionSequence": 161965,
-        "firstCompletionInstructionCount": 321463448,
+        "firstCompletionSequence": 162080,
+        "firstCompletionInstructionCount": 321468292,
         "scanVirtualKeys": [
           14,
           15,
@@ -2311,33 +2340,62 @@
           "trapInstructionCount": 321468229,
           "occurrence": 423
         },
-        "instructionCount": 321468292,
-        "nextEndpoint": {
-          "id": 0,
-          "address": 16846944,
+        "prerequisiteScanCompletionSequence": 162079,
+        "prerequisiteScanCompletionInstructionCount": 321468229,
+        "d3d9TestCooperativeLevelPostInputScanActiveCallbackDepthAtCompletion": 0,
+        "d3d9TestCooperativeLevelPostInputScan": {
+          "sequence": 162080,
           "module": "<com>",
+          "symbol": "IDirect3DDevice9.TestCooperativeLevel",
+          "interface": "IDirect3DDevice9",
+          "vtableSlot": 3,
+          "arguments": [
+            16842756
+          ],
+          "result": {
+            "kind": "h-result",
+            "value": 0
+          },
+          "returnAddress": 268807629,
+          "stackPointerBefore": 7338228,
+          "stackPointerAfter": 7338236,
+          "referenceCount": 5,
+          "objectRetired": false,
+          "guestWrites": [],
+          "occurrence": 11,
+          "trapInstructionCount": 321468292,
+          "runtimeThreadId": 8192
+        },
+        "cumulativeCompletions": 9,
+        "instructionCount": 321468343,
+        "nextEndpoint": {
+          "address": 2130708304,
+          "disposition": "declared-runtime-export",
+          "iatAddress": 269292160,
+          "id": 118,
+          "module": "kernel32.dll",
           "symbol": {
             "kind": "name",
-            "name": "interface-1-slot-3"
-          },
-          "disposition": "declared-com-method",
-          "interfaceIndex": 1,
-          "vtableSlot": 3,
-          "interface": "IDirect3DDevice9",
-          "method": "TestCooperativeLevel"
+            "name": "SetWaitableTimer"
+          }
         },
         "nextArguments": [
-          16842756
+          1459683329,
+          7338224,
+          0,
+          0,
+          0,
+          0
         ],
-        "nextReturnAddress": 268807629,
-        "nextStackPointer": 7338228,
-        "memoryContentSha256": "d4e6ec50e875a134762e7abeea2d49bbad4c2be754b407741de025ca7d78b2be"
+        "nextReturnAddress": 268764679,
+        "nextStackPointer": 7338196,
+        "memoryContentSha256": "872be2df28fe82af65fc86d20ee986773ca81f4a1b1439edbed0c34f241117ae"
       },
-      "wasmBridgeCalls": 489708,
+      "wasmBridgeCalls": 489710,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 589072,
+          "transitionCount": 589075,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -2384,20 +2442,23 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "d3d9-test-cooperative-level-post-input-scan-continuation",
-      "pausedHistoricalCheckpoint": "user32-get-async-key-state-post-is-iconic-clock-continuation",
-      "instructionCount": 321468292,
-      "capabilityCluster": "d3d9-live-device-query-continuation",
-      "reason": "user32-get-async-key-state-post-is-iconic-clock-continuation-checkpoint-complete",
+      "nextCheckpoint": "kernel32-set-waitable-timer-post-test-cooperative-level-continuation",
+      "pausedHistoricalCheckpoint": "d3d9-test-cooperative-level-post-input-scan-continuation",
+      "instructionCount": 321468343,
+      "capabilityCluster": "kernel32-waitable-timer-arm-continuation",
+      "reason": "d3d9-test-cooperative-level-post-input-scan-continuation-checkpoint-complete",
       "completion": {
-        "capability": "user32-get-async-key-state-post-is-iconic-clock-continuation",
-        "implementationId": "runtime.user32-get-async-key-state-post-is-iconic-clock-continuation.v1",
-        "requiredCompletions": 38,
-        "completionCount": 38,
-        "firstCompletionSequence": 161965,
-        "firstCompletionInstructionCount": 321463448,
-        "lastCompletionSequence": 162079,
-        "lastCompletionInstructionCount": 321468229,
+        "capability": "d3d9-test-cooperative-level-post-input-scan-continuation",
+        "implementationId": "runtime.d3d9-test-cooperative-level-post-input-scan-continuation.v1",
+        "requiredCompletions": 1,
+        "completionCount": 1,
+        "prerequisiteScanCompletionSequence": 162079,
+        "prerequisiteScanCompletionInstructionCount": 321468229,
+        "firstCompletionSequence": 162080,
+        "firstCompletionInstructionCount": 321468292,
+        "lastCompletionSequence": 162080,
+        "lastCompletionInstructionCount": 321468292,
+        "cumulativeCompletions": 9,
         "maximumRepeatCompletions": 16,
         "requiredEntries": 1,
         "entryCount": 1,
@@ -2405,22 +2466,24 @@
         "lastEntryInstructionCount": 321462435
       },
       "nextEndpoint": {
-        "endpointKind": "com-method",
-        "endpointId": 0,
-        "api": "IDirect3DDevice9!TestCooperativeLevel",
-        "endpointAddress": "0x01011060",
-        "observedModule": "<com>",
-        "observedSymbol": "interface-1-slot-3",
-        "disposition": "declared-com-method",
-        "interfaceIndex": 1,
-        "vtableSlot": 3,
-        "interface": "IDirect3DDevice9",
-        "method": "TestCooperativeLevel",
+        "endpointKind": "runtime-system-export",
+        "endpointId": 118,
+        "api": "KERNEL32.dll!SetWaitableTimer",
+        "endpointAddress": "0x7f000750",
+        "iatAddress": "0x100d1280",
+        "observedModule": "KERNEL32.dll",
+        "observedSymbol": "SetWaitableTimer",
+        "disposition": "declared-runtime-export",
         "arguments": [
-          "0x01010004"
+          "0x57010001",
+          "0x006ff8f0",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
         ],
-        "returnAddress": "0x1005adcd",
-        "stackPointer": "0x006ff8f4"
+        "returnAddress": "0x10050607",
+        "stackPointer": "0x006ff8d4"
       }
     },
     "cleanup": {
@@ -2436,14 +2499,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-get-async-key-state-post-is-iconic-clock-continuation/report.json",
-      "bytes": 3054152,
-      "sha256": "1bace4680cec810322d4cce7744c89d253dd0da0b885e8126ad1a4641150b48f"
+      "path": ".work/v86-bgi-d3d9-test-cooperative-level-post-input-scan-continuation/report.json",
+      "bytes": 3054964,
+      "sha256": "d42bbc7edee3b6db4860fbaa442c418fb5972cdda9e763fedb6b351ecf03754b"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2755688,
-      "sha256": "9c8cad6741aa6864b9d454d741e440807750605168b5c78a0837aee93a8f3507"
+      "bytes": 2756628,
+      "sha256": "7e04f2779ec73146526ae916bf6c066d2cd72d7975a7dca817d50183d8ce37ca"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -2458,7 +2521,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3766,
-      "sha256": "453ade8db78cf371feb16119a2314c037ba596b915ef87048cfd03466d9e26e3"
+      "sha256": "5a3c6cde4af0f1d10531096f3714e8d72dcc49d772724b9db4847844f0cdfc5e"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -2495,5 +2558,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "b31f0e378111d2ecb59f4a018f0802104877fe779a1262e00da2065aa38689d0"
+  "payloadSha256": "97f729eca99202032decc00a4b3a4de74949c0dd8d4f395d0d1f0e44b1848d52"
 }
