@@ -208,9 +208,13 @@ export function validateCurrentCheckpoint(manifest) {
   const timeGetTimeActionContinuationActive =
     root.activeRuntimeCheckpoint?.profile ===
     "winmm-time-get-time-action-continuation";
-  const getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive =
+  const getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive =
     root.activeRuntimeCheckpoint?.profile ===
-    "user32-get-system-metrics-caption-post-pointer-release-continuation";
+    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation";
+  const getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive =
+    getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive ||
+    root.activeRuntimeCheckpoint?.profile ===
+      "user32-get-system-metrics-caption-post-pointer-release-continuation";
   const getSystemMetricsPostPointerReleaseContinuationCheckpointActive =
     getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive ||
     root.activeRuntimeCheckpoint?.profile ===
@@ -1230,7 +1234,27 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+    getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_939,
+        browserMappingDirtyPages: 150_344,
+        browserSuccessExecutionTransitions: 588_695,
+        browserFinalGeneration: 314_976,
+        browserReportSchemaVersion: 60,
+        latestSchema:
+          "vine.v86-bgi-user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
+        latestWritebackBatches: 165_116,
+        latestWritebackDirtyPages: 244_482,
+        latestWritebackChangedBytes: 43_070_759,
+        latestHostDeltaBatches: 127_939,
+        latestFinalMemoryGeneration: 296_337,
+        semanticCallDigestSha256:
+          "2ecc4577b2932d1b67de7def5c1d65cbd83ef0b300d63ceed326af363dda3c72",
+        memoryContentSha256:
+          "ac46e0896cc007c49ac9339a8b4747b894ea0dd99551c66faac13ac094e80820",
+      }
+    : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_939,
@@ -3084,7 +3108,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+    getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+      ? "vine.browser-runtime-worker.v93"
+      : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
       ? "vine.browser-runtime-worker.v92"
       : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
       ? "vine.browser-runtime-worker.v91"
@@ -3905,7 +3931,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+      (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+        ? 60
+        : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
         ? 59
         : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
         ? 58
@@ -16006,43 +16034,57 @@ export function validateCurrentCheckpoint(manifest) {
       true ||
     latestEvidence.getSystemMetricsImplemented !== true ||
     latestEvidence.getSystemMetricsCallCount !==
-      (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+      (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+        ? 14
+        : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
         ? 13
         : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
         ? 12
         : 11) ||
     latestEvidence.getSystemMetricsSequences?.join(",") !==
-      (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+      (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+        ? "1345,1346,1347,1348,1349,1395,1396,1400,1401,1405,1406,161960,161961,161962"
+        : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
         ? "1345,1346,1347,1348,1349,1395,1396,1400,1401,1405,1406,161960,161961"
         : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
         ? "1345,1346,1347,1348,1349,1395,1396,1400,1401,1405,1406,161960"
         : "1345,1346,1347,1348,1349,1395,1396,1400,1401,1405,1406") ||
     latestEvidence.getSystemMetricsInstructionCounts?.join(",") !==
-      (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+      (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+        ? "49990,49995,50000,50020,50024,11476518,11476522,11476595,11476602,11476761,11476765,321463128,321463133,321463139"
+        : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
         ? "49990,49995,50000,50020,50024,11476518,11476522,11476595,11476602,11476761,11476765,321463128,321463133"
         : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
         ? "49990,49995,50000,50020,50024,11476518,11476522,11476595,11476602,11476761,11476765,321463128"
         : "49990,49995,50000,50020,50024,11476518,11476522,11476595,11476602,11476761,11476765") ||
     latestEvidence.getSystemMetricsArguments?.join(",") !==
-      (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+      (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+        ? "7,8,4,0,1,50,49,1,0,50,49,7,4,8"
+        : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
         ? "7,8,4,0,1,50,49,1,0,50,49,7,4"
         : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
         ? "7,8,4,0,1,50,49,1,0,50,49,7"
         : "7,8,4,0,1,50,49,1,0,50,49") ||
     latestEvidence.getSystemMetricsReturnAddresses?.join(",") !==
-      (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+      (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+        ? "0x10067ddb,0x10067de6,0x10067dee,0x10067e26,0x10067e2e,0x10067f2d,0x10067f32,0x10067f65,0x10067f70,0x100929d2,0x100929d7,0x10088576,0x10088582,0x10088590"
+        : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
         ? "0x10067ddb,0x10067de6,0x10067dee,0x10067e26,0x10067e2e,0x10067f2d,0x10067f32,0x10067f65,0x10067f70,0x100929d2,0x100929d7,0x10088576,0x10088582"
         : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
         ? "0x10067ddb,0x10067de6,0x10067dee,0x10067e26,0x10067e2e,0x10067f2d,0x10067f32,0x10067f65,0x10067f70,0x100929d2,0x100929d7,0x10088576"
         : "0x10067ddb,0x10067de6,0x10067dee,0x10067e26,0x10067e2e,0x10067f2d,0x10067f32,0x10067f65,0x10067f70,0x100929d2,0x100929d7") ||
     latestEvidence.getSystemMetricsResults?.join(",") !==
-      (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+      (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+        ? "3,3,23,1920,1080,16,16,1080,1920,16,16,3,23,3"
+        : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
         ? "3,3,23,1920,1080,16,16,1080,1920,16,16,3,23"
         : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
         ? "3,3,23,1920,1080,16,16,1080,1920,16,16,3"
         : "3,3,23,1920,1080,16,16,1080,1920,16,16") ||
     latestEvidence.getSystemMetricsLastErrors?.join(",") !==
-      (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+      (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+        ? "0,0,0,0,0,0,0,0,0,0,0,0,0,0"
+        : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
         ? "0,0,0,0,0,0,0,0,0,0,0,0,0"
         : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
         ? "0,0,0,0,0,0,0,0,0,0,0,0"
@@ -21074,7 +21116,9 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureBefore !== null ||
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureAfter !== null)) ||
     latestEvidence.implementation !==
-      (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+      (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+        ? "Rust-owned user32.get-system-metrics.v1 reads the reached fixed-frame height from versioned User32 policy after validating the Rust display authority, returns 3 while preserving LastError, callback depth zero, guest memory, and runtime state, and imports no browser or host display metrics"
+        : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
         ? "Rust-owned user32.get-system-metrics.v1 reads the reached caption height from versioned User32 policy after validating the Rust display authority, returns 23 while preserving LastError, callback depth zero, guest memory, and runtime state, and imports no browser or host display metrics"
         : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
         ? "Rust-owned user32.get-system-metrics.v1 reads the reached fixed-frame width from versioned User32 policy after validating the Rust display authority, returns 3 while preserving LastError, callback depth zero, guest memory, and runtime state, and imports no browser or host display metrics"
@@ -25668,7 +25712,9 @@ export function validateCurrentCheckpoint(manifest) {
   }
   if (translateMessagePointerReleaseContinuationActive) {
     const expectedCapability =
-      getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+      getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+        ? "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+        : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
         ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
         : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
         ? "user32-get-system-metrics-post-pointer-release-continuation"
@@ -25688,7 +25734,9 @@ export function validateCurrentCheckpoint(manifest) {
         ? "user32-dispatch-message-a-pointer-release-continuation"
         : "user32-translate-message-pointer-release-continuation";
     const expectedImplementation =
-      getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+      getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+        ? "runtime.user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation.v1"
+        : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
         ? "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1"
         : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
         ? "runtime.user32-get-system-metrics-post-pointer-release-continuation.v1"
@@ -25708,7 +25756,9 @@ export function validateCurrentCheckpoint(manifest) {
         ? "runtime.user32-dispatch-message-a-pointer-release-continuation.v1"
         : "runtime.user32-translate-message-pointer-release-continuation.v1";
     const evidenceCapabilityLabel =
-      getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+      getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+        ? "post-release GetSystemMetrics fixed-frame height"
+        : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
         ? "post-release GetSystemMetrics caption"
         : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
         ? "post-release GetSystemMetrics"
@@ -25768,6 +25818,8 @@ export function validateCurrentCheckpoint(manifest) {
         completion.getSystemMetricsPostRelease ?? {};
       const getSystemMetricsCaptionPostRelease =
         completion.getSystemMetricsCaptionPostRelease ?? {};
+      const getSystemMetricsFixedFrameHeightPostRelease =
+        completion.getSystemMetricsFixedFrameHeightPostRelease ?? {};
       const nextEndpoint = completion.nextEndpoint ?? {};
       const dispatchMessageReleaseInvalid =
         (peekMessageAPostPointerReleaseContinuationCheckpointActive ||
@@ -25814,7 +25866,9 @@ export function validateCurrentCheckpoint(manifest) {
         (peekMessageAPostPointerReleaseContinuationCheckpointActive ||
           defWindowProcAPointerReleaseContinuationCheckpointActive) &&
         (completion.lastCompletionSequence !==
-          (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+          (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+            ? 161_962
+            : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
             ? 161_961
             : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
             ? 161_960
@@ -25830,7 +25884,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 161_953
             : 161_952) ||
           completion.lastCompletionInstructionCount !==
-            (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+            (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+              ? 321_463_139
+              : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
               ? 321_463_133
               : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
               ? 321_463_128
@@ -25957,6 +26013,36 @@ export function validateCurrentCheckpoint(manifest) {
           getSystemMetricsCaptionPostRelease.stackPointerAfter !== 7_338_152 ||
           getSystemMetricsCaptionPostRelease.lastError !== 0 ||
           getSystemMetricsCaptionPostRelease.guestWrites?.length !== 0);
+      const getSystemMetricsFixedFrameHeightPostReleaseInvalid =
+        getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive &&
+        (completion.getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion !==
+          0 ||
+          getSystemMetricsFixedFrameHeightPostRelease.sequence !== 161_962 ||
+          getSystemMetricsFixedFrameHeightPostRelease.trapInstructionCount !==
+            321_463_139 ||
+          getSystemMetricsFixedFrameHeightPostRelease.runtimeThreadId !==
+            8_192 ||
+          getSystemMetricsFixedFrameHeightPostRelease.occurrence !== 68 ||
+          getSystemMetricsFixedFrameHeightPostRelease.module?.toLowerCase() !==
+            "user32.dll" ||
+          getSystemMetricsFixedFrameHeightPostRelease.symbol !==
+            "GetSystemMetrics" ||
+          getSystemMetricsFixedFrameHeightPostRelease.implementationId !==
+            "user32.get-system-metrics.v1" ||
+          getSystemMetricsFixedFrameHeightPostRelease.arguments?.join(",") !==
+            "8" ||
+          getSystemMetricsFixedFrameHeightPostRelease.result?.action !==
+            "set" ||
+          getSystemMetricsFixedFrameHeightPostRelease.result?.value !== 3 ||
+          getSystemMetricsFixedFrameHeightPostRelease.returnAddress !==
+            268_993_936 ||
+          getSystemMetricsFixedFrameHeightPostRelease.stackPointerBefore !==
+            7_338_144 ||
+          getSystemMetricsFixedFrameHeightPostRelease.stackPointerAfter !==
+            7_338_152 ||
+          getSystemMetricsFixedFrameHeightPostRelease.lastError !== 0 ||
+          getSystemMetricsFixedFrameHeightPostRelease.guestWrites?.length !==
+            0);
       if (
         completion.capability !== expectedCapability ||
         completion.implementationId !== expectedImplementation ||
@@ -26182,7 +26268,9 @@ export function validateCurrentCheckpoint(manifest) {
         releaseWrite.address !== 7_338_216 ||
         releaseWrite.bytes?.join(",") !== expectedMessageBytes ||
         completion.lastCompletionSequence !==
-          (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+          (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+            ? 161_962
+            : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
             ? 161_961
             : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
             ? 161_960
@@ -26200,7 +26288,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 161_952
             : 161_950) ||
         completion.lastCompletionInstructionCount !==
-          (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+          (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+            ? 321_463_139
+            : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
             ? 321_463_133
             : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
             ? 321_463_128
@@ -26240,8 +26330,11 @@ export function validateCurrentCheckpoint(manifest) {
         getCursorPosPostReleaseInvalid ||
         getSystemMetricsPostReleaseInvalid ||
         getSystemMetricsCaptionPostReleaseInvalid ||
+        getSystemMetricsFixedFrameHeightPostReleaseInvalid ||
         completion.instructionCount !==
-          (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+          (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+            ? 321_463_282
+            : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
             ? 321_463_139
             : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
             ? 321_463_133
@@ -26261,7 +26354,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 321_462_499
             : 321_462_435) ||
         nextEndpoint.id !==
-          (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+          (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+            ? 183
+            : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
             ? 203
             : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
             ? 203
@@ -26279,7 +26374,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 233
             : 182) ||
         nextEndpoint.address !==
-          (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+          (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+            ? 2_130_709_344
+            : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
             ? 2_130_709_664
             : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
             ? 2_130_709_664
@@ -26306,7 +26403,9 @@ export function validateCurrentCheckpoint(manifest) {
             : "user32.dll") ||
         nextEndpoint.symbol?.kind !== "name" ||
         nextEndpoint.symbol?.name !==
-          (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+          (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+            ? "IsIconic"
+            : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
             ? "GetSystemMetrics"
             : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
             ? "GetSystemMetrics"
@@ -26325,7 +26424,9 @@ export function validateCurrentCheckpoint(manifest) {
             : "DispatchMessageA") ||
         nextEndpoint.disposition !== "declared-runtime-export" ||
         nextEndpoint.iatAddress !==
-          (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+          (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+            ? 269_292_468
+            : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
             ? 269_292_548
             : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
             ? 269_292_548
@@ -26343,7 +26444,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 269_292_668
             : 269_292_464) ||
         completion.nextArguments?.join(",") !==
-          (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+          (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+            ? "1208025089,0"
+            : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
             ? "8,0"
             : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
             ? "4,0"
@@ -26361,7 +26464,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? "1208025089,514,0,23593600"
             : "7338216") ||
         completion.nextReturnAddress !==
-          (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+          (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+            ? 268_995_012
+            : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
             ? 268_993_936
             : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
             ? 268_993_922
@@ -26379,7 +26484,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 269_038_527
             : 269_039_532) ||
         completion.nextStackPointer !==
-          (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+          (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+            ? 7_338_200
+            : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
             ? 7_338_144
             : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
             ? 7_338_144
@@ -26399,7 +26506,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 7_337_228
             : 7_338_196) ||
         completion.memoryContentSha256 !==
-          (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+          (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+            ? "ac46e0896cc007c49ac9339a8b4747b894ea0dd99551c66faac13ac094e80820"
+            : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
             ? "fa931794640b51f2ba74f421f727b3cf1e80dad88c6db7418781d1c3ccd9f2a8"
             : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
             ? "d2a2edcf948a3d045a0d8394baa6a6cb7043862de2d047f849b77f8f7b06a3cf"
@@ -26454,7 +26563,46 @@ export function validateCurrentCheckpoint(manifest) {
     const expectedCompletion = currentStop.completion ?? {};
     const expectedEndpoint = currentStop.nextEndpoint ?? {};
     const releaseCheckpointExpectation =
-      getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+      getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+        ? {
+            nextCheckpoint:
+              "user32-is-iconic-post-pointer-release-continuation",
+            instructionCount: 321_463_282,
+            capabilityCluster:
+              "user32-post-pointer-release-window-geometry-continuation",
+            reason:
+              "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation-checkpoint-complete",
+            endpointId: 183,
+            endpointApi: "user32.dll!isiconic",
+            endpointModule: "user32.dll",
+            endpointAddress: "0x7f000b60",
+            iatAddress: "0x100d13b4",
+            observedSymbol: "IsIconic",
+            arguments: "0x48010001,0x00000000",
+            returnAddress: "0x100889c4",
+            stackPointer: "0x006ff8d8",
+            nodeReportBytes: 3_047_403,
+            nodeReportSha256:
+              "49883d456471aa7a53d14ba2699971e10ac5951f684f289b93cffa8bb93d7540",
+            browserReportBytes: 2_751_367,
+            browserReportSha256:
+              "bd7f46b7a99305f53bc09084e44667dbd69220df025eecbf711fe88641add9b9",
+            browserReportSchemaVersion: 60,
+            browserRuntimeProtocol: "vine.browser-runtime-worker.v93",
+            runtimeWorkerBytes: 924_637,
+            runtimeWorkerSha256:
+              "ffff9fcd79c40a08623ddc11c7c9aab77760fc9d13aa6997ad5b12b16fb9567c",
+            runtimeCoreWasmBytes: 5_203_550,
+            runtimeCoreWasmSha256:
+              "c80211c37e0837ab521689c39fbf10388e4950c6b8cd4403a72c6fdd5436b400",
+            cpuSlices: 183_868,
+            writebackBatches: 183_861,
+            writebackPages: 282_523,
+            hostDeltaBatches: 127_939,
+            wasmBridgeCalls: 489_409,
+            statusMessagesObserved: 24_347,
+          }
+        : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
         ? {
             nextCheckpoint:
               "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
@@ -26841,7 +26989,17 @@ export function validateCurrentCheckpoint(manifest) {
               statusMessagesObserved: 24_345,
             };
     const expectedCompletionBoundaryInvalid =
-      getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+      getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+        ? expectedCompletion.requiredCompletions !== 1 ||
+          expectedCompletion.completionCount !== 1 ||
+          expectedCompletion.lastCompletionSequence !== 161_962 ||
+          expectedCompletion.lastCompletionInstructionCount !== 321_463_139 ||
+          expectedCompletion.maximumRepeatCompletions !== 16 ||
+          expectedCompletion.requiredEntries !== 1 ||
+          expectedCompletion.entryCount !== 1 ||
+          expectedCompletion.lastEntrySequence !== 161_951 ||
+          expectedCompletion.lastEntryInstructionCount !== 321_462_435
+        : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
         ? expectedCompletion.requiredCompletions !== 1 ||
           expectedCompletion.completionCount !== 1 ||
           expectedCompletion.lastCompletionSequence !== 161_961 ||
@@ -27070,7 +27228,9 @@ export function validateCurrentCheckpoint(manifest) {
         const calls = completion.timeGetTimePostReleaseCompletions ?? [];
         if (
           completion.requiredCompletions !==
-            (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+            (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+              ? 1
+              : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
               ? 1
               : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
               ? 1
@@ -27080,7 +27240,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 1
               : 4) ||
           completion.completionCount !==
-            (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+            (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+              ? 1
+              : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
               ? 1
               : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
               ? 1
@@ -27090,7 +27252,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 1
               : 4) ||
           completion.lastCompletionSequence !==
-            (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+            (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+              ? 161_962
+              : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
               ? 161_961
               : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
               ? 161_960
@@ -27100,7 +27264,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 161_958
               : 161_957) ||
           completion.lastCompletionInstructionCount !==
-            (getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
+            (getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
+              ? 321_463_139
+              : getSystemMetricsCaptionPostPointerReleaseContinuationCheckpointActive
               ? 321_463_133
               : getSystemMetricsPostPointerReleaseContinuationCheckpointActive
               ? 321_463_128
@@ -32269,6 +32435,12 @@ export function renderReadmeStatus(manifest) {
   const nextSummary =
     next.kind === "capability-checkpoint"
       ? next.completion.capability ===
+        "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+        ? `\`${next.completion.capability}\` returned the reached policy-owned fixed-frame height at ` +
+          `sequence ${next.completion.lastCompletionSequence} / instruction ${next.completion.lastCompletionInstructionCount}; ` +
+          `verification stopped at the next \`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +
+          `(\`${next.reason}\`)`
+        : next.completion.capability ===
         "user32-get-system-metrics-caption-post-pointer-release-continuation"
         ? `\`${next.completion.capability}\` returned the reached policy-owned caption height at ` +
           `sequence ${next.completion.lastCompletionSequence} / instruction ${next.completion.lastCompletionInstructionCount}; ` +

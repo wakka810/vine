@@ -106,7 +106,11 @@ const setFocusActionContinuationProfile =
   bgiProfile === "user32-set-focus-action-continuation";
 const timeGetTimeActionContinuationProfile =
   bgiProfile === "winmm-time-get-time-action-continuation";
+const getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationProfile =
+  bgiProfile ===
+    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation";
 const getSystemMetricsCaptionPostPointerReleaseContinuationProfile =
+  getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationProfile ||
   bgiProfile ===
     "user32-get-system-metrics-caption-post-pointer-release-continuation";
 const getSystemMetricsPostPointerReleaseContinuationProfile =
@@ -304,7 +308,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v92";
+const runtimeProtocol = "vine.browser-runtime-worker.v93";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -1003,6 +1007,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-get-cursor-pos-post-pointer-release-continuation",
         "user32-get-system-metrics-post-pointer-release-continuation",
         "user32-get-system-metrics-caption-post-pointer-release-continuation",
+        "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1091,6 +1096,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-get-cursor-pos-post-pointer-release-continuation",
         "user32-get-system-metrics-post-pointer-release-continuation",
         "user32-get-system-metrics-caption-post-pointer-release-continuation",
+        "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1179,6 +1185,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-get-cursor-pos-post-pointer-release-continuation",
         "user32-get-system-metrics-post-pointer-release-continuation",
         "user32-get-system-metrics-caption-post-pointer-release-continuation",
+        "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
@@ -6337,7 +6344,9 @@ function validateBgiEquivalence(browser, oracle) {
       oracleCheckpoint.capability ===
         "user32-get-system-metrics-post-pointer-release-continuation" ||
       oracleCheckpoint.capability ===
-        "user32-get-system-metrics-caption-post-pointer-release-continuation"
+        "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
+      oracleCheckpoint.capability ===
+        "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
     ) {
       const normalizeThreadCall = (call) => ({
         ...normalizeSemanticCall(call),
@@ -6561,6 +6570,21 @@ function validateBgiEquivalence(browser, oracle) {
                   candidate.getSystemMetricsCaptionPostRelease.runtimeThreadId,
               },
             }),
+        ...(candidate.getSystemMetricsFixedFrameHeightPostRelease === undefined
+          ? {}
+          : {
+              getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion:
+                candidate
+                  .getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion,
+              getSystemMetricsFixedFrameHeightPostRelease: {
+                ...normalizeThreadCall(
+                  candidate.getSystemMetricsFixedFrameHeightPostRelease,
+                ),
+                runtimeThreadId:
+                  candidate.getSystemMetricsFixedFrameHeightPostRelease
+                    .runtimeThreadId,
+              },
+            }),
         instructionCount: candidate.instructionCount,
         nextEndpoint: {
           ...candidate.nextEndpoint,
@@ -6576,6 +6600,114 @@ function validateBgiEquivalence(browser, oracle) {
         oracleCheckpoint.capability,
         "Chrome Worker reached a different pointer-message capability",
       );
+      if (
+        oracleCheckpoint.capability ===
+        "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+      ) {
+        assert.equal(oracle.supportedCallCount, 161_962);
+        assert.equal(
+          oracle.supportedCallSemanticsSha256,
+          "2ecc4577b2932d1b67de7def5c1d65cbd83ef0b300d63ceed326af363dda3c72",
+        );
+        assert.equal(
+          oracleCheckpoint.implementationId,
+          "runtime.user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation.v1",
+        );
+        assert.equal(oracleCheckpoint.requiredCompletions, 1);
+        assert.equal(oracleCheckpoint.completionCount, 1);
+        assert.equal(oracleCheckpoint.lastCompletionSequence, 161_962);
+        assert.equal(
+          oracleCheckpoint.lastCompletionInstructionCount,
+          321_463_139,
+        );
+        assert.equal(
+          oracleCheckpoint
+            .getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion,
+          0,
+        );
+        const getSystemMetricsFixedFrameHeight =
+          oracleCheckpoint.getSystemMetricsFixedFrameHeightPostRelease;
+        assert.equal(
+          getSystemMetricsFixedFrameHeight.runtimeThreadId,
+          8_192,
+        );
+        assert.equal(getSystemMetricsFixedFrameHeight.sequence, 161_962);
+        assert.equal(getSystemMetricsFixedFrameHeight.occurrence, 68);
+        assert.equal(
+          getSystemMetricsFixedFrameHeight.trapInstructionCount,
+          321_463_139,
+        );
+        assert.equal(
+          getSystemMetricsFixedFrameHeight.module.toLowerCase(),
+          "user32.dll",
+        );
+        assert.equal(
+          getSystemMetricsFixedFrameHeight.symbol,
+          "GetSystemMetrics",
+        );
+        assert.equal(
+          getSystemMetricsFixedFrameHeight.implementationId,
+          "user32.get-system-metrics.v1",
+        );
+        assert.deepEqual(getSystemMetricsFixedFrameHeight.arguments, [8]);
+        assert.deepEqual(getSystemMetricsFixedFrameHeight.result, {
+          action: "set",
+          value: 3,
+        });
+        assert.equal(
+          getSystemMetricsFixedFrameHeight.returnAddress,
+          0x1008_8590,
+        );
+        assert.equal(
+          getSystemMetricsFixedFrameHeight.stackPointerBefore,
+          0x006f_f8a0,
+        );
+        assert.equal(
+          getSystemMetricsFixedFrameHeight.stackPointerAfter,
+          0x006f_f8a8,
+        );
+        assert.equal(getSystemMetricsFixedFrameHeight.lastError, 0);
+        assert.deepEqual(getSystemMetricsFixedFrameHeight.guestWrites, []);
+        assert.equal(oracleCheckpoint.activeCallbackDepthAtStop, 0);
+        assert.equal(oracleCheckpoint.instructionCount, 321_463_282);
+        assert.deepEqual(oracleCheckpoint.nextEndpoint, {
+          id: 183,
+          address: 0x7f00_0b60,
+          module: "USER32.dll",
+          symbol: { kind: "name", name: "IsIconic" },
+          disposition: "declared-runtime-export",
+          iatAddress: 0x100d_13b4,
+        });
+        assert.deepEqual(oracleCheckpoint.nextArguments, [0x4801_0001, 0]);
+        assert.equal(oracleCheckpoint.nextReturnAddress, 0x1008_89c4);
+        assert.equal(oracleCheckpoint.nextStackPointer, 0x006f_f8d8);
+        assert.equal(
+          oracleCheckpoint.memoryContentSha256,
+          "ac46e0896cc007c49ac9339a8b4747b894ea0dd99551c66faac13ac094e80820",
+        );
+        assert.equal(oracle.synchronization.writebackBatches, 165_116);
+        assert.equal(oracle.synchronization.dirtyPages, 244_482);
+        assert.equal(oracle.synchronization.changedBytes, 43_070_759);
+        assert.equal(oracle.synchronization.hostDeltaBatches, 127_939);
+        assert.equal(oracle.synchronization.finalGeneration, 296_337);
+        assert.equal(oracle.threadExecution.contextSwitches, 2_512);
+        assert.equal(browser.report.writebackBatches, 183_861);
+        assert.equal(browser.report.writebackPages, 282_523);
+        assert.equal(browser.report.mappingDeltas, 127_939);
+        assert.equal(browser.report.mappingDirtyPages, 150_344);
+        assert.equal(browser.report.instructions, 321_463_282);
+        assert.equal(browser.report.slices, 183_868);
+        assert.equal(browser.report.budgetYields, 18_752);
+        assert.equal(browser.report.executionTransitionCount, 588_695);
+        assert.equal(browser.report.initialGeneration, 27);
+        assert.equal(browser.report.finalGeneration, 314_976);
+        assert.equal(browser.report.contextSwitches, 2_512);
+        assert.equal(browser.report.callbackEntries, 34);
+        assert.equal(browser.report.maximumCallbackDepth, 3);
+        assert.equal(browser.report.wasmBridgeCalls, 489_409);
+        assert.equal(browser.statusMessagesObserved, 24_347);
+        assert.equal(browser.statusMessagesRetained, 4_096);
+      }
       if (
         oracleCheckpoint.capability ===
         "user32-get-system-metrics-caption-post-pointer-release-continuation"

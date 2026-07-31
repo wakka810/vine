@@ -223,7 +223,11 @@ function assertCapabilityCheckpoint(
     assert.equal(actual.queueDepthAtDispatchEntry, 0);
     assert.equal(actual.dispatchMessageReleaseBytesPreserved, true);
     if (expected.completion.requiredCompletions !== undefined) {
+      const postReleaseGetSystemMetricsFixedFrameHeight =
+        expected.completion.capability ===
+        "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation";
       const postReleaseGetSystemMetricsCaption =
+        postReleaseGetSystemMetricsFixedFrameHeight ||
         expected.completion.capability ===
         "user32-get-system-metrics-caption-post-pointer-release-continuation";
       const postReleaseGetSystemMetrics =
@@ -521,6 +525,60 @@ function assertCapabilityCheckpoint(
                 .getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion,
               0,
             );
+            if (postReleaseGetSystemMetricsFixedFrameHeight) {
+              const getSystemMetricsFixedFrameHeight =
+                actual.getSystemMetricsFixedFrameHeightPostRelease;
+              assert(getSystemMetricsFixedFrameHeight !== undefined);
+              assert.equal(
+                getSystemMetricsFixedFrameHeight.sequence,
+                actual.lastCompletionSequence,
+              );
+              assert.equal(
+                getSystemMetricsFixedFrameHeight.trapInstructionCount,
+                actual.lastCompletionInstructionCount,
+              );
+              assert.equal(
+                getSystemMetricsFixedFrameHeight.runtimeThreadId,
+                8_192,
+              );
+              assert.equal(
+                getSystemMetricsFixedFrameHeight.module.toLowerCase(),
+                "user32.dll",
+              );
+              assert.equal(
+                getSystemMetricsFixedFrameHeight.symbol,
+                "GetSystemMetrics",
+              );
+              assert.equal(getSystemMetricsFixedFrameHeight.occurrence, 68);
+              assert.equal(
+                getSystemMetricsFixedFrameHeight.implementationId,
+                "user32.get-system-metrics.v1",
+              );
+              assert.deepEqual(getSystemMetricsFixedFrameHeight.arguments, [8]);
+              assert.deepEqual(getSystemMetricsFixedFrameHeight.result, {
+                action: "set",
+                value: 3,
+              });
+              assert.equal(
+                getSystemMetricsFixedFrameHeight.returnAddress,
+                268_993_936,
+              );
+              assert.equal(
+                getSystemMetricsFixedFrameHeight.stackPointerBefore,
+                7_338_144,
+              );
+              assert.equal(
+                getSystemMetricsFixedFrameHeight.stackPointerAfter,
+                7_338_152,
+              );
+              assert.equal(getSystemMetricsFixedFrameHeight.lastError, 0);
+              assert.equal(getSystemMetricsFixedFrameHeight.guestWrites.length, 0);
+              assert.equal(
+                actual
+                  .getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion,
+                0,
+              );
+            }
           }
         }
       } else if (!postReleasePeek) {

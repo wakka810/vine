@@ -15052,7 +15052,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "user32-get-window-rect-post-pointer-release-continuation"
                 | "user32-get-cursor-pos-post-pointer-release-continuation"
                 | "user32-get-system-metrics-post-pointer-release-continuation"
-                | "user32-get-system-metrics-caption-post-pointer-release-continuation" => {
+                | "user32-get-system-metrics-caption-post-pointer-release-continuation"
+                | "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" => {
                     GenericRuntimeCapability::User32DefWindowProcPointerRelease
                 }
                 "kernel32-leave-critical-section" => {

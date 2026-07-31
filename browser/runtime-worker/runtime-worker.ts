@@ -667,7 +667,9 @@ function isInputProgressGatewayCheckpoint(
     profile === "user32-get-cursor-pos-post-pointer-release-continuation" ||
     profile === "user32-get-system-metrics-post-pointer-release-continuation" ||
     profile ===
-      "user32-get-system-metrics-caption-post-pointer-release-continuation"
+      "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
+    profile ===
+      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
   );
 }
 
@@ -693,7 +695,9 @@ function isActionInputProgressGatewayCheckpoint(
     profile === "user32-get-cursor-pos-post-pointer-release-continuation" ||
     profile === "user32-get-system-metrics-post-pointer-release-continuation" ||
     profile ===
-      "user32-get-system-metrics-caption-post-pointer-release-continuation"
+      "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
+    profile ===
+      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
   );
 }
 
@@ -732,7 +736,9 @@ function isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
     profile === "user32-get-cursor-pos-post-pointer-release-continuation" ||
     profile === "user32-get-system-metrics-post-pointer-release-continuation" ||
     profile ===
-      "user32-get-system-metrics-caption-post-pointer-release-continuation"
+      "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
+    profile ===
+      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
   );
 }
 
@@ -847,7 +853,19 @@ function isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
 ): boolean {
   return (
     profile ===
-      "user32-get-system-metrics-caption-post-pointer-release-continuation"
+      "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
+    isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
+      profile,
+    )
+  );
+}
+
+function isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile ===
+    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
   );
 }
 
@@ -955,7 +973,18 @@ function isRecurringTimerBoundedWindowCheckpoint(
 function recurringTimerWindowConfiguration(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  return isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+  return isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
+    profile,
+  )
+    ? ({
+        capability:
+          "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
+        implementationId:
+          "runtime.user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      } as const)
+    : isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
     profile,
   )
     ? ({
@@ -1271,6 +1300,10 @@ function windowTimerCallbackRecurringBatchExpectation() {
 function inputProgressGatewayExpectation(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
+  const getSystemMetricsFixedFrameHeightPostRelease =
+    isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
+      profile,
+    );
   const getSystemMetricsCaptionPostRelease =
     isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(profile);
   const getSystemMetricsPostRelease =
@@ -1302,7 +1335,9 @@ function inputProgressGatewayExpectation(
     isWindowTimerCallbackActionInputProgressGatewayCheckpoint(profile);
   const action = isActionInputProgressGatewayCheckpoint(profile);
   return {
-    capability: getSystemMetricsCaptionPostRelease
+    capability: getSystemMetricsFixedFrameHeightPostRelease
+      ? "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+      : getSystemMetricsCaptionPostRelease
       ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
       : getSystemMetricsPostRelease
       ? "user32-get-system-metrics-post-pointer-release-continuation"
@@ -1337,7 +1372,9 @@ function inputProgressGatewayExpectation(
       : action
       ? "primary-main-loop-action-input-progress-gateway"
       : "primary-main-loop-input-progress-gateway",
-    implementationId: getSystemMetricsCaptionPostRelease
+    implementationId: getSystemMetricsFixedFrameHeightPostRelease
+      ? "runtime.user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation.v1"
+      : getSystemMetricsCaptionPostRelease
       ? "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1"
       : getSystemMetricsPostRelease
       ? "runtime.user32-get-system-metrics-post-pointer-release-continuation.v1"
@@ -2139,7 +2176,8 @@ type PostPointerReleaseContinuationCheckpoint = Extract<
       | "user32-get-window-rect-post-pointer-release-continuation"
       | "user32-get-cursor-pos-post-pointer-release-continuation"
       | "user32-get-system-metrics-post-pointer-release-continuation"
-      | "user32-get-system-metrics-caption-post-pointer-release-continuation";
+      | "user32-get-system-metrics-caption-post-pointer-release-continuation"
+      | "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation";
   }
 >;
 
@@ -2210,9 +2248,17 @@ type GetSystemMetricsPostPointerReleaseContinuationCheckpoint =
   };
 
 type GetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint =
-  PostPointerReleaseContinuationCheckpoint & {
-    capability: "user32-get-system-metrics-caption-post-pointer-release-continuation";
-    implementationId: "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1";
+  PostPointerReleaseContinuationCheckpoint &
+  (
+    | {
+        capability: "user32-get-system-metrics-caption-post-pointer-release-continuation";
+        implementationId: "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1";
+      }
+    | {
+        capability: "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation";
+        implementationId: "runtime.user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation.v1";
+      }
+  ) & {
     timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0;
     timeGetTimePostRelease: RuntimeThreadCallSnapshot;
     maximumRepeatCompletions: 16;
@@ -2225,6 +2271,26 @@ type GetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint =
     getSystemMetricsPostRelease: RuntimeThreadCallSnapshot;
     getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion: 0;
     getSystemMetricsCaptionPostRelease: RuntimeThreadCallSnapshot;
+  };
+
+type GetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint =
+  PostPointerReleaseContinuationCheckpoint & {
+    capability: "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation";
+    implementationId: "runtime.user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation.v1";
+    timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0;
+    timeGetTimePostRelease: RuntimeThreadCallSnapshot;
+    maximumRepeatCompletions: 16;
+    timeGetTimePostReleaseCompletions: RuntimeThreadCallSnapshot[];
+    getWindowRectPostReleaseActiveCallbackDepthAtCompletion: 0;
+    getWindowRectPostRelease: RuntimeThreadCallSnapshot;
+    getCursorPosPostReleaseActiveCallbackDepthAtCompletion: 0;
+    getCursorPosPostRelease: RuntimeThreadCallSnapshot;
+    getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion: 0;
+    getSystemMetricsPostRelease: RuntimeThreadCallSnapshot;
+    getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion: 0;
+    getSystemMetricsCaptionPostRelease: RuntimeThreadCallSnapshot;
+    getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion: 0;
+    getSystemMetricsFixedFrameHeightPostRelease: RuntimeThreadCallSnapshot;
   };
 
 type PeekMessageAPostPointerReleaseContinuationEntry = Omit<
@@ -2523,6 +2589,22 @@ type GetSystemMetricsCaptionPostPointerReleaseContinuationEntry = Omit<
   | "nextStackPointer"
   | "memoryContentSha256"
 >;
+
+type GetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry =
+  Omit<
+    GetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint,
+    | "requiredCompletions"
+    | "completionCount"
+    | "getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion"
+    | "getSystemMetricsFixedFrameHeightPostRelease"
+    | "activeCallbackDepthAtStop"
+    | "instructionCount"
+    | "nextEndpoint"
+    | "nextArguments"
+    | "nextReturnAddress"
+    | "nextStackPointer"
+    | "memoryContentSha256"
+  >;
 
 type WindowTimerCallbackDeliveryGatewayCheckpoint = Extract<
   NonNullable<SessionReport["checkpointCompletion"]>,
@@ -3071,6 +3153,10 @@ class BrowserRuntimeSession {
   #getSystemMetricsCaptionPostPointerReleaseContinuationEntry: GetSystemMetricsCaptionPostPointerReleaseContinuationEntry | null =
     null;
   #getSystemMetricsCaptionPostPointerReleaseContinuationDispatching = false;
+  #getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry: GetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry | null =
+    null;
+  #getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationDispatching =
+    false;
   readonly #presentationProgressRenderCompletions: RuntimeThreadCallSnapshot[] =
     [];
   #presentationProgressPresentCompletion: RuntimeThreadCallSnapshot | null =
@@ -6624,6 +6710,40 @@ class BrowserRuntimeSession {
       this.#getSystemMetricsCaptionPostPointerReleaseContinuationDispatching =
         true;
     }
+    if (
+      this
+        .#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry !==
+      null
+    ) {
+      const ownedEndpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpoint,
+      );
+      const engine = this.#requireEngine();
+      invariant(
+        isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+          ownedEndpoint?.id === 203 &&
+          ownedEndpoint.module?.toLowerCase() === "user32.dll" &&
+          ownedEndpoint.symbol?.kind === "name" &&
+          ownedEndpoint.symbol.name === "GetSystemMetrics" &&
+          stackPointer === 0x006f_f8a0 &&
+          engine.readGuestU32(stackPointer) === 0x1008_8590 &&
+          engine.readGuestU32(stackPointer + 4) === 8 &&
+          this.#report.instructions === 321_463_139 &&
+          this.#nextBgiCallSequence === 161_961 &&
+          this.#currentThreadId === 8_192 &&
+          this.#report.checkpointCompletion === null &&
+          !this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationDispatching &&
+          this.#getSystemMetricsCaptionPostPointerReleaseContinuationEntry ===
+            null &&
+          !this.#getSystemMetricsCaptionPostPointerReleaseContinuationDispatching &&
+          this.#bgiCallbackCallSequences.size === 0,
+        "post-release GetSystemMetrics fixed-frame height continuation reached a different API, sequence, stack frame, or callback state",
+      );
+      this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationDispatching =
+        true;
+    }
     if (this.#defWindowProcAPointerReleaseContinuationEntry !== null) {
       const ownedEndpoint = this.#requirePrepared().endpoints.find(
         (candidate) => candidate.address === endpoint,
@@ -7637,6 +7757,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
           checkpoint.capability ===
+            "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+          checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -7750,7 +7872,9 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "user32-get-system-metrics-post-pointer-release-continuation" ||
       checkpoint.capability ===
-        "user32-get-system-metrics-caption-post-pointer-release-continuation"
+        "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
+      checkpoint.capability ===
+        "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
     ) {
       invariant(
         this.#bgiCallbackCallSequences.size === 0 &&
@@ -7769,6 +7893,10 @@ class BrowserRuntimeSession {
           this.#getSystemMetricsCaptionPostPointerReleaseContinuationEntry ===
             null &&
           !this.#getSystemMetricsCaptionPostPointerReleaseContinuationDispatching &&
+          this
+              .#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry ===
+            null &&
+          !this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationDispatching &&
           this.#peekMessageAPostPointerReleaseContinuationEntry === null &&
           !this.#peekMessageAPostPointerReleaseContinuationDispatching &&
           this.#peekMessageAPostPointerReleaseBytesBefore === null &&
@@ -7964,6 +8092,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
       checkpoint.capability ===
+        "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -8053,7 +8183,9 @@ class BrowserRuntimeSession {
                     checkpoint.capability ===
                       "user32-get-system-metrics-post-pointer-release-continuation" ||
                     checkpoint.capability ===
-                      "user32-get-system-metrics-caption-post-pointer-release-continuation"
+                      "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
+                    checkpoint.capability ===
+                      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
                   ? [
                       this.#requireEngine().readGuestU32(stackPointer + 4),
                       this.#requireEngine().readGuestU32(stackPointer + 8),
@@ -8247,6 +8379,37 @@ class BrowserRuntimeSession {
           checkpoint.memoryContentSha256 ===
             "fa931794640b51f2ba74f421f727b3cf1e80dad88c6db7418781d1c3ccd9f2a8",
         `post-release GetSystemMetrics caption continuation reached a different next metric boundary: ${JSON.stringify(
+          {
+            instructions: this.#report.instructions,
+            nextEndpoint: checkpoint.nextEndpoint,
+            nextArguments: checkpoint.nextArguments,
+            nextReturnAddress: checkpoint.nextReturnAddress,
+            nextStackPointer: checkpoint.nextStackPointer,
+            memoryContentSha256: checkpoint.memoryContentSha256,
+          },
+        )}`,
+      );
+    }
+    if (
+      checkpoint.capability ===
+      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+    ) {
+      invariant(
+        this.#report.instructions === 321_463_282 &&
+          checkpoint.instructionCount === 321_463_282 &&
+          checkpoint.nextEndpoint.id === 183 &&
+          checkpoint.nextEndpoint.address === 0x7f00_0b60 &&
+          checkpoint.nextEndpoint.disposition === "declared-runtime-export" &&
+          checkpoint.nextEndpoint.iatAddress === 0x100d_13b4 &&
+          checkpoint.nextEndpoint.module?.toLowerCase() === "user32.dll" &&
+          checkpoint.nextEndpoint.symbol?.kind === "name" &&
+          checkpoint.nextEndpoint.symbol.name === "IsIconic" &&
+          checkpoint.nextArguments.join(",") === "1208025089,0" &&
+          checkpoint.nextReturnAddress === 0x1008_89c4 &&
+          checkpoint.nextStackPointer === 0x006f_f8d8 &&
+          checkpoint.memoryContentSha256 ===
+            "ac46e0896cc007c49ac9339a8b4747b894ea0dd99551c66faac13ac094e80820",
+        `post-release GetSystemMetrics fixed-frame height continuation reached a different IsIconic boundary: ${JSON.stringify(
           {
             instructions: this.#report.instructions,
             nextEndpoint: checkpoint.nextEndpoint,
@@ -8471,6 +8634,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
       checkpoint.capability ===
+        "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -8522,6 +8687,9 @@ class BrowserRuntimeSession {
                       : checkpoint.capability ===
                           "user32-translate-message-pointer-release-continuation"
                         ? "USER32 TranslateMessage pointer-release continuation checkpoint completed"
+                      : checkpoint.capability ===
+                          "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+                        ? "USER32 GetSystemMetrics fixed-frame height post-pointer-release continuation checkpoint completed"
                       : checkpoint.capability ===
                           "user32-get-system-metrics-caption-post-pointer-release-continuation"
                         ? "USER32 GetSystemMetrics caption post-pointer-release continuation checkpoint completed"
@@ -9435,13 +9603,27 @@ class BrowserRuntimeSession {
                   this.#configuration.capabilityProfile,
                 )
               ) {
-                this.#timeGetTimePostPointerReleaseContinuationEntry = {
-                  ...completedPostReleasePeek,
-                  capability:
-                    "user32-get-system-metrics-caption-post-pointer-release-continuation",
-                  implementationId:
-                    "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1",
-                } satisfies TimeGetTimePostPointerReleaseContinuationEntry;
+                if (
+                  isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
+                    this.#configuration.capabilityProfile,
+                  )
+                ) {
+                  this.#timeGetTimePostPointerReleaseContinuationEntry = {
+                    ...completedPostReleasePeek,
+                    capability:
+                      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
+                    implementationId:
+                      "runtime.user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation.v1",
+                  } satisfies TimeGetTimePostPointerReleaseContinuationEntry;
+                } else {
+                  this.#timeGetTimePostPointerReleaseContinuationEntry = {
+                    ...completedPostReleasePeek,
+                    capability:
+                      "user32-get-system-metrics-caption-post-pointer-release-continuation",
+                    implementationId:
+                      "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1",
+                  } satisfies TimeGetTimePostPointerReleaseContinuationEntry;
+                }
               } else {
                 this.#timeGetTimePostPointerReleaseContinuationEntry = {
                   ...completedPostReleasePeek,
@@ -9636,11 +9818,15 @@ class BrowserRuntimeSession {
             invariant(
               entry.capability ===
                 (getSystemMetricsContinuation
-                  ? isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+                  ? isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
                       this.#configuration.capabilityProfile,
                     )
-                    ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
-                    : "user32-get-system-metrics-post-pointer-release-continuation"
+                    ? "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+                    : isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+                          this.#configuration.capabilityProfile,
+                        )
+                      ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
+                      : "user32-get-system-metrics-post-pointer-release-continuation"
                   : getCursorPosContinuation
                   ? "user32-get-cursor-pos-post-pointer-release-continuation"
                   : "user32-get-window-rect-post-pointer-release-continuation") &&
@@ -9780,11 +9966,15 @@ class BrowserRuntimeSession {
             (isGetSystemMetricsPostPointerReleaseContinuationCheckpoint(
               this.#configuration.capabilityProfile,
             )
-              ? isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+              ? isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
                   this.#configuration.capabilityProfile,
                 )
-                ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
-                : "user32-get-system-metrics-post-pointer-release-continuation"
+                ? "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+                : isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+                      this.#configuration.capabilityProfile,
+                    )
+                  ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
+                  : "user32-get-system-metrics-post-pointer-release-continuation"
               : "user32-get-cursor-pos-post-pointer-release-continuation") &&
             this.#getCursorPosPostPointerReleaseContinuationEntry === null &&
             !this.#getCursorPosPostPointerReleaseContinuationDispatching,
@@ -9899,11 +10089,15 @@ class BrowserRuntimeSession {
       ) {
         invariant(
           entry.capability ===
-            (isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+            (isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
               this.#configuration.capabilityProfile,
             )
-              ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
-              : "user32-get-system-metrics-post-pointer-release-continuation") &&
+              ? "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+              : isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+                    this.#configuration.capabilityProfile,
+                  )
+                ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
+                : "user32-get-system-metrics-post-pointer-release-continuation") &&
             this.#getSystemMetricsPostPointerReleaseContinuationEntry ===
               null &&
             !this.#getSystemMetricsPostPointerReleaseContinuationDispatching,
@@ -9959,11 +10153,15 @@ class BrowserRuntimeSession {
       invariant(
         entry !== null &&
           entry.capability ===
-            (isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+            (isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
               this.#configuration.capabilityProfile,
             )
-              ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
-              : "user32-get-system-metrics-post-pointer-release-continuation") &&
+              ? "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+              : isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+                    this.#configuration.capabilityProfile,
+                  )
+                ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
+                : "user32-get-system-metrics-post-pointer-release-continuation") &&
           this.#report.checkpointCompletion === null &&
           endpoint.id === 203 &&
           endpoint.module.toLowerCase() === "user32.dll" &&
@@ -10010,7 +10208,11 @@ class BrowserRuntimeSession {
       ) {
         invariant(
           entry.capability ===
-              "user32-get-system-metrics-caption-post-pointer-release-continuation" &&
+              (isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
+                this.#configuration.capabilityProfile,
+              )
+                ? "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+                : "user32-get-system-metrics-caption-post-pointer-release-continuation") &&
             this.#getSystemMetricsCaptionPostPointerReleaseContinuationEntry ===
               null &&
             !this.#getSystemMetricsCaptionPostPointerReleaseContinuationDispatching,
@@ -10067,7 +10269,11 @@ class BrowserRuntimeSession {
       invariant(
         entry !== null &&
           entry.capability ===
-            "user32-get-system-metrics-caption-post-pointer-release-continuation" &&
+            (isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
+              this.#configuration.capabilityProfile,
+            )
+              ? "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+              : "user32-get-system-metrics-caption-post-pointer-release-continuation") &&
           this.#report.checkpointCompletion === null &&
           endpoint.id === 203 &&
           endpoint.module.toLowerCase() === "user32.dll" &&
@@ -10101,14 +10307,131 @@ class BrowserRuntimeSession {
           },
         )}`,
       );
+      const completedCaptionMetricCall = {
+        ...structuredClone(call),
+        runtimeThreadId: this.#currentThreadId,
+        trapInstructionCount: this.#report.instructions,
+        occurrence: implementationOccurrence,
+      } satisfies RuntimeThreadCallSnapshot;
+      if (
+        isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        )
+      ) {
+        invariant(
+          entry.capability ===
+              "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" &&
+            this
+                .#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry ===
+              null &&
+            !this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationDispatching,
+          "post-release GetSystemMetrics fixed-frame height continuation was already armed",
+        );
+        this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry =
+          {
+            ...entry,
+            capability:
+              "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
+            implementationId:
+              "runtime.user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation.v1",
+            lastCompletionSequence: sequence,
+            lastCompletionInstructionCount: this.#report.instructions,
+            getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion:
+              0,
+            getSystemMetricsCaptionPostRelease: completedCaptionMetricCall,
+          } satisfies GetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry;
+      } else {
+        invariant(
+          entry.capability ===
+            "user32-get-system-metrics-caption-post-pointer-release-continuation",
+          "post-release GetSystemMetrics caption continuation lost its capability identity",
+        );
+        this.#report.checkpointCompletion = {
+          ...entry,
+          capability:
+            "user32-get-system-metrics-caption-post-pointer-release-continuation",
+          implementationId:
+            "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1",
+          requiredCompletions: 1,
+          completionCount: 1,
+          lastCompletionSequence: sequence,
+          lastCompletionInstructionCount: this.#report.instructions,
+          getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion: 0,
+          getSystemMetricsCaptionPostRelease: completedCaptionMetricCall,
+          activeCallbackDepthAtStop: 0,
+          instructionCount: 0,
+          nextEndpoint: {
+            id: 0,
+            address: 0,
+            disposition: "declared-runtime-export" as const,
+            iatAddress: 0,
+          },
+          nextArguments: [],
+          nextReturnAddress: 0,
+          nextStackPointer: 0,
+          memoryContentSha256: "",
+        } satisfies GetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint;
+        this.#bgiCheckpointPending = true;
+      }
+      this.#getSystemMetricsCaptionPostPointerReleaseContinuationEntry = null;
+      this.#getSystemMetricsCaptionPostPointerReleaseContinuationDispatching =
+        false;
+    }
+    if (
+      isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationDispatching &&
+      completion.implementationId === "user32.get-system-metrics.v1"
+    ) {
+      const entry =
+        this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry;
+      invariant(
+        entry !== null &&
+          entry.capability ===
+            "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" &&
+          this.#report.checkpointCompletion === null &&
+          endpoint.id === 203 &&
+          endpoint.module.toLowerCase() === "user32.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "GetSystemMetrics" &&
+          this.#currentThreadId === 8_192 &&
+          sequence === 161_962 &&
+          this.#report.instructions === 321_463_139 &&
+          implementationOccurrence === 68 &&
+          call.arguments.join(",") === "8" &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 3 &&
+          call.returnAddress === 0x1008_8590 &&
+          call.stackPointerBefore === 0x006f_f8a0 &&
+          call.stackPointerAfter === 0x006f_f8a8 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0 &&
+          this.#bgiCallbackCallSequences.size === 0,
+        `post-release GetSystemMetrics fixed-frame height continuation changed its controlled metric or callback contract: ${JSON.stringify(
+          {
+            hasEntry: entry !== null,
+            hasCheckpoint: this.#report.checkpointCompletion !== null,
+            endpoint,
+            currentThreadId: this.#currentThreadId,
+            sequence,
+            instructionCount: this.#report.instructions,
+            implementationOccurrence,
+            call,
+            activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+          },
+        )}`,
+      );
       this.#report.checkpointCompletion = {
         ...entry,
         requiredCompletions: 1,
         completionCount: 1,
         lastCompletionSequence: sequence,
         lastCompletionInstructionCount: this.#report.instructions,
-        getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion: 0,
-        getSystemMetricsCaptionPostRelease: {
+        getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion:
+          0,
+        getSystemMetricsFixedFrameHeightPostRelease: {
           ...structuredClone(call),
           runtimeThreadId: this.#currentThreadId,
           trapInstructionCount: this.#report.instructions,
@@ -10126,9 +10449,10 @@ class BrowserRuntimeSession {
         nextReturnAddress: 0,
         nextStackPointer: 0,
         memoryContentSha256: "",
-      } satisfies GetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint;
-      this.#getSystemMetricsCaptionPostPointerReleaseContinuationEntry = null;
-      this.#getSystemMetricsCaptionPostPointerReleaseContinuationDispatching =
+      } satisfies GetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint;
+      this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry =
+        null;
+      this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationDispatching =
         false;
       this.#bgiCheckpointPending = true;
     }
@@ -19727,7 +20051,145 @@ class BrowserRuntimeSession {
         );
       }
       if (
+        isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report
+          .checkpointCompletion as GetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint | null;
+        const fixedWidthMetric = checkpoint?.getSystemMetricsPostRelease;
+        const captionMetric =
+          checkpoint?.getSystemMetricsCaptionPostRelease;
+        const fixedHeightMetric =
+          checkpoint?.getSystemMetricsFixedFrameHeightPostRelease;
+        invariant(
+          this.#report.supportedCallCount === 161_962 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "2ecc4577b2932d1b67de7def5c1d65cbd83ef0b300d63ceed326af363dda3c72" &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability ===
+              "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" &&
+            checkpoint.implementationId ===
+              "runtime.user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation.v1" &&
+            checkpoint.requiredCompletions === 1 &&
+            checkpoint.completionCount === 1 &&
+            checkpoint.lastCompletionSequence === 161_962 &&
+            checkpoint.lastCompletionInstructionCount === 321_463_139 &&
+            checkpoint.getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion ===
+              0 &&
+            fixedWidthMetric !== undefined &&
+            fixedWidthMetric.runtimeThreadId === 8_192 &&
+            fixedWidthMetric.sequence === 161_960 &&
+            fixedWidthMetric.occurrence === 66 &&
+            fixedWidthMetric.trapInstructionCount === 321_463_128 &&
+            fixedWidthMetric.arguments.join(",") === "7" &&
+            "action" in fixedWidthMetric.result &&
+            fixedWidthMetric.result.action === "set" &&
+            fixedWidthMetric.result.value === 3 &&
+            fixedWidthMetric.guestWrites.length === 0 &&
+            checkpoint.getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion ===
+              0 &&
+            captionMetric !== undefined &&
+            captionMetric.runtimeThreadId === 8_192 &&
+            captionMetric.sequence === 161_961 &&
+            captionMetric.occurrence === 67 &&
+            captionMetric.trapInstructionCount === 321_463_133 &&
+            captionMetric.arguments.join(",") === "4" &&
+            "action" in captionMetric.result &&
+            captionMetric.result.action === "set" &&
+            captionMetric.result.value === 23 &&
+            captionMetric.guestWrites.length === 0 &&
+            checkpoint.getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion ===
+              0 &&
+            fixedHeightMetric !== undefined &&
+            fixedHeightMetric.runtimeThreadId === 8_192 &&
+            fixedHeightMetric.sequence === 161_962 &&
+            fixedHeightMetric.occurrence === 68 &&
+            fixedHeightMetric.trapInstructionCount === 321_463_139 &&
+            fixedHeightMetric.module.toLowerCase() === "user32.dll" &&
+            fixedHeightMetric.symbol === "GetSystemMetrics" &&
+            fixedHeightMetric.implementationId ===
+              "user32.get-system-metrics.v1" &&
+            fixedHeightMetric.arguments.join(",") === "8" &&
+            "action" in fixedHeightMetric.result &&
+            fixedHeightMetric.result.action === "set" &&
+            fixedHeightMetric.result.value === 3 &&
+            fixedHeightMetric.returnAddress === 0x1008_8590 &&
+            fixedHeightMetric.stackPointerBefore === 0x006f_f8a0 &&
+            fixedHeightMetric.stackPointerAfter === 0x006f_f8a8 &&
+            fixedHeightMetric.lastError === 0 &&
+            fixedHeightMetric.guestWrites.length === 0 &&
+            checkpoint.activeCallbackDepthAtStop === 0 &&
+            checkpoint.instructionCount === 321_463_282 &&
+            checkpoint.nextEndpoint.id === 183 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0b60 &&
+            checkpoint.nextEndpoint.disposition ===
+              "declared-runtime-export" &&
+            checkpoint.nextEndpoint.module?.toLowerCase() === "user32.dll" &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "IsIconic" &&
+            checkpoint.nextEndpoint.iatAddress === 0x100d_13b4 &&
+            checkpoint.nextArguments.join(",") === "1208025089,0" &&
+            checkpoint.nextReturnAddress === 0x1008_89c4 &&
+            checkpoint.nextStackPointer === 0x006f_f8d8 &&
+            checkpoint.memoryContentSha256 ===
+              "ac46e0896cc007c49ac9339a8b4747b894ea0dd99551c66faac13ac094e80820" &&
+            this.#report.instructions === 321_463_282 &&
+            Number(this.#generation) === 314_976 &&
+            this.#report.writebackBatches === 183_861 &&
+            this.#report.writebackPages === 282_523 &&
+            this.#report.mappingDeltas === 127_939 &&
+            this.#report.mappingDirtyPages === 150_344 &&
+            this.#report.slices === 183_868 &&
+            this.#report.budgetYields === 18_752 &&
+            execution.transitionCount === 588_695 &&
+            this.#report.contextSwitches === 2_512 &&
+            this.#bridge?.callCount() === 489_409 &&
+            this.#bgiCallbackCallSequences.size === 0 &&
+            this.#timeGetTimePostPointerReleaseContinuationEntry === null &&
+            !this.#timeGetTimePostPointerReleaseContinuationDispatching &&
+            this.#timeGetTimePostPointerReleaseRepeatCompletions.length === 4 &&
+            this.#getWindowRectPostPointerReleaseContinuationEntry === null &&
+            !this.#getWindowRectPostPointerReleaseContinuationDispatching &&
+            this.#getCursorPosPostPointerReleaseContinuationEntry === null &&
+            !this.#getCursorPosPostPointerReleaseContinuationDispatching &&
+            this.#getSystemMetricsPostPointerReleaseContinuationEntry ===
+              null &&
+            !this.#getSystemMetricsPostPointerReleaseContinuationDispatching &&
+            this.#getSystemMetricsCaptionPostPointerReleaseContinuationEntry ===
+              null &&
+            !this.#getSystemMetricsCaptionPostPointerReleaseContinuationDispatching &&
+            this
+                .#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry ===
+              null &&
+            !this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationDispatching,
+          `post-release GetSystemMetrics fixed-frame height continuation changed: ${JSON.stringify(
+            {
+              supportedCallCount: this.#report.supportedCallCount,
+              supportedCallSemanticsSha256:
+                this.#report.supportedCallSemanticsSha256,
+              checkpoint,
+              instructions: this.#report.instructions,
+              finalGeneration: Number(this.#generation),
+              writebackBatches: this.#report.writebackBatches,
+              writebackPages: this.#report.writebackPages,
+              mappingDeltas: this.#report.mappingDeltas,
+              mappingDirtyPages: this.#report.mappingDirtyPages,
+              slices: this.#report.slices,
+              budgetYields: this.#report.budgetYields,
+              contextSwitches: this.#report.contextSwitches,
+              transitionCount: execution.transitionCount,
+              wasmBridgeCalls: this.#bridge?.callCount(),
+            },
+          )}`,
+        );
+      }
+      if (
         isGetSystemMetricsCaptionPostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        !isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
           this.#configuration.capabilityProfile,
         ) &&
         terminal.outcome === "checkpoint-complete"

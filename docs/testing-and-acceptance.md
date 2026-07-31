@@ -1307,6 +1307,15 @@ depth zero、直前のfixed-frame readを含む継承evidence、ordered semantic
 multi-monitor authorityをimportせず、未到達metric variantはclaimしない。Exact instruction／artifact identityは
 `current-checkpoint.json`だけを正本とする。
 
+`user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation`は、続く
+`GetSystemMetrics(SM_CYFIXEDFRAME)`を同じRust handler、display authority、versioned User32 policy境界で
+完了し、fixed-frame height `3`を返す。Protocol v93／browser report schema 60のNode／Chromeは
+sequence／occurrence／instruction、stdcall stack、同一runtime thread、LastError preserve、zero guest write、
+empty queue、callback depth zero、直前のfixed-frame width／caption readを含む継承evidence、ordered semantic
+digest、terminal memoryを一致させ、次の`USER32.dll!IsIconic`で停止する。Host／browser nonclient metrics、
+theme、DPI、multi-monitor authorityをimportせず、未到達metric variantはclaimしない。Exact instruction／
+artifact identityは`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

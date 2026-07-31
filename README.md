@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `user32-get-system-metrics-post-pointer-release-continuation`: 161961 calls across 131 endpoint contracts / 129 APIs, memory generation 296336 |
+| Runtime diagnostics | `user32-get-system-metrics-caption-post-pointer-release-continuation`: 161962 calls across 131 endpoint contracts / 129 APIs, memory generation 296337 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `user32-get-system-metrics-caption-post-pointer-release-continuation` returned the reached policy-owned caption height at sequence 161961 / instruction 321463133; verification stopped at the next `USER32.dll!GetSystemMetrics` on instruction 321463139 (`user32-get-system-metrics-caption-post-pointer-release-continuation-checkpoint-complete`) |
+| Next structured stop | `user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation` returned the reached policy-owned fixed-frame height at sequence 161962 / instruction 321463139; verification stopped at the next `USER32.dll!IsIconic` on instruction 321463282 (`user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation-checkpoint-complete`) |
 
-The active semantic report is 3,046,699 bytes with SHA-256
-`b6fb518fe684da448d961b7cfc329189c5d5eb751a9afc6ef29d03459be44dc6`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 3,047,403 bytes with SHA-256
+`49883d456471aa7a53d14ba2699971e10ac5951f684f289b93cffa8bb93d7540`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

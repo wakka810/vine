@@ -143,7 +143,11 @@ function validatePointerReleaseCompletion(
     `${label}.releaseCallbackReturn`,
     errors,
   );
+  const postReleaseGetSystemMetricsFixedFrameHeight =
+    expected.capability ===
+    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation";
   const postReleaseGetSystemMetricsCaption =
+    postReleaseGetSystemMetricsFixedFrameHeight ||
     expected.capability ===
     "user32-get-system-metrics-caption-post-pointer-release-continuation";
   const postReleaseGetSystemMetrics =
@@ -170,7 +174,9 @@ function validatePointerReleaseCompletion(
     postReleaseTimeGetTime ||
     expected.capability ===
       "user32-peek-message-a-post-pointer-release-continuation";
-  const finalCallName = postReleaseGetSystemMetricsCaption
+  const finalCallName = postReleaseGetSystemMetricsFixedFrameHeight
+    ? "getSystemMetricsFixedFrameHeightPostRelease"
+    : postReleaseGetSystemMetricsCaption
     ? "getSystemMetricsCaptionPostRelease"
     : postReleaseGetSystemMetrics
     ? "getSystemMetricsPostRelease"
@@ -204,7 +210,13 @@ function validatePointerReleaseCompletion(
         errors,
       )
     : {};
-  const finalCall = postReleaseGetSystemMetricsCaption
+  const finalCall = postReleaseGetSystemMetricsFixedFrameHeight
+    ? requireRecord(
+        completion.getSystemMetricsFixedFrameHeightPostRelease,
+        `${label}.getSystemMetricsFixedFrameHeightPostRelease`,
+        errors,
+      )
+    : postReleaseGetSystemMetricsCaption
     ? requireRecord(
         completion.getSystemMetricsCaptionPostRelease,
         `${label}.getSystemMetricsCaptionPostRelease`,
@@ -745,6 +757,59 @@ function validatePointerReleaseCompletion(
         actual,
         expectedValue,
         `${label}.getSystemMetricsCaptionPostRelease.${field}`,
+        errors,
+      );
+    }
+  }
+  if (postReleaseGetSystemMetricsFixedFrameHeight) {
+    const getSystemMetricsFixedFrameHeight = requireRecord(
+      completion.getSystemMetricsFixedFrameHeightPostRelease,
+      `${label}.getSystemMetricsFixedFrameHeightPostRelease`,
+      errors,
+    );
+    const guestWrites = Array.isArray(
+      getSystemMetricsFixedFrameHeight.guestWrites,
+    )
+      ? getSystemMetricsFixedFrameHeight.guestWrites
+      : (errors.push(
+          `${label}.getSystemMetricsFixedFrameHeightPostRelease.guestWrites must be an array`,
+        ),
+        []);
+    for (const [field, actual, expectedValue] of [
+      ["sequence", getSystemMetricsFixedFrameHeight.sequence, 161_962],
+      ["runtimeThreadId", getSystemMetricsFixedFrameHeight.runtimeThreadId, 8_192],
+      ["module", getSystemMetricsFixedFrameHeight.module?.toLowerCase(), "user32.dll"],
+      ["symbol", getSystemMetricsFixedFrameHeight.symbol, "GetSystemMetrics"],
+      ["occurrence", getSystemMetricsFixedFrameHeight.occurrence, 68],
+      [
+        "trapInstructionCount",
+        getSystemMetricsFixedFrameHeight.trapInstructionCount,
+        321_463_139,
+      ],
+      [
+        "implementationId",
+        getSystemMetricsFixedFrameHeight.implementationId,
+        "user32.get-system-metrics.v1",
+      ],
+      ["arguments", getSystemMetricsFixedFrameHeight.arguments?.join(","), "8"],
+      ["result.action", getSystemMetricsFixedFrameHeight.result?.action, "set"],
+      ["result.value", getSystemMetricsFixedFrameHeight.result?.value, 3],
+      ["returnAddress", getSystemMetricsFixedFrameHeight.returnAddress, 268_993_936],
+      ["stackPointerBefore", getSystemMetricsFixedFrameHeight.stackPointerBefore, 7_338_144],
+      ["stackPointerAfter", getSystemMetricsFixedFrameHeight.stackPointerAfter, 7_338_152],
+      ["lastError", getSystemMetricsFixedFrameHeight.lastError, 0],
+      ["guestWrites.length", guestWrites.length, 0],
+      [
+        "activeCallbackDepthAtCompletion",
+        completion
+          .getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion,
+        0,
+      ],
+    ]) {
+      checkEqual(
+        actual,
+        expectedValue,
+        `${label}.getSystemMetricsFixedFrameHeightPostRelease.${field}`,
         errors,
       );
     }
