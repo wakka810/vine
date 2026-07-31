@@ -51,10 +51,10 @@ use vine_core::{
     RuntimeWritableProfile, RuntimeWritableProfileManifest, SEND_MESSAGE_A_IMPLEMENTATION,
     SET_THREAD_PRIORITY_IMPLEMENTATION, SET_TIMER_IMPLEMENTATION, SET_WINDOW_LONG_A_IMPLEMENTATION,
     SchedulerThreadState, TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION,
-    TIME_GET_TIME_IMPLEMENTATION, USER32_WM_IME_CONTROL, UnsupportedPoint,
-    User32CompatibilityPolicy, VIRTUAL_ALLOC_IMPLEMENTATION, WinmmCompatibilityPolicy,
-    bind_pe32_imports, bind_pe32_imports_with_unsupported_traps, build_pe32_load_plan,
-    complete_kernel32_source_read, complete_kernel32_waitable_timer_pacing,
+    TIME_GET_TIME_IMPLEMENTATION, TRANSLATE_MESSAGE_IMPLEMENTATION, USER32_WM_IME_CONTROL,
+    UnsupportedPoint, User32CompatibilityPolicy, VIRTUAL_ALLOC_IMPLEMENTATION,
+    WinmmCompatibilityPolicy, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
+    build_pe32_load_plan, complete_kernel32_source_read, complete_kernel32_waitable_timer_pacing,
     complete_kernel32_writable_commit, complete_kernel32_writable_directory_create,
     d3d9_contract_for_endpoint, dinput8_contract_for_endpoint, dispatch_d3d9_api,
     dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_dsound_api,
@@ -668,6 +668,32 @@ fn generic_runtime_successful_peek_message_output(
     }
     Ok(Some(u32::from_le_bytes(
         write.write.bytes[4..8]
+            .try_into()
+            .expect("validated x86 MSG message field width"),
+    )))
+}
+
+fn generic_runtime_translate_message_input(
+    completion: &ApiImmediateCompletion,
+    memory: &GuestMemory,
+) -> Result<Option<u32>, LoaderError> {
+    const X86_MSG_BYTE_LENGTH: usize = 28;
+
+    if completion.implementation_id != TRANSLATE_MESSAGE_IMPLEMENTATION {
+        return Ok(None);
+    }
+    let input_address = completion.frame.argument_u32(0).ok_or_else(|| {
+        LoaderError::runtime_defect(
+            "runtime-reentry",
+            "translate-message-input-argument-missing",
+            "TranslateMessage completion has no MSG input argument",
+        )
+    })?;
+    let bytes = memory
+        .read(GuestAddress(input_address), X86_MSG_BYTE_LENGTH)
+        .map_err(memory_error)?;
+    Ok(Some(u32::from_le_bytes(
+        bytes[4..8]
             .try_into()
             .expect("validated x86 MSG message field width"),
     )))
@@ -6072,28 +6098,37 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
-                        let queued_thread_messages = if def_window_proc_pointer_down_enabled
-                            && generic_runtime_successful_peek_message_output(&completion)?
-                                == Some(
-                                    user32_policy
-                                        .pointer_button_messages
-                                        .as_ref()
-                                        .ok_or_else(|| {
-                                            LoaderError::runtime_defect(
-                                                "runtime-reentry",
-                                                "pointer-button-message-policy-missing",
-                                                "DefWindowProcA continuation requires the User32 pointer-button message profile",
-                                            )
-                                        })?
-                                        .left_button_up_message,
+                        let queued_thread_messages = if def_window_proc_pointer_down_enabled {
+                            let release_message = user32_policy
+                                .pointer_button_messages
+                                .as_ref()
+                                .ok_or_else(|| {
+                                    LoaderError::runtime_defect(
+                                        "runtime-reentry",
+                                        "pointer-button-message-policy-missing",
+                                        "DefWindowProcA continuation requires the User32 pointer-button message profile",
+                                    )
+                                })?
+                                .left_button_up_message;
+                            let release_peek =
+                                generic_runtime_successful_peek_message_output(&completion)?
+                                    == Some(release_message);
+                            let release_translate = generic_runtime_translate_message_input(
+                                &completion,
+                                session.memory(),
+                            )? == Some(release_message);
+                            if release_peek || release_translate {
+                                Some(
+                                    session
+                                        .runtime()
+                                        .queued_thread_messages(
+                                            session.runtime().current_thread_id(),
+                                        )
+                                        .map_err(runtime_state_error)?,
                                 )
-                        {
-                            Some(
-                                session
-                                    .runtime()
-                                    .queued_thread_messages(session.runtime().current_thread_id())
-                                    .map_err(runtime_state_error)?,
-                            )
+                            } else {
+                                None
+                            }
                         } else {
                             None
                         };
@@ -14982,7 +15017,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                     GenericRuntimeCapability::User32SetFocusSameWindow
                 }
                 "user32-def-window-proc-a-action-continuation"
-                | "user32-peek-message-a-pointer-release-continuation" => {
+                | "user32-peek-message-a-pointer-release-continuation"
+                | "user32-translate-message-pointer-release-continuation" => {
                     GenericRuntimeCapability::User32DefWindowProcPointerDown
                 }
                 "kernel32-leave-critical-section" => {

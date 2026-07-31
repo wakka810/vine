@@ -1264,7 +1264,7 @@ browserOwnedWindowTimer.browserCheckpoint.bgiRuntimeEvidence.windowTimerBrowserT
 assert.ok(
   validateCurrentCheckpoint(browserOwnedWindowTimer).some((error) =>
     error.includes(
-      "queue authority evidence is invalid for the PeekMessageA pointer-release checkpoint",
+      "queue authority evidence is invalid for the TranslateMessage pointer-release checkpoint",
     ),
   ),
 );
@@ -1284,7 +1284,7 @@ detachedWindowTimerQueue.activeRuntimeCheckpoint.latestEvidence.windowTimerQueue
 assert.ok(
   validateCurrentCheckpoint(detachedWindowTimerQueue).some((error) =>
     error.includes(
-      "queue authority evidence is invalid for the PeekMessageA pointer-release checkpoint",
+      "queue authority evidence is invalid for the TranslateMessage pointer-release checkpoint",
     ),
   ),
 );
@@ -1295,7 +1295,7 @@ consumedTimerProcResult.activeRuntimeCheckpoint.latestEvidence.dispatchMessageAC
 assert.ok(
   validateCurrentCheckpoint(consumedTimerProcResult).some((error) =>
     error.includes(
-      "queue authority evidence is invalid for the PeekMessageA pointer-release checkpoint",
+      "queue authority evidence is invalid for the TranslateMessage pointer-release checkpoint",
     ),
   ),
 );
@@ -1306,7 +1306,7 @@ detachedSetFocusThread.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpoi
 assert.ok(
   validateCurrentCheckpoint(detachedSetFocusThread).some((error) =>
     error.includes(
-      "latest PeekMessageA pointer-release checkpoint evidence",
+      "latest TranslateMessage pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1317,7 +1317,7 @@ detachedBrowserSetFocusThread.browserCheckpoint.bgiRuntimeEvidence.checkpointCom
 assert.ok(
   validateCurrentCheckpoint(detachedBrowserSetFocusThread).some((error) =>
     error.includes(
-      "browser BGI PeekMessageA pointer-release checkpoint evidence",
+      "browser BGI TranslateMessage pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1328,7 +1328,7 @@ detachedTimeGetTimeThread.activeRuntimeCheckpoint.latestEvidence.capabilityCheck
 assert.ok(
   validateCurrentCheckpoint(detachedTimeGetTimeThread).some((error) =>
     error.includes(
-      "latest PeekMessageA pointer-release checkpoint evidence",
+      "latest TranslateMessage pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1339,7 +1339,7 @@ staleBrowserTimeGetTimeTick.browserCheckpoint.bgiRuntimeEvidence.checkpointCompl
 assert.ok(
   validateCurrentCheckpoint(staleBrowserTimeGetTimeTick).some((error) =>
     error.includes(
-      "browser BGI PeekMessageA pointer-release checkpoint evidence",
+      "browser BGI TranslateMessage pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1350,7 +1350,7 @@ detachedDefWindowProcAThread.activeRuntimeCheckpoint.latestEvidence.capabilityCh
 assert.ok(
   validateCurrentCheckpoint(detachedDefWindowProcAThread).some((error) =>
     error.includes(
-      "latest PeekMessageA pointer-release checkpoint evidence",
+      "latest TranslateMessage pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1361,7 +1361,7 @@ mutatedBrowserDefWindowProcAResult.browserCheckpoint.bgiRuntimeEvidence.checkpoi
 assert.ok(
   validateCurrentCheckpoint(mutatedBrowserDefWindowProcAResult).some((error) =>
     error.includes(
-      "browser BGI PeekMessageA pointer-release checkpoint evidence",
+      "browser BGI TranslateMessage pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1372,7 +1372,7 @@ retainedPointerRelease.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpoi
 assert.ok(
   validateCurrentCheckpoint(retainedPointerRelease).some((error) =>
     error.includes(
-      "latest PeekMessageA pointer-release checkpoint evidence",
+      "latest TranslateMessage pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1383,7 +1383,7 @@ staleBrowserReleaseQueueDepth.browserCheckpoint.bgiRuntimeEvidence.checkpointCom
 assert.ok(
   validateCurrentCheckpoint(staleBrowserReleaseQueueDepth).some((error) =>
     error.includes(
-      "browser BGI PeekMessageA pointer-release checkpoint evidence",
+      "browser BGI TranslateMessage pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1394,7 +1394,7 @@ stalePointerPeekTimerMetadata.browserCheckpoint.bgiRuntimeEvidence.checkpointCom
 assert.ok(
   validateCurrentCheckpoint(stalePointerPeekTimerMetadata).some((error) =>
     error.includes(
-      "browser BGI PeekMessageA pointer-release checkpoint evidence",
+      "browser BGI TranslateMessage pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1405,7 +1405,96 @@ mutatedReleaseMessageBytes.activeRuntimeCheckpoint.latestEvidence.capabilityChec
 assert.ok(
   validateCurrentCheckpoint(mutatedReleaseMessageBytes).some((error) =>
     error.includes(
-      "latest PeekMessageA pointer-release checkpoint evidence",
+      "latest TranslateMessage pointer-release checkpoint evidence",
+    ),
+  ),
+);
+
+const mutatedInheritedPointerInput = structuredClone(manifest);
+mutatedInheritedPointerInput.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.inputEvents[0].event.normalizedX =
+  32_767;
+assert.ok(
+  validateCurrentCheckpoint(mutatedInheritedPointerInput).some((error) =>
+    error.includes(
+      "latest TranslateMessage pointer-release checkpoint evidence",
+    ),
+  ),
+);
+
+const mutatedInheritedDispatchEntry = structuredClone(manifest);
+mutatedInheritedDispatchEntry.browserCheckpoint.bgiRuntimeEvidence.checkpointCompletion.dispatchEntry.pendingCallback =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(mutatedInheritedDispatchEntry).some((error) =>
+    error.includes(
+      "browser BGI TranslateMessage pointer-release checkpoint evidence",
+    ),
+  ),
+);
+
+const mutatedInheritedCallbackEntry = structuredClone(manifest);
+mutatedInheritedCallbackEntry.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.callbackEntry.arguments[1] =
+  514;
+assert.ok(
+  validateCurrentCheckpoint(mutatedInheritedCallbackEntry).some((error) =>
+    error.includes(
+      "latest TranslateMessage pointer-release checkpoint evidence",
+    ),
+  ),
+);
+
+const mutatedTranslateMessageResult = structuredClone(manifest);
+mutatedTranslateMessageResult.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.translateMessageRelease.result.value =
+  1;
+assert.ok(
+  validateCurrentCheckpoint(mutatedTranslateMessageResult).some((error) =>
+    error.includes(
+      "latest TranslateMessage pointer-release checkpoint evidence",
+    ),
+  ),
+);
+
+const injectedTranslateTimerMetadata = structuredClone(manifest);
+injectedTranslateTimerMetadata.browserCheckpoint.bgiRuntimeEvidence.checkpointCompletion.translateMessageRelease.windowTimer =
+  { deliveryCount: 1 };
+assert.ok(
+  validateCurrentCheckpoint(injectedTranslateTimerMetadata).some((error) =>
+    error.includes(
+      "browser BGI TranslateMessage pointer-release checkpoint evidence",
+    ),
+  ),
+);
+
+const injectedTranslateGuestWrite = structuredClone(manifest);
+injectedTranslateGuestWrite.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.translateMessageRelease.guestWrites.push(
+  { address: 7_338_216, bytes: [0] },
+);
+assert.ok(
+  validateCurrentCheckpoint(injectedTranslateGuestWrite).some((error) =>
+    error.includes(
+      "latest TranslateMessage pointer-release checkpoint evidence",
+    ),
+  ),
+);
+
+const staleTranslateQueueDepth = structuredClone(manifest);
+staleTranslateQueueDepth.browserCheckpoint.bgiRuntimeEvidence.checkpointCompletion.queueDepthAtTranslateCompletion =
+  1;
+assert.ok(
+  validateCurrentCheckpoint(staleTranslateQueueDepth).some((error) =>
+    error.includes(
+      "browser BGI TranslateMessage pointer-release checkpoint evidence",
+    ),
+  ),
+);
+
+const unpreservedTranslateMessageBytes = structuredClone(manifest);
+unpreservedTranslateMessageBytes.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.translateMessageReleaseBytesPreserved =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(unpreservedTranslateMessageBytes).some((error) =>
+    error.includes(
+      "latest TranslateMessage pointer-release checkpoint evidence",
     ),
   ),
 );
@@ -1424,7 +1513,7 @@ stalePointerReleaseStop.nextStructuredStop.nextEndpoint.endpointId = 233;
 assert.ok(
   validateCurrentCheckpoint(stalePointerReleaseStop).some((error) =>
     error.includes(
-      "PeekMessageA pointer-release continuation checkpoint stop is invalid",
+      "TranslateMessage pointer-release continuation checkpoint stop is invalid",
     ),
   ),
 );

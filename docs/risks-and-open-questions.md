@@ -115,7 +115,9 @@ foreground windowに対するidempotent return、LastError／window／guest-memo
 relationを再検証するLRESULT 0／LastError preserve／zero-mutation leafとして閉じた。残るriskはfocus
 transition message、cross-thread focusである。続くcallback retire後の`PeekMessageA(PM_REMOVE)`はqueued
 `WM_LBUTTONUP`をexact `MSG32` writeとjoint commitしてqueueを空にするため、release retrieval riskも閉じた。
-残るriskはrelease translation／dispatch、capture transition／move／wheel／double-click／
+直後の`TranslateMessage`もそのrelease `MSG32` relationをvalidation-onlyで確認して
+`FALSE`／LastError preserve／zero-mutationを固定した。残るriskはrelease dispatch、
+capture transition／move／wheel／double-click／
 nonclient default processing、replacement／`KillTimer` race、background freeze／resumeとcatch-upを
 scheduler、message queue、page lifecycleで順序付けることである。
 

@@ -120,6 +120,16 @@ Successful Peek completion metadata is classified from the Rust-produced
 `WM_LBUTTONUP` carries the authoritative post-commit `queuedThreadMessages`
 snapshot used to prove that the release queue is empty.
 
+Protocol version 83's
+`user32-translate-message-pointer-release-continuation` completes the
+immediately following `TranslateMessage` against that published
+`WM_LBUTTONUP`. Rust reads and validates the 28-byte `MSG32` against the
+logical window and pointer-message profile, returns `FALSE`, preserves
+LastError, and changes neither guest memory nor the already empty queue. The
+Worker records the exact validation-only completion and next
+`DispatchMessageA` stop; it does not synthesize text, retain a second message
+copy, or acquire Windows queue authority.
+
 After a guest API completion, Rust may return a `thread-switch` selected by the
 authoritative scheduler. The Worker saves the outgoing opaque engine context and
 restores the context associated with the selected runtime TID; it does not choose

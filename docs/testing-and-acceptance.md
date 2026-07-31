@@ -1195,8 +1195,20 @@ dispatcher testはrelease取得後のqueue empty、exact MSG bytes、LastError p
 relation、semantic digest、terminal memory、および次のowned `TranslateMessage`
 endpointを一致させる。Exact値とartifact identityは`current-checkpoint.json`だけを
 正本とする。これは到達済みcurrent-thread unfiltered `PM_REMOVE` releaseだけであり、
-filtering／`PM_NOREMOVE`／`WM_QUIT`、release translation／dispatch、capture、
+filtering／`PM_NOREMOVE`／`WM_QUIT`、release dispatch、capture、
 visible response、general message loopをclaimしない。
+
+`user32-translate-message-pointer-release-continuation`は、そのrelease
+Peek completion直後、callback depth 0かつRust queue emptyの
+`TranslateMessage(0x006ff8e8)`だけをarmする。既存User32 v34 handlerはguest
+`MSG32`を読み、logical window／pointer profile relationを検証して`FALSE`を返し、
+LastError、guest bytes、queue、callback stateを変更しない。Focused dispatcher
+testはrelease MSG bytesと全RuntimeStateの不変を固定する。Node／Chromeは
+sequence 161,950、occurrence 4、zero write、semantic digest、terminal memory、
+および次のowned `DispatchMessageA` endpointを一致させる。Exact値とartifact
+identityは`current-checkpoint.json`だけを正本とする。これは到達した
+`WM_LBUTTONUP`のvalidation-only translationであり、text message生成、release
+dispatch、一般的なkeyboard／pointer translation、visible responseをclaimしない。
 
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを

@@ -1948,6 +1948,7 @@ impl BrowserRuntime {
                         if let Some(queued_thread_messages) = bgi_pointer_release_queue_metadata(
                             &completion,
                             &self.runtime,
+                            &self.memory,
                             user32_policy,
                         )? {
                             metadata["queuedThreadMessages"] = json!(queued_thread_messages);
@@ -3791,12 +3792,37 @@ fn bgi_window_timer_completion_metadata(
 fn bgi_pointer_release_queue_metadata(
     completion: &ApiImmediateCompletion,
     runtime: &RuntimeState,
+    memory: &GuestMemory,
     policy: &User32CompatibilityPolicy,
 ) -> Result<Option<Vec<vine_core::RuntimeThreadMessage>>, String> {
-    let Some(completed_message) = bgi_completed_peek_message_id(completion)? else {
+    let Some(pointer_profile) = policy.pointer_button_messages.as_ref() else {
         return Ok(None);
     };
-    let Some(pointer_profile) = policy.pointer_button_messages.as_ref() else {
+    let completed_message = if completion.implementation_id
+        == vine_core::TRANSLATE_MESSAGE_IMPLEMENTATION
+    {
+        if completion.eax != RegisterUpdate::Set(0) {
+            return Err("TranslateMessage completion did not return FALSE".to_owned());
+        }
+        if !completion.guest_writes.is_empty() {
+            return Err("TranslateMessage completion unexpectedly wrote guest memory".to_owned());
+        }
+        let message_address = completion
+            .frame
+            .argument_u32(0)
+            .ok_or_else(|| "TranslateMessage completion has no MSG input argument".to_owned())?;
+        let bytes = memory
+            .read(GuestAddress(message_address), 28)
+            .map_err(error_string)?;
+        Some(u32::from_le_bytes(
+            bytes[4..8]
+                .try_into()
+                .expect("validated TranslateMessage MSG field width"),
+        ))
+    } else {
+        bgi_completed_peek_message_id(completion)?
+    };
+    let Some(completed_message) = completed_message else {
         return Ok(None);
     };
     if completed_message != pointer_profile.left_button_up_message {

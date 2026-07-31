@@ -149,6 +149,12 @@ preflightまたはstale queue planが失敗した場合はguest bytesとqueueの
 callback depthも0である。TypeScriptはmessage生成、dequeue、timestamp、point、
 HWND、またはqueue lifetimeを所有しない。
 
+直後の`TranslateMessage`は同じguest `MSG32`をimmutableに読み、logical
+windowとpointer-message profileに対する`WM_LBUTTONUP` relationを再検証して
+`FALSE`を返す。LastError、guest bytes、Rust queue、callback stateは変更せず、
+release queueは空のままである。このleafはkeyboard text message生成や一般的な
+translationを追加せず、TypeScriptにもmessage copyやWindows stateを作らない。
+
 ## Lifecycle cleanup
 
 Thread exit requestはowned queued messagesをcallback／host request／wait registration／scheduler eventと
@@ -181,8 +187,8 @@ This checkpoint does not implement window／queue creation rules, filtered or cr
 WM_QUIT special return, generated paint, general `DispatchMessage`, cross-process post, broadcast, or quota
 parity. Window-timer delivery remains limited to the reached live-HWND／ID 1／20 ms／TIMERPROC profile. Pointer
 production is limited to normalized primary／secondary button messages for the visible active focused foreground
-window; the reached case fixes down dispatch, bounded client-down default processing, and retrieval of the queued
-matching release. Release translation／dispatch, pointer move／wheel, capture transition, double-click, nonclient translation, replacement race,
+window; the reached case fixes down dispatch, bounded client-down default processing, retrieval of the queued
+matching release, and validation-only release translation. Release dispatch, pointer move／wheel, capture transition, double-click, nonclient translation, replacement race,
 `KillTimer`, NULL-HWND allocated IDs, visible action response, and background freeze／resume remain unproven.
 Existing W2 message／paint flow remains a separate fixed JavaScript harness.
 This is partial evidence for `P1-SCH-01`／`REQ-UI-02`, not their completion.

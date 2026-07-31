@@ -5433,6 +5433,28 @@ fn pointer_button_ingress_commits_input_queue_and_window_proc_dispatch_atomicall
             .unwrap()
             .is_empty()
     );
+    fixture.configure_translate_message(PEEK_MESSAGE_A_OUTPUT_ADDRESS);
+    let runtime_before_release_translate = fixture.runtime.clone();
+    let message_before_release_translate = fixture
+        .memory
+        .read(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 28)
+        .unwrap()
+        .to_vec();
+    let release_translated = match fixture.dispatch_translate_message() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected pointer-release TranslateMessage completion, got {other:?}"),
+    };
+    assert_eq!(release_translated.eax, RegisterUpdate::Set(0));
+    assert_eq!(release_translated.last_error, sentinel);
+    assert!(release_translated.guest_writes.is_empty());
+    assert_eq!(fixture.runtime, runtime_before_release_translate);
+    assert_eq!(
+        fixture
+            .memory
+            .read(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 28)
+            .unwrap(),
+        message_before_release_translate
+    );
 
     for message in 0..4_096 {
         fixture
