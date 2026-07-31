@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 89 as const;
+export const protocolVersion = 90 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -77,6 +77,7 @@ export type BgiCapabilityProfile =
   | "winmm-time-get-time-post-pointer-release-continuation"
   | "winmm-time-get-time-post-pointer-release-repeat-batch"
   | "user32-get-window-rect-post-pointer-release-continuation"
+  | "user32-get-cursor-pos-post-pointer-release-continuation"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
@@ -3120,6 +3121,22 @@ export interface SessionReport {
             timeGetTimePostReleaseCompletions: RuntimeThreadCallSnapshot[];
             getWindowRectPostReleaseActiveCallbackDepthAtCompletion: 0;
             getWindowRectPostRelease: RuntimeThreadCallSnapshot;
+          }
+        | {
+            capability:
+              "user32-get-cursor-pos-post-pointer-release-continuation";
+            implementationId:
+              "runtime.user32-get-cursor-pos-post-pointer-release-continuation.v1";
+            requiredCompletions: 1;
+            completionCount: 1;
+            timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0;
+            timeGetTimePostRelease: RuntimeThreadCallSnapshot;
+            maximumRepeatCompletions: 16;
+            timeGetTimePostReleaseCompletions: RuntimeThreadCallSnapshot[];
+            getWindowRectPostReleaseActiveCallbackDepthAtCompletion: 0;
+            getWindowRectPostRelease: RuntimeThreadCallSnapshot;
+            getCursorPosPostReleaseActiveCallbackDepthAtCompletion: 0;
+            getCursorPosPostRelease: RuntimeThreadCallSnapshot;
           }
       ))
     | {

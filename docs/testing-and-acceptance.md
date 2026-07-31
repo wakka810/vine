@@ -1278,6 +1278,16 @@ stack、同一runtime thread、RECT bytes、LastError preserve、empty queue、c
 importせず、未到達のmulti-window placementやhost display追従はclaimしない。Exact instruction／
 artifact identityは`current-checkpoint.json`だけを正本とする。
 
+`user32-get-cursor-pos-post-pointer-release-continuation`は、続く`GetCursorPos(POINT*)`を既存の
+`user32.get-cursor-pos.v1`で完了する。Rustはauthoritative logical cursor positionと8-byte output spanを
+preflightし、screen POINT `[960,540]`を一回のguest writeでpublishして`TRUE`を返す。Protocol v90／
+browser report schema 57のNode／Chromeはsequence／occurrence／instruction、stdcall stack、同一runtime
+thread、POINT bytes、LastError preserve、empty queue、callback depth zero、継承したRECTと4 clock sample、
+ordered semantic digest、terminal memoryを一致させ、次の`USER32.dll!GetSystemMetrics(7)`で停止する。
+Browser pointer、DOM window geometry、HWND lifetimeはauthorityへimportせず、host cursor追従、multi-monitor
+cursor mapping、未到達metric variantはclaimしない。Exact instruction／artifact identityは
+`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

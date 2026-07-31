@@ -208,7 +208,11 @@ export function validateCurrentCheckpoint(manifest) {
   const timeGetTimeActionContinuationActive =
     root.activeRuntimeCheckpoint?.profile ===
     "winmm-time-get-time-action-continuation";
+  const getCursorPosPostPointerReleaseContinuationCheckpointActive =
+    root.activeRuntimeCheckpoint?.profile ===
+    "user32-get-cursor-pos-post-pointer-release-continuation";
   const getWindowRectPostPointerReleaseContinuationCheckpointActive =
+    getCursorPosPostPointerReleaseContinuationCheckpointActive ||
     root.activeRuntimeCheckpoint?.profile ===
     "user32-get-window-rect-post-pointer-release-continuation";
   const timeGetTimePostPointerReleaseRepeatBatchCheckpointActive =
@@ -1218,7 +1222,27 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    getWindowRectPostPointerReleaseContinuationCheckpointActive
+    getCursorPosPostPointerReleaseContinuationCheckpointActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_939,
+        browserMappingDirtyPages: 150_344,
+        browserSuccessExecutionTransitions: 588_686,
+        browserFinalGeneration: 314_973,
+        browserReportSchemaVersion: 57,
+        latestSchema:
+          "vine.v86-bgi-user32-get-cursor-pos-post-pointer-release-continuation",
+        latestWritebackBatches: 165_113,
+        latestWritebackDirtyPages: 244_479,
+        latestWritebackChangedBytes: 43_070_692,
+        latestHostDeltaBatches: 127_939,
+        latestFinalMemoryGeneration: 296_334,
+        semanticCallDigestSha256:
+          "5f716c0c3da232b672e4b67e6037240a9549e9e1469ed51df579559368220c4d",
+        memoryContentSha256:
+          "499462e38e04df0dfb6c404a7a46ab1123786b3191c3e4725d58139d452d9dc3",
+      }
+    : getWindowRectPostPointerReleaseContinuationCheckpointActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_938,
@@ -3012,7 +3036,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    getWindowRectPostPointerReleaseContinuationCheckpointActive
+    getCursorPosPostPointerReleaseContinuationCheckpointActive
+      ? "vine.browser-runtime-worker.v90"
+      : getWindowRectPostPointerReleaseContinuationCheckpointActive
       ? "vine.browser-runtime-worker.v89"
       : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
       ? "vine.browser-runtime-worker.v88"
@@ -3827,7 +3853,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (getWindowRectPostPointerReleaseContinuationCheckpointActive
+      (getCursorPosPostPointerReleaseContinuationCheckpointActive
+        ? 57
+        : getWindowRectPostPointerReleaseContinuationCheckpointActive
         ? 56
         : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
         ? 55
@@ -20961,7 +20989,9 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureBefore !== null ||
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureAfter !== null)) ||
     latestEvidence.implementation !==
-      (getWindowRectPostPointerReleaseContinuationCheckpointActive
+      (getCursorPosPostPointerReleaseContinuationCheckpointActive
+        ? "Rust-owned user32.get-cursor-pos.v1 reads the authoritative logical screen POINT, atomically publishes eight bytes to guest memory, returns TRUE while preserving LastError and callback depth zero, and imports no browser pointer, window geometry, or lifetime authority"
+        : getWindowRectPostPointerReleaseContinuationCheckpointActive
         ? "Rust-owned user32.get-window-rect.v1 validates the reached live logical window and atomically publishes its authoritative outer RECT to guest memory, returns TRUE while preserving LastError and callback depth zero, and imports no browser window geometry or lifetime authority"
         : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
         ? "Rust-owned winmm.time-get-time.v1 reuses RuntimeProcessState process-clock authority for four contiguous post-pointer-release reads across the main-loop convergence path, returns and advances the shared DWORD tick once per read, and preserves the empty queue, callback depth zero, LastError, and guest memory without browser clock or WinMM state authority"
@@ -25549,7 +25579,9 @@ export function validateCurrentCheckpoint(manifest) {
   }
   if (translateMessagePointerReleaseContinuationActive) {
     const expectedCapability =
-      getWindowRectPostPointerReleaseContinuationCheckpointActive
+      getCursorPosPostPointerReleaseContinuationCheckpointActive
+        ? "user32-get-cursor-pos-post-pointer-release-continuation"
+        : getWindowRectPostPointerReleaseContinuationCheckpointActive
         ? "user32-get-window-rect-post-pointer-release-continuation"
         : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
         ? "winmm-time-get-time-post-pointer-release-repeat-batch"
@@ -25563,7 +25595,9 @@ export function validateCurrentCheckpoint(manifest) {
         ? "user32-dispatch-message-a-pointer-release-continuation"
         : "user32-translate-message-pointer-release-continuation";
     const expectedImplementation =
-      getWindowRectPostPointerReleaseContinuationCheckpointActive
+      getCursorPosPostPointerReleaseContinuationCheckpointActive
+        ? "runtime.user32-get-cursor-pos-post-pointer-release-continuation.v1"
+        : getWindowRectPostPointerReleaseContinuationCheckpointActive
         ? "runtime.user32-get-window-rect-post-pointer-release-continuation.v1"
         : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
         ? "runtime.winmm-time-get-time-post-pointer-release-repeat-batch.v1"
@@ -25577,7 +25611,9 @@ export function validateCurrentCheckpoint(manifest) {
         ? "runtime.user32-dispatch-message-a-pointer-release-continuation.v1"
         : "runtime.user32-translate-message-pointer-release-continuation.v1";
     const evidenceCapabilityLabel =
-      getWindowRectPostPointerReleaseContinuationCheckpointActive
+      getCursorPosPostPointerReleaseContinuationCheckpointActive
+        ? "post-release GetCursorPos"
+        : getWindowRectPostPointerReleaseContinuationCheckpointActive
         ? "post-release GetWindowRect"
         : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
         ? "post-release timeGetTime repeat batch"
@@ -25623,6 +25659,10 @@ export function validateCurrentCheckpoint(manifest) {
         completion.getWindowRectPostRelease ?? {};
       const getWindowRectWrite =
         getWindowRectPostRelease.guestWrites?.[0] ?? {};
+      const getCursorPosPostRelease =
+        completion.getCursorPosPostRelease ?? {};
+      const getCursorPosWrite =
+        getCursorPosPostRelease.guestWrites?.[0] ?? {};
       const nextEndpoint = completion.nextEndpoint ?? {};
       const dispatchMessageReleaseInvalid =
         (peekMessageAPostPointerReleaseContinuationCheckpointActive ||
@@ -25669,7 +25709,9 @@ export function validateCurrentCheckpoint(manifest) {
         (peekMessageAPostPointerReleaseContinuationCheckpointActive ||
           defWindowProcAPointerReleaseContinuationCheckpointActive) &&
         (completion.lastCompletionSequence !==
-          (getWindowRectPostPointerReleaseContinuationCheckpointActive
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? 161_959
+            : getWindowRectPostPointerReleaseContinuationCheckpointActive
             ? 161_958
             : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
             ? 161_957
@@ -25679,7 +25721,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 161_953
             : 161_952) ||
           completion.lastCompletionInstructionCount !==
-            (getWindowRectPostPointerReleaseContinuationCheckpointActive
+            (getCursorPosPostPointerReleaseContinuationCheckpointActive
+              ? 321_463_119
+              : getWindowRectPostPointerReleaseContinuationCheckpointActive
               ? 321_463_115
               : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
               ? 321_463_010
@@ -25736,6 +25780,28 @@ export function validateCurrentCheckpoint(manifest) {
           getWindowRectWrite.address !== 7_338_172 ||
           getWindowRectWrite.bytes?.join(",") !==
             "61,1,0,0,154,0,0,0,67,6,0,0,135,3,0,0");
+      const getCursorPosPostReleaseInvalid =
+        getCursorPosPostPointerReleaseContinuationCheckpointActive &&
+        (completion.getCursorPosPostReleaseActiveCallbackDepthAtCompletion !==
+          0 ||
+          getCursorPosPostRelease.sequence !== 161_959 ||
+          getCursorPosPostRelease.trapInstructionCount !== 321_463_119 ||
+          getCursorPosPostRelease.runtimeThreadId !== 8_192 ||
+          getCursorPosPostRelease.occurrence !== 17 ||
+          getCursorPosPostRelease.module?.toLowerCase() !== "user32.dll" ||
+          getCursorPosPostRelease.symbol !== "GetCursorPos" ||
+          getCursorPosPostRelease.implementationId !==
+            "user32.get-cursor-pos.v1" ||
+          getCursorPosPostRelease.arguments?.join(",") !== "7338164" ||
+          getCursorPosPostRelease.result?.action !== "set" ||
+          getCursorPosPostRelease.result?.value !== 1 ||
+          getCursorPosPostRelease.returnAddress !== 268_993_891 ||
+          getCursorPosPostRelease.stackPointerBefore !== 7_338_144 ||
+          getCursorPosPostRelease.stackPointerAfter !== 7_338_152 ||
+          getCursorPosPostRelease.lastError !== 0 ||
+          getCursorPosPostRelease.guestWrites?.length !== 1 ||
+          getCursorPosWrite.address !== 7_338_164 ||
+          getCursorPosWrite.bytes?.join(",") !== "192,3,0,0,28,2,0,0");
       if (
         completion.capability !== expectedCapability ||
         completion.implementationId !== expectedImplementation ||
@@ -25961,7 +26027,9 @@ export function validateCurrentCheckpoint(manifest) {
         releaseWrite.address !== 7_338_216 ||
         releaseWrite.bytes?.join(",") !== expectedMessageBytes ||
         completion.lastCompletionSequence !==
-          (getWindowRectPostPointerReleaseContinuationCheckpointActive
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? 161_959
+            : getWindowRectPostPointerReleaseContinuationCheckpointActive
             ? 161_958
             : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
             ? 161_957
@@ -25973,7 +26041,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 161_952
             : 161_950) ||
         completion.lastCompletionInstructionCount !==
-          (getWindowRectPostPointerReleaseContinuationCheckpointActive
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? 321_463_119
+            : getWindowRectPostPointerReleaseContinuationCheckpointActive
             ? 321_463_115
             : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
             ? 321_463_010
@@ -26004,8 +26074,11 @@ export function validateCurrentCheckpoint(manifest) {
         dispatchMessageReleaseInvalid ||
         defWindowProcAReleaseInvalid ||
         getWindowRectPostReleaseInvalid ||
+        getCursorPosPostReleaseInvalid ||
         completion.instructionCount !==
-          (getWindowRectPostPointerReleaseContinuationCheckpointActive
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? 321_463_128
+            : getWindowRectPostPointerReleaseContinuationCheckpointActive
             ? 321_463_119
             : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
             ? 321_463_115
@@ -26019,7 +26092,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 321_462_499
             : 321_462_435) ||
         nextEndpoint.id !==
-          (getWindowRectPostPointerReleaseContinuationCheckpointActive
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? 203
+            : getWindowRectPostPointerReleaseContinuationCheckpointActive
             ? 190
             : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
             ? 228
@@ -26031,7 +26106,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 233
             : 182) ||
         nextEndpoint.address !==
-          (getWindowRectPostPointerReleaseContinuationCheckpointActive
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? 2_130_709_664
+            : getWindowRectPostPointerReleaseContinuationCheckpointActive
             ? 2_130_709_456
             : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
             ? 2_130_710_064
@@ -26052,7 +26129,9 @@ export function validateCurrentCheckpoint(manifest) {
             : "user32.dll") ||
         nextEndpoint.symbol?.kind !== "name" ||
         nextEndpoint.symbol?.name !==
-          (getWindowRectPostPointerReleaseContinuationCheckpointActive
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? "GetSystemMetrics"
+            : getWindowRectPostPointerReleaseContinuationCheckpointActive
             ? "GetCursorPos"
             : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
             ? "GetWindowRect"
@@ -26065,7 +26144,9 @@ export function validateCurrentCheckpoint(manifest) {
             : "DispatchMessageA") ||
         nextEndpoint.disposition !== "declared-runtime-export" ||
         nextEndpoint.iatAddress !==
-          (getWindowRectPostPointerReleaseContinuationCheckpointActive
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? 269_292_548
+            : getWindowRectPostPointerReleaseContinuationCheckpointActive
             ? 269_292_496
             : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
             ? 269_292_648
@@ -26077,7 +26158,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 269_292_668
             : 269_292_464) ||
         completion.nextArguments?.join(",") !==
-          (getWindowRectPostPointerReleaseContinuationCheckpointActive
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? "7,0"
+            : getWindowRectPostPointerReleaseContinuationCheckpointActive
             ? "7338164,0"
             : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
             ? "1208025089,7338172"
@@ -26089,7 +26172,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? "1208025089,514,0,23593600"
             : "7338216") ||
         completion.nextReturnAddress !==
-          (getWindowRectPostPointerReleaseContinuationCheckpointActive
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? 268_993_910
+            : getWindowRectPostPointerReleaseContinuationCheckpointActive
             ? 268_993_891
             : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
             ? 268_993_880
@@ -26101,7 +26186,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 269_038_527
             : 269_039_532) ||
         completion.nextStackPointer !==
-          (getWindowRectPostPointerReleaseContinuationCheckpointActive
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? 7_338_144
+            : getWindowRectPostPointerReleaseContinuationCheckpointActive
             ? 7_338_144
             : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
             ? 7_338_140
@@ -26115,7 +26202,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 7_337_228
             : 7_338_196) ||
         completion.memoryContentSha256 !==
-          (getWindowRectPostPointerReleaseContinuationCheckpointActive
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? "499462e38e04df0dfb6c404a7a46ab1123786b3191c3e4725d58139d452d9dc3"
+            : getWindowRectPostPointerReleaseContinuationCheckpointActive
             ? "75cab525352438b4b85f2def0a5e834d3ce48650ba61d290c65194cc0124ea5b"
             : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
             ? "a9d1a45f4b8d5ba37bc1d0477f15f642eaf5ec9352b97b11b5d1c40667c8b1b0"
@@ -26164,7 +26253,46 @@ export function validateCurrentCheckpoint(manifest) {
     const expectedCompletion = currentStop.completion ?? {};
     const expectedEndpoint = currentStop.nextEndpoint ?? {};
     const releaseCheckpointExpectation =
-      getWindowRectPostPointerReleaseContinuationCheckpointActive
+      getCursorPosPostPointerReleaseContinuationCheckpointActive
+        ? {
+            nextCheckpoint:
+              "user32-get-system-metrics-post-pointer-release-continuation",
+            instructionCount: 321_463_128,
+            capabilityCluster:
+              "user32-post-pointer-release-window-geometry-continuation",
+            reason:
+              "user32-get-cursor-pos-post-pointer-release-continuation-checkpoint-complete",
+            endpointId: 203,
+            endpointApi: "user32.dll!getsystemmetrics",
+            endpointModule: "user32.dll",
+            endpointAddress: "0x7f000ca0",
+            iatAddress: "0x100d1404",
+            observedSymbol: "GetSystemMetrics",
+            arguments: "0x00000007,0x00000000",
+            returnAddress: "0x10088576",
+            stackPointer: "0x006ff8a0",
+            nodeReportBytes: 3_045_371,
+            nodeReportSha256:
+              "cf1e640f903d3a6baed1850df5f97cde8dd31c640130fc514742eca360fa22f9",
+            browserReportBytes: 2_749_116,
+            browserReportSha256:
+              "4cb52ee9541512b8e17ab019f403430a1dd002452b05de6f645f044a0876adfa",
+            browserReportSchemaVersion: 57,
+            browserRuntimeProtocol: "vine.browser-runtime-worker.v90",
+            runtimeWorkerBytes: 876_697,
+            runtimeWorkerSha256:
+              "0d7b7917f547a44d602d6f414a4c6fb284745d6ffb7f76d79b6c295ba319a20a",
+            runtimeCoreWasmBytes: 5_203_550,
+            runtimeCoreWasmSha256:
+              "c80211c37e0837ab521689c39fbf10388e4950c6b8cd4403a72c6fdd5436b400",
+            cpuSlices: 183_865,
+            writebackBatches: 183_858,
+            writebackPages: 282_520,
+            hostDeltaBatches: 127_939,
+            wasmBridgeCalls: 489_403,
+            statusMessagesObserved: 24_347,
+          }
+        : getWindowRectPostPointerReleaseContinuationCheckpointActive
         ? {
             nextCheckpoint:
               "user32-get-cursor-pos-post-pointer-release-continuation",
@@ -26434,7 +26562,17 @@ export function validateCurrentCheckpoint(manifest) {
               statusMessagesObserved: 24_345,
             };
     const expectedCompletionBoundaryInvalid =
-      getWindowRectPostPointerReleaseContinuationCheckpointActive
+      getCursorPosPostPointerReleaseContinuationCheckpointActive
+        ? expectedCompletion.requiredCompletions !== 1 ||
+          expectedCompletion.completionCount !== 1 ||
+          expectedCompletion.lastCompletionSequence !== 161_959 ||
+          expectedCompletion.lastCompletionInstructionCount !== 321_463_119 ||
+          expectedCompletion.maximumRepeatCompletions !== 16 ||
+          expectedCompletion.requiredEntries !== 1 ||
+          expectedCompletion.entryCount !== 1 ||
+          expectedCompletion.lastEntrySequence !== 161_951 ||
+          expectedCompletion.lastEntryInstructionCount !== 321_462_435
+        : getWindowRectPostPointerReleaseContinuationCheckpointActive
         ? expectedCompletion.requiredCompletions !== 1 ||
           expectedCompletion.completionCount !== 1 ||
           expectedCompletion.lastCompletionSequence !== 161_958 ||
@@ -26633,19 +26771,27 @@ export function validateCurrentCheckpoint(manifest) {
         const calls = completion.timeGetTimePostReleaseCompletions ?? [];
         if (
           completion.requiredCompletions !==
-            (getWindowRectPostPointerReleaseContinuationCheckpointActive
+            (getCursorPosPostPointerReleaseContinuationCheckpointActive
+              ? 1
+              : getWindowRectPostPointerReleaseContinuationCheckpointActive
               ? 1
               : 4) ||
           completion.completionCount !==
-            (getWindowRectPostPointerReleaseContinuationCheckpointActive
+            (getCursorPosPostPointerReleaseContinuationCheckpointActive
+              ? 1
+              : getWindowRectPostPointerReleaseContinuationCheckpointActive
               ? 1
               : 4) ||
           completion.lastCompletionSequence !==
-            (getWindowRectPostPointerReleaseContinuationCheckpointActive
+            (getCursorPosPostPointerReleaseContinuationCheckpointActive
+              ? 161_959
+              : getWindowRectPostPointerReleaseContinuationCheckpointActive
               ? 161_958
               : 161_957) ||
           completion.lastCompletionInstructionCount !==
-            (getWindowRectPostPointerReleaseContinuationCheckpointActive
+            (getCursorPosPostPointerReleaseContinuationCheckpointActive
+              ? 321_463_119
+              : getWindowRectPostPointerReleaseContinuationCheckpointActive
               ? 321_463_115
               : 321_463_010) ||
           completion.maximumRepeatCompletions !== 16 ||
@@ -29934,15 +30080,32 @@ export function validateCurrentCheckpoint(manifest) {
         evidence.getWindowRectBrowserGeometryImported !== false ||
         evidence.getWindowRectFailureAtomicity !== true ||
         (evidence.getCursorPosCompletions ??
-          evidence.getCursorPosNodeCompletions) !== 2 ||
-        evidence.getCursorPosSequence !== 148_187 ||
-        evidence.getCursorPosOccurrence !== 2 ||
-        evidence.getCursorPosInstructionCount !== 147_768_691 ||
-        evidence.getCursorPosArguments?.join(",") !== "0x006ff8ac" ||
+          evidence.getCursorPosNodeCompletions) !==
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? 3
+            : 2) ||
+        evidence.getCursorPosSequence !==
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? 161_959
+            : 148_187) ||
+        evidence.getCursorPosOccurrence !==
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? 17
+            : 2) ||
+        evidence.getCursorPosInstructionCount !==
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? 321_463_119
+            : 147_768_691) ||
+        evidence.getCursorPosArguments?.join(",") !==
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? "0x006ff8b4"
+            : "0x006ff8ac") ||
         evidence.getCursorPosResult !== 1 ||
         evidence.getCursorPosReturnAddress !== "0x10088563" ||
         evidence.getCursorPosStackPointers?.join(",") !==
-          "0x006ff898,0x006ff8a0" ||
+          (getCursorPosPostPointerReleaseContinuationCheckpointActive
+            ? "0x006ff8a0,0x006ff8a8"
+            : "0x006ff898,0x006ff8a0") ||
         evidence.getCursorPosLastError !== 0 ||
         evidence.getCursorPosGuestWriteBytes !== 8 ||
         evidence.getCursorPosOutput?.join(",") !== "960,540" ||
@@ -31791,6 +31954,12 @@ export function renderReadmeStatus(manifest) {
   const nextSummary =
     next.kind === "capability-checkpoint"
       ? next.completion.capability ===
+        "user32-get-cursor-pos-post-pointer-release-continuation"
+        ? `\`${next.completion.capability}\` published the post-release logical screen cursor POINT at ` +
+          `sequence ${next.completion.lastCompletionSequence} / instruction ${next.completion.lastCompletionInstructionCount}; ` +
+          `verification stopped at the next \`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +
+          `(\`${next.reason}\`)`
+        : next.completion.capability ===
         "user32-get-window-rect-post-pointer-release-continuation"
         ? `\`${next.completion.capability}\` published the post-release logical outer window RECT at ` +
           `sequence ${next.completion.lastCompletionSequence} / instruction ${next.completion.lastCompletionInstructionCount}; ` +

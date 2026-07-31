@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 89 as const/u);
+assert.match(protocol, /protocolVersion = 90 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -76,6 +76,10 @@ assert.match(
 );
 assert.match(
   protocol,
+  /"user32-get-cursor-pos-post-pointer-release-continuation"/u,
+);
+assert.match(
+  protocol,
   /capability: "winmm-time-get-time-action-continuation";[\s\S]*?setFocusActiveCallbackDepthAtStop: 1;[\s\S]*?activeCallbackDepthAtStop: 1;[\s\S]*?setFocus: RuntimeThreadCallSnapshot;[\s\S]*?lastCompletionSequence: number;[\s\S]*?lastCompletionInstructionCount: number;[\s\S]*?timeGetTime: RuntimeThreadCallSnapshot;[\s\S]*?nextArguments: \[number, number, number, number\];/u,
 );
 assert.match(
@@ -113,6 +117,10 @@ assert.match(
 assert.match(
   protocol,
   /capability:[\s\S]*?"user32-get-window-rect-post-pointer-release-continuation";[\s\S]*?implementationId:[\s\S]*?"runtime\.user32-get-window-rect-post-pointer-release-continuation\.v1";[\s\S]*?requiredCompletions: 1;[\s\S]*?completionCount: 1;[\s\S]*?maximumRepeatCompletions: 16;[\s\S]*?timeGetTimePostReleaseCompletions: RuntimeThreadCallSnapshot\[\];[\s\S]*?getWindowRectPostReleaseActiveCallbackDepthAtCompletion: 0;[\s\S]*?getWindowRectPostRelease: RuntimeThreadCallSnapshot;/u,
+);
+assert.match(
+  protocol,
+  /capability:[\s\S]*?"user32-get-cursor-pos-post-pointer-release-continuation";[\s\S]*?implementationId:[\s\S]*?"runtime\.user32-get-cursor-pos-post-pointer-release-continuation\.v1";[\s\S]*?requiredCompletions: 1;[\s\S]*?completionCount: 1;[\s\S]*?maximumRepeatCompletions: 16;[\s\S]*?timeGetTimePostReleaseCompletions: RuntimeThreadCallSnapshot\[\];[\s\S]*?getWindowRectPostReleaseActiveCallbackDepthAtCompletion: 0;[\s\S]*?getWindowRectPostRelease: RuntimeThreadCallSnapshot;[\s\S]*?getCursorPosPostReleaseActiveCallbackDepthAtCompletion: 0;[\s\S]*?getCursorPosPostRelease: RuntimeThreadCallSnapshot;/u,
 );
 assert.match(protocol, /windowTimerDelivery\?: \{/u);
 assert.match(
@@ -176,6 +184,10 @@ assert.match(
 assert.match(
   fullProbe,
   /user32-get-window-rect-post-pointer-release-continuation/u,
+);
+assert.match(
+  fullProbe,
+  /user32-get-cursor-pos-post-pointer-release-continuation/u,
 );
 assert.match(
   worker,

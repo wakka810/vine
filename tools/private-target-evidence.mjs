@@ -143,7 +143,11 @@ function validatePointerReleaseCompletion(
     `${label}.releaseCallbackReturn`,
     errors,
   );
+  const postReleaseGetCursorPos =
+    expected.capability ===
+    "user32-get-cursor-pos-post-pointer-release-continuation";
   const postReleaseGetWindowRect =
+    postReleaseGetCursorPos ||
     expected.capability ===
     "user32-get-window-rect-post-pointer-release-continuation";
   const postReleaseTimeGetTimeRepeatBatch =
@@ -158,8 +162,10 @@ function validatePointerReleaseCompletion(
     postReleaseTimeGetTime ||
     expected.capability ===
       "user32-peek-message-a-post-pointer-release-continuation";
-  const finalCallName = postReleaseGetWindowRect
-    ? "getWindowRectPostRelease"
+  const finalCallName = postReleaseGetCursorPos
+    ? "getCursorPosPostRelease"
+    : postReleaseGetWindowRect
+      ? "getWindowRectPostRelease"
     : postReleaseTimeGetTime
       ? "timeGetTimePostRelease"
       : postReleasePeek
@@ -186,8 +192,14 @@ function validatePointerReleaseCompletion(
         errors,
       )
     : {};
-  const finalCall = postReleaseGetWindowRect
+  const finalCall = postReleaseGetCursorPos
     ? requireRecord(
+        completion.getCursorPosPostRelease,
+        `${label}.getCursorPosPostRelease`,
+        errors,
+      )
+    : postReleaseGetWindowRect
+      ? requireRecord(
         completion.getWindowRectPostRelease,
         `${label}.getWindowRectPostRelease`,
         errors,
@@ -445,6 +457,18 @@ function validatePointerReleaseCompletion(
       `${label}.getWindowRectPostRelease.guestWrites[0]`,
       errors,
     );
+    checkEqual(
+      getWindowRect.sequence,
+      161_958,
+      `${label}.getWindowRectPostRelease.sequence`,
+      errors,
+    );
+    checkEqual(
+      getWindowRect.trapInstructionCount,
+      321_463_115,
+      `${label}.getWindowRectPostRelease.trapInstructionCount`,
+      errors,
+    );
     for (const [field, actual, expectedValue] of [
       ["runtimeThreadId", getWindowRect.runtimeThreadId, 8_192],
       ["module", getWindowRect.module?.toLowerCase(), "user32.dll"],
@@ -508,6 +532,97 @@ function validatePointerReleaseCompletion(
           actual,
           expectedValue,
           `${label}.getWindowRectPostRelease.guestWrites[0].result.${field}`,
+          errors,
+        );
+      }
+    }
+  }
+  if (postReleaseGetCursorPos) {
+    const getCursorPos = requireRecord(
+      completion.getCursorPosPostRelease,
+      `${label}.getCursorPosPostRelease`,
+      errors,
+    );
+    const guestWrites = Array.isArray(getCursorPos.guestWrites)
+      ? getCursorPos.guestWrites
+      : (errors.push(
+          `${label}.getCursorPosPostRelease.guestWrites must be an array`,
+        ),
+        []);
+    const pointWrite = requireRecord(
+      guestWrites[0],
+      `${label}.getCursorPosPostRelease.guestWrites[0]`,
+      errors,
+    );
+    for (const [field, actual, expectedValue] of [
+      ["runtimeThreadId", getCursorPos.runtimeThreadId, 8_192],
+      ["module", getCursorPos.module?.toLowerCase(), "user32.dll"],
+      ["symbol", getCursorPos.symbol, "GetCursorPos"],
+      ["occurrence", getCursorPos.occurrence, 17],
+      [
+        "implementationId",
+        getCursorPos.implementationId,
+        "user32.get-cursor-pos.v1",
+      ],
+      ["arguments", getCursorPos.arguments?.join(","), "7338164"],
+      ["result.action", getCursorPos.result?.action, "set"],
+      ["result.value", getCursorPos.result?.value, 1],
+      ["returnAddress", getCursorPos.returnAddress, 268_993_891],
+      ["stackPointerBefore", getCursorPos.stackPointerBefore, 7_338_144],
+      ["stackPointerAfter", getCursorPos.stackPointerAfter, 7_338_152],
+      ["lastError", getCursorPos.lastError, 0],
+      ["guestWrites.length", guestWrites.length, 1],
+    ]) {
+      checkEqual(
+        actual,
+        expectedValue,
+        `${label}.getCursorPosPostRelease.${field}`,
+        errors,
+      );
+    }
+    checkEqual(
+      completion.getCursorPosPostReleaseActiveCallbackDepthAtCompletion,
+      0,
+      `${label}.getCursorPosPostReleaseActiveCallbackDepthAtCompletion`,
+      errors,
+    );
+    checkEqual(
+      pointWrite.address,
+      7_338_164,
+      `${label}.getCursorPosPostRelease.guestWrites[0].address`,
+      errors,
+    );
+    checkEqual(
+      pointWrite.bytes?.join(","),
+      "192,3,0,0,28,2,0,0",
+      `${label}.getCursorPosPostRelease.guestWrites[0].bytes`,
+      errors,
+    );
+    if (requireWriteReceipt || pointWrite.result !== undefined) {
+      const writeResult = requireRecord(
+        pointWrite.result,
+        `${label}.getCursorPosPostRelease.guestWrites[0].result`,
+        errors,
+      );
+      for (const [field, actual, expectedValue] of [
+        ["bytesWritten", writeResult.bytesWritten, 8],
+        ["dirtyPages", writeResult.dirtyPages, 1],
+        ["invalidation.dataTlb", writeResult.invalidation?.dataTlb, false],
+        [
+          "invalidation.instructionFetch",
+          writeResult.invalidation?.instructionFetch,
+          false,
+        ],
+        [
+          "invalidation.generatedCode",
+          writeResult.invalidation?.generatedCode,
+          false,
+        ],
+      ]) {
+        checkEqual(
+          actual,
+          expectedValue,
+          `${label}.getCursorPosPostRelease.guestWrites[0].result.${field}`,
           errors,
         );
       }

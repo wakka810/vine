@@ -71,7 +71,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 56);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 57);
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
 const lastPacingRequest = { requestId: "4708", sequence: 89_218 };
@@ -413,7 +413,9 @@ assert.deepEqual(
 );
 if (
   checkpoint.nextStructuredStop.completion.capability ===
-  "user32-get-window-rect-post-pointer-release-continuation"
+    "user32-get-window-rect-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-cursor-pos-post-pointer-release-continuation"
 ) {
   const projectedBrowserWrite = validEvidence();
   delete projectedBrowserWrite.payloadSha256;
@@ -440,13 +442,42 @@ if (
 }
 if (
   checkpoint.nextStructuredStop.completion.capability ===
+  "user32-get-cursor-pos-post-pointer-release-continuation"
+) {
+  const projectedBrowserWrite = validEvidence();
+  delete projectedBrowserWrite.payloadSha256;
+  delete projectedBrowserWrite.semantic.browser.checkpointCompletion
+    .getCursorPosPostRelease.guestWrites[0].result;
+  assert.deepEqual(
+    validatePrivateTargetEvidence(
+      finalizePrivateTargetEvidence(projectedBrowserWrite),
+      checkpoint,
+    ),
+    [],
+  );
+
+  const missingNodeWriteReceipt = mutated((value) => {
+    delete value.semantic.node.checkpointCompletion.getCursorPosPostRelease
+      .guestWrites[0].result;
+  });
+  assert(
+    validatePrivateTargetEvidence(missingNodeWriteReceipt, checkpoint).some(
+      (error) =>
+        error.includes("getCursorPosPostRelease.guestWrites[0].result"),
+    ),
+  );
+}
+if (
+  checkpoint.nextStructuredStop.completion.capability ===
     "user32-peek-message-a-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
     "winmm-time-get-time-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
     "winmm-time-get-time-post-pointer-release-repeat-batch" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "user32-get-window-rect-post-pointer-release-continuation"
+    "user32-get-window-rect-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-cursor-pos-post-pointer-release-continuation"
 ) {
   const stalePostReleaseQueue = mutated((value) => {
     value.semantic.node.checkpointCompletion.postReleaseQueueDepthAfter = 1;
@@ -463,7 +494,9 @@ if (
   checkpoint.nextStructuredStop.completion.capability ===
     "winmm-time-get-time-post-pointer-release-repeat-batch" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "user32-get-window-rect-post-pointer-release-continuation"
+    "user32-get-window-rect-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-cursor-pos-post-pointer-release-continuation"
 ) {
   const stalePostReleaseTick = mutated((value) => {
     value.semantic.browser.checkpointCompletion.timeGetTimePostRelease.tickCount.nextTickCount =
@@ -477,7 +510,9 @@ if (
 }
 if (
   checkpoint.nextStructuredStop.completion.capability ===
-  "user32-get-window-rect-post-pointer-release-continuation"
+    "user32-get-window-rect-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-cursor-pos-post-pointer-release-continuation"
 ) {
   const stalePostReleaseRect = mutated((value) => {
     value.semantic.node.checkpointCompletion.getWindowRectPostRelease.guestWrites[0].bytes[0] =
@@ -486,6 +521,20 @@ if (
   assert(
     validatePrivateTargetEvidence(stalePostReleaseRect, checkpoint).some(
       (error) => error.includes("getWindowRectPostRelease.guestWrites[0].bytes"),
+    ),
+  );
+}
+if (
+  checkpoint.nextStructuredStop.completion.capability ===
+  "user32-get-cursor-pos-post-pointer-release-continuation"
+) {
+  const stalePostReleasePoint = mutated((value) => {
+    value.semantic.node.checkpointCompletion.getCursorPosPostRelease.guestWrites[0].bytes[0] =
+      191;
+  });
+  assert(
+    validatePrivateTargetEvidence(stalePostReleasePoint, checkpoint).some(
+      (error) => error.includes("getCursorPosPostRelease.guestWrites[0].bytes"),
     ),
   );
 }

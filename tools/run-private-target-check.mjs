@@ -223,7 +223,11 @@ function assertCapabilityCheckpoint(
     assert.equal(actual.queueDepthAtDispatchEntry, 0);
     assert.equal(actual.dispatchMessageReleaseBytesPreserved, true);
     if (expected.completion.requiredCompletions !== undefined) {
+      const postReleaseGetCursorPos =
+        expected.completion.capability ===
+        "user32-get-cursor-pos-post-pointer-release-continuation";
       const postReleaseGetWindowRect =
+        postReleaseGetCursorPos ||
         expected.completion.capability ===
         "user32-get-window-rect-post-pointer-release-continuation";
       const postReleaseTimeGetTimeRepeatBatch =
@@ -349,10 +353,10 @@ function assertCapabilityCheckpoint(
       if (postReleaseGetWindowRect) {
         const getWindowRect = actual.getWindowRectPostRelease;
         assert(getWindowRect !== undefined);
-        assert.equal(getWindowRect.sequence, actual.lastCompletionSequence);
+        assert.equal(getWindowRect.sequence, 161_958);
         assert.equal(
           getWindowRect.trapInstructionCount,
-          actual.lastCompletionInstructionCount,
+          321_463_115,
         );
         assert.equal(getWindowRect.runtimeThreadId, 8_192);
         assert.equal(getWindowRect.module.toLowerCase(), "user32.dll");
@@ -390,6 +394,56 @@ function assertCapabilityCheckpoint(
           );
         } else {
           assert.equal(getWindowRect.guestWrites[0].result, undefined);
+        }
+      }
+      if (postReleaseGetCursorPos) {
+        const getCursorPos = actual.getCursorPosPostRelease;
+        assert(getCursorPos !== undefined);
+        assert.equal(getCursorPos.sequence, actual.lastCompletionSequence);
+        assert.equal(
+          getCursorPos.trapInstructionCount,
+          actual.lastCompletionInstructionCount,
+        );
+        assert.equal(getCursorPos.runtimeThreadId, 8_192);
+        assert.equal(getCursorPos.module.toLowerCase(), "user32.dll");
+        assert.equal(getCursorPos.symbol, "GetCursorPos");
+        assert.equal(getCursorPos.occurrence, 17);
+        assert.equal(
+          getCursorPos.implementationId,
+          "user32.get-cursor-pos.v1",
+        );
+        assert.deepEqual(getCursorPos.arguments, [7_338_164]);
+        assert.deepEqual(getCursorPos.result, { action: "set", value: 1 });
+        assert.equal(getCursorPos.returnAddress, 268_993_891);
+        assert.equal(getCursorPos.stackPointerBefore, 7_338_144);
+        assert.equal(getCursorPos.stackPointerAfter, 7_338_152);
+        assert.equal(getCursorPos.lastError, 0);
+        assert.equal(
+          actual.getCursorPosPostReleaseActiveCallbackDepthAtCompletion,
+          0,
+        );
+        assert.equal(getCursorPos.guestWrites.length, 1);
+        assert.equal(getCursorPos.guestWrites[0].address, 7_338_164);
+        assert.deepEqual(getCursorPos.guestWrites[0].bytes, [
+          192, 3, 0, 0, 28, 2, 0, 0,
+        ]);
+        if (requireWriteReceipt) {
+          assert.equal(getCursorPos.guestWrites[0].result.bytesWritten, 8);
+          assert.equal(getCursorPos.guestWrites[0].result.dirtyPages, 1);
+          assert.equal(
+            getCursorPos.guestWrites[0].result.invalidation.dataTlb,
+            false,
+          );
+          assert.equal(
+            getCursorPos.guestWrites[0].result.invalidation.instructionFetch,
+            false,
+          );
+          assert.equal(
+            getCursorPos.guestWrites[0].result.invalidation.generatedCode,
+            false,
+          );
+        } else {
+          assert.equal(getCursorPos.guestWrites[0].result, undefined);
         }
       } else if (!postReleasePeek) {
         assert.equal(
