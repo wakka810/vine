@@ -71,7 +71,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 62);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 63);
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
 const lastPacingRequest = { requestId: "4708", sequence: 89_218 };
@@ -495,7 +495,9 @@ if (
   checkpoint.nextStructuredStop.completion.capability ===
     "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-async-key-state-post-is-iconic-clock-continuation"
 ) {
   const stalePostReleaseQueue = mutated((value) => {
     value.semantic.node.checkpointCompletion.postReleaseQueueDepthAfter = 1;
@@ -520,7 +522,9 @@ if (
   checkpoint.nextStructuredStop.completion.capability ===
     "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-async-key-state-post-is-iconic-clock-continuation"
 ) {
   const stalePostReleaseTick = mutated((value) => {
     value.semantic.browser.checkpointCompletion.timeGetTimePostRelease.tickCount.nextTickCount =
@@ -542,7 +546,9 @@ if (
   checkpoint.nextStructuredStop.completion.capability ===
     "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-async-key-state-post-is-iconic-clock-continuation"
 ) {
   const stalePostReleaseRect = mutated((value) => {
     value.semantic.node.checkpointCompletion.getWindowRectPostRelease.guestWrites[0].bytes[0] =
@@ -562,7 +568,9 @@ if (
   checkpoint.nextStructuredStop.completion.capability ===
     "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-async-key-state-post-is-iconic-clock-continuation"
 ) {
   const stalePostReleasePoint = mutated((value) => {
     value.semantic.node.checkpointCompletion.getCursorPosPostRelease.guestWrites[0].bytes[0] =
@@ -580,7 +588,9 @@ if (
   checkpoint.nextStructuredStop.completion.capability ===
     "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-async-key-state-post-is-iconic-clock-continuation"
 ) {
   const stalePostReleaseMetric = mutated((value) => {
     value.semantic.node.checkpointCompletion.getSystemMetricsPostRelease.result.value =
@@ -596,7 +606,9 @@ if (
   checkpoint.nextStructuredStop.completion.capability ===
     "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-async-key-state-post-is-iconic-clock-continuation"
 ) {
   const stalePostReleaseCaptionMetric = mutated((value) => {
     value.semantic.node.checkpointCompletion.getSystemMetricsCaptionPostRelease.result.value =
@@ -617,7 +629,9 @@ if (
   checkpoint.nextStructuredStop.completion.capability ===
     "user32-is-iconic-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "winmm-time-get-time-post-is-iconic-continuation"
+    "winmm-time-get-time-post-is-iconic-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-async-key-state-post-is-iconic-clock-continuation"
 ) {
   const stalePostReleaseFixedFrameHeightMetric = mutated((value) => {
     value.semantic.node.checkpointCompletion.getSystemMetricsFixedFrameHeightPostRelease.result.value =
@@ -638,7 +652,9 @@ if (
   checkpoint.nextStructuredStop.completion.capability ===
     "user32-is-iconic-post-pointer-release-continuation" ||
   checkpoint.nextStructuredStop.completion.capability ===
-    "winmm-time-get-time-post-is-iconic-continuation"
+    "winmm-time-get-time-post-is-iconic-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-async-key-state-post-is-iconic-clock-continuation"
 ) {
   const staleIsIconicResult = mutated((value) => {
     value.semantic.node.checkpointCompletion.isIconicPostRelease.result.value =
@@ -652,7 +668,9 @@ if (
 }
 if (
   checkpoint.nextStructuredStop.completion.capability ===
-  "winmm-time-get-time-post-is-iconic-continuation"
+    "winmm-time-get-time-post-is-iconic-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-get-async-key-state-post-is-iconic-clock-continuation"
 ) {
   const staleTimeGetTimeTick = mutated((value) => {
     value.semantic.node.checkpointCompletion.timeGetTimePostIsIconic.tickCount.nextTickCount =
@@ -662,6 +680,29 @@ if (
     validatePrivateTargetEvidence(staleTimeGetTimeTick, checkpoint).some(
       (error) =>
         error.includes("timeGetTimePostIsIconic.tickCount.nextTickCount"),
+    ),
+  );
+}
+if (
+  checkpoint.nextStructuredStop.completion.capability ===
+  "user32-get-async-key-state-post-is-iconic-clock-continuation"
+) {
+  const staleScanOrder = mutated((value) => {
+    value.semantic.browser.checkpointCompletion.scanVirtualKeys[0] = 15;
+  });
+  assert(
+    validatePrivateTargetEvidence(staleScanOrder, checkpoint).some((error) =>
+      error.includes("getAsyncKeyStatePostIsIconicClock.scanVirtualKeys"),
+    ),
+  );
+  const staleLastScanResult = mutated((value) => {
+    value.semantic.node.checkpointCompletion.getAsyncKeyStatePostIsIconicClockLast.result.value =
+      1;
+  });
+  assert(
+    validatePrivateTargetEvidence(staleLastScanResult, checkpoint).some(
+      (error) =>
+        error.includes("getAsyncKeyStatePostIsIconicClock.last.result.value"),
     ),
   );
 }

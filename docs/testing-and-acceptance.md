@@ -1337,6 +1337,16 @@ Host／browser clockをauthorityへimportせず、timer resolutionによるclock
 wraparound consumerはclaimしない。Exact instruction／artifact identityは`current-checkpoint.json`だけを
 正本とする。
 
+`user32-get-async-key-state-post-is-iconic-clock-continuation`は、続く38回の
+`GetAsyncKeyState` zero-input scanを既存の`user32.get-async-key-state.v1`で完了する。Rustは
+authoritative keyboard stateだけを読み、観測済みvirtual-key順を固定して全queryへzeroを返す。
+Protocol v96／browser report schema 63のNode／Chromeは38回のcompletion countと順序、先頭／末尾の
+sequence／occurrence／instruction、stdcall stack、同一runtime thread、LastError preserve、zero guest
+write、callback depth zero、ordered semantic digest、terminal memoryを一致させ、次のlive
+`IDirect3DDevice9::TestCooperativeLevel`境界で停止する。Host／browser key stateをauthorityへimportせず、
+非zero input、未観測virtual key、非foreground keyboard policyはclaimしない。Exact instruction／artifact
+identityは`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

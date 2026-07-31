@@ -671,7 +671,9 @@ function isInputProgressGatewayCheckpoint(
     profile ===
       "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
     profile === "user32-is-iconic-post-pointer-release-continuation" ||
-    profile === "winmm-time-get-time-post-is-iconic-continuation"
+    profile === "winmm-time-get-time-post-is-iconic-continuation" ||
+    profile ===
+      "user32-get-async-key-state-post-is-iconic-clock-continuation"
   );
 }
 
@@ -701,7 +703,9 @@ function isActionInputProgressGatewayCheckpoint(
     profile ===
       "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
     profile === "user32-is-iconic-post-pointer-release-continuation" ||
-    profile === "winmm-time-get-time-post-is-iconic-continuation"
+    profile === "winmm-time-get-time-post-is-iconic-continuation" ||
+    profile ===
+      "user32-get-async-key-state-post-is-iconic-clock-continuation"
   );
 }
 
@@ -744,7 +748,9 @@ function isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
     profile ===
       "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
     profile === "user32-is-iconic-post-pointer-release-continuation" ||
-    profile === "winmm-time-get-time-post-is-iconic-continuation"
+    profile === "winmm-time-get-time-post-is-iconic-continuation" ||
+    profile ===
+      "user32-get-async-key-state-post-is-iconic-clock-continuation"
   );
 }
 
@@ -888,7 +894,19 @@ function isIsIconicPostPointerReleaseContinuationCheckpoint(
 function isTimeGetTimePostIsIconicContinuationCheckpoint(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "winmm-time-get-time-post-is-iconic-continuation";
+  return (
+    profile === "winmm-time-get-time-post-is-iconic-continuation" ||
+    isGetAsyncKeyStatePostIsIconicClockContinuationCheckpoint(profile)
+  );
+}
+
+function isGetAsyncKeyStatePostIsIconicClockContinuationCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile ===
+    "user32-get-async-key-state-post-is-iconic-clock-continuation"
+  );
 }
 
 function hasDispatchMessageAPointerReleaseContinuation(
@@ -995,7 +1013,16 @@ function isRecurringTimerBoundedWindowCheckpoint(
 function recurringTimerWindowConfiguration(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  return isTimeGetTimePostIsIconicContinuationCheckpoint(profile)
+  return isGetAsyncKeyStatePostIsIconicClockContinuationCheckpoint(profile)
+    ? ({
+        capability:
+          "user32-get-async-key-state-post-is-iconic-clock-continuation",
+        implementationId:
+          "runtime.user32-get-async-key-state-post-is-iconic-clock-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      } as const)
+    : isTimeGetTimePostIsIconicContinuationCheckpoint(profile)
     ? ({
         capability: "winmm-time-get-time-post-is-iconic-continuation",
         implementationId:
@@ -1338,6 +1365,8 @@ function windowTimerCallbackRecurringBatchExpectation() {
 function inputProgressGatewayExpectation(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
+  const getAsyncKeyStatePostIsIconicClock =
+    isGetAsyncKeyStatePostIsIconicClockContinuationCheckpoint(profile);
   const timeGetTimePostIsIconic =
     isTimeGetTimePostIsIconicContinuationCheckpoint(profile);
   const isIconicPostRelease =
@@ -1377,7 +1406,9 @@ function inputProgressGatewayExpectation(
     isWindowTimerCallbackActionInputProgressGatewayCheckpoint(profile);
   const action = isActionInputProgressGatewayCheckpoint(profile);
   return {
-    capability: timeGetTimePostIsIconic
+    capability: getAsyncKeyStatePostIsIconicClock
+      ? "user32-get-async-key-state-post-is-iconic-clock-continuation"
+      : timeGetTimePostIsIconic
       ? "winmm-time-get-time-post-is-iconic-continuation"
       : isIconicPostRelease
       ? "user32-is-iconic-post-pointer-release-continuation"
@@ -1418,7 +1449,9 @@ function inputProgressGatewayExpectation(
       : action
       ? "primary-main-loop-action-input-progress-gateway"
       : "primary-main-loop-input-progress-gateway",
-    implementationId: timeGetTimePostIsIconic
+    implementationId: getAsyncKeyStatePostIsIconicClock
+      ? "runtime.user32-get-async-key-state-post-is-iconic-clock-continuation.v1"
+      : timeGetTimePostIsIconic
       ? "runtime.winmm-time-get-time-post-is-iconic-continuation.v1"
       : isIconicPostRelease
       ? "runtime.user32-is-iconic-post-pointer-release-continuation.v1"
@@ -2229,7 +2262,8 @@ type PostPointerReleaseContinuationCheckpoint = Extract<
       | "user32-get-system-metrics-caption-post-pointer-release-continuation"
       | "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
       | "user32-is-iconic-post-pointer-release-continuation"
-      | "winmm-time-get-time-post-is-iconic-continuation";
+      | "winmm-time-get-time-post-is-iconic-continuation"
+      | "user32-get-async-key-state-post-is-iconic-clock-continuation";
   }
 >;
 
@@ -2375,6 +2409,25 @@ type TimeGetTimePostIsIconicContinuationCheckpoint = Omit<
   implementationId: "runtime.winmm-time-get-time-post-is-iconic-continuation.v1";
   timeGetTimePostIsIconicActiveCallbackDepthAtCompletion: 0;
   timeGetTimePostIsIconic: RuntimeThreadCallSnapshot;
+};
+
+type GetAsyncKeyStatePostIsIconicClockContinuationCheckpoint = Omit<
+  TimeGetTimePostIsIconicContinuationCheckpoint,
+  "capability" | "implementationId" | "requiredCompletions" | "completionCount"
+> & {
+  capability: "user32-get-async-key-state-post-is-iconic-clock-continuation";
+  implementationId: "runtime.user32-get-async-key-state-post-is-iconic-clock-continuation.v1";
+  requiredCompletions: 38;
+  completionCount: 38;
+  firstCompletionSequence: number;
+  firstCompletionInstructionCount: number;
+  scanVirtualKeys: number[];
+  result: { action: "set"; value: 0 };
+  lastError: 0;
+  guestWriteBytes: 0;
+  getAsyncKeyStatePostIsIconicClockActiveCallbackDepthAtCompletion: 0;
+  getAsyncKeyStatePostIsIconicClockFirst: RuntimeThreadCallSnapshot;
+  getAsyncKeyStatePostIsIconicClockLast: RuntimeThreadCallSnapshot;
 };
 
 type PeekMessageAPostPointerReleaseContinuationEntry = Omit<
@@ -2711,6 +2764,17 @@ type TimeGetTimePostIsIconicContinuationEntry = Omit<
   | "completionCount"
   | "timeGetTimePostIsIconicActiveCallbackDepthAtCompletion"
   | "timeGetTimePostIsIconic"
+  | "activeCallbackDepthAtStop"
+  | "instructionCount"
+  | "nextEndpoint"
+  | "nextArguments"
+  | "nextReturnAddress"
+  | "nextStackPointer"
+  | "memoryContentSha256"
+>;
+
+type GetAsyncKeyStatePostIsIconicClockPrerequisite = Omit<
+  TimeGetTimePostIsIconicContinuationCheckpoint,
   | "activeCallbackDepthAtStop"
   | "instructionCount"
   | "nextEndpoint"
@@ -3277,6 +3341,10 @@ class BrowserRuntimeSession {
   #timeGetTimePostIsIconicContinuationEntry: TimeGetTimePostIsIconicContinuationEntry | null =
     null;
   #timeGetTimePostIsIconicContinuationDispatching = false;
+  #getAsyncKeyStatePostIsIconicClockPrerequisite: GetAsyncKeyStatePostIsIconicClockPrerequisite | null =
+    null;
+  readonly #getAsyncKeyStatePostIsIconicClockCompletions: RuntimeThreadCallSnapshot[] =
+    [];
   readonly #presentationProgressRenderCompletions: RuntimeThreadCallSnapshot[] =
     [];
   #presentationProgressPresentCompletion: RuntimeThreadCallSnapshot | null =
@@ -7940,6 +8008,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "winmm-time-get-time-post-is-iconic-continuation" ||
           checkpoint.capability ===
+            "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
+          checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -8038,6 +8108,38 @@ class BrowserRuntimeSession {
           !this.#peekMessageAPointerReleaseContinuationAwaitingDispatch &&
           !this.#peekMessageAPointerReleaseContinuationDispatching,
         "post-release PeekMessageA continuation stopped with live continuation or callback state",
+      );
+      checkpoint.activeCallbackDepthAtStop = 0;
+    }
+    if (
+      checkpoint.capability ===
+      "user32-get-async-key-state-post-is-iconic-clock-continuation"
+    ) {
+      invariant(
+        this.#bgiCallbackCallSequences.size === 0 &&
+          this.#getAsyncKeyStatePostIsIconicClockPrerequisite === null &&
+          this.#getAsyncKeyStatePostIsIconicClockCompletions.length === 38 &&
+          this.#timeGetTimePostIsIconicContinuationEntry === null &&
+          !this.#timeGetTimePostIsIconicContinuationDispatching &&
+          this.#isIconicPostPointerReleaseContinuationEntry === null &&
+          !this.#isIconicPostPointerReleaseContinuationDispatching,
+        `post-IsIconic GetAsyncKeyState scan stopped outside its expected timer callback boundary: ${JSON.stringify(
+          {
+            activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+            hasPrerequisite:
+              this.#getAsyncKeyStatePostIsIconicClockPrerequisite !== null,
+            completionCount:
+              this.#getAsyncKeyStatePostIsIconicClockCompletions.length,
+            hasTimeGetTimeEntry:
+              this.#timeGetTimePostIsIconicContinuationEntry !== null,
+            timeGetTimeDispatching:
+              this.#timeGetTimePostIsIconicContinuationDispatching,
+            hasIsIconicEntry:
+              this.#isIconicPostPointerReleaseContinuationEntry !== null,
+            isIconicDispatching:
+              this.#isIconicPostPointerReleaseContinuationDispatching,
+          },
+        )}`,
       );
       checkpoint.activeCallbackDepthAtStop = 0;
     }
@@ -8188,7 +8290,7 @@ class BrowserRuntimeSession {
             module: "<com>",
             symbol: { kind: "name" as const, name: "interface-1-slot-19" },
           }
-        : checkpoint.capability === "d3d9-post-scene-present-gateway" &&
+          : checkpoint.capability === "d3d9-post-scene-present-gateway" &&
             endpointAddress === 0x0101_1140
           ? {
               id: 0,
@@ -8196,6 +8298,23 @@ class BrowserRuntimeSession {
               module: "<com>",
               symbol: { kind: "name" as const, name: "interface-1-slot-17" },
             }
+          : checkpoint.capability ===
+                "user32-get-async-key-state-post-is-iconic-clock-continuation" &&
+              endpointAddress === 0x0101_1060
+            ? {
+                id: 0 as const,
+                address: endpointAddress,
+                module: "<com>" as const,
+                symbol: {
+                  kind: "name" as const,
+                  name: "interface-1-slot-3",
+                },
+                disposition: "declared-com-method" as const,
+                interfaceIndex: 1,
+                vtableSlot: 3,
+                interface: "IDirect3DDevice9" as const,
+                method: "TestCooperativeLevel" as const,
+              }
           : undefined);
     invariant(
       endpoint !== undefined,
@@ -8286,6 +8405,8 @@ class BrowserRuntimeSession {
         "user32-is-iconic-post-pointer-release-continuation" ||
       checkpoint.capability ===
         "winmm-time-get-time-post-is-iconic-continuation" ||
+      checkpoint.capability ===
+        "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
@@ -8387,6 +8508,9 @@ class BrowserRuntimeSession {
                       this.#requireEngine().readGuestU32(stackPointer + 4),
                       this.#requireEngine().readGuestU32(stackPointer + 8),
                     ]
+                : checkpoint.capability ===
+                    "user32-get-async-key-state-post-is-iconic-clock-continuation"
+                  ? [this.#requireEngine().readGuestU32(stackPointer + 4)]
                 : checkpoint.capability ===
                     "user32-def-window-proc-a-pointer-release-continuation"
                   ? [
@@ -8614,6 +8738,51 @@ class BrowserRuntimeSession {
             nextReturnAddress: checkpoint.nextReturnAddress,
             nextStackPointer: checkpoint.nextStackPointer,
             memoryContentSha256: checkpoint.memoryContentSha256,
+          },
+        )}`,
+      );
+    }
+    if (
+      checkpoint.capability ===
+      "user32-get-async-key-state-post-is-iconic-clock-continuation"
+    ) {
+      invariant(
+        this.#report.instructions === 321_468_292 &&
+          checkpoint.instructionCount === 321_468_292 &&
+          checkpoint.requiredCompletions === 38 &&
+          checkpoint.completionCount === 38 &&
+          checkpoint.firstCompletionSequence === 161_965 &&
+          checkpoint.firstCompletionInstructionCount === 321_463_448 &&
+          checkpoint.lastCompletionSequence === 162_079 &&
+          checkpoint.lastCompletionInstructionCount === 321_468_229 &&
+          checkpoint.scanVirtualKeys.join(",") ===
+            USER32_ASYNC_KEY_STATE_INITIAL_SCAN_VIRTUAL_KEYS.join(",") &&
+          checkpoint.result.action === "set" &&
+          checkpoint.result.value === 0 &&
+          checkpoint.lastError === 0 &&
+          checkpoint.guestWriteBytes === 0 &&
+          checkpoint.getAsyncKeyStatePostIsIconicClockActiveCallbackDepthAtCompletion ===
+            0 &&
+          checkpoint.activeCallbackDepthAtStop === 0 &&
+          checkpoint.nextEndpoint.id === 0 &&
+          checkpoint.nextEndpoint.address === 0x0101_1060 &&
+          checkpoint.nextEndpoint.disposition === "declared-com-method" &&
+          checkpoint.nextEndpoint.module === "<com>" &&
+          checkpoint.nextEndpoint.symbol.kind === "name" &&
+          checkpoint.nextEndpoint.symbol.name === "interface-1-slot-3" &&
+          checkpoint.nextEndpoint.interfaceIndex === 1 &&
+          checkpoint.nextEndpoint.vtableSlot === 3 &&
+          checkpoint.nextEndpoint.interface === "IDirect3DDevice9" &&
+          checkpoint.nextEndpoint.method === "TestCooperativeLevel" &&
+          checkpoint.nextArguments.join(",") === "16842756" &&
+          checkpoint.nextReturnAddress === 0x1005_adcd &&
+          checkpoint.nextStackPointer === 0x006f_f8f4 &&
+          checkpoint.memoryContentSha256 ===
+            "d4e6ec50e875a134762e7abeea2d49bbad4c2be754b407741de025ca7d78b2be",
+        `post-IsIconic GetAsyncKeyState scan reached a different TestCooperativeLevel boundary: ${JSON.stringify(
+          {
+            instructions: this.#report.instructions,
+            checkpoint,
           },
         )}`,
       );
@@ -8899,6 +9068,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "winmm-time-get-time-post-is-iconic-continuation" ||
       checkpoint.capability ===
+        "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -8950,6 +9121,9 @@ class BrowserRuntimeSession {
                       : checkpoint.capability ===
                           "user32-translate-message-pointer-release-continuation"
                         ? "USER32 TranslateMessage pointer-release continuation checkpoint completed"
+                      : checkpoint.capability ===
+                          "user32-get-async-key-state-post-is-iconic-clock-continuation"
+                        ? "USER32 GetAsyncKeyState post-IsIconic clock scan continuation checkpoint completed"
                       : checkpoint.capability ===
                           "winmm-time-get-time-post-is-iconic-continuation"
                         ? "WinMM timeGetTime post-IsIconic continuation checkpoint completed"
@@ -10898,7 +11072,7 @@ class BrowserRuntimeSession {
           },
         )}`,
       );
-      this.#report.checkpointCompletion = {
+      const completedTimeGetTimePostIsIconic = {
         ...entry,
         requiredCompletions: 1,
         completionCount: 1,
@@ -10911,22 +11085,153 @@ class BrowserRuntimeSession {
           trapInstructionCount: this.#report.instructions,
           occurrence: implementationOccurrence,
         },
-        activeCallbackDepthAtStop: 0,
-        instructionCount: 0,
-        nextEndpoint: {
-          id: 0,
-          address: 0,
-          disposition: "declared-runtime-export" as const,
-          iatAddress: 0,
-        },
-        nextArguments: [],
-        nextReturnAddress: 0,
-        nextStackPointer: 0,
-        memoryContentSha256: "",
-      } satisfies TimeGetTimePostIsIconicContinuationCheckpoint;
+      } satisfies GetAsyncKeyStatePostIsIconicClockPrerequisite;
+      if (
+        isGetAsyncKeyStatePostIsIconicClockContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        )
+      ) {
+        invariant(
+          this.#getAsyncKeyStatePostIsIconicClockPrerequisite === null &&
+            this.#getAsyncKeyStatePostIsIconicClockCompletions.length === 0,
+          "post-IsIconic GetAsyncKeyState scan was already armed",
+        );
+        this.#getAsyncKeyStatePostIsIconicClockPrerequisite =
+          completedTimeGetTimePostIsIconic;
+      } else {
+        this.#report.checkpointCompletion = {
+          ...completedTimeGetTimePostIsIconic,
+          activeCallbackDepthAtStop: 0,
+          instructionCount: 0,
+          nextEndpoint: {
+            id: 0,
+            address: 0,
+            disposition: "declared-runtime-export" as const,
+            iatAddress: 0,
+          },
+          nextArguments: [],
+          nextReturnAddress: 0,
+          nextStackPointer: 0,
+          memoryContentSha256: "",
+        } satisfies TimeGetTimePostIsIconicContinuationCheckpoint;
+        this.#bgiCheckpointPending = true;
+      }
       this.#timeGetTimePostIsIconicContinuationEntry = null;
       this.#timeGetTimePostIsIconicContinuationDispatching = false;
-      this.#bgiCheckpointPending = true;
+    }
+    if (
+      isGetAsyncKeyStatePostIsIconicClockContinuationCheckpoint(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#getAsyncKeyStatePostIsIconicClockPrerequisite !== null &&
+      completion.implementationId === "user32.get-async-key-state.v1"
+    ) {
+      const completionIndex =
+        this.#getAsyncKeyStatePostIsIconicClockCompletions.length;
+      const expectedVirtualKey =
+        USER32_ASYNC_KEY_STATE_INITIAL_SCAN_VIRTUAL_KEYS[completionIndex];
+      invariant(
+        expectedVirtualKey !== undefined &&
+          endpoint.module.toLowerCase() === "user32.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "GetAsyncKeyState" &&
+          this.#currentThreadId === 8_192 &&
+          call.arguments.length === 1 &&
+          call.arguments[0] === expectedVirtualKey &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 0 &&
+          call.returnAddress === 0x1006_8405 &&
+          call.stackPointerAfter === call.stackPointerBefore + 8 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0 &&
+          this.#bgiCallbackCallSequences.size === 0,
+        `post-IsIconic GetAsyncKeyState scan changed its key order, zero-input result, or callback contract: ${JSON.stringify(
+          {
+            completionIndex,
+            expectedVirtualKey,
+            endpoint,
+            currentThreadId: this.#currentThreadId,
+            sequence,
+            instructionCount: this.#report.instructions,
+            implementationOccurrence,
+            call,
+            activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+          },
+        )}`,
+      );
+      const completedCall = {
+        ...structuredClone(call),
+        runtimeThreadId: this.#currentThreadId,
+        trapInstructionCount: this.#report.instructions,
+        occurrence: implementationOccurrence,
+      } satisfies RuntimeThreadCallSnapshot;
+      this.#getAsyncKeyStatePostIsIconicClockCompletions.push(completedCall);
+      if (
+        this.#getAsyncKeyStatePostIsIconicClockCompletions.length ===
+        USER32_ASYNC_KEY_STATE_INITIAL_SCAN_VIRTUAL_KEYS.length
+      ) {
+        const prerequisite =
+          this.#getAsyncKeyStatePostIsIconicClockPrerequisite;
+        const firstCall =
+          this.#getAsyncKeyStatePostIsIconicClockCompletions[0];
+        invariant(
+          firstCall !== undefined &&
+            firstCall.sequence === 161_965 &&
+            firstCall.occurrence === 386 &&
+            firstCall.trapInstructionCount === 321_463_448 &&
+            firstCall.stackPointerBefore === 0x006f_f80c &&
+            firstCall.stackPointerAfter === 0x006f_f814 &&
+            completedCall.sequence === 162_079 &&
+            completedCall.occurrence === 423 &&
+            completedCall.trapInstructionCount === 321_468_229 &&
+            completedCall.stackPointerBefore === 0x006f_f8c8 &&
+            completedCall.stackPointerAfter === 0x006f_f8d0,
+          "post-IsIconic GetAsyncKeyState scan first or last boundary changed",
+        );
+        this.#report.checkpointCompletion = {
+          ...prerequisite,
+          capability:
+            "user32-get-async-key-state-post-is-iconic-clock-continuation",
+          implementationId:
+            "runtime.user32-get-async-key-state-post-is-iconic-clock-continuation.v1",
+          requiredCompletions: 38,
+          completionCount: 38,
+          firstCompletionSequence: firstCall.sequence,
+          firstCompletionInstructionCount: firstCall.trapInstructionCount,
+          lastCompletionSequence: completedCall.sequence,
+          lastCompletionInstructionCount: completedCall.trapInstructionCount,
+          scanVirtualKeys: [
+            ...USER32_ASYNC_KEY_STATE_INITIAL_SCAN_VIRTUAL_KEYS,
+          ],
+          result: { action: "set", value: 0 },
+          lastError: 0,
+          guestWriteBytes: 0,
+          getAsyncKeyStatePostIsIconicClockActiveCallbackDepthAtCompletion: 0,
+          getAsyncKeyStatePostIsIconicClockFirst: structuredClone(firstCall),
+          getAsyncKeyStatePostIsIconicClockLast:
+            structuredClone(completedCall),
+          activeCallbackDepthAtStop: 0,
+          instructionCount: 0,
+          nextEndpoint: {
+            id: 0,
+            address: 0x0101_1060,
+            module: "<com>",
+            symbol: { kind: "name", name: "interface-1-slot-3" },
+            disposition: "declared-com-method",
+            interfaceIndex: 1,
+            vtableSlot: 3,
+            interface: "IDirect3DDevice9",
+            method: "TestCooperativeLevel",
+          },
+          nextArguments: [0],
+          nextReturnAddress: 0,
+          nextStackPointer: 0,
+          memoryContentSha256: "",
+        } satisfies GetAsyncKeyStatePostIsIconicClockContinuationCheckpoint;
+        this.#getAsyncKeyStatePostIsIconicClockPrerequisite = null;
+        this.#bgiCheckpointPending = true;
+      }
     }
     if (
       hasPeekMessageAPointerReleaseContinuation(
@@ -20661,7 +20966,122 @@ class BrowserRuntimeSession {
         );
       }
       if (
+        isGetAsyncKeyStatePostIsIconicClockContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report
+          .checkpointCompletion as GetAsyncKeyStatePostIsIconicClockContinuationCheckpoint | null;
+        const firstCall =
+          checkpoint?.getAsyncKeyStatePostIsIconicClockFirst;
+        const lastCall = checkpoint?.getAsyncKeyStatePostIsIconicClockLast;
+        invariant(
+          this.#report.supportedCallCount === 162_079 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "1d7b2f9fd9e3677a19611e3648e62a40a5f571131c1176636130b06d1bddf284" &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability ===
+              "user32-get-async-key-state-post-is-iconic-clock-continuation" &&
+            checkpoint.implementationId ===
+              "runtime.user32-get-async-key-state-post-is-iconic-clock-continuation.v1" &&
+            checkpoint.requiredCompletions === 38 &&
+            checkpoint.completionCount === 38 &&
+            checkpoint.firstCompletionSequence === 161_965 &&
+            checkpoint.firstCompletionInstructionCount === 321_463_448 &&
+            checkpoint.lastCompletionSequence === 162_079 &&
+            checkpoint.lastCompletionInstructionCount === 321_468_229 &&
+            checkpoint.scanVirtualKeys.join(",") ===
+              USER32_ASYNC_KEY_STATE_INITIAL_SCAN_VIRTUAL_KEYS.join(",") &&
+            checkpoint.result.action === "set" &&
+            checkpoint.result.value === 0 &&
+            checkpoint.lastError === 0 &&
+            checkpoint.guestWriteBytes === 0 &&
+            checkpoint.getAsyncKeyStatePostIsIconicClockActiveCallbackDepthAtCompletion ===
+              0 &&
+            firstCall !== undefined &&
+            firstCall.sequence === 161_965 &&
+            firstCall.occurrence === 386 &&
+            firstCall.trapInstructionCount === 321_463_448 &&
+            firstCall.arguments.join(",") === "14" &&
+            "action" in firstCall.result &&
+            firstCall.result.action === "set" &&
+            firstCall.result.value === 0 &&
+            firstCall.stackPointerBefore === 0x006f_f80c &&
+            firstCall.stackPointerAfter === 0x006f_f814 &&
+            firstCall.guestWrites.length === 0 &&
+            lastCall !== undefined &&
+            lastCall.sequence === 162_079 &&
+            lastCall.occurrence === 423 &&
+            lastCall.trapInstructionCount === 321_468_229 &&
+            lastCall.arguments.join(",") === "6" &&
+            "action" in lastCall.result &&
+            lastCall.result.action === "set" &&
+            lastCall.result.value === 0 &&
+            lastCall.stackPointerBefore === 0x006f_f8c8 &&
+            lastCall.stackPointerAfter === 0x006f_f8d0 &&
+            lastCall.guestWrites.length === 0 &&
+            checkpoint.activeCallbackDepthAtStop === 0 &&
+            checkpoint.instructionCount === 321_468_292 &&
+            checkpoint.nextEndpoint.id === 0 &&
+            checkpoint.nextEndpoint.address === 0x0101_1060 &&
+            checkpoint.nextEndpoint.disposition === "declared-com-method" &&
+            checkpoint.nextEndpoint.interfaceIndex === 1 &&
+            checkpoint.nextEndpoint.vtableSlot === 3 &&
+            checkpoint.nextEndpoint.interface === "IDirect3DDevice9" &&
+            checkpoint.nextEndpoint.method === "TestCooperativeLevel" &&
+            checkpoint.nextArguments.join(",") === "16842756" &&
+            checkpoint.nextReturnAddress === 0x1005_adcd &&
+            checkpoint.nextStackPointer === 0x006f_f8f4 &&
+            checkpoint.memoryContentSha256 ===
+              "d4e6ec50e875a134762e7abeea2d49bbad4c2be754b407741de025ca7d78b2be" &&
+            this.#report.instructions === 321_468_292 &&
+            this.#report.initialGeneration === 27 &&
+            Number(this.#generation) === 315_149 &&
+            this.#report.writebackBatches === 183_978 &&
+            this.#report.writebackPages === 282_705 &&
+            this.#report.mappingDeltas === 127_995 &&
+            this.#report.mappingDirtyPages === 150_400 &&
+            this.#report.slices === 183_985 &&
+            this.#report.budgetYields === 18_752 &&
+            execution.transitionCount === 589_072 &&
+            this.#report.contextSwitches === 2_514 &&
+            this.#report.callbackEntries === 34 &&
+            this.#report.maximumCallbackDepth === 3 &&
+            this.#bridge?.callCount() === 489_708 &&
+            this.#getAsyncKeyStatePostIsIconicClockPrerequisite === null &&
+            this.#getAsyncKeyStatePostIsIconicClockCompletions.length === 38 &&
+            this.#timeGetTimePostIsIconicContinuationEntry === null &&
+            !this.#timeGetTimePostIsIconicContinuationDispatching,
+          `post-IsIconic GetAsyncKeyState scan continuation changed: ${JSON.stringify(
+            {
+              supportedCallCount: this.#report.supportedCallCount,
+              supportedCallSemanticsSha256:
+                this.#report.supportedCallSemanticsSha256,
+              checkpoint,
+              instructions: this.#report.instructions,
+              finalGeneration: Number(this.#generation),
+              writebackBatches: this.#report.writebackBatches,
+              writebackPages: this.#report.writebackPages,
+              mappingDeltas: this.#report.mappingDeltas,
+              mappingDirtyPages: this.#report.mappingDirtyPages,
+              slices: this.#report.slices,
+              budgetYields: this.#report.budgetYields,
+              contextSwitches: this.#report.contextSwitches,
+              transitionCount: execution.transitionCount,
+              callbackEntries: this.#report.callbackEntries,
+              maximumCallbackDepth: this.#report.maximumCallbackDepth,
+              wasmBridgeCalls: this.#bridge?.callCount(),
+              activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+            },
+          )}`,
+        );
+      }
+      if (
         isTimeGetTimePostIsIconicContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        !isGetAsyncKeyStatePostIsIconicClockContinuationCheckpoint(
           this.#configuration.capabilityProfile,
         ) &&
         terminal.outcome === "checkpoint-complete"

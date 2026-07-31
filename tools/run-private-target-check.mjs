@@ -223,7 +223,11 @@ function assertCapabilityCheckpoint(
     assert.equal(actual.queueDepthAtDispatchEntry, 0);
     assert.equal(actual.dispatchMessageReleaseBytesPreserved, true);
     if (expected.completion.requiredCompletions !== undefined) {
+      const postIsIconicGetAsyncKeyStateScan =
+        expected.completion.capability ===
+        "user32-get-async-key-state-post-is-iconic-clock-continuation";
       const postIsIconicTimeGetTime =
+        postIsIconicGetAsyncKeyStateScan ||
         expected.completion.capability ===
         "winmm-time-get-time-post-is-iconic-continuation";
       const postReleaseIsIconic =
@@ -275,6 +279,75 @@ function assertCapabilityCheckpoint(
         actual.lastCompletionInstructionCount,
         expected.completion.lastCompletionInstructionCount,
       );
+      if (postIsIconicGetAsyncKeyStateScan) {
+        assert.equal(actual.firstCompletionSequence, 161_965);
+        assert.equal(actual.firstCompletionInstructionCount, 321_463_448);
+        assert.deepEqual(actual.scanVirtualKeys, [
+          14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98,
+          51, 99, 52, 100, 53, 101, 54, 102, 55, 103, 56, 104, 57, 105,
+          48, 96, 9, 17, 1, 2, 4, 5, 6,
+        ]);
+        assert.deepEqual(actual.result, { action: "set", value: 0 });
+        assert.equal(actual.lastError, 0);
+        assert.equal(actual.guestWriteBytes, 0);
+        assert.equal(
+          actual.getAsyncKeyStatePostIsIconicClockActiveCallbackDepthAtCompletion,
+          0,
+        );
+        assert.equal(actual.setFocusActiveCallbackDepthAtStop, 1);
+        const first = actual.getAsyncKeyStatePostIsIconicClockFirst;
+        const last = actual.getAsyncKeyStatePostIsIconicClockLast;
+        assert(first !== undefined);
+        assert(last !== undefined);
+        for (const [sample, expectedSample] of [
+          [
+            first,
+            {
+              sequence: 161_965,
+              occurrence: 386,
+              trapInstructionCount: 321_463_448,
+              virtualKey: 14,
+              stackPointerBefore: 7_337_996,
+              stackPointerAfter: 7_338_004,
+            },
+          ],
+          [
+            last,
+            {
+              sequence: 162_079,
+              occurrence: 423,
+              trapInstructionCount: 321_468_229,
+              virtualKey: 6,
+              stackPointerBefore: 7_338_184,
+              stackPointerAfter: 7_338_192,
+            },
+          ],
+        ]) {
+          assert.equal(sample.sequence, expectedSample.sequence);
+          assert.equal(sample.occurrence, expectedSample.occurrence);
+          assert.equal(
+            sample.trapInstructionCount,
+            expectedSample.trapInstructionCount,
+          );
+          assert.equal(sample.runtimeThreadId, 8_192);
+          assert.equal(sample.module.toLowerCase(), "user32.dll");
+          assert.equal(sample.symbol, "GetAsyncKeyState");
+          assert.equal(
+            sample.implementationId,
+            "user32.get-async-key-state.v1",
+          );
+          assert.deepEqual(sample.arguments, [expectedSample.virtualKey]);
+          assert.deepEqual(sample.result, { action: "set", value: 0 });
+          assert.equal(sample.returnAddress, 268_862_469);
+          assert.equal(
+            sample.stackPointerBefore,
+            expectedSample.stackPointerBefore,
+          );
+          assert.equal(sample.stackPointerAfter, expectedSample.stackPointerAfter);
+          assert.equal(sample.lastError, 0);
+          assert.equal(sample.guestWrites.length, 0);
+        }
+      }
       if (postReleasePeek) {
         assert.equal(
           actual.peekMessagePostRelease.sequence,
@@ -624,10 +697,17 @@ function assertCapabilityCheckpoint(
               if (postIsIconicTimeGetTime) {
                 const timeGetTime = actual.timeGetTimePostIsIconic;
                 assert(timeGetTime !== undefined);
-                assert.equal(timeGetTime.sequence, actual.lastCompletionSequence);
+                assert.equal(
+                  timeGetTime.sequence,
+                  postIsIconicGetAsyncKeyStateScan
+                    ? 161_964
+                    : actual.lastCompletionSequence,
+                );
                 assert.equal(
                   timeGetTime.trapInstructionCount,
-                  actual.lastCompletionInstructionCount,
+                  postIsIconicGetAsyncKeyStateScan
+                    ? 321_463_291
+                    : actual.lastCompletionInstructionCount,
                 );
                 assert.equal(timeGetTime.runtimeThreadId, 8_192);
                 assert.equal(timeGetTime.module.toLowerCase(), "winmm.dll");

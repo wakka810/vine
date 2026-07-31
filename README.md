@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation`: 161964 calls across 131 endpoint contracts / 129 APIs, memory generation 296339 |
+| Runtime diagnostics | `user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation`: 162079 calls across 131 endpoint contracts / 129 APIs, memory generation 296510 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `winmm-time-get-time-post-is-iconic-continuation` sampled the authoritative shared process clock at tick 3601228 at sequence 161964 / instruction 321463291; verification stopped at the next `USER32.dll!GetAsyncKeyState` on instruction 321463448 (`winmm-time-get-time-post-is-iconic-continuation-checkpoint-complete`) |
+| Next structured stop | `user32-get-async-key-state-post-is-iconic-clock-continuation` completed the reached deterministic 38-key zero-input scan through sequence 162079 / instruction 321468229; verification stopped at the next `IDirect3DDevice9!TestCooperativeLevel` on instruction 321468292 (`user32-get-async-key-state-post-is-iconic-clock-continuation-checkpoint-complete`) |
 
-The active semantic report is 3,049,167 bytes with SHA-256
-`abcd5ff245aad79103efd46817fba562248e6d41e6cdaa002bcc2be52b473a09`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 3,054,152 bytes with SHA-256
+`1bace4680cec810322d4cce7744c89d253dd0da0b885e8126ad1a4641150b48f`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

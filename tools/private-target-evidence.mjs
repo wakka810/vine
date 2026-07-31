@@ -143,7 +143,11 @@ function validatePointerReleaseCompletion(
     `${label}.releaseCallbackReturn`,
     errors,
   );
+  const postIsIconicGetAsyncKeyStateScan =
+    expected.capability ===
+    "user32-get-async-key-state-post-is-iconic-clock-continuation";
   const postIsIconicTimeGetTime =
+    postIsIconicGetAsyncKeyStateScan ||
     expected.capability ===
     "winmm-time-get-time-post-is-iconic-continuation";
   const postReleaseIsIconic =
@@ -182,7 +186,9 @@ function validatePointerReleaseCompletion(
     postReleaseTimeGetTime ||
     expected.capability ===
       "user32-peek-message-a-post-pointer-release-continuation";
-  const finalCallName = postIsIconicTimeGetTime
+  const finalCallName = postIsIconicGetAsyncKeyStateScan
+    ? "getAsyncKeyStatePostIsIconicClockLast"
+    : postIsIconicTimeGetTime
     ? "timeGetTimePostIsIconic"
     : postReleaseIsIconic
     ? "isIconicPostRelease"
@@ -222,7 +228,13 @@ function validatePointerReleaseCompletion(
         errors,
       )
     : {};
-  const finalCall = postIsIconicTimeGetTime
+  const finalCall = postIsIconicGetAsyncKeyStateScan
+    ? requireRecord(
+        completion.getAsyncKeyStatePostIsIconicClockLast,
+        `${label}.getAsyncKeyStatePostIsIconicClockLast`,
+        errors,
+      )
+    : postIsIconicTimeGetTime
     ? requireRecord(
         completion.timeGetTimePostIsIconic,
         `${label}.timeGetTimePostIsIconic`,
@@ -927,6 +939,98 @@ function validatePointerReleaseCompletion(
         actual,
         expectedValue,
         `${label}.timeGetTimePostIsIconic.${field}`,
+        errors,
+      );
+    }
+  }
+  if (postIsIconicGetAsyncKeyStateScan) {
+    const first = requireRecord(
+      completion.getAsyncKeyStatePostIsIconicClockFirst,
+      `${label}.getAsyncKeyStatePostIsIconicClockFirst`,
+      errors,
+    );
+    const last = requireRecord(
+      completion.getAsyncKeyStatePostIsIconicClockLast,
+      `${label}.getAsyncKeyStatePostIsIconicClockLast`,
+      errors,
+    );
+    const firstGuestWrites = Array.isArray(first.guestWrites)
+      ? first.guestWrites
+      : (errors.push(
+          `${label}.getAsyncKeyStatePostIsIconicClockFirst.guestWrites must be an array`,
+        ),
+        []);
+    const lastGuestWrites = Array.isArray(last.guestWrites)
+      ? last.guestWrites
+      : (errors.push(
+          `${label}.getAsyncKeyStatePostIsIconicClockLast.guestWrites must be an array`,
+        ),
+        []);
+    for (const [field, actual, expectedValue] of [
+      ["requiredCompletions", completion.requiredCompletions, 38],
+      ["completionCount", completion.completionCount, 38],
+      ["firstCompletionSequence", completion.firstCompletionSequence, 161_965],
+      [
+        "firstCompletionInstructionCount",
+        completion.firstCompletionInstructionCount,
+        321_463_448,
+      ],
+      ["lastCompletionSequence", completion.lastCompletionSequence, 162_079],
+      [
+        "lastCompletionInstructionCount",
+        completion.lastCompletionInstructionCount,
+        321_468_229,
+      ],
+      [
+        "scanVirtualKeys",
+        completion.scanVirtualKeys?.join(","),
+        "14,15,13,16,27,38,33,40,34,37,39,49,97,50,98,51,99,52,100,53,101,54,102,55,103,56,104,57,105,48,96,9,17,1,2,4,5,6",
+      ],
+      ["result.action", completion.result?.action, "set"],
+      ["result.value", completion.result?.value, 0],
+      ["lastError", completion.lastError, 0],
+      ["guestWriteBytes", completion.guestWriteBytes, 0],
+      [
+        "activeCallbackDepthAtCompletion",
+        completion.getAsyncKeyStatePostIsIconicClockActiveCallbackDepthAtCompletion,
+        0,
+      ],
+      ["setFocusActiveCallbackDepthAtStop", completion.setFocusActiveCallbackDepthAtStop, 1],
+      ["first.sequence", first.sequence, 161_965],
+      ["first.runtimeThreadId", first.runtimeThreadId, 8_192],
+      ["first.module", first.module?.toLowerCase(), "user32.dll"],
+      ["first.symbol", first.symbol, "GetAsyncKeyState"],
+      ["first.occurrence", first.occurrence, 386],
+      ["first.trapInstructionCount", first.trapInstructionCount, 321_463_448],
+      ["first.implementationId", first.implementationId, "user32.get-async-key-state.v1"],
+      ["first.arguments", first.arguments?.join(","), "14"],
+      ["first.result.action", first.result?.action, "set"],
+      ["first.result.value", first.result?.value, 0],
+      ["first.returnAddress", first.returnAddress, 268_862_469],
+      ["first.stackPointerBefore", first.stackPointerBefore, 7_337_996],
+      ["first.stackPointerAfter", first.stackPointerAfter, 7_338_004],
+      ["first.lastError", first.lastError, 0],
+      ["first.guestWrites.length", firstGuestWrites.length, 0],
+      ["last.sequence", last.sequence, 162_079],
+      ["last.runtimeThreadId", last.runtimeThreadId, 8_192],
+      ["last.module", last.module?.toLowerCase(), "user32.dll"],
+      ["last.symbol", last.symbol, "GetAsyncKeyState"],
+      ["last.occurrence", last.occurrence, 423],
+      ["last.trapInstructionCount", last.trapInstructionCount, 321_468_229],
+      ["last.implementationId", last.implementationId, "user32.get-async-key-state.v1"],
+      ["last.arguments", last.arguments?.join(","), "6"],
+      ["last.result.action", last.result?.action, "set"],
+      ["last.result.value", last.result?.value, 0],
+      ["last.returnAddress", last.returnAddress, 268_862_469],
+      ["last.stackPointerBefore", last.stackPointerBefore, 7_338_184],
+      ["last.stackPointerAfter", last.stackPointerAfter, 7_338_192],
+      ["last.lastError", last.lastError, 0],
+      ["last.guestWrites.length", lastGuestWrites.length, 0],
+    ]) {
+      checkEqual(
+        actual,
+        expectedValue,
+        `${label}.getAsyncKeyStatePostIsIconicClock.${field}`,
         errors,
       );
     }

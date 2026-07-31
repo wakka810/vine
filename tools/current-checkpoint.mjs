@@ -208,7 +208,11 @@ export function validateCurrentCheckpoint(manifest) {
   const timeGetTimeActionContinuationActive =
     root.activeRuntimeCheckpoint?.profile ===
     "winmm-time-get-time-action-continuation";
+  const getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive =
+    root.activeRuntimeCheckpoint?.profile ===
+    "user32-get-async-key-state-post-is-iconic-clock-continuation";
   const timeGetTimePostIsIconicContinuationCheckpointActive =
+    getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive ||
     root.activeRuntimeCheckpoint?.profile ===
     "winmm-time-get-time-post-is-iconic-continuation";
   const isIconicPostPointerReleaseContinuationCheckpointActive =
@@ -657,17 +661,20 @@ export function validateCurrentCheckpoint(manifest) {
                                 : d3d9RecreatedTexturesActive
                                   ? 9_187
                                   : timerCycleCount;
-  const timerBrowserPacingCount = pointerMessageEvidenceActive
-    ? 11_465
-    : windowTimerCallbackRecurringBatchActive
-    ? 11_902
-    : windowTimerCallbackActionInputProgressGatewayActive
-      ? 11_532
-      : inputProgressGatewayActive
-      ? 11_531
-      : presentationProgressGatewayActive
-        ? 11_467
-        : timerCycleCount;
+  const timerBrowserPacingCount =
+    getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+      ? 11_473
+      : pointerMessageEvidenceActive
+        ? 11_465
+        : windowTimerCallbackRecurringBatchActive
+          ? 11_902
+          : windowTimerCallbackActionInputProgressGatewayActive
+            ? 11_532
+            : inputProgressGatewayActive
+              ? 11_531
+              : presentationProgressGatewayActive
+                ? 11_467
+                : timerCycleCount;
   const timerSetSequences = pointerMessageEvidenceActive
     ? "18681,161938"
     : windowTimerCallbackRecurringBatchActive
@@ -1242,7 +1249,27 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    timeGetTimePostIsIconicContinuationCheckpointActive
+    getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_995,
+        browserMappingDirtyPages: 150_400,
+        browserSuccessExecutionTransitions: 589_072,
+        browserFinalGeneration: 315_149,
+        browserReportSchemaVersion: 63,
+        latestSchema:
+          "vine.v86-bgi-user32-get-async-key-state-post-is-iconic-clock-continuation",
+        latestWritebackBatches: 165_233,
+        latestWritebackDirtyPages: 244_664,
+        latestWritebackChangedBytes: 43_072_357,
+        latestHostDeltaBatches: 127_995,
+        latestFinalMemoryGeneration: 296_510,
+        semanticCallDigestSha256:
+          "1d7b2f9fd9e3677a19611e3648e62a40a5f571131c1176636130b06d1bddf284",
+        memoryContentSha256:
+          "d4e6ec50e875a134762e7abeea2d49bbad4c2be754b407741de025ca7d78b2be",
+      }
+    : timeGetTimePostIsIconicContinuationCheckpointActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_939,
@@ -3156,7 +3183,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    timeGetTimePostIsIconicContinuationCheckpointActive
+    getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+      ? "vine.browser-runtime-worker.v96"
+      : timeGetTimePostIsIconicContinuationCheckpointActive
       ? "vine.browser-runtime-worker.v95"
       : isIconicPostPointerReleaseContinuationCheckpointActive
       ? "vine.browser-runtime-worker.v94"
@@ -3983,7 +4012,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (timeGetTimePostIsIconicContinuationCheckpointActive
+      (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+        ? 63
+        : timeGetTimePostIsIconicContinuationCheckpointActive
         ? 62
         : isIconicPostPointerReleaseContinuationCheckpointActive
         ? 61
@@ -4166,7 +4197,9 @@ export function validateCurrentCheckpoint(manifest) {
     JSON.stringify(bgiBrowserEvidence.executedThreadIds) !==
       JSON.stringify([8_192, 8_193]) ||
     bgiBrowserEvidence.contextSwitches !==
-      (pointerMessageEvidenceActive
+      (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+        ? 2_514
+        : pointerMessageEvidenceActive
         ? 2_512
         : windowTimerCallbackRecurringBatchActive
         ? 2_608
@@ -21172,7 +21205,9 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureBefore !== null ||
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureAfter !== null)) ||
     latestEvidence.implementation !==
-      (timeGetTimePostIsIconicContinuationCheckpointActive
+      (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+        ? "Rust-owned user32.get-async-key-state.v1 completes the reached deterministic 38-key zero-input scan in the observed virtual-key order, returns zero for every query while preserving LastError, callback depth zero, guest memory, and authoritative input state, and stops at the next live IDirect3DDevice9::TestCooperativeLevel boundary without importing host or browser key state"
+        : timeGetTimePostIsIconicContinuationCheckpointActive
         ? "Rust-owned winmm.time-get-time.v1 samples the authoritative RuntimeProcessState logical tick after the reached IsIconic read, returns 3601228, advances the shared process clock to 3601229, preserves LastError, callback depth zero, and guest memory, and imports no host or browser clock"
         : isIconicPostPointerReleaseContinuationCheckpointActive
         ? "Rust-owned user32.is-iconic.logical-window-style.v1 validates the reached live logical window, reads minimized state solely from the authoritative effective style, returns FALSE while preserving LastError, callback depth zero, guest memory, and runtime state, and imports no browser or host window-state authority"
@@ -23495,10 +23530,13 @@ export function validateCurrentCheckpoint(manifest) {
           : undefined);
       const actualEndpointApi =
         actualEndpoint.api ??
-        (typeof actualEndpoint.module === "string" &&
-        typeof actualEndpoint.symbol?.name === "string"
-          ? `${actualEndpoint.module}!${actualEndpoint.symbol.name}`
-          : undefined);
+        (typeof actualEndpoint.interface === "string" &&
+        typeof actualEndpoint.method === "string"
+          ? `${actualEndpoint.interface}!${actualEndpoint.method}`
+          : typeof actualEndpoint.module === "string" &&
+              typeof actualEndpoint.symbol?.name === "string"
+            ? `${actualEndpoint.module}!${actualEndpoint.symbol.name}`
+            : undefined);
       const actualLastCompletionSequence =
         actual.lastCompletionSequence ?? actual.setFocus?.sequence;
       const actualLastCompletionInstructionCount =
@@ -25772,7 +25810,9 @@ export function validateCurrentCheckpoint(manifest) {
   }
   if (translateMessagePointerReleaseContinuationActive) {
     const expectedCapability =
-      timeGetTimePostIsIconicContinuationCheckpointActive
+      getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+        ? "user32-get-async-key-state-post-is-iconic-clock-continuation"
+        : timeGetTimePostIsIconicContinuationCheckpointActive
         ? "winmm-time-get-time-post-is-iconic-continuation"
         : isIconicPostPointerReleaseContinuationCheckpointActive
         ? "user32-is-iconic-post-pointer-release-continuation"
@@ -25798,7 +25838,9 @@ export function validateCurrentCheckpoint(manifest) {
         ? "user32-dispatch-message-a-pointer-release-continuation"
         : "user32-translate-message-pointer-release-continuation";
     const expectedImplementation =
-      timeGetTimePostIsIconicContinuationCheckpointActive
+      getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+        ? "runtime.user32-get-async-key-state-post-is-iconic-clock-continuation.v1"
+        : timeGetTimePostIsIconicContinuationCheckpointActive
         ? "runtime.winmm-time-get-time-post-is-iconic-continuation.v1"
         : isIconicPostPointerReleaseContinuationCheckpointActive
         ? "runtime.user32-is-iconic-post-pointer-release-continuation.v1"
@@ -25824,7 +25866,9 @@ export function validateCurrentCheckpoint(manifest) {
         ? "runtime.user32-dispatch-message-a-pointer-release-continuation.v1"
         : "runtime.user32-translate-message-pointer-release-continuation.v1";
     const evidenceCapabilityLabel =
-      timeGetTimePostIsIconicContinuationCheckpointActive
+      getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+        ? "post-IsIconic GetAsyncKeyState scan"
+        : timeGetTimePostIsIconicContinuationCheckpointActive
         ? "post-IsIconic timeGetTime"
         : isIconicPostPointerReleaseContinuationCheckpointActive
         ? "post-release IsIconic"
@@ -25897,6 +25941,10 @@ export function validateCurrentCheckpoint(manifest) {
         completion.timeGetTimePostIsIconic ?? {};
       const timeGetTimePostIsIconicTickCount =
         timeGetTimePostIsIconic.tickCount ?? {};
+      const getAsyncKeyStatePostIsIconicClockFirst =
+        completion.getAsyncKeyStatePostIsIconicClockFirst ?? {};
+      const getAsyncKeyStatePostIsIconicClockLast =
+        completion.getAsyncKeyStatePostIsIconicClockLast ?? {};
       const nextEndpoint = completion.nextEndpoint ?? {};
       const dispatchMessageReleaseInvalid =
         (peekMessageAPostPointerReleaseContinuationCheckpointActive ||
@@ -25943,7 +25991,9 @@ export function validateCurrentCheckpoint(manifest) {
         (peekMessageAPostPointerReleaseContinuationCheckpointActive ||
           defWindowProcAPointerReleaseContinuationCheckpointActive) &&
         (completion.lastCompletionSequence !==
-          (timeGetTimePostIsIconicContinuationCheckpointActive
+          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            ? 162_079
+            : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 161_964
             : isIconicPostPointerReleaseContinuationCheckpointActive
             ? 161_963
@@ -25965,7 +26015,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 161_953
             : 161_952) ||
           completion.lastCompletionInstructionCount !==
-            (timeGetTimePostIsIconicContinuationCheckpointActive
+            (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+              ? 321_468_229
+              : timeGetTimePostIsIconicContinuationCheckpointActive
               ? 321_463_291
               : isIconicPostPointerReleaseContinuationCheckpointActive
               ? 321_463_282
@@ -26170,6 +26222,65 @@ export function validateCurrentCheckpoint(manifest) {
           timeGetTimePostIsIconicTickCount.returnedTickCount !== 3_601_228 ||
           timeGetTimePostIsIconicTickCount.nextTickCount !== 3_601_229 ||
           timeGetTimePostIsIconicTickCount.incrementPerRead !== 1);
+      const getAsyncKeyStatePostIsIconicClockInvalid =
+        getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive &&
+        (completion.requiredCompletions !== 38 ||
+          completion.completionCount !== 38 ||
+          completion.firstCompletionSequence !== 161_965 ||
+          completion.firstCompletionInstructionCount !== 321_463_448 ||
+          completion.lastCompletionSequence !== 162_079 ||
+          completion.lastCompletionInstructionCount !== 321_468_229 ||
+          completion.scanVirtualKeys?.join(",") !==
+            "14,15,13,16,27,38,33,40,34,37,39,49,97,50,98,51,99,52,100,53,101,54,102,55,103,56,104,57,105,48,96,9,17,1,2,4,5,6" ||
+          completion.result?.action !== "set" ||
+          completion.result?.value !== 0 ||
+          completion.lastError !== 0 ||
+          completion.guestWriteBytes !== 0 ||
+          completion.getAsyncKeyStatePostIsIconicClockActiveCallbackDepthAtCompletion !==
+            0 ||
+          completion.activeCallbackDepthAtStop !== 0 ||
+          completion.setFocusActiveCallbackDepthAtStop !== 1 ||
+          getAsyncKeyStatePostIsIconicClockFirst.sequence !== 161_965 ||
+          getAsyncKeyStatePostIsIconicClockFirst.trapInstructionCount !==
+            321_463_448 ||
+          getAsyncKeyStatePostIsIconicClockFirst.runtimeThreadId !== 8_192 ||
+          getAsyncKeyStatePostIsIconicClockFirst.occurrence !== 386 ||
+          getAsyncKeyStatePostIsIconicClockFirst.module?.toLowerCase() !==
+            "user32.dll" ||
+          getAsyncKeyStatePostIsIconicClockFirst.symbol !==
+            "GetAsyncKeyState" ||
+          getAsyncKeyStatePostIsIconicClockFirst.implementationId !==
+            "user32.get-async-key-state.v1" ||
+          getAsyncKeyStatePostIsIconicClockFirst.arguments?.join(",") !== "14" ||
+          getAsyncKeyStatePostIsIconicClockFirst.result?.action !== "set" ||
+          getAsyncKeyStatePostIsIconicClockFirst.result?.value !== 0 ||
+          getAsyncKeyStatePostIsIconicClockFirst.returnAddress !== 268_862_469 ||
+          getAsyncKeyStatePostIsIconicClockFirst.stackPointerBefore !==
+            7_337_996 ||
+          getAsyncKeyStatePostIsIconicClockFirst.stackPointerAfter !==
+            7_338_004 ||
+          getAsyncKeyStatePostIsIconicClockFirst.lastError !== 0 ||
+          getAsyncKeyStatePostIsIconicClockFirst.guestWrites?.length !== 0 ||
+          getAsyncKeyStatePostIsIconicClockLast.sequence !== 162_079 ||
+          getAsyncKeyStatePostIsIconicClockLast.trapInstructionCount !==
+            321_468_229 ||
+          getAsyncKeyStatePostIsIconicClockLast.runtimeThreadId !== 8_192 ||
+          getAsyncKeyStatePostIsIconicClockLast.occurrence !== 423 ||
+          getAsyncKeyStatePostIsIconicClockLast.module?.toLowerCase() !==
+            "user32.dll" ||
+          getAsyncKeyStatePostIsIconicClockLast.symbol !== "GetAsyncKeyState" ||
+          getAsyncKeyStatePostIsIconicClockLast.implementationId !==
+            "user32.get-async-key-state.v1" ||
+          getAsyncKeyStatePostIsIconicClockLast.arguments?.join(",") !== "6" ||
+          getAsyncKeyStatePostIsIconicClockLast.result?.action !== "set" ||
+          getAsyncKeyStatePostIsIconicClockLast.result?.value !== 0 ||
+          getAsyncKeyStatePostIsIconicClockLast.returnAddress !== 268_862_469 ||
+          getAsyncKeyStatePostIsIconicClockLast.stackPointerBefore !==
+            7_338_184 ||
+          getAsyncKeyStatePostIsIconicClockLast.stackPointerAfter !==
+            7_338_192 ||
+          getAsyncKeyStatePostIsIconicClockLast.lastError !== 0 ||
+          getAsyncKeyStatePostIsIconicClockLast.guestWrites?.length !== 0);
       if (
         completion.capability !== expectedCapability ||
         completion.implementationId !== expectedImplementation ||
@@ -26291,13 +26402,17 @@ export function validateCurrentCheckpoint(manifest) {
               ? 1
               : 0) ||
         completion.requiredCompletions !==
-          (getWindowRectPostPointerReleaseContinuationCheckpointActive
+          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            ? 38
+            : getWindowRectPostPointerReleaseContinuationCheckpointActive
             ? 1
             : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
               ? 4
               : 1) ||
         completion.completionCount !==
-          (getWindowRectPostPointerReleaseContinuationCheckpointActive
+          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            ? 38
+            : getWindowRectPostPointerReleaseContinuationCheckpointActive
             ? 1
             : timeGetTimePostPointerReleaseRepeatBatchCheckpointActive
               ? 4
@@ -26395,7 +26510,9 @@ export function validateCurrentCheckpoint(manifest) {
         releaseWrite.address !== 7_338_216 ||
         releaseWrite.bytes?.join(",") !== expectedMessageBytes ||
         completion.lastCompletionSequence !==
-          (timeGetTimePostIsIconicContinuationCheckpointActive
+          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            ? 162_079
+            : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 161_964
             : isIconicPostPointerReleaseContinuationCheckpointActive
             ? 161_963
@@ -26419,7 +26536,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 161_952
             : 161_950) ||
         completion.lastCompletionInstructionCount !==
-          (timeGetTimePostIsIconicContinuationCheckpointActive
+          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            ? 321_468_229
+            : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 321_463_291
             : isIconicPostPointerReleaseContinuationCheckpointActive
             ? 321_463_282
@@ -26468,8 +26587,11 @@ export function validateCurrentCheckpoint(manifest) {
         getSystemMetricsFixedFrameHeightPostReleaseInvalid ||
         isIconicPostReleaseInvalid ||
         timeGetTimePostIsIconicInvalid ||
+        getAsyncKeyStatePostIsIconicClockInvalid ||
         completion.instructionCount !==
-          (timeGetTimePostIsIconicContinuationCheckpointActive
+          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            ? 321_468_292
+            : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 321_463_448
             : isIconicPostPointerReleaseContinuationCheckpointActive
             ? 321_463_291
@@ -26495,7 +26617,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 321_462_499
             : 321_462_435) ||
         nextEndpoint.id !==
-          (timeGetTimePostIsIconicContinuationCheckpointActive
+          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            ? 0
+            : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 231
             : isIconicPostPointerReleaseContinuationCheckpointActive
             ? 8
@@ -26519,7 +26643,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 233
             : 182) ||
         nextEndpoint.address !==
-          (timeGetTimePostIsIconicContinuationCheckpointActive
+          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            ? 16_846_944
+            : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 2_130_710_112
             : isIconicPostPointerReleaseContinuationCheckpointActive
             ? 2_130_706_544
@@ -26543,7 +26669,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 2_130_710_144
             : 2_130_709_328) ||
         nextEndpoint.module?.toLowerCase() !==
-          (timeGetTimePostIsIconicContinuationCheckpointActive
+          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            ? "<com>"
+            : timeGetTimePostIsIconicContinuationCheckpointActive
             ? "user32.dll"
             : isIconicPostPointerReleaseContinuationCheckpointActive
             ? "winmm.dll"
@@ -26556,7 +26684,9 @@ export function validateCurrentCheckpoint(manifest) {
             : "user32.dll") ||
         nextEndpoint.symbol?.kind !== "name" ||
         nextEndpoint.symbol?.name !==
-          (timeGetTimePostIsIconicContinuationCheckpointActive
+          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            ? "interface-1-slot-3"
+            : timeGetTimePostIsIconicContinuationCheckpointActive
             ? "GetAsyncKeyState"
             : isIconicPostPointerReleaseContinuationCheckpointActive
             ? "timeGetTime"
@@ -26579,9 +26709,14 @@ export function validateCurrentCheckpoint(manifest) {
             : dispatchMessageAPointerReleaseContinuationCheckpointActive
             ? "DefWindowProcA"
             : "DispatchMessageA") ||
-        nextEndpoint.disposition !== "declared-runtime-export" ||
+        nextEndpoint.disposition !==
+          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            ? "declared-com-method"
+            : "declared-runtime-export") ||
         nextEndpoint.iatAddress !==
-          (timeGetTimePostIsIconicContinuationCheckpointActive
+          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            ? undefined
+            : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 269_292_660
             : isIconicPostPointerReleaseContinuationCheckpointActive
             ? 269_292_772
@@ -26604,8 +26739,15 @@ export function validateCurrentCheckpoint(manifest) {
             : dispatchMessageAPointerReleaseContinuationCheckpointActive
             ? 269_292_668
             : 269_292_464) ||
+        (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive &&
+          (nextEndpoint.interfaceIndex !== 1 ||
+            nextEndpoint.vtableSlot !== 3 ||
+            nextEndpoint.interface !== "IDirect3DDevice9" ||
+            nextEndpoint.method !== "TestCooperativeLevel")) ||
         completion.nextArguments?.join(",") !==
-          (timeGetTimePostIsIconicContinuationCheckpointActive
+          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            ? "16842756"
+            : timeGetTimePostIsIconicContinuationCheckpointActive
             ? "14,0"
             : isIconicPostPointerReleaseContinuationCheckpointActive
             ? "268995029,0"
@@ -26629,7 +26771,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? "1208025089,514,0,23593600"
             : "7338216") ||
         completion.nextReturnAddress !==
-          (timeGetTimePostIsIconicContinuationCheckpointActive
+          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            ? 268_807_629
+            : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 268_862_469
             : isIconicPostPointerReleaseContinuationCheckpointActive
             ? 269_033_151
@@ -26653,7 +26797,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 269_038_527
             : 269_039_532) ||
         completion.nextStackPointer !==
-          (timeGetTimePostIsIconicContinuationCheckpointActive
+          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            ? 7_338_228
+            : timeGetTimePostIsIconicContinuationCheckpointActive
             ? 7_337_996
             : isIconicPostPointerReleaseContinuationCheckpointActive
             ? 7_338_200
@@ -26679,7 +26825,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 7_337_228
             : 7_338_196) ||
         completion.memoryContentSha256 !==
-          (timeGetTimePostIsIconicContinuationCheckpointActive
+          (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+            ? "d4e6ec50e875a134762e7abeea2d49bbad4c2be754b407741de025ca7d78b2be"
+            : timeGetTimePostIsIconicContinuationCheckpointActive
             ? "57976ebffcc035e81358e80479bd1848454c08d85c6f024676df353ad444aaae"
             : isIconicPostPointerReleaseContinuationCheckpointActive
             ? "10137380172e018f7846166e399db43c34782052640d3c87126e1ca32555e4da"
@@ -26740,7 +26888,47 @@ export function validateCurrentCheckpoint(manifest) {
     const expectedCompletion = currentStop.completion ?? {};
     const expectedEndpoint = currentStop.nextEndpoint ?? {};
     const releaseCheckpointExpectation =
-      timeGetTimePostIsIconicContinuationCheckpointActive
+      getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+        ? {
+            nextCheckpoint:
+              "d3d9-test-cooperative-level-post-input-scan-continuation",
+            instructionCount: 321_468_292,
+            capabilityCluster: "d3d9-live-device-query-continuation",
+            reason:
+              "user32-get-async-key-state-post-is-iconic-clock-continuation-checkpoint-complete",
+            endpointKind: "com-method",
+            endpointId: 0,
+            endpointApi: "idirect3ddevice9!testcooperativelevel",
+            endpointModule: "<com>",
+            endpointAddress: "0x01011060",
+            iatAddress: undefined,
+            observedSymbol: "interface-1-slot-3",
+            disposition: "declared-com-method",
+            arguments: "0x01010004",
+            returnAddress: "0x1005adcd",
+            stackPointer: "0x006ff8f4",
+            nodeReportBytes: 3_054_152,
+            nodeReportSha256:
+              "1bace4680cec810322d4cce7744c89d253dd0da0b885e8126ad1a4641150b48f",
+            browserReportBytes: 2_755_688,
+            browserReportSha256:
+              "8411b06c39303d3ab078327bab1a6fb9b878c66d537ba547a4a393ca33e51953",
+            browserReportSchemaVersion: 63,
+            browserRuntimeProtocol: "vine.browser-runtime-worker.v96",
+            runtimeWorkerBytes: 966_515,
+            runtimeWorkerSha256:
+              "6639b3bc12ade5d4b79ee1cd944a27d8d2dcc9523b6b014f297c4186c8439c39",
+            runtimeCoreWasmBytes: 5_203_550,
+            runtimeCoreWasmSha256:
+              "c80211c37e0837ab521689c39fbf10388e4950c6b8cd4403a72c6fdd5436b400",
+            cpuSlices: 183_985,
+            writebackBatches: 183_978,
+            writebackPages: 282_705,
+            hostDeltaBatches: 127_995,
+            wasmBridgeCalls: 489_708,
+            statusMessagesObserved: 24_363,
+          }
+        : timeGetTimePostIsIconicContinuationCheckpointActive
         ? {
             nextCheckpoint:
               "user32-get-async-key-state-post-is-iconic-clock-continuation",
@@ -27244,7 +27432,19 @@ export function validateCurrentCheckpoint(manifest) {
               statusMessagesObserved: 24_345,
             };
     const expectedCompletionBoundaryInvalid =
-      timeGetTimePostIsIconicContinuationCheckpointActive
+      getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+        ? expectedCompletion.requiredCompletions !== 38 ||
+          expectedCompletion.completionCount !== 38 ||
+          expectedCompletion.firstCompletionSequence !== 161_965 ||
+          expectedCompletion.firstCompletionInstructionCount !== 321_463_448 ||
+          expectedCompletion.lastCompletionSequence !== 162_079 ||
+          expectedCompletion.lastCompletionInstructionCount !== 321_468_229 ||
+          expectedCompletion.maximumRepeatCompletions !== 16 ||
+          expectedCompletion.requiredEntries !== 1 ||
+          expectedCompletion.entryCount !== 1 ||
+          expectedCompletion.lastEntrySequence !== 161_951 ||
+          expectedCompletion.lastEntryInstructionCount !== 321_462_435
+        : timeGetTimePostIsIconicContinuationCheckpointActive
         ? expectedCompletion.requiredCompletions !== 1 ||
           expectedCompletion.completionCount !== 1 ||
           expectedCompletion.lastCompletionSequence !== 161_964 ||
@@ -27371,7 +27571,8 @@ export function validateCurrentCheckpoint(manifest) {
       expectedCompletion.capability !== expectedCapability ||
       expectedCompletion.implementationId !== expectedImplementation ||
       expectedCompletionBoundaryInvalid ||
-      expectedEndpoint.endpointKind !== "runtime-system-export" ||
+      expectedEndpoint.endpointKind !==
+        (releaseCheckpointExpectation.endpointKind ?? "runtime-system-export") ||
       expectedEndpoint.endpointId !== releaseCheckpointExpectation.endpointId ||
       expectedEndpoint.api?.toLowerCase() !== releaseCheckpointExpectation.endpointApi ||
       expectedEndpoint.endpointAddress !== releaseCheckpointExpectation.endpointAddress ||
@@ -27380,7 +27581,14 @@ export function validateCurrentCheckpoint(manifest) {
         releaseCheckpointExpectation.endpointModule ||
       expectedEndpoint.observedSymbol !==
         releaseCheckpointExpectation.observedSymbol ||
-      expectedEndpoint.disposition !== "declared-runtime-export" ||
+      expectedEndpoint.disposition !==
+        (releaseCheckpointExpectation.disposition ??
+          "declared-runtime-export") ||
+      (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive &&
+        (expectedEndpoint.interfaceIndex !== 1 ||
+          expectedEndpoint.vtableSlot !== 3 ||
+          expectedEndpoint.interface !== "IDirect3DDevice9" ||
+          expectedEndpoint.method !== "TestCooperativeLevel")) ||
       expectedEndpoint.arguments?.join(",") !==
         releaseCheckpointExpectation.arguments ||
       expectedEndpoint.returnAddress !== releaseCheckpointExpectation.returnAddress ||
@@ -27503,7 +27711,9 @@ export function validateCurrentCheckpoint(manifest) {
         const calls = completion.timeGetTimePostReleaseCompletions ?? [];
         if (
           completion.requiredCompletions !==
-            (isIconicPostPointerReleaseContinuationCheckpointActive
+            (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+              ? 38
+              : isIconicPostPointerReleaseContinuationCheckpointActive
               ? 1
               : getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
               ? 1
@@ -27517,7 +27727,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 1
               : 4) ||
           completion.completionCount !==
-            (isIconicPostPointerReleaseContinuationCheckpointActive
+            (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+              ? 38
+              : isIconicPostPointerReleaseContinuationCheckpointActive
               ? 1
               : getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointActive
               ? 1
@@ -27531,7 +27743,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 1
               : 4) ||
           completion.lastCompletionSequence !==
-            (timeGetTimePostIsIconicContinuationCheckpointActive
+            (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+              ? 162_079
+              : timeGetTimePostIsIconicContinuationCheckpointActive
               ? 161_964
               : isIconicPostPointerReleaseContinuationCheckpointActive
               ? 161_963
@@ -27547,7 +27761,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 161_958
               : 161_957) ||
           completion.lastCompletionInstructionCount !==
-            (timeGetTimePostIsIconicContinuationCheckpointActive
+            (getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+              ? 321_468_229
+              : timeGetTimePostIsIconicContinuationCheckpointActive
               ? 321_463_291
               : isIconicPostPointerReleaseContinuationCheckpointActive
               ? 321_463_282
@@ -32730,6 +32946,12 @@ export function renderReadmeStatus(manifest) {
   const nextSummary =
     next.kind === "capability-checkpoint"
       ? next.completion.capability ===
+        "user32-get-async-key-state-post-is-iconic-clock-continuation"
+        ? `\`${next.completion.capability}\` completed the reached deterministic 38-key zero-input scan through ` +
+          `sequence ${next.completion.lastCompletionSequence} / instruction ${next.completion.lastCompletionInstructionCount}; ` +
+          `verification stopped at the next \`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +
+          `(\`${next.reason}\`)`
+        : next.completion.capability ===
         "winmm-time-get-time-post-is-iconic-continuation"
         ? `\`${next.completion.capability}\` sampled the authoritative shared process clock at tick 3601228 at ` +
           `sequence ${next.completion.lastCompletionSequence} / instruction ${next.completion.lastCompletionInstructionCount}; ` +
