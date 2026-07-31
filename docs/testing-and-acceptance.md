@@ -1316,6 +1316,17 @@ digest、terminal memoryを一致させ、次の`USER32.dll!IsIconic`で停止�
 theme、DPI、multi-monitor authorityをimportせず、未到達metric variantはclaimしない。Exact instruction／
 artifact identityは`current-checkpoint.json`だけを正本とする。
 
+`user32-is-iconic-post-pointer-release-continuation`は、続く
+`IsIconic(HWND)`を既存の`user32.is-iconic.logical-window-style.v1`で完了する。Rustはlive logical
+HWNDを検証し、authoritative effective styleだけからminimized stateを読み、通常状態のwindowへ
+`FALSE`を返す。Protocol v94／browser report schema 61のNode／Chromeはsequence／occurrence／
+instruction、stdcall stack、同一runtime thread、LastError preserve、zero guest write、zero runtime-state
+mutation、empty queue、callback depth zero、直前のnonclient metric readsを含む継承evidence、ordered
+semantic digest、terminal memoryを一致させ、次の`WINMM.dll!timeGetTime`で停止する。Browser／host
+window stateをauthorityへimportせず、minimize／restore transition、invalid／stale HWNDのprimary flow、
+multi-window behaviorはclaimしない。Exact instruction／artifact identityは`current-checkpoint.json`だけを
+正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

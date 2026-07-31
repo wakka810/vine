@@ -106,7 +106,10 @@ const setFocusActionContinuationProfile =
   bgiProfile === "user32-set-focus-action-continuation";
 const timeGetTimeActionContinuationProfile =
   bgiProfile === "winmm-time-get-time-action-continuation";
+const isIconicPostPointerReleaseContinuationProfile =
+  bgiProfile === "user32-is-iconic-post-pointer-release-continuation";
 const getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationProfile =
+  isIconicPostPointerReleaseContinuationProfile ||
   bgiProfile ===
     "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation";
 const getSystemMetricsCaptionPostPointerReleaseContinuationProfile =
@@ -308,7 +311,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v93";
+const runtimeProtocol = "vine.browser-runtime-worker.v94";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -1008,6 +1011,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-get-system-metrics-post-pointer-release-continuation",
         "user32-get-system-metrics-caption-post-pointer-release-continuation",
         "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
+        "user32-is-iconic-post-pointer-release-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1097,6 +1101,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-get-system-metrics-post-pointer-release-continuation",
         "user32-get-system-metrics-caption-post-pointer-release-continuation",
         "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
+        "user32-is-iconic-post-pointer-release-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1186,6 +1191,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-get-system-metrics-post-pointer-release-continuation",
         "user32-get-system-metrics-caption-post-pointer-release-continuation",
         "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
+        "user32-is-iconic-post-pointer-release-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
@@ -3820,6 +3826,8 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           iconic.calls.length,
           windowTimerCallbackRecurringBatchProfile
             ? 61
+            : isIconicPostPointerReleaseContinuationProfile
+              ? 8
             : pointerMessageEvidenceProfile
               ? 7
             : inputProgressEvidenceProfile
@@ -3844,6 +3852,11 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
                 167_748, 167_878, 167_936, 168_070, 168_200, 168_330,
                 168_460,
               ]
+            : isIconicPostPointerReleaseContinuationProfile
+              ? [
+                  148_309, 148_430, 148_487, 161_495, 161_630, 161_688,
+                  161_819, 161_963,
+                ]
             : pointerMessageEvidenceProfile
               ? [
                   148_309, 148_430, 148_487, 161_495, 161_630, 161_688,
@@ -3889,6 +3902,11 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
                 321_751_131, 321_757_673, 321_763_547, 321_769_421,
                 321_775_374,
               ]
+            : isIconicPostPointerReleaseContinuationProfile
+              ? [
+                  148_745_985, 148_767_663, 148_772_228, 321_439_921,
+                  321_446_489, 321_451_040, 321_456_923, 321_463_282,
+                ]
             : pointerMessageEvidenceProfile
               ? [
                   148_745_985, 148_767_663, 148_772_228, 321_439_921,
@@ -6346,7 +6364,9 @@ function validateBgiEquivalence(browser, oracle) {
       oracleCheckpoint.capability ===
         "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
       oracleCheckpoint.capability ===
-        "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+        "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+      oracleCheckpoint.capability ===
+        "user32-is-iconic-post-pointer-release-continuation"
     ) {
       const normalizeThreadCall = (call) => ({
         ...normalizeSemanticCall(call),
@@ -6585,6 +6605,17 @@ function validateBgiEquivalence(browser, oracle) {
                     .runtimeThreadId,
               },
             }),
+        ...(candidate.isIconicPostRelease === undefined
+          ? {}
+          : {
+              isIconicPostReleaseActiveCallbackDepthAtCompletion:
+                candidate.isIconicPostReleaseActiveCallbackDepthAtCompletion,
+              isIconicPostRelease: {
+                ...normalizeThreadCall(candidate.isIconicPostRelease),
+                runtimeThreadId:
+                  candidate.isIconicPostRelease.runtimeThreadId,
+              },
+            }),
         instructionCount: candidate.instructionCount,
         nextEndpoint: {
           ...candidate.nextEndpoint,
@@ -6600,6 +6631,88 @@ function validateBgiEquivalence(browser, oracle) {
         oracleCheckpoint.capability,
         "Chrome Worker reached a different pointer-message capability",
       );
+      if (
+        oracleCheckpoint.capability ===
+        "user32-is-iconic-post-pointer-release-continuation"
+      ) {
+        assert.equal(oracle.supportedCallCount, 161_963);
+        assert.equal(
+          oracle.supportedCallSemanticsSha256,
+          "2c88330f91f2f237a6b3e673e93279b62b29ad98124c4bc1eeac3a0c9d942c5a",
+        );
+        assert.equal(
+          oracleCheckpoint.implementationId,
+          "runtime.user32-is-iconic-post-pointer-release-continuation.v1",
+        );
+        assert.equal(oracleCheckpoint.requiredCompletions, 1);
+        assert.equal(oracleCheckpoint.completionCount, 1);
+        assert.equal(oracleCheckpoint.lastCompletionSequence, 161_963);
+        assert.equal(
+          oracleCheckpoint.lastCompletionInstructionCount,
+          321_463_282,
+        );
+        assert.equal(
+          oracleCheckpoint.isIconicPostReleaseActiveCallbackDepthAtCompletion,
+          0,
+        );
+        const isIconic = oracleCheckpoint.isIconicPostRelease;
+        assert.equal(isIconic.runtimeThreadId, 8_192);
+        assert.equal(isIconic.sequence, 161_963);
+        assert.equal(isIconic.occurrence, 8);
+        assert.equal(isIconic.trapInstructionCount, 321_463_282);
+        assert.equal(isIconic.module.toLowerCase(), "user32.dll");
+        assert.equal(isIconic.symbol, "IsIconic");
+        assert.equal(
+          isIconic.implementationId,
+          "user32.is-iconic.logical-window-style.v1",
+        );
+        assert.deepEqual(isIconic.arguments, [0x4801_0001]);
+        assert.deepEqual(isIconic.result, { action: "set", value: 0 });
+        assert.equal(isIconic.returnAddress, 0x1008_89c4);
+        assert.equal(isIconic.stackPointerBefore, 0x006f_f8d8);
+        assert.equal(isIconic.stackPointerAfter, 0x006f_f8e0);
+        assert.equal(isIconic.lastError, 0);
+        assert.deepEqual(isIconic.guestWrites, []);
+        assert.equal(oracleCheckpoint.activeCallbackDepthAtStop, 0);
+        assert.equal(oracleCheckpoint.instructionCount, 321_463_291);
+        assert.deepEqual(oracleCheckpoint.nextEndpoint, {
+          id: 8,
+          address: 0x7f00_0070,
+          module: "WINMM.dll",
+          symbol: { kind: "name", name: "timeGetTime" },
+          disposition: "declared-runtime-export",
+          iatAddress: 0x100d_14e4,
+        });
+        assert.deepEqual(oracleCheckpoint.nextArguments, [0x1008_89d5, 0]);
+        assert.equal(oracleCheckpoint.nextReturnAddress, 0x1009_1ebf);
+        assert.equal(oracleCheckpoint.nextStackPointer, 0x006f_f8d8);
+        assert.equal(
+          oracleCheckpoint.memoryContentSha256,
+          "10137380172e018f7846166e399db43c34782052640d3c87126e1ca32555e4da",
+        );
+        assert.equal(oracle.synchronization.writebackBatches, 165_117);
+        assert.equal(oracle.synchronization.dirtyPages, 244_483);
+        assert.equal(oracle.synchronization.changedBytes, 43_070_766);
+        assert.equal(oracle.synchronization.hostDeltaBatches, 127_939);
+        assert.equal(oracle.synchronization.finalGeneration, 296_338);
+        assert.equal(oracle.threadExecution.contextSwitches, 2_512);
+        assert.equal(browser.report.writebackBatches, 183_862);
+        assert.equal(browser.report.writebackPages, 282_524);
+        assert.equal(browser.report.mappingDeltas, 127_939);
+        assert.equal(browser.report.mappingDirtyPages, 150_344);
+        assert.equal(browser.report.instructions, 321_463_291);
+        assert.equal(browser.report.slices, 183_869);
+        assert.equal(browser.report.budgetYields, 18_752);
+        assert.equal(browser.report.executionTransitionCount, 588_698);
+        assert.equal(browser.report.initialGeneration, 27);
+        assert.equal(browser.report.finalGeneration, 314_977);
+        assert.equal(browser.report.contextSwitches, 2_512);
+        assert.equal(browser.report.callbackEntries, 34);
+        assert.equal(browser.report.maximumCallbackDepth, 3);
+        assert.equal(browser.report.wasmBridgeCalls, 489_411);
+        assert.equal(browser.statusMessagesObserved, 24_347);
+        assert.equal(browser.statusMessagesRetained, 4_096);
+      }
       if (
         oracleCheckpoint.capability ===
         "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"

@@ -669,7 +669,8 @@ function isInputProgressGatewayCheckpoint(
     profile ===
       "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
     profile ===
-      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+    profile === "user32-is-iconic-post-pointer-release-continuation"
   );
 }
 
@@ -697,7 +698,8 @@ function isActionInputProgressGatewayCheckpoint(
     profile ===
       "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
     profile ===
-      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+    profile === "user32-is-iconic-post-pointer-release-continuation"
   );
 }
 
@@ -738,7 +740,8 @@ function isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
     profile ===
       "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
     profile ===
-      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+    profile === "user32-is-iconic-post-pointer-release-continuation"
   );
 }
 
@@ -865,8 +868,15 @@ function isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpo
 ): boolean {
   return (
     profile ===
-    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+    isIsIconicPostPointerReleaseContinuationCheckpoint(profile)
   );
+}
+
+function isIsIconicPostPointerReleaseContinuationCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "user32-is-iconic-post-pointer-release-continuation";
 }
 
 function hasDispatchMessageAPointerReleaseContinuation(
@@ -973,7 +983,15 @@ function isRecurringTimerBoundedWindowCheckpoint(
 function recurringTimerWindowConfiguration(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  return isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
+  return isIsIconicPostPointerReleaseContinuationCheckpoint(profile)
+    ? ({
+        capability: "user32-is-iconic-post-pointer-release-continuation",
+        implementationId:
+          "runtime.user32-is-iconic-post-pointer-release-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      } as const)
+    : isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
     profile,
   )
     ? ({
@@ -1300,6 +1318,8 @@ function windowTimerCallbackRecurringBatchExpectation() {
 function inputProgressGatewayExpectation(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
+  const isIconicPostRelease =
+    isIsIconicPostPointerReleaseContinuationCheckpoint(profile);
   const getSystemMetricsFixedFrameHeightPostRelease =
     isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
       profile,
@@ -1335,7 +1355,9 @@ function inputProgressGatewayExpectation(
     isWindowTimerCallbackActionInputProgressGatewayCheckpoint(profile);
   const action = isActionInputProgressGatewayCheckpoint(profile);
   return {
-    capability: getSystemMetricsFixedFrameHeightPostRelease
+    capability: isIconicPostRelease
+      ? "user32-is-iconic-post-pointer-release-continuation"
+      : getSystemMetricsFixedFrameHeightPostRelease
       ? "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
       : getSystemMetricsCaptionPostRelease
       ? "user32-get-system-metrics-caption-post-pointer-release-continuation"
@@ -1372,7 +1394,9 @@ function inputProgressGatewayExpectation(
       : action
       ? "primary-main-loop-action-input-progress-gateway"
       : "primary-main-loop-input-progress-gateway",
-    implementationId: getSystemMetricsFixedFrameHeightPostRelease
+    implementationId: isIconicPostRelease
+      ? "runtime.user32-is-iconic-post-pointer-release-continuation.v1"
+      : getSystemMetricsFixedFrameHeightPostRelease
       ? "runtime.user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation.v1"
       : getSystemMetricsCaptionPostRelease
       ? "runtime.user32-get-system-metrics-caption-post-pointer-release-continuation.v1"
@@ -2177,7 +2201,8 @@ type PostPointerReleaseContinuationCheckpoint = Extract<
       | "user32-get-cursor-pos-post-pointer-release-continuation"
       | "user32-get-system-metrics-post-pointer-release-continuation"
       | "user32-get-system-metrics-caption-post-pointer-release-continuation"
-      | "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation";
+      | "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+      | "user32-is-iconic-post-pointer-release-continuation";
   }
 >;
 
@@ -2291,6 +2316,28 @@ type GetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint =
     getSystemMetricsCaptionPostRelease: RuntimeThreadCallSnapshot;
     getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion: 0;
     getSystemMetricsFixedFrameHeightPostRelease: RuntimeThreadCallSnapshot;
+  };
+
+type IsIconicPostPointerReleaseContinuationCheckpoint =
+  PostPointerReleaseContinuationCheckpoint & {
+    capability: "user32-is-iconic-post-pointer-release-continuation";
+    implementationId: "runtime.user32-is-iconic-post-pointer-release-continuation.v1";
+    timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0;
+    timeGetTimePostRelease: RuntimeThreadCallSnapshot;
+    maximumRepeatCompletions: 16;
+    timeGetTimePostReleaseCompletions: RuntimeThreadCallSnapshot[];
+    getWindowRectPostReleaseActiveCallbackDepthAtCompletion: 0;
+    getWindowRectPostRelease: RuntimeThreadCallSnapshot;
+    getCursorPosPostReleaseActiveCallbackDepthAtCompletion: 0;
+    getCursorPosPostRelease: RuntimeThreadCallSnapshot;
+    getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion: 0;
+    getSystemMetricsPostRelease: RuntimeThreadCallSnapshot;
+    getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion: 0;
+    getSystemMetricsCaptionPostRelease: RuntimeThreadCallSnapshot;
+    getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion: 0;
+    getSystemMetricsFixedFrameHeightPostRelease: RuntimeThreadCallSnapshot;
+    isIconicPostReleaseActiveCallbackDepthAtCompletion: 0;
+    isIconicPostRelease: RuntimeThreadCallSnapshot;
   };
 
 type PeekMessageAPostPointerReleaseContinuationEntry = Omit<
@@ -2605,6 +2652,21 @@ type GetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry =
     | "nextStackPointer"
     | "memoryContentSha256"
   >;
+
+type IsIconicPostPointerReleaseContinuationEntry = Omit<
+  IsIconicPostPointerReleaseContinuationCheckpoint,
+  | "requiredCompletions"
+  | "completionCount"
+  | "isIconicPostReleaseActiveCallbackDepthAtCompletion"
+  | "isIconicPostRelease"
+  | "activeCallbackDepthAtStop"
+  | "instructionCount"
+  | "nextEndpoint"
+  | "nextArguments"
+  | "nextReturnAddress"
+  | "nextStackPointer"
+  | "memoryContentSha256"
+>;
 
 type WindowTimerCallbackDeliveryGatewayCheckpoint = Extract<
   NonNullable<SessionReport["checkpointCompletion"]>,
@@ -3157,6 +3219,9 @@ class BrowserRuntimeSession {
     null;
   #getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationDispatching =
     false;
+  #isIconicPostPointerReleaseContinuationEntry: IsIconicPostPointerReleaseContinuationEntry | null =
+    null;
+  #isIconicPostPointerReleaseContinuationDispatching = false;
   readonly #presentationProgressRenderCompletions: RuntimeThreadCallSnapshot[] =
     [];
   #presentationProgressPresentCompletion: RuntimeThreadCallSnapshot | null =
@@ -6744,6 +6809,36 @@ class BrowserRuntimeSession {
       this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationDispatching =
         true;
     }
+    if (this.#isIconicPostPointerReleaseContinuationEntry !== null) {
+      const ownedEndpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpoint,
+      );
+      const engine = this.#requireEngine();
+      invariant(
+        isIsIconicPostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+          ownedEndpoint?.id === 183 &&
+          ownedEndpoint.module?.toLowerCase() === "user32.dll" &&
+          ownedEndpoint.symbol?.kind === "name" &&
+          ownedEndpoint.symbol.name === "IsIconic" &&
+          stackPointer === 0x006f_f8d8 &&
+          engine.readGuestU32(stackPointer) === 0x1008_89c4 &&
+          engine.readGuestU32(stackPointer + 4) === 0x4801_0001 &&
+          this.#report.instructions === 321_463_282 &&
+          this.#nextBgiCallSequence === 161_962 &&
+          this.#currentThreadId === 8_192 &&
+          this.#report.checkpointCompletion === null &&
+          !this.#isIconicPostPointerReleaseContinuationDispatching &&
+          this
+              .#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry ===
+            null &&
+          !this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationDispatching &&
+          this.#bgiCallbackCallSequences.size === 0,
+        "post-release IsIconic continuation reached a different API, sequence, stack frame, or callback state",
+      );
+      this.#isIconicPostPointerReleaseContinuationDispatching = true;
+    }
     if (this.#defWindowProcAPointerReleaseContinuationEntry !== null) {
       const ownedEndpoint = this.#requirePrepared().endpoints.find(
         (candidate) => candidate.address === endpoint,
@@ -7759,6 +7854,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
           checkpoint.capability ===
+            "user32-is-iconic-post-pointer-release-continuation" ||
+          checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -7874,7 +7971,9 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
       checkpoint.capability ===
-        "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+        "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+      checkpoint.capability ===
+        "user32-is-iconic-post-pointer-release-continuation"
     ) {
       invariant(
         this.#bgiCallbackCallSequences.size === 0 &&
@@ -7897,6 +7996,8 @@ class BrowserRuntimeSession {
               .#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry ===
             null &&
           !this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationDispatching &&
+          this.#isIconicPostPointerReleaseContinuationEntry === null &&
+          !this.#isIconicPostPointerReleaseContinuationDispatching &&
           this.#peekMessageAPostPointerReleaseContinuationEntry === null &&
           !this.#peekMessageAPostPointerReleaseContinuationDispatching &&
           this.#peekMessageAPostPointerReleaseBytesBefore === null &&
@@ -8094,6 +8195,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
       checkpoint.capability ===
+        "user32-is-iconic-post-pointer-release-continuation" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -8185,7 +8288,9 @@ class BrowserRuntimeSession {
                     checkpoint.capability ===
                       "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
                     checkpoint.capability ===
-                      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+                      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+                    checkpoint.capability ===
+                      "user32-is-iconic-post-pointer-release-continuation"
                   ? [
                       this.#requireEngine().readGuestU32(stackPointer + 4),
                       this.#requireEngine().readGuestU32(stackPointer + 8),
@@ -8423,6 +8528,37 @@ class BrowserRuntimeSession {
     }
     if (
       checkpoint.capability ===
+      "user32-is-iconic-post-pointer-release-continuation"
+    ) {
+      invariant(
+        this.#report.instructions === 321_463_291 &&
+          checkpoint.instructionCount === 321_463_291 &&
+          checkpoint.nextEndpoint.id === 8 &&
+          checkpoint.nextEndpoint.address === 0x7f00_0070 &&
+          checkpoint.nextEndpoint.disposition === "declared-runtime-export" &&
+          checkpoint.nextEndpoint.iatAddress === 0x100d_14e4 &&
+          checkpoint.nextEndpoint.module?.toLowerCase() === "winmm.dll" &&
+          checkpoint.nextEndpoint.symbol?.kind === "name" &&
+          checkpoint.nextEndpoint.symbol.name === "timeGetTime" &&
+          checkpoint.nextArguments.join(",") === "268995029,0" &&
+          checkpoint.nextReturnAddress === 0x1009_1ebf &&
+          checkpoint.nextStackPointer === 0x006f_f8d8 &&
+          checkpoint.memoryContentSha256 ===
+            "10137380172e018f7846166e399db43c34782052640d3c87126e1ca32555e4da",
+        `post-release IsIconic continuation reached a different timeGetTime boundary: ${JSON.stringify(
+          {
+            instructions: this.#report.instructions,
+            nextEndpoint: checkpoint.nextEndpoint,
+            nextArguments: checkpoint.nextArguments,
+            nextReturnAddress: checkpoint.nextReturnAddress,
+            nextStackPointer: checkpoint.nextStackPointer,
+            memoryContentSha256: checkpoint.memoryContentSha256,
+          },
+        )}`,
+      );
+    }
+    if (
+      checkpoint.capability ===
       "winmm-time-get-time-post-pointer-release-repeat-batch"
     ) {
       invariant(
@@ -8636,6 +8772,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
       checkpoint.capability ===
+        "user32-is-iconic-post-pointer-release-continuation" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -8687,6 +8825,9 @@ class BrowserRuntimeSession {
                       : checkpoint.capability ===
                           "user32-translate-message-pointer-release-continuation"
                         ? "USER32 TranslateMessage pointer-release continuation checkpoint completed"
+                      : checkpoint.capability ===
+                          "user32-is-iconic-post-pointer-release-continuation"
+                        ? "USER32 IsIconic post-pointer-release continuation checkpoint completed"
                       : checkpoint.capability ===
                           "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
                         ? "USER32 GetSystemMetrics fixed-frame height post-pointer-release continuation checkpoint completed"
@@ -10423,15 +10564,119 @@ class BrowserRuntimeSession {
           },
         )}`,
       );
+      const completedFixedFrameHeightMetric = {
+        ...structuredClone(call),
+        runtimeThreadId: this.#currentThreadId,
+        trapInstructionCount: this.#report.instructions,
+        occurrence: implementationOccurrence,
+      } satisfies RuntimeThreadCallSnapshot;
+      if (
+        isIsIconicPostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        )
+      ) {
+        invariant(
+          this.#isIconicPostPointerReleaseContinuationEntry === null &&
+            !this.#isIconicPostPointerReleaseContinuationDispatching,
+          "post-release IsIconic continuation was already armed",
+        );
+        this.#isIconicPostPointerReleaseContinuationEntry = {
+          ...entry,
+          capability: "user32-is-iconic-post-pointer-release-continuation",
+          implementationId:
+            "runtime.user32-is-iconic-post-pointer-release-continuation.v1",
+          lastCompletionSequence: sequence,
+          lastCompletionInstructionCount: this.#report.instructions,
+          getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion:
+            0,
+          getSystemMetricsFixedFrameHeightPostRelease:
+            completedFixedFrameHeightMetric,
+        } satisfies IsIconicPostPointerReleaseContinuationEntry;
+      } else {
+        this.#report.checkpointCompletion = {
+          ...entry,
+          requiredCompletions: 1,
+          completionCount: 1,
+          lastCompletionSequence: sequence,
+          lastCompletionInstructionCount: this.#report.instructions,
+          getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion:
+            0,
+          getSystemMetricsFixedFrameHeightPostRelease:
+            completedFixedFrameHeightMetric,
+          activeCallbackDepthAtStop: 0,
+          instructionCount: 0,
+          nextEndpoint: {
+            id: 0,
+            address: 0,
+            disposition: "declared-runtime-export" as const,
+            iatAddress: 0,
+          },
+          nextArguments: [],
+          nextReturnAddress: 0,
+          nextStackPointer: 0,
+          memoryContentSha256: "",
+        } satisfies GetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint;
+        this.#bgiCheckpointPending = true;
+      }
+      this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry =
+        null;
+      this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationDispatching =
+        false;
+    }
+    if (
+      isIsIconicPostPointerReleaseContinuationCheckpoint(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#isIconicPostPointerReleaseContinuationDispatching &&
+      completion.implementationId ===
+        "user32.is-iconic.logical-window-style.v1"
+    ) {
+      const entry = this.#isIconicPostPointerReleaseContinuationEntry;
+      invariant(
+        entry !== null &&
+          entry.capability ===
+            "user32-is-iconic-post-pointer-release-continuation" &&
+          this.#report.checkpointCompletion === null &&
+          endpoint.id === 183 &&
+          endpoint.module.toLowerCase() === "user32.dll" &&
+          endpoint.symbol.kind === "name" &&
+          endpoint.symbol.name === "IsIconic" &&
+          this.#currentThreadId === 8_192 &&
+          sequence === 161_963 &&
+          this.#report.instructions === 321_463_282 &&
+          implementationOccurrence === 8 &&
+          call.arguments.join(",") === "1208025089" &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 0 &&
+          call.returnAddress === 0x1008_89c4 &&
+          call.stackPointerBefore === 0x006f_f8d8 &&
+          call.stackPointerAfter === 0x006f_f8e0 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0 &&
+          this.#bgiCallbackCallSequences.size === 0,
+        `post-release IsIconic continuation changed its logical minimized-state or callback contract: ${JSON.stringify(
+          {
+            hasEntry: entry !== null,
+            hasCheckpoint: this.#report.checkpointCompletion !== null,
+            endpoint,
+            currentThreadId: this.#currentThreadId,
+            sequence,
+            instructionCount: this.#report.instructions,
+            implementationOccurrence,
+            call,
+            activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+          },
+        )}`,
+      );
       this.#report.checkpointCompletion = {
         ...entry,
         requiredCompletions: 1,
         completionCount: 1,
         lastCompletionSequence: sequence,
         lastCompletionInstructionCount: this.#report.instructions,
-        getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion:
-          0,
-        getSystemMetricsFixedFrameHeightPostRelease: {
+        isIconicPostReleaseActiveCallbackDepthAtCompletion: 0,
+        isIconicPostRelease: {
           ...structuredClone(call),
           runtimeThreadId: this.#currentThreadId,
           trapInstructionCount: this.#report.instructions,
@@ -10449,11 +10694,9 @@ class BrowserRuntimeSession {
         nextReturnAddress: 0,
         nextStackPointer: 0,
         memoryContentSha256: "",
-      } satisfies GetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint;
-      this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry =
-        null;
-      this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationDispatching =
-        false;
+      } satisfies IsIconicPostPointerReleaseContinuationCheckpoint;
+      this.#isIconicPostPointerReleaseContinuationEntry = null;
+      this.#isIconicPostPointerReleaseContinuationDispatching = false;
       this.#bgiCheckpointPending = true;
     }
     if (
@@ -20054,6 +20297,9 @@ class BrowserRuntimeSession {
         isGetSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpoint(
           this.#configuration.capabilityProfile,
         ) &&
+        !isIsIconicPostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
         terminal.outcome === "checkpoint-complete"
       ) {
         const checkpoint = this.#report
@@ -20183,6 +20429,127 @@ class BrowserRuntimeSession {
               wasmBridgeCalls: this.#bridge?.callCount(),
             },
           )}`,
+        );
+      }
+      if (
+        isIsIconicPostPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report
+          .checkpointCompletion as IsIconicPostPointerReleaseContinuationCheckpoint | null;
+        const fixedHeightMetric =
+          checkpoint?.getSystemMetricsFixedFrameHeightPostRelease;
+        const isIconic = checkpoint?.isIconicPostRelease;
+        invariant(
+          this.#report.supportedCallCount === 161_963 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "2c88330f91f2f237a6b3e673e93279b62b29ad98124c4bc1eeac3a0c9d942c5a" &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability ===
+              "user32-is-iconic-post-pointer-release-continuation" &&
+            checkpoint.implementationId ===
+              "runtime.user32-is-iconic-post-pointer-release-continuation.v1" &&
+            checkpoint.requiredCompletions === 1 &&
+            checkpoint.completionCount === 1 &&
+            checkpoint.lastCompletionSequence === 161_963 &&
+            checkpoint.lastCompletionInstructionCount === 321_463_282 &&
+            checkpoint.getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion ===
+              0 &&
+            fixedHeightMetric !== undefined &&
+            fixedHeightMetric.runtimeThreadId === 8_192 &&
+            fixedHeightMetric.sequence === 161_962 &&
+            fixedHeightMetric.occurrence === 68 &&
+            fixedHeightMetric.trapInstructionCount === 321_463_139 &&
+            fixedHeightMetric.arguments.join(",") === "8" &&
+            "action" in fixedHeightMetric.result &&
+            fixedHeightMetric.result.action === "set" &&
+            fixedHeightMetric.result.value === 3 &&
+            fixedHeightMetric.guestWrites.length === 0 &&
+            checkpoint.isIconicPostReleaseActiveCallbackDepthAtCompletion ===
+              0 &&
+            isIconic !== undefined &&
+            isIconic.runtimeThreadId === 8_192 &&
+            isIconic.sequence === 161_963 &&
+            isIconic.occurrence === 8 &&
+            isIconic.trapInstructionCount === 321_463_282 &&
+            isIconic.module.toLowerCase() === "user32.dll" &&
+            isIconic.symbol === "IsIconic" &&
+            isIconic.implementationId ===
+              "user32.is-iconic.logical-window-style.v1" &&
+            isIconic.arguments.join(",") === "1208025089" &&
+            "action" in isIconic.result &&
+            isIconic.result.action === "set" &&
+            isIconic.result.value === 0 &&
+            isIconic.returnAddress === 0x1008_89c4 &&
+            isIconic.stackPointerBefore === 0x006f_f8d8 &&
+            isIconic.stackPointerAfter === 0x006f_f8e0 &&
+            isIconic.lastError === 0 &&
+            isIconic.guestWrites.length === 0 &&
+            checkpoint.activeCallbackDepthAtStop === 0 &&
+            checkpoint.instructionCount === 321_463_291 &&
+            checkpoint.nextEndpoint.id === 8 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0070 &&
+            checkpoint.nextEndpoint.disposition ===
+              "declared-runtime-export" &&
+            checkpoint.nextEndpoint.module?.toLowerCase() === "winmm.dll" &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "timeGetTime" &&
+            checkpoint.nextEndpoint.iatAddress === 0x100d_14e4 &&
+            checkpoint.nextArguments.join(",") === "268995029,0" &&
+            checkpoint.nextReturnAddress === 0x1009_1ebf &&
+            checkpoint.nextStackPointer === 0x006f_f8d8 &&
+            checkpoint.memoryContentSha256 ===
+              "10137380172e018f7846166e399db43c34782052640d3c87126e1ca32555e4da" &&
+            this.#report.instructions === 321_463_291 &&
+            Number(this.#generation) === 314_977 &&
+            this.#report.writebackBatches === 183_862 &&
+            this.#report.writebackPages === 282_524 &&
+            this.#report.mappingDeltas === 127_939 &&
+            this.#report.mappingDirtyPages === 150_344 &&
+            this.#report.slices === 183_869 &&
+            this.#report.budgetYields === 18_752 &&
+            execution.transitionCount === 588_698 &&
+            this.#report.contextSwitches === 2_512 &&
+            this.#bridge?.callCount() === 489_411 &&
+            this.#bgiCallbackCallSequences.size === 0 &&
+            this.#timeGetTimePostPointerReleaseContinuationEntry === null &&
+            !this.#timeGetTimePostPointerReleaseContinuationDispatching &&
+            this.#timeGetTimePostPointerReleaseRepeatCompletions.length === 4 &&
+            this.#getWindowRectPostPointerReleaseContinuationEntry === null &&
+            !this.#getWindowRectPostPointerReleaseContinuationDispatching &&
+            this.#getCursorPosPostPointerReleaseContinuationEntry === null &&
+            !this.#getCursorPosPostPointerReleaseContinuationDispatching &&
+            this.#getSystemMetricsPostPointerReleaseContinuationEntry ===
+              null &&
+            !this.#getSystemMetricsPostPointerReleaseContinuationDispatching &&
+            this.#getSystemMetricsCaptionPostPointerReleaseContinuationEntry ===
+              null &&
+            !this.#getSystemMetricsCaptionPostPointerReleaseContinuationDispatching &&
+            this
+                .#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry ===
+              null &&
+            !this.#getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationDispatching &&
+            this.#isIconicPostPointerReleaseContinuationEntry === null &&
+            !this.#isIconicPostPointerReleaseContinuationDispatching,
+          `post-release IsIconic continuation changed: ${JSON.stringify({
+            supportedCallCount: this.#report.supportedCallCount,
+            supportedCallSemanticsSha256:
+              this.#report.supportedCallSemanticsSha256,
+            checkpoint,
+            instructions: this.#report.instructions,
+            finalGeneration: Number(this.#generation),
+            writebackBatches: this.#report.writebackBatches,
+            writebackPages: this.#report.writebackPages,
+            mappingDeltas: this.#report.mappingDeltas,
+            mappingDirtyPages: this.#report.mappingDirtyPages,
+            slices: this.#report.slices,
+            budgetYields: this.#report.budgetYields,
+            contextSwitches: this.#report.contextSwitches,
+            transitionCount: execution.transitionCount,
+            wasmBridgeCalls: this.#bridge?.callCount(),
+          })}`,
         );
       }
       if (

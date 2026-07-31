@@ -71,7 +71,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 60);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 61);
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
 const lastPacingRequest = { requestId: "4708", sequence: 89_218 };
@@ -613,7 +613,9 @@ if (
 }
 if (
   checkpoint.nextStructuredStop.completion.capability ===
-    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-is-iconic-post-pointer-release-continuation"
 ) {
   const stalePostReleaseFixedFrameHeightMetric = mutated((value) => {
     value.semantic.node.checkpointCompletion.getSystemMetricsFixedFrameHeightPostRelease.result.value =
@@ -627,6 +629,20 @@ if (
       error.includes(
         "getSystemMetricsFixedFrameHeightPostRelease.result.value",
       ),
+    ),
+  );
+}
+if (
+  checkpoint.nextStructuredStop.completion.capability ===
+    "user32-is-iconic-post-pointer-release-continuation"
+) {
+  const staleIsIconicResult = mutated((value) => {
+    value.semantic.node.checkpointCompletion.isIconicPostRelease.result.value =
+      1;
+  });
+  assert(
+    validatePrivateTargetEvidence(staleIsIconicResult, checkpoint).some(
+      (error) => error.includes("isIconicPostRelease.result.value"),
     ),
   );
 }

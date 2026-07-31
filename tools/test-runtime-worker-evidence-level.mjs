@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 93 as const/u);
+assert.match(protocol, /protocolVersion = 94 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -92,6 +92,10 @@ assert.match(
 );
 assert.match(
   protocol,
+  /"user32-is-iconic-post-pointer-release-continuation"/u,
+);
+assert.match(
+  protocol,
   /capability: "winmm-time-get-time-action-continuation";[\s\S]*?setFocusActiveCallbackDepthAtStop: 1;[\s\S]*?activeCallbackDepthAtStop: 1;[\s\S]*?setFocus: RuntimeThreadCallSnapshot;[\s\S]*?lastCompletionSequence: number;[\s\S]*?lastCompletionInstructionCount: number;[\s\S]*?timeGetTime: RuntimeThreadCallSnapshot;[\s\S]*?nextArguments: \[number, number, number, number\];/u,
 );
 assert.match(
@@ -145,6 +149,10 @@ assert.match(
 assert.match(
   protocol,
   /capability:[\s\S]*?"user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation";[\s\S]*?implementationId:[\s\S]*?"runtime\.user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation\.v1";[\s\S]*?requiredCompletions: 1;[\s\S]*?completionCount: 1;[\s\S]*?getSystemMetricsCaptionPostRelease: RuntimeThreadCallSnapshot;[\s\S]*?getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion: 0;[\s\S]*?getSystemMetricsFixedFrameHeightPostRelease: RuntimeThreadCallSnapshot;/u,
+);
+assert.match(
+  protocol,
+  /capability: "user32-is-iconic-post-pointer-release-continuation";[\s\S]*?implementationId: "runtime\.user32-is-iconic-post-pointer-release-continuation\.v1";[\s\S]*?requiredCompletions: 1;[\s\S]*?completionCount: 1;[\s\S]*?getSystemMetricsFixedFrameHeightPostRelease: RuntimeThreadCallSnapshot;[\s\S]*?isIconicPostReleaseActiveCallbackDepthAtCompletion: 0;[\s\S]*?isIconicPostRelease: RuntimeThreadCallSnapshot;/u,
 );
 assert.match(protocol, /windowTimerDelivery\?: \{/u);
 assert.match(

@@ -143,7 +143,11 @@ function validatePointerReleaseCompletion(
     `${label}.releaseCallbackReturn`,
     errors,
   );
+  const postReleaseIsIconic =
+    expected.capability ===
+    "user32-is-iconic-post-pointer-release-continuation";
   const postReleaseGetSystemMetricsFixedFrameHeight =
+    postReleaseIsIconic ||
     expected.capability ===
     "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation";
   const postReleaseGetSystemMetricsCaption =
@@ -174,7 +178,9 @@ function validatePointerReleaseCompletion(
     postReleaseTimeGetTime ||
     expected.capability ===
       "user32-peek-message-a-post-pointer-release-continuation";
-  const finalCallName = postReleaseGetSystemMetricsFixedFrameHeight
+  const finalCallName = postReleaseIsIconic
+    ? "isIconicPostRelease"
+    : postReleaseGetSystemMetricsFixedFrameHeight
     ? "getSystemMetricsFixedFrameHeightPostRelease"
     : postReleaseGetSystemMetricsCaption
     ? "getSystemMetricsCaptionPostRelease"
@@ -210,7 +216,13 @@ function validatePointerReleaseCompletion(
         errors,
       )
     : {};
-  const finalCall = postReleaseGetSystemMetricsFixedFrameHeight
+  const finalCall = postReleaseIsIconic
+    ? requireRecord(
+        completion.isIconicPostRelease,
+        `${label}.isIconicPostRelease`,
+        errors,
+      )
+    : postReleaseGetSystemMetricsFixedFrameHeight
     ? requireRecord(
         completion.getSystemMetricsFixedFrameHeightPostRelease,
         `${label}.getSystemMetricsFixedFrameHeightPostRelease`,
@@ -810,6 +822,50 @@ function validatePointerReleaseCompletion(
         actual,
         expectedValue,
         `${label}.getSystemMetricsFixedFrameHeightPostRelease.${field}`,
+        errors,
+      );
+    }
+  }
+  if (postReleaseIsIconic) {
+    const isIconic = requireRecord(
+      completion.isIconicPostRelease,
+      `${label}.isIconicPostRelease`,
+      errors,
+    );
+    const guestWrites = Array.isArray(isIconic.guestWrites)
+      ? isIconic.guestWrites
+      : (errors.push(`${label}.isIconicPostRelease.guestWrites must be an array`),
+        []);
+    for (const [field, actual, expectedValue] of [
+      ["sequence", isIconic.sequence, 161_963],
+      ["runtimeThreadId", isIconic.runtimeThreadId, 8_192],
+      ["module", isIconic.module?.toLowerCase(), "user32.dll"],
+      ["symbol", isIconic.symbol, "IsIconic"],
+      ["occurrence", isIconic.occurrence, 8],
+      ["trapInstructionCount", isIconic.trapInstructionCount, 321_463_282],
+      [
+        "implementationId",
+        isIconic.implementationId,
+        "user32.is-iconic.logical-window-style.v1",
+      ],
+      ["arguments", isIconic.arguments?.join(","), "1208025089"],
+      ["result.action", isIconic.result?.action, "set"],
+      ["result.value", isIconic.result?.value, 0],
+      ["returnAddress", isIconic.returnAddress, 268_995_012],
+      ["stackPointerBefore", isIconic.stackPointerBefore, 7_338_200],
+      ["stackPointerAfter", isIconic.stackPointerAfter, 7_338_208],
+      ["lastError", isIconic.lastError, 0],
+      ["guestWrites.length", guestWrites.length, 0],
+      [
+        "activeCallbackDepthAtCompletion",
+        completion.isIconicPostReleaseActiveCallbackDepthAtCompletion,
+        0,
+      ],
+    ]) {
+      checkEqual(
+        actual,
+        expectedValue,
+        `${label}.isIconicPostRelease.${field}`,
         errors,
       );
     }

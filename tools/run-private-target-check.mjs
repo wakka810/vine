@@ -223,7 +223,11 @@ function assertCapabilityCheckpoint(
     assert.equal(actual.queueDepthAtDispatchEntry, 0);
     assert.equal(actual.dispatchMessageReleaseBytesPreserved, true);
     if (expected.completion.requiredCompletions !== undefined) {
+      const postReleaseIsIconic =
+        expected.completion.capability ===
+        "user32-is-iconic-post-pointer-release-continuation";
       const postReleaseGetSystemMetricsFixedFrameHeight =
+        postReleaseIsIconic ||
         expected.completion.capability ===
         "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation";
       const postReleaseGetSystemMetricsCaption =
@@ -528,11 +532,11 @@ function assertCapabilityCheckpoint(
               assert(getSystemMetricsFixedFrameHeight !== undefined);
               assert.equal(
                 getSystemMetricsFixedFrameHeight.sequence,
-                actual.lastCompletionSequence,
+                161_962,
               );
               assert.equal(
                 getSystemMetricsFixedFrameHeight.trapInstructionCount,
-                actual.lastCompletionInstructionCount,
+                321_463_139,
               );
               assert.equal(
                 getSystemMetricsFixedFrameHeight.runtimeThreadId,
@@ -575,6 +579,37 @@ function assertCapabilityCheckpoint(
                   .getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion,
                 0,
               );
+              if (postReleaseIsIconic) {
+                const isIconic = actual.isIconicPostRelease;
+                assert(isIconic !== undefined);
+                assert.equal(isIconic.sequence, actual.lastCompletionSequence);
+                assert.equal(
+                  isIconic.trapInstructionCount,
+                  actual.lastCompletionInstructionCount,
+                );
+                assert.equal(isIconic.runtimeThreadId, 8_192);
+                assert.equal(isIconic.module.toLowerCase(), "user32.dll");
+                assert.equal(isIconic.symbol, "IsIconic");
+                assert.equal(isIconic.occurrence, 8);
+                assert.equal(
+                  isIconic.implementationId,
+                  "user32.is-iconic.logical-window-style.v1",
+                );
+                assert.deepEqual(isIconic.arguments, [0x4801_0001]);
+                assert.deepEqual(isIconic.result, {
+                  action: "set",
+                  value: 0,
+                });
+                assert.equal(isIconic.returnAddress, 268_995_012);
+                assert.equal(isIconic.stackPointerBefore, 7_338_200);
+                assert.equal(isIconic.stackPointerAfter, 7_338_208);
+                assert.equal(isIconic.lastError, 0);
+                assert.equal(isIconic.guestWrites.length, 0);
+                assert.equal(
+                  actual.isIconicPostReleaseActiveCallbackDepthAtCompletion,
+                  0,
+                );
+              }
             }
           }
         }

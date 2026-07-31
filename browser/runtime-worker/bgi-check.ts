@@ -108,6 +108,7 @@ const d3d9Canvas =
     "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
   capabilityProfile ===
     "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+  capabilityProfile === "user32-is-iconic-post-pointer-release-continuation" ||
   capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
   capabilityProfile ===
@@ -247,7 +248,9 @@ const startMessage = {
             capabilityProfile ===
               "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
             capabilityProfile ===
-              "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+              "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+            capabilityProfile ===
+              "user32-is-iconic-post-pointer-release-continuation"
           ? 340_000_000
           : capabilityProfile === "runtime-trapless-execution-budget" ||
               capabilityProfile === "kernel32-heap-free-large-buffer" ||
@@ -387,6 +390,8 @@ const startMessage = {
       capabilityProfile ===
         "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
       capabilityProfile ===
+        "user32-is-iconic-post-pointer-release-continuation" ||
+      capabilityProfile ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
       capabilityProfile ===
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
@@ -465,7 +470,8 @@ if (
   capabilityProfile ===
     "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
   capabilityProfile ===
-    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+  capabilityProfile === "user32-is-iconic-post-pointer-release-continuation"
 ) {
   const pointerMessageInput =
     capabilityProfile === "primary-main-loop-pointer-message-action-progress-gateway" ||
@@ -495,7 +501,8 @@ if (
     capabilityProfile ===
       "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
     capabilityProfile ===
-      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation";
+      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+    capabilityProfile === "user32-is-iconic-post-pointer-release-continuation";
   const actionInput =
     capabilityProfile === "primary-main-loop-action-input-progress-gateway" ||
     capabilityProfile ===
@@ -691,6 +698,7 @@ function parseCapabilityProfile(
       "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
     value ===
       "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+    value === "user32-is-iconic-post-pointer-release-continuation" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-critical-section"

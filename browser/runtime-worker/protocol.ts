@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 93 as const;
+export const protocolVersion = 94 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -81,6 +81,7 @@ export type BgiCapabilityProfile =
   | "user32-get-system-metrics-post-pointer-release-continuation"
   | "user32-get-system-metrics-caption-post-pointer-release-continuation"
   | "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation"
+  | "user32-is-iconic-post-pointer-release-continuation"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
@@ -3200,6 +3201,28 @@ export interface SessionReport {
             getSystemMetricsCaptionPostRelease: RuntimeThreadCallSnapshot;
             getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion: 0;
             getSystemMetricsFixedFrameHeightPostRelease: RuntimeThreadCallSnapshot;
+          }
+        | {
+            capability: "user32-is-iconic-post-pointer-release-continuation";
+            implementationId: "runtime.user32-is-iconic-post-pointer-release-continuation.v1";
+            requiredCompletions: 1;
+            completionCount: 1;
+            timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0;
+            timeGetTimePostRelease: RuntimeThreadCallSnapshot;
+            maximumRepeatCompletions: 16;
+            timeGetTimePostReleaseCompletions: RuntimeThreadCallSnapshot[];
+            getWindowRectPostReleaseActiveCallbackDepthAtCompletion: 0;
+            getWindowRectPostRelease: RuntimeThreadCallSnapshot;
+            getCursorPosPostReleaseActiveCallbackDepthAtCompletion: 0;
+            getCursorPosPostRelease: RuntimeThreadCallSnapshot;
+            getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion: 0;
+            getSystemMetricsPostRelease: RuntimeThreadCallSnapshot;
+            getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion: 0;
+            getSystemMetricsCaptionPostRelease: RuntimeThreadCallSnapshot;
+            getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion: 0;
+            getSystemMetricsFixedFrameHeightPostRelease: RuntimeThreadCallSnapshot;
+            isIconicPostReleaseActiveCallbackDepthAtCompletion: 0;
+            isIconicPostRelease: RuntimeThreadCallSnapshot;
           }
       ))
     | {
