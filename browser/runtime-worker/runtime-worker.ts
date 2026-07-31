@@ -657,7 +657,8 @@ function isInputProgressGatewayCheckpoint(
     profile === "winmm-time-get-time-action-continuation" ||
     profile === "user32-def-window-proc-a-action-continuation" ||
     profile === "user32-peek-message-a-pointer-release-continuation" ||
-    profile === "user32-translate-message-pointer-release-continuation"
+    profile === "user32-translate-message-pointer-release-continuation" ||
+    profile === "user32-dispatch-message-a-pointer-release-continuation"
   );
 }
 
@@ -673,7 +674,8 @@ function isActionInputProgressGatewayCheckpoint(
     profile === "winmm-time-get-time-action-continuation" ||
     profile === "user32-def-window-proc-a-action-continuation" ||
     profile === "user32-peek-message-a-pointer-release-continuation" ||
-    profile === "user32-translate-message-pointer-release-continuation"
+    profile === "user32-translate-message-pointer-release-continuation" ||
+    profile === "user32-dispatch-message-a-pointer-release-continuation"
   );
 }
 
@@ -702,7 +704,8 @@ function isWindowTimerCallbackActionInputProgressGatewayCheckpoint(
     profile === "winmm-time-get-time-action-continuation" ||
     profile === "user32-def-window-proc-a-action-continuation" ||
     profile === "user32-peek-message-a-pointer-release-continuation" ||
-    profile === "user32-translate-message-pointer-release-continuation"
+    profile === "user32-translate-message-pointer-release-continuation" ||
+    profile === "user32-dispatch-message-a-pointer-release-continuation"
   );
 }
 
@@ -742,12 +745,27 @@ function isTranslateMessagePointerReleaseContinuationCheckpoint(
   return profile === "user32-translate-message-pointer-release-continuation";
 }
 
+function isDispatchMessageAPointerReleaseContinuationCheckpoint(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "user32-dispatch-message-a-pointer-release-continuation";
+}
+
+function hasTranslateMessagePointerReleaseContinuation(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isTranslateMessagePointerReleaseContinuationCheckpoint(profile) ||
+    isDispatchMessageAPointerReleaseContinuationCheckpoint(profile)
+  );
+}
+
 function hasPeekMessageAPointerReleaseContinuation(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isPeekMessageAPointerReleaseContinuationCheckpoint(profile) ||
-    isTranslateMessagePointerReleaseContinuationCheckpoint(profile)
+    hasTranslateMessagePointerReleaseContinuation(profile)
   );
 }
 
@@ -828,7 +846,15 @@ function isRecurringTimerBoundedWindowCheckpoint(
 function recurringTimerWindowConfiguration(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
-  return isTranslateMessagePointerReleaseContinuationCheckpoint(profile)
+  return isDispatchMessageAPointerReleaseContinuationCheckpoint(profile)
+    ? ({
+        capability: "user32-dispatch-message-a-pointer-release-continuation",
+        implementationId:
+          "runtime.user32-dispatch-message-a-pointer-release-continuation.v1",
+        requiredCycles: 253,
+        maximumCycles: 320,
+      } as const)
+    : isTranslateMessagePointerReleaseContinuationCheckpoint(profile)
     ? ({
         capability: "user32-translate-message-pointer-release-continuation",
         implementationId:
@@ -1064,6 +1090,8 @@ function inputProgressGatewayExpectation(
   profile: SessionConfiguration["capabilityProfile"],
 ) {
   const pointer = hasPointerMessageActionProgressGateway(profile);
+  const dispatchMessageRelease =
+    isDispatchMessageAPointerReleaseContinuationCheckpoint(profile);
   const translateMessageRelease =
     isTranslateMessagePointerReleaseContinuationCheckpoint(profile);
   const peekMessageRelease =
@@ -1076,7 +1104,9 @@ function inputProgressGatewayExpectation(
     isWindowTimerCallbackActionInputProgressGatewayCheckpoint(profile);
   const action = isActionInputProgressGatewayCheckpoint(profile);
   return {
-    capability: translateMessageRelease
+    capability: dispatchMessageRelease
+      ? "user32-dispatch-message-a-pointer-release-continuation"
+      : translateMessageRelease
       ? "user32-translate-message-pointer-release-continuation"
       : peekMessageRelease
       ? "user32-peek-message-a-pointer-release-continuation"
@@ -1093,7 +1123,9 @@ function inputProgressGatewayExpectation(
       : action
       ? "primary-main-loop-action-input-progress-gateway"
       : "primary-main-loop-input-progress-gateway",
-    implementationId: translateMessageRelease
+    implementationId: dispatchMessageRelease
+      ? "runtime.user32-dispatch-message-a-pointer-release-continuation.v1"
+      : translateMessageRelease
       ? "runtime.user32-translate-message-pointer-release-continuation.v1"
       : peekMessageRelease
       ? "runtime.user32-peek-message-a-pointer-release-continuation.v1"
@@ -1809,6 +1841,31 @@ type TranslateMessagePointerReleaseContinuationEntry = Omit<
   | "memoryContentSha256"
 >;
 
+type DispatchMessageAPointerReleaseContinuationCheckpoint = Extract<
+  NonNullable<SessionReport["checkpointCompletion"]>,
+  { capability: "user32-dispatch-message-a-pointer-release-continuation" }
+>;
+
+type DispatchMessageAPointerReleaseContinuationEntry = Omit<
+  DispatchMessageAPointerReleaseContinuationCheckpoint,
+  | "requiredEntries"
+  | "entryCount"
+  | "lastEntrySequence"
+  | "lastEntryInstructionCount"
+  | "dispatchMessageReleaseActiveCallbackDepthAtEntry"
+  | "queueDepthAtDispatchEntry"
+  | "dispatchMessageReleaseBytesPreserved"
+  | "dispatchMessageRelease"
+  | "releaseCallbackEntry"
+  | "activeCallbackDepthAtStop"
+  | "instructionCount"
+  | "nextEndpoint"
+  | "nextArguments"
+  | "nextReturnAddress"
+  | "nextStackPointer"
+  | "memoryContentSha256"
+>;
+
 type WindowTimerCallbackDeliveryGatewayCheckpoint = Extract<
   NonNullable<SessionReport["checkpointCompletion"]>,
   { capability: "primary-main-loop-window-timer-callback-delivery-gateway" }
@@ -2326,6 +2383,11 @@ class BrowserRuntimeSession {
   #translateMessagePointerReleaseContinuationAwaitingDispatch = false;
   #translateMessagePointerReleaseContinuationDispatching = false;
   #translateMessagePointerReleaseBytesBefore: Uint8Array | null = null;
+  #dispatchMessageAPointerReleaseContinuationEntry: DispatchMessageAPointerReleaseContinuationEntry | null =
+    null;
+  #dispatchMessageAPointerReleaseContinuationAwaitingDispatch = false;
+  #dispatchMessageAPointerReleaseContinuationDispatching = false;
+  #dispatchMessageAPointerReleaseBytesBefore: Uint8Array | null = null;
   readonly #presentationProgressRenderCompletions: RuntimeThreadCallSnapshot[] =
     [];
   #presentationProgressPresentCompletion: RuntimeThreadCallSnapshot | null =
@@ -3883,16 +3945,18 @@ class BrowserRuntimeSession {
       call.implementationId === "user32.peek-message-a.current-thread.v1" &&
       (this.#report.checkpointCompletion?.capability ===
         "user32-peek-message-a-pointer-release-continuation" ||
-        this.#translateMessagePointerReleaseContinuationEntry !== null)
+        this.#translateMessagePointerReleaseContinuationEntry !== null ||
+        this.#dispatchMessageAPointerReleaseContinuationEntry !== null)
     ) {
       return;
     }
     if (
-      isTranslateMessagePointerReleaseContinuationCheckpoint(
+      hasTranslateMessagePointerReleaseContinuation(
         this.#configuration.capabilityProfile,
       ) &&
-      this.#report.checkpointCompletion?.capability ===
-        "user32-translate-message-pointer-release-continuation" &&
+      (this.#report.checkpointCompletion?.capability ===
+        "user32-translate-message-pointer-release-continuation" ||
+        this.#dispatchMessageAPointerReleaseContinuationEntry !== null) &&
       call.implementationId ===
         "user32.translate-message.window-timer-pointer-noop.v2"
     ) {
@@ -5461,6 +5525,10 @@ class BrowserRuntimeSession {
           !this.#translateMessagePointerReleaseContinuationAwaitingDispatch &&
           !this.#translateMessagePointerReleaseContinuationDispatching &&
           this.#translateMessagePointerReleaseBytesBefore === null &&
+          this.#dispatchMessageAPointerReleaseContinuationEntry === null &&
+          !this.#dispatchMessageAPointerReleaseContinuationAwaitingDispatch &&
+          !this.#dispatchMessageAPointerReleaseContinuationDispatching &&
+          this.#dispatchMessageAPointerReleaseBytesBefore === null &&
           this.#bgiCallbackCallSequences.size === 1,
         "timeGetTime action continuation reached a different API or lost its live WndProc frame",
       );
@@ -5500,6 +5568,10 @@ class BrowserRuntimeSession {
           !this.#translateMessagePointerReleaseContinuationAwaitingDispatch &&
           !this.#translateMessagePointerReleaseContinuationDispatching &&
           this.#translateMessagePointerReleaseBytesBefore === null &&
+          this.#dispatchMessageAPointerReleaseContinuationEntry === null &&
+          !this.#dispatchMessageAPointerReleaseContinuationAwaitingDispatch &&
+          !this.#dispatchMessageAPointerReleaseContinuationDispatching &&
+          this.#dispatchMessageAPointerReleaseBytesBefore === null &&
           this.#bgiCallbackCallSequences.size === 1,
         "DefWindowProcA action continuation reached a different API or lost its live WndProc frame",
       );
@@ -5546,6 +5618,10 @@ class BrowserRuntimeSession {
           !this.#translateMessagePointerReleaseContinuationAwaitingDispatch &&
           !this.#translateMessagePointerReleaseContinuationDispatching &&
           this.#translateMessagePointerReleaseBytesBefore === null &&
+          this.#dispatchMessageAPointerReleaseContinuationEntry === null &&
+          !this.#dispatchMessageAPointerReleaseContinuationAwaitingDispatch &&
+          !this.#dispatchMessageAPointerReleaseContinuationDispatching &&
+          this.#dispatchMessageAPointerReleaseBytesBefore === null &&
           this.#bgiCallbackCallSequences.size === 0,
         "pointer-release PeekMessageA continuation reached a different API, stack frame, or callback state",
       );
@@ -5559,7 +5635,7 @@ class BrowserRuntimeSession {
       const engine = this.#requireEngine();
       const releaseBytes = engine.readGuestBytes(0x006f_f8e8, 28);
       invariant(
-        isTranslateMessagePointerReleaseContinuationCheckpoint(
+        hasTranslateMessagePointerReleaseContinuation(
           this.#configuration.capabilityProfile,
         ) &&
           ownedEndpoint?.id === 162 &&
@@ -5586,6 +5662,10 @@ class BrowserRuntimeSession {
           this.#timeGetTimeActionContinuationEntry === null &&
           !this.#timeGetTimeActionContinuationAwaitingDispatch &&
           !this.#timeGetTimeActionContinuationDispatching &&
+          this.#dispatchMessageAPointerReleaseContinuationEntry === null &&
+          !this.#dispatchMessageAPointerReleaseContinuationAwaitingDispatch &&
+          !this.#dispatchMessageAPointerReleaseContinuationDispatching &&
+          this.#dispatchMessageAPointerReleaseBytesBefore === null &&
           this.#bgiCallbackCallSequences.size === 0 &&
           releaseBytes.join(",") ===
             "1,0,1,72,2,2,0,0,0,0,0,0,128,2,104,1,71,243,54,0,192,3,0,0,28,2,0,0",
@@ -5594,6 +5674,53 @@ class BrowserRuntimeSession {
       this.#translateMessagePointerReleaseBytesBefore = releaseBytes.slice();
       this.#translateMessagePointerReleaseContinuationAwaitingDispatch = false;
       this.#translateMessagePointerReleaseContinuationDispatching = true;
+    }
+    if (this.#dispatchMessageAPointerReleaseContinuationAwaitingDispatch) {
+      const ownedEndpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpoint,
+      );
+      const engine = this.#requireEngine();
+      const releaseBytes = engine.readGuestBytes(0x006f_f8e8, 28);
+      invariant(
+        isDispatchMessageAPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+          ownedEndpoint?.id === 182 &&
+          ownedEndpoint.module?.toLowerCase() === "user32.dll" &&
+          ownedEndpoint.symbol?.kind === "name" &&
+          ownedEndpoint.symbol.name === "DispatchMessageA" &&
+          stackPointer === 0x006f_f8d4 &&
+          engine.readGuestU32(stackPointer) === 0x1009_37ac &&
+          engine.readGuestU32(stackPointer + 4) === 0x006f_f8e8 &&
+          this.#report.instructions === 321_462_435 &&
+          this.#nextBgiCallSequence === 161_950 &&
+          this.#currentThreadId === 8_192 &&
+          this.#report.checkpointCompletion === null &&
+          this.#dispatchMessageAPointerReleaseContinuationEntry !== null &&
+          !this.#dispatchMessageAPointerReleaseContinuationDispatching &&
+          this.#dispatchMessageAPointerReleaseBytesBefore === null &&
+          this.#translateMessagePointerReleaseContinuationEntry === null &&
+          !this.#translateMessagePointerReleaseContinuationAwaitingDispatch &&
+          !this.#translateMessagePointerReleaseContinuationDispatching &&
+          this.#translateMessagePointerReleaseBytesBefore === null &&
+          this.#peekMessageAPointerReleaseContinuationEntry === null &&
+          !this.#peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind &&
+          !this.#peekMessageAPointerReleaseContinuationAwaitingDispatch &&
+          !this.#peekMessageAPointerReleaseContinuationDispatching &&
+          this.#defWindowProcAActionContinuationEntry === null &&
+          !this.#defWindowProcAActionContinuationAwaitingDispatch &&
+          !this.#defWindowProcAActionContinuationDispatching &&
+          this.#timeGetTimeActionContinuationEntry === null &&
+          !this.#timeGetTimeActionContinuationAwaitingDispatch &&
+          !this.#timeGetTimeActionContinuationDispatching &&
+          this.#bgiCallbackCallSequences.size === 0 &&
+          releaseBytes.join(",") ===
+            "1,0,1,72,2,2,0,0,0,0,0,0,128,2,104,1,71,243,54,0,192,3,0,0,28,2,0,0",
+        "pointer-release DispatchMessageA continuation reached a different API, stack frame, MSG32, or callback state",
+      );
+      this.#dispatchMessageAPointerReleaseBytesBefore = releaseBytes.slice();
+      this.#dispatchMessageAPointerReleaseContinuationAwaitingDispatch = false;
+      this.#dispatchMessageAPointerReleaseContinuationDispatching = true;
     }
     if (this.#bgiCheckpointPending) {
       this.#completeBgiCapabilityCheckpoint(endpoint, stackPointer);
@@ -5672,7 +5799,9 @@ class BrowserRuntimeSession {
               this.#configuration.capabilityProfile,
             ) &&
             metadata.target === 0x1009_2550 &&
-            this.#inputProgressPointerEvents.length === 2
+            this.#inputProgressPointerEvents.length === 2 &&
+            this.#pointerMessageTranslateCall !== null &&
+            sequence === this.#pointerMessageTranslateCall.sequence + 1
           ) {
             const dispatchEndpoint = this.#requirePrepared().endpoints.find(
               (candidate) => candidate.address === endpoint,
@@ -5788,6 +5917,172 @@ class BrowserRuntimeSession {
               this.#report.checkpointCompletion = checkpoint;
             }
             this.#pointerMessageActionGatewayAwaitingSetFocus = true;
+          }
+          if (
+            isDispatchMessageAPointerReleaseContinuationCheckpoint(
+              this.#configuration.capabilityProfile,
+            ) &&
+            this.#dispatchMessageAPointerReleaseContinuationDispatching
+          ) {
+            const entry =
+              this.#dispatchMessageAPointerReleaseContinuationEntry;
+            const dispatchEndpoint = this.#requirePrepared().endpoints.find(
+              (candidate) => candidate.address === endpoint,
+            );
+            const releaseMessage = entry?.releaseMessage;
+            const messageAddress = engine.readGuestU32(stackPointer + 4);
+            const callbackArguments = [
+              engine.readGuestU32(metadata.stackPointer + 4),
+              engine.readGuestU32(metadata.stackPointer + 8),
+              engine.readGuestU32(metadata.stackPointer + 12),
+              engine.readGuestU32(metadata.stackPointer + 16),
+            ] as [number, number, number, number];
+            const releaseBytesAfter = engine.readGuestBytes(
+              0x006f_f8e8,
+              28,
+            );
+            const releaseBytesBefore =
+              this.#dispatchMessageAPointerReleaseBytesBefore;
+            const dispatchOccurrence =
+              (this.#implementationOccurrences.get(
+                "user32.dispatch-message-a.window-timer-pointer-callback.v2",
+              ) ?? 0) + 1;
+            invariant(
+              entry !== null &&
+                releaseMessage !== undefined &&
+                this.#report.checkpointCompletion === null &&
+                dispatchEndpoint?.id === 182 &&
+                dispatchEndpoint.module?.toLowerCase() === "user32.dll" &&
+                dispatchEndpoint.symbol?.kind === "name" &&
+                dispatchEndpoint.symbol.name === "DispatchMessageA" &&
+                sequence === 161_951 &&
+                this.#report.instructions === 321_462_435 &&
+                this.#currentThreadId === 8_192 &&
+                dispatchOccurrence === 4 &&
+                stackPointer === 0x006f_f8d4 &&
+                engine.readGuestU32(stackPointer) === 0x1009_37ac &&
+                messageAddress === 0x006f_f8e8 &&
+                messageAddress === entry.peekMessageRelease.arguments[0] &&
+                messageAddress ===
+                  entry.translateMessageRelease.arguments[0] &&
+                metadata.replacedFrameId === undefined &&
+                metadata.frameId === 34 &&
+                metadata.depth === 1 &&
+                metadata.target === 0x1009_2550 &&
+                metadata.allocationStart === metadata.stackPointer &&
+                metadata.stackPointer === 0x006f_f8c0 &&
+                metadata.scratchAddress === 0 &&
+                metadata.scratchBytes === 0 &&
+                metadata.frameBytes === 20 &&
+                metadata.returnSentinel === 0x7f01_0000 &&
+                metadata.returnSentinel ===
+                  this.#requirePrepared().callbackSentinel &&
+                engine.readGuestU32(metadata.stackPointer) ===
+                  metadata.returnSentinel &&
+                callbackArguments.join(",") ===
+                  [
+                    releaseMessage.hwnd,
+                    releaseMessage.message,
+                    releaseMessage.wParam,
+                    releaseMessage.lParam,
+                  ].join(",") &&
+                metadata.queuedThreadMessages.length === 0 &&
+                releaseBytesBefore !== null &&
+                releaseBytesAfter.length === releaseBytesBefore.length &&
+                releaseBytesAfter.every(
+                  (byte, index) => byte === releaseBytesBefore[index],
+                ) &&
+                this.#bgiCallbackCallSequences.size === 0 &&
+                this.#translateMessagePointerReleaseContinuationEntry ===
+                  null &&
+                !this
+                  .#translateMessagePointerReleaseContinuationAwaitingDispatch &&
+                !this.#translateMessagePointerReleaseContinuationDispatching &&
+                this.#translateMessagePointerReleaseBytesBefore === null &&
+                this.#peekMessageAPointerReleaseContinuationEntry === null &&
+                !this
+                  .#peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind &&
+                !this.#peekMessageAPointerReleaseContinuationAwaitingDispatch &&
+                !this.#peekMessageAPointerReleaseContinuationDispatching,
+              `pointer-release DispatchMessageA continuation changed its pending callback, immutable MSG32, or authoritative Rust queue contract: ${JSON.stringify(
+                {
+                  hasEntry: entry !== null,
+                  hasCheckpoint:
+                    this.#report.checkpointCompletion !== null,
+                  dispatchEndpoint,
+                  currentThreadId: this.#currentThreadId,
+                  sequence,
+                  instructionCount: this.#report.instructions,
+                  dispatchOccurrence,
+                  metadata,
+                  messageAddress,
+                  callbackArguments,
+                  releaseBytesBefore:
+                    releaseBytesBefore === null
+                      ? null
+                      : [...releaseBytesBefore],
+                  releaseBytesAfter: [...releaseBytesAfter],
+                  activeCallbackDepth:
+                    this.#bgiCallbackCallSequences.size,
+                },
+              )}`,
+            );
+            this.#report.checkpointCompletion = {
+              ...entry,
+              requiredEntries: 1,
+              entryCount: 1,
+              lastEntrySequence: sequence,
+              lastEntryInstructionCount: this.#report.instructions,
+              dispatchMessageReleaseActiveCallbackDepthAtEntry: 1,
+              queueDepthAtDispatchEntry:
+                metadata.queuedThreadMessages.length,
+              dispatchMessageReleaseBytesPreserved: true,
+              dispatchMessageRelease: {
+                sequence,
+                runtimeThreadId: this.#currentThreadId,
+                module: dispatchEndpoint.module,
+                symbol: "DispatchMessageA",
+                occurrence: dispatchOccurrence,
+                trapInstructionCount: this.#report.instructions,
+                arguments: [messageAddress],
+                pendingCallback: true,
+                implementationId:
+                  "user32.dispatch-message-a.window-timer-pointer-callback.v2",
+              },
+              releaseCallbackEntry: {
+                action: "enter",
+                sequence,
+                runtimeThreadId: this.#currentThreadId,
+                frameId: metadata.frameId,
+                instructionCount: this.#report.instructions,
+                depth: 1,
+                target: metadata.target,
+                allocationStart: metadata.allocationStart,
+                stackPointer: metadata.stackPointer,
+                scratchAddress: metadata.scratchAddress,
+                scratchBytes: metadata.scratchBytes,
+                frameBytes: 20,
+                returnSentinel: metadata.returnSentinel,
+                arguments: callbackArguments,
+              },
+              activeCallbackDepthAtStop: 1,
+              instructionCount: 0,
+              nextEndpoint: {
+                id: 0,
+                address: 0,
+                disposition: "declared-runtime-export" as const,
+                iatAddress: 0,
+              },
+              nextArguments: [0, 0, 0, 0],
+              nextReturnAddress: 0,
+              nextStackPointer: 0,
+              memoryContentSha256: "",
+            } satisfies DispatchMessageAPointerReleaseContinuationCheckpoint;
+            this.#dispatchMessageAPointerReleaseContinuationEntry = null;
+            this.#dispatchMessageAPointerReleaseContinuationDispatching =
+              false;
+            this.#dispatchMessageAPointerReleaseBytesBefore = null;
+            this.#bgiCheckpointPending = true;
           }
           if (
             isUpdateWindow(this.#configuration.capabilityProfile) &&
@@ -6363,6 +6658,8 @@ class BrowserRuntimeSession {
           checkpoint.capability ===
             "user32-translate-message-pointer-release-continuation" ||
           checkpoint.capability ===
+            "user32-dispatch-message-a-pointer-release-continuation" ||
+          checkpoint.capability ===
             "kernel32-set-waitable-timer-post-critical-section-batch" ||
           checkpoint.capability ===
             "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -6378,6 +6675,41 @@ class BrowserRuntimeSession {
             : "kernel32-wait-for-single-object-ex-v1"),
       "BGI capability checkpoint has no matching compatibility profile",
     );
+    if (
+      checkpoint.capability ===
+      "user32-dispatch-message-a-pointer-release-continuation"
+    ) {
+      invariant(
+        this.#bgiCallbackCallSequences.size === 1 &&
+          this.#bgiCallbackCallSequences.get(
+            checkpoint.releaseCallbackEntry.frameId,
+          ) === checkpoint.lastEntrySequence &&
+          this.#dispatchMessageAPointerReleaseContinuationEntry === null &&
+          !this.#dispatchMessageAPointerReleaseContinuationAwaitingDispatch &&
+          !this.#dispatchMessageAPointerReleaseContinuationDispatching &&
+          this.#dispatchMessageAPointerReleaseBytesBefore === null &&
+          this.#translateMessagePointerReleaseContinuationEntry === null &&
+          !this.#translateMessagePointerReleaseContinuationAwaitingDispatch &&
+          !this.#translateMessagePointerReleaseContinuationDispatching &&
+          this.#translateMessagePointerReleaseBytesBefore === null &&
+          this.#peekMessageAPointerReleaseContinuationEntry === null &&
+          !this.#peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind &&
+          !this.#peekMessageAPointerReleaseContinuationAwaitingDispatch &&
+          !this.#peekMessageAPointerReleaseContinuationDispatching &&
+          this.#defWindowProcAActionContinuationEntry === null &&
+          !this.#defWindowProcAActionContinuationAwaitingDispatch &&
+          !this.#defWindowProcAActionContinuationDispatching &&
+          this.#timeGetTimeActionContinuationEntry === null &&
+          !this.#timeGetTimeActionContinuationAwaitingDispatch &&
+          !this.#timeGetTimeActionContinuationDispatching &&
+          this.#dispatchMessageAPointerReleaseContinuationEntry === null &&
+          !this.#dispatchMessageAPointerReleaseContinuationAwaitingDispatch &&
+          !this.#dispatchMessageAPointerReleaseContinuationDispatching &&
+          this.#dispatchMessageAPointerReleaseBytesBefore === null,
+        "pointer-release DispatchMessageA continuation stopped outside its single pending WndProc callback",
+      );
+      checkpoint.activeCallbackDepthAtStop = 1;
+    }
     if (
       checkpoint.capability ===
       "user32-def-window-proc-a-action-continuation"
@@ -6432,6 +6764,10 @@ class BrowserRuntimeSession {
           !this.#translateMessagePointerReleaseContinuationAwaitingDispatch &&
           !this.#translateMessagePointerReleaseContinuationDispatching &&
           this.#translateMessagePointerReleaseBytesBefore === null &&
+          this.#dispatchMessageAPointerReleaseContinuationEntry === null &&
+          !this.#dispatchMessageAPointerReleaseContinuationAwaitingDispatch &&
+          !this.#dispatchMessageAPointerReleaseContinuationDispatching &&
+          this.#dispatchMessageAPointerReleaseBytesBefore === null &&
           this.#defWindowProcAActionContinuationEntry === null &&
           !this.#defWindowProcAActionContinuationAwaitingDispatch &&
           !this.#defWindowProcAActionContinuationDispatching &&
@@ -6530,6 +6866,8 @@ class BrowserRuntimeSession {
       checkpoint.capability ===
         "user32-translate-message-pointer-release-continuation" ||
       checkpoint.capability ===
+        "user32-dispatch-message-a-pointer-release-continuation" ||
+      checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-timer-wait-batch" ||
@@ -6605,6 +6943,14 @@ class BrowserRuntimeSession {
                       this.#requireEngine().readGuestU32(stackPointer + 4),
                     ]
                 : checkpoint.capability ===
+                    "user32-dispatch-message-a-pointer-release-continuation"
+                  ? [
+                      this.#requireEngine().readGuestU32(stackPointer + 4),
+                      this.#requireEngine().readGuestU32(stackPointer + 8),
+                      this.#requireEngine().readGuestU32(stackPointer + 12),
+                      this.#requireEngine().readGuestU32(stackPointer + 16),
+                    ]
+                : checkpoint.capability ===
                       "primary-main-loop-recurring-timer-cycle-batch" ||
                     checkpoint.capability ===
                       "primary-main-loop-recurring-timer-multi-cycle-batch" ||
@@ -6664,6 +7010,38 @@ class BrowserRuntimeSession {
       checkpoint.nextStackPointer = stackPointer;
     }
     if (
+      checkpoint.capability ===
+      "user32-dispatch-message-a-pointer-release-continuation"
+    ) {
+      invariant(
+        this.#report.instructions === 321_462_499 &&
+          checkpoint.instructionCount === 321_462_499 &&
+          checkpoint.nextEndpoint.id === 233 &&
+          checkpoint.nextEndpoint.address === 0x7f00_0e80 &&
+          checkpoint.nextEndpoint.disposition === "declared-runtime-export" &&
+          checkpoint.nextEndpoint.iatAddress === 0x100d_147c &&
+          checkpoint.nextEndpoint.module?.toLowerCase() === "user32.dll" &&
+          checkpoint.nextEndpoint.symbol?.kind === "name" &&
+          checkpoint.nextEndpoint.symbol.name === "DefWindowProcA" &&
+          checkpoint.nextArguments.join(",") ===
+            "1208025089,514,0,23593600" &&
+          checkpoint.nextReturnAddress === 0x1009_33bf &&
+          checkpoint.nextStackPointer === 0x006f_f50c &&
+          checkpoint.memoryContentSha256 ===
+            "3af9084b2b0447ce24bb8edd1cf7ee159d333f6a6f858cd5b070720d43c9deac",
+        `pointer-release DispatchMessageA continuation reached a different first owned WndProc endpoint: ${JSON.stringify(
+          {
+            instructions: this.#report.instructions,
+            nextEndpoint: checkpoint.nextEndpoint,
+            nextArguments: checkpoint.nextArguments,
+            nextReturnAddress: checkpoint.nextReturnAddress,
+            nextStackPointer: checkpoint.nextStackPointer,
+            memoryContentSha256: checkpoint.memoryContentSha256,
+          },
+        )}`,
+      );
+    }
+    if (
       checkpoint.capability === "runtime-trapless-execution-budget" ||
       checkpoint.capability === "kernel32-heap-free-large-buffer" ||
       checkpoint.capability === "kernel32-heap-alloc-24-byte-buffer" ||
@@ -6701,6 +7079,8 @@ class BrowserRuntimeSession {
         "user32-peek-message-a-pointer-release-continuation" ||
       checkpoint.capability ===
         "user32-translate-message-pointer-release-continuation" ||
+      checkpoint.capability ===
+        "user32-dispatch-message-a-pointer-release-continuation" ||
       checkpoint.capability ===
         "kernel32-set-waitable-timer-post-critical-section-batch" ||
       checkpoint.capability ===
@@ -6753,6 +7133,9 @@ class BrowserRuntimeSession {
                       : checkpoint.capability ===
                           "user32-translate-message-pointer-release-continuation"
                         ? "USER32 TranslateMessage pointer-release continuation checkpoint completed"
+                      : checkpoint.capability ===
+                          "user32-dispatch-message-a-pointer-release-continuation"
+                        ? "USER32 DispatchMessageA pointer-release continuation checkpoint completed"
                       : checkpoint.capability ===
                           "primary-main-loop-pointer-message-action-progress-gateway"
                         ? "Primary main-loop pointer message action progress gateway completed"
@@ -7416,7 +7799,11 @@ class BrowserRuntimeSession {
             this.#translateMessagePointerReleaseContinuationEntry === null &&
             !this.#translateMessagePointerReleaseContinuationAwaitingDispatch &&
             !this.#translateMessagePointerReleaseContinuationDispatching &&
-            this.#translateMessagePointerReleaseBytesBefore === null,
+            this.#translateMessagePointerReleaseBytesBefore === null &&
+            this.#dispatchMessageAPointerReleaseContinuationEntry === null &&
+            !this.#dispatchMessageAPointerReleaseContinuationAwaitingDispatch &&
+            !this.#dispatchMessageAPointerReleaseContinuationDispatching &&
+            this.#dispatchMessageAPointerReleaseBytesBefore === null,
           "pointer-release PeekMessageA continuation was already armed",
         );
         this.#peekMessageAPointerReleaseContinuationEntry = {
@@ -7524,7 +7911,11 @@ class BrowserRuntimeSession {
           this.#translateMessagePointerReleaseContinuationEntry === null &&
           !this.#translateMessagePointerReleaseContinuationAwaitingDispatch &&
           !this.#translateMessagePointerReleaseContinuationDispatching &&
-          this.#translateMessagePointerReleaseBytesBefore === null,
+          this.#translateMessagePointerReleaseBytesBefore === null &&
+          this.#dispatchMessageAPointerReleaseContinuationEntry === null &&
+          !this.#dispatchMessageAPointerReleaseContinuationAwaitingDispatch &&
+          !this.#dispatchMessageAPointerReleaseContinuationDispatching &&
+          this.#dispatchMessageAPointerReleaseBytesBefore === null,
         `pointer-release PeekMessageA continuation changed its PM_REMOVE, MSG32 write, or post-commit Rust queue contract: ${JSON.stringify(
           {
             hasEntry: entry !== null,
@@ -7547,7 +7938,7 @@ class BrowserRuntimeSession {
         occurrence: implementationOccurrence,
       } satisfies RuntimeThreadCallSnapshot;
       if (
-        isTranslateMessagePointerReleaseContinuationCheckpoint(
+        hasTranslateMessagePointerReleaseContinuation(
           this.#configuration.capabilityProfile,
         )
       ) {
@@ -7596,7 +7987,7 @@ class BrowserRuntimeSession {
       this.#peekMessageAPointerReleaseContinuationDispatching = false;
     }
     if (
-      isTranslateMessagePointerReleaseContinuationCheckpoint(
+      hasTranslateMessagePointerReleaseContinuation(
         this.#configuration.capabilityProfile,
       ) &&
       this.#translateMessagePointerReleaseContinuationDispatching &&
@@ -7651,7 +8042,11 @@ class BrowserRuntimeSession {
           !this.#defWindowProcAActionContinuationDispatching &&
           this.#timeGetTimeActionContinuationEntry === null &&
           !this.#timeGetTimeActionContinuationAwaitingDispatch &&
-          !this.#timeGetTimeActionContinuationDispatching,
+          !this.#timeGetTimeActionContinuationDispatching &&
+          this.#dispatchMessageAPointerReleaseContinuationEntry === null &&
+          !this.#dispatchMessageAPointerReleaseContinuationAwaitingDispatch &&
+          !this.#dispatchMessageAPointerReleaseContinuationDispatching &&
+          this.#dispatchMessageAPointerReleaseBytesBefore === null,
         `pointer-release TranslateMessage continuation changed its read-only MSG32 or authoritative Rust queue contract: ${JSON.stringify(
           {
             hasEntry: entry !== null,
@@ -7676,30 +8071,52 @@ class BrowserRuntimeSession {
         trapInstructionCount: this.#report.instructions,
         occurrence: implementationOccurrence,
       } satisfies RuntimeThreadCallSnapshot;
-      this.#report.checkpointCompletion = {
-        ...entry,
-        translateMessageReleaseActiveCallbackDepthAtCompletion: 0,
-        queueDepthAtTranslateCompletion: queuedThreadMessages.length,
-        translateMessageReleaseBytesPreserved: true,
-        lastCompletionSequence: sequence,
-        lastCompletionInstructionCount: this.#report.instructions,
-        translateMessageRelease,
-        instructionCount: 0,
-        nextEndpoint: {
-          id: 0,
-          address: 0,
-          disposition: "declared-runtime-export" as const,
-          iatAddress: 0,
-        },
-        nextArguments: [0],
-        nextReturnAddress: 0,
-        nextStackPointer: 0,
-        memoryContentSha256: "",
-      } satisfies TranslateMessagePointerReleaseContinuationCheckpoint;
+      if (
+        isDispatchMessageAPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        )
+      ) {
+        this.#dispatchMessageAPointerReleaseContinuationEntry = {
+          ...entry,
+          capability:
+            "user32-dispatch-message-a-pointer-release-continuation",
+          implementationId:
+            "runtime.user32-dispatch-message-a-pointer-release-continuation.v1",
+          translateMessageReleaseActiveCallbackDepthAtCompletion: 0,
+          queueDepthAtTranslateCompletion: queuedThreadMessages.length,
+          translateMessageReleaseBytesPreserved: true,
+          lastCompletionSequence: sequence,
+          lastCompletionInstructionCount: this.#report.instructions,
+          translateMessageRelease,
+        } satisfies DispatchMessageAPointerReleaseContinuationEntry;
+        this.#dispatchMessageAPointerReleaseContinuationAwaitingDispatch =
+          true;
+      } else {
+        this.#report.checkpointCompletion = {
+          ...entry,
+          translateMessageReleaseActiveCallbackDepthAtCompletion: 0,
+          queueDepthAtTranslateCompletion: queuedThreadMessages.length,
+          translateMessageReleaseBytesPreserved: true,
+          lastCompletionSequence: sequence,
+          lastCompletionInstructionCount: this.#report.instructions,
+          translateMessageRelease,
+          instructionCount: 0,
+          nextEndpoint: {
+            id: 0,
+            address: 0,
+            disposition: "declared-runtime-export" as const,
+            iatAddress: 0,
+          },
+          nextArguments: [0],
+          nextReturnAddress: 0,
+          nextStackPointer: 0,
+          memoryContentSha256: "",
+        } satisfies TranslateMessagePointerReleaseContinuationCheckpoint;
+        this.#bgiCheckpointPending = true;
+      }
       this.#translateMessagePointerReleaseContinuationEntry = null;
       this.#translateMessagePointerReleaseContinuationDispatching = false;
       this.#translateMessagePointerReleaseBytesBefore = null;
-      this.#bgiCheckpointPending = true;
     }
     this.#recordD3d9RecreatedTextureCall(call);
     this.#recordSetRectCall(call);
@@ -12939,7 +13356,12 @@ class BrowserRuntimeSession {
             this.#translateMessagePointerReleaseContinuationEntry === null &&
             !this.#translateMessagePointerReleaseContinuationAwaitingDispatch &&
             !this.#translateMessagePointerReleaseContinuationDispatching &&
-            this.#translateMessagePointerReleaseBytesBefore === null,
+            this.#translateMessagePointerReleaseBytesBefore === null &&
+            this.#dispatchMessageAPointerReleaseContinuationEntry === null &&
+            !this
+              .#dispatchMessageAPointerReleaseContinuationAwaitingDispatch &&
+            !this.#dispatchMessageAPointerReleaseContinuationDispatching &&
+            this.#dispatchMessageAPointerReleaseBytesBefore === null,
           "pointer-release PeekMessageA continuation armed before its WndProc and outer DispatchMessageA retired",
         );
         this.#peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind =
@@ -16825,6 +17247,138 @@ class BrowserRuntimeSession {
               this.#report.heapPageMaterializations?.length,
             sourceReads: this.#report.sourceReads.length,
           })}`,
+        );
+      }
+      if (
+        isDispatchMessageAPointerReleaseContinuationCheckpoint(
+          this.#configuration.capabilityProfile,
+        ) &&
+        terminal.outcome === "checkpoint-complete"
+      ) {
+        const checkpoint = this.#report
+          .checkpointCompletion as DispatchMessageAPointerReleaseContinuationCheckpoint | null;
+        const dispatchMessageRelease =
+          checkpoint?.dispatchMessageRelease;
+        const releaseCallbackEntry = checkpoint?.releaseCallbackEntry;
+        invariant(
+          this.#report.supportedCallCount === 161_950 &&
+            this.#report.supportedCallSemanticsSha256 ===
+              "477a479e2ce3f9c8ee67e509c5ae9e65c9c870c569898c8163e92e7b5680e473" &&
+            this.#report.firstUnsupported === null &&
+            checkpoint?.capability ===
+              "user32-dispatch-message-a-pointer-release-continuation" &&
+            checkpoint.implementationId ===
+              "runtime.user32-dispatch-message-a-pointer-release-continuation.v1" &&
+            checkpoint.requiredPointerMessages === 1 &&
+            checkpoint.pointerMessageDeliveryCount === 1 &&
+            checkpoint.releaseMessageQueued === false &&
+            checkpoint.queueDepthBefore === 1 &&
+            checkpoint.queueDepthAfter === 0 &&
+            checkpoint.queueDepthAtTranslateCompletion === 0 &&
+            checkpoint.translateMessageReleaseBytesPreserved === true &&
+            checkpoint.lastCompletionSequence === 161_950 &&
+            checkpoint.lastCompletionInstructionCount === 321_462_431 &&
+            checkpoint.requiredEntries === 1 &&
+            checkpoint.entryCount === 1 &&
+            checkpoint.lastEntrySequence === 161_951 &&
+            checkpoint.lastEntryInstructionCount === 321_462_435 &&
+            checkpoint.dispatchMessageReleaseActiveCallbackDepthAtEntry ===
+              1 &&
+            checkpoint.queueDepthAtDispatchEntry === 0 &&
+            checkpoint.dispatchMessageReleaseBytesPreserved === true &&
+            checkpoint.activeCallbackDepthAtStop === 1 &&
+            dispatchMessageRelease?.sequence === 161_951 &&
+            dispatchMessageRelease.runtimeThreadId === 8_192 &&
+            dispatchMessageRelease.module.toLowerCase() === "user32.dll" &&
+            dispatchMessageRelease.symbol === "DispatchMessageA" &&
+            dispatchMessageRelease.occurrence === 4 &&
+            dispatchMessageRelease.trapInstructionCount === 321_462_435 &&
+            dispatchMessageRelease.arguments.join(",") === "7338216" &&
+            dispatchMessageRelease.pendingCallback === true &&
+            dispatchMessageRelease.implementationId ===
+              "user32.dispatch-message-a.window-timer-pointer-callback.v2" &&
+            releaseCallbackEntry?.action === "enter" &&
+            releaseCallbackEntry.sequence === 161_951 &&
+            releaseCallbackEntry.runtimeThreadId === 8_192 &&
+            releaseCallbackEntry.depth === 1 &&
+            releaseCallbackEntry.frameId === 34 &&
+            releaseCallbackEntry.instructionCount === 321_462_435 &&
+            releaseCallbackEntry.target === 0x1009_2550 &&
+            releaseCallbackEntry.allocationStart === 0x006f_f8c0 &&
+            releaseCallbackEntry.stackPointer === 0x006f_f8c0 &&
+            releaseCallbackEntry.scratchAddress === 0 &&
+            releaseCallbackEntry.scratchBytes === 0 &&
+            releaseCallbackEntry.frameBytes === 20 &&
+            releaseCallbackEntry.returnSentinel === 0x7f01_0000 &&
+            releaseCallbackEntry.arguments.join(",") ===
+              "1208025089,514,0,23593600" &&
+            checkpoint.instructionCount === 321_462_499 &&
+            checkpoint.nextEndpoint.id === 233 &&
+            checkpoint.nextEndpoint.address === 0x7f00_0e80 &&
+            checkpoint.nextEndpoint.disposition ===
+              "declared-runtime-export" &&
+            checkpoint.nextEndpoint.module?.toLowerCase() === "user32.dll" &&
+            checkpoint.nextEndpoint.symbol?.kind === "name" &&
+            checkpoint.nextEndpoint.symbol.name === "DefWindowProcA" &&
+            checkpoint.nextEndpoint.iatAddress === 0x100d_147c &&
+            checkpoint.nextArguments.join(",") ===
+              "1208025089,514,0,23593600" &&
+            checkpoint.nextReturnAddress === 0x1009_33bf &&
+            checkpoint.nextStackPointer === 0x006f_f50c &&
+            checkpoint.memoryContentSha256 ===
+              "3af9084b2b0447ce24bb8edd1cf7ee159d333f6a6f858cd5b070720d43c9deac" &&
+            this.#report.instructions === 321_462_499 &&
+            Number(this.#generation) === 314_962 &&
+            this.#report.writebackBatches === 183_849 &&
+            this.#report.writebackPages === 282_503 &&
+            this.#report.mappingDeltas === 127_937 &&
+            this.#report.mappingDirtyPages === 150_342 &&
+            this.#report.contextSwitches === 2_512 &&
+            this.#bgiCallbackCallSequences.size === 1 &&
+            this.#bgiCallbackCallSequences.get(
+              releaseCallbackEntry.frameId,
+            ) === 161_951 &&
+            this.#dispatchMessageAPointerReleaseContinuationEntry === null &&
+            !this.#dispatchMessageAPointerReleaseContinuationAwaitingDispatch &&
+            !this.#dispatchMessageAPointerReleaseContinuationDispatching &&
+            this.#dispatchMessageAPointerReleaseBytesBefore === null &&
+            this.#translateMessagePointerReleaseContinuationEntry === null &&
+            !this.#translateMessagePointerReleaseContinuationAwaitingDispatch &&
+            !this.#translateMessagePointerReleaseContinuationDispatching &&
+            this.#translateMessagePointerReleaseBytesBefore === null &&
+            this.#peekMessageAPointerReleaseContinuationEntry === null &&
+            !this.#peekMessageAPointerReleaseContinuationAwaitingCallbackUnwind &&
+            !this.#peekMessageAPointerReleaseContinuationAwaitingDispatch &&
+            !this.#peekMessageAPointerReleaseContinuationDispatching,
+          `pointer-release DispatchMessageA continuation changed: ${JSON.stringify(
+            {
+              supportedCallCount: this.#report.supportedCallCount,
+              supportedCallSemanticsSha256:
+                this.#report.supportedCallSemanticsSha256,
+              checkpoint,
+              instructions: this.#report.instructions,
+              finalGeneration: Number(this.#generation),
+              writebackBatches: this.#report.writebackBatches,
+              writebackPages: this.#report.writebackPages,
+              mappingDeltas: this.#report.mappingDeltas,
+              mappingDirtyPages: this.#report.mappingDirtyPages,
+              contextSwitches: this.#report.contextSwitches,
+              activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+              continuationState: {
+                hasEntry:
+                  this
+                    .#dispatchMessageAPointerReleaseContinuationEntry !==
+                  null,
+                awaitingDispatch:
+                  this
+                    .#dispatchMessageAPointerReleaseContinuationAwaitingDispatch,
+                dispatching:
+                  this.#dispatchMessageAPointerReleaseContinuationDispatching,
+                hasBytesBefore:
+                  this.#dispatchMessageAPointerReleaseBytesBefore !== null,
+              },
+            },
+          )}`,
         );
       }
       if (

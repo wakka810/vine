@@ -5456,6 +5456,126 @@ fn pointer_button_ingress_commits_input_queue_and_window_proc_dispatch_atomicall
         message_before_release_translate
     );
 
+    fixture.configure_dispatch_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS);
+    let runtime_before_release_dispatch = fixture.runtime.clone();
+    let message_before_release_dispatch = fixture
+        .memory
+        .read(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 28)
+        .unwrap()
+        .to_vec();
+    let release_call = match fixture.dispatch_dispatch_message_a() {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected pointer-release window-procedure callback, got {other:?}"),
+    };
+    assert_eq!(fixture.runtime, runtime_before_release_dispatch);
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
+    assert_eq!(
+        fixture
+            .memory
+            .read(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 28)
+            .unwrap(),
+        message_before_release_dispatch
+    );
+    assert_eq!(release_call.request.target, fixture.window_procedure);
+    assert_eq!(
+        release_call.request.arguments,
+        [window_handle, 0x0202, 0, up.message.l_param]
+            .into_iter()
+            .map(GuestCallbackArgument::U32)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        release_call.request.completion_policy,
+        GuestCallbackCompletionPolicy::ReturnU32
+    );
+    assert_eq!(
+        release_call.request.return_sentinel,
+        fixture.callback_sentinel
+    );
+
+    let release_prepared = begin_fixture_callback(&mut fixture, &release_call);
+    assert_eq!(
+        release_prepared.allocation_start,
+        release_prepared.stack_pointer
+    );
+    assert_eq!(release_prepared.scratch_bytes, 0);
+    assert_eq!(release_prepared.frame_bytes, 20);
+    assert_eq!(
+        fixture
+            .memory
+            .read(release_prepared.stack_pointer, 20)
+            .expect("read pointer-release window-procedure frame"),
+        [
+            fixture.callback_sentinel.0,
+            window_handle,
+            0x0202,
+            0,
+            up.message.l_param,
+        ]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        fixture
+            .runtime
+            .current_thread_state()
+            .unwrap()
+            .callback_frames
+            .len(),
+        1
+    );
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
+    assert!(
+        fixture
+            .runtime
+            .queued_thread_messages(RuntimeThreadId(THREAD_ID))
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        fixture
+            .memory
+            .read(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 28)
+            .unwrap(),
+        message_before_release_dispatch
+    );
+
+    let (release_completion, release_semantic_action) = complete_fixture_callback(
+        &mut fixture,
+        release_call,
+        0x89ab_cdef,
+        release_prepared.frame_id,
+    );
+    assert_eq!(release_semantic_action, None);
+    assert_eq!(release_completion.eax, RegisterUpdate::Set(0x89ab_cdef));
+    assert_eq!(release_completion.last_error, sentinel);
+    assert!(release_completion.guest_writes.is_empty());
+    assert_eq!(
+        release_completion.instruction_pointer,
+        DISPATCH_MESSAGE_A_RETURN_ADDRESS
+    );
+    assert_eq!(
+        release_completion.stack_pointer,
+        GuestAddress(DISPATCH_MESSAGE_A_STACK_POINTER + 8)
+    );
+    assert!(
+        fixture
+            .runtime
+            .current_thread_state()
+            .unwrap()
+            .callback_frames
+            .is_empty()
+    );
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
+    assert_eq!(
+        fixture
+            .memory
+            .read(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 28)
+            .unwrap(),
+        message_before_release_dispatch
+    );
+
     for message in 0..4_096 {
         fixture
             .runtime

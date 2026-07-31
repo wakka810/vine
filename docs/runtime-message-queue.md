@@ -155,6 +155,14 @@ windowとpointer-message profileに対する`WM_LBUTTONUP` relationを再検証�
 release queueは空のままである。このleafはkeyboard text message生成や一般的な
 translationを追加せず、TypeScriptにもmessage copyやWindows stateを作らない。
 
+続く`DispatchMessageA`は同じimmutable `MSG32`からlive HWND、owner thread、
+registered WndProc、pointer profileを再検証し、Rust callback authorityの
+stdcall `(hwnd, WM_LBUTTONUP, 0, 0x01680280)` frameへ入る。Entry時点ではrelease
+queueは空、MSG bytesは不変、callback depthは1である。これはpending
+`DispatchMessageA`とWndProc entryまでのreachability leafであり、callback result、
+外側のcall completion、release default processing、capture transitionを完了扱いに
+しない。WorkerはRustが発行したframe identityとimmutable snapshotだけを記録する。
+
 ## Lifecycle cleanup
 
 Thread exit requestはowned queued messagesをcallback／host request／wait registration／scheduler eventと

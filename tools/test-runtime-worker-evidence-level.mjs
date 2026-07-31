@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 83 as const/u);
+assert.match(protocol, /protocolVersion = 84 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -56,6 +56,10 @@ assert.match(
 );
 assert.match(
   protocol,
+  /"user32-dispatch-message-a-pointer-release-continuation"/u,
+);
+assert.match(
+  protocol,
   /capability: "winmm-time-get-time-action-continuation";[\s\S]*?setFocusActiveCallbackDepthAtStop: 1;[\s\S]*?activeCallbackDepthAtStop: 1;[\s\S]*?setFocus: RuntimeThreadCallSnapshot;[\s\S]*?lastCompletionSequence: number;[\s\S]*?lastCompletionInstructionCount: number;[\s\S]*?timeGetTime: RuntimeThreadCallSnapshot;[\s\S]*?nextArguments: \[number, number, number, number\];/u,
 );
 assert.match(
@@ -69,6 +73,10 @@ assert.match(
 assert.match(
   protocol,
   /capability: "user32-translate-message-pointer-release-continuation";[\s\S]*?releaseMessageQueued: false;[\s\S]*?peekMessageReleaseActiveCallbackDepthAtCompletion: 0;[\s\S]*?translateMessageReleaseActiveCallbackDepthAtCompletion: 0;[\s\S]*?queueDepthAtTranslateCompletion: 0;[\s\S]*?translateMessageReleaseBytesPreserved: true;[\s\S]*?activeCallbackDepthAtStop: 0;[\s\S]*?releaseMessage: RuntimeThreadMessageSnapshot;[\s\S]*?queueDepthBefore: 1;[\s\S]*?queueDepthAfter: 0;[\s\S]*?lastCompletionSequence: number;[\s\S]*?lastCompletionInstructionCount: number;[\s\S]*?peekMessageRelease: RuntimeThreadCallSnapshot;[\s\S]*?translateMessageRelease: RuntimeThreadCallSnapshot;[\s\S]*?nextArguments: \[number\];/u,
+);
+assert.match(
+  protocol,
+  /capability: "user32-dispatch-message-a-pointer-release-continuation";[\s\S]*?releaseMessageQueued: false;[\s\S]*?translateMessageReleaseBytesPreserved: true;[\s\S]*?requiredEntries: 1;[\s\S]*?entryCount: number;[\s\S]*?lastEntrySequence: number;[\s\S]*?lastEntryInstructionCount: number;[\s\S]*?dispatchMessageReleaseActiveCallbackDepthAtEntry: 1;[\s\S]*?queueDepthAtDispatchEntry: 0;[\s\S]*?dispatchMessageReleaseBytesPreserved: true;[\s\S]*?dispatchMessageRelease: \{[\s\S]*?runtimeThreadId: number;[\s\S]*?symbol: "DispatchMessageA";[\s\S]*?pendingCallback: true;[\s\S]*?releaseCallbackEntry: \{[\s\S]*?runtimeThreadId: number;[\s\S]*?depth: 1;[\s\S]*?allocationStart: number;[\s\S]*?scratchAddress: number;[\s\S]*?scratchBytes: number;[\s\S]*?frameBytes: 20;[\s\S]*?returnSentinel: number;[\s\S]*?activeCallbackDepthAtStop: 1;[\s\S]*?nextArguments: \[number, number, number, number\];/u,
 );
 assert.match(protocol, /windowTimerDelivery\?: \{/u);
 assert.match(
@@ -114,6 +122,10 @@ assert.match(
   /user32-translate-message-pointer-release-continuation/u,
 );
 assert.match(
+  fullProbe,
+  /user32-dispatch-message-a-pointer-release-continuation/u,
+);
+assert.match(
   worker,
   /hasTimeGetTimeActionContinuation\([\s\S]{0,200}#timeGetTimeActionContinuationDispatching &&\s*completion\.implementationId === "winmm\.time-get-time\.v1"/u,
 );
@@ -140,6 +152,14 @@ assert.match(
 assert.match(
   worker,
   /#translateMessagePointerReleaseContinuationDispatching &&\s*completion\.implementationId ===\s*"user32\.translate-message\.window-timer-pointer-noop\.v2"/u,
+);
+assert.match(
+  worker,
+  /#dispatchMessageAPointerReleaseContinuationAwaitingDispatch[\s\S]*?ownedEndpoint\.symbol\.name === "DispatchMessageA"[\s\S]*?#dispatchMessageAPointerReleaseContinuationDispatching = true/u,
+);
+assert.match(
+  worker,
+  /#dispatchMessageAPointerReleaseContinuationDispatching[\s\S]*?metadata\.depth === 1[\s\S]*?metadata\.queuedThreadMessages\.length === 0[\s\S]*?releaseBytesAfter\.every\([\s\S]*?dispatchMessageReleaseActiveCallbackDepthAtEntry: 1[\s\S]*?dispatchMessageReleaseBytesPreserved: true[\s\S]*?releaseCallbackEntry: \{[\s\S]*?activeCallbackDepthAtStop: 1[\s\S]*?#bgiCheckpointPending = true/u,
 );
 assert.match(
   bridge,

@@ -130,6 +130,20 @@ Worker records the exact validation-only completion and next
 `DispatchMessageA` stop; it does not synthesize text, retain a second message
 copy, or acquire Windows queue authority.
 
+Protocol version 84's
+`user32-dispatch-message-a-pointer-release-continuation` enters the existing
+Rust-owned WndProc callback gateway for that same `WM_LBUTTONUP`. Rust
+revalidates the live HWND, owner thread, registered WndProc, pointer profile,
+and immutable guest `MSG32`, then prepares the stdcall
+`(hwnd, WM_LBUTTONUP, 0, 0x01680280)` frame with a Rust-issued frame identity
+and return sentinel. The Worker records the pending API entry and callback
+entry, then executes guest instructions only to the first owned
+`DefWindowProcA` entry without dispatching it. The release queue remains empty
+and the published `MSG32` remains unchanged; no completed
+`DispatchMessageA` call is added to the semantic digest at this boundary.
+TypeScript does not create a callback stack, message queue, HWND relation, or
+release default-processing result.
+
 After a guest API completion, Rust may return a `thread-switch` selected by the
 authoritative scheduler. The Worker saves the outgoing opaque engine context and
 restores the context associated with the selected runtime TID; it does not choose

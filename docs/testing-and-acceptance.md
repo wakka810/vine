@@ -1210,6 +1210,20 @@ identityは`current-checkpoint.json`だけを正本とする。これは到達�
 `WM_LBUTTONUP`のvalidation-only translationであり、text message生成、release
 dispatch、一般的なkeyboard／pointer translation、visible responseをclaimしない。
 
+`user32-dispatch-message-a-pointer-release-continuation`は、その直後の
+`DispatchMessageA(0x006ff8e8)` entryだけをarmする。既存User32 v34 handlerと
+callback gatewayを再利用し、release `MSG32`のlive window／owner／WndProc／
+pointer relationを検証して、`(HWND, WM_LBUTTONUP, 0, 0x01680280)`のstdcall
+WndProc frameへ入る。Focused dispatcher testはhandler準備時のRuntimeState／MSG
+不変、20-byte callback frame、empty queue、callback resultの外側EAXへの伝播、
+LastError preserve、strict frame retireを固定する。Node／Chrome checkpointは
+sequence 161,951のpending dispatch entryとcallback entry、active depth 1、
+empty queue、preserved MSG、completed-call semantic digest、terminal memoryを
+一致させる。Exact instruction、frame identity、次endpoint、artifact identityは
+`current-checkpoint.json`だけを正本とする。Callback entry後はguest instructionを
+最初のowned APIまで進めるが、このcheckpointはrelease `DefWindowProcA` dispatch、
+WndProc／外側`DispatchMessageA` completion、capture、visible responseをclaimしない。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

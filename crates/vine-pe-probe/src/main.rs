@@ -15018,7 +15018,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "user32-def-window-proc-a-action-continuation"
                 | "user32-peek-message-a-pointer-release-continuation"
-                | "user32-translate-message-pointer-release-continuation" => {
+                | "user32-translate-message-pointer-release-continuation"
+                | "user32-dispatch-message-a-pointer-release-continuation" => {
                     GenericRuntimeCapability::User32DefWindowProcPointerDown
                 }
                 "kernel32-leave-critical-section" => {
