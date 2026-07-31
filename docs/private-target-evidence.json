@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-31T19:30:25.994Z",
+  "recordedAt": "2026-07-31T20:08:09.754Z",
   "repository": {
-    "implementationCommit": "538bd83d58b68c7eba59c6a233f83b25e28f8b9a",
-    "implementationTree": "1b47c27b3fb08f559a9f93099c073ff70749d7f1",
-    "headCommit": "538bd83d58b68c7eba59c6a233f83b25e28f8b9a",
+    "implementationCommit": "c95878e535df1bc75f8989602736ce1f1f5f9fbe",
+    "implementationTree": "8315f88e26118fd2a16cb0ea7e38ff1c2c9376bf",
+    "headCommit": "c95878e535df1bc75f8989602736ce1f1f5f9fbe",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,15 +27,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "user32-get-system-metrics-caption-post-pointer-release-continuation",
-    "runtimeProfile": "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
+    "runtimeCheckpoint": "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
+    "runtimeProfile": "user32-is-iconic-post-pointer-release-continuation",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
+    "nodeReportSchema": "vine.v86-bgi-user32-is-iconic-post-pointer-release-continuation",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v93",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v94",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -70,14 +70,14 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 131,
-      "supportedCalls": 161962,
-      "callSemanticsSha256": "2ecc4577b2932d1b67de7def5c1d65cbd83ef0b300d63ceed326af363dda3c72",
-      "instructions": 321463282,
-      "finalGeneration": 296337,
-      "memoryContentSha256": "ac46e0896cc007c49ac9339a8b4747b894ea0dd99551c66faac13ac094e80820",
+      "supportedCalls": 161963,
+      "callSemanticsSha256": "2c88330f91f2f237a6b3e673e93279b62b29ad98124c4bc1eeac3a0c9d942c5a",
+      "instructions": 321463291,
+      "finalGeneration": 296338,
+      "memoryContentSha256": "10137380172e018f7846166e399db43c34782052640d3c87126e1ca32555e4da",
       "checkpointCompletion": {
-        "capability": "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
-        "implementationId": "runtime.user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation.v1",
+        "capability": "user32-is-iconic-post-pointer-release-continuation",
+        "implementationId": "runtime.user32-is-iconic-post-pointer-release-continuation.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -524,8 +524,8 @@
           },
           "runtimeThreadId": 8192
         },
-        "lastCompletionSequence": 161962,
-        "lastCompletionInstructionCount": 321463139,
+        "lastCompletionSequence": 161963,
+        "lastCompletionInstructionCount": 321463282,
         "defWindowProcAActiveCallbackDepthAtCompletion": 1,
         "defWindowProcA": {
           "sequence": 161948,
@@ -1056,42 +1056,64 @@
           "guestWrites": [],
           "runtimeThreadId": 8192
         },
-        "setFocusActiveCallbackDepthAtStop": 1,
-        "instructionCount": 321463282,
-        "nextEndpoint": {
-          "id": 183,
-          "address": 2130709344,
+        "isIconicPostReleaseActiveCallbackDepthAtCompletion": 0,
+        "isIconicPostRelease": {
+          "sequence": 161963,
           "module": "USER32.dll",
+          "symbol": "IsIconic",
+          "occurrence": 8,
+          "trapInstructionCount": 321463282,
+          "arguments": [
+            1208025089
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.is-iconic.logical-window-style.v1",
+          "returnAddress": 268995012,
+          "stackPointerBefore": 7338200,
+          "stackPointerAfter": 7338208,
+          "lastError": 0,
+          "guestWrites": [],
+          "runtimeThreadId": 8192
+        },
+        "setFocusActiveCallbackDepthAtStop": 1,
+        "instructionCount": 321463291,
+        "nextEndpoint": {
+          "id": 8,
+          "address": 2130706544,
+          "module": "WINMM.dll",
           "symbol": {
             "kind": "name",
-            "name": "IsIconic"
+            "name": "timeGetTime"
           },
           "disposition": "declared-runtime-export",
-          "iatAddress": 269292468
+          "iatAddress": 269292772
         },
-        "memoryContentSha256": "ac46e0896cc007c49ac9339a8b4747b894ea0dd99551c66faac13ac094e80820",
+        "memoryContentSha256": "10137380172e018f7846166e399db43c34782052640d3c87126e1ca32555e4da",
         "nextArguments": [
-          1208025089,
+          268995029,
           0
         ],
-        "nextReturnAddress": 268995012,
+        "nextReturnAddress": 269033151,
         "nextStackPointer": 7338200
       },
-      "writebackBatches": 165116,
-      "dirtyPages": 244482,
-      "changedBytes": 43070759,
+      "writebackBatches": 165117,
+      "dirtyPages": 244483,
+      "changedBytes": 43070766,
       "hostDeltaBatches": 127939
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 161962,
-      "callSemanticsSha256": "2ecc4577b2932d1b67de7def5c1d65cbd83ef0b300d63ceed326af363dda3c72",
-      "instructions": 321463282,
-      "finalGeneration": 314976,
-      "memoryContentSha256": "ac46e0896cc007c49ac9339a8b4747b894ea0dd99551c66faac13ac094e80820",
+      "supportedCalls": 161963,
+      "callSemanticsSha256": "2c88330f91f2f237a6b3e673e93279b62b29ad98124c4bc1eeac3a0c9d942c5a",
+      "instructions": 321463291,
+      "finalGeneration": 314977,
+      "memoryContentSha256": "10137380172e018f7846166e399db43c34782052640d3c87126e1ca32555e4da",
       "checkpointCompletion": {
-        "capability": "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
-        "implementationId": "runtime.user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation.v1",
+        "capability": "user32-is-iconic-post-pointer-release-continuation",
+        "implementationId": "runtime.user32-is-iconic-post-pointer-release-continuation.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -1636,8 +1658,8 @@
         "translateMessageReleaseActiveCallbackDepthAtCompletion": 0,
         "queueDepthAtTranslateCompletion": 0,
         "translateMessageReleaseBytesPreserved": true,
-        "lastCompletionSequence": 161962,
-        "lastCompletionInstructionCount": 321463139,
+        "lastCompletionSequence": 161963,
+        "lastCompletionInstructionCount": 321463282,
         "translateMessageRelease": {
           "sequence": 161950,
           "module": "user32.dll",
@@ -2033,31 +2055,53 @@
           "trapInstructionCount": 321463139,
           "occurrence": 68
         },
-        "instructionCount": 321463282,
-        "nextEndpoint": {
-          "address": 2130709344,
-          "disposition": "declared-runtime-export",
-          "iatAddress": 269292468,
-          "id": 183,
+        "isIconicPostReleaseActiveCallbackDepthAtCompletion": 0,
+        "isIconicPostRelease": {
+          "sequence": 161963,
           "module": "user32.dll",
+          "symbol": "IsIconic",
+          "arguments": [
+            1208025089
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.is-iconic.logical-window-style.v1",
+          "returnAddress": 268995012,
+          "stackPointerBefore": 7338200,
+          "stackPointerAfter": 7338208,
+          "lastError": 0,
+          "guestWrites": [],
+          "runtimeThreadId": 8192,
+          "trapInstructionCount": 321463282,
+          "occurrence": 8
+        },
+        "instructionCount": 321463291,
+        "nextEndpoint": {
+          "address": 2130706544,
+          "disposition": "declared-runtime-export",
+          "iatAddress": 269292772,
+          "id": 8,
+          "module": "winmm.dll",
           "symbol": {
             "kind": "name",
-            "name": "IsIconic"
+            "name": "timeGetTime"
           }
         },
         "nextArguments": [
-          1208025089,
+          268995029,
           0
         ],
-        "nextReturnAddress": 268995012,
+        "nextReturnAddress": 269033151,
         "nextStackPointer": 7338200,
-        "memoryContentSha256": "ac46e0896cc007c49ac9339a8b4747b894ea0dd99551c66faac13ac094e80820"
+        "memoryContentSha256": "10137380172e018f7846166e399db43c34782052640d3c87126e1ca32555e4da"
       },
-      "wasmBridgeCalls": 489409,
+      "wasmBridgeCalls": 489411,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 588695,
+          "transitionCount": 588698,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -2104,18 +2148,18 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "user32-is-iconic-post-pointer-release-continuation",
-      "pausedHistoricalCheckpoint": "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
-      "instructionCount": 321463282,
-      "capabilityCluster": "user32-post-pointer-release-window-geometry-continuation",
-      "reason": "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation-checkpoint-complete",
+      "nextCheckpoint": "winmm-time-get-time-post-is-iconic-continuation",
+      "pausedHistoricalCheckpoint": "user32-is-iconic-post-pointer-release-continuation",
+      "instructionCount": 321463291,
+      "capabilityCluster": "winmm-post-pointer-release-clock-continuation",
+      "reason": "user32-is-iconic-post-pointer-release-continuation-checkpoint-complete",
       "completion": {
-        "capability": "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
-        "implementationId": "runtime.user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation.v1",
+        "capability": "user32-is-iconic-post-pointer-release-continuation",
+        "implementationId": "runtime.user32-is-iconic-post-pointer-release-continuation.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "lastCompletionSequence": 161962,
-        "lastCompletionInstructionCount": 321463139,
+        "lastCompletionSequence": 161963,
+        "lastCompletionInstructionCount": 321463282,
         "maximumRepeatCompletions": 16,
         "requiredEntries": 1,
         "entryCount": 1,
@@ -2124,18 +2168,18 @@
       },
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
-        "endpointId": 183,
-        "api": "USER32.dll!IsIconic",
-        "endpointAddress": "0x7f000b60",
-        "iatAddress": "0x100d13b4",
-        "observedModule": "USER32.dll",
-        "observedSymbol": "IsIconic",
+        "endpointId": 8,
+        "api": "WINMM.dll!timeGetTime",
+        "endpointAddress": "0x7f000070",
+        "iatAddress": "0x100d14e4",
+        "observedModule": "WINMM.dll",
+        "observedSymbol": "timeGetTime",
         "disposition": "declared-runtime-export",
         "arguments": [
-          "0x48010001",
+          "0x100889d5",
           "0x00000000"
         ],
-        "returnAddress": "0x100889c4",
+        "returnAddress": "0x10091ebf",
         "stackPointer": "0x006ff8d8"
       }
     },
@@ -2152,14 +2196,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-get-system-metrics-fixed-frame-height-post-pointer-release-continuation/report.json",
-      "bytes": 3047403,
-      "sha256": "49883d456471aa7a53d14ba2699971e10ac5951f684f289b93cffa8bb93d7540"
+      "path": ".work/v86-bgi-is-iconic-post-pointer-release-continuation/report.json",
+      "bytes": 3048460,
+      "sha256": "210ab5e637805a2cb836795adc014a863a8de6a3a3aa29aa1987855dc78182f4"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2751369,
-      "sha256": "c7c0c6089953ed34f5a39735f411a252e276b568b4c33ab22f9017633ff1bede"
+      "bytes": 2752548,
+      "sha256": "74a6e1b5f6aa43650303d7232e837952e1455d757acc2a780046f1ed3b676cb9"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -2174,7 +2218,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3766,
-      "sha256": "a73afaa089602dfa52e7fadd6c03e637b0bac42118ea1f5286a8839e5504fb13"
+      "sha256": "a09081fb2e31cfae8ea21c5a0d62bd06bce23a1fb90d5173f1b88ba202f46be7"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -2211,5 +2255,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "83ba8104d118994b6856b76182474a870829f2269449f6745726a77acd7081b9"
+  "payloadSha256": "74c75cffccab8ba66ac11c0d3457b06d0d075f81d40d3eed5d983994c989a56e"
 }
