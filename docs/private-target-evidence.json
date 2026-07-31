@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-31T06:07:59.727Z",
+  "recordedAt": "2026-07-31T07:38:29.739Z",
   "repository": {
-    "implementationCommit": "4c4d417dfd2816e3c352c91f111fe06268dea107",
-    "implementationTree": "93f07320f080a7a81b3cd219b81a621963c47ece",
-    "headCommit": "4c4d417dfd2816e3c352c91f111fe06268dea107",
+    "implementationCommit": "f2542ba65c5a434935dc99abb5ba0b315daa00ff",
+    "implementationTree": "b99e4fdb0128fbfa06f0808462197f5e9a87d278",
+    "headCommit": "f2542ba65c5a434935dc99abb5ba0b315daa00ff",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,15 +27,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "winmm-time-get-time-action-continuation",
-    "runtimeProfile": "winmm-time-get-time-action-continuation",
+    "runtimeCheckpoint": "user32-def-window-proc-a-action-continuation",
+    "runtimeProfile": "user32-def-window-proc-a-action-continuation",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-winmm-time-get-time-action-continuation",
+    "nodeReportSchema": "vine.v86-bgi-user32-def-window-proc-a-action-continuation",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v80",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v81",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -70,14 +70,14 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 131,
-      "supportedCalls": 161946,
-      "callSemanticsSha256": "76d10d5a5fc53ddf14496b6a6b223233cb690df235574cae38f6e4c2c7afdd46",
-      "instructions": 321462401,
-      "finalGeneration": 296316,
-      "memoryContentSha256": "fcfa916b3f18936ba6df5107491dd2cbf0f08f738bd8de67154682f6da31280f",
+      "supportedCalls": 161948,
+      "callSemanticsSha256": "d1d4eae3da7cff8f892b5da70e32aaf6d6cb6aad089468ea2e43ae04b7dc6680",
+      "instructions": 321462423,
+      "finalGeneration": 296318,
+      "memoryContentSha256": "d0b40d56b7396f6962e6ba8ec6e91d23bbc12cbcc7b4e407175f639bdbf30881",
       "checkpointCompletion": {
-        "capability": "winmm-time-get-time-action-continuation",
-        "implementationId": "runtime.winmm-time-get-time-action-continuation.v1",
+        "capability": "user32-def-window-proc-a-action-continuation",
+        "implementationId": "runtime.user32-def-window-proc-a-action-continuation.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -427,7 +427,7 @@
           ]
         },
         "releaseMessageQueued": true,
-        "activeCallbackDepthAtStop": 1,
+        "activeCallbackDepthAtStop": 0,
         "requiredCompletions": 1,
         "completionCount": 1,
         "setFocus": {
@@ -499,8 +499,7 @@
           },
           "runtimeThreadId": 8192
         },
-        "lastCompletionSequence": 161947,
-        "lastCompletionInstructionCount": 321462368,
+        "timeGetTimeActiveCallbackDepthAtCompletion": 1,
         "timeGetTime": {
           "sequence": 161947,
           "module": "WINMM.dll",
@@ -525,44 +524,72 @@
           },
           "runtimeThreadId": 8192
         },
+        "lastCompletionSequence": 161948,
+        "lastCompletionInstructionCount": 321462401,
+        "defWindowProcAActiveCallbackDepthAtCompletion": 1,
+        "defWindowProcA": {
+          "sequence": 161948,
+          "module": "USER32.dll",
+          "symbol": "DefWindowProcA",
+          "occurrence": 26,
+          "trapInstructionCount": 321462401,
+          "arguments": [
+            1208025089,
+            513,
+            1,
+            23593600
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.def-window-proc-a.v1",
+          "returnAddress": 269038527,
+          "stackPointerBefore": 7337228,
+          "stackPointerAfter": 7337248,
+          "lastError": 0,
+          "guestWrites": [],
+          "runtimeThreadId": 8192
+        },
         "setFocusActiveCallbackDepthAtStop": 1,
-        "instructionCount": 321462401,
+        "instructionCount": 321462423,
         "nextEndpoint": {
-          "id": 233,
-          "address": 2130710144,
+          "id": 164,
+          "address": 2130709040,
           "module": "USER32.dll",
           "symbol": {
             "kind": "name",
-            "name": "DefWindowProcA"
+            "name": "PeekMessageA"
           },
           "disposition": "declared-runtime-export",
-          "iatAddress": 269292668
+          "iatAddress": 269292392
         },
-        "memoryContentSha256": "fcfa916b3f18936ba6df5107491dd2cbf0f08f738bd8de67154682f6da31280f",
+        "memoryContentSha256": "d0b40d56b7396f6962e6ba8ec6e91d23bbc12cbcc7b4e407175f639bdbf30881",
         "nextArguments": [
-          1208025089,
-          513,
-          1,
-          23593600
+          7338216,
+          0,
+          0,
+          0,
+          1
         ],
-        "nextReturnAddress": 269038527,
-        "nextStackPointer": 7337228
+        "nextReturnAddress": 269039547,
+        "nextStackPointer": 7338180
       },
-      "writebackBatches": 165099,
-      "dirtyPages": 244456,
-      "changedBytes": 43070440,
+      "writebackBatches": 165101,
+      "dirtyPages": 244458,
+      "changedBytes": 43070463,
       "hostDeltaBatches": 127935
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 161946,
-      "callSemanticsSha256": "76d10d5a5fc53ddf14496b6a6b223233cb690df235574cae38f6e4c2c7afdd46",
-      "instructions": 321462401,
-      "finalGeneration": 314955,
-      "memoryContentSha256": "fcfa916b3f18936ba6df5107491dd2cbf0f08f738bd8de67154682f6da31280f",
+      "supportedCalls": 161948,
+      "callSemanticsSha256": "d1d4eae3da7cff8f892b5da70e32aaf6d6cb6aad089468ea2e43ae04b7dc6680",
+      "instructions": 321462423,
+      "finalGeneration": 314957,
+      "memoryContentSha256": "d0b40d56b7396f6962e6ba8ec6e91d23bbc12cbcc7b4e407175f639bdbf30881",
       "checkpointCompletion": {
-        "capability": "winmm-time-get-time-action-continuation",
-        "implementationId": "runtime.winmm-time-get-time-action-continuation.v1",
+        "capability": "user32-def-window-proc-a-action-continuation",
+        "implementationId": "runtime.user32-def-window-proc-a-action-continuation.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -924,7 +951,7 @@
           ]
         },
         "releaseMessageQueued": true,
-        "activeCallbackDepthAtStop": 1,
+        "activeCallbackDepthAtStop": 0,
         "setFocusActiveCallbackDepthAtStop": 1,
         "requiredCompletions": 1,
         "completionCount": 1,
@@ -997,8 +1024,7 @@
           "trapInstructionCount": 321462324,
           "occurrence": 1
         },
-        "lastCompletionSequence": 161947,
-        "lastCompletionInstructionCount": 321462368,
+        "timeGetTimeActiveCallbackDepthAtCompletion": 1,
         "timeGetTime": {
           "sequence": 161947,
           "module": "winmm.dll",
@@ -1023,33 +1049,61 @@
           "trapInstructionCount": 321462368,
           "occurrence": 218
         },
-        "instructionCount": 321462401,
+        "lastCompletionSequence": 161948,
+        "lastCompletionInstructionCount": 321462401,
+        "defWindowProcAActiveCallbackDepthAtCompletion": 1,
+        "defWindowProcA": {
+          "sequence": 161948,
+          "module": "user32.dll",
+          "symbol": "DefWindowProcA",
+          "arguments": [
+            1208025089,
+            513,
+            1,
+            23593600
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.def-window-proc-a.v1",
+          "returnAddress": 269038527,
+          "stackPointerBefore": 7337228,
+          "stackPointerAfter": 7337248,
+          "lastError": 0,
+          "guestWrites": [],
+          "runtimeThreadId": 8192,
+          "trapInstructionCount": 321462401,
+          "occurrence": 26
+        },
+        "instructionCount": 321462423,
         "nextEndpoint": {
-          "address": 2130710144,
+          "address": 2130709040,
           "disposition": "declared-runtime-export",
-          "iatAddress": 269292668,
-          "id": 233,
+          "iatAddress": 269292392,
+          "id": 164,
           "module": "user32.dll",
           "symbol": {
             "kind": "name",
-            "name": "DefWindowProcA"
+            "name": "PeekMessageA"
           }
         },
         "nextArguments": [
-          1208025089,
-          513,
-          1,
-          23593600
+          7338216,
+          0,
+          0,
+          0,
+          1
         ],
-        "nextReturnAddress": 269038527,
-        "nextStackPointer": 7337228,
-        "memoryContentSha256": "fcfa916b3f18936ba6df5107491dd2cbf0f08f738bd8de67154682f6da31280f"
+        "nextReturnAddress": 269039547,
+        "nextStackPointer": 7338180,
+        "memoryContentSha256": "d0b40d56b7396f6962e6ba8ec6e91d23bbc12cbcc7b4e407175f639bdbf30881"
       },
-      "wasmBridgeCalls": 489371,
+      "wasmBridgeCalls": 489375,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 588647,
+          "transitionCount": 588652,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -1096,36 +1150,37 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "user32-def-window-proc-a-action-continuation",
-      "pausedHistoricalCheckpoint": "winmm-time-get-time-action-continuation",
-      "instructionCount": 321462401,
-      "capabilityCluster": "user32-default-window-proc-action-continuation",
-      "reason": "winmm-time-get-time-action-continuation-checkpoint-complete",
+      "nextCheckpoint": "user32-peek-message-a-pointer-release-continuation",
+      "pausedHistoricalCheckpoint": "user32-def-window-proc-a-action-continuation",
+      "instructionCount": 321462423,
+      "capabilityCluster": "user32-pointer-message-release-continuation",
+      "reason": "user32-def-window-proc-a-action-continuation-checkpoint-complete",
       "completion": {
-        "capability": "winmm-time-get-time-action-continuation",
-        "implementationId": "runtime.winmm-time-get-time-action-continuation.v1",
+        "capability": "user32-def-window-proc-a-action-continuation",
+        "implementationId": "runtime.user32-def-window-proc-a-action-continuation.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "lastCompletionSequence": 161947,
-        "lastCompletionInstructionCount": 321462368
+        "lastCompletionSequence": 161948,
+        "lastCompletionInstructionCount": 321462401
       },
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
-        "endpointId": 233,
-        "api": "USER32.dll!DefWindowProcA",
-        "endpointAddress": "0x7f000e80",
-        "iatAddress": "0x100d147c",
+        "endpointId": 164,
+        "api": "USER32.dll!PeekMessageA",
+        "endpointAddress": "0x7f000a30",
+        "iatAddress": "0x100d1368",
         "observedModule": "USER32.dll",
-        "observedSymbol": "DefWindowProcA",
+        "observedSymbol": "PeekMessageA",
         "disposition": "declared-runtime-export",
         "arguments": [
-          "0x48010001",
-          "0x00000201",
-          "0x00000001",
-          "0x01680280"
+          "0x006ff8e8",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000001"
         ],
-        "returnAddress": "0x100933bf",
-        "stackPointer": "0x006ff50c"
+        "returnAddress": "0x100937bb",
+        "stackPointer": "0x006ff8c4"
       }
     },
     "cleanup": {
@@ -1141,14 +1196,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-time-get-time-action-continuation/report.json",
-      "bytes": 3030689,
-      "sha256": "58035a214bba10cc9100b89240ef7fdb7b22e24161a4d5403c280f2c02cbfded"
+      "path": ".work/v86-bgi-def-window-proc-a-action-continuation/report.json",
+      "bytes": 3031455,
+      "sha256": "1606e1962d35abed8a2150c1a7f922ab151a4cc38e4bf2b80527e94cd80ef01b"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2735972,
-      "sha256": "4c29896f23e42d98d75b315abb93da886f35177bc1914e6e187e9e567dcc883b"
+      "bytes": 2736505,
+      "sha256": "486772e8905bd66bc31173b624c361630b7938108436c6f6b5ac01c725fd0002"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -1163,12 +1218,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3766,
-      "sha256": "d78ea667c2ef22045f5255f0fffd5ac42fa2a6af649404c9ac343b2694915e2e"
+      "sha256": "051df5dc8f32cddb194f1bed8e7c0037ac90a2ef04156cb9808232a91d659df2"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 5191303,
-      "sha256": "248feea6a66df1ed8d87f17ca811ea97f03490f12f14fe0cbf5e378028acfe3c"
+      "bytes": 5197852,
+      "sha256": "d7b218ad4c18ff4d54a9c45053bba3bf54c78e56536f43f6a3147c65c7da25c9"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -1200,5 +1255,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "2fbfeeb401433c7c023abdddf82e265432a2a05325ea3f0c1a3e66e2107480cf"
+  "payloadSha256": "c533eff51b786defa4073b555ec8dcd9e0bf6c262c4cf061f145d1281c54d945"
 }
