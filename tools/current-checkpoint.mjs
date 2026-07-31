@@ -571,7 +571,9 @@ export function validateCurrentCheckpoint(manifest) {
     : createDirectoryAActive
       ? "15954287,16290526"
       : "15953766,16290005";
-  const timerCycleCount = pointerMessageEvidenceActive
+  const timerCycleCount = getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+    ? 11_474
+    : pointerMessageEvidenceActive
     ? 11_465
     : windowTimerCallbackRecurringBatchActive
     ? 11_951
@@ -622,7 +624,9 @@ export function validateCurrentCheckpoint(manifest) {
                                             : mainLoopContinuationActive
                                               ? 7
                                               : 3;
-  const timerArmCount = pointerMessageEvidenceActive
+  const timerArmCount = getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+    ? 11_475
+    : pointerMessageEvidenceActive
     ? 11_466
     : windowTimerCallbackRecurringBatchActive
     ? 11_952
@@ -675,7 +679,9 @@ export function validateCurrentCheckpoint(manifest) {
               : presentationProgressGatewayActive
                 ? 11_467
                 : timerCycleCount;
-  const timerSetSequences = pointerMessageEvidenceActive
+  const timerSetSequences = getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+    ? "18681,162048"
+    : pointerMessageEvidenceActive
     ? "18681,161938"
     : windowTimerCallbackRecurringBatchActive
     ? "18681,168578"
@@ -728,8 +734,11 @@ export function validateCurrentCheckpoint(manifest) {
                                             : mainLoopContinuationActive
                                               ? "18681,18689,18697,18705,18713,18721,18729"
                                               : "18681,18689,18697";
-  const timerSetInstructionCounts = pointerMessageEvidenceActive
-    ? "11974074,321462018"
+  const timerSetInstructionCounts =
+    getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+      ? "11974074,321465758"
+      : pointerMessageEvidenceActive
+        ? "11974074,321462018"
     : windowTimerCallbackRecurringBatchActive
     ? "11974074,321780434"
     : windowTimerCallbackActionInputProgressGatewayActive
@@ -783,7 +792,9 @@ export function validateCurrentCheckpoint(manifest) {
                                               : mainLoopContinuationActive
                                                 ? "11973553,11973700,11973847,11973994,11974141,11974288,11974435"
                                                 : "11973553,11973700,11973847";
-  const timerWaitSequences = pointerMessageEvidenceActive
+  const timerWaitSequences = getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+    ? "18682,162041"
+    : pointerMessageEvidenceActive
     ? "18682,161939"
     : windowTimerCallbackRecurringBatchActive
     ? "18682,168579"
@@ -836,8 +847,11 @@ export function validateCurrentCheckpoint(manifest) {
                                             : mainLoopContinuationActive
                                               ? "18682,18690,18698,18706,18714,18722,18730"
                                               : "18682,18690,18698";
-  const timerWaitInstructionCounts = pointerMessageEvidenceActive
-    ? "11974080,321462024"
+  const timerWaitInstructionCounts =
+    getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+      ? "11974080,321465617"
+      : pointerMessageEvidenceActive
+        ? "11974080,321462024"
     : windowTimerCallbackRecurringBatchActive
     ? "11974080,321780440"
     : windowTimerCallbackActionInputProgressGatewayActive
@@ -891,7 +905,9 @@ export function validateCurrentCheckpoint(manifest) {
                                               : mainLoopContinuationActive
                                                 ? "11973559,11973706,11973853,11974000,11974147,11974294,11974441"
                                                 : "11973559,11973706,11973853";
-  const timerGenerations = pointerMessageEvidenceActive
+  const timerGenerations = getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+    ? "1,11466"
+    : pointerMessageEvidenceActive
     ? "1,8"
     : windowTimerCallbackRecurringBatchActive
     ? "1,62"
@@ -944,8 +960,11 @@ export function validateCurrentCheckpoint(manifest) {
                                             : mainLoopContinuationActive
                                               ? "1,2,3,4,5,6,7"
                                               : "1,2,3";
-  const timerClockGenerations = pointerMessageEvidenceActive
-    ? "1,11465"
+  const timerClockGenerations =
+    getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+      ? "1,11473"
+      : pointerMessageEvidenceActive
+        ? "1,11465"
     : windowTimerCallbackRecurringBatchActive
     ? "1,11902"
     : windowTimerCallbackActionInputProgressGatewayActive
@@ -983,7 +1002,9 @@ export function validateCurrentCheckpoint(manifest) {
                               : d3d9PostRasterStatusWaitableTimerActive
                                 ? "1,9187"
                                 : timerGenerations;
-  const timerDeadlines = pointerMessageEvidenceActive
+  const timerDeadlines = getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+    ? "5000,57470000"
+    : pointerMessageEvidenceActive
     ? "5000,57430000"
     : windowTimerCallbackRecurringBatchActive
     ? "5000,60410000"
@@ -1036,8 +1057,11 @@ export function validateCurrentCheckpoint(manifest) {
                                             : mainLoopContinuationActive
                                               ? "5000,10000,15000,20000,25000,30000,35000"
                                               : "5000,10000,15000";
-  const timerPacingRequestIds = pointerMessageEvidenceActive
-    ? "3,11560"
+  const timerPacingRequestIds =
+    getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+      ? "3,11568"
+      : pointerMessageEvidenceActive
+        ? "3,11560"
     : windowTimerCallbackRecurringBatchActive
     ? "3,11997"
     : windowTimerCallbackActionInputProgressGatewayActive
@@ -1089,8 +1113,11 @@ export function validateCurrentCheckpoint(manifest) {
                                             : mainLoopContinuationActive
                                               ? "3,4,5,6,7,8,9"
                                               : "3,4,5";
-  const timerPacingRegistrationIds = pointerMessageEvidenceActive
-    ? "1,11465"
+  const timerPacingRegistrationIds =
+    getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+      ? "1,11473"
+      : pointerMessageEvidenceActive
+        ? "1,11465"
     : windowTimerCallbackRecurringBatchActive
     ? "1,11902"
     : windowTimerCallbackActionInputProgressGatewayActive
@@ -1142,8 +1169,11 @@ export function validateCurrentCheckpoint(manifest) {
                                             : mainLoopContinuationActive
                                               ? "1,2,3,4,5,6,7"
                                               : "1,2,3";
-  const timerPacingClockGenerations = pointerMessageEvidenceActive
-    ? "0,11464"
+  const timerPacingClockGenerations =
+    getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+      ? "0,11472"
+      : pointerMessageEvidenceActive
+        ? "0,11464"
     : windowTimerCallbackRecurringBatchActive
     ? "0,11901"
     : windowTimerCallbackActionInputProgressGatewayActive
@@ -1195,8 +1225,11 @@ export function validateCurrentCheckpoint(manifest) {
                                             : mainLoopContinuationActive
                                               ? "0,1,2,3,4,5,6"
                                               : "0,1,2";
-  const timerNextRegistrationIds = pointerMessageEvidenceActive
-    ? "2,11466"
+  const timerNextRegistrationIds =
+    getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+      ? "2,11474"
+      : pointerMessageEvidenceActive
+        ? "2,11466"
     : windowTimerCallbackRecurringBatchActive
     ? "2,11903"
     : windowTimerCallbackActionInputProgressGatewayActive
@@ -2803,8 +2836,11 @@ export function validateCurrentCheckpoint(manifest) {
   const timerEvidenceEntries =
     dragAcceptFilesActive || archiveSourceReadActive ? 2 : timerCycleCount;
   const timerRepeatedOnes = Array(timerEvidenceEntries).fill(1).join(",");
-  const timerPacingDelayMilliseconds = pointerMessageEvidenceActive
-    ? "1,2"
+  const timerPacingDelayMilliseconds =
+    getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+      ? "1,1"
+      : pointerMessageEvidenceActive
+        ? "1,2"
     : windowTimerCallbackActionInputProgressGatewayActive
     ? "1,1"
     : windowTimerCallbackRecurringBatchActive
@@ -2814,11 +2850,11 @@ export function validateCurrentCheckpoint(manifest) {
       : user32IsIconicActive
         ? "1,2"
       : timerRepeatedOnes;
-  const timerRepeatedTwos =
-    pointerMessageEvidenceActive ||
-    d3d9PostRasterStatusWaitableTimerActive
-    ? "2,1"
-    : Array(timerEvidenceEntries).fill(2).join(",");
+  const timerRepeatedTwos = getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive
+    ? "2,2"
+    : pointerMessageEvidenceActive || d3d9PostRasterStatusWaitableTimerActive
+      ? "2,1"
+      : Array(timerEvidenceEntries).fill(2).join(",");
   const timerRepeatedZeroes = Array(timerEvidenceEntries).fill(0).join(",");
   const expectedRootKeys = [
     "schema",

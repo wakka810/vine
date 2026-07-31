@@ -393,15 +393,15 @@
       "hostRequests": 11568,
       "rustSchedulerTransitions": 14082,
       "contextSwitches": 2514,
-      "setWaitableTimerCompletions": 11466,
+      "setWaitableTimerCompletions": 11475,
       "setWaitableTimerSequence": 18681,
       "setWaitableTimerSequences": [
         18681,
-        161938
+        162048
       ],
       "setWaitableTimerInstructionCounts": [
         11974074,
-        321462018
+        321465758
       ],
       "setWaitableTimerInstructionCount": 11974074,
       "setWaitableTimerArguments": [
@@ -433,14 +433,14 @@
       "setWaitableTimerBrowserTimerCreated": false,
       "setWaitableTimerExpirationImplemented": true,
       "setWaitableTimerNodeChromeOrderedSemanticsMatched": true,
-      "waitForSingleObjectExCompletions": 11465,
+      "waitForSingleObjectExCompletions": 11474,
       "waitForSingleObjectExSequences": [
         18682,
-        161939
+        162041
       ],
       "waitForSingleObjectExInstructionCounts": [
         11974080,
-        321462024
+        321465617
       ],
       "waitForSingleObjectExArguments": [
         "0x57010002",
@@ -462,24 +462,24 @@
       "waitForSingleObjectExManualReset": true,
       "waitForSingleObjectExArmGenerations": [
         1,
-        8
+        11466
       ],
       "waitForSingleObjectExDeadlineTimes100ns": [
         5000,
-        57430000
+        57470000
       ],
       "waitForSingleObjectExClockTimes100ns": [
         5000,
-        57430000
+        57470000
       ],
       "waitForSingleObjectExClockGenerations": [
         1,
-        11465
+        11473
       ],
       "waitForSingleObjectExWaitState": "signaled",
       "waitForSingleObjectExNextRegistrationIds": [
         2,
-        11466
+        11474
       ],
       "waitForSingleObjectExStateAuthority": "runtime-timers-scheduler-and-typed-object-table",
       "waitForSingleObjectExClockAuthority": "runtime-timers-logical-clock",
@@ -490,31 +490,31 @@
       "waitForSingleObjectExPacingPayloadVersion": 1,
       "waitForSingleObjectExPacingRequestIds": [
         "3",
-        "11560"
+        "11568"
       ],
       "waitForSingleObjectExPacingRegistrationIds": [
         "1",
-        "11465"
+        "11473"
       ],
       "waitForSingleObjectExPacingDelayMilliseconds": [
         1,
-        2
+        1
       ],
       "waitForSingleObjectExPacingTimerIds": [
         "2",
-        "1"
+        "2"
       ],
       "waitForSingleObjectExPacingTargetTimes100ns": [
         "5000",
-        "57430000"
+        "57470000"
       ],
       "waitForSingleObjectExPacingClockGenerations": [
         "0",
-        "11464"
+        "11472"
       ],
       "waitForSingleObjectExPacingArmGenerations": [
         "1",
-        "8"
+        "11466"
       ],
       "waitForSingleObjectExPacingOutcome": "object-signaled",
       "waitForSingleObjectExNodePacingMode": "deterministic-node-ack",
@@ -16032,17 +16032,17 @@
       "setWaitableTimerHostTimerImported": false,
       "setWaitableTimerBrowserTimerImported": false,
       "setWaitableTimerExpirationImplemented": true,
-      "setWaitableTimerNodeCompletions": 11466,
-      "setWaitableTimerChromeCompletions": 11466,
+      "setWaitableTimerNodeCompletions": 11475,
+      "setWaitableTimerChromeCompletions": 11475,
       "setWaitableTimerNodeChromeOrderedSemanticsMatched": true,
       "waitForSingleObjectExImplemented": true,
       "waitForSingleObjectExSequences": [
         18682,
-        161939
+        162041
       ],
       "waitForSingleObjectExInstructionCounts": [
         11974080,
-        321462024
+        321465617
       ],
       "waitForSingleObjectExArguments": [
         "0x57010002",
@@ -16062,19 +16062,19 @@
       "waitForSingleObjectExImplementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
       "waitForSingleObjectExArmGenerations": [
         1,
-        8
+        11466
       ],
       "waitForSingleObjectExDeadlineTimes100ns": [
         5000,
-        57430000
+        57470000
       ],
       "waitForSingleObjectExClockTimes100ns": [
         5000,
-        57430000
+        57470000
       ],
       "waitForSingleObjectExClockGenerations": [
         1,
-        11465
+        11473
       ],
       "waitForSingleObjectExStateAuthority": "runtime-timers-scheduler-and-typed-object-table",
       "waitForSingleObjectExClockAuthority": "runtime-timers-logical-clock",
@@ -16085,27 +16085,27 @@
       "waitForSingleObjectExPacingPayloadVersion": 1,
       "waitForSingleObjectExPacingRequestIds": [
         "3",
-        "11560"
+        "11568"
       ],
       "waitForSingleObjectExPacingRegistrationIds": [
         "1",
-        "11465"
+        "11473"
       ],
       "waitForSingleObjectExPacingDelayMilliseconds": [
         1,
-        2
+        1
       ],
       "waitForSingleObjectExPacingTargetTimes100ns": [
         "5000",
-        "57430000"
+        "57470000"
       ],
       "waitForSingleObjectExPacingClockGenerations": [
         "0",
-        "11464"
+        "11472"
       ],
       "waitForSingleObjectExPacingArmGenerations": [
         "1",
-        "8"
+        "11466"
       ],
       "waitForSingleObjectExPacingOutcome": "object-signaled",
       "waitForSingleObjectExNodePacingMode": "deterministic-node-ack",
@@ -16121,8 +16121,8 @@
       "waitForSingleObjectExBrowserPacingCancellations": 0,
       "waitForSingleObjectExBrowserPacingStaleCallbacks": 0,
       "waitForSingleObjectExBrowserPacingPending": 0,
-      "waitForSingleObjectExNodeCompletions": 11465,
-      "waitForSingleObjectExChromeCompletions": 11465,
+      "waitForSingleObjectExNodeCompletions": 11474,
+      "waitForSingleObjectExChromeCompletions": 11474,
       "waitForSingleObjectExNodeChromeOrderedSemanticsMatched": true,
       "sleepZeroImplemented": true,
       "sleepZeroPolicyId": "kernel32-create-directory-a-v1",
