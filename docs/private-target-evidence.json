@@ -2,18 +2,14 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-30T18:24:15.655Z",
+  "recordedAt": "2026-07-31T04:43:15.326Z",
   "repository": {
-    "implementationCommit": "0fe5d90d10705fe7ce3ddc7512bb55606062add9",
-    "implementationTree": "289f24fbe5102da7f0de30e975248aaa49ce3f95",
-    "headCommit": "0fe5d90d10705fe7ce3ddc7512bb55606062add9",
-    "dirty": true,
-    "dirtyPaths": [
-      "docs/private-target-evidence.json"
-    ],
-    "allowedDirtyPaths": [
-      "docs/private-target-evidence.json"
-    ],
+    "implementationCommit": "53744f1427cca3b2a554cf3ddbb837a8c394f180",
+    "implementationTree": "360ebb2f5cf6d5887ed7d1546a16fac222f7467a",
+    "headCommit": "53744f1427cca3b2a554cf3ddbb837a8c394f180",
+    "dirty": false,
+    "dirtyPaths": [],
+    "allowedDirtyPaths": [],
     "executionInputsClean": true,
     "disallowedDirtyPaths": []
   },
@@ -31,15 +27,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "primary-main-loop-pointer-message-action-progress-gateway",
-    "runtimeProfile": "primary-main-loop-pointer-message-action-progress-gateway",
+    "runtimeCheckpoint": "user32-set-focus-action-continuation",
+    "runtimeProfile": "user32-set-focus-action-continuation",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-primary-main-loop-pointer-message-action-progress-gateway",
+    "nodeReportSchema": "vine.v86-bgi-user32-set-focus-action-continuation",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v78",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v79",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -73,15 +69,15 @@
     "outcome": "passed",
     "node": {
       "outcome": "checkpoint-complete",
-      "implementedApiContracts": 130,
-      "supportedCalls": 161944,
-      "callSemanticsSha256": "e29310241a7ef79cb01daff498f5cfad15b965382de1e2e85c3e0283ba3a0ff6",
-      "instructions": 321462324,
-      "finalGeneration": 296314,
-      "memoryContentSha256": "ea9fa8b5ca89aca279bcd0283007ff6e2c9a7156cb7c2daedcf2d08c696f8c75",
+      "implementedApiContracts": 131,
+      "supportedCalls": 161945,
+      "callSemanticsSha256": "060968314767f7d450e8dfdee7ed937eccf13e306aa7819ea15c6509aefaeeda",
+      "instructions": 321462368,
+      "finalGeneration": 296315,
+      "memoryContentSha256": "c914db56be54e00d4d8b1ea47753777d07c45cf180c31fa763555f103bddac4e",
       "checkpointCompletion": {
-        "capability": "primary-main-loop-pointer-message-action-progress-gateway",
-        "implementationId": "runtime.main-loop-pointer-message-action-progress-gateway.v1",
+        "capability": "user32-set-focus-action-continuation",
+        "implementationId": "runtime.user32-set-focus-action-continuation.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -432,40 +428,111 @@
         },
         "releaseMessageQueued": true,
         "activeCallbackDepthAtStop": 1,
-        "instructionCount": 321462324,
-        "nextEndpoint": {
-          "id": 209,
-          "address": 2130709760,
+        "requiredCompletions": 1,
+        "completionCount": 1,
+        "setFocus": {
+          "sequence": 161946,
           "module": "USER32.dll",
+          "symbol": "SetFocus",
+          "occurrence": 1,
+          "trapInstructionCount": 321462324,
+          "arguments": [
+            1208025089
+          ],
+          "result": {
+            "action": "set",
+            "value": 1208025089
+          },
+          "implementationId": "user32.set-focus.same-current-window.v1",
+          "returnAddress": 269037003,
+          "stackPointerBefore": 7337240,
+          "stackPointerAfter": 7337248,
+          "lastError": 0,
+          "guestWrites": [],
+          "window": {
+            "id": 1,
+            "handle": 1208025089,
+            "namespace": "vine.logical-window.v1",
+            "ownerThreadId": 8192,
+            "class": {
+              "classId": 1,
+              "atom": 49152,
+              "moduleId": 15
+            },
+            "instance": {
+              "moduleId": 15,
+              "loadBase": 268435456,
+              "sourceSha256": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1"
+            },
+            "name": {
+              "value": "Ethornell - BURIKO General Interpreter ( Version : 1.614.1 - Compatibility : 1.72 )",
+              "encoding": "windows-932-v1"
+            },
+            "extendedStyle": 262144,
+            "effectiveExtendedStyle": 262400,
+            "style": 2160721920,
+            "effectiveStyle": 2496266240,
+            "geometry": {
+              "x": 317,
+              "y": 154,
+              "width": 1286,
+              "height": 749,
+              "clientX": 320,
+              "clientY": 180,
+              "clientWidth": 1280,
+              "clientHeight": 720
+            },
+            "parent": 0,
+            "menu": 0,
+            "createParameter": 0,
+            "entryLastError": 0,
+            "lifecycle": {
+              "state": "created"
+            },
+            "visible": true,
+            "topmost": false,
+            "paintGeneration": 1,
+            "smallIcon": {
+              "iconId": 2,
+              "handle": 1224802306
+            }
+          },
+          "runtimeThreadId": 8192
+        },
+        "instructionCount": 321462368,
+        "nextEndpoint": {
+          "id": 8,
+          "address": 2130706544,
+          "module": "WINMM.dll",
           "symbol": {
             "kind": "name",
-            "name": "SetFocus"
+            "name": "timeGetTime"
           },
           "disposition": "declared-runtime-export",
-          "iatAddress": 269292572
+          "iatAddress": 269292772
         },
-        "memoryContentSha256": "ea9fa8b5ca89aca279bcd0283007ff6e2c9a7156cb7c2daedcf2d08c696f8c75",
-        "nextArguments": [
-          1208025089
-        ],
-        "nextReturnAddress": 269037003,
-        "nextStackPointer": 7337240
+        "memoryContentSha256": "c914db56be54e00d4d8b1ea47753777d07c45cf180c31fa763555f103bddac4e",
+        "nextArguments": [],
+        "nextReturnAddress": 269033151,
+        "nextStackPointer": 7337224,
+        "lastCompletionSequence": 161946,
+        "lastCompletionInstructionCount": 321462324
       },
-      "writebackBatches": 165097,
-      "dirtyPages": 244451,
-      "changedBytes": 43070400,
+      "writebackBatches": 165098,
+      "dirtyPages": 244453,
+      "changedBytes": 43070423,
       "hostDeltaBatches": 127935
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 161944,
-      "callSemanticsSha256": "e29310241a7ef79cb01daff498f5cfad15b965382de1e2e85c3e0283ba3a0ff6",
-      "instructions": 321462324,
-      "finalGeneration": 314953,
-      "memoryContentSha256": "ea9fa8b5ca89aca279bcd0283007ff6e2c9a7156cb7c2daedcf2d08c696f8c75",
+      "supportedCalls": 161945,
+      "callSemanticsSha256": "060968314767f7d450e8dfdee7ed937eccf13e306aa7819ea15c6509aefaeeda",
+      "instructions": 321462368,
+      "finalGeneration": 314954,
+      "memoryContentSha256": "c914db56be54e00d4d8b1ea47753777d07c45cf180c31fa763555f103bddac4e",
       "checkpointCompletion": {
-        "capability": "primary-main-loop-pointer-message-action-progress-gateway",
-        "implementationId": "runtime.main-loop-pointer-message-action-progress-gateway.v1",
+        "capability": "user32-set-focus-action-continuation",
+        "implementationId": "runtime.user32-set-focus-action-continuation.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -828,30 +895,101 @@
         },
         "releaseMessageQueued": true,
         "activeCallbackDepthAtStop": 1,
-        "instructionCount": 321462324,
-        "nextEndpoint": {
-          "address": 2130709760,
-          "disposition": "declared-runtime-export",
-          "iatAddress": 269292572,
-          "id": 209,
+        "requiredCompletions": 1,
+        "completionCount": 1,
+        "setFocus": {
+          "sequence": 161946,
           "module": "user32.dll",
+          "symbol": "SetFocus",
+          "arguments": [
+            1208025089
+          ],
+          "result": {
+            "action": "set",
+            "value": 1208025089
+          },
+          "implementationId": "user32.set-focus.same-current-window.v1",
+          "returnAddress": 269037003,
+          "stackPointerBefore": 7337240,
+          "stackPointerAfter": 7337248,
+          "lastError": 0,
+          "guestWrites": [],
+          "window": {
+            "class": {
+              "atom": 49152,
+              "classId": 1,
+              "moduleId": 15
+            },
+            "createParameter": 0,
+            "effectiveExtendedStyle": 262400,
+            "effectiveStyle": 2496266240,
+            "entryLastError": 0,
+            "extendedStyle": 262144,
+            "geometry": {
+              "clientHeight": 720,
+              "clientWidth": 1280,
+              "clientX": 320,
+              "clientY": 180,
+              "height": 749,
+              "width": 1286,
+              "x": 317,
+              "y": 154
+            },
+            "handle": 1208025089,
+            "id": 1,
+            "instance": {
+              "loadBase": 268435456,
+              "moduleId": 15,
+              "sourceSha256": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1"
+            },
+            "lifecycle": {
+              "state": "created"
+            },
+            "menu": 0,
+            "name": {
+              "encoding": "windows-932-v1",
+              "value": "Ethornell - BURIKO General Interpreter ( Version : 1.614.1 - Compatibility : 1.72 )"
+            },
+            "namespace": "vine.logical-window.v1",
+            "ownerThreadId": 8192,
+            "paintGeneration": 1,
+            "parent": 0,
+            "smallIcon": {
+              "handle": 1224802306,
+              "iconId": 2
+            },
+            "style": 2160721920,
+            "topmost": false,
+            "visible": true
+          },
+          "runtimeThreadId": 8192,
+          "trapInstructionCount": 321462324,
+          "occurrence": 1
+        },
+        "instructionCount": 321462368,
+        "nextEndpoint": {
+          "address": 2130706544,
+          "disposition": "declared-runtime-export",
+          "iatAddress": 269292772,
+          "id": 8,
+          "module": "winmm.dll",
           "symbol": {
             "kind": "name",
-            "name": "SetFocus"
+            "name": "timeGetTime"
           }
         },
-        "nextArguments": [
-          1208025089
-        ],
-        "nextReturnAddress": 269037003,
-        "nextStackPointer": 7337240,
-        "memoryContentSha256": "ea9fa8b5ca89aca279bcd0283007ff6e2c9a7156cb7c2daedcf2d08c696f8c75"
+        "nextArguments": [],
+        "nextReturnAddress": 269033151,
+        "nextStackPointer": 7337224,
+        "memoryContentSha256": "c914db56be54e00d4d8b1ea47753777d07c45cf180c31fa763555f103bddac4e",
+        "lastCompletionSequence": 161946,
+        "lastCompletionInstructionCount": 321462324
       },
-      "wasmBridgeCalls": 489367,
+      "wasmBridgeCalls": 489369,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 588643,
+          "transitionCount": 588645,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -898,35 +1036,31 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "user32-set-focus-action-continuation",
-      "pausedHistoricalCheckpoint": "primary-main-loop-pointer-message-action-progress-gateway",
-      "instructionCount": 321462324,
-      "capabilityCluster": "user32-focus-action-continuation",
-      "reason": "primary-main-loop-pointer-message-action-progress-gateway-checkpoint-complete",
+      "nextCheckpoint": "winmm-time-get-time-action-continuation",
+      "pausedHistoricalCheckpoint": "user32-set-focus-action-continuation",
+      "instructionCount": 321462368,
+      "capabilityCluster": "winmm-process-clock",
+      "reason": "user32-set-focus-action-continuation-checkpoint-complete",
       "completion": {
-        "capability": "primary-main-loop-pointer-message-action-progress-gateway",
-        "implementationId": "runtime.main-loop-pointer-message-action-progress-gateway.v1",
-        "requiredPointerMessages": 1,
-        "pointerMessageDeliveryCount": 1,
-        "dispatchSequence": 161942,
-        "dispatchInstructionCount": 321462086,
-        "releaseMessageQueued": true,
-        "activeCallbackDepthAtStop": 1
+        "capability": "user32-set-focus-action-continuation",
+        "implementationId": "runtime.user32-set-focus-action-continuation.v1",
+        "requiredCompletions": 1,
+        "completionCount": 1,
+        "lastCompletionSequence": 161946,
+        "lastCompletionInstructionCount": 321462324
       },
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
-        "endpointId": 209,
-        "api": "USER32.dll!SetFocus",
-        "endpointAddress": "0x7f000d00",
-        "iatAddress": "0x100d141c",
-        "observedModule": "USER32.dll",
-        "observedSymbol": "SetFocus",
+        "endpointId": 8,
+        "api": "WINMM.dll!timeGetTime",
+        "endpointAddress": "0x7f000070",
+        "iatAddress": "0x100d14e4",
+        "observedModule": "WINMM.dll",
+        "observedSymbol": "timeGetTime",
         "disposition": "declared-runtime-export",
-        "arguments": [
-          "0x48010001"
-        ],
-        "returnAddress": "0x10092dcb",
-        "stackPointer": "0x006ff518"
+        "arguments": [],
+        "returnAddress": "0x10091ebf",
+        "stackPointer": "0x006ff508"
       }
     },
     "cleanup": {
@@ -942,14 +1076,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-primary-main-loop-pointer-message-action-progress-gateway/report.json",
-      "bytes": 3027938,
-      "sha256": "bdd56d4e78cb608dece62bbba0f2dd15daba6e2933caa7e70c0280cbdca9ac80"
+      "path": ".work/v86-bgi-set-focus-action-continuation/report.json",
+      "bytes": 3029834,
+      "sha256": "0d66bbd8fb9263fb41e376e666dcc5189c9c8d845622cff70003bb74b5904915"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2732834,
-      "sha256": "e7f478f5c92e508114b19cfc0c548a212fdc7820c0bf0ab2bc77f326617771ec"
+      "bytes": 2734979,
+      "sha256": "652ea9eef041f099aabadff81fc44c38c639bad85afb49169c89621f177c1e70"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -964,12 +1098,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3766,
-      "sha256": "9fd84fa8642a775c143cd11756b5397ee1c0941e4dc607da4ce27e18d3873934"
+      "sha256": "fc30710efee0be695bf67796406ee6218ecacdf81f8a8ee9ef23e9d012a337cf"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 5187655,
-      "sha256": "db879af3a2baa01cb99630d37e98d93f81a557c9ed2f7a131bc8cecae0fd27de"
+      "bytes": 5191303,
+      "sha256": "248feea6a66df1ed8d87f17ca811ea97f03490f12f14fe0cbf5e378028acfe3c"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -1001,5 +1135,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "86b3fb5811551430166a6d462fa2c4a543deb8f62982ec2aff7e07c04db3caa3"
+  "payloadSha256": "96e40bbf3a2bdb81b96c0497924445b57d04a37d4c3d8075782d3732ce073872"
 }
