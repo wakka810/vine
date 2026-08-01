@@ -756,7 +756,7 @@ impl BrowserRuntime {
             User32CompatibilityPolicy::controlled_v30()
         };
         user32_policy.validate().map_err(api_fault_string)?;
-        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v7();
+        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v8();
         gdi32_policy.validate().map_err(api_fault_string)?;
         let gdiplus_policy = GdiplusCompatibilityPolicy::controlled_v1();
         gdiplus_policy.validate().map_err(api_fault_string)?;

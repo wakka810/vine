@@ -595,6 +595,15 @@ allocation ID 59／memory owner 29、4 dirty pages、`GetObjectA` sequence 18,61
 同じsemantic digest／terminal memoryを要求する。このDIB checkpoint単独ではoutline metrics、text output、glyph
 rasterization、host／browser font resolution、一般DIB formatをclaimしない。
 
+Post-heap／224 x 112 font DIB gateは同じowner transactionへ二件目のexact profileを追加する。Native Frida two-run
+oracleは448 x -336、8-bpp `BI_RGB`、stride 448、150,528 logical pixel bytes、151,552 mapped bytes、同一の
+reverse-grayscale palette、initial zero、24-byte `GetObjectA`、bitmap／font `SelectObject`を要求する。Rust testは
+exact successに加え448 x -335、palette mismatch、capacity／mapping failureをpublication前にrejectすることを固定する。
+Canonical Node／Chrome gateはCreateDIBSection sequence 261,031／instruction 342,875,151、handle `0x47020007`、
+bits `0x44801000`、allocation ID 78／memory owner 132、terminal instruction 342,875,244、261,035-call semantic
+digestとterminal memoryの一致を要求する。Presentは2回のまま、次の`GetOutlineTextMetricsA` font variantで停止するため、
+このDIB profileをthird Present停滞の近因としない。
+
 Reached outline-text-metrics gateはthree-word x86 stdcall `GetOutlineTextMetricsA`のnullable size queryとbounded
 ANSI outputを固定する。Native two-run evidenceはselected 64 x 32 CP932 `ＭＳ ゴシック`でrequired 269 bytes、fixed
 212 bytes、family／face／style／full-name offsets 212／226／240／245を要求する。`cbData` 1..212はrequested bytesを

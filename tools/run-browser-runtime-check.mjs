@@ -86,7 +86,10 @@ const bgiProfile =
     : checkpoint.activeRuntimeCheckpoint.capabilityProfile ??
       checkpoint.activeRuntimeCheckpoint.profile);
 const deleteFileAProfile = bgiProfile === "kernel32-delete-file-a";
+const createDibSection448x336Profile =
+  bgiProfile === "gdi-create-dib-section-448x336";
 const createFontA224x112Profile =
+  createDibSection448x336Profile ||
   bgiProfile === "gdi-create-font-a-224x112";
 const privateHeapOrdinarySegmentGrowthProfile =
   createFontA224x112Profile ||
@@ -361,7 +364,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v105";
+const runtimeProtocol = "vine.browser-runtime-worker.v106";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -1289,6 +1292,170 @@ function validatePrivateHeapOrdinarySegmentGrowthBgiProbe(
   );
 }
 
+function validateCreateDibSection448x336BgiProbe(evidence, scenario) {
+  if (scenario !== "success") {
+    validateScheduledSharedClockBgiProbe(evidence, scenario);
+    return;
+  }
+  const report = evidence.report;
+  const completion = report.checkpointCompletion;
+  const call = completion.call;
+  assert.equal(report.outcome, "checkpoint-complete");
+  assert.equal(report.error, null);
+  assert.equal(report.supportedCallCount, 261_035);
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    "c10dd21fad419df594de40931412f9b823b7fbb59e5e44939c447d0d9db046c2",
+  );
+  assert.equal(report.instructions, 342_875_244);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert.equal(report.sourceReads.length, 139);
+  assert.equal(report.writableDirectoryCreates.length, 1);
+  assert.equal((report.heapPageMaterializations ?? []).length, 3_108);
+  assert.equal(report.firstUnsupported.capabilityCluster, "gdi32-api-contract");
+  assert.equal(report.firstUnsupported.endpoint.id, 259);
+  assert.equal(report.firstUnsupported.endpoint.address, 0x7f00_1020);
+  assert.equal(
+    report.firstUnsupported.endpoint.module.toLowerCase(),
+    "gdi32.dll",
+  );
+  assert.deepEqual(report.firstUnsupported.endpoint.symbol, {
+    kind: "name",
+    name: "GetOutlineTextMetricsA",
+  });
+  assert.equal(report.firstUnsupported.fault.class, "unsupported");
+  assert.equal(
+    report.firstUnsupported.fault.stage,
+    "gdi32-outline-text-metrics",
+  );
+  assert.equal(
+    report.firstUnsupported.fault.code,
+    "outline-text-metrics-font-variant-unsupported",
+  );
+  assert.equal(
+    report.firstUnsupported.memoryContentSha256,
+    "a38022e80408a90e87d79e5c9ebec54389eb4c8331bd511889a04315266f4e00",
+  );
+  assert.equal(
+    completion.capability,
+    "gdi32-create-dib-section-448x336-post-create-font-a-224x112",
+  );
+  assert.equal(
+    completion.implementationId,
+    "runtime.gdi32-create-dib-section-448x336-post-create-font-a-224x112.v1",
+  );
+  assert.equal(completion.requiredCompletions, 1);
+  assert.equal(completion.completionCount, 1);
+  assert.equal(completion.prerequisiteFontCreationSequence, 261_028);
+  assert.equal(completion.prerequisiteFontCreationInstructionCount, 342_873_024);
+  assert.equal(completion.completionSequence, 261_031);
+  assert.equal(completion.completionInstructionCount, 342_875_151);
+  assert.equal(call.sequence, 261_031);
+  assert.equal(call.module.toLowerCase(), "gdi32.dll");
+  assert.equal(call.symbol, "CreateDIBSection");
+  assert.deepEqual(call.arguments, [
+    0x4701_000b,
+    0x3e40_e3d0,
+    0,
+    0x20ff_d9e8,
+    0,
+    0,
+  ]);
+  assert.deepEqual(call.result, { action: "set", value: 0x4702_0007 });
+  assert.equal(
+    call.implementationId,
+    "gdi32.create-dib-section.primary-8bpp.v1",
+  );
+  assert.equal(call.returnAddress, 0x1002_c8c5);
+  assert.equal(call.stackPointerBefore, 0x006f_f3cc);
+  assert.equal(call.stackPointerAfter, 0x006f_f3e8);
+  assert.equal(call.lastError, 0);
+  assert.equal(call.guestWrites.length, 1);
+  assert.equal(call.guestWrites[0].address, 0x20ff_d9e8);
+  assert.deepEqual(call.guestWrites[0].bytes, [0, 16, 128, 68]);
+  assert.equal(call.gdi.action, "dib-section-created");
+  assert.equal(call.gdi.object.id, 7);
+  assert.equal(call.gdi.object.handle, 0x4702_0007);
+  assert.equal(call.gdi.object.shared, false);
+  assert.equal(call.gdi.object.object.kind, "dib-section");
+  const descriptor = call.gdi.object.object.descriptor;
+  assert.deepEqual(
+    {
+      width: descriptor.width,
+      height: descriptor.height,
+      planes: descriptor.planes,
+      bitsPerPixel: descriptor.bitsPerPixel,
+      compression: descriptor.compression,
+      strideBytes: descriptor.strideBytes,
+      pixelByteLength: descriptor.pixelByteLength,
+    },
+    {
+      width: 448,
+      height: -336,
+      planes: 1,
+      bitsPerPixel: 8,
+      compression: 0,
+      strideBytes: 448,
+      pixelByteLength: 150_528,
+    },
+  );
+  assert.equal(descriptor.palette.length, 256);
+  for (let index = 0; index < 256; index += 1) {
+    const intensity = 255 - index;
+    assert.deepEqual(descriptor.palette[index], {
+      blue: intensity,
+      green: intensity,
+      red: intensity,
+      reserved: 0,
+    });
+  }
+  assert.deepEqual(call.gdi.object.object.backing, {
+    addressAllocationId: 78,
+    memoryOwner: 132,
+    range: { start: 0x4480_1000, byteLength: 151_552 },
+    contentGeneration: 0,
+  });
+  assert.equal(call.gdi.liveObjects, 5);
+  assert.equal(
+    completion.dibSectionProfileId,
+    "primary-448x-336-8bpp-reverse-grayscale-v1",
+  );
+  assert.equal(completion.logicalBitmapObjectId, 7);
+  assert.equal(completion.logicalBitmapHandle, 0x4702_0007);
+  assert.equal(completion.liveGdiObjects, 5);
+  assert.equal(completion.pixelByteLength, 150_528);
+  assert.equal(completion.mappedByteLength, 151_552);
+  assert.equal(completion.bitsAddress, 0x4480_1000);
+  assert.equal(completion.addressAllocationId, 78);
+  assert.equal(completion.memoryOwner, 132);
+  assert.equal(completion.hostBitmapImported, false);
+  assert.equal(completion.browserBitmapImported, false);
+  assert.equal(completion.clockSampleCount, 100_534);
+  assert.equal(completion.windowTimerCallbackCount, 39);
+  assert.equal(completion.presentCount, 2);
+  assert.equal(completion.pointerInputEventCount, 2);
+  assert.equal(completion.inputTimerCycleCount, 253);
+  assert.equal(completion.inputQuerySequence, 222_096);
+  assert.equal(completion.thirdPresentReached, false);
+  assert.equal(completion.clockFreezeWasProximateCause, false);
+  assert.equal(completion.archiveEnumerationWasProximateCause, false);
+  assert.equal(completion.missingFileDeleteWasProximateCause, false);
+  assert.equal(completion.ordinaryHeapCapacityWasProximateCause, false);
+  assert.equal(completion.fontCreationWasProximateCause, false);
+  assert.equal(completion.dibSectionWasProximateCause, false);
+  assert.equal(completion.instructionCount, report.instructions);
+  assert.equal(completion.nextEndpoint.id, 259);
+  assert.equal(completion.nextEndpoint.address, 0x7f00_1020);
+  assert.deepEqual(completion.nextEndpoint.symbol, {
+    kind: "name",
+    name: "GetOutlineTextMetricsA",
+  });
+  assert.equal(
+    completion.memoryContentSha256,
+    report.firstUnsupported.memoryContentSha256,
+  );
+}
+
 function validateCreateFontA224x112BgiProbe(evidence, scenario) {
   if (scenario !== "success") {
     validateScheduledSharedClockBgiProbe(evidence, scenario);
@@ -1446,6 +1613,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.report.pendingCallbacks, 0);
     assertExecutionStateMachine(evidence.report, scenario);
     assertExecutionEngine(evidence.report);
+    if (createDibSection448x336Profile) {
+      validateCreateDibSection448x336BgiProbe(evidence, scenario);
+      return evidence;
+    }
     if (createFontA224x112Profile) {
       validateCreateFontA224x112BgiProbe(evidence, scenario);
       return evidence;
@@ -6582,6 +6753,98 @@ function validatePrivateHeapOrdinarySegmentGrowthBgiEquivalence(
   assert.equal(report.timerPacing.pending, 0);
 }
 
+function validateCreateDibSection448x336BgiEquivalence(browser, oracle) {
+  const report = browser.report;
+  const completion = report.checkpointCompletion;
+  assert.equal(
+    oracle.schema,
+    "vine.v86-bgi-create-dib-section-448x336-primary",
+  );
+  assert.equal(report.evidenceLevel, fullEvidence ? "full" : "summary");
+  assert.equal(
+    report.supportedCallCount,
+    oracle.execution.completedSupportedCalls,
+  );
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    oracle.execution.supportedCallSemanticsSha256,
+  );
+  assert.equal(report.instructions, oracle.stop.terminal.instructionCount);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert(
+    oracle.synchronization.finalGeneration >= oracle.process.memory.generation,
+  );
+  assert.deepEqual(
+    report.sourceReads.map(normalizeBrowserSourceRead),
+    oracle.synchronization.sourceReads.map(normalizeNodeSourceRead),
+  );
+  assert.deepEqual(
+    (report.heapPageMaterializations ?? []).map(
+      normalizeHeapPageMaterialization,
+    ),
+    oracle.synchronization.heapPageMaterializations.map(
+      normalizeHeapPageMaterialization,
+    ),
+  );
+  assert.deepEqual(
+    report.writableDirectoryCreates.map(normalizeWritableDirectoryCreate),
+    oracle.synchronization.writableDirectoryCreates.map(
+      normalizeWritableDirectoryCreate,
+    ),
+  );
+  assert.deepEqual(
+    report.firstUnsupported.endpoint,
+    oracle.stop.fault.endpoint.endpoint,
+  );
+  assert.deepEqual(report.firstUnsupported.fault, oracle.stop.fault.fault);
+  assert.equal(
+    report.firstUnsupported.memoryContentSha256,
+    oracle.stop.fault.memoryContentSha256,
+  );
+  assert.equal(
+    completion.call.implementationId,
+    oracle.execution.createDibSection448x336.call.implementationId,
+  );
+  assert.deepEqual(
+    normalizeSemanticCall(completion.call),
+    normalizeSemanticCall(oracle.execution.createDibSection448x336.call),
+  );
+  assert.equal(
+    completion.clockSampleCount,
+    oracle.execution.clockSamples.count,
+  );
+  assert.equal(
+    completion.windowTimerCallbackCount,
+    oracle.execution.windowTimerCallbacks.count,
+  );
+  assert.equal(completion.presentCount, oracle.execution.presentations.count);
+  assert.equal(completion.thirdPresentReached, false);
+  assert.equal(completion.clockFreezeWasProximateCause, false);
+  assert.equal(completion.archiveEnumerationWasProximateCause, false);
+  assert.equal(completion.missingFileDeleteWasProximateCause, false);
+  assert.equal(completion.ordinaryHeapCapacityWasProximateCause, false);
+  assert.equal(completion.fontCreationWasProximateCause, false);
+  assert.equal(completion.dibSectionWasProximateCause, false);
+  assert.equal(completion.instructionCount, oracle.stop.terminal.instructionCount);
+  assert.deepEqual(completion.nextEndpoint, oracle.stop.fault.endpoint.endpoint);
+  assert.equal(
+    completion.memoryContentSha256,
+    oracle.stop.fault.memoryContentSha256,
+  );
+  assert.equal(report.pointerInput.receipts.length, 2);
+  assert.deepEqual(
+    report.pointerInput.receipts[0],
+    oracle.execution.pointerInput.first.receipt,
+  );
+  assert.deepEqual(
+    report.pointerInput.receipts[1],
+    oracle.execution.pointerInput.last.receipt,
+  );
+  assert.equal(report.timerPacing.requests, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.completions, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.pending, 0);
+}
+
 function validateCreateFontA224x112BgiEquivalence(browser, oracle) {
   const report = browser.report;
   const completion = report.checkpointCompletion;
@@ -6671,6 +6934,10 @@ function validateCreateFontA224x112BgiEquivalence(browser, oracle) {
 }
 
 function validateBgiEquivalence(browser, oracle) {
+  if (createDibSection448x336Profile) {
+    validateCreateDibSection448x336BgiEquivalence(browser, oracle);
+    return;
+  }
   if (createFontA224x112Profile) {
     validateCreateFontA224x112BgiEquivalence(browser, oracle);
     return;

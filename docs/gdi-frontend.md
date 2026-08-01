@@ -8,7 +8,7 @@ state in Rust. The current bounded slice implements `USER32!GetDC` and
 acquisition, one policy-owned `GDI32!EnumFontFamiliesExA` callback record, and
 two exact `GDI32!CreateFontA` logical object variants. It also implements the
 NULL-source `GDI32!CreateCompatibleDC` memory-DC lifecycle and `GDI32!DeleteDC`,
-the reached 8-bpp `GDI32!CreateDIBSection` object and backing lifecycle, exact
+the two reached 8-bpp `GDI32!CreateDIBSection` object and backing profiles, exact
 font／bitmap `GetObjectA`, memory-DC `SelectObject`, and bounded `DeleteObject`.
 The selected created font also supports bounded `GDI32!GetOutlineTextMetricsA`
 and one exact `GDI32!TextOutA` CP932 glyph raster into the selected 8-bpp DIB.
@@ -91,10 +91,13 @@ It has a non-owning relation to the current primary monitor rectangle. Creating
 the DC itself allocates no pixel storage, native HDC, Canvas context, or browser
 renderer resource; pixel bytes appear only when a DIB object is created.
 
-The reached `CreateDIBSection` variant creates one distinct nonshared GDI object
-for a top-down 128 x 96, 8-bpp `BI_RGB` bitmap. `RuntimeGdi` owns its descriptor,
-256-entry reverse-grayscale RGBQUAD palette, object identity, and backing
-relation. `GuestMemory` owns the 12,288 zero-initialized pixel bytes, and
+Each reached `CreateDIBSection` profile creates one distinct nonshared GDI object
+for a top-down 8-bpp `BI_RGB` bitmap. The original profile is 128 x 96 with
+stride 128 and 12,288 logical pixel bytes; the post-224 x 112 font profile is
+448 x 336 with stride 448 and 150,528 logical pixel bytes. Both require the same
+exact 256-entry reverse-grayscale RGBQUAD palette. `RuntimeGdi` owns the selected
+profile descriptor, palette, object identity, and backing relation. `GuestMemory`
+owns the zero-initialized pixel bytes, and
 `ProcessAddressSpaceAllocator` owns the explicit-release allocation in the
 graphics resource arena. The observed address is evidence, not a policy value
 or stable ABI promise. `RuntimeGdi` also owns the DIB content generation; it

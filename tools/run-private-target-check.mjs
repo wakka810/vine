@@ -1161,7 +1161,8 @@ function isScheduledSharedClockNodeReport(report) {
     report?.schema === "vine.v86-bgi-delete-file-a-primary" ||
     report?.schema ===
       "vine.v86-bgi-private-heap-ordinary-segment-growth-primary" ||
-    report?.schema === "vine.v86-bgi-create-font-a-224x112-primary"
+    report?.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
+    report?.schema === "vine.v86-bgi-create-dib-section-448x336-primary"
   );
 }
 
@@ -1170,6 +1171,85 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (
+    nodeReport.schema ===
+    "vine.v86-bgi-create-dib-section-448x336-primary"
+  ) {
+    const dib = execution.createDibSection448x336;
+    const call = dib.call;
+    const nextEndpoint = nodeReport.stop.fault.endpoint.endpoint;
+    const reachedNextEndpointAfterDibCreation =
+      execution.clockSamples.count > 0 &&
+      execution.windowTimerCallbacks.count > 0 &&
+      execution.presentations.count === 2 &&
+      dib.completionCount === 1 &&
+      call.result.value === 0x4702_0007 &&
+      nodeReport.stop.fault.fault.code ===
+        "outline-text-metrics-font-variant-unsupported";
+    const backing = call.gdi.object.object.backing;
+    return {
+      capability:
+        "gdi32-create-dib-section-448x336-post-create-font-a-224x112",
+      implementationId:
+        "runtime.gdi32-create-dib-section-448x336-post-create-font-a-224x112.v1",
+      requiredCompletions: 1,
+      completionCount: dib.completionCount,
+      prerequisiteFontCreationSequence: execution.createFontA224x112.call.sequence,
+      prerequisiteFontCreationInstructionCount:
+        execution.createFontA224x112.call.trapInstructionCount,
+      completionSequence: call.sequence,
+      completionInstructionCount: call.trapInstructionCount,
+      lastCompletionSequence: call.sequence,
+      lastCompletionInstructionCount: call.trapInstructionCount,
+      call: {
+        sequence: call.sequence,
+        module: call.module.toLowerCase(),
+        symbol: call.symbol,
+        arguments: call.arguments,
+        result: call.result,
+        implementationId: call.implementationId,
+        returnAddress: call.returnAddress,
+        stackPointerBefore: call.stackPointerBefore,
+        stackPointerAfter: call.stackPointerAfter,
+        lastError: call.lastError,
+        guestWrites: call.guestWrites,
+        gdi: call.gdi,
+      },
+      dibSectionProfileId:
+        nodeReport.contract.dibSectionProfileId ??
+        "primary-448x-336-8bpp-reverse-grayscale-v1",
+      logicalBitmapObjectId: call.gdi.object.id,
+      logicalBitmapHandle: call.gdi.object.handle,
+      liveGdiObjects: call.gdi.liveObjects,
+      pixelByteLength: call.gdi.object.object.descriptor.pixelByteLength,
+      mappedByteLength: backing.range.byteLength,
+      bitsAddress: backing.range.start,
+      addressAllocationId: backing.addressAllocationId,
+      memoryOwner: backing.memoryOwner,
+      hostBitmapImported: false,
+      browserBitmapImported: false,
+      clockProfileId: nodeReport.contract.clockProfile.id,
+      clockSampleCount: execution.clockSamples.count,
+      windowTimerCallbackCount: execution.windowTimerCallbacks.count,
+      presentCount: execution.presentations.count,
+      pointerInputEventCount: execution.pointerInput.count,
+      inputTimerCycleCount: expectedNext.completion.inputTimerCycleCount,
+      inputQuerySequence: execution.pointerInput.last.committedAfterSequence,
+      thirdPresentReached: execution.presentations.thirdPresentReached,
+      clockFreezeWasProximateCause: !reachedNextEndpointAfterDibCreation,
+      archiveEnumerationWasProximateCause:
+        !reachedNextEndpointAfterDibCreation,
+      missingFileDeleteWasProximateCause:
+        !reachedNextEndpointAfterDibCreation,
+      ordinaryHeapCapacityWasProximateCause:
+        !reachedNextEndpointAfterDibCreation,
+      fontCreationWasProximateCause: !reachedNextEndpointAfterDibCreation,
+      dibSectionWasProximateCause: !reachedNextEndpointAfterDibCreation,
+      instructionCount: nodeReport.stop.terminal.instructionCount,
+      nextEndpoint,
+      memoryContentSha256: nodeReport.stop.fault.memoryContentSha256,
+    };
+  }
   if (nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary") {
     const font = execution.createFontA224x112;
     const call = font.call;
@@ -1593,7 +1673,8 @@ function assertScheduledSharedClockReportSemantics({
     nodeReport.schema === "vine.v86-bgi-delete-file-a-primary" ||
     nodeReport.schema ===
       "vine.v86-bgi-private-heap-ordinary-segment-growth-primary" ||
-    nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary"
+    nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
+    nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary"
   ) {
     const find = nodeExecution.findFileA;
     assert.equal(find.pattern, "data0????.arc");
@@ -1615,7 +1696,8 @@ function assertScheduledSharedClockReportSemantics({
     nodeReport.schema === "vine.v86-bgi-delete-file-a-primary" ||
     nodeReport.schema ===
       "vine.v86-bgi-private-heap-ordinary-segment-growth-primary" ||
-    nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary"
+    nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
+    nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary"
   ) {
     const deletion = nodeExecution.deleteFileA;
     assert.equal(deletion.completionCount, 2);
@@ -1636,7 +1718,8 @@ function assertScheduledSharedClockReportSemantics({
   if (
     nodeReport.schema ===
       "vine.v86-bgi-private-heap-ordinary-segment-growth-primary" ||
-    nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary"
+    nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
+    nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary"
   ) {
     const growth = nodeExecution.ordinaryHeapSegmentGrowth;
     assert.equal(growth.completionCount, 1);
@@ -1650,7 +1733,10 @@ function assertScheduledSharedClockReportSemantics({
     assert.equal(growth.ordinarySegmentCountAfter, 3);
     assert.equal(nodeReport.contract.ordinaryHeapProcessSlotLimit, 32);
   }
-  if (nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary") {
+  if (
+    nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
+    nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary"
+  ) {
     const font = nodeExecution.createFontA224x112;
     assert.equal(font.completionCount, 1);
     assert.equal(font.call.sequence, 261_028);
@@ -1693,12 +1779,48 @@ function assertScheduledSharedClockReportSemantics({
     );
     assert.equal(font.call.gdi.liveObjects, 4);
   }
+  if (
+    nodeReport.schema ===
+    "vine.v86-bgi-create-dib-section-448x336-primary"
+  ) {
+    const dib = nodeExecution.createDibSection448x336;
+    assert.equal(dib.completionCount, 1);
+    assert.equal(dib.call.sequence, 261_031);
+    assert.equal(dib.call.trapInstructionCount, 342_875_151);
+    assert.deepEqual(dib.call.arguments, [
+      0x4701_000b,
+      0x3e40_e3d0,
+      0,
+      0x20ff_d9e8,
+      0,
+      0,
+    ]);
+    assert.equal(dib.call.result.value, 0x4702_0007);
+    assert.equal(
+      dib.call.implementationId,
+      "gdi32.create-dib-section.primary-8bpp.v1",
+    );
+    assert.equal(dib.call.gdi.action, "dib-section-created");
+    assert.equal(dib.call.gdi.object.id, 7);
+    assert.equal(dib.call.gdi.object.handle, 0x4702_0007);
+    assert.equal(dib.call.gdi.object.object.kind, "dib-section");
+    const descriptor = dib.call.gdi.object.object.descriptor;
+    assert.equal(descriptor.width, 448);
+    assert.equal(descriptor.height, -336);
+    assert.equal(descriptor.strideBytes, 448);
+    assert.equal(descriptor.pixelByteLength, 150_528);
+    assert.equal(descriptor.palette.length, 256);
+    assert.equal(dib.call.gdi.object.object.backing.range.byteLength, 151_552);
+    assert.equal(dib.call.gdi.liveObjects, 5);
+  }
 
   const nodeEndpoint = nodeStop.fault.endpoint.endpoint;
   const expectedEndpoint = expectedNext.nextEndpoint;
   assert.equal(nodeStop.fault.capabilityCluster, expectedNext.capabilityCluster);
   const expectedFaultCode =
-    nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary"
+    nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary"
+      ? "outline-text-metrics-font-variant-unsupported"
+      : nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary"
       ? "create-dib-section-variant-unsupported"
       : nodeReport.schema ===
     "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"

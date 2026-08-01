@@ -4313,7 +4313,7 @@ fn run_v86_generic_runtime_session(
         user32_policy.screen_dc = None;
     }
     user32_policy.validate().map_err(api_fault)?;
-    let mut gdi32_policy = Gdi32CompatibilityPolicy::controlled_v7();
+    let mut gdi32_policy = Gdi32CompatibilityPolicy::controlled_v8();
     if !font_enumeration_enabled {
         gdi32_policy.enum_font_families_ex_a = None;
     }
@@ -15084,6 +15084,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                     GenericRuntimeCapability::DeleteFileA
                 }
                 "gdi-create-font-a-224x112" => GenericRuntimeCapability::DeleteFileA,
+                "gdi-create-dib-section-448x336" => GenericRuntimeCapability::DeleteFileA,
                 "d3d9-recreated-textures" => GenericRuntimeCapability::D3d9RecreatedTextures,
                 "user32-set-window-pos-frame-change-move" => {
                     GenericRuntimeCapability::D3d9RecreatedTextures

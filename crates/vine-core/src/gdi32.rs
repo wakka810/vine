@@ -19,7 +19,7 @@ use crate::runtime::{
 };
 
 pub const GDI32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.gdi32-compatibility-policy";
-pub const GDI32_COMPATIBILITY_POLICY_VERSION: u32 = 7;
+pub const GDI32_COMPATIBILITY_POLICY_VERSION: u32 = 8;
 pub const GET_STOCK_OBJECT_IMPLEMENTATION: &str = "gdi32.get-stock-object.black-brush.v1";
 pub const ENUM_FONT_FAMILIES_EX_A_IMPLEMENTATION: &str =
     "gdi32.enum-font-families-ex-a.cp932-screen.v1";
@@ -48,6 +48,8 @@ pub const X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH: usize = 269;
 const SHIFT_JIS_CHARSET: u8 = 128;
 const PRIMARY_FONT_CREATION_PROFILE_ID: &str = "primary-cp932-ms-gothic-64x32-thin-v1";
 const POST_HEAP_GROWTH_FONT_CREATION_PROFILE_ID: &str = "primary-cp932-ms-gothic-224x112-thin-v1";
+const PRIMARY_DIB_SECTION_PROFILE_ID: &str = "primary-128x-96-8bpp-reverse-grayscale-v1";
+const POST_CREATE_FONT_DIB_SECTION_PROFILE_ID: &str = "primary-448x-336-8bpp-reverse-grayscale-v1";
 const ERROR_INVALID_HANDLE: u32 = 6;
 const ERROR_CAN_NOT_COMPLETE: u32 = 1003;
 const TRUETYPE_FONTTYPE: u32 = 0x0000_0004;
@@ -142,6 +144,12 @@ pub struct Gdi32CompatibleDcPolicy {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Gdi32DibSectionPolicy {
+    pub profiles: Vec<Gdi32DibSectionProfile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Gdi32DibSectionProfile {
     pub profile_id: String,
     pub bitmap_info_header_size: u32,
     pub size_image: u32,
@@ -195,11 +203,11 @@ pub struct Gdi32CompatibilityPolicy {
 }
 
 impl Gdi32CompatibilityPolicy {
-    pub fn controlled_v7() -> Self {
+    pub fn controlled_v8() -> Self {
         Self {
             schema: GDI32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: GDI32_COMPATIBILITY_POLICY_VERSION,
-            id: "gdi32-primary-cp932-text-raster-v7".to_owned(),
+            id: "gdi32-primary-cp932-text-raster-v8".to_owned(),
             enum_font_families_ex_a: Some(controlled_font_enumeration_policy()),
             create_font_a: Some(controlled_font_creation_policy()),
             create_compatible_dc: Some(controlled_compatible_dc_policy()),
@@ -253,7 +261,7 @@ impl Gdi32CompatibilityPolicy {
             return Err(ApiFault::runtime_defect(
                 "gdi32-compatibility-policy",
                 "gdi32-dib-section-profile-invalid",
-                "GDI32 DIB section policy must match the evidenced 128x-96 reverse-grayscale profile",
+                "GDI32 DIB section policy must match the evidenced reverse-grayscale profiles",
             ));
         }
         if let Some(outline_text_metrics) = self.get_outline_text_metrics_a.as_ref()
@@ -487,24 +495,6 @@ fn handle_create_dib_section(
         .with_guest_write(bits_output, 0_u32.to_le_bytes().to_vec())
         .with_last_error(preserved_last_error));
     }
-    if usage != dib_policy.usage
-        || section_handle != dib_policy.section_handle
-        || offset != dib_policy.offset
-        || header_size != dib_policy.bitmap_info_header_size
-        || size_image != dib_policy.size_image
-        || x_pixels_per_meter != dib_policy.x_pixels_per_meter
-        || y_pixels_per_meter != dib_policy.y_pixels_per_meter
-        || colors_used != dib_policy.colors_used
-        || colors_important != dib_policy.colors_important
-        || compression != RUNTIME_GDI_DIB_BI_RGB
-        || usage != RUNTIME_GDI_DIB_RGB_COLORS
-    {
-        return Err(ApiFault::unsupported(
-            "gdi32-dib-section",
-            "create-dib-section-variant-unsupported",
-            "CreateDIBSection currently supports only the evidenced RGB DIB request",
-        ));
-    }
     let bitmap_info = session
         .memory()
         .read(bitmap_info_address, X86_DIB_BITMAPINFO_BYTE_LENGTH)
@@ -561,11 +551,24 @@ fn handle_create_dib_section(
         pixel_byte_length,
         palette,
     };
-    if descriptor != dib_policy.descriptor {
+    if !dib_policy.profiles.iter().any(|profile| {
+        usage == profile.usage
+            && section_handle == profile.section_handle
+            && offset == profile.offset
+            && header_size == profile.bitmap_info_header_size
+            && size_image == profile.size_image
+            && x_pixels_per_meter == profile.x_pixels_per_meter
+            && y_pixels_per_meter == profile.y_pixels_per_meter
+            && colors_used == profile.colors_used
+            && colors_important == profile.colors_important
+            && compression == RUNTIME_GDI_DIB_BI_RGB
+            && usage == RUNTIME_GDI_DIB_RGB_COLORS
+            && profile.descriptor == descriptor
+    }) {
         return Err(ApiFault::unsupported(
             "gdi32-dib-section",
             "create-dib-section-variant-unsupported",
-            "CreateDIBSection currently supports only the evidenced 128x-96 reverse-grayscale DIB",
+            "CreateDIBSection currently supports only the evidenced reverse-grayscale DIB profiles",
         ));
     }
     let (result, write_result) =
@@ -806,7 +809,7 @@ fn handle_text_out_a(
             "TextOutA policy requires the created FontA policy",
         )
     })?;
-    let expected_dib = policy.create_dib_section.as_ref().ok_or_else(|| {
+    let dib_policy = policy.create_dib_section.as_ref().ok_or_else(|| {
         ApiFault::runtime_defect(
             "gdi32-text-raster",
             "text-out-a-dib-policy-missing",
@@ -819,6 +822,14 @@ fn handle_text_out_a(
                 "gdi32-text-raster",
                 "text-out-a-font-profile-missing",
                 "TextOutA policy requires the primary 64x32 FontA profile",
+            )
+        })?;
+    let expected_dib =
+        dib_section_profile(dib_policy, PRIMARY_DIB_SECTION_PROFILE_ID).ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "gdi32-text-raster",
+                "text-out-a-dib-profile-missing",
+                "TextOutA policy requires the primary 128x96 DIB profile",
             )
         })?;
     if target.log_font != expected_font.log_font || target.descriptor != expected_dib.descriptor {
@@ -1729,6 +1740,16 @@ fn font_creation_profile<'a>(
         .find(|profile| profile.profile_id == profile_id)
 }
 
+fn dib_section_profile<'a>(
+    policy: &'a Gdi32DibSectionPolicy,
+    profile_id: &str,
+) -> Option<&'a Gdi32DibSectionProfile> {
+    policy
+        .profiles
+        .iter()
+        .find(|profile| profile.profile_id == profile_id)
+}
+
 fn controlled_compatible_dc_policy() -> Gdi32CompatibleDcPolicy {
     Gdi32CompatibleDcPolicy {
         profile_id: "primary-null-screen-memory-dc-v1".to_owned(),
@@ -1740,7 +1761,28 @@ fn controlled_compatible_dc_policy() -> Gdi32CompatibleDcPolicy {
 
 fn controlled_dib_section_policy() -> Gdi32DibSectionPolicy {
     Gdi32DibSectionPolicy {
-        profile_id: "primary-128x-96-8bpp-reverse-grayscale-v1".to_owned(),
+        profiles: vec![
+            controlled_dib_section_profile(PRIMARY_DIB_SECTION_PROFILE_ID, 128, -96, 128, 12_288),
+            controlled_dib_section_profile(
+                POST_CREATE_FONT_DIB_SECTION_PROFILE_ID,
+                448,
+                -336,
+                448,
+                150_528,
+            ),
+        ],
+    }
+}
+
+fn controlled_dib_section_profile(
+    profile_id: &str,
+    width: i32,
+    height: i32,
+    stride_bytes: u32,
+    pixel_byte_length: u32,
+) -> Gdi32DibSectionProfile {
+    Gdi32DibSectionProfile {
+        profile_id: profile_id.to_owned(),
         bitmap_info_header_size: X86_BITMAPINFOHEADER_BYTE_LENGTH,
         size_image: 0,
         x_pixels_per_meter: 0,
@@ -1751,13 +1793,13 @@ fn controlled_dib_section_policy() -> Gdi32DibSectionPolicy {
         section_handle: 0,
         offset: 0,
         descriptor: RuntimeGdiDibSectionDescriptor {
-            width: 128,
-            height: -96,
+            width,
+            height,
             planes: 1,
             bits_per_pixel: 8,
             compression: RUNTIME_GDI_DIB_BI_RGB,
-            stride_bytes: 128,
-            pixel_byte_length: 12_288,
+            stride_bytes,
+            pixel_byte_length,
             palette: (0..X86_DIB_RGBQUAD_COUNT)
                 .map(|index| {
                     let intensity = u8::try_from(255 - index)
@@ -2123,7 +2165,7 @@ mod tests {
 
     #[test]
     fn controlled_gdi32_policy_is_canonical_and_bounded() {
-        let policy = Gdi32CompatibilityPolicy::controlled_v7();
+        let policy = Gdi32CompatibilityPolicy::controlled_v8();
         policy.validate().unwrap();
         let enumeration = policy.enum_font_families_ex_a.as_ref().unwrap();
         assert_eq!(enumeration.input_character_set, SHIFT_JIS_CHARSET);
@@ -2192,16 +2234,19 @@ mod tests {
         assert_eq!(compatible_dc.initial_font_stock_index, 13);
         assert_eq!(compatible_dc.initial_bitmap_stock_index, 21);
         let dib_section = policy.create_dib_section.as_ref().unwrap();
-        assert_eq!(dib_section.bitmap_info_header_size, 40);
-        assert_eq!(dib_section.colors_used, 256);
-        assert_eq!(dib_section.descriptor.width, 128);
-        assert_eq!(dib_section.descriptor.height, -96);
-        assert_eq!(dib_section.descriptor.bits_per_pixel, 8);
-        assert_eq!(dib_section.descriptor.stride_bytes, 128);
-        assert_eq!(dib_section.descriptor.pixel_byte_length, 12_288);
-        assert_eq!(dib_section.descriptor.palette.len(), 256);
+        assert_eq!(dib_section.profiles.len(), 2);
+        let primary_dib = &dib_section.profiles[0];
+        assert_eq!(primary_dib.profile_id, PRIMARY_DIB_SECTION_PROFILE_ID);
+        assert_eq!(primary_dib.bitmap_info_header_size, 40);
+        assert_eq!(primary_dib.colors_used, 256);
+        assert_eq!(primary_dib.descriptor.width, 128);
+        assert_eq!(primary_dib.descriptor.height, -96);
+        assert_eq!(primary_dib.descriptor.bits_per_pixel, 8);
+        assert_eq!(primary_dib.descriptor.stride_bytes, 128);
+        assert_eq!(primary_dib.descriptor.pixel_byte_length, 12_288);
+        assert_eq!(primary_dib.descriptor.palette.len(), 256);
         assert_eq!(
-            dib_section.descriptor.palette[0],
+            primary_dib.descriptor.palette[0],
             RuntimeGdiRgbQuad {
                 blue: 255,
                 green: 255,
@@ -2210,13 +2255,27 @@ mod tests {
             }
         );
         assert_eq!(
-            dib_section.descriptor.palette[255],
+            primary_dib.descriptor.palette[255],
             RuntimeGdiRgbQuad {
                 blue: 0,
                 green: 0,
                 red: 0,
                 reserved: 0,
             }
+        );
+        let post_create_font_dib = &dib_section.profiles[1];
+        assert_eq!(
+            post_create_font_dib.profile_id,
+            POST_CREATE_FONT_DIB_SECTION_PROFILE_ID
+        );
+        assert_eq!(post_create_font_dib.descriptor.width, 448);
+        assert_eq!(post_create_font_dib.descriptor.height, -336);
+        assert_eq!(post_create_font_dib.descriptor.bits_per_pixel, 8);
+        assert_eq!(post_create_font_dib.descriptor.stride_bytes, 448);
+        assert_eq!(post_create_font_dib.descriptor.pixel_byte_length, 150_528);
+        assert_eq!(
+            post_create_font_dib.descriptor.palette,
+            primary_dib.descriptor.palette
         );
         let outline = policy.get_outline_text_metrics_a.as_ref().unwrap();
         assert_eq!(outline.fixed_byte_length, 212);
@@ -2268,7 +2327,7 @@ mod tests {
 
     #[test]
     fn mutated_font_policy_is_rejected() {
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v7();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v8();
         policy
             .enum_font_families_ex_a
             .as_mut()
@@ -2278,14 +2337,14 @@ mod tests {
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-font-enumeration-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v7();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v8();
         policy.create_font_a.as_mut().unwrap().profiles[0]
             .log_font
             .quality = 1;
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-font-creation-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v7();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v8();
         policy
             .create_compatible_dc
             .as_mut()
@@ -2294,18 +2353,15 @@ mod tests {
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-compatible-dc-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v7();
-        policy
-            .create_dib_section
-            .as_mut()
-            .unwrap()
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v8();
+        policy.create_dib_section.as_mut().unwrap().profiles[0]
             .descriptor
             .palette[0]
             .red = 254;
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-dib-section-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v7();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v8();
         policy
             .get_outline_text_metrics_a
             .as_mut()
@@ -2314,7 +2370,7 @@ mod tests {
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-outline-text-metrics-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v7();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v8();
         policy.text_out_a.as_mut().unwrap().row_masks[0] ^= 1;
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-text-out-a-profile-invalid");

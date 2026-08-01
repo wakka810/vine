@@ -365,7 +365,8 @@ function isScheduledSharedClockSetWindowText(
     profile === "kernel32-find-first-file-a" ||
     profile === "kernel32-delete-file-a" ||
     profile === "kernel32-private-heap-ordinary-segment-growth" ||
-    profile === "gdi-create-font-a-224x112"
+    profile === "gdi-create-font-a-224x112" ||
+    profile === "gdi-create-dib-section-448x336"
   );
 }
 
@@ -376,7 +377,8 @@ function isFindFileAProfile(
     profile === "kernel32-find-first-file-a" ||
     profile === "kernel32-delete-file-a" ||
     profile === "kernel32-private-heap-ordinary-segment-growth" ||
-    profile === "gdi-create-font-a-224x112"
+    profile === "gdi-create-font-a-224x112" ||
+    profile === "gdi-create-dib-section-448x336"
   );
 }
 
@@ -385,14 +387,24 @@ function isPrivateHeapOrdinarySegmentGrowthProfile(
 ): boolean {
   return (
     profile === "kernel32-private-heap-ordinary-segment-growth" ||
-    profile === "gdi-create-font-a-224x112"
+    profile === "gdi-create-font-a-224x112" ||
+    profile === "gdi-create-dib-section-448x336"
   );
 }
 
 function isCreateFontA224x112Profile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "gdi-create-font-a-224x112";
+  return (
+    profile === "gdi-create-font-a-224x112" ||
+    profile === "gdi-create-dib-section-448x336"
+  );
+}
+
+function isCreateDibSection448x336Profile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "gdi-create-dib-section-448x336";
 }
 
 function isD3d9PostPresentContinuation(
@@ -8624,6 +8636,145 @@ class BrowserRuntimeSession {
       };
     }
     if (
+      call.module.toLowerCase() === "gdi32.dll" &&
+      call.symbol === "CreateDIBSection" &&
+      isCreateDibSection448x336Profile(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#report.checkpointCompletion?.capability ===
+        "gdi32-create-font-a-224x112-post-private-heap-segment-growth"
+    ) {
+      const previous = this.#report.checkpointCompletion;
+      const gdi = call.gdi;
+      const dibCreation =
+        gdi?.action === "dib-section-created" ? gdi : undefined;
+      const descriptor =
+        dibCreation?.object.object.kind === "dib-section"
+          ? dibCreation.object.object.descriptor
+          : undefined;
+      const backing =
+        dibCreation?.object.object.kind === "dib-section"
+          ? dibCreation.object.object.backing
+          : undefined;
+      invariant(
+        previous?.capability ===
+          "gdi32-create-font-a-224x112-post-private-heap-segment-growth" &&
+          call.sequence === 261_031 &&
+          call.arguments.join(",") ===
+            "1191247883,1044440016,0,553638376,0,0" &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 0x4702_0007 &&
+          call.implementationId ===
+            "gdi32.create-dib-section.primary-8bpp.v1" &&
+          call.returnAddress === 0x1002_c8c5 &&
+          call.stackPointerBefore === 0x006f_f3cc &&
+          call.stackPointerAfter === 0x006f_f3e8 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 1 &&
+          call.guestWrites[0]?.address === 0x20ff_d9e8 &&
+          "bytes" in call.guestWrites[0] &&
+          call.guestWrites[0].bytes.join(",") === "0,16,128,68" &&
+          dibCreation !== undefined &&
+          dibCreation.object.id === 7 &&
+          dibCreation.object.handle === 0x4702_0007 &&
+          dibCreation.object.namespace === "vine.logical-gdi-object.v1" &&
+          dibCreation.object.shared === false &&
+          descriptor?.width === 448 &&
+          descriptor.height === -336 &&
+          descriptor.planes === 1 &&
+          descriptor.bitsPerPixel === 8 &&
+          descriptor.compression === 0 &&
+          descriptor.strideBytes === 448 &&
+          descriptor.pixelByteLength === 150_528 &&
+          descriptor.palette.length === 256 &&
+          descriptor.palette.every(
+            (quad, index) =>
+              quad.blue === 255 - index &&
+              quad.green === 255 - index &&
+              quad.red === 255 - index &&
+              quad.reserved === 0,
+          ) &&
+          backing?.addressAllocationId === 78 &&
+          backing.memoryOwner === 132 &&
+          backing.range.start === 0x4480_1000 &&
+          backing.range.byteLength === 151_552 &&
+          backing.contentGeneration === 0 &&
+          dibCreation.liveObjects === 5 &&
+          dibCreation.addressAllocation.id === 78 &&
+          dibCreation.addressAllocation.parentId === 39 &&
+          dibCreation.addressAllocation.purpose.kind === "gdi-resource" &&
+          dibCreation.addressAllocation.owner === "runtime-gdi-resource" &&
+          dibCreation.addressAllocation.range.base === 0x4480_1000 &&
+          dibCreation.addressAllocation.range.byteLength === 151_552 &&
+          dibCreation.addressAllocation.usableByteLength === 150_528 &&
+          dibCreation.addressAllocation.alignment === 4_096 &&
+          dibCreation.addressAllocation.guardPages === 0 &&
+          dibCreation.addressAllocation.classification === "graphics" &&
+          dibCreation.addressAllocation.lifetime === "object" &&
+          dibCreation.addressAllocation.releasePolicy === "explicit" &&
+          dibCreation.addressAllocation.executable === false,
+        `CreateDIBSection 448x336 completion changed: ${JSON.stringify({
+          previousCapability: previous?.capability,
+          sequence: call.sequence,
+          arguments: call.arguments,
+          result: call.result,
+          implementationId: call.implementationId,
+          returnAddress: call.returnAddress,
+          stackPointerBefore: call.stackPointerBefore,
+          stackPointerAfter: call.stackPointerAfter,
+          lastError: call.lastError,
+          gdi,
+        })}`,
+      );
+      this.#report.checkpointCompletion = {
+        capability:
+          "gdi32-create-dib-section-448x336-post-create-font-a-224x112",
+        implementationId:
+          "runtime.gdi32-create-dib-section-448x336-post-create-font-a-224x112.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        prerequisiteFontCreationSequence: previous.lastCompletionSequence,
+        prerequisiteFontCreationInstructionCount:
+          previous.lastCompletionInstructionCount,
+        completionSequence: call.sequence,
+        completionInstructionCount: this.#report.instructions,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: this.#report.instructions,
+        call: structuredClone(call),
+        dibSectionProfileId:
+          "primary-448x-336-8bpp-reverse-grayscale-v1",
+        logicalBitmapObjectId: 7,
+        logicalBitmapHandle: 0x4702_0007,
+        liveGdiObjects: 5,
+        pixelByteLength: 150_528,
+        mappedByteLength: 151_552,
+        bitsAddress: 0x4480_1000,
+        addressAllocationId: 78,
+        memoryOwner: 132,
+        hostBitmapImported: false,
+        browserBitmapImported: false,
+        clockProfileId: previous.clockProfileId,
+        clockSampleCount: this.#scheduledSharedClockSampleCount,
+        windowTimerCallbackCount:
+          this.#scheduledSharedClockWindowTimerCallbackCount,
+        presentCount: this.#scheduledSharedClockPresentCount,
+        pointerInputEventCount: previous.pointerInputEventCount,
+        inputTimerCycleCount: previous.inputTimerCycleCount,
+        inputQuerySequence: previous.inputQuerySequence,
+        thirdPresentReached: false,
+        clockFreezeWasProximateCause: false,
+        archiveEnumerationWasProximateCause: false,
+        missingFileDeleteWasProximateCause: false,
+        ordinaryHeapCapacityWasProximateCause: false,
+        fontCreationWasProximateCause: false,
+        dibSectionWasProximateCause: false,
+        instructionCount: 0,
+        nextEndpoint: { id: 0, address: 0 },
+        memoryContentSha256: "",
+      };
+    }
+    if (
       call.module.toLowerCase() !== "user32.dll" ||
       call.symbol !== "SetWindowTextA"
     ) {
@@ -10785,10 +10936,12 @@ class BrowserRuntimeSession {
               )) &&
                (checkpoint.capability ===
                  "kernel32-delete-file-a-post-find-file-a" ||
-                checkpoint.capability ===
-                  "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a" ||
-                checkpoint.capability ===
-                  "gdi32-create-font-a-224x112-post-private-heap-segment-growth"))) &&
+                 checkpoint.capability ===
+                   "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a" ||
+                 checkpoint.capability ===
+                   "gdi32-create-font-a-224x112-post-private-heap-segment-growth" ||
+                 checkpoint.capability ===
+                   "gdi32-create-dib-section-448x336-post-create-font-a-224x112"))) &&
             this.#windowTimerCallbackEntry !== null &&
             call.windowTimer !== undefined &&
             call.callback !== undefined,
@@ -18103,13 +18256,19 @@ class BrowserRuntimeSession {
       )
     ) {
       const checkpoint = this.#report.checkpointCompletion;
-      const fontCreationProfile = isCreateFontA224x112Profile(
+      const dibSectionProfile = isCreateDibSection448x336Profile(
         this.#configuration.capabilityProfile,
       );
+      const fontCreationProfile =
+        isCreateFontA224x112Profile(
+          this.#configuration.capabilityProfile,
+        ) && !dibSectionProfile;
       const heapGrowthProfile =
         isPrivateHeapOrdinarySegmentGrowthProfile(
           this.#configuration.capabilityProfile,
-        ) && !fontCreationProfile;
+        ) &&
+        !fontCreationProfile &&
+        !dibSectionProfile;
       const deleteFileProfile =
         this.#configuration.capabilityProfile === "kernel32-delete-file-a";
       const findFileProfile =
@@ -18117,7 +18276,10 @@ class BrowserRuntimeSession {
         "kernel32-find-first-file-a";
       invariant(
         metadata.kind === "api-fault" &&
-          (fontCreationProfile
+          (dibSectionProfile
+            ? checkpoint?.capability ===
+              "gdi32-create-dib-section-448x336-post-create-font-a-224x112"
+            : fontCreationProfile
             ? checkpoint?.capability ===
               "gdi32-create-font-a-224x112-post-private-heap-segment-growth"
             : heapGrowthProfile
@@ -18132,17 +18294,32 @@ class BrowserRuntimeSession {
             : checkpoint?.capability ===
               "user32-set-window-text-a-post-scheduled-shared-clock") &&
           metadata.capabilityCluster ===
-            (fontCreationProfile || heapGrowthProfile
+            (dibSectionProfile || fontCreationProfile || heapGrowthProfile
               ? "gdi32-api-contract"
               : deleteFileProfile
               ? "kernel32-private-heap-allocation"
               : "kernel32-api-contract") &&
           metadata.endpoint.module.toLowerCase() ===
-            (fontCreationProfile || heapGrowthProfile
+            (dibSectionProfile || fontCreationProfile || heapGrowthProfile
               ? "gdi32.dll"
               : "kernel32.dll") &&
           metadata.endpoint.symbol.kind === "name" &&
-          (fontCreationProfile
+          (dibSectionProfile
+            ? this.#requirePrepared().runtime.kernel32Policy ===
+                "kernel32-delete-file-a-v1" &&
+              metadata.endpoint.id === 259 &&
+              metadata.endpoint.address === 0x7f00_1020 &&
+              metadata.endpoint.symbol.name === "GetOutlineTextMetricsA" &&
+              typeof metadata.fault === "object" &&
+              metadata.fault !== null &&
+              "class" in metadata.fault &&
+              metadata.fault.class === "unsupported" &&
+              "stage" in metadata.fault &&
+              metadata.fault.stage === "gdi32-outline-text-metrics" &&
+              "code" in metadata.fault &&
+              metadata.fault.code ===
+                "outline-text-metrics-font-variant-unsupported"
+            : fontCreationProfile
             ? this.#requirePrepared().runtime.kernel32Policy ===
                 "kernel32-delete-file-a-v1" &&
               metadata.endpoint.id === 257 &&

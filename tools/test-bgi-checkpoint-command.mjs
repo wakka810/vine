@@ -202,6 +202,10 @@ assert.equal(
   "v86-bgi-create-font-a-224x112",
 );
 assert.equal(
+  bgiProfileOutputDirectory("gdi-create-dib-section-448x336"),
+  "v86-bgi-create-dib-section-448x336",
+);
+assert.equal(
   bgiProfileOutputDirectory("shell32-drag-accept-files"),
   "v86-bgi-drag-accept-files",
 );

@@ -1016,8 +1016,9 @@ browser font resolution、glyph dataはこのobjectのauthorityではない。`C
 display relationを再検証し、`RuntimeGdi`内でdistinct same-thread memory HDCとprocess-shared `SYSTEM_FONT`／1 x 1
 monochrome `DEFAULT_BITMAP`をfailure-atomicにpublishする。Selected object IDとgenerationもDC ownerが持ち、native HDC／
 Canvas resourceを第二のauthorityにしない。`DeleteDC`はmatching memory HDCだけをretireする。Reached
-`CreateDIBSection`はdescriptor／palette／object lifetimeを`RuntimeGdi`、pixel bytesを`GuestMemory`、explicit-release
-address allocationを`ProcessAddressSpaceAllocator`に一意に置き、guest bits outputを含めて全owner preflight後にpublishする。
+`CreateDIBSection`は各reached exact profileのdescriptor／palette／object lifetimeを`RuntimeGdi`、logical pixel bytesを
+`GuestMemory`、page-rounded explicit-release address allocationを`ProcessAddressSpaceAllocator`に一意に置き、guest
+bits outputを含めて全owner preflight後にpublishする。Mapping paddingをDIB logical contentとして公開しない。
 `GetObjectA`／`SelectObject`／`DeleteObject`はこのfont／DIB lifecycleだけを扱い、selected object deleteはmutation-freeに
 拒否する。Reached `GetOutlineTextMetricsA`はselected FontAを`RuntimeGdi`から再検証し、versioned GDI32 policyが
 fixed metricとCP932 stringを所有して`GuestMemory`へbounded outputをcommitする。Native padding、host／browser font

@@ -291,7 +291,7 @@ impl FontFixture {
         )
         .expect("GDI fixture dispatcher");
         let user32_policy = User32CompatibilityPolicy::controlled_v30();
-        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v7();
+        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v8();
         user32_policy.validate().expect("valid User32 policy");
         gdi32_policy.validate().expect("valid GDI32 policy");
         let mut runtime = controlled_runtime();
@@ -1850,6 +1850,174 @@ fn dib_backing_and_gdi_objects_follow_primary_restore_before_delete_lifecycle() 
 }
 
 #[test]
+fn post_create_font_dib_profile_creates_exact_backing_and_bitmap_shape() {
+    let mut fixture = FontFixture::new();
+    fixture.install_face_name(&primary_face_name());
+    fixture.configure_create_font(post_heap_growth_create_font_arguments(), FACE_NAME_ADDRESS);
+    let font = match fixture.dispatch_create_font() {
+        DispatchOutcome::Immediate(completion) => match completion.eax {
+            RegisterUpdate::Set(handle) => handle,
+            other => panic!("CreateFontA did not set EAX: {other:?}"),
+        },
+        other => panic!("expected CreateFontA completion, got {other:?}"),
+    };
+    let memory_dc = match fixture.dispatch_create_compatible_dc(0) {
+        DispatchOutcome::Immediate(completion) => match completion.eax {
+            RegisterUpdate::Set(handle) => handle,
+            other => panic!("CreateCompatibleDC did not set EAX: {other:?}"),
+        },
+        other => panic!("expected CreateCompatibleDC completion, got {other:?}"),
+    };
+    let (default_font, default_bitmap) = {
+        let dc = fixture
+            .runtime
+            .gdi_device_context(memory_dc)
+            .expect("post-font memory DC");
+        let objects = fixture.runtime.gdi_objects();
+        (
+            objects[&dc.selected_font_id.expect("default font")].handle,
+            objects[&dc.selected_bitmap_id.expect("default bitmap")].handle,
+        )
+    };
+
+    fixture.install_bitmap_info(&post_create_font_bitmap_info());
+    fixture
+        .memory
+        .write(BITS_OUTPUT_ADDRESS, &0xa5a5_a5a5_u32.to_le_bytes())
+        .expect("initialize post-font bits output");
+    fixture.acknowledge_pending_delta();
+    let memory_before = fixture.memory.stats();
+    let address_records_before = fixture.runtime.process_address_space_allocator().records();
+    let creation = match fixture.dispatch_create_dib_section(
+        memory_dc,
+        BITMAP_INFO_ADDRESS,
+        BITS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected post-font CreateDIBSection completion, got {other:?}"),
+    };
+    let dib = match creation.eax {
+        RegisterUpdate::Set(handle) => handle,
+        other => panic!("CreateDIBSection did not set EAX: {other:?}"),
+    };
+    assert_ne!(dib, 0);
+    assert_eq!(creation.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(creation.guest_writes.len(), 1);
+    fixture.acknowledge_pending_delta();
+    let bits = GuestAddress(read_u32(
+        &fixture
+            .memory
+            .read(BITS_OUTPUT_ADDRESS, 4)
+            .expect("post-font DIB bits output"),
+        0,
+    ));
+    let (descriptor, backing) = {
+        let object = fixture
+            .runtime
+            .gdi_objects()
+            .values()
+            .find(|object| object.handle == dib)
+            .expect("post-font logical DIB");
+        let RuntimeGdiObjectKind::DibSection {
+            descriptor,
+            backing,
+        } = &object.object
+        else {
+            panic!("created object is not a DIB section")
+        };
+        (descriptor.clone(), *backing)
+    };
+    assert_eq!(descriptor.width, 448);
+    assert_eq!(descriptor.height, -336);
+    assert_eq!(descriptor.planes, 1);
+    assert_eq!(descriptor.bits_per_pixel, 8);
+    assert_eq!(descriptor.stride_bytes, 448);
+    assert_eq!(descriptor.pixel_byte_length, 150_528);
+    assert_eq!(descriptor.palette.len(), 256);
+    assert_eq!(descriptor.palette[0].red, 255);
+    assert_eq!(descriptor.palette[255].red, 0);
+    assert_eq!(backing.range.start(), bits);
+    assert_eq!(backing.range.byte_length(), 151_552);
+    let backing_allocation = fixture
+        .runtime
+        .process_address_space_allocator()
+        .allocation(backing.address_allocation_id)
+        .expect("post-font DIB address allocation");
+    assert_eq!(backing_allocation.range.byte_length, 151_552);
+    assert_eq!(backing_allocation.usable_byte_length, 150_528);
+    assert_eq!(
+        backing_allocation.purpose,
+        ProcessAddressAllocationPurpose::GdiResource
+    );
+    assert_eq!(fixture.memory.stats().owners, memory_before.owners + 1);
+    assert_eq!(fixture.memory.stats().regions, memory_before.regions + 1);
+    assert_eq!(
+        fixture
+            .runtime
+            .process_address_space_allocator()
+            .records()
+            .len(),
+        address_records_before.len() + 1
+    );
+    assert_eq!(
+        fixture
+            .memory
+            .read(bits, 150_528)
+            .expect("post-font DIB pixels"),
+        vec![0; 150_528]
+    );
+
+    fixture
+        .memory
+        .write(OBJECT_OUTPUT_ADDRESS, &[0x5a; 32])
+        .expect("initialize post-font BITMAP output");
+    fixture.acknowledge_pending_delta();
+    let get_object =
+        match fixture.dispatch_get_object(dib, X86_BITMAP_BYTE_LENGTH, OBJECT_OUTPUT_ADDRESS) {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected post-font GetObjectA completion, got {other:?}"),
+        };
+    assert_eq!(get_object.eax, RegisterUpdate::Set(X86_BITMAP_BYTE_LENGTH));
+    fixture.acknowledge_pending_delta();
+    let bitmap = fixture
+        .memory
+        .read(OBJECT_OUTPUT_ADDRESS, 24)
+        .expect("post-font BITMAP output");
+    assert_eq!(read_u32(&bitmap, 0), 0);
+    assert_eq!(read_i32(&bitmap, 4), 448);
+    assert_eq!(read_i32(&bitmap, 8), 336);
+    assert_eq!(read_u32(&bitmap, 12), 448);
+    assert_eq!(u16::from_le_bytes(bitmap[16..18].try_into().unwrap()), 1);
+    assert_eq!(u16::from_le_bytes(bitmap[18..20].try_into().unwrap()), 8);
+    assert_eq!(read_u32(&bitmap, 20), bits.0);
+
+    let selected_bitmap = match fixture.dispatch_select_object(memory_dc, dib) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected post-font bitmap SelectObject, got {other:?}"),
+    };
+    assert_eq!(selected_bitmap.eax, RegisterUpdate::Set(default_bitmap));
+    let selected_font = match fixture.dispatch_select_object(memory_dc, font) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected post-font font SelectObject, got {other:?}"),
+    };
+    assert_eq!(selected_font.eax, RegisterUpdate::Set(default_font));
+    assert!(matches!(
+        fixture.dispatch_select_object(memory_dc, default_bitmap),
+        DispatchOutcome::Immediate(_)
+    ));
+    assert!(matches!(
+        fixture.dispatch_select_object(memory_dc, default_font),
+        DispatchOutcome::Immediate(_)
+    ));
+    assert!(matches!(
+        fixture.dispatch_delete_object(dib),
+        DispatchOutcome::Immediate(_)
+    ));
+    fixture.acknowledge_pending_delta();
+    assert!(fixture.memory.read(bits, 1).is_err());
+}
+
+#[test]
 fn create_dib_section_rejects_malformed_unreached_and_stale_inputs_atomically() {
     let mut malformed = FontFixture::new();
     let memory_dc = match malformed.dispatch_create_compatible_dc(0) {
@@ -1953,6 +2121,65 @@ fn create_dib_section_rejects_malformed_unreached_and_stale_inputs_atomically() 
             .read(BITS_OUTPUT_ADDRESS, 4)
             .expect("preserved wrong-palette bits output"),
         0xfeed_beef_u32.to_le_bytes()
+    );
+
+    let mut wrong_dimensions = FontFixture::new();
+    let memory_dc = match wrong_dimensions.dispatch_create_compatible_dc(0) {
+        DispatchOutcome::Immediate(completion) => match completion.eax {
+            RegisterUpdate::Set(handle) => handle,
+            other => panic!("CreateCompatibleDC did not set EAX: {other:?}"),
+        },
+        other => panic!("expected CreateCompatibleDC completion, got {other:?}"),
+    };
+    wrong_dimensions.install_bitmap_info(&bitmap_info_bytes(448, -335));
+    wrong_dimensions
+        .memory
+        .write(BITS_OUTPUT_ADDRESS, &0x2468_1357_u32.to_le_bytes())
+        .expect("initialize wrong-dimensions bits output");
+    wrong_dimensions.acknowledge_pending_delta();
+    let runtime_before_dimensions = wrong_dimensions.runtime.clone();
+    let memory_before_dimensions = wrong_dimensions.memory.stats();
+    let records_before_dimensions = wrong_dimensions
+        .runtime
+        .process_address_space_allocator()
+        .records();
+    let fault = match wrong_dimensions.dispatch_create_dib_section(
+        memory_dc,
+        BITMAP_INFO_ADDRESS,
+        BITS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected wrong-dimensions CreateDIBSection fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(fault.code, "create-dib-section-variant-unsupported");
+    assert_eq!(wrong_dimensions.runtime, runtime_before_dimensions);
+    let memory_after_dimensions = wrong_dimensions.memory.stats();
+    assert_eq!(
+        memory_after_dimensions.owners,
+        memory_before_dimensions.owners
+    );
+    assert_eq!(
+        memory_after_dimensions.regions,
+        memory_before_dimensions.regions
+    );
+    assert_eq!(
+        memory_after_dimensions.physical_pages,
+        memory_before_dimensions.physical_pages
+    );
+    assert_eq!(
+        wrong_dimensions
+            .runtime
+            .process_address_space_allocator()
+            .records(),
+        records_before_dimensions
+    );
+    assert_eq!(
+        wrong_dimensions
+            .memory
+            .read(BITS_OUTPUT_ADDRESS, 4)
+            .expect("preserved wrong-dimensions bits output"),
+        0x2468_1357_u32.to_le_bytes()
     );
 
     let mut stale_dc = FontFixture::new();
@@ -2515,10 +2742,18 @@ fn assert_create_font_fault_atomic(
 }
 
 fn primary_bitmap_info() -> Vec<u8> {
+    bitmap_info_bytes(128, -96)
+}
+
+fn post_create_font_bitmap_info() -> Vec<u8> {
+    bitmap_info_bytes(448, -336)
+}
+
+fn bitmap_info_bytes(width: i32, height: i32) -> Vec<u8> {
     let mut bytes = vec![0; X86_DIB_BITMAPINFO_BYTE_LENGTH];
     bytes[0..4].copy_from_slice(&X86_BITMAPINFOHEADER_BYTE_LENGTH.to_le_bytes());
-    bytes[4..8].copy_from_slice(&128_i32.to_le_bytes());
-    bytes[8..12].copy_from_slice(&(-96_i32).to_le_bytes());
+    bytes[4..8].copy_from_slice(&width.to_le_bytes());
+    bytes[8..12].copy_from_slice(&height.to_le_bytes());
     bytes[12..14].copy_from_slice(&1_u16.to_le_bytes());
     bytes[14..16].copy_from_slice(&8_u16.to_le_bytes());
     bytes[32..36].copy_from_slice(&256_u32.to_le_bytes());
@@ -2649,10 +2884,10 @@ fn endpoint(
 
 fn initialized_memory() -> (GuestMemory, MemoryOwnerId) {
     let mut memory = GuestMemory::new(MemoryLimits {
-        max_physical_pages: 8,
+        max_physical_pages: 64,
         max_regions: 3,
         max_owners: 3,
-        max_access_bytes: 0x4000,
+        max_access_bytes: 0x40000,
     })
     .expect("memory");
     let owner = memory

@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 105 as const;
+export const protocolVersion = 106 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -22,6 +22,7 @@ export type BgiCapabilityProfile =
   | "kernel32-delete-file-a"
   | "kernel32-private-heap-ordinary-segment-growth"
   | "gdi-create-font-a-224x112"
+  | "gdi-create-dib-section-448x336"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1832,6 +1833,54 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "gdi32-create-dib-section-448x336-post-create-font-a-224x112";
+        implementationId: "runtime.gdi32-create-dib-section-448x336-post-create-font-a-224x112.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        prerequisiteFontCreationSequence: number;
+        prerequisiteFontCreationInstructionCount: number;
+        completionSequence: number;
+        completionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        call: RuntimeSupportedCallSnapshot;
+        dibSectionProfileId: "primary-448x-336-8bpp-reverse-grayscale-v1";
+        logicalBitmapObjectId: 7;
+        logicalBitmapHandle: 1_191_313_415;
+        liveGdiObjects: 5;
+        pixelByteLength: 150_528;
+        mappedByteLength: 151_552;
+        bitsAddress: 1_149_243_392;
+        addressAllocationId: 78;
+        memoryOwner: 132;
+        hostBitmapImported: false;
+        browserBitmapImported: false;
+        clockProfileId: "scheduled-shared-logical-deadline-v1";
+        clockSampleCount: number;
+        windowTimerCallbackCount: number;
+        presentCount: number;
+        pointerInputEventCount: number;
+        inputTimerCycleCount: number;
+        inputQuerySequence: number;
+        thirdPresentReached: false;
+        clockFreezeWasProximateCause: false;
+        archiveEnumerationWasProximateCause: false;
+        missingFileDeleteWasProximateCause: false;
+        ordinaryHeapCapacityWasProximateCause: false;
+        fontCreationWasProximateCause: false;
+        dibSectionWasProximateCause: false;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        memoryContentSha256: string;
+      }
     | {
         capability: "gdi32-create-font-a-224x112-post-private-heap-segment-growth";
         implementationId: "runtime.gdi32-create-font-a-224x112-post-private-heap-segment-growth.v1";

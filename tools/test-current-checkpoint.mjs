@@ -30,7 +30,7 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "Runtime VFS search enumerates all 45 data0????.arc entries, both missing-file DeleteFileA calls complete, the third ordinary private-heap segment succeeds, and the reached CreateFontA(224,112,...) creates a logical font before the next CreateDIBSection variant",
+    "Runtime VFS search enumerates all 45 data0????.arc entries, both missing-file DeleteFileA calls complete, the third ordinary private-heap segment succeeds, and the reached CreateFontA(224,112,...) plus exact 448x336 DIB pipeline complete before the next GetOutlineTextMetricsA variant",
   ),
 );
 assert.ok(

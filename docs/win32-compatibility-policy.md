@@ -198,7 +198,7 @@ DOM screen geometry, or browser renderer resource.
 
 ## GDI32 font catalog and logical object policy
 
-`Gdi32CompatibilityPolicy` version 7 is a separate Rust-owned policy because a
+`Gdi32CompatibilityPolicy` version 8 is a separate Rust-owned policy because a
 guest-visible Windows font catalog and its metrics are neither display topology
 nor browser resource state. Profile `primary-cp932-ms-gothic-regular-v1`
 accepts only the reached flags-zero `SHIFTJIS_CHARSET`／Windows-932 `MS Gothic`
@@ -245,10 +245,13 @@ and non-memory handles cannot mutate another DC or the shared objects.
 `ReleaseDC` for memory HDCs, non-NULL compatible sources, native HDC import,
 and browser DC resources are not enabled by this policy.
 
-DIB profile `primary-128x-96-8bpp-reverse-grayscale-v1` admits only the reached
-40-byte top-down `BITMAPINFOHEADER`: width 128, height -96, one plane, 8 bpp,
-`BI_RGB`, 256 reverse-grayscale RGBQUAD entries, `DIB_RGB_COLORS`, NULL section,
-and offset zero. Stride 128 and 12,288 backing bytes are checked derived values.
+DIB profiles `primary-128x-96-8bpp-reverse-grayscale-v1` and
+`primary-448x-336-8bpp-reverse-grayscale-v1` admit only the two reached 40-byte
+top-down `BITMAPINFOHEADER` shapes. Both require one plane, 8 bpp, `BI_RGB`, the
+exact 256-entry reverse-grayscale RGBQUAD palette, `DIB_RGB_COLORS`, NULL section,
+and offset zero. Their checked derived stride／logical byte pairs are 128／12,288
+and 448／150,528. The latter receives a page-rounded 151,552-byte mapping while
+only the 150,528 logical pixel bytes belong to the DIB descriptor.
 `RuntimeGdi` owns the bitmap descriptor and object lifetime, `GuestMemory` owns
 the pixel bytes, and `ProcessAddressSpaceAllocator` owns their explicit-release
 allocation. Object identity, allocation, zero backing, and the guest bits-output

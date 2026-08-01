@@ -6212,3 +6212,42 @@ workload evidence, not allocator semantics. They establish that Vine's current
 capacity gateway rather than native application failure. Exact current Node／
 Chrome counts and the next stop remain authoritative only in
 [current-checkpoint.json](current-checkpoint.json).
+
+## 186. BGI post-font 448 x 336 DIB pipeline
+
+The ignored focused Frida 17.11.0 oracle script is 11,014 bytes with SHA-256
+`3d4e66b6f10bb91e7c367c5c7a20e05d2dfc4cf05ae4d93d1fe2ef9bda0c0350`.
+Two independent runs produced 44,250／44,251-byte reports with SHA-256
+`651c13f6bc155873697ff7d97fba4a3a2bf429403630489d16be3ae4ee8e9163` and
+`6e4080b0b5dec0824841bb2b323ee80e2ee184b8c16f241f4e4217e28c0383fd`.
+The 1,193,472-byte source executable retained SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
+before and after both runs.
+
+The reached `CreateDIBSection` request has a 40-byte header, width 448,
+height -336, one plane, 8 bpp, `BI_RGB`, zero size-image／pixels-per-meter
+fields, 256 used colors, `DIB_RGB_COLORS`, NULL section, and offset zero. Its
+palette is exactly reverse-grayscale RGBQUAD, SHA-256
+`8ef39f6b0fae4090ae4f1ee8366004d93c62c4f35f71cdef10a8bff8b8a640dd`.
+Native stride is 448 and the 150,528 logical pixel bytes are initially zero;
+Windows exposes a 151,552-byte page-rounded mapped range. `GetObjectA(...,24)`
+returns all 24 bytes of the expected `BITMAP`, including the same bits pointer.
+The next two `SelectObject` calls select this bitmap and the preceding 224 x 112
+font. Both runs preserve LastError 0 for the reached success path.
+
+Static decompile of `sub_42C5F0` independently fixes the consumer order as
+`CreateFontA -> CreateCompatibleDC -> CreateDIBSection -> GetObjectA ->
+SelectObject(bitmap) -> SelectObject(font) -> GetOutlineTextMetricsA`. Runtime
+RVA, native HDC／HBITMAP values, mapped address, and thread identity remain
+artifact identity and are not handler branch inputs. Vine therefore admits this
+shape as a second exact DIB policy profile, keeps descriptor／object lifetime in
+`RuntimeGdi`, bytes in `GuestMemory`, and allocation identity in
+`ProcessAddressSpaceAllocator`, and publishes only after joint preflight.
+
+Canonical Node and Chrome both complete the DIB at sequence 261,031／instruction
+342,875,151, reproduce `GetObjectA` and both selections, and stop at the
+224 x 112 selected-font `GetOutlineTextMetricsA` variant at instruction
+342,875,244. Present remains at two, so the previously unsupported DIB request
+was not the proximate cause of the third-Present stall. Exact artifact identity,
+semantic digest, and current next-stop arguments remain authoritative only in
+[current-checkpoint.json](current-checkpoint.json).

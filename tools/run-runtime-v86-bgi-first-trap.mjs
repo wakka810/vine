@@ -250,6 +250,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-delete-file-a",
         "kernel32-private-heap-ordinary-segment-growth",
         "gdi-create-font-a-224x112",
+        "gdi-create-dib-section-448x336",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
@@ -459,6 +460,7 @@ assert(
       "kernel32-delete-file-a",
       "kernel32-private-heap-ordinary-segment-growth",
       "gdi-create-font-a-224x112",
+      "gdi-create-dib-section-448x336",
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
       "user32-set-window-pos-frame-change-move",
@@ -506,7 +508,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
     genericRuntimeCapability === "kernel32-delete-file-a" ||
     genericRuntimeCapability === "kernel32-private-heap-ordinary-segment-growth" ||
-    genericRuntimeCapability === "gdi-create-font-a-224x112"
+    genericRuntimeCapability === "gdi-create-font-a-224x112" ||
+    genericRuntimeCapability === "gdi-create-dib-section-448x336"
       ? "kernel32-delete-file-a-v1.json"
       : genericRuntimeCapability === "kernel32-find-first-file-a"
       ? "kernel32-find-file-a-v1.json"
@@ -1021,7 +1024,10 @@ const d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled =
 const d3d9PostInputScanWaitableTimerCycleCheckpointEnabled =
   genericRuntimeCapability ===
     "d3d9-post-input-scan-waitable-timer-cycle";
+const createDibSection448x336CheckpointEnabled =
+  genericRuntimeCapability === "gdi-create-dib-section-448x336";
 const createFontA224x112CheckpointEnabled =
+  createDibSection448x336CheckpointEnabled ||
   genericRuntimeCapability === "gdi-create-font-a-224x112";
 const privateHeapOrdinarySegmentGrowthCheckpointEnabled =
   createFontA224x112CheckpointEnabled ||
@@ -1936,7 +1942,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? createFontA224x112CheckpointEnabled
+    ? createDibSection448x336CheckpointEnabled
+      ? "v86-bgi-create-dib-section-448x336"
+      : createFontA224x112CheckpointEnabled
       ? "v86-bgi-create-font-a-224x112"
       : privateHeapOrdinarySegmentGrowthCheckpointEnabled
         ? "v86-bgi-private-heap-ordinary-segment-growth"
@@ -6531,6 +6539,8 @@ async function run() {
       });
       if (genericRuntimeCapability === null) {
         validateGenericRuntimeReentryResult(genericResult);
+      } else if (createDibSection448x336CheckpointEnabled) {
+        validateCreateDibSection448x336Result(genericResult, sourceRegistration);
       } else if (createFontA224x112CheckpointEnabled) {
         validateCreateFontA224x112Result(genericResult, sourceRegistration);
       } else if (privateHeapOrdinarySegmentGrowthCheckpointEnabled) {
@@ -6877,7 +6887,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : createFontA224x112CheckpointEnabled
+          : createDibSection448x336CheckpointEnabled
+            ? "bgi GDI32 CreateDIBSection 448x336"
+            : createFontA224x112CheckpointEnabled
             ? "bgi GDI32 CreateFontA 224x112"
             : privateHeapOrdinarySegmentGrowthCheckpointEnabled
               ? "bgi private-heap ordinary segment growth"
@@ -14412,7 +14424,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (fontEnumerationEnabled) {
     assert.equal(
       ready.gdi32CompatibilityPolicyId,
-      "gdi32-primary-cp932-text-raster-v7",
+      "gdi32-primary-cp932-text-raster-v8",
     );
   } else {
     assert.equal(ready.gdi32CompatibilityPolicyId, undefined);
@@ -14905,7 +14917,15 @@ function applyRuntimeHostDelta(context, delta) {
       assert.equal(operation.address % page.size, 0);
       assert.equal(operation.byteLength % page.size, 0);
       assert(0x4400_0000 <= operation.address && end <= 0x4500_0000);
-      assert.equal(operation.byteLength, 3 * page.size);
+      if (createDibSection448x336CheckpointEnabled) {
+        assert(
+          operation.byteLength === 3 * page.size ||
+            operation.byteLength === 37 * page.size,
+          "GDI resource mapping must match one evidenced DIB profile",
+        );
+      } else {
+        assert.equal(operation.byteLength, 3 * page.size);
+      }
     }
     if (virtualMemoryOperation) {
       assert(
@@ -26303,6 +26323,155 @@ function validatePrivateHeapOrdinarySegmentGrowthResult(
     100,
     0,
     0,
+  ]);
+  validateScheduledSharedClockCalls(result.supportedCalls);
+}
+
+function validateCreateDibSection448x336Result(result, sourceRegistration) {
+  assert(createDibSection448x336CheckpointEnabled);
+  assert(createFontA224x112CheckpointEnabled);
+  assert(privateHeapOrdinarySegmentGrowthCheckpointEnabled);
+  assert(deleteFileACheckpointEnabled);
+  assert(findFirstFileACheckpointEnabled);
+  assert(scheduledSharedClockProfile);
+  assert(sourceRegistration !== null);
+  assert.equal(
+    sourceRegistration.manifest.snapshotId,
+    "primary-game-archives-v2",
+  );
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 261_035);
+  assert.equal(result.callbackEvents.length, 146);
+  assert.equal(result.heapPageMaterializations.length, 3_108);
+  assert.equal(result.sourceReads.length, 139);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+  assert.equal(result.timerPacing.length, 7_721);
+  assert.equal(result.writebacks.length, 264_228);
+  assert.equal(result.hostDeltas.length, 128_185);
+  assert.equal(result.finalGeneration, 296_729);
+  assert.deepEqual(result.threadExecution, {
+    registeredThreadIds: [8_192, 8_193],
+    executedThreadIds: [8_192, 8_193],
+    contextSwitches: 1_954,
+    threadExits: [],
+  });
+  const call = result.supportedCalls[261_030];
+  assert.equal(call.sequence, 261_031);
+  assert.equal(call.module.toLowerCase(), "gdi32.dll");
+  assert.equal(call.symbol, "CreateDIBSection");
+  assert.deepEqual(call.arguments, [
+    0x4701_000b,
+    0x3e40_e3d0,
+    0,
+    0x20ff_d9e8,
+    0,
+    0,
+  ]);
+  assert.equal(
+    call.implementationId,
+    "gdi32.create-dib-section.primary-8bpp.v1",
+  );
+  assert.equal(call.returnAddress, 0x1002_c8c5);
+  assert.deepEqual(call.result, { action: "set", value: 0x4702_0007 });
+  assert.equal(call.stackPointerBefore, 0x006f_f3cc);
+  assert.equal(call.stackPointerAfter, 0x006f_f3e8);
+  assert.equal(call.stackPointerAfter - call.stackPointerBefore, 28);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, [
+    {
+      address: 0x20ff_d9e8,
+      bytes: [0, 16, 128, 68],
+      result: {
+        bytesWritten: 4,
+        dirtyPages: 1,
+        invalidation: {
+          generation: 296_722,
+          dataTlb: true,
+          instructionFetch: true,
+          generatedCode: true,
+        },
+      },
+    },
+  ]);
+  assert.equal(call.gdi?.action, "dib-section-created");
+  assert.equal(call.gdi?.object?.id, 7);
+  assert.equal(call.gdi?.object?.handle, 0x4702_0007);
+  assert.equal(call.gdi?.object?.namespace, "vine.logical-gdi-object.v1");
+  assert.equal(call.gdi?.object?.shared, false);
+  assert.equal(call.gdi?.object?.object?.kind, "dib-section");
+  const descriptor = call.gdi?.object?.object?.descriptor;
+  assert.equal(descriptor?.width, 448);
+  assert.equal(descriptor?.height, -336);
+  assert.equal(descriptor?.planes, 1);
+  assert.equal(descriptor?.bitsPerPixel, 8);
+  assert.equal(descriptor?.compression, 0);
+  assert.equal(descriptor?.strideBytes, 448);
+  assert.equal(descriptor?.pixelByteLength, 150_528);
+  assert.equal(descriptor?.palette?.length, 256);
+  for (let index = 0; index < 256; index += 1) {
+    const intensity = 255 - index;
+    assert.deepEqual(descriptor.palette[index], {
+      blue: intensity,
+      green: intensity,
+      red: intensity,
+      reserved: 0,
+    });
+  }
+  assert.deepEqual(call.gdi?.object?.object?.backing, {
+    addressAllocationId: 78,
+    memoryOwner: 132,
+    range: { start: 0x4480_1000, byteLength: 151_552 },
+    contentGeneration: 0,
+  });
+  assert.equal(call.gdi?.liveObjects, 5);
+  assert.deepEqual(call.gdi?.addressAllocation, {
+    id: 78,
+    parentId: 39,
+    purpose: { kind: "gdi-resource" },
+    owner: "runtime-gdi-resource",
+    range: { base: 0x4480_1000, byteLength: 151_552 },
+    usableByteLength: 150_528,
+    alignment: 4_096,
+    guardPages: 0,
+    classification: "graphics",
+    lifetime: "object",
+    releasePolicy: "explicit",
+    executable: false,
+  });
+  assert.equal(result.fault?.capabilityCluster, "gdi32-api-contract");
+  assert.equal(result.fault?.fault?.class, "unsupported");
+  assert.equal(result.fault?.fault?.stage, "gdi32-outline-text-metrics");
+  assert.equal(
+    result.fault?.fault?.code,
+    "outline-text-metrics-font-variant-unsupported",
+  );
+  assert.equal(
+    result.fault?.fault?.message,
+    "GetOutlineTextMetricsA selected font does not match the evidenced CP932 FontA",
+  );
+  assert.deepEqual(result.fault?.endpoint?.endpoint, {
+    id: 259,
+    address: 0x7f00_1020,
+    module: "gdi32.dll",
+    symbol: { kind: "name", name: "GetOutlineTextMetricsA" },
+    iatAddress: 0x100d_1098,
+    disposition: "declared-runtime-export",
+  });
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "a38022e80408a90e87d79e5c9ebec54389eb4c8331bd511889a04315266f4e00",
+  );
+  assert.equal(result.terminal.instructionCount, 342_875_244);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1002_c51f);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1), [
+    0x4701_000b,
+    0,
+    0,
+    0x2013_9c20,
+    0,
+    0x2000_2768,
+    0x2013_9c20,
   ]);
   validateScheduledSharedClockCalls(result.supportedCalls);
 }
@@ -39437,7 +39606,13 @@ function buildGenericRuntimeReentryReport({
       );
       if (findFirstFileACheckpointEnabled) {
         if (deleteFileACheckpointEnabled) {
-          if (createFontA224x112CheckpointEnabled) {
+          if (createDibSection448x336CheckpointEnabled) {
+            assert.equal(completedSupportedCalls.length, 261_035);
+            assert.equal(
+              supportedCallSemanticsSha256,
+              "c10dd21fad419df594de40931412f9b823b7fbb59e5e44939c447d0d9db046c2",
+            );
+          } else if (createFontA224x112CheckpointEnabled) {
             assert.equal(completedSupportedCalls.length, 261_030);
             assert.equal(
               supportedCallSemanticsSha256,
@@ -42641,6 +42816,15 @@ function buildScheduledSharedClockPrimaryReport({
           call.arguments[1] === 112,
       ) ?? null
     : null;
+  const createDibSection448x336Call = createDibSection448x336CheckpointEnabled
+    ? completedSupportedCalls.find(
+        (call) =>
+          call.implementationId ===
+            "gdi32.create-dib-section.primary-8bpp.v1" &&
+          call.gdi?.object?.object?.descriptor?.width === 448 &&
+          call.gdi?.object?.object?.descriptor?.height === -336,
+      ) ?? null
+    : null;
   const successfulFindCalls = [
     ...findFirstCalls,
     ...findNextCalls.filter((call) => call.result.value === 1),
@@ -42659,7 +42843,9 @@ function buildScheduledSharedClockPrimaryReport({
     };
   });
   return {
-    schema: createFontA224x112CheckpointEnabled
+    schema: createDibSection448x336CheckpointEnabled
+      ? "vine.v86-bgi-create-dib-section-448x336-primary"
+      : createFontA224x112CheckpointEnabled
       ? "vine.v86-bgi-create-font-a-224x112-primary"
       : privateHeapOrdinarySegmentGrowthCheckpointEnabled
         ? "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
@@ -42723,6 +42909,17 @@ function buildScheduledSharedClockPrimaryReport({
               "primary-cp932-ms-gothic-224x112-thin-v1",
             fontCreationHostFontImported: false,
             fontCreationBrowserFontImported: false,
+          }
+        : {}),
+      ...(createDibSection448x336CheckpointEnabled
+        ? {
+            dibSectionAuthority:
+              "runtime/gdi.rs::RuntimeGdi+GuestMemory+ProcessAddressSpaceAllocator",
+            dibSectionProfileId:
+              "primary-448x-336-8bpp-reverse-grayscale-v1",
+            dibSectionPixelByteLength: 150_528,
+            dibSectionMappedByteLength: 151_552,
+            dibSectionBrowserBitmapImported: false,
           }
         : {}),
     },
@@ -42828,6 +43025,14 @@ function buildScheduledSharedClockPrimaryReport({
             createFontA224x112: {
               completionCount: createFontA224x112Call === null ? 0 : 1,
               call: createFontA224x112Call,
+            },
+          }
+        : {}),
+      ...(createDibSection448x336CheckpointEnabled
+        ? {
+            createDibSection448x336: {
+              completionCount: createDibSection448x336Call === null ? 0 : 1,
+              call: createDibSection448x336Call,
             },
           }
         : {}),
