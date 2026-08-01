@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-08-01T15:02:30.318Z",
+  "recordedAt": "2026-08-01T16:25:36.672Z",
   "repository": {
-    "implementationCommit": "86d4381230b7457d684faca4debc9705e0d1e893",
-    "implementationTree": "c96304e8b07f9cd92abd153171f572476f8f02bb",
-    "headCommit": "86d4381230b7457d684faca4debc9705e0d1e893",
+    "implementationCommit": "b53c3ce466e41ef69205afa48d9ec1dfb67f3a03",
+    "implementationTree": "b9f6c2e256db18f5d1cd651f32a98499ea0c3f17",
+    "headCommit": "b53c3ce466e41ef69205afa48d9ec1dfb67f3a03",
     "dirty": true,
     "dirtyPaths": [
       "CON"
@@ -31,15 +31,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a",
+    "runtimeCheckpoint": "gdi32-create-font-a-224x112-post-private-heap-segment-growth",
     "runtimeProfile": "user32-peek-message-a-post-window-timer-callback-continuation",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-delete-file-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-delete-file-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-private-heap-ordinary-segment-growth-primary",
+    "nodeReportSchema": "vine.v86-bgi-create-font-a-224x112-primary",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v104",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v105",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -74,57 +74,102 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 136,
-      "supportedCalls": 261027,
-      "callSemanticsSha256": "c92d8866b1e9355c076db7126a3ab286b7d67289ca4601a6f9cfb749c23b3a16",
-      "instructions": 342873024,
-      "finalGeneration": 296715,
-      "memoryContentSha256": "c214835487a1ed382c3ea9cbb459d9c09faa1f329fba2c60c492587443d52806",
+      "supportedCalls": 261030,
+      "callSemanticsSha256": "8058bf7a6ebd37f36c7f486316a8b22faf44368dbc313938dfe4d0eb076c1c13",
+      "instructions": 342875151,
+      "finalGeneration": 296719,
+      "memoryContentSha256": "ae64fe329dde1e281c28e72fd56000e3c64b7e85f6e83119f830600f21840039",
       "checkpointCompletion": {
-        "capability": "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a",
-        "implementationId": "runtime.kernel32-private-heap-ordinary-segment-growth-post-delete-file-a.v1",
+        "capability": "gdi32-create-font-a-224x112-post-private-heap-segment-growth",
+        "implementationId": "runtime.gdi32-create-font-a-224x112-post-private-heap-segment-growth.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "prerequisiteDeleteFileASequence": 255432,
-        "prerequisiteDeleteFileAInstructionCount": 328097369,
-        "completionSequence": 260631,
-        "completionInstructionCount": 341618572,
-        "lastCompletionSequence": 260631,
-        "lastCompletionInstructionCount": 341618572,
+        "prerequisiteHeapGrowthSequence": 260631,
+        "prerequisiteHeapGrowthInstructionCount": 341618572,
+        "completionSequence": 261028,
+        "completionInstructionCount": 342873024,
+        "lastCompletionSequence": 261028,
+        "lastCompletionInstructionCount": 342873024,
         "call": {
-          "sequence": 260631,
-          "module": "kernel32.dll",
-          "symbol": "HeapAlloc",
+          "sequence": 261028,
+          "module": "gdi32.dll",
+          "symbol": "CreateFontA",
           "arguments": [
-            1744896001,
+            224,
+            112,
             0,
-            4218880
+            0,
+            100,
+            0,
+            0,
+            0,
+            128,
+            4,
+            0,
+            2,
+            0,
+            538156064
           ],
           "result": {
             "action": "set",
-            "value": 1040187392
+            "value": 1191313414
           },
-          "implementationId": "kernel32.heap-alloc.v2",
-          "returnAddress": 269109811,
-          "stackPointerBefore": 7337516,
-          "stackPointerAfter": 7337532,
+          "implementationId": "gdi32.create-font-a.cp932-logical-object.v1",
+          "returnAddress": 268617784,
+          "stackPointerBefore": 7336876,
+          "stackPointerAfter": 7336936,
           "lastError": 0,
           "guestWrites": [],
-          "heapAllocation": {
-            "heapHandle": 1744896001,
-            "allocation": {
-              "id": 1847,
-              "address": 1040187392,
-              "byteLength": 4218880,
-              "reservedByteLength": 4218880,
-              "initialization": "deterministic-uninitialized"
+          "gdi": {
+            "action": "font-created",
+            "object": {
+              "id": 6,
+              "handle": 1191313414,
+              "namespace": "vine.logical-gdi-object.v1",
+              "shared": false,
+              "object": {
+                "kind": "font-a",
+                "logFont": {
+                  "height": 224,
+                  "width": 112,
+                  "escapement": 0,
+                  "orientation": 0,
+                  "weight": 100,
+                  "italic": 0,
+                  "underline": 0,
+                  "strikeOut": 0,
+                  "characterSet": 128,
+                  "outputPrecision": 4,
+                  "clipPrecision": 0,
+                  "quality": 2,
+                  "pitchAndFamily": 0,
+                  "faceNameWindows932": [
+                    130,
+                    108,
+                    130,
+                    114,
+                    32,
+                    131,
+                    83,
+                    131,
+                    86,
+                    131,
+                    98,
+                    131,
+                    78
+                  ]
+                }
+              }
             },
-            "liveAllocations": 1144
+            "liveObjects": 4
           }
         },
-        "ordinarySegmentSlot": 31,
-        "ordinarySegmentCapacityBytes": 16777216,
-        "ordinarySegmentCountAfter": 3,
-        "segmentSelectionPolicy": "primary-then-lowest-address-first-fit-extensions",
+        "creationProfileId": "primary-cp932-ms-gothic-224x112-thin-v1",
+        "logicalFontObjectId": 6,
+        "logicalFontHandle": 1191313414,
+        "liveGdiObjects": 4,
+        "hostFontImported": false,
+        "browserFontImported": false,
         "clockProfileId": "scheduled-shared-logical-deadline-v1",
         "clockSampleCount": 100534,
         "windowTimerCallbackCount": 39,
@@ -137,76 +182,122 @@
         "archiveEnumerationWasProximateCause": false,
         "missingFileDeleteWasProximateCause": false,
         "ordinaryHeapCapacityWasProximateCause": false,
-        "instructionCount": 342873024,
+        "fontCreationWasProximateCause": false,
+        "instructionCount": 342875151,
         "nextEndpoint": {
-          "id": 256,
-          "address": 2130710512,
+          "id": 257,
+          "address": 2130710528,
           "module": "gdi32.dll",
           "symbol": {
             "kind": "name",
-            "name": "CreateFontA"
+            "name": "CreateDIBSection"
           },
-          "iatAddress": 269291660,
+          "iatAddress": 269291664,
           "disposition": "declared-runtime-export"
         },
-        "memoryContentSha256": "c214835487a1ed382c3ea9cbb459d9c09faa1f329fba2c60c492587443d52806"
+        "memoryContentSha256": "ae64fe329dde1e281c28e72fd56000e3c64b7e85f6e83119f830600f21840039"
       },
-      "writebackBatches": 264220,
-      "hostDeltaBatches": 128181
+      "writebackBatches": 264223,
+      "hostDeltaBatches": 128182
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 261027,
-      "callSemanticsSha256": "c92d8866b1e9355c076db7126a3ab286b7d67289ca4601a6f9cfb749c23b3a16",
-      "instructions": 342873024,
-      "finalGeneration": 316418,
-      "memoryContentSha256": "c214835487a1ed382c3ea9cbb459d9c09faa1f329fba2c60c492587443d52806",
+      "supportedCalls": 261030,
+      "callSemanticsSha256": "8058bf7a6ebd37f36c7f486316a8b22faf44368dbc313938dfe4d0eb076c1c13",
+      "instructions": 342875151,
+      "finalGeneration": 316422,
+      "memoryContentSha256": "ae64fe329dde1e281c28e72fd56000e3c64b7e85f6e83119f830600f21840039",
       "checkpointCompletion": {
-        "capability": "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a",
-        "implementationId": "runtime.kernel32-private-heap-ordinary-segment-growth-post-delete-file-a.v1",
+        "capability": "gdi32-create-font-a-224x112-post-private-heap-segment-growth",
+        "implementationId": "runtime.gdi32-create-font-a-224x112-post-private-heap-segment-growth.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "prerequisiteDeleteFileASequence": 255432,
-        "prerequisiteDeleteFileAInstructionCount": 328097369,
-        "completionSequence": 260631,
-        "completionInstructionCount": 341618572,
-        "lastCompletionSequence": 260631,
-        "lastCompletionInstructionCount": 341618572,
+        "prerequisiteHeapGrowthSequence": 260631,
+        "prerequisiteHeapGrowthInstructionCount": 341618572,
+        "completionSequence": 261028,
+        "completionInstructionCount": 342873024,
+        "lastCompletionSequence": 261028,
+        "lastCompletionInstructionCount": 342873024,
         "call": {
-          "sequence": 260631,
-          "module": "kernel32.dll",
-          "symbol": "HeapAlloc",
+          "sequence": 261028,
+          "module": "gdi32.dll",
+          "symbol": "CreateFontA",
           "arguments": [
-            1744896001,
+            224,
+            112,
             0,
-            4218880
+            0,
+            100,
+            0,
+            0,
+            0,
+            128,
+            4,
+            0,
+            2,
+            0,
+            538156064
           ],
           "result": {
             "action": "set",
-            "value": 1040187392
+            "value": 1191313414
           },
-          "implementationId": "kernel32.heap-alloc.v2",
-          "returnAddress": 269109811,
-          "stackPointerBefore": 7337516,
-          "stackPointerAfter": 7337532,
+          "implementationId": "gdi32.create-font-a.cp932-logical-object.v1",
+          "returnAddress": 268617784,
+          "stackPointerBefore": 7336876,
+          "stackPointerAfter": 7336936,
           "lastError": 0,
           "guestWrites": [],
-          "heapAllocation": {
-            "allocation": {
-              "address": 1040187392,
-              "byteLength": 4218880,
-              "id": 1847,
-              "initialization": "deterministic-uninitialized",
-              "reservedByteLength": 4218880
-            },
-            "heapHandle": 1744896001,
-            "liveAllocations": 1144
+          "gdi": {
+            "action": "font-created",
+            "liveObjects": 4,
+            "object": {
+              "handle": 1191313414,
+              "id": 6,
+              "namespace": "vine.logical-gdi-object.v1",
+              "object": {
+                "kind": "font-a",
+                "logFont": {
+                  "characterSet": 128,
+                  "clipPrecision": 0,
+                  "escapement": 0,
+                  "faceNameWindows932": [
+                    130,
+                    108,
+                    130,
+                    114,
+                    32,
+                    131,
+                    83,
+                    131,
+                    86,
+                    131,
+                    98,
+                    131,
+                    78
+                  ],
+                  "height": 224,
+                  "italic": 0,
+                  "orientation": 0,
+                  "outputPrecision": 4,
+                  "pitchAndFamily": 0,
+                  "quality": 2,
+                  "strikeOut": 0,
+                  "underline": 0,
+                  "weight": 100,
+                  "width": 112
+                }
+              },
+              "shared": false
+            }
           }
         },
-        "ordinarySegmentSlot": 31,
-        "ordinarySegmentCapacityBytes": 16777216,
-        "ordinarySegmentCountAfter": 3,
-        "segmentSelectionPolicy": "primary-then-lowest-address-first-fit-extensions",
+        "creationProfileId": "primary-cp932-ms-gothic-224x112-thin-v1",
+        "logicalFontObjectId": 6,
+        "logicalFontHandle": 1191313414,
+        "liveGdiObjects": 4,
+        "hostFontImported": false,
+        "browserFontImported": false,
         "clockProfileId": "scheduled-shared-logical-deadline-v1",
         "clockSampleCount": 100534,
         "windowTimerCallbackCount": 39,
@@ -219,25 +310,26 @@
         "archiveEnumerationWasProximateCause": false,
         "missingFileDeleteWasProximateCause": false,
         "ordinaryHeapCapacityWasProximateCause": false,
-        "instructionCount": 342873024,
+        "fontCreationWasProximateCause": false,
+        "instructionCount": 342875151,
         "nextEndpoint": {
-          "address": 2130710512,
+          "address": 2130710528,
           "disposition": "declared-runtime-export",
-          "iatAddress": 269291660,
-          "id": 256,
+          "iatAddress": 269291664,
+          "id": 257,
           "module": "gdi32.dll",
           "symbol": {
             "kind": "name",
-            "name": "CreateFontA"
+            "name": "CreateDIBSection"
           }
         },
-        "memoryContentSha256": "c214835487a1ed382c3ea9cbb459d9c09faa1f329fba2c60c492587443d52806"
+        "memoryContentSha256": "ae64fe329dde1e281c28e72fd56000e3c64b7e85f6e83119f830600f21840039"
       },
-      "wasmBridgeCalls": 693571,
+      "wasmBridgeCalls": 693578,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 877467,
+          "transitionCount": 877476,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -285,57 +377,102 @@
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
       "classification": "semantic-leaf",
-      "nextCheckpoint": "gdi32-create-font-a-224x112-post-private-heap-segment-growth",
-      "pausedHistoricalCheckpoint": "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a",
-      "instructionCount": 342873024,
+      "nextCheckpoint": "gdi32-create-dib-section-post-create-font-a-224x112",
+      "pausedHistoricalCheckpoint": "gdi32-create-font-a-224x112-post-private-heap-segment-growth",
+      "instructionCount": 342875151,
       "capabilityCluster": "gdi32-api-contract",
-      "reason": "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a-checkpoint-complete",
+      "reason": "gdi32-create-font-a-224x112-post-private-heap-segment-growth-checkpoint-complete",
       "completion": {
-        "capability": "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a",
-        "implementationId": "runtime.kernel32-private-heap-ordinary-segment-growth-post-delete-file-a.v1",
+        "capability": "gdi32-create-font-a-224x112-post-private-heap-segment-growth",
+        "implementationId": "runtime.gdi32-create-font-a-224x112-post-private-heap-segment-growth.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "prerequisiteDeleteFileASequence": 255432,
-        "prerequisiteDeleteFileAInstructionCount": 328097369,
-        "completionSequence": 260631,
-        "completionInstructionCount": 341618572,
-        "lastCompletionSequence": 260631,
-        "lastCompletionInstructionCount": 341618572,
+        "prerequisiteHeapGrowthSequence": 260631,
+        "prerequisiteHeapGrowthInstructionCount": 341618572,
+        "completionSequence": 261028,
+        "completionInstructionCount": 342873024,
+        "lastCompletionSequence": 261028,
+        "lastCompletionInstructionCount": 342873024,
         "call": {
-          "sequence": 260631,
-          "module": "kernel32.dll",
-          "symbol": "HeapAlloc",
+          "sequence": 261028,
+          "module": "gdi32.dll",
+          "symbol": "CreateFontA",
           "arguments": [
-            1744896001,
+            224,
+            112,
             0,
-            4218880
+            0,
+            100,
+            0,
+            0,
+            0,
+            128,
+            4,
+            0,
+            2,
+            0,
+            538156064
           ],
           "result": {
             "action": "set",
-            "value": 1040187392
+            "value": 1191313414
           },
-          "implementationId": "kernel32.heap-alloc.v2",
-          "returnAddress": 269109811,
-          "stackPointerBefore": 7337516,
-          "stackPointerAfter": 7337532,
+          "implementationId": "gdi32.create-font-a.cp932-logical-object.v1",
+          "returnAddress": 268617784,
+          "stackPointerBefore": 7336876,
+          "stackPointerAfter": 7336936,
           "lastError": 0,
           "guestWrites": [],
-          "heapAllocation": {
-            "allocation": {
-              "address": 1040187392,
-              "byteLength": 4218880,
-              "id": 1847,
-              "initialization": "deterministic-uninitialized",
-              "reservedByteLength": 4218880
+          "gdi": {
+            "action": "font-created",
+            "object": {
+              "id": 6,
+              "handle": 1191313414,
+              "namespace": "vine.logical-gdi-object.v1",
+              "shared": false,
+              "object": {
+                "kind": "font-a",
+                "logFont": {
+                  "height": 224,
+                  "width": 112,
+                  "escapement": 0,
+                  "orientation": 0,
+                  "weight": 100,
+                  "italic": 0,
+                  "underline": 0,
+                  "strikeOut": 0,
+                  "characterSet": 128,
+                  "outputPrecision": 4,
+                  "clipPrecision": 0,
+                  "quality": 2,
+                  "pitchAndFamily": 0,
+                  "faceNameWindows932": [
+                    130,
+                    108,
+                    130,
+                    114,
+                    32,
+                    131,
+                    83,
+                    131,
+                    86,
+                    131,
+                    98,
+                    131,
+                    78
+                  ]
+                }
+              }
             },
-            "heapHandle": 1744896001,
-            "liveAllocations": 1144
+            "liveObjects": 4
           }
         },
-        "ordinarySegmentSlot": 31,
-        "ordinarySegmentCapacityBytes": 16777216,
-        "ordinarySegmentCountAfter": 3,
-        "segmentSelectionPolicy": "primary-then-lowest-address-first-fit-extensions",
+        "creationProfileId": "primary-cp932-ms-gothic-224x112-thin-v1",
+        "logicalFontObjectId": 6,
+        "logicalFontHandle": 1191313414,
+        "liveGdiObjects": 4,
+        "hostFontImported": false,
+        "browserFontImported": false,
         "clockProfileId": "scheduled-shared-logical-deadline-v1",
         "clockSampleCount": 100534,
         "windowTimerCallbackCount": 39,
@@ -348,35 +485,36 @@
         "archiveEnumerationWasProximateCause": false,
         "missingFileDeleteWasProximateCause": false,
         "ordinaryHeapCapacityWasProximateCause": false,
-        "instructionCount": 342873024,
-        "memoryContentSha256": "c214835487a1ed382c3ea9cbb459d9c09faa1f329fba2c60c492587443d52806"
+        "fontCreationWasProximateCause": false,
+        "instructionCount": 342875151,
+        "memoryContentSha256": "ae64fe329dde1e281c28e72fd56000e3c64b7e85f6e83119f830600f21840039"
       },
       "fault": {
         "class": "unsupported",
-        "stage": "gdi32-fonts",
-        "code": "create-font-a-variant-unsupported",
-        "message": "CreateFontA currently supports only the evidenced CP932 MS Gothic request"
+        "stage": "gdi32-dib-section",
+        "code": "create-dib-section-variant-unsupported",
+        "message": "CreateDIBSection currently supports only the evidenced 128x-96 reverse-grayscale DIB"
       },
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
-        "endpointId": 256,
-        "api": "GDI32.dll!CreateFontA",
-        "endpointAddress": "0x7f000ff0",
-        "iatAddress": "0x100d108c",
+        "endpointId": 257,
+        "api": "GDI32.dll!CreateDIBSection",
+        "endpointAddress": "0x7f001000",
+        "iatAddress": "0x100d1090",
         "observedModule": "GDI32.dll",
-        "observedSymbol": "CreateFontA",
+        "observedSymbol": "CreateDIBSection",
         "disposition": "declared-runtime-export",
         "arguments": [
-          "0x000000e0",
-          "0x00000070",
+          "0x4701000b",
+          "0x3e40e3d0",
           "0x00000000",
+          "0x20ffd9e8",
           "0x00000000",
-          "0x00000064",
           "0x00000000",
           "0x00000000"
         ],
-        "returnAddress": "0x1002c838",
-        "stackPointer": "0x006ff3ac"
+        "returnAddress": "0x1002c8c5",
+        "stackPointer": "0x006ff3cc"
       }
     },
     "cleanup": {
@@ -392,14 +530,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-private-heap-ordinary-segment-growth/report.json",
-      "bytes": 2400978,
-      "sha256": "92e5665eb98dd6dee9362b77784aff1967b1e4c26c50d7b76a5053d3c3619045"
+      "path": ".work/v86-bgi-create-font-a-224x112/report.json",
+      "bytes": 2403235,
+      "sha256": "8bc2f8051c35b5f438089ce9d624d0598612eaf32309d843caa428e54546ef09"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2600596,
-      "sha256": "ce53868a5cddf883c602ebe50d6eedbc3c3f9ab29047c9c3fd25ed45e011fa46"
+      "bytes": 2601758,
+      "sha256": "ce466c50c4115887a7908378d36831e4c28d8a79fdcfaa2cdb1cdd88e41404c5"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -414,12 +552,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3768,
-      "sha256": "1301fd1f9dc52ce7f7ce2b37f870dfc1650d50e988c74043d11b6c5ef4a125ca"
+      "sha256": "a1f949c99bff0598a60c7d933892922da23e23b4c1835a2c957085ab7d1c41b5"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 5397236,
-      "sha256": "568b159a4957dc9de7403ed2bcf2639b7e94cd6c6005f238d488f168fd807e83"
+      "bytes": 5396357,
+      "sha256": "61eb559c89a9ca9331b5b71de6a18fbfaf13c8e55131c8d561cbdbcd6324f689"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -451,5 +589,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "11b8751cb4a1d3cad31d5c6f669e2fef47a77c55f1239b3aafdba208c430c3d4"
+  "payloadSha256": "a2535f7138e29559944097add61a06c75d74249021320e933ecfca8964cbaa55"
 }
