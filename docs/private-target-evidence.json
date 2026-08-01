@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-08-01T17:43:02.194Z",
+  "recordedAt": "2026-08-01T19:44:22.087Z",
   "repository": {
-    "implementationCommit": "a3341b5bb385249a0653c23c8c304b6095c00b0d",
-    "implementationTree": "9b60ceec02dc94d46160d60e1a1e6fe8563faa3d",
-    "headCommit": "a3341b5bb385249a0653c23c8c304b6095c00b0d",
+    "implementationCommit": "8a768e682ffe50852eff9bd8dc1dbed2a2bb35b5",
+    "implementationTree": "56dcd63542937cc704064ee16395db2ca769f216",
+    "headCommit": "8a768e682ffe50852eff9bd8dc1dbed2a2bb35b5",
     "dirty": true,
     "dirtyPaths": [
       "CON"
@@ -31,15 +31,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "gdi32-create-dib-section-448x336-post-create-font-a-224x112",
+    "runtimeCheckpoint": "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
     "runtimeProfile": "user32-peek-message-a-post-window-timer-callback-continuation",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-delete-file-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-delete-file-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-create-dib-section-448x336-primary",
+    "nodeReportSchema": "vine.v86-bgi-outline-text-metrics-224x112-primary",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v106",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v107",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -74,3378 +74,1018 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 136,
-      "supportedCalls": 261035,
-      "callSemanticsSha256": "c10dd21fad419df594de40931412f9b823b7fbb59e5e44939c447d0d9db046c2",
-      "instructions": 342875244,
-      "finalGeneration": 296729,
-      "memoryContentSha256": "a38022e80408a90e87d79e5c9ebec54389eb4c8331bd511889a04315266f4e00",
+      "supportedCalls": 282388,
+      "callSemanticsSha256": "9a25b07001da053004f9007b1f1ed546c686a6a2b71e3ad1a0f1f3586067561e",
+      "instructions": 375285853,
+      "finalGeneration": 332637,
+      "memoryContentSha256": "cb8497abf612962fe1d7f6cef19d62e17d786daa3018a666d2f88096b5f10312",
       "checkpointCompletion": {
-        "capability": "gdi32-create-dib-section-448x336-post-create-font-a-224x112",
-        "implementationId": "runtime.gdi32-create-dib-section-448x336-post-create-font-a-224x112.v1",
-        "requiredCompletions": 1,
-        "completionCount": 1,
-        "prerequisiteFontCreationSequence": 261028,
-        "prerequisiteFontCreationInstructionCount": 342873024,
-        "completionSequence": 261031,
-        "completionInstructionCount": 342875151,
-        "lastCompletionSequence": 261031,
-        "lastCompletionInstructionCount": 342875151,
-        "call": {
-          "sequence": 261031,
+        "capability": "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
+        "implementationId": "runtime.gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336.v1",
+        "requiredCompletions": 2,
+        "completionCount": 2,
+        "prerequisiteDibSectionSequence": 261031,
+        "prerequisiteDibSectionInstructionCount": 342875151,
+        "firstCompletionSequence": 261036,
+        "firstCompletionInstructionCount": 342875244,
+        "lastCompletionSequence": 261038,
+        "lastCompletionInstructionCount": 342875297,
+        "sizeQueryCall": {
+          "sequence": 261036,
           "module": "gdi32.dll",
-          "symbol": "CreateDIBSection",
+          "symbol": "GetOutlineTextMetricsA",
           "arguments": [
             1191247883,
-            1044440016,
-            0,
-            553638376,
             0,
             0
           ],
           "result": {
             "action": "set",
-            "value": 1191313415
+            "value": 269
           },
-          "implementationId": "gdi32.create-dib-section.primary-8bpp.v1",
-          "returnAddress": 268617925,
-          "stackPointerBefore": 7336908,
-          "stackPointerAfter": 7336936,
+          "implementationId": "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1",
+          "returnAddress": 268616991,
+          "stackPointerBefore": 7337032,
+          "stackPointerAfter": 7337048,
           "lastError": 0,
-          "guestWrites": [
-            {
-              "address": 553638376,
-              "bytes": [
-                0,
-                16,
-                128,
-                68
-              ],
-              "result": {
-                "bytesWritten": 4,
-                "dirtyPages": 1,
-                "invalidation": {
-                  "generation": 296722,
-                  "dataTlb": true,
-                  "instructionFetch": true,
-                  "generatedCode": true
-                }
-              }
-            }
-          ],
+          "guestWrites": [],
           "gdi": {
-            "action": "dib-section-created",
-            "object": {
-              "id": 7,
-              "handle": 1191313415,
+            "action": "outline-text-metrics-read",
+            "deviceContext": {
+              "id": 11,
+              "handle": 1191247883,
+              "namespace": "vine.logical-gdi-dc.v1",
+              "ownerThreadId": 8192,
+              "targetKind": "memory",
+              "compatibleMonitorHandle": 1325465601,
+              "compatibleRect": {
+                "left": 0,
+                "top": 0,
+                "right": 1920,
+                "bottom": 1080
+              },
+              "selectedFontId": 6,
+              "selectedBitmapId": 7,
+              "selectionGeneration": 2
+            },
+            "selectedFont": {
+              "id": 6,
+              "handle": 1191313414,
               "namespace": "vine.logical-gdi-object.v1",
               "shared": false,
               "object": {
-                "kind": "dib-section",
-                "descriptor": {
-                  "width": 448,
-                  "height": -336,
-                  "planes": 1,
-                  "bitsPerPixel": 8,
-                  "compression": 0,
-                  "strideBytes": 448,
-                  "pixelByteLength": 150528,
-                  "palette": [
-                    {
-                      "blue": 255,
-                      "green": 255,
-                      "red": 255,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 254,
-                      "green": 254,
-                      "red": 254,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 253,
-                      "green": 253,
-                      "red": 253,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 252,
-                      "green": 252,
-                      "red": 252,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 251,
-                      "green": 251,
-                      "red": 251,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 250,
-                      "green": 250,
-                      "red": 250,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 249,
-                      "green": 249,
-                      "red": 249,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 248,
-                      "green": 248,
-                      "red": 248,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 247,
-                      "green": 247,
-                      "red": 247,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 246,
-                      "green": 246,
-                      "red": 246,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 245,
-                      "green": 245,
-                      "red": 245,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 244,
-                      "green": 244,
-                      "red": 244,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 243,
-                      "green": 243,
-                      "red": 243,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 242,
-                      "green": 242,
-                      "red": 242,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 241,
-                      "green": 241,
-                      "red": 241,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 240,
-                      "green": 240,
-                      "red": 240,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 239,
-                      "green": 239,
-                      "red": 239,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 238,
-                      "green": 238,
-                      "red": 238,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 237,
-                      "green": 237,
-                      "red": 237,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 236,
-                      "green": 236,
-                      "red": 236,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 235,
-                      "green": 235,
-                      "red": 235,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 234,
-                      "green": 234,
-                      "red": 234,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 233,
-                      "green": 233,
-                      "red": 233,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 232,
-                      "green": 232,
-                      "red": 232,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 231,
-                      "green": 231,
-                      "red": 231,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 230,
-                      "green": 230,
-                      "red": 230,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 229,
-                      "green": 229,
-                      "red": 229,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 228,
-                      "green": 228,
-                      "red": 228,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 227,
-                      "green": 227,
-                      "red": 227,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 226,
-                      "green": 226,
-                      "red": 226,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 225,
-                      "green": 225,
-                      "red": 225,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 224,
-                      "green": 224,
-                      "red": 224,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 223,
-                      "green": 223,
-                      "red": 223,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 222,
-                      "green": 222,
-                      "red": 222,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 221,
-                      "green": 221,
-                      "red": 221,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 220,
-                      "green": 220,
-                      "red": 220,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 219,
-                      "green": 219,
-                      "red": 219,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 218,
-                      "green": 218,
-                      "red": 218,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 217,
-                      "green": 217,
-                      "red": 217,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 216,
-                      "green": 216,
-                      "red": 216,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 215,
-                      "green": 215,
-                      "red": 215,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 214,
-                      "green": 214,
-                      "red": 214,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 213,
-                      "green": 213,
-                      "red": 213,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 212,
-                      "green": 212,
-                      "red": 212,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 211,
-                      "green": 211,
-                      "red": 211,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 210,
-                      "green": 210,
-                      "red": 210,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 209,
-                      "green": 209,
-                      "red": 209,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 208,
-                      "green": 208,
-                      "red": 208,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 207,
-                      "green": 207,
-                      "red": 207,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 206,
-                      "green": 206,
-                      "red": 206,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 205,
-                      "green": 205,
-                      "red": 205,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 204,
-                      "green": 204,
-                      "red": 204,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 203,
-                      "green": 203,
-                      "red": 203,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 202,
-                      "green": 202,
-                      "red": 202,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 201,
-                      "green": 201,
-                      "red": 201,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 200,
-                      "green": 200,
-                      "red": 200,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 199,
-                      "green": 199,
-                      "red": 199,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 198,
-                      "green": 198,
-                      "red": 198,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 197,
-                      "green": 197,
-                      "red": 197,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 196,
-                      "green": 196,
-                      "red": 196,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 195,
-                      "green": 195,
-                      "red": 195,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 194,
-                      "green": 194,
-                      "red": 194,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 193,
-                      "green": 193,
-                      "red": 193,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 192,
-                      "green": 192,
-                      "red": 192,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 191,
-                      "green": 191,
-                      "red": 191,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 190,
-                      "green": 190,
-                      "red": 190,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 189,
-                      "green": 189,
-                      "red": 189,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 188,
-                      "green": 188,
-                      "red": 188,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 187,
-                      "green": 187,
-                      "red": 187,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 186,
-                      "green": 186,
-                      "red": 186,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 185,
-                      "green": 185,
-                      "red": 185,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 184,
-                      "green": 184,
-                      "red": 184,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 183,
-                      "green": 183,
-                      "red": 183,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 182,
-                      "green": 182,
-                      "red": 182,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 181,
-                      "green": 181,
-                      "red": 181,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 180,
-                      "green": 180,
-                      "red": 180,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 179,
-                      "green": 179,
-                      "red": 179,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 178,
-                      "green": 178,
-                      "red": 178,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 177,
-                      "green": 177,
-                      "red": 177,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 176,
-                      "green": 176,
-                      "red": 176,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 175,
-                      "green": 175,
-                      "red": 175,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 174,
-                      "green": 174,
-                      "red": 174,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 173,
-                      "green": 173,
-                      "red": 173,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 172,
-                      "green": 172,
-                      "red": 172,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 171,
-                      "green": 171,
-                      "red": 171,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 170,
-                      "green": 170,
-                      "red": 170,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 169,
-                      "green": 169,
-                      "red": 169,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 168,
-                      "green": 168,
-                      "red": 168,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 167,
-                      "green": 167,
-                      "red": 167,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 166,
-                      "green": 166,
-                      "red": 166,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 165,
-                      "green": 165,
-                      "red": 165,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 164,
-                      "green": 164,
-                      "red": 164,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 163,
-                      "green": 163,
-                      "red": 163,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 162,
-                      "green": 162,
-                      "red": 162,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 161,
-                      "green": 161,
-                      "red": 161,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 160,
-                      "green": 160,
-                      "red": 160,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 159,
-                      "green": 159,
-                      "red": 159,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 158,
-                      "green": 158,
-                      "red": 158,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 157,
-                      "green": 157,
-                      "red": 157,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 156,
-                      "green": 156,
-                      "red": 156,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 155,
-                      "green": 155,
-                      "red": 155,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 154,
-                      "green": 154,
-                      "red": 154,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 153,
-                      "green": 153,
-                      "red": 153,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 152,
-                      "green": 152,
-                      "red": 152,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 151,
-                      "green": 151,
-                      "red": 151,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 150,
-                      "green": 150,
-                      "red": 150,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 149,
-                      "green": 149,
-                      "red": 149,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 148,
-                      "green": 148,
-                      "red": 148,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 147,
-                      "green": 147,
-                      "red": 147,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 146,
-                      "green": 146,
-                      "red": 146,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 145,
-                      "green": 145,
-                      "red": 145,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 144,
-                      "green": 144,
-                      "red": 144,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 143,
-                      "green": 143,
-                      "red": 143,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 142,
-                      "green": 142,
-                      "red": 142,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 141,
-                      "green": 141,
-                      "red": 141,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 140,
-                      "green": 140,
-                      "red": 140,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 139,
-                      "green": 139,
-                      "red": 139,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 138,
-                      "green": 138,
-                      "red": 138,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 137,
-                      "green": 137,
-                      "red": 137,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 136,
-                      "green": 136,
-                      "red": 136,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 135,
-                      "green": 135,
-                      "red": 135,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 134,
-                      "green": 134,
-                      "red": 134,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 133,
-                      "green": 133,
-                      "red": 133,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 132,
-                      "green": 132,
-                      "red": 132,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 131,
-                      "green": 131,
-                      "red": 131,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 130,
-                      "green": 130,
-                      "red": 130,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 129,
-                      "green": 129,
-                      "red": 129,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 128,
-                      "green": 128,
-                      "red": 128,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 127,
-                      "green": 127,
-                      "red": 127,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 126,
-                      "green": 126,
-                      "red": 126,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 125,
-                      "green": 125,
-                      "red": 125,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 124,
-                      "green": 124,
-                      "red": 124,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 123,
-                      "green": 123,
-                      "red": 123,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 122,
-                      "green": 122,
-                      "red": 122,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 121,
-                      "green": 121,
-                      "red": 121,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 120,
-                      "green": 120,
-                      "red": 120,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 119,
-                      "green": 119,
-                      "red": 119,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 118,
-                      "green": 118,
-                      "red": 118,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 117,
-                      "green": 117,
-                      "red": 117,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 116,
-                      "green": 116,
-                      "red": 116,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 115,
-                      "green": 115,
-                      "red": 115,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 114,
-                      "green": 114,
-                      "red": 114,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 113,
-                      "green": 113,
-                      "red": 113,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 112,
-                      "green": 112,
-                      "red": 112,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 111,
-                      "green": 111,
-                      "red": 111,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 110,
-                      "green": 110,
-                      "red": 110,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 109,
-                      "green": 109,
-                      "red": 109,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 108,
-                      "green": 108,
-                      "red": 108,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 107,
-                      "green": 107,
-                      "red": 107,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 106,
-                      "green": 106,
-                      "red": 106,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 105,
-                      "green": 105,
-                      "red": 105,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 104,
-                      "green": 104,
-                      "red": 104,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 103,
-                      "green": 103,
-                      "red": 103,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 102,
-                      "green": 102,
-                      "red": 102,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 101,
-                      "green": 101,
-                      "red": 101,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 100,
-                      "green": 100,
-                      "red": 100,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 99,
-                      "green": 99,
-                      "red": 99,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 98,
-                      "green": 98,
-                      "red": 98,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 97,
-                      "green": 97,
-                      "red": 97,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 96,
-                      "green": 96,
-                      "red": 96,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 95,
-                      "green": 95,
-                      "red": 95,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 94,
-                      "green": 94,
-                      "red": 94,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 93,
-                      "green": 93,
-                      "red": 93,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 92,
-                      "green": 92,
-                      "red": 92,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 91,
-                      "green": 91,
-                      "red": 91,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 90,
-                      "green": 90,
-                      "red": 90,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 89,
-                      "green": 89,
-                      "red": 89,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 88,
-                      "green": 88,
-                      "red": 88,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 87,
-                      "green": 87,
-                      "red": 87,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 86,
-                      "green": 86,
-                      "red": 86,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 85,
-                      "green": 85,
-                      "red": 85,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 84,
-                      "green": 84,
-                      "red": 84,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 83,
-                      "green": 83,
-                      "red": 83,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 82,
-                      "green": 82,
-                      "red": 82,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 81,
-                      "green": 81,
-                      "red": 81,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 80,
-                      "green": 80,
-                      "red": 80,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 79,
-                      "green": 79,
-                      "red": 79,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 78,
-                      "green": 78,
-                      "red": 78,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 77,
-                      "green": 77,
-                      "red": 77,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 76,
-                      "green": 76,
-                      "red": 76,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 75,
-                      "green": 75,
-                      "red": 75,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 74,
-                      "green": 74,
-                      "red": 74,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 73,
-                      "green": 73,
-                      "red": 73,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 72,
-                      "green": 72,
-                      "red": 72,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 71,
-                      "green": 71,
-                      "red": 71,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 70,
-                      "green": 70,
-                      "red": 70,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 69,
-                      "green": 69,
-                      "red": 69,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 68,
-                      "green": 68,
-                      "red": 68,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 67,
-                      "green": 67,
-                      "red": 67,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 66,
-                      "green": 66,
-                      "red": 66,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 65,
-                      "green": 65,
-                      "red": 65,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 64,
-                      "green": 64,
-                      "red": 64,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 63,
-                      "green": 63,
-                      "red": 63,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 62,
-                      "green": 62,
-                      "red": 62,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 61,
-                      "green": 61,
-                      "red": 61,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 60,
-                      "green": 60,
-                      "red": 60,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 59,
-                      "green": 59,
-                      "red": 59,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 58,
-                      "green": 58,
-                      "red": 58,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 57,
-                      "green": 57,
-                      "red": 57,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 56,
-                      "green": 56,
-                      "red": 56,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 55,
-                      "green": 55,
-                      "red": 55,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 54,
-                      "green": 54,
-                      "red": 54,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 53,
-                      "green": 53,
-                      "red": 53,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 52,
-                      "green": 52,
-                      "red": 52,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 51,
-                      "green": 51,
-                      "red": 51,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 50,
-                      "green": 50,
-                      "red": 50,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 49,
-                      "green": 49,
-                      "red": 49,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 48,
-                      "green": 48,
-                      "red": 48,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 47,
-                      "green": 47,
-                      "red": 47,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 46,
-                      "green": 46,
-                      "red": 46,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 45,
-                      "green": 45,
-                      "red": 45,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 44,
-                      "green": 44,
-                      "red": 44,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 43,
-                      "green": 43,
-                      "red": 43,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 42,
-                      "green": 42,
-                      "red": 42,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 41,
-                      "green": 41,
-                      "red": 41,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 40,
-                      "green": 40,
-                      "red": 40,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 39,
-                      "green": 39,
-                      "red": 39,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 38,
-                      "green": 38,
-                      "red": 38,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 37,
-                      "green": 37,
-                      "red": 37,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 36,
-                      "green": 36,
-                      "red": 36,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 35,
-                      "green": 35,
-                      "red": 35,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 34,
-                      "green": 34,
-                      "red": 34,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 33,
-                      "green": 33,
-                      "red": 33,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 32,
-                      "green": 32,
-                      "red": 32,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 31,
-                      "green": 31,
-                      "red": 31,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 30,
-                      "green": 30,
-                      "red": 30,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 29,
-                      "green": 29,
-                      "red": 29,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 28,
-                      "green": 28,
-                      "red": 28,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 27,
-                      "green": 27,
-                      "red": 27,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 26,
-                      "green": 26,
-                      "red": 26,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 25,
-                      "green": 25,
-                      "red": 25,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 24,
-                      "green": 24,
-                      "red": 24,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 23,
-                      "green": 23,
-                      "red": 23,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 22,
-                      "green": 22,
-                      "red": 22,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 21,
-                      "green": 21,
-                      "red": 21,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 20,
-                      "green": 20,
-                      "red": 20,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 19,
-                      "green": 19,
-                      "red": 19,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 18,
-                      "green": 18,
-                      "red": 18,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 17,
-                      "green": 17,
-                      "red": 17,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 16,
-                      "green": 16,
-                      "red": 16,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 15,
-                      "green": 15,
-                      "red": 15,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 14,
-                      "green": 14,
-                      "red": 14,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 13,
-                      "green": 13,
-                      "red": 13,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 12,
-                      "green": 12,
-                      "red": 12,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 11,
-                      "green": 11,
-                      "red": 11,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 10,
-                      "green": 10,
-                      "red": 10,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 9,
-                      "green": 9,
-                      "red": 9,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 8,
-                      "green": 8,
-                      "red": 8,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 7,
-                      "green": 7,
-                      "red": 7,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 6,
-                      "green": 6,
-                      "red": 6,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 5,
-                      "green": 5,
-                      "red": 5,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 4,
-                      "green": 4,
-                      "red": 4,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 3,
-                      "green": 3,
-                      "red": 3,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 2,
-                      "green": 2,
-                      "red": 2,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 1,
-                      "green": 1,
-                      "red": 1,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 0,
-                      "green": 0,
-                      "red": 0,
-                      "reserved": 0
-                    }
+                "kind": "font-a",
+                "logFont": {
+                  "height": 224,
+                  "width": 112,
+                  "escapement": 0,
+                  "orientation": 0,
+                  "weight": 100,
+                  "italic": 0,
+                  "underline": 0,
+                  "strikeOut": 0,
+                  "characterSet": 128,
+                  "outputPrecision": 4,
+                  "clipPrecision": 0,
+                  "quality": 2,
+                  "pitchAndFamily": 0,
+                  "faceNameWindows932": [
+                    130,
+                    108,
+                    130,
+                    114,
+                    32,
+                    131,
+                    83,
+                    131,
+                    86,
+                    131,
+                    98,
+                    131,
+                    78
                   ]
-                },
-                "backing": {
-                  "addressAllocationId": 78,
-                  "memoryOwner": 132,
-                  "range": {
-                    "start": 1149243392,
-                    "byteLength": 151552
-                  },
-                  "contentGeneration": 0
                 }
               }
             },
-            "addressAllocation": {
-              "id": 78,
-              "parentId": 39,
-              "purpose": {
-                "kind": "gdi-resource"
-              },
-              "owner": "runtime-gdi-resource",
-              "range": {
-                "base": 1149243392,
-                "byteLength": 151552
-              },
-              "usableByteLength": 150528,
-              "alignment": 4096,
-              "guardPages": 0,
-              "classification": "graphics",
-              "lifetime": "object",
-              "releasePolicy": "explicit",
-              "executable": false
-            },
-            "liveObjects": 5
+            "profileId": "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+            "requestedByteLength": 0,
+            "returnedByteLength": 269,
+            "outputAddress": 0,
+            "writtenByteLength": 0
           }
         },
-        "dibSectionProfileId": "primary-448x-336-8bpp-reverse-grayscale-v1",
-        "logicalBitmapObjectId": 7,
-        "logicalBitmapHandle": 1191313415,
-        "liveGdiObjects": 5,
-        "pixelByteLength": 150528,
-        "mappedByteLength": 151552,
-        "bitsAddress": 1149243392,
-        "addressAllocationId": 78,
-        "memoryOwner": 132,
-        "hostBitmapImported": false,
-        "browserBitmapImported": false,
-        "clockProfileId": "scheduled-shared-logical-deadline-v1",
-        "clockSampleCount": 100534,
-        "windowTimerCallbackCount": 39,
-        "presentCount": 2,
-        "pointerInputEventCount": 2,
-        "inputTimerCycleCount": 253,
-        "inputQuerySequence": 222096,
-        "thirdPresentReached": false,
-        "clockFreezeWasProximateCause": false,
-        "archiveEnumerationWasProximateCause": false,
-        "missingFileDeleteWasProximateCause": false,
-        "ordinaryHeapCapacityWasProximateCause": false,
-        "fontCreationWasProximateCause": false,
-        "dibSectionWasProximateCause": false,
-        "instructionCount": 342875244,
-        "nextEndpoint": {
-          "id": 259,
-          "address": 2130710560,
+        "fullCall": {
+          "sequence": 261038,
           "module": "gdi32.dll",
-          "symbol": {
-            "kind": "name",
-            "name": "GetOutlineTextMetricsA"
-          },
-          "iatAddress": 269291672,
-          "disposition": "declared-runtime-export"
-        },
-        "memoryContentSha256": "a38022e80408a90e87d79e5c9ebec54389eb4c8331bd511889a04315266f4e00"
-      },
-      "writebackBatches": 264228,
-      "hostDeltaBatches": 128185
-    },
-    "browser": {
-      "outcome": "checkpoint-complete",
-      "supportedCalls": 261035,
-      "callSemanticsSha256": "c10dd21fad419df594de40931412f9b823b7fbb59e5e44939c447d0d9db046c2",
-      "instructions": 342875244,
-      "finalGeneration": 316432,
-      "memoryContentSha256": "a38022e80408a90e87d79e5c9ebec54389eb4c8331bd511889a04315266f4e00",
-      "checkpointCompletion": {
-        "capability": "gdi32-create-dib-section-448x336-post-create-font-a-224x112",
-        "implementationId": "runtime.gdi32-create-dib-section-448x336-post-create-font-a-224x112.v1",
-        "requiredCompletions": 1,
-        "completionCount": 1,
-        "prerequisiteFontCreationSequence": 261028,
-        "prerequisiteFontCreationInstructionCount": 342873024,
-        "completionSequence": 261031,
-        "completionInstructionCount": 342875151,
-        "lastCompletionSequence": 261031,
-        "lastCompletionInstructionCount": 342875151,
-        "call": {
-          "sequence": 261031,
-          "module": "gdi32.dll",
-          "symbol": "CreateDIBSection",
+          "symbol": "GetOutlineTextMetricsA",
           "arguments": [
             1191247883,
-            1044440016,
-            0,
-            553638376,
-            0,
-            0
+            269,
+            553638392
           ],
           "result": {
             "action": "set",
-            "value": 1191313415
+            "value": 269
           },
-          "implementationId": "gdi32.create-dib-section.primary-8bpp.v1",
-          "returnAddress": 268617925,
-          "stackPointerBefore": 7336908,
-          "stackPointerAfter": 7336936,
+          "implementationId": "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1",
+          "returnAddress": 268617017,
+          "stackPointerBefore": 7337032,
+          "stackPointerAfter": 7337048,
           "lastError": 0,
           "guestWrites": [
             {
-              "address": 553638376,
+              "address": 553638392,
               "bytes": [
+                13,
+                1,
                 0,
-                16,
+                0,
+                225,
+                0,
+                0,
+                0,
+                193,
+                0,
+                0,
+                0,
+                32,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                112,
+                0,
+                0,
+                0,
+                186,
+                1,
+                0,
+                0,
+                144,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                96,
+                0,
+                0,
+                0,
+                96,
+                0,
+                0,
+                0,
+                0,
+                255,
+                165,
+                2,
+                0,
+                0,
+                0,
+                54,
                 128,
-                68
+                0,
+                0,
+                0,
+                0,
+                2,
+                11,
+                6,
+                9,
+                7,
+                2,
+                5,
+                8,
+                2,
+                4,
+                0,
+                64,
+                0,
+                0,
+                0,
+                8,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                193,
+                0,
+                0,
+                0,
+                224,
+                255,
+                255,
+                255,
+                0,
+                0,
+                0,
+                0,
+                112,
+                0,
+                0,
+                0,
+                56,
+                0,
+                0,
+                0,
+                37,
+                255,
+                255,
+                255,
+                193,
+                0,
+                0,
+                0,
+                223,
+                0,
+                0,
+                0,
+                225,
+                255,
+                255,
+                255,
+                193,
+                0,
+                0,
+                0,
+                224,
+                255,
+                255,
+                255,
+                0,
+                0,
+                0,
+                0,
+                25,
+                0,
+                0,
+                0,
+                112,
+                0,
+                0,
+                0,
+                112,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                81,
+                0,
+                0,
+                0,
+                112,
+                0,
+                0,
+                0,
+                112,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                193,
+                0,
+                0,
+                0,
+                11,
+                0,
+                0,
+                0,
+                58,
+                0,
+                0,
+                0,
+                17,
+                0,
+                0,
+                0,
+                241,
+                255,
+                255,
+                255,
+                212,
+                0,
+                0,
+                0,
+                226,
+                0,
+                0,
+                0,
+                240,
+                0,
+                0,
+                0,
+                245,
+                0,
+                0,
+                0,
+                130,
+                108,
+                130,
+                114,
+                32,
+                131,
+                83,
+                131,
+                86,
+                131,
+                98,
+                131,
+                78,
+                0,
+                130,
+                108,
+                130,
+                114,
+                32,
+                131,
+                83,
+                131,
+                86,
+                131,
+                98,
+                131,
+                78,
+                0,
+                149,
+                87,
+                143,
+                128,
+                0,
+                77,
+                105,
+                99,
+                114,
+                111,
+                115,
+                111,
+                102,
+                116,
+                58,
+                130,
+                108,
+                130,
+                114,
+                32,
+                131,
+                83,
+                131,
+                86,
+                131,
+                98,
+                131,
+                78,
+                0
               ]
             }
           ],
           "gdi": {
-            "action": "dib-section-created",
-            "addressAllocation": {
-              "alignment": 4096,
-              "classification": "graphics",
-              "executable": false,
-              "guardPages": 0,
-              "id": 78,
-              "lifetime": "object",
-              "owner": "runtime-gdi-resource",
-              "parentId": 39,
-              "purpose": {
-                "kind": "gdi-resource"
+            "action": "outline-text-metrics-read",
+            "deviceContext": {
+              "id": 11,
+              "handle": 1191247883,
+              "namespace": "vine.logical-gdi-dc.v1",
+              "ownerThreadId": 8192,
+              "targetKind": "memory",
+              "compatibleMonitorHandle": 1325465601,
+              "compatibleRect": {
+                "left": 0,
+                "top": 0,
+                "right": 1920,
+                "bottom": 1080
               },
-              "range": {
-                "base": 1149243392,
-                "byteLength": 151552
-              },
-              "releasePolicy": "explicit",
-              "usableByteLength": 150528
+              "selectedFontId": 6,
+              "selectedBitmapId": 7,
+              "selectionGeneration": 2
             },
-            "liveObjects": 5,
-            "object": {
-              "handle": 1191313415,
-              "id": 7,
+            "selectedFont": {
+              "id": 6,
+              "handle": 1191313414,
               "namespace": "vine.logical-gdi-object.v1",
+              "shared": false,
               "object": {
-                "backing": {
-                  "addressAllocationId": 78,
-                  "contentGeneration": 0,
-                  "memoryOwner": 132,
-                  "range": {
-                    "byteLength": 151552,
-                    "start": 1149243392
-                  }
-                },
-                "descriptor": {
-                  "bitsPerPixel": 8,
-                  "compression": 0,
-                  "height": -336,
-                  "palette": [
-                    {
-                      "blue": 255,
-                      "green": 255,
-                      "red": 255,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 254,
-                      "green": 254,
-                      "red": 254,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 253,
-                      "green": 253,
-                      "red": 253,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 252,
-                      "green": 252,
-                      "red": 252,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 251,
-                      "green": 251,
-                      "red": 251,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 250,
-                      "green": 250,
-                      "red": 250,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 249,
-                      "green": 249,
-                      "red": 249,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 248,
-                      "green": 248,
-                      "red": 248,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 247,
-                      "green": 247,
-                      "red": 247,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 246,
-                      "green": 246,
-                      "red": 246,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 245,
-                      "green": 245,
-                      "red": 245,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 244,
-                      "green": 244,
-                      "red": 244,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 243,
-                      "green": 243,
-                      "red": 243,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 242,
-                      "green": 242,
-                      "red": 242,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 241,
-                      "green": 241,
-                      "red": 241,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 240,
-                      "green": 240,
-                      "red": 240,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 239,
-                      "green": 239,
-                      "red": 239,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 238,
-                      "green": 238,
-                      "red": 238,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 237,
-                      "green": 237,
-                      "red": 237,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 236,
-                      "green": 236,
-                      "red": 236,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 235,
-                      "green": 235,
-                      "red": 235,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 234,
-                      "green": 234,
-                      "red": 234,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 233,
-                      "green": 233,
-                      "red": 233,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 232,
-                      "green": 232,
-                      "red": 232,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 231,
-                      "green": 231,
-                      "red": 231,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 230,
-                      "green": 230,
-                      "red": 230,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 229,
-                      "green": 229,
-                      "red": 229,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 228,
-                      "green": 228,
-                      "red": 228,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 227,
-                      "green": 227,
-                      "red": 227,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 226,
-                      "green": 226,
-                      "red": 226,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 225,
-                      "green": 225,
-                      "red": 225,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 224,
-                      "green": 224,
-                      "red": 224,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 223,
-                      "green": 223,
-                      "red": 223,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 222,
-                      "green": 222,
-                      "red": 222,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 221,
-                      "green": 221,
-                      "red": 221,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 220,
-                      "green": 220,
-                      "red": 220,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 219,
-                      "green": 219,
-                      "red": 219,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 218,
-                      "green": 218,
-                      "red": 218,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 217,
-                      "green": 217,
-                      "red": 217,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 216,
-                      "green": 216,
-                      "red": 216,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 215,
-                      "green": 215,
-                      "red": 215,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 214,
-                      "green": 214,
-                      "red": 214,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 213,
-                      "green": 213,
-                      "red": 213,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 212,
-                      "green": 212,
-                      "red": 212,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 211,
-                      "green": 211,
-                      "red": 211,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 210,
-                      "green": 210,
-                      "red": 210,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 209,
-                      "green": 209,
-                      "red": 209,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 208,
-                      "green": 208,
-                      "red": 208,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 207,
-                      "green": 207,
-                      "red": 207,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 206,
-                      "green": 206,
-                      "red": 206,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 205,
-                      "green": 205,
-                      "red": 205,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 204,
-                      "green": 204,
-                      "red": 204,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 203,
-                      "green": 203,
-                      "red": 203,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 202,
-                      "green": 202,
-                      "red": 202,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 201,
-                      "green": 201,
-                      "red": 201,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 200,
-                      "green": 200,
-                      "red": 200,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 199,
-                      "green": 199,
-                      "red": 199,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 198,
-                      "green": 198,
-                      "red": 198,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 197,
-                      "green": 197,
-                      "red": 197,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 196,
-                      "green": 196,
-                      "red": 196,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 195,
-                      "green": 195,
-                      "red": 195,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 194,
-                      "green": 194,
-                      "red": 194,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 193,
-                      "green": 193,
-                      "red": 193,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 192,
-                      "green": 192,
-                      "red": 192,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 191,
-                      "green": 191,
-                      "red": 191,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 190,
-                      "green": 190,
-                      "red": 190,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 189,
-                      "green": 189,
-                      "red": 189,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 188,
-                      "green": 188,
-                      "red": 188,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 187,
-                      "green": 187,
-                      "red": 187,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 186,
-                      "green": 186,
-                      "red": 186,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 185,
-                      "green": 185,
-                      "red": 185,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 184,
-                      "green": 184,
-                      "red": 184,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 183,
-                      "green": 183,
-                      "red": 183,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 182,
-                      "green": 182,
-                      "red": 182,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 181,
-                      "green": 181,
-                      "red": 181,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 180,
-                      "green": 180,
-                      "red": 180,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 179,
-                      "green": 179,
-                      "red": 179,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 178,
-                      "green": 178,
-                      "red": 178,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 177,
-                      "green": 177,
-                      "red": 177,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 176,
-                      "green": 176,
-                      "red": 176,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 175,
-                      "green": 175,
-                      "red": 175,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 174,
-                      "green": 174,
-                      "red": 174,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 173,
-                      "green": 173,
-                      "red": 173,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 172,
-                      "green": 172,
-                      "red": 172,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 171,
-                      "green": 171,
-                      "red": 171,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 170,
-                      "green": 170,
-                      "red": 170,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 169,
-                      "green": 169,
-                      "red": 169,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 168,
-                      "green": 168,
-                      "red": 168,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 167,
-                      "green": 167,
-                      "red": 167,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 166,
-                      "green": 166,
-                      "red": 166,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 165,
-                      "green": 165,
-                      "red": 165,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 164,
-                      "green": 164,
-                      "red": 164,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 163,
-                      "green": 163,
-                      "red": 163,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 162,
-                      "green": 162,
-                      "red": 162,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 161,
-                      "green": 161,
-                      "red": 161,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 160,
-                      "green": 160,
-                      "red": 160,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 159,
-                      "green": 159,
-                      "red": 159,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 158,
-                      "green": 158,
-                      "red": 158,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 157,
-                      "green": 157,
-                      "red": 157,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 156,
-                      "green": 156,
-                      "red": 156,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 155,
-                      "green": 155,
-                      "red": 155,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 154,
-                      "green": 154,
-                      "red": 154,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 153,
-                      "green": 153,
-                      "red": 153,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 152,
-                      "green": 152,
-                      "red": 152,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 151,
-                      "green": 151,
-                      "red": 151,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 150,
-                      "green": 150,
-                      "red": 150,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 149,
-                      "green": 149,
-                      "red": 149,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 148,
-                      "green": 148,
-                      "red": 148,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 147,
-                      "green": 147,
-                      "red": 147,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 146,
-                      "green": 146,
-                      "red": 146,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 145,
-                      "green": 145,
-                      "red": 145,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 144,
-                      "green": 144,
-                      "red": 144,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 143,
-                      "green": 143,
-                      "red": 143,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 142,
-                      "green": 142,
-                      "red": 142,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 141,
-                      "green": 141,
-                      "red": 141,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 140,
-                      "green": 140,
-                      "red": 140,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 139,
-                      "green": 139,
-                      "red": 139,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 138,
-                      "green": 138,
-                      "red": 138,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 137,
-                      "green": 137,
-                      "red": 137,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 136,
-                      "green": 136,
-                      "red": 136,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 135,
-                      "green": 135,
-                      "red": 135,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 134,
-                      "green": 134,
-                      "red": 134,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 133,
-                      "green": 133,
-                      "red": 133,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 132,
-                      "green": 132,
-                      "red": 132,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 131,
-                      "green": 131,
-                      "red": 131,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 130,
-                      "green": 130,
-                      "red": 130,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 129,
-                      "green": 129,
-                      "red": 129,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 128,
-                      "green": 128,
-                      "red": 128,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 127,
-                      "green": 127,
-                      "red": 127,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 126,
-                      "green": 126,
-                      "red": 126,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 125,
-                      "green": 125,
-                      "red": 125,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 124,
-                      "green": 124,
-                      "red": 124,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 123,
-                      "green": 123,
-                      "red": 123,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 122,
-                      "green": 122,
-                      "red": 122,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 121,
-                      "green": 121,
-                      "red": 121,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 120,
-                      "green": 120,
-                      "red": 120,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 119,
-                      "green": 119,
-                      "red": 119,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 118,
-                      "green": 118,
-                      "red": 118,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 117,
-                      "green": 117,
-                      "red": 117,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 116,
-                      "green": 116,
-                      "red": 116,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 115,
-                      "green": 115,
-                      "red": 115,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 114,
-                      "green": 114,
-                      "red": 114,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 113,
-                      "green": 113,
-                      "red": 113,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 112,
-                      "green": 112,
-                      "red": 112,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 111,
-                      "green": 111,
-                      "red": 111,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 110,
-                      "green": 110,
-                      "red": 110,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 109,
-                      "green": 109,
-                      "red": 109,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 108,
-                      "green": 108,
-                      "red": 108,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 107,
-                      "green": 107,
-                      "red": 107,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 106,
-                      "green": 106,
-                      "red": 106,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 105,
-                      "green": 105,
-                      "red": 105,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 104,
-                      "green": 104,
-                      "red": 104,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 103,
-                      "green": 103,
-                      "red": 103,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 102,
-                      "green": 102,
-                      "red": 102,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 101,
-                      "green": 101,
-                      "red": 101,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 100,
-                      "green": 100,
-                      "red": 100,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 99,
-                      "green": 99,
-                      "red": 99,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 98,
-                      "green": 98,
-                      "red": 98,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 97,
-                      "green": 97,
-                      "red": 97,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 96,
-                      "green": 96,
-                      "red": 96,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 95,
-                      "green": 95,
-                      "red": 95,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 94,
-                      "green": 94,
-                      "red": 94,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 93,
-                      "green": 93,
-                      "red": 93,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 92,
-                      "green": 92,
-                      "red": 92,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 91,
-                      "green": 91,
-                      "red": 91,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 90,
-                      "green": 90,
-                      "red": 90,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 89,
-                      "green": 89,
-                      "red": 89,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 88,
-                      "green": 88,
-                      "red": 88,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 87,
-                      "green": 87,
-                      "red": 87,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 86,
-                      "green": 86,
-                      "red": 86,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 85,
-                      "green": 85,
-                      "red": 85,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 84,
-                      "green": 84,
-                      "red": 84,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 83,
-                      "green": 83,
-                      "red": 83,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 82,
-                      "green": 82,
-                      "red": 82,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 81,
-                      "green": 81,
-                      "red": 81,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 80,
-                      "green": 80,
-                      "red": 80,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 79,
-                      "green": 79,
-                      "red": 79,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 78,
-                      "green": 78,
-                      "red": 78,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 77,
-                      "green": 77,
-                      "red": 77,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 76,
-                      "green": 76,
-                      "red": 76,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 75,
-                      "green": 75,
-                      "red": 75,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 74,
-                      "green": 74,
-                      "red": 74,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 73,
-                      "green": 73,
-                      "red": 73,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 72,
-                      "green": 72,
-                      "red": 72,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 71,
-                      "green": 71,
-                      "red": 71,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 70,
-                      "green": 70,
-                      "red": 70,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 69,
-                      "green": 69,
-                      "red": 69,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 68,
-                      "green": 68,
-                      "red": 68,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 67,
-                      "green": 67,
-                      "red": 67,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 66,
-                      "green": 66,
-                      "red": 66,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 65,
-                      "green": 65,
-                      "red": 65,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 64,
-                      "green": 64,
-                      "red": 64,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 63,
-                      "green": 63,
-                      "red": 63,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 62,
-                      "green": 62,
-                      "red": 62,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 61,
-                      "green": 61,
-                      "red": 61,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 60,
-                      "green": 60,
-                      "red": 60,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 59,
-                      "green": 59,
-                      "red": 59,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 58,
-                      "green": 58,
-                      "red": 58,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 57,
-                      "green": 57,
-                      "red": 57,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 56,
-                      "green": 56,
-                      "red": 56,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 55,
-                      "green": 55,
-                      "red": 55,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 54,
-                      "green": 54,
-                      "red": 54,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 53,
-                      "green": 53,
-                      "red": 53,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 52,
-                      "green": 52,
-                      "red": 52,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 51,
-                      "green": 51,
-                      "red": 51,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 50,
-                      "green": 50,
-                      "red": 50,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 49,
-                      "green": 49,
-                      "red": 49,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 48,
-                      "green": 48,
-                      "red": 48,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 47,
-                      "green": 47,
-                      "red": 47,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 46,
-                      "green": 46,
-                      "red": 46,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 45,
-                      "green": 45,
-                      "red": 45,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 44,
-                      "green": 44,
-                      "red": 44,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 43,
-                      "green": 43,
-                      "red": 43,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 42,
-                      "green": 42,
-                      "red": 42,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 41,
-                      "green": 41,
-                      "red": 41,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 40,
-                      "green": 40,
-                      "red": 40,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 39,
-                      "green": 39,
-                      "red": 39,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 38,
-                      "green": 38,
-                      "red": 38,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 37,
-                      "green": 37,
-                      "red": 37,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 36,
-                      "green": 36,
-                      "red": 36,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 35,
-                      "green": 35,
-                      "red": 35,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 34,
-                      "green": 34,
-                      "red": 34,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 33,
-                      "green": 33,
-                      "red": 33,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 32,
-                      "green": 32,
-                      "red": 32,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 31,
-                      "green": 31,
-                      "red": 31,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 30,
-                      "green": 30,
-                      "red": 30,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 29,
-                      "green": 29,
-                      "red": 29,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 28,
-                      "green": 28,
-                      "red": 28,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 27,
-                      "green": 27,
-                      "red": 27,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 26,
-                      "green": 26,
-                      "red": 26,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 25,
-                      "green": 25,
-                      "red": 25,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 24,
-                      "green": 24,
-                      "red": 24,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 23,
-                      "green": 23,
-                      "red": 23,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 22,
-                      "green": 22,
-                      "red": 22,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 21,
-                      "green": 21,
-                      "red": 21,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 20,
-                      "green": 20,
-                      "red": 20,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 19,
-                      "green": 19,
-                      "red": 19,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 18,
-                      "green": 18,
-                      "red": 18,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 17,
-                      "green": 17,
-                      "red": 17,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 16,
-                      "green": 16,
-                      "red": 16,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 15,
-                      "green": 15,
-                      "red": 15,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 14,
-                      "green": 14,
-                      "red": 14,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 13,
-                      "green": 13,
-                      "red": 13,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 12,
-                      "green": 12,
-                      "red": 12,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 11,
-                      "green": 11,
-                      "red": 11,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 10,
-                      "green": 10,
-                      "red": 10,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 9,
-                      "green": 9,
-                      "red": 9,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 8,
-                      "green": 8,
-                      "red": 8,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 7,
-                      "green": 7,
-                      "red": 7,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 6,
-                      "green": 6,
-                      "red": 6,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 5,
-                      "green": 5,
-                      "red": 5,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 4,
-                      "green": 4,
-                      "red": 4,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 3,
-                      "green": 3,
-                      "red": 3,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 2,
-                      "green": 2,
-                      "red": 2,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 1,
-                      "green": 1,
-                      "red": 1,
-                      "reserved": 0
-                    },
-                    {
-                      "blue": 0,
-                      "green": 0,
-                      "red": 0,
-                      "reserved": 0
-                    }
-                  ],
-                  "pixelByteLength": 150528,
-                  "planes": 1,
-                  "strideBytes": 448,
-                  "width": 448
-                },
-                "kind": "dib-section"
-              },
-              "shared": false
-            }
+                "kind": "font-a",
+                "logFont": {
+                  "height": 224,
+                  "width": 112,
+                  "escapement": 0,
+                  "orientation": 0,
+                  "weight": 100,
+                  "italic": 0,
+                  "underline": 0,
+                  "strikeOut": 0,
+                  "characterSet": 128,
+                  "outputPrecision": 4,
+                  "clipPrecision": 0,
+                  "quality": 2,
+                  "pitchAndFamily": 0,
+                  "faceNameWindows932": [
+                    130,
+                    108,
+                    130,
+                    114,
+                    32,
+                    131,
+                    83,
+                    131,
+                    86,
+                    131,
+                    98,
+                    131,
+                    78
+                  ]
+                }
+              }
+            },
+            "profileId": "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+            "requestedByteLength": 269,
+            "returnedByteLength": 269,
+            "outputAddress": 553638392,
+            "writtenByteLength": 269
           }
         },
-        "dibSectionProfileId": "primary-448x-336-8bpp-reverse-grayscale-v1",
+        "outlineTextMetricsProfileId": "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+        "metricsByteLength": 269,
+        "logicalDeviceContextId": 11,
+        "logicalDeviceContextHandle": 1191247883,
+        "logicalFontObjectId": 6,
+        "logicalFontHandle": 1191313414,
         "logicalBitmapObjectId": 7,
         "logicalBitmapHandle": 1191313415,
-        "liveGdiObjects": 5,
-        "pixelByteLength": 150528,
-        "mappedByteLength": 151552,
-        "bitsAddress": 1149243392,
-        "addressAllocationId": 78,
-        "memoryOwner": 132,
-        "hostBitmapImported": false,
-        "browserBitmapImported": false,
+        "selectionGeneration": 2,
+        "outputAddress": 553638392,
+        "writtenByteLength": 269,
+        "hostFontImported": false,
+        "browserFontImported": false,
         "clockProfileId": "scheduled-shared-logical-deadline-v1",
-        "clockSampleCount": 100534,
-        "windowTimerCallbackCount": 39,
-        "presentCount": 2,
+        "clockSampleCount": 100550,
+        "windowTimerCallbackCount": 40,
+        "presentCount": 3,
         "pointerInputEventCount": 2,
         "inputTimerCycleCount": 253,
         "inputQuerySequence": 222096,
-        "thirdPresentReached": false,
+        "thirdPresentReached": true,
         "clockFreezeWasProximateCause": false,
         "archiveEnumerationWasProximateCause": false,
         "missingFileDeleteWasProximateCause": false,
         "ordinaryHeapCapacityWasProximateCause": false,
         "fontCreationWasProximateCause": false,
         "dibSectionWasProximateCause": false,
-        "instructionCount": 342875244,
+        "outlineTextMetricsWasProximateCause": false,
+        "instructionCount": 375285853,
         "nextEndpoint": {
-          "address": 2130710560,
-          "disposition": "declared-runtime-export",
-          "iatAddress": 269291672,
-          "id": 259,
-          "module": "gdi32.dll",
+          "id": 168,
+          "address": 2130709104,
+          "module": "user32.dll",
           "symbol": {
             "kind": "name",
-            "name": "GetOutlineTextMetricsA"
+            "name": "GetCursorInfo"
+          },
+          "iatAddress": 269292408,
+          "disposition": "declared-runtime-export"
+        },
+        "memoryContentSha256": "cb8497abf612962fe1d7f6cef19d62e17d786daa3018a666d2f88096b5f10312"
+      },
+      "writebackBatches": 285586,
+      "hostDeltaBatches": 142702
+    },
+    "browser": {
+      "outcome": "checkpoint-complete",
+      "supportedCalls": 282388,
+      "callSemanticsSha256": "9a25b07001da053004f9007b1f1ed546c686a6a2b71e3ad1a0f1f3586067561e",
+      "instructions": 375285853,
+      "finalGeneration": 354081,
+      "memoryContentSha256": "cb8497abf612962fe1d7f6cef19d62e17d786daa3018a666d2f88096b5f10312",
+      "checkpointCompletion": {
+        "capability": "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
+        "implementationId": "runtime.gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336.v1",
+        "requiredCompletions": 2,
+        "completionCount": 2,
+        "prerequisiteDibSectionSequence": 261031,
+        "prerequisiteDibSectionInstructionCount": 342875151,
+        "firstCompletionSequence": 261036,
+        "firstCompletionInstructionCount": 342875244,
+        "lastCompletionSequence": 261038,
+        "lastCompletionInstructionCount": 342875297,
+        "sizeQueryCall": {
+          "sequence": 261036,
+          "module": "gdi32.dll",
+          "symbol": "GetOutlineTextMetricsA",
+          "arguments": [
+            1191247883,
+            0,
+            0
+          ],
+          "result": {
+            "action": "set",
+            "value": 269
+          },
+          "implementationId": "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1",
+          "returnAddress": 268616991,
+          "stackPointerBefore": 7337032,
+          "stackPointerAfter": 7337048,
+          "lastError": 0,
+          "guestWrites": [],
+          "gdi": {
+            "action": "outline-text-metrics-read",
+            "deviceContext": {
+              "compatibleMonitorHandle": 1325465601,
+              "compatibleRect": {
+                "bottom": 1080,
+                "left": 0,
+                "right": 1920,
+                "top": 0
+              },
+              "handle": 1191247883,
+              "id": 11,
+              "namespace": "vine.logical-gdi-dc.v1",
+              "ownerThreadId": 8192,
+              "selectedBitmapId": 7,
+              "selectedFontId": 6,
+              "selectionGeneration": 2,
+              "targetKind": "memory"
+            },
+            "outputAddress": 0,
+            "profileId": "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+            "requestedByteLength": 0,
+            "returnedByteLength": 269,
+            "selectedFont": {
+              "handle": 1191313414,
+              "id": 6,
+              "namespace": "vine.logical-gdi-object.v1",
+              "object": {
+                "kind": "font-a",
+                "logFont": {
+                  "characterSet": 128,
+                  "clipPrecision": 0,
+                  "escapement": 0,
+                  "faceNameWindows932": [
+                    130,
+                    108,
+                    130,
+                    114,
+                    32,
+                    131,
+                    83,
+                    131,
+                    86,
+                    131,
+                    98,
+                    131,
+                    78
+                  ],
+                  "height": 224,
+                  "italic": 0,
+                  "orientation": 0,
+                  "outputPrecision": 4,
+                  "pitchAndFamily": 0,
+                  "quality": 2,
+                  "strikeOut": 0,
+                  "underline": 0,
+                  "weight": 100,
+                  "width": 112
+                }
+              },
+              "shared": false
+            },
+            "writtenByteLength": 0
           }
         },
-        "memoryContentSha256": "a38022e80408a90e87d79e5c9ebec54389eb4c8331bd511889a04315266f4e00"
+        "fullCall": {
+          "sequence": 261038,
+          "module": "gdi32.dll",
+          "symbol": "GetOutlineTextMetricsA",
+          "arguments": [
+            1191247883,
+            269,
+            553638392
+          ],
+          "result": {
+            "action": "set",
+            "value": 269
+          },
+          "implementationId": "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1",
+          "returnAddress": 268617017,
+          "stackPointerBefore": 7337032,
+          "stackPointerAfter": 7337048,
+          "lastError": 0,
+          "guestWrites": [
+            {
+              "address": 553638392,
+              "bytes": [
+                13,
+                1,
+                0,
+                0,
+                225,
+                0,
+                0,
+                0,
+                193,
+                0,
+                0,
+                0,
+                32,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                112,
+                0,
+                0,
+                0,
+                186,
+                1,
+                0,
+                0,
+                144,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                96,
+                0,
+                0,
+                0,
+                96,
+                0,
+                0,
+                0,
+                0,
+                255,
+                165,
+                2,
+                0,
+                0,
+                0,
+                54,
+                128,
+                0,
+                0,
+                0,
+                0,
+                2,
+                11,
+                6,
+                9,
+                7,
+                2,
+                5,
+                8,
+                2,
+                4,
+                0,
+                64,
+                0,
+                0,
+                0,
+                8,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                193,
+                0,
+                0,
+                0,
+                224,
+                255,
+                255,
+                255,
+                0,
+                0,
+                0,
+                0,
+                112,
+                0,
+                0,
+                0,
+                56,
+                0,
+                0,
+                0,
+                37,
+                255,
+                255,
+                255,
+                193,
+                0,
+                0,
+                0,
+                223,
+                0,
+                0,
+                0,
+                225,
+                255,
+                255,
+                255,
+                193,
+                0,
+                0,
+                0,
+                224,
+                255,
+                255,
+                255,
+                0,
+                0,
+                0,
+                0,
+                25,
+                0,
+                0,
+                0,
+                112,
+                0,
+                0,
+                0,
+                112,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                81,
+                0,
+                0,
+                0,
+                112,
+                0,
+                0,
+                0,
+                112,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                193,
+                0,
+                0,
+                0,
+                11,
+                0,
+                0,
+                0,
+                58,
+                0,
+                0,
+                0,
+                17,
+                0,
+                0,
+                0,
+                241,
+                255,
+                255,
+                255,
+                212,
+                0,
+                0,
+                0,
+                226,
+                0,
+                0,
+                0,
+                240,
+                0,
+                0,
+                0,
+                245,
+                0,
+                0,
+                0,
+                130,
+                108,
+                130,
+                114,
+                32,
+                131,
+                83,
+                131,
+                86,
+                131,
+                98,
+                131,
+                78,
+                0,
+                130,
+                108,
+                130,
+                114,
+                32,
+                131,
+                83,
+                131,
+                86,
+                131,
+                98,
+                131,
+                78,
+                0,
+                149,
+                87,
+                143,
+                128,
+                0,
+                77,
+                105,
+                99,
+                114,
+                111,
+                115,
+                111,
+                102,
+                116,
+                58,
+                130,
+                108,
+                130,
+                114,
+                32,
+                131,
+                83,
+                131,
+                86,
+                131,
+                98,
+                131,
+                78,
+                0
+              ]
+            }
+          ],
+          "gdi": {
+            "action": "outline-text-metrics-read",
+            "deviceContext": {
+              "compatibleMonitorHandle": 1325465601,
+              "compatibleRect": {
+                "bottom": 1080,
+                "left": 0,
+                "right": 1920,
+                "top": 0
+              },
+              "handle": 1191247883,
+              "id": 11,
+              "namespace": "vine.logical-gdi-dc.v1",
+              "ownerThreadId": 8192,
+              "selectedBitmapId": 7,
+              "selectedFontId": 6,
+              "selectionGeneration": 2,
+              "targetKind": "memory"
+            },
+            "outputAddress": 553638392,
+            "profileId": "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+            "requestedByteLength": 269,
+            "returnedByteLength": 269,
+            "selectedFont": {
+              "handle": 1191313414,
+              "id": 6,
+              "namespace": "vine.logical-gdi-object.v1",
+              "object": {
+                "kind": "font-a",
+                "logFont": {
+                  "characterSet": 128,
+                  "clipPrecision": 0,
+                  "escapement": 0,
+                  "faceNameWindows932": [
+                    130,
+                    108,
+                    130,
+                    114,
+                    32,
+                    131,
+                    83,
+                    131,
+                    86,
+                    131,
+                    98,
+                    131,
+                    78
+                  ],
+                  "height": 224,
+                  "italic": 0,
+                  "orientation": 0,
+                  "outputPrecision": 4,
+                  "pitchAndFamily": 0,
+                  "quality": 2,
+                  "strikeOut": 0,
+                  "underline": 0,
+                  "weight": 100,
+                  "width": 112
+                }
+              },
+              "shared": false
+            },
+            "writtenByteLength": 269
+          }
+        },
+        "outlineTextMetricsProfileId": "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+        "metricsByteLength": 269,
+        "logicalDeviceContextId": 11,
+        "logicalDeviceContextHandle": 1191247883,
+        "logicalFontObjectId": 6,
+        "logicalFontHandle": 1191313414,
+        "logicalBitmapObjectId": 7,
+        "logicalBitmapHandle": 1191313415,
+        "selectionGeneration": 2,
+        "outputAddress": 553638392,
+        "writtenByteLength": 269,
+        "hostFontImported": false,
+        "browserFontImported": false,
+        "clockProfileId": "scheduled-shared-logical-deadline-v1",
+        "clockSampleCount": 100550,
+        "windowTimerCallbackCount": 40,
+        "presentCount": 3,
+        "pointerInputEventCount": 2,
+        "inputTimerCycleCount": 253,
+        "inputQuerySequence": 222096,
+        "thirdPresentReached": true,
+        "clockFreezeWasProximateCause": false,
+        "archiveEnumerationWasProximateCause": false,
+        "missingFileDeleteWasProximateCause": false,
+        "ordinaryHeapCapacityWasProximateCause": false,
+        "fontCreationWasProximateCause": false,
+        "dibSectionWasProximateCause": false,
+        "outlineTextMetricsWasProximateCause": false,
+        "instructionCount": 375285853,
+        "nextEndpoint": {
+          "address": 2130709104,
+          "disposition": "declared-runtime-export",
+          "iatAddress": 269292408,
+          "id": 168,
+          "module": "user32.dll",
+          "symbol": {
+            "kind": "name",
+            "name": "GetCursorInfo"
+          }
+        },
+        "memoryContentSha256": "cb8497abf612962fe1d7f6cef19d62e17d786daa3018a666d2f88096b5f10312"
       },
-      "wasmBridgeCalls": 693591,
+      "wasmBridgeCalls": 753866,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 877491,
+          "transitionCount": 950937,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -3493,23 +1133,95 @@
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
       "classification": "semantic-leaf",
-      "nextCheckpoint": "gdi32-get-outline-text-metrics-a-post-create-dib-section-448x336",
-      "pausedHistoricalCheckpoint": "gdi32-create-dib-section-448x336-post-create-font-a-224x112",
-      "instructionCount": 342875244,
-      "capabilityCluster": "gdi32-api-contract",
-      "reason": "gdi32-create-dib-section-448x336-post-create-font-a-224x112-checkpoint-complete",
+      "nextCheckpoint": "user32-get-cursor-info-post-outline-text-metrics-224x112",
+      "pausedHistoricalCheckpoint": "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
+      "instructionCount": 375285853,
+      "capabilityCluster": "user32-api-contract",
+      "reason": "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336-checkpoint-complete",
       "completion": {
-        "capability": "gdi32-create-dib-section-448x336-post-create-font-a-224x112",
-        "implementationId": "runtime.gdi32-create-dib-section-448x336-post-create-font-a-224x112.v1",
-        "requiredCompletions": 1,
-        "completionCount": 1,
-        "prerequisiteFontCreationSequence": 261028,
-        "prerequisiteFontCreationInstructionCount": 342873024,
-        "completionSequence": 261031,
-        "completionInstructionCount": 342875151,
-        "lastCompletionSequence": 261031,
-        "lastCompletionInstructionCount": 342875151,
-        "call": {
+        "capability": "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
+        "implementationId": "runtime.gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336.v1",
+        "requiredCompletions": 2,
+        "completionCount": 2,
+        "prerequisiteDibSectionSequence": 261031,
+        "prerequisiteDibSectionInstructionCount": 342875151,
+        "firstCompletionSequence": 261036,
+        "firstCompletionInstructionCount": 342875244,
+        "lastCompletionSequence": 261038,
+        "lastCompletionInstructionCount": 342875297,
+        "sizeQueryCall": {
+          "sequence": 261036,
+          "module": "GDI32.dll",
+          "symbol": "GetOutlineTextMetricsA",
+          "arguments": [
+            1191247883,
+            0,
+            0
+          ],
+          "result": {
+            "action": "set",
+            "value": 269
+          },
+          "implementationId": "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1",
+          "returnAddress": 268616991,
+          "stackPointerBefore": 7337032,
+          "stackPointerAfter": 7337048,
+          "lastError": 0,
+          "guestWrites": [],
+          "gdi": {
+            "action": "outline-text-metrics-read",
+            "profileId": "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+            "requestedByteLength": 0,
+            "returnedByteLength": 269,
+            "writtenByteLength": 0
+          }
+        },
+        "fullCall": {
+          "sequence": 261038,
+          "module": "GDI32.dll",
+          "symbol": "GetOutlineTextMetricsA",
+          "arguments": [
+            1191247883,
+            269,
+            553638392
+          ],
+          "result": {
+            "action": "set",
+            "value": 269
+          },
+          "implementationId": "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1",
+          "returnAddress": 268617017,
+          "stackPointerBefore": 7337032,
+          "stackPointerAfter": 7337048,
+          "lastError": 0,
+          "guestWrites": [
+            {
+              "address": 553638392,
+              "byteLength": 269,
+              "contentSha256": "61c4984d45246eb696425105af0908561546b01acf02a4242fe2c9f6cf884adc"
+            }
+          ],
+          "gdi": {
+            "action": "outline-text-metrics-read",
+            "deviceContext": {
+              "id": 11,
+              "handle": 1191247883,
+              "selectedFontId": 6,
+              "selectedBitmapId": 7,
+              "selectionGeneration": 2
+            },
+            "selectedFont": {
+              "id": 6,
+              "handle": 1191313414
+            },
+            "profileId": "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+            "requestedByteLength": 269,
+            "returnedByteLength": 269,
+            "outputAddress": 553638392,
+            "writtenByteLength": 269
+          }
+        },
+        "prerequisiteDibSectionCall": {
           "sequence": 261031,
           "module": "gdi32.dll",
           "symbol": "CreateDIBSection",
@@ -3586,49 +1298,62 @@
         "memoryOwner": 132,
         "hostBitmapImported": false,
         "browserBitmapImported": false,
+        "outlineTextMetricsProfileId": "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+        "metricsByteLength": 269,
+        "outputSha256": "61c4984d45246eb696425105af0908561546b01acf02a4242fe2c9f6cf884adc",
+        "logicalDeviceContextId": 11,
+        "logicalDeviceContextHandle": 1191247883,
+        "logicalFontObjectId": 6,
+        "logicalFontHandle": 1191313414,
+        "selectionGeneration": 2,
+        "outputAddress": 553638392,
+        "writtenByteLength": 269,
+        "hostFontImported": false,
+        "browserFontImported": false,
         "clockProfileId": "scheduled-shared-logical-deadline-v1",
-        "clockSampleCount": 100534,
-        "windowTimerCallbackCount": 39,
-        "presentCount": 2,
+        "clockSampleCount": 100550,
+        "windowTimerCallbackCount": 40,
+        "presentCount": 3,
         "pointerInputEventCount": 2,
         "inputTimerCycleCount": 253,
         "inputQuerySequence": 222096,
-        "thirdPresentReached": false,
+        "thirdPresentReached": true,
         "clockFreezeWasProximateCause": false,
         "archiveEnumerationWasProximateCause": false,
         "missingFileDeleteWasProximateCause": false,
         "ordinaryHeapCapacityWasProximateCause": false,
         "fontCreationWasProximateCause": false,
         "dibSectionWasProximateCause": false,
-        "instructionCount": 342875244,
-        "memoryContentSha256": "a38022e80408a90e87d79e5c9ebec54389eb4c8331bd511889a04315266f4e00"
+        "outlineTextMetricsWasProximateCause": false,
+        "instructionCount": 375285853,
+        "memoryContentSha256": "cb8497abf612962fe1d7f6cef19d62e17d786daa3018a666d2f88096b5f10312"
       },
       "fault": {
         "class": "unsupported",
-        "stage": "gdi32-outline-text-metrics",
-        "code": "outline-text-metrics-font-variant-unsupported",
-        "message": "GetOutlineTextMetricsA selected font does not match the evidenced CP932 FontA"
+        "stage": "api-dispatch",
+        "code": "endpoint-contract-missing",
+        "message": "runtime system export endpoint 168 has no semantic handler"
       },
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
-        "endpointId": 259,
-        "api": "GDI32.dll!GetOutlineTextMetricsA",
-        "endpointAddress": "0x7f001020",
-        "iatAddress": "0x100d1098",
-        "observedModule": "GDI32.dll",
-        "observedSymbol": "GetOutlineTextMetricsA",
+        "endpointId": 168,
+        "api": "USER32.dll!GetCursorInfo",
+        "endpointAddress": "0x7f000a70",
+        "iatAddress": "0x100d1378",
+        "observedModule": "USER32.dll",
+        "observedSymbol": "GetCursorInfo",
         "disposition": "declared-runtime-export",
         "arguments": [
-          "0x4701000b",
+          "0x006ff530",
+          "0x00000014",
           "0x00000000",
           "0x00000000",
-          "0x20139c20",
           "0x00000000",
-          "0x20002768",
-          "0x20139c20"
+          "0x00000000",
+          "0x006ff588"
         ],
-        "returnAddress": "0x1002c51f",
-        "stackPointer": "0x006ff448"
+        "returnAddress": "0x10088c98",
+        "stackPointer": "0x006ff528"
       }
     },
     "cleanup": {
@@ -3644,14 +1369,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-create-dib-section-448x336/report.json",
-      "bytes": 2450520,
-      "sha256": "d177b3e803bc9dbb4e7d1e99e6d6b582fa3529b71fd1bb91d1914dca41402c2d"
+      "path": ".work/v86-bgi-outline-text-metrics-224x112/report.json",
+      "bytes": 2469372,
+      "sha256": "ef9cca66a891c3b2b2a9eced6de141fae8cc3705cadc42b4ef1f2aa418fb2f2d"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2649791,
-      "sha256": "5ae85c72544cec06ea8a0c29861e67ce253083267e9e0b182562e7c0e0319dd4"
+      "bytes": 2620828,
+      "sha256": "1048b5d4d362b62be29befb9f12e1071d931b6b3aec9f1fa047c1e058f9ff1fa"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -3666,12 +1391,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3768,
-      "sha256": "b9594051b1dde13bc63e297cc94ef0f44ece388f45c49fc43ed190df37c8cdcf"
+      "sha256": "b39d0d84e24686b7196926fe5b942d9801316680b454dc9c1ed8ea30bc490138"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 5401969,
-      "sha256": "9c9624aed3303bd78b47b52dfc21fff0fba2378b058ff73f02a95c894eac5f7e"
+      "bytes": 5403256,
+      "sha256": "d1104f3883e1c3f54de6960c25ffc931d3ce91c62a0785b169692f6e9270e8ba"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -3703,5 +1428,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "5b6c8ee026bd27baa955e746eda7cce6e56c9e8e699c241678b07c1ebe7bd95f"
+  "payloadSha256": "28f0b5ad20704d22893bd095ebd715e1a52d588b635dc88ed186df14df840bc2"
 }
