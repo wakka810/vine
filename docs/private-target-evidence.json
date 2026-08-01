@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-08-01T00:25:06.232Z",
+  "recordedAt": "2026-08-01T01:46:07.312Z",
   "repository": {
-    "implementationCommit": "127046d727113e37ce27a9a72e791180724c666f",
-    "implementationTree": "59a97c3e629477be7e35aa0b43fee7766cdf4ce3",
-    "headCommit": "127046d727113e37ce27a9a72e791180724c666f",
+    "implementationCommit": "4e20af1483cd203d93dad56e74f8f0c957c040a8",
+    "implementationTree": "9cc2070056c5b261a7cdbc3a1b7286b962d6b54f",
+    "headCommit": "4e20af1483cd203d93dad56e74f8f0c957c040a8",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -28,14 +28,14 @@
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
     "runtimeCheckpoint": "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
-    "runtimeProfile": "d3d9-post-input-scan-waitable-timer-cycle",
+    "runtimeProfile": "user32-window-timer-callback-post-waitable-timer-cycle",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-d3d9-post-input-scan-waitable-timer-cycle",
+    "nodeReportSchema": "vine.v86-bgi-user32-window-timer-callback-post-waitable-timer-cycle",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v98",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v99",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -70,14 +70,14 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 131,
-      "supportedCalls": 162082,
-      "callSemanticsSha256": "fe95ce2c5bdc1e00da206d46405c7e0df70b91ebdf71ea7417faa957e18c5fe9",
-      "instructions": 321468397,
-      "finalGeneration": 296513,
-      "memoryContentSha256": "7613ec6d006a037d09f4f9465db2995839094f7f9be1bc653449dfdf7b405297",
+      "supportedCalls": 162086,
+      "callSemanticsSha256": "a15229e2dd2f9e2e32453cc48298ea6397751c3de380943d64d0b716566b08a3",
+      "instructions": 321469064,
+      "finalGeneration": 296520,
+      "memoryContentSha256": "1fdadab08d4e4cbb7ab68ffbf6f0b19b0f341ff55c225843d2c536e37fdcc553",
       "checkpointCompletion": {
-        "capability": "d3d9-post-input-scan-waitable-timer-cycle",
-        "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+        "capability": "user32-window-timer-callback-post-waitable-timer-cycle",
+        "implementationId": "runtime.user32-window-timer-callback-post-waitable-timer-cycle.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -428,8 +428,8 @@
         },
         "releaseMessageQueued": false,
         "activeCallbackDepthAtStop": 0,
-        "requiredCompletions": 1,
-        "completionCount": 1,
+        "requiredCompletions": 3,
+        "completionCount": 3,
         "setFocus": {
           "sequence": 161946,
           "module": "USER32.dll",
@@ -524,8 +524,8 @@
           },
           "runtimeThreadId": 8192
         },
-        "lastCompletionSequence": 162082,
-        "lastCompletionInstructionCount": 321468349,
+        "lastCompletionSequence": 162085,
+        "lastCompletionInstructionCount": 321469055,
         "defWindowProcAActiveCallbackDepthAtCompletion": 1,
         "defWindowProcA": {
           "sequence": 161948,
@@ -1103,8 +1103,8 @@
           },
           "runtimeThreadId": 8192
         },
-        "firstCompletionSequence": 162081,
-        "firstCompletionInstructionCount": 321468343,
+        "firstCompletionSequence": 162083,
+        "firstCompletionInstructionCount": 321468397,
         "scanVirtualKeys": [
           14,
           15,
@@ -1222,7 +1222,7 @@
           "runtimeThreadId": 8192
         },
         "cumulativeCompletions": 9,
-        "instructionCount": 321468397,
+        "instructionCount": 321469064,
         "nextEndpoint": {
           "id": 164,
           "address": 2130709040,
@@ -1234,7 +1234,7 @@
           "disposition": "declared-runtime-export",
           "iatAddress": 269292392
         },
-        "memoryContentSha256": "7613ec6d006a037d09f4f9465db2995839094f7f9be1bc653449dfdf7b405297",
+        "memoryContentSha256": "1fdadab08d4e4cbb7ab68ffbf6f0b19b0f341ff55c225843d2c536e37fdcc553",
         "prerequisiteTestCooperativeLevelSequence": 162080,
         "prerequisiteTestCooperativeLevelInstructionCount": 321468292,
         "timerArmActiveCallbackDepthAtCompletion": 0,
@@ -1349,6 +1349,207 @@
         },
         "cumulativeTimerArmCompletions": 11476,
         "cumulativeTimerWaitCompletions": 11475,
+        "requiredDeliveries": 1,
+        "deliveryCount": 3,
+        "prerequisiteTimerWaitSequence": 162082,
+        "prerequisiteTimerWaitInstructionCount": 321468349,
+        "windowTimerPeek": {
+          "sequence": 162083,
+          "module": "USER32.dll",
+          "symbol": "PeekMessageA",
+          "occurrence": 13,
+          "trapInstructionCount": 321468397,
+          "arguments": [
+            7338216,
+            0,
+            0,
+            0,
+            1
+          ],
+          "result": {
+            "action": "set",
+            "value": 1
+          },
+          "implementationId": "user32.peek-message-a.current-thread.v1",
+          "returnAddress": 269039499,
+          "stackPointerBefore": 7338184,
+          "stackPointerAfter": 7338208,
+          "lastError": 0,
+          "guestWrites": [
+            {
+              "address": 7338216,
+              "bytes": [
+                1,
+                0,
+                1,
+                72,
+                19,
+                1,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                150,
+                9,
+                16,
+                77,
+                243,
+                54,
+                0,
+                192,
+                3,
+                0,
+                0,
+                28,
+                2,
+                0,
+                0
+              ],
+              "result": {
+                "bytesWritten": 28,
+                "dirtyPages": 1,
+                "invalidation": {
+                  "generation": 296514,
+                  "dataTlb": false,
+                  "instructionFetch": false,
+                  "generatedCode": false
+                }
+              }
+            }
+          ],
+          "windowTimer": {
+            "id": 1,
+            "windowId": 1,
+            "windowHandle": 1208025089,
+            "timerId": 1,
+            "ownerThreadId": 8192,
+            "requestedIntervalMilliseconds": 20,
+            "effectiveIntervalMilliseconds": 20,
+            "callbackAddress": 269063680,
+            "registrationGeneration": 1,
+            "armedAtTime100ns": 57490000,
+            "nextDeadlineTime100ns": 57690000,
+            "deliveryCount": 3,
+            "lastDelivery": {
+              "registrationGeneration": 1,
+              "deliveryCount": 3,
+              "scheduledDeadlineTime100ns": 57435000,
+              "deliveredAtTime100ns": 57490000
+            }
+          },
+          "runtimeThreadId": 8192
+        },
+        "windowTimerTranslate": {
+          "sequence": 162084,
+          "module": "USER32.dll",
+          "symbol": "TranslateMessage",
+          "occurrence": 5,
+          "trapInstructionCount": 321468407,
+          "arguments": [
+            7338216
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.translate-message.window-timer-pointer-noop.v2",
+          "returnAddress": 269039522,
+          "stackPointerBefore": 7338196,
+          "stackPointerAfter": 7338204,
+          "lastError": 0,
+          "guestWrites": [],
+          "runtimeThreadId": 8192
+        },
+        "windowTimerDispatch": {
+          "sequence": 162085,
+          "module": "USER32.dll",
+          "symbol": "DispatchMessageA",
+          "occurrence": 5,
+          "trapInstructionCount": 321468411,
+          "arguments": [
+            7338216
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.dispatch-message-a.window-timer-pointer-callback.v2",
+          "returnAddress": 269039532,
+          "stackPointerBefore": 7338196,
+          "stackPointerAfter": 7338204,
+          "lastError": 0,
+          "guestWrites": [],
+          "windowTimer": {
+            "id": 1,
+            "windowId": 1,
+            "windowHandle": 1208025089,
+            "timerId": 1,
+            "ownerThreadId": 8192,
+            "requestedIntervalMilliseconds": 20,
+            "effectiveIntervalMilliseconds": 20,
+            "callbackAddress": 269063680,
+            "registrationGeneration": 1,
+            "armedAtTime100ns": 57490000,
+            "nextDeadlineTime100ns": 57690000,
+            "deliveryCount": 3,
+            "lastDelivery": {
+              "registrationGeneration": 1,
+              "deliveryCount": 3,
+              "scheduledDeadlineTime100ns": 57435000,
+              "deliveredAtTime100ns": 57490000
+            }
+          },
+          "callback": {
+            "frameId": 35,
+            "target": 269063680,
+            "allocationStart": 7338176,
+            "stackPointer": 7338176,
+            "scratchAddress": 0,
+            "scratchBytes": 0,
+            "frameBytes": 20,
+            "returnSentinel": 2130771968,
+            "returnInstructionCount": 321469055,
+            "result": 64
+          },
+          "callbackArguments": [
+            1208025089,
+            275,
+            1,
+            3601229
+          ],
+          "runtimeThreadId": 8192
+        },
+        "windowTimerCallbackNestedCalls": [
+          {
+            "sequence": 162086,
+            "module": "KERNEL32.dll",
+            "symbol": "GetTickCount",
+            "occurrence": 1007,
+            "trapInstructionCount": 321468432,
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 3601229
+            },
+            "implementationId": "kernel32.get-tick-count.v1",
+            "returnAddress": 269063479,
+            "stackPointerBefore": 7338128,
+            "stackPointerAfter": 7338132,
+            "lastError": 0,
+            "guestWrites": [],
+            "tickCount": {
+              "returnedTickCount": 3601229,
+              "nextTickCount": 3601230,
+              "incrementPerRead": 1
+            },
+            "runtimeThreadId": 8192
+          }
+        ],
+        "windowTimerCallbackNestedCompletionCount": 1,
+        "windowTimerCallbackActiveDepthAtCompletion": 1,
         "nextArguments": [
           7338216,
           0,
@@ -1356,24 +1557,24 @@
           0,
           1
         ],
-        "nextReturnAddress": 269039499,
-        "nextStackPointer": 7338184
+        "nextReturnAddress": 269039547,
+        "nextStackPointer": 7338180
       },
-      "writebackBatches": 165236,
-      "dirtyPages": 244667,
-      "changedBytes": 43072431,
-      "hostDeltaBatches": 127995
+      "writebackBatches": 165241,
+      "dirtyPages": 244674,
+      "changedBytes": 43072547,
+      "hostDeltaBatches": 127997
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 162082,
-      "callSemanticsSha256": "fe95ce2c5bdc1e00da206d46405c7e0df70b91ebdf71ea7417faa957e18c5fe9",
-      "instructions": 321468397,
-      "finalGeneration": 315152,
-      "memoryContentSha256": "7613ec6d006a037d09f4f9465db2995839094f7f9be1bc653449dfdf7b405297",
+      "supportedCalls": 162086,
+      "callSemanticsSha256": "a15229e2dd2f9e2e32453cc48298ea6397751c3de380943d64d0b716566b08a3",
+      "instructions": 321469064,
+      "finalGeneration": 315159,
+      "memoryContentSha256": "1fdadab08d4e4cbb7ab68ffbf6f0b19b0f341ff55c225843d2c536e37fdcc553",
       "checkpointCompletion": {
-        "capability": "d3d9-post-input-scan-waitable-timer-cycle",
-        "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+        "capability": "user32-window-timer-callback-post-waitable-timer-cycle",
+        "implementationId": "runtime.user32-window-timer-callback-post-waitable-timer-cycle.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -1717,8 +1918,8 @@
         "releaseMessageQueued": false,
         "activeCallbackDepthAtStop": 0,
         "setFocusActiveCallbackDepthAtStop": 1,
-        "requiredCompletions": 1,
-        "completionCount": 1,
+        "requiredCompletions": 3,
+        "completionCount": 3,
         "setFocus": {
           "sequence": 161946,
           "module": "user32.dll",
@@ -1918,8 +2119,8 @@
         "translateMessageReleaseActiveCallbackDepthAtCompletion": 0,
         "queueDepthAtTranslateCompletion": 0,
         "translateMessageReleaseBytesPreserved": true,
-        "lastCompletionSequence": 162082,
-        "lastCompletionInstructionCount": 321468349,
+        "lastCompletionSequence": 162085,
+        "lastCompletionInstructionCount": 321469055,
         "translateMessageRelease": {
           "sequence": 161950,
           "module": "user32.dll",
@@ -2362,8 +2563,8 @@
           "trapInstructionCount": 321463291,
           "occurrence": 223
         },
-        "firstCompletionSequence": 162081,
-        "firstCompletionInstructionCount": 321468343,
+        "firstCompletionSequence": 162083,
+        "firstCompletionInstructionCount": 321468397,
         "scanVirtualKeys": [
           14,
           15,
@@ -2480,7 +2681,7 @@
           "runtimeThreadId": 8192
         },
         "cumulativeCompletions": 9,
-        "instructionCount": 321468397,
+        "instructionCount": 321469064,
         "nextEndpoint": {
           "address": 2130709040,
           "disposition": "declared-runtime-export",
@@ -2499,9 +2700,9 @@
           0,
           1
         ],
-        "nextReturnAddress": 269039499,
-        "nextStackPointer": 7338184,
-        "memoryContentSha256": "7613ec6d006a037d09f4f9465db2995839094f7f9be1bc653449dfdf7b405297",
+        "nextReturnAddress": 269039547,
+        "nextStackPointer": 7338180,
+        "memoryContentSha256": "1fdadab08d4e4cbb7ab68ffbf6f0b19b0f341ff55c225843d2c536e37fdcc553",
         "prerequisiteTestCooperativeLevelSequence": 162080,
         "prerequisiteTestCooperativeLevelInstructionCount": 321468292,
         "timerArmActiveCallbackDepthAtCompletion": 0,
@@ -2615,13 +2816,204 @@
           "runtimeThreadId": 8192
         },
         "cumulativeTimerArmCompletions": 11476,
-        "cumulativeTimerWaitCompletions": 11475
+        "cumulativeTimerWaitCompletions": 11475,
+        "requiredDeliveries": 1,
+        "deliveryCount": 3,
+        "prerequisiteTimerWaitSequence": 162082,
+        "prerequisiteTimerWaitInstructionCount": 321468349,
+        "windowTimerPeek": {
+          "sequence": 162083,
+          "module": "user32.dll",
+          "symbol": "PeekMessageA",
+          "arguments": [
+            7338216,
+            0,
+            0,
+            0,
+            1
+          ],
+          "result": {
+            "action": "set",
+            "value": 1
+          },
+          "implementationId": "user32.peek-message-a.current-thread.v1",
+          "returnAddress": 269039499,
+          "stackPointerBefore": 7338184,
+          "stackPointerAfter": 7338208,
+          "lastError": 0,
+          "guestWrites": [
+            {
+              "address": 7338216,
+              "bytes": [
+                1,
+                0,
+                1,
+                72,
+                19,
+                1,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                0,
+                150,
+                9,
+                16,
+                77,
+                243,
+                54,
+                0,
+                192,
+                3,
+                0,
+                0,
+                28,
+                2,
+                0,
+                0
+              ]
+            }
+          ],
+          "windowTimer": {
+            "armedAtTime100ns": 57490000,
+            "callbackAddress": 269063680,
+            "deliveryCount": 3,
+            "effectiveIntervalMilliseconds": 20,
+            "id": 1,
+            "lastDelivery": {
+              "deliveredAtTime100ns": 57490000,
+              "deliveryCount": 3,
+              "registrationGeneration": 1,
+              "scheduledDeadlineTime100ns": 57435000
+            },
+            "nextDeadlineTime100ns": 57690000,
+            "ownerThreadId": 8192,
+            "registrationGeneration": 1,
+            "requestedIntervalMilliseconds": 20,
+            "timerId": 1,
+            "windowHandle": 1208025089,
+            "windowId": 1
+          },
+          "occurrence": 13,
+          "trapInstructionCount": 321468397,
+          "runtimeThreadId": 8192
+        },
+        "windowTimerTranslate": {
+          "sequence": 162084,
+          "module": "user32.dll",
+          "symbol": "TranslateMessage",
+          "arguments": [
+            7338216
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.translate-message.window-timer-pointer-noop.v2",
+          "returnAddress": 269039522,
+          "stackPointerBefore": 7338196,
+          "stackPointerAfter": 7338204,
+          "lastError": 0,
+          "guestWrites": [],
+          "occurrence": 5,
+          "trapInstructionCount": 321468407,
+          "runtimeThreadId": 8192
+        },
+        "windowTimerDispatch": {
+          "sequence": 162085,
+          "module": "user32.dll",
+          "symbol": "DispatchMessageA",
+          "arguments": [
+            7338216
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.dispatch-message-a.window-timer-pointer-callback.v2",
+          "returnAddress": 269039532,
+          "stackPointerBefore": 7338196,
+          "stackPointerAfter": 7338204,
+          "lastError": 0,
+          "guestWrites": [],
+          "windowTimer": {
+            "armedAtTime100ns": 57490000,
+            "callbackAddress": 269063680,
+            "deliveryCount": 3,
+            "effectiveIntervalMilliseconds": 20,
+            "id": 1,
+            "lastDelivery": {
+              "deliveredAtTime100ns": 57490000,
+              "deliveryCount": 3,
+              "registrationGeneration": 1,
+              "scheduledDeadlineTime100ns": 57435000
+            },
+            "nextDeadlineTime100ns": 57690000,
+            "ownerThreadId": 8192,
+            "registrationGeneration": 1,
+            "requestedIntervalMilliseconds": 20,
+            "timerId": 1,
+            "windowHandle": 1208025089,
+            "windowId": 1
+          },
+          "callback": {
+            "frameId": 35,
+            "target": 269063680,
+            "allocationStart": 7338176,
+            "stackPointer": 7338176,
+            "scratchAddress": 0,
+            "scratchBytes": 0,
+            "frameBytes": 20,
+            "returnSentinel": 2130771968,
+            "returnInstructionCount": 321469055,
+            "result": 64
+          },
+          "callbackArguments": [
+            1208025089,
+            275,
+            1,
+            3601229
+          ],
+          "occurrence": 5,
+          "trapInstructionCount": 321468411,
+          "runtimeThreadId": 8192
+        },
+        "windowTimerCallbackNestedCalls": [
+          {
+            "sequence": 162086,
+            "module": "kernel32.dll",
+            "symbol": "GetTickCount",
+            "arguments": [],
+            "result": {
+              "action": "set",
+              "value": 3601229
+            },
+            "implementationId": "kernel32.get-tick-count.v1",
+            "returnAddress": 269063479,
+            "stackPointerBefore": 7338128,
+            "stackPointerAfter": 7338132,
+            "lastError": 0,
+            "guestWrites": [],
+            "tickCount": {
+              "incrementPerRead": 1,
+              "nextTickCount": 3601230,
+              "returnedTickCount": 3601229
+            },
+            "occurrence": 1007,
+            "trapInstructionCount": 321468432,
+            "runtimeThreadId": 8192
+          }
+        ],
+        "windowTimerCallbackNestedCompletionCount": 1,
+        "windowTimerCallbackActiveDepthAtCompletion": 1
       },
-      "wasmBridgeCalls": 489715,
+      "wasmBridgeCalls": 489727,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 589084,
+          "transitionCount": 589097,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -2668,24 +3060,30 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "user32-peek-message-a-post-waitable-timer-cycle-continuation",
-      "pausedHistoricalCheckpoint": "d3d9-post-input-scan-waitable-timer-cycle",
-      "instructionCount": 321468397,
+      "nextCheckpoint": "user32-peek-message-a-post-window-timer-callback-continuation",
+      "pausedHistoricalCheckpoint": "user32-window-timer-callback-post-waitable-timer-cycle",
+      "instructionCount": 321469064,
       "capabilityCluster": "user32-message-poll-continuation",
-      "reason": "d3d9-post-input-scan-waitable-timer-cycle-checkpoint-complete",
+      "reason": "user32-window-timer-callback-post-waitable-timer-cycle-checkpoint-complete",
       "completion": {
-        "capability": "d3d9-post-input-scan-waitable-timer-cycle",
-        "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
-        "requiredCompletions": 1,
-        "completionCount": 1,
+        "capability": "user32-window-timer-callback-post-waitable-timer-cycle",
+        "implementationId": "runtime.user32-window-timer-callback-post-waitable-timer-cycle.v1",
+        "requiredCompletions": 3,
+        "completionCount": 3,
+        "requiredDeliveries": 1,
+        "deliveryCount": 3,
+        "prerequisiteTimerWaitSequence": 162082,
+        "prerequisiteTimerWaitInstructionCount": 321468349,
         "prerequisiteTestCooperativeLevelSequence": 162080,
         "prerequisiteTestCooperativeLevelInstructionCount": 321468292,
-        "firstCompletionSequence": 162081,
-        "firstCompletionInstructionCount": 321468343,
-        "lastCompletionSequence": 162082,
-        "lastCompletionInstructionCount": 321468349,
+        "firstCompletionSequence": 162083,
+        "firstCompletionInstructionCount": 321468397,
+        "lastCompletionSequence": 162085,
+        "lastCompletionInstructionCount": 321469055,
         "cumulativeTimerArmCompletions": 11476,
         "cumulativeTimerWaitCompletions": 11475,
+        "windowTimerCallbackNestedCompletionCount": 1,
+        "windowTimerCallbackActiveDepthAtCompletion": 1,
         "maximumRepeatCompletions": 16,
         "requiredEntries": 1,
         "entryCount": 1,
@@ -2708,8 +3106,8 @@
           "0x00000000",
           "0x00000001"
         ],
-        "returnAddress": "0x1009378b",
-        "stackPointer": "0x006ff8c8"
+        "returnAddress": "0x100937bb",
+        "stackPointer": "0x006ff8c4"
       }
     },
     "cleanup": {
@@ -2725,14 +3123,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-d3d9-post-input-scan-waitable-timer-cycle/report.json",
-      "bytes": 3057993,
-      "sha256": "7fb62321d954f3fe3f8fe9aa56f37825bd0e86296c788ae0073b74be0f34597e"
+      "path": ".work/v86-bgi-window-timer-callback-post-waitable-timer-cycle/report.json",
+      "bytes": 3065963,
+      "sha256": "9e637e0daa3c970d0187b3778873327267bd2e537fef4d6c2783ebf0601e5d8f"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2760129,
-      "sha256": "5fddd1219eb1177f04a1de6bb3b9cda9bc1b9f386914a2f1874f5cde218de5c4"
+      "bytes": 2768004,
+      "sha256": "aba1d3ee02ea7bbfaf6cb4428bb16286d61967ee5e4f91add0fc40780ca96e8c"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -2746,13 +3144,13 @@
     },
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
-      "bytes": 3766,
-      "sha256": "58b04d9d52d46b5efe58123cd5bf9c5ab855f7ca81d40eba3201b518f6949536"
+      "bytes": 3768,
+      "sha256": "c97a4705cae0bc3d8e9faa581a042b26897cde981791a4bc4d6fe039291ba8d5"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 5203550,
-      "sha256": "c80211c37e0837ab521689c39fbf10388e4950c6b8cd4403a72c6fdd5436b400"
+      "bytes": 5203443,
+      "sha256": "fc8bf7f225814f6457e42e50bc565afe74565905b251582c57af6f9552cce287"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -2784,5 +3182,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "dba28bc58ffca1ee7fa146448a5b8ae959f53c2f59172eec5faa963a0b0b3846"
+  "payloadSha256": "189a1f535b5b0b562d6e86cf9f3b894f7e3f83a78818340ee6cadb62a5750fee"
 }
