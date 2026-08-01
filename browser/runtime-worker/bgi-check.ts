@@ -41,7 +41,11 @@ const scenario = parseScenario(searchParams.get("scenario"));
 const evidenceLevel =
   searchParams.get("evidence") === "full" ? "full" : "summary";
 const capabilityProfile = parseCapabilityProfile(searchParams.get("profile"));
+const scheduledSharedClockSetWindowText =
+  capabilityProfile ===
+  "user32-set-window-text-a-post-scheduled-shared-clock";
 const d3d9Canvas =
+  scheduledSharedClockSetWindowText ||
   capabilityProfile === "d3d9-first-present" ||
   capabilityProfile === "d3d9-post-present-continuation" ||
   capabilityProfile === "user32-async-key-state-input" ||
@@ -218,7 +222,9 @@ const startMessage = {
     watchdogInstructionLimit:
       scenario === "watchdog"
         ? 1
-        : capabilityProfile ===
+        : scheduledSharedClockSetWindowText
+          ? 340_000_000
+          : capabilityProfile ===
               "primary-main-loop-presentation-progress-gateway" ||
             capabilityProfile === "primary-main-loop-input-progress-gateway" ||
             capabilityProfile ===
@@ -345,6 +351,7 @@ const startMessage = {
                   ? 35_000_000
                   : 20_000_000,
     watchdogWallMilliseconds:
+      scheduledSharedClockSetWindowText ||
       capabilityProfile === "user32-async-key-state-initial-scan" ||
       capabilityProfile ===
         "user32-async-key-state-initial-scan-continuation" ||
@@ -514,7 +521,9 @@ if (
   capabilityProfile ===
     "user32-window-timer-callback-post-waitable-timer-cycle" ||
   capabilityProfile ===
-    "user32-peek-message-a-post-window-timer-callback-continuation"
+    "user32-peek-message-a-post-window-timer-callback-continuation" ||
+  capabilityProfile ===
+    "user32-set-window-text-a-post-scheduled-shared-clock"
 ) {
   const pointerMessageInput =
     capabilityProfile === "primary-main-loop-pointer-message-action-progress-gateway" ||
@@ -555,7 +564,9 @@ if (
     capabilityProfile ===
       "user32-window-timer-callback-post-waitable-timer-cycle" ||
     capabilityProfile ===
-      "user32-peek-message-a-post-window-timer-callback-continuation";
+      "user32-peek-message-a-post-window-timer-callback-continuation" ||
+    capabilityProfile ===
+      "user32-set-window-text-a-post-scheduled-shared-clock";
   const actionInput =
     capabilityProfile === "primary-main-loop-action-input-progress-gateway" ||
     capabilityProfile ===
@@ -671,7 +682,9 @@ function parseScenario(value: string | null): SessionMode {
 function parseCapabilityProfile(
   value: string | null,
 ): BgiCapabilityProfile | undefined {
-  return value === "kernel32-wait-for-single-object-ex" ||
+  return value ===
+    "user32-set-window-text-a-post-scheduled-shared-clock" ||
+    value === "kernel32-wait-for-single-object-ex" ||
     value === "kernel32-enter-critical-section" ||
     value === "primary-main-loop-progression" ||
     value === "kernel32-leave-critical-section" ||

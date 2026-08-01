@@ -214,7 +214,7 @@ use super::user32::{
     RuntimeWindowClass, RuntimeWindowClassId, RuntimeWindowClassRegistration,
     RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
     RuntimeWindowCreationRequest, RuntimeWindowFileDropAcceptanceResult, RuntimeWindowId,
-    RuntimeWindowLifecycle, RuntimeWindowProcedure,
+    RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
 };
 use super::virtual_memory::{RuntimeVirtualMemoryReservation, RuntimeVirtualMemoryReserveRequest};
 use super::waits::{
@@ -7916,6 +7916,18 @@ impl RuntimeKernel {
             icon_height,
         )?;
         self.user32.commit_window_small_icon(plan)
+    }
+
+    pub(crate) fn set_window_title(
+        &mut self,
+        window_handle: u32,
+        title: RuntimeWindowNameA,
+    ) -> Result<RuntimeWindow, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let plan = self
+            .user32
+            .plan_window_title(window_handle, self.current_thread_id(), title)?;
+        self.user32.commit_window_title(plan)
     }
 
     pub(crate) fn resolve_window_procedure(

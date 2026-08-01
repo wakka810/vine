@@ -4128,7 +4128,7 @@ fn run_v86_generic_runtime_session(
     let imm32_policy = Imm32CompatibilityPolicy::controlled_v1();
     imm32_policy.validate().map_err(api_fault)?;
     let mut user32_policy = if def_window_proc_pointer_release_enabled {
-        User32CompatibilityPolicy::controlled_v35()
+        User32CompatibilityPolicy::controlled_v36()
     } else if def_window_proc_pointer_down_enabled {
         User32CompatibilityPolicy::controlled_v34()
     } else if set_focus_same_window_enabled {
@@ -5351,17 +5351,40 @@ fn run_v86_generic_runtime_session(
                             &endpoint,
                         )
                         .map_err(api_fault)?;
-                    let window = match semantic_action {
-                        Some(vine_core::RuntimeGuestCallbackSemanticAction::WindowCreation(
-                            vine_core::RuntimeWindowCreationCallbackAction::Created { window },
-                        ))
-                        | Some(vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPos(
-                            vine_core::RuntimeSetWindowPosCallbackAction::Completed { window },
-                        ))
-                        | Some(vine_core::RuntimeGuestCallbackSemanticAction::UpdateWindow(
-                            vine_core::RuntimeUpdateWindowCallbackAction::Completed { window },
-                        )) => Some(window),
-                        _ => None,
+                    let window = if completion.implementation_id
+                        == vine_core::SET_WINDOW_TEXT_A_IMPLEMENTATION
+                    {
+                        let handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                            LoaderError::runtime_defect(
+                                "runtime-reentry",
+                                "set-window-text-window-argument-missing-after-callback",
+                                "SetWindowTextA callback completion has no logical HWND argument",
+                            )
+                        })?;
+                        Some(
+                            session
+                                .runtime()
+                                .window(handle)
+                                .map_err(runtime_state_error)?
+                                .clone(),
+                        )
+                    } else {
+                        match semantic_action {
+                            Some(
+                                vine_core::RuntimeGuestCallbackSemanticAction::WindowCreation(
+                                    vine_core::RuntimeWindowCreationCallbackAction::Created {
+                                        window,
+                                    },
+                                ),
+                            )
+                            | Some(vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPos(
+                                vine_core::RuntimeSetWindowPosCallbackAction::Completed { window },
+                            ))
+                            | Some(vine_core::RuntimeGuestCallbackSemanticAction::UpdateWindow(
+                                vine_core::RuntimeUpdateWindowCallbackAction::Completed { window },
+                            )) => Some(window),
+                            _ => None,
+                        }
                     };
                     let retired = active_callbacks
                         .pop()
@@ -6050,6 +6073,7 @@ fn run_v86_generic_runtime_session(
                             SET_WINDOW_LONG_A_IMPLEMENTATION
                                 | vine_core::DRAG_ACCEPT_FILES_IMPLEMENTATION
                                 | vine_core::SET_FOCUS_IMPLEMENTATION
+                                | vine_core::SET_WINDOW_TEXT_A_IMPLEMENTATION
                         ) {
                             let handle = completion.frame.argument_u32(0).ok_or_else(|| {
                                 LoaderError::runtime_defect(

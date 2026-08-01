@@ -157,6 +157,38 @@ function request(requestId, delayMilliseconds, completed) {
   const driver = new FakeTimerDriver();
   const completed = [];
   const pacing = new TimerPacingService(driver, { state: "active", generation: 1 });
+  pacing.scheduleLogicalDeadline(request("6", 10, completed));
+  assert.equal(driver.runNextDue(), true);
+  assert.deepEqual(completed, ["6"]);
+  assert.equal(driver.nowMilliseconds, 0);
+  assert.deepEqual(pacing.metrics(), {
+    requests: 1,
+    completions: 1,
+    cancellations: 0,
+    freezes: 0,
+    resumes: 0,
+    staleCallbacks: 0,
+    boundedCatchUps: 0,
+    pending: 0,
+  });
+}
+
+{
+  const driver = new FakeTimerDriver();
+  const completed = [];
+  const pacing = new TimerPacingService(driver, { state: "frozen", generation: 1 });
+  pacing.scheduleLogicalDeadline(request("7", 10, completed));
+  assert.equal(driver.runNextDue(), false);
+  pacing.updateLifecycle({ state: "active", generation: 2 });
+  assert.equal(driver.runNextDue(), true);
+  assert.deepEqual(completed, ["7"]);
+  assert.equal(pacing.metrics().boundedCatchUps, 1);
+}
+
+{
+  const driver = new FakeTimerDriver();
+  const completed = [];
+  const pacing = new TimerPacingService(driver, { state: "active", generation: 1 });
   pacing.schedule(request("2", 10, completed));
   driver.elapse(3);
   pacing.updateLifecycle({ state: "frozen", generation: 2 });

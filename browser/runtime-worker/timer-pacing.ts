@@ -113,6 +113,7 @@ export interface TimerPacingMetrics {
 
 interface PendingTimerPacing {
   request: TimerPacingRequest;
+  mode: "host-wall-delay" | "logical-deadline-task";
   token: number;
   remainingMilliseconds: number;
   startedAtMilliseconds: number | null;
@@ -142,6 +143,17 @@ export class TimerPacingService {
   }
 
   schedule(request: TimerPacingRequest): void {
+    this.#schedule(request, "host-wall-delay");
+  }
+
+  scheduleLogicalDeadline(request: TimerPacingRequest): void {
+    this.#schedule(request, "logical-deadline-task");
+  }
+
+  #schedule(
+    request: TimerPacingRequest,
+    mode: PendingTimerPacing["mode"],
+  ): void {
     if (
       !/^(0|[1-9][0-9]*)$/u.test(request.requestId) ||
       BigInt(request.requestId) > 0xffff_ffff_ffff_ffffn
@@ -167,8 +179,10 @@ export class TimerPacingService {
     }
     const pending: PendingTimerPacing = {
       request,
+      mode,
       token: this.#allocateToken(),
-      remainingMilliseconds: request.delayMilliseconds,
+      remainingMilliseconds:
+        mode === "logical-deadline-task" ? 0 : request.delayMilliseconds,
       startedAtMilliseconds: null,
       timeoutHandle: null,
       catchUp: false,
@@ -255,7 +269,9 @@ export class TimerPacingService {
     pending.catchUp = catchUp;
     pending.timeoutHandle = this.#driver.setTimeout(
       () => this.#complete(pending.request.requestId, token),
-      catchUp ? 0 : Math.ceil(pending.remainingMilliseconds),
+      pending.mode === "logical-deadline-task" || catchUp
+        ? 0
+        : Math.ceil(pending.remainingMilliseconds),
     );
   }
 

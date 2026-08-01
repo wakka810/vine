@@ -1158,7 +1158,7 @@ const windowTimerCallbackDeliveryEnabled =
   windowTimerCallbackActionInputProgressGatewayCheckpointEnabled;
 const user32CompatibilityPolicyId =
   defWindowProcAPointerReleaseContinuationCheckpointEnabled
-    ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35"
+    ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-set-window-text-v36"
     : defWindowProcAActionContinuationCheckpointEnabled
     ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
     : setFocusActionContinuationCheckpointEnabled
@@ -10092,6 +10092,12 @@ async function runGenericRuntimeReentry({
           ? {}
           : { writableDirectoryCreates }),
         ...(timerPacing.length === 0 ? {} : { timerPacing }),
+        ...(inputProgressKeyboardEvents.length === 0
+          ? {}
+          : { keyboardInputEvents: inputProgressKeyboardEvents }),
+        ...(inputProgressPointerEvents.length === 0
+          ? {}
+          : { pointerInputEvents: inputProgressPointerEvents }),
         stackGrowths,
         heapPageMaterializations,
         callbackEvents,
@@ -10484,6 +10490,12 @@ async function runGenericRuntimeReentry({
           ? {}
           : { writableDirectoryCreates }),
         ...(timerPacing.length === 0 ? {} : { timerPacing }),
+        ...(inputProgressKeyboardEvents.length === 0
+          ? {}
+          : { keyboardInputEvents: inputProgressKeyboardEvents }),
+        ...(inputProgressPointerEvents.length === 0
+          ? {}
+          : { pointerInputEvents: inputProgressPointerEvents }),
         stackGrowths,
         heapPageMaterializations,
         callbackEvents,
@@ -14041,7 +14053,7 @@ function validateGenericRuntimeReady(ready, offer) {
   assert.equal(
     ready.implementedApiContracts,
     declaredDispatches.length +
-      6 +
+      7 +
       (user32AsyncKeyStateInitialScanEnabled ? 2 : 0) +
       (user32PeekMessageAEnabled ? 1 : 0) +
       (user32IsIconicEnabled ? 1 : 0) +
@@ -29733,6 +29745,93 @@ function validateScheduledSharedClockSetWindowTextAStop(result) {
   assert.equal(result.activeCallbackDepth, 0);
   assert.equal(result.fault.schema, "vine.v86-generic-runtime-fault");
   assert.equal(result.fault.schemaVersion, 1);
+  if (result.fault.capabilityCluster === "kernel32-api-contract") {
+    const setWindowTextCalls = result.supportedCalls.filter(
+      (call) =>
+        call.module.toLowerCase() === "user32.dll" &&
+        call.symbol === "SetWindowTextA",
+    );
+    assert.equal(setWindowTextCalls.length, 1);
+    const setWindowText = setWindowTextCalls[0];
+    assert.deepEqual(setWindowText.arguments, [0x4801_0001, 0x2026_2c02]);
+    assert.deepEqual(setWindowText.result, { action: "set", value: 1 });
+    assert.equal(
+      setWindowText.implementationId,
+      "user32.set-window-text-a.same-thread-wm-settext.v1",
+    );
+    assert.equal(setWindowText.returnAddress, 0x1008_343b);
+    assert.equal(setWindowText.stackPointerBefore, 0x006f_f688);
+    assert.equal(setWindowText.stackPointerAfter, 0x006f_f694);
+    assert.equal(setWindowText.lastError, 0);
+    assert.deepEqual(setWindowText.guestWrites, []);
+    assert.equal(setWindowText.window?.handle, 0x4801_0001);
+    assert.deepEqual(setWindowText.window?.name, {
+      value: "サクラノ詩",
+      encoding: "windows-932-v1",
+    });
+
+    const defaultProcessing = result.supportedCalls.find(
+      (call) =>
+        call.sequence > setWindowText.sequence &&
+        call.module.toLowerCase() === "user32.dll" &&
+        call.symbol === "DefWindowProcA" &&
+        call.arguments[1] === 0x000c,
+    );
+    assert(defaultProcessing);
+    assert.deepEqual(defaultProcessing.arguments, [
+      0x4801_0001,
+      0x000c,
+      0,
+      0x2026_2c02,
+    ]);
+    assert.deepEqual(defaultProcessing.result, { action: "set", value: 1 });
+    assert.equal(defaultProcessing.lastError, 0);
+    assert.deepEqual(defaultProcessing.guestWrites, []);
+    const callbackEvents = result.callbackEvents.filter(
+      (event) => event.sequence === setWindowText.sequence,
+    );
+    assert.equal(callbackEvents.length, 2);
+    assert.equal(callbackEvents[0].action, "enter");
+    assert.deepEqual(callbackEvents[0].arguments, [
+      0x4801_0001,
+      0x000c,
+      0,
+      0x2026_2c02,
+    ]);
+    assert.deepEqual(callbackEvents[1], {
+      action: "return",
+      sequence: setWindowText.sequence,
+      frameId: callbackEvents[0].frameId,
+      instructionCount: callbackEvents[1].instructionCount,
+      result: 1,
+    });
+    assert.equal(result.fault.endpoint.kind, "runtime-system-export");
+    assert.equal(
+      result.fault.endpoint.endpoint.module.toLowerCase(),
+      "kernel32.dll",
+    );
+    assert.equal(result.fault.fault.class, "unsupported");
+    assert.equal(result.fault.fault.stage, "api-dispatch");
+    assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+    assert.deepEqual(result.fault.fault.endpoint, result.fault.endpoint.endpoint);
+    assert.match(result.fault.memoryContentSha256, /^[0-9a-f]{64}$/u);
+    assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+    assert.equal(
+      result.terminal.terminal.thunk.id,
+      result.fault.endpoint.endpoint.id,
+    );
+    assert.equal(
+      result.terminal.terminal.thunk.iatAddress,
+      result.fault.endpoint.endpoint.iatAddress,
+    );
+    const presents = result.supportedCalls.filter(
+      (call) =>
+        call.interface === "IDirect3DDevice9" && call.vtableSlot === 17,
+    );
+    assert.equal(presents.length, 2);
+    validateScheduledSharedClockCalls(result.supportedCalls);
+    return;
+  }
   assert.equal(result.fault.capabilityCluster, "user32-api-contract");
   assert.deepEqual(result.fault.endpoint, {
     kind: "runtime-system-export",
@@ -41854,6 +41953,30 @@ function buildScheduledSharedClockPrimaryReport({
       call.callback !== undefined,
   );
   const timerPacing = genericResult.timerPacing ?? [];
+  const keyboardInputEvents = genericResult.keyboardInputEvents ?? [];
+  const pointerInputEvents = genericResult.pointerInputEvents ?? [];
+  const setWindowTextCalls = completedSupportedCalls.filter(
+    (call) =>
+      call.module.toLowerCase() === "user32.dll" &&
+      call.symbol === "SetWindowTextA",
+  );
+  const setWindowText = setWindowTextCalls.at(-1) ?? null;
+  const setWindowTextDefault =
+    setWindowText === null
+      ? null
+      : completedSupportedCalls.find(
+          (call) =>
+            call.sequence > setWindowText.sequence &&
+            call.module.toLowerCase() === "user32.dll" &&
+            call.symbol === "DefWindowProcA" &&
+            call.arguments[1] === 0x000c,
+        ) ?? null;
+  const setWindowTextCallbackEvents =
+    setWindowText === null
+      ? []
+      : genericResult.callbackEvents.filter(
+          (event) => event.sequence === setWindowText.sequence,
+        );
   return {
     schema: "vine.v86-bgi-scheduled-shared-clock-primary",
     schemaVersion: 1,
@@ -41889,6 +42012,9 @@ function buildScheduledSharedClockPrimaryReport({
     execution: {
       completedSupportedCalls: completedSupportedCalls.length,
       supportedCallSemanticsSha256,
+      ...(evidenceLevel === "full"
+        ? { supportedCalls: completedSupportedCalls }
+        : {}),
       threadExecution: genericResult.threadExecution,
       clockSamples: {
         count: clockSamples.length,
@@ -41910,6 +42036,22 @@ function buildScheduledSharedClockPrimaryReport({
         count: timerPacing.length,
         first: timerPacing[0] ?? null,
         last: timerPacing.at(-1) ?? null,
+      },
+      keyboardInput: {
+        count: keyboardInputEvents.length,
+        first: keyboardInputEvents[0] ?? null,
+        last: keyboardInputEvents.at(-1) ?? null,
+      },
+      pointerInput: {
+        count: pointerInputEvents.length,
+        first: pointerInputEvents[0] ?? null,
+        last: pointerInputEvents.at(-1) ?? null,
+      },
+      setWindowTextA: {
+        count: setWindowTextCalls.length,
+        call: setWindowText,
+        defaultProcessing: setWindowTextDefault,
+        callbackEvents: setWindowTextCallbackEvents,
       },
     },
     synchronization: {

@@ -88,6 +88,7 @@ export type BgiCapabilityProfile =
   | "d3d9-post-input-scan-waitable-timer-cycle"
   | "user32-window-timer-callback-post-waitable-timer-cycle"
   | "user32-peek-message-a-post-window-timer-callback-continuation"
+  | "user32-set-window-text-a-post-scheduled-shared-clock"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
@@ -1468,7 +1469,8 @@ export interface SessionReport {
       | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
       | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
       | "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
-      | "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35";
+      | "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35"
+      | "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-set-window-text-v36";
     cursorPosition: RuntimeCursorPositionSnapshot;
     cursorStateAuthority: "rust-runtime-input-cursor-position";
     keyboardProfileId: "foreground-focused-virtual-key-state-v1";
@@ -1518,7 +1520,8 @@ export interface SessionReport {
       | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
       | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
       | "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
-      | "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35";
+      | "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35"
+      | "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-set-window-text-v36";
     profileId:
       | "current-thread-unfiltered-peek-message-a-v1"
       | "current-thread-empty-queue-coalesced-window-timer-callback-v1";
@@ -1540,7 +1543,8 @@ export interface SessionReport {
       | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-v32"
       | "user32-single-monitor-window-frame-change-show-update-paint-window-timer-pointer-message-set-focus-v33"
       | "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
-      | "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35";
+      | "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35"
+      | "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-set-window-text-v36";
     profileId: "logical-window-effective-style-is-iconic-v1";
     windowStateAuthority: "rust-runtime-user32-logical-window";
     minimizedStyleMask: 536870912;
@@ -1824,6 +1828,35 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "user32-set-window-text-a-post-scheduled-shared-clock";
+        implementationId: "runtime.user32-set-window-text-a-post-scheduled-shared-clock.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        defaultProcessingSequence: number;
+        callbackEventCount: 2;
+        clockProfileId: "scheduled-shared-logical-deadline-v1";
+        clockSampleCount: number;
+        windowTimerCallbackCount: number;
+        presentCount: number;
+        pointerInputEventCount: number;
+        inputTimerCycleCount: number;
+        inputQuerySequence: number;
+        thirdPresentReached: boolean;
+        clockFreezeWasProximateCause: false;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        memoryContentSha256: string;
+      }
     | {
         capability: "runtime-trapless-execution-budget";
         implementationId: "runtime.execute-to-owned-boundary.v1";

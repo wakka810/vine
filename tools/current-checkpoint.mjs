@@ -158,12 +158,18 @@ function validateExecutionStateMachine(value, label, errors) {
 export function validateCurrentCheckpoint(manifest) {
   const errors = [];
   const root = requireRecord(manifest, "manifest", errors);
+  const setWindowTextAPostScheduledSharedClockActive =
+    root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
+    "user32-set-window-text-a-post-scheduled-shared-clock";
   const scheduledSharedClockActive =
     root.activeRuntimeCheckpoint?.scheduledSharedClock?.status === "passed" &&
     root.activeRuntimeCheckpoint?.kernel32CompatibilityPolicy?.clockProfile
       ?.progression === "scheduled-shared" &&
-    root.nextStructuredStop?.completion?.capability ===
-      "scheduled-shared-clock-primary";
+    (root.nextStructuredStop?.completion?.capability ===
+      "scheduled-shared-clock-primary" ||
+      (setWindowTextAPostScheduledSharedClockActive &&
+        root.nextStructuredStop?.completion?.capability ===
+          "user32-set-window-text-a-post-scheduled-shared-clock"));
   const primaryMainLoopProgressionActive =
     root.activeRuntimeCheckpoint?.profile === "primary-main-loop-progression";
   const leaveCriticalSectionActive =
@@ -328,7 +334,9 @@ export function validateCurrentCheckpoint(manifest) {
   const presentationProgressGatewayActive =
     inputProgressGatewayActive || presentationProgressGatewayCheckpointActive;
   const expectedUser32PolicySchemaVersion =
-    peekMessageAPostPointerReleaseContinuationCheckpointActive ||
+    setWindowTextAPostScheduledSharedClockActive
+      ? 36
+      : peekMessageAPostPointerReleaseContinuationCheckpointActive ||
     defWindowProcAPointerReleaseContinuationCheckpointActive
       ? 35
       : defWindowProcAActionContinuationActive
@@ -341,7 +349,9 @@ export function validateCurrentCheckpoint(manifest) {
         ? 31
         : 30;
   const expectedUser32PolicyId =
-    peekMessageAPostPointerReleaseContinuationCheckpointActive ||
+    setWindowTextAPostScheduledSharedClockActive
+      ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-set-window-text-v36"
+      : peekMessageAPostPointerReleaseContinuationCheckpointActive ||
     defWindowProcAPointerReleaseContinuationCheckpointActive
       ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35"
       : defWindowProcAActionContinuationActive
@@ -354,7 +364,9 @@ export function validateCurrentCheckpoint(manifest) {
         ? "user32-single-monitor-window-frame-change-show-update-paint-window-timer-delivery-v31"
         : "user32-single-monitor-window-frame-change-show-update-paint-window-state-v30";
   const expectedUser32PolicySource =
-    peekMessageAPostPointerReleaseContinuationCheckpointActive ||
+    setWindowTextAPostScheduledSharedClockActive
+      ? "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v36"
+      : peekMessageAPostPointerReleaseContinuationCheckpointActive ||
     defWindowProcAPointerReleaseContinuationCheckpointActive
       ? "crates/vine-core/src/user32.rs::User32CompatibilityPolicy::controlled_v35"
       : defWindowProcAActionContinuationActive
@@ -14722,6 +14734,13 @@ export function validateCurrentCheckpoint(manifest) {
           errors,
         )
       : {};
+  const setWindowTextAPolicy = setWindowTextAPostScheduledSharedClockActive
+    ? requireRecord(
+        user32Policy.setWindowTextA,
+        "activeRuntimeCheckpoint.user32CompatibilityPolicy.setWindowTextA",
+        errors,
+      )
+    : {};
   const loadIconVariants = requireStringArray(
     user32Policy.loadIconVariants,
     "activeRuntimeCheckpoint.user32CompatibilityPolicy.loadIconVariants",
@@ -14847,6 +14866,12 @@ export function validateCurrentCheckpoint(manifest) {
           true ||
         defWindowProcAPointerReleasePolicy.requireCursorDerivedClientLParam !==
           true)) ||
+    (setWindowTextAPostScheduledSharedClockActive &&
+      (setWindowTextAPolicy.profileId !==
+        "same-thread-wm-settext-windows-932-v1" ||
+        setWindowTextAPolicy.message !== 12 ||
+        setWindowTextAPolicy.wParam !== 0 ||
+        setWindowTextAPolicy.maximumTitleBytes !== 256)) ||
     user32Policy.handlerDispatch !==
       "single-semantic-implementation-id-with-policy" ||
     user32Policy.logicalMonitorAuthority !==
@@ -15210,7 +15235,9 @@ export function validateCurrentCheckpoint(manifest) {
     user32Policy.callbackScratchMutation !==
       "address-memory-stack-and-frame-preflight-transaction" ||
     defWindowProcAImplementedMessages.join(",") !==
-      (defWindowProcAActionContinuationActive
+      (setWindowTextAPostScheduledSharedClockActive
+        ? "129,131,5,3,128,71,70,28,134,6,641,642,7,513,12"
+        : defWindowProcAActionContinuationActive
         ? "129,131,5,3,128,71,70,28,134,6,641,642,7,513"
         : "129,131,5,3,128,71,70,28,134,6,641,642,7") ||
     user32Policy.defWindowProcALparamContract !==
@@ -23714,8 +23741,158 @@ export function validateCurrentCheckpoint(manifest) {
       "activeRuntimeCheckpoint.scheduledSharedClock.proximateCauseConclusion",
       errors,
     );
+    const setWindowTextA = setWindowTextAPostScheduledSharedClockActive
+      ? requireRecord(
+          node.setWindowTextA,
+          "activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence.setWindowTextA",
+          errors,
+        )
+      : {};
+    const expectedNode = setWindowTextAPostScheduledSharedClockActive
+      ? {
+          runtimeKernelCheckpoint:
+            "user32-set-window-text-a-post-scheduled-shared-clock",
+          repeatRuns: 1,
+          reportBytes: 50_158,
+          reportSha256:
+            "c89651cdc1b74b8b126b4b0595f9947b1c1adeb25a7cb9a1f5ce6035a973f577",
+          completedSupportedCalls: 251_693,
+          supportedCallSemanticsSha256:
+            "cdbef0d0867906c08ecfcd9ec120483841c2165aba8937b6e00c8f41db2f63d1",
+          finalMemoryGeneration: 282_341,
+          terminalInstructionCount: 323_860_141,
+          terminalMemoryContentSha256:
+            "aaf56dd2fa482226fb4e787c7cab4b1c4d9ff1f8c9b99ee876ade8872ef50def",
+        }
+      : {
+          runtimeKernelCheckpoint: "scheduled-shared-clock-primary",
+          repeatRuns: 2,
+          reportBytes: 40_392,
+          reportSha256:
+            "aa38f22c008892f0104af00bca405a64cf44024e1c4e7643762c06b717346bac",
+          completedSupportedCalls: 251_690,
+          supportedCallSemanticsSha256:
+            "f7232ff5593f5eeda54e3ae2c9ff314949997b44d3569dfcf51b674bd32734f1",
+          finalMemoryGeneration: 282_334,
+          terminalInstructionCount: 323_858_232,
+          terminalMemoryContentSha256:
+            "fd19b775f777ef6885305a0826309964a97316e3956901673d863d173b69aab3",
+        };
     const expectedCompletion = currentStop.completion ?? {};
     const expectedEndpoint = currentStop.nextEndpoint ?? {};
+    const currentStopValid = setWindowTextAPostScheduledSharedClockActive
+      ? currentStop.kind === "capability-checkpoint" &&
+        currentStop.nextCheckpoint ===
+          "kernel32-find-first-file-a-post-set-window-text" &&
+        currentStop.instructionCount === 323_860_141 &&
+        currentStop.capabilityCluster === "kernel32-api-contract" &&
+        currentStop.reason ===
+          "user32-set-window-text-a-post-scheduled-shared-clock-checkpoint-complete" &&
+        expectedCompletion.capability ===
+          "user32-set-window-text-a-post-scheduled-shared-clock" &&
+        expectedCompletion.implementationId ===
+          "runtime.user32-set-window-text-a-post-scheduled-shared-clock.v1" &&
+        expectedCompletion.completionCount === 1 &&
+        expectedCompletion.lastCompletionSequence === 251_691 &&
+        expectedCompletion.lastCompletionInstructionCount === 323_858_285 &&
+        expectedCompletion.defaultProcessingSequence === 251_692 &&
+        expectedCompletion.callbackEventCount === 2 &&
+        expectedCompletion.clockProfileId === profile.id &&
+        expectedCompletion.clockSampleCount === node.clockSampleCount &&
+        expectedCompletion.windowTimerCallbackCount ===
+          node.windowTimerCallbackCount &&
+        expectedCompletion.presentCount === 2 &&
+        expectedCompletion.pointerInputEventCount === 2 &&
+        expectedCompletion.inputTimerCycleCount === 253 &&
+        expectedCompletion.inputQuerySequence === 222_096 &&
+        expectedCompletion.thirdPresentReached === false &&
+        expectedCompletion.clockFreezeWasProximateCause === false &&
+        expectedEndpoint.endpointId === 26 &&
+        expectedEndpoint.api?.toLowerCase() ===
+          "kernel32.dll!findfirstfilea" &&
+        expectedEndpoint.endpointAddress === "0x7f000190" &&
+        expectedEndpoint.iatAddress === "0x100d1110" &&
+        expectedEndpoint.arguments?.join(",") ===
+          "0x20262c0d,0x006febe0" &&
+        expectedEndpoint.returnAddress === "0x100623e1" &&
+        expectedEndpoint.stackPointer === "0x006feba4"
+      : currentStop.kind === "capability-checkpoint" &&
+        currentStop.nextCheckpoint ===
+          "user32-set-window-text-a-post-scheduled-shared-clock" &&
+        currentStop.instructionCount === 323_858_232 &&
+        currentStop.capabilityCluster === "user32-api-contract" &&
+        currentStop.reason ===
+          "scheduled-shared-clock-primary-checkpoint-complete" &&
+        expectedCompletion.implementationId ===
+          "runtime.scheduled-shared-clock-primary.v1" &&
+        expectedCompletion.clockProfileId === profile.id &&
+        expectedCompletion.clockSampleCount === node.clockSampleCount &&
+        expectedCompletion.windowTimerCallbackCount ===
+          node.windowTimerCallbackCount &&
+        expectedCompletion.presentCount === node.presentCount &&
+        expectedCompletion.thirdPresentReached === false &&
+        expectedCompletion.clockFreezeWasProximateCause === false &&
+        expectedEndpoint.endpointId === 237 &&
+        expectedEndpoint.api?.toLowerCase() ===
+          "user32.dll!setwindowtexta" &&
+        expectedEndpoint.endpointAddress === "0x7f000ec0" &&
+        expectedEndpoint.iatAddress === "0x100d148c" &&
+        expectedEndpoint.arguments?.join(",") ===
+          "0x48010001,0x20262c02" &&
+        expectedEndpoint.returnAddress === "0x1008343b" &&
+        expectedEndpoint.stackPointer === "0x006ff688";
+    const setWindowTextAEvidenceValid =
+      !setWindowTextAPostScheduledSharedClockActive ||
+      (setWindowTextA.count === 1 &&
+        setWindowTextA.sequence === 251_691 &&
+        setWindowTextA.instructionCount === 323_858_232 &&
+        setWindowTextA.arguments?.join(",") ===
+          "0x48010001,0x20262c02" &&
+        setWindowTextA.result === 1 &&
+        setWindowTextA.implementationId ===
+          "user32.set-window-text-a.same-thread-wm-settext.v1" &&
+        setWindowTextA.returnAddress === "0x1008343b" &&
+        setWindowTextA.stackPointers?.join(",") ===
+          "0x006ff688,0x006ff694" &&
+        setWindowTextA.lastError === 0 &&
+        setWindowTextA.guestWriteBytes === 0 &&
+        setWindowTextA.windowHandle === "0x48010001" &&
+        setWindowTextA.title === "サクラノ詩" &&
+        setWindowTextA.titleEncoding === "windows-932-v1" &&
+        setWindowTextA.callbackEventCount === 2 &&
+        setWindowTextA.defaultProcessingSequence === 251_692 &&
+        setWindowTextA.defaultProcessingInstructionCount === 323_858_272 &&
+        setWindowTextA.defaultProcessingReturnAddress === "0x100933bf" &&
+        setWindowTextA.defaultProcessingResult === 1 &&
+        latestEvidence.setWindowTextAReturnInstructionCount ===
+          323_858_285 &&
+        latestEvidence.nativeSetWindowTextAOracleProfile ===
+          "bgi-main-window-title-wm-settext-v1" &&
+        latestEvidence.nativeSetWindowTextAOracleScriptBytes === 6_453 &&
+        latestEvidence.nativeSetWindowTextAOracleScriptSha256 ===
+          "a1bb795865f9fa50b9a07a2d1c37e1dfaaba9c3b4067829273564a1284278149" &&
+        latestEvidence.nativeSetWindowTextAOracleReportBytes === 3_620 &&
+        latestEvidence.nativeSetWindowTextAOracleReportSha256 ===
+          "8fa3b9ef52e817490b5786eeeebcd375b92bfd4b1683c8a39c7f7f841c8aa58c" &&
+        latestEvidence.nativeSetWindowTextAOracleFridaVersion === "17.11.0" &&
+        latestEvidence.nativeSetWindowTextAOracleCalls === 1 &&
+        latestEvidence.nativeSetWindowTextATitleBytes?.join(",") ===
+          "131,84,131,78,131,137,131,109,142,141" &&
+        latestEvidence.nativeSetWindowTextAResult === 1 &&
+        latestEvidence.nativeSetWindowTextAEntryLastError === 0 &&
+        latestEvidence.nativeSetWindowTextAExitLastError === 0 &&
+        latestEvidence.nativeSetWindowTextAObservedTitleBytes?.join(",") ===
+          "131,84,131,78,131,137,131,109,142,141" &&
+        latestEvidence.nativeSetWindowTextANestedKinds?.join(",") ===
+          "set-window-text-a-enter,window-procedure-enter,def-window-proc-a-enter,def-window-proc-a-leave,window-procedure-leave,set-window-text-a-leave" &&
+        latestEvidence.nativeSetWindowTextAWmSetTextMessage === 12 &&
+        latestEvidence.nativeSetWindowTextAWParam === 0 &&
+        latestEvidence.nativeSetWindowTextACallerReturnRva ===
+          "0x0008343b" &&
+        latestEvidence.nativeSetWindowTextAExecutableHashUnchanged === true &&
+        latestEvidence.setWindowTextAImplemented === true &&
+        latestEvidence.setWindowTextAFailureAtomicity === true &&
+        latestEvidence.setWindowTextABrowserOwnsLogicalTitleState === false);
     if (
       scheduled.schema !== "vine.scheduled-shared-clock-checkpoint" ||
       scheduled.schemaVersion !== 1 ||
@@ -23733,23 +23910,23 @@ export function validateCurrentCheckpoint(manifest) {
       scheduled.browserTimeImported !== false ||
       scheduled.allApiAndComDispatchBoundariesUseSharedSchedule !== true ||
       scheduled.regressingInstructionCursorRejectedBeforeMutation !== true ||
-      active.runtimeKernelCheckpoint !== "scheduled-shared-clock-primary" ||
+      active.runtimeKernelCheckpoint !==
+        expectedNode.runtimeKernelCheckpoint ||
       active.canonicalReproductionCommand !== "npm run check:runtime:bgi" ||
       node.schema !== "vine.v86-bgi-scheduled-shared-clock-primary" ||
       node.schemaVersion !== 1 ||
       node.canonicalCommand !== active.canonicalReproductionCommand ||
-      node.repeatRuns !== 2 ||
-      node.reportBytes !== 40_392 ||
-      node.reportSha256 !==
-        "aa38f22c008892f0104af00bca405a64cf44024e1c4e7643762c06b717346bac" ||
+      node.repeatRuns !== expectedNode.repeatRuns ||
+      node.reportBytes !== expectedNode.reportBytes ||
+      node.reportSha256 !== expectedNode.reportSha256 ||
       node.reflectionSha256 !==
         "65f3b728ff9570a0f3081571c05996df74232711142bbfc5045d2c780dcecf49" ||
       node.sourceSha256 !==
         "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1" ||
       node.sourceImmutableAcrossRun !== true ||
-      node.completedSupportedCalls !== 251_690 ||
+      node.completedSupportedCalls !== expectedNode.completedSupportedCalls ||
       node.supportedCallSemanticsSha256 !==
-        "f7232ff5593f5eeda54e3ae2c9ff314949997b44d3569dfcf51b674bd32734f1" ||
+        expectedNode.supportedCallSemanticsSha256 ||
       node.clockSampleCount !== 100_508 ||
       node.firstClockTick !== 3_600_000 ||
       node.firstClockRetiredInstructions !== 29 ||
@@ -23763,10 +23940,14 @@ export function validateCurrentCheckpoint(manifest) {
       node.timerPacingCompletionCount !== 7_174 ||
       node.presentCount !== 2 ||
       node.thirdPresentReached !== false ||
-      node.finalMemoryGeneration !== 282_334 ||
-      node.terminalInstructionCount !== currentStop.instructionCount ||
+      node.pointerInputEventCount !== 2 ||
+      node.pointerInputDownCommittedAfterSequence !== 222_004 ||
+      node.pointerInputUpCommittedAfterSequence !== 222_096 ||
+      node.finalMemoryGeneration !== expectedNode.finalMemoryGeneration ||
+      node.terminalInstructionCount !==
+        expectedNode.terminalInstructionCount ||
       node.terminalMemoryContentSha256 !==
-        "fd19b775f777ef6885305a0826309964a97316e3956901673d863d173b69aab3" ||
+        expectedNode.terminalMemoryContentSha256 ||
       browserBoundary.runtimeProtocol !== "vine.browser-runtime-worker.v101" ||
       browserBoundary.retiredInstructionCursorTransport !==
         "checked-u64-low-high-per-api-and-com-dispatch" ||
@@ -23775,44 +23956,59 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.controlledChromeCommand !==
         "npm run check:runtime:browser-worker" ||
       browserBoundary.chromeVersion !== "150.0.7871.187" ||
-      browserBoundary.reportBytes !== 35_954 ||
+      browserBoundary.reportBytes !== 35_965 ||
       browserBoundary.reportSha256 !==
-        "0f479bd74fa1aacb173a9cba1efd7d0a98bd47bd5a3769fb15be02838b198a6c" ||
-      browserBoundary.runtimeWorkerBytes !== 1_026_918 ||
+        "1b5ef79dab0b73d06be8f949b783c46603b4a825b1bd839e82db32ceafd079c7" ||
+      browserBoundary.runtimeWorkerBytes !== 1_043_477 ||
       browserBoundary.runtimeWorkerSha256 !==
-        "acc0c1b08d705b3156cf00a0c7c7b78e01265a02d57692dadfe13cbf037e3bf7" ||
-      browserBoundary.runtimeCoreWasmBytes !== 5_231_801 ||
+        "56b021044b309bb074f8f579d290e36339f2add3b9d3944f656583730f107604" ||
+      browserBoundary.runtimeCoreWasmBytes !== 5_283_435 ||
       browserBoundary.runtimeCoreWasmSha256 !==
-        "60314a8102d1f6578d30177748534b7fcfe4d5e17a9786d0f5d25520484d0ec4" ||
+        "06cdb92238d33e095bf4f89c30504cbd2273a9297f53527fb3b233a2d408a173" ||
       browserBoundary.privatePrimaryReplay !==
-        "not-rerun-at-this-clock-checkpoint" ||
-      currentStop.kind !== "capability-checkpoint" ||
-      currentStop.nextCheckpoint !==
-        "user32-set-window-text-a-post-scheduled-shared-clock" ||
-      currentStop.instructionCount !== 323_858_232 ||
-      currentStop.capabilityCluster !== "user32-api-contract" ||
-      currentStop.reason !==
-        "scheduled-shared-clock-primary-checkpoint-complete" ||
-      expectedCompletion.implementationId !==
-        "runtime.scheduled-shared-clock-primary.v1" ||
-      expectedCompletion.clockProfileId !== profile.id ||
-      expectedCompletion.clockSampleCount !== node.clockSampleCount ||
-      expectedCompletion.windowTimerCallbackCount !==
+        "passed-node-equivalent-scheduled-shared-clock" ||
+      browserBoundary.privatePrimaryCommand !==
+        "node tools/run-browser-runtime-check.mjs --bgi" ||
+      browserBoundary.privatePrimaryReportBytes !== 2_577_649 ||
+      browserBoundary.privatePrimaryReportSha256 !==
+        "5e6992e7195e372ac89e478904716392e46a3a6d8e26cfad08ea71cc1e052bb4" ||
+      browserBoundary.privatePrimaryChromeVersion !==
+        browserBoundary.chromeVersion ||
+      browserBoundary.privatePrimarySupportedCalls !==
+        node.completedSupportedCalls ||
+      browserBoundary.privatePrimarySupportedCallSemanticsSha256 !==
+        node.supportedCallSemanticsSha256 ||
+      browserBoundary.privatePrimaryInstructionCount !==
+        node.terminalInstructionCount ||
+      browserBoundary.privatePrimaryClockSampleCount !==
+        node.clockSampleCount ||
+      browserBoundary.privatePrimaryWindowTimerCallbackCount !==
         node.windowTimerCallbackCount ||
-      expectedCompletion.presentCount !== node.presentCount ||
-      expectedCompletion.thirdPresentReached !== false ||
-      expectedCompletion.clockFreezeWasProximateCause !== false ||
-      expectedEndpoint.endpointId !== 237 ||
-      expectedEndpoint.api?.toLowerCase() !==
-        "user32.dll!setwindowtexta" ||
-      expectedEndpoint.endpointAddress !== "0x7f000ec0" ||
-      expectedEndpoint.iatAddress !== "0x100d148c" ||
-      expectedEndpoint.arguments?.join(",") !==
-        "0x48010001,0x20262c02" ||
-      expectedEndpoint.returnAddress !== "0x1008343b" ||
-      expectedEndpoint.stackPointer !== "0x006ff688" ||
+      browserBoundary.privatePrimaryPresentCount !== node.presentCount ||
+      browserBoundary.privatePrimaryPointerInputEventCount !==
+        node.pointerInputEventCount ||
+      browserBoundary.privatePrimaryTimerPacingCompletionCount !==
+        node.timerPacingCompletionCount ||
+      browserBoundary.privatePrimaryMappingDeltas !== node.hostDeltaBatches ||
+      !Number.isSafeInteger(
+        browserBoundary.privatePrimaryFinalMemoryGeneration,
+      ) ||
+      browserBoundary.privatePrimaryFinalMemoryGeneration <= 0 ||
+      !Number.isSafeInteger(browserBoundary.privatePrimaryWritebackBatches) ||
+      browserBoundary.privatePrimaryWritebackBatches <= 0 ||
+      browserBoundary.privatePrimaryTerminalMemoryContentSha256 !==
+        node.terminalMemoryContentSha256 ||
+      browserBoundary.privatePrimaryRawGenerationAndWritebacksAreAdapterSpecific !==
+        true ||
+      browserBoundary.privatePrimaryCancellationClean !== true ||
+      browserBoundary.privatePrimaryWatchdogClean !== true ||
+      !currentStopValid ||
+      !setWindowTextAEvidenceValid ||
       conclusion.clockFreezeWasProximateCause !== false ||
-      conclusion.nextEndpoint !== "USER32.dll!SetWindowTextA"
+      conclusion.nextEndpoint !==
+        (setWindowTextAPostScheduledSharedClockActive
+          ? "KERNEL32.dll!FindFirstFileA"
+          : "USER32.dll!SetWindowTextA")
     ) {
       errors.push("scheduled shared clock checkpoint evidence is invalid");
     }
@@ -34065,6 +34261,13 @@ export function renderReadmeStatus(manifest) {
         ? `\`${next.completion.capability}\` advanced one Rust-owned clock from cumulative retired guest instructions across ` +
           `${next.completion.clockSampleCount.toLocaleString("en-US")} API/COM samples and ${next.completion.windowTimerCallbackCount} TIMERPROC callbacks without per-read increments; ` +
           `it still observed ${next.completion.presentCount} Presents and no third Present, then stopped at \`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +
+          `(\`${next.reason}\`)`
+        : next.completion.capability ===
+          "user32-set-window-text-a-post-scheduled-shared-clock"
+        ? `\`${next.completion.capability}\` completed the reached Windows-932 SetWindowTextA and synchronous WM_SETTEXT default-processing callback at ` +
+          `sequence ${next.completion.lastCompletionSequence} / instruction ${next.completion.lastCompletionInstructionCount}; ` +
+          `the shared clock had already completed ${next.completion.clockSampleCount.toLocaleString("en-US")} samples and ${next.completion.windowTimerCallbackCount} TIMERPROC callbacks, while Present remained at ${next.completion.presentCount}; ` +
+          `verification stopped at \`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +
           `(\`${next.reason}\`)`
         : next.completion.capability ===
         "user32-peek-message-a-post-window-timer-callback-continuation"

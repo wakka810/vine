@@ -1,3 +1,4 @@
+use encoding_rs::SHIFT_JIS;
 use serde::Serialize;
 
 use crate::api::{
@@ -37,7 +38,8 @@ use crate::runtime::{
 };
 
 pub const USER32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.user32-compatibility-policy";
-pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 35;
+pub const USER32_COMPATIBILITY_POLICY_VERSION: u32 = 36;
+const USER32_COMPATIBILITY_POLICY_POINTER_RELEASE_VERSION: u32 = 35;
 const USER32_COMPATIBILITY_POLICY_POINTER_DOWN_VERSION: u32 = 34;
 const USER32_COMPATIBILITY_POLICY_SET_FOCUS_VERSION: u32 = 33;
 const USER32_COMPATIBILITY_POLICY_POINTER_VERSION: u32 = 32;
@@ -50,6 +52,8 @@ pub const SWAP_MOUSE_BUTTON_IMPLEMENTATION: &str = "user32.swap-mouse-button.v1"
 pub const LOAD_ICON_A_IMPLEMENTATION: &str = "user32.load-icon-a.v1";
 pub const LOAD_IMAGE_A_IMPLEMENTATION: &str = "user32.load-image-a.v1";
 pub const SEND_MESSAGE_A_IMPLEMENTATION: &str = "user32.send-message-a.v1";
+pub const SET_WINDOW_TEXT_A_IMPLEMENTATION: &str =
+    "user32.set-window-text-a.same-thread-wm-settext.v1";
 pub const SET_WINDOW_POS_IMPLEMENTATION: &str = "user32.set-window-pos.v5";
 pub const SHOW_WINDOW_IMPLEMENTATION: &str = "user32.show-window.visible-normal-noop.v1";
 pub const UPDATE_WINDOW_IMPLEMENTATION: &str = "user32.update-window.full-client-paint.v1";
@@ -88,6 +92,7 @@ const RT_GROUP_ICON: u32 = 14;
 const IMAGE_ICON: u32 = 1;
 const LR_SHARED: u32 = 0x0000_8000;
 const WM_SETICON: u32 = 0x0080;
+const WM_SETTEXT: u32 = 0x000c;
 const WM_PAINT: u32 = 0x000f;
 const WM_TIMER: u32 = 0x0113;
 const WM_LBUTTONDOWN: u32 = 0x0201;
@@ -179,6 +184,15 @@ pub struct User32SendMessageAImeControlPolicy {
     pub close_status_window_command: u32,
     pub open_status_window_command: u32,
     pub l_param: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct User32SetWindowTextAPolicy {
+    pub profile_id: String,
+    pub message: u32,
+    pub w_param: u32,
+    pub maximum_title_bytes: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -426,6 +440,8 @@ pub struct User32CompatibilityPolicy {
     pub load_image_a: Option<User32LoadImageAPolicy>,
     pub send_message_a: Option<User32SendMessageAPolicy>,
     pub send_message_a_ime_control: Option<User32SendMessageAImeControlPolicy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub set_window_text_a: Option<User32SetWindowTextAPolicy>,
     pub set_window_pos: Option<User32SetWindowPosPolicy>,
     pub show_window: Option<User32ShowWindowPolicy>,
     pub update_window: Option<User32UpdateWindowPolicy>,
@@ -541,6 +557,7 @@ impl User32CompatibilityPolicy {
                 open_status_window_command: USER32_IMC_OPENSTATUSWINDOW,
                 l_param: 0,
             }),
+            set_window_text_a: None,
             set_window_pos: Some(User32SetWindowPosPolicy {
                 profile_id:
                     "initial-offscreen-show-hide-same-geometry-activation-resize-frame-change-move-v4".to_owned(),
@@ -746,7 +763,7 @@ impl User32CompatibilityPolicy {
 
     pub fn controlled_v35() -> Self {
         let mut policy = Self::controlled_v34();
-        policy.schema_version = USER32_COMPATIBILITY_POLICY_VERSION;
+        policy.schema_version = USER32_COMPATIBILITY_POLICY_POINTER_RELEASE_VERSION;
         policy.id =
             "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35"
                 .to_owned();
@@ -763,6 +780,21 @@ impl User32CompatibilityPolicy {
         policy
     }
 
+    pub fn controlled_v36() -> Self {
+        let mut policy = Self::controlled_v35();
+        policy.schema_version = USER32_COMPATIBILITY_POLICY_VERSION;
+        policy.id =
+            "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-set-window-text-v36"
+                .to_owned();
+        policy.set_window_text_a = Some(User32SetWindowTextAPolicy {
+            profile_id: "same-thread-wm-settext-windows-932-v1".to_owned(),
+            message: WM_SETTEXT,
+            w_param: 0,
+            maximum_title_bytes: 256,
+        });
+        policy
+    }
+
     pub fn validate(&self) -> Result<(), ApiFault> {
         if self.schema != USER32_COMPATIBILITY_POLICY_SCHEMA
             || !matches!(
@@ -772,10 +804,12 @@ impl User32CompatibilityPolicy {
                     self.pointer_button_messages.is_some(),
                     self.set_focus.is_some(),
                     self.def_window_proc_a_pointer_down.is_some(),
-                    self.def_window_proc_a_pointer_release.is_some()
+                    self.def_window_proc_a_pointer_release.is_some(),
+                    self.set_window_text_a.is_some()
                 ),
                 (
                     USER32_COMPATIBILITY_POLICY_BASE_VERSION,
+                    false,
                     false,
                     false,
                     false,
@@ -787,11 +821,13 @@ impl User32CompatibilityPolicy {
                     false,
                     false,
                     false,
+                    false,
                     false
                 ) | (
                     USER32_COMPATIBILITY_POLICY_POINTER_VERSION,
                     true,
                     true,
+                    false,
                     false,
                     false,
                     false
@@ -801,6 +837,7 @@ impl User32CompatibilityPolicy {
                     true,
                     true,
                     false,
+                    false,
                     false
                 ) | (
                     USER32_COMPATIBILITY_POLICY_POINTER_DOWN_VERSION,
@@ -808,9 +845,19 @@ impl User32CompatibilityPolicy {
                     true,
                     true,
                     true,
+                    false,
+                    false
+                ) | (
+                    USER32_COMPATIBILITY_POLICY_POINTER_RELEASE_VERSION,
+                    true,
+                    true,
+                    true,
+                    true,
+                    true,
                     false
                 ) | (
                     USER32_COMPATIBILITY_POLICY_VERSION,
+                    true,
                     true,
                     true,
                     true,
@@ -1002,6 +1049,25 @@ impl User32CompatibilityPolicy {
                 "user32-compatibility-policy",
                 "user32-send-message-a-ime-control-profile-invalid",
                 "User32 IME control profile requires the reached same-thread default IME status-window commands",
+            ));
+        }
+        if let Some(profile) = self.set_window_text_a.as_ref()
+            && (!valid_profile_id(&profile.profile_id)
+                || profile.profile_id != "same-thread-wm-settext-windows-932-v1"
+                || profile.message != WM_SETTEXT
+                || profile.w_param != 0
+                || profile.maximum_title_bytes == 0
+                || profile.maximum_title_bytes
+                    > u32::try_from(RUNTIME_WINDOW_NAME_A_LIMIT)
+                        .expect("window title limit fits u32")
+                || self.create_window_ex_a.as_ref().is_none_or(|create| {
+                    create.maximum_window_name_bytes != profile.maximum_title_bytes
+                }))
+        {
+            return Err(ApiFault::runtime_defect(
+                "user32-compatibility-policy",
+                "user32-set-window-text-a-profile-invalid",
+                "User32 SetWindowTextA requires the bounded same-thread WM_SETTEXT Windows-932 title profile",
             ));
         }
         if let Some(profile) = self.set_window_pos.as_ref()
@@ -1521,6 +1587,18 @@ pub fn dispatch_user32_api_with_policy(
         SEND_MESSAGE_A_IMPLEMENTATION => {
             match handle_send_message_a(policy, callback_return_sentinel, contract, frame, session)
             {
+                Ok(result) => result,
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
+        SET_WINDOW_TEXT_A_IMPLEMENTATION => {
+            match handle_set_window_text_a(
+                policy,
+                callback_return_sentinel,
+                contract,
+                frame,
+                session,
+            ) {
                 Ok(result) => result,
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
@@ -3129,6 +3207,80 @@ fn handle_send_message_a(
         scratch_pointer_relocations: Vec::new(),
         return_sentinel: callback_return_sentinel,
         completion_policy: GuestCallbackCompletionPolicy::ReturnU32,
+    };
+    session.preflight_guest_callback(&ApiGuestCallbackCall {
+        request: Box::new(request.clone()),
+        contract: contract.clone(),
+        frame: frame.clone(),
+    })?;
+    Ok(ApiHandlerResult::GuestCallback(request))
+}
+
+fn handle_set_window_text_a(
+    policy: &User32CompatibilityPolicy,
+    callback_return_sentinel: GuestAddress,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiHandlerResult, ApiFault> {
+    let profile = policy.set_window_text_a.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-windows",
+            "set-window-text-a-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable synchronous logical window-title mutation",
+                policy.id
+            ),
+        )
+    })?;
+    let window_handle = required_argument(contract, frame, 0, "window handle")?;
+    let title_address = GuestAddress(required_argument(contract, frame, 1, "window title")?);
+    let entry_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let window_procedure = match session.runtime().resolve_window_procedure(window_handle) {
+        Ok(procedure) => procedure,
+        Err(error) if error.code == "window-handle-unknown" => {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(ApiReturnValue::Bool32(false))
+                    .with_last_error(ERROR_INVALID_WINDOW_HANDLE),
+            ));
+        }
+        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    };
+    let title = read_bounded_window_title_a(
+        session.memory(),
+        title_address,
+        usize::try_from(profile.maximum_title_bytes).map_err(|_| {
+            ApiFault::runtime_defect(
+                "user32-windows",
+                "set-window-text-a-title-limit-invalid",
+                "validated SetWindowTextA title bound does not fit host accounting",
+            )
+        })?,
+        contract,
+    )?;
+    if title.value.is_empty() {
+        return Err(ApiFault::unsupported(
+            "user32-windows",
+            "set-window-text-a-empty-title-unsupported",
+            "SetWindowTextA currently supports the reached nonempty Windows-932 title",
+        ));
+    }
+    let request = GuestCallbackRequest {
+        target: window_procedure.address,
+        arguments: vec![
+            GuestCallbackArgument::U32(window_handle),
+            GuestCallbackArgument::U32(profile.message),
+            GuestCallbackArgument::U32(profile.w_param),
+            GuestCallbackArgument::U32(title_address.0),
+        ],
+        scratch: Vec::new(),
+        scratch_pointer_relocations: Vec::new(),
+        return_sentinel: callback_return_sentinel,
+        completion_policy: GuestCallbackCompletionPolicy::ReturnBool32WithLastError {
+            last_error: entry_last_error,
+        },
     };
     session.preflight_guest_callback(&ApiGuestCallbackCall {
         request: Box::new(request.clone()),
@@ -6006,6 +6158,7 @@ fn handle_def_window_proc_a_immediate(
 ) -> Result<ApiImmediate, ApiFault> {
     if policy.create_window_ex_a.is_none()
         && policy.send_message_a.is_none()
+        && policy.set_window_text_a.is_none()
         && policy.set_window_pos.is_none()
     {
         return Err(ApiFault::unsupported(
@@ -6036,6 +6189,39 @@ fn handle_def_window_proc_a_immediate(
         );
     }
     match (message, w_param, window.lifecycle) {
+        (WM_SETTEXT, 0, RuntimeWindowLifecycle::Created) if policy.set_window_text_a.is_some() => {
+            let profile = policy.set_window_text_a.as_ref().ok_or_else(|| {
+                ApiFault::runtime_defect(
+                    "user32-windows",
+                    "def-window-proc-a-window-text-policy-missing",
+                    "validated WM_SETTEXT default processing has no window-title profile",
+                )
+            })?;
+            let title = read_bounded_window_title_a(
+                session.memory(),
+                GuestAddress(l_param),
+                usize::try_from(profile.maximum_title_bytes).map_err(|_| {
+                    ApiFault::runtime_defect(
+                        "user32-windows",
+                        "def-window-proc-a-window-title-limit-invalid",
+                        "validated DefWindowProcA title bound does not fit host accounting",
+                    )
+                })?,
+                contract,
+            )?;
+            if title.value.is_empty() {
+                return Err(ApiFault::unsupported(
+                    "user32-windows",
+                    "def-window-proc-a-empty-title-unsupported",
+                    "DefWindowProcA WM_SETTEXT currently supports the reached nonempty title",
+                ));
+            }
+            session
+                .runtime_mut()
+                .set_window_title(handle, title)
+                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+            Ok(ApiImmediate::new(ApiReturnValue::U32(1)))
+        }
         (WM_SETICON, ICON_SMALL, RuntimeWindowLifecycle::Created)
             if policy.send_message_a.is_some() =>
         {
@@ -6522,7 +6708,7 @@ fn create_window_callback_request(
     class: &crate::runtime::RuntimeWindowClass,
     message: RuntimeWindowCreationMessage,
     return_sentinel: GuestAddress,
-    _contract: &ApiContract,
+    contract: &ApiContract,
 ) -> Result<GuestCallbackRequest, ApiFault> {
     if class.id != window.creation.class.class_id
         || class.atom != window.creation.class.atom
@@ -6555,7 +6741,12 @@ fn create_window_callback_request(
                 scratch.extend_from_slice(&value.to_le_bytes());
             }
             let title_offset = u32::try_from(scratch.len()).expect("CREATESTRUCTA size fits u32");
-            scratch.extend_from_slice(window.creation.name.value.as_bytes());
+            let title = window
+                .creation
+                .name
+                .windows_932_bytes()
+                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+            scratch.extend_from_slice(&title);
             scratch.push(0);
             while scratch.len() % 4 != 0 {
                 scratch.push(0);
@@ -6742,6 +6933,58 @@ fn read_bounded_create_window_text_a(
         "user32-windows",
         "create-window-text-bound-exceeded",
         format!("CreateWindowExA {kind} is not NUL-terminated within the controlled bound"),
+    ))
+}
+
+fn read_bounded_window_title_a(
+    memory: &GuestMemory,
+    address: GuestAddress,
+    maximum_bytes: usize,
+    contract: &ApiContract,
+) -> Result<RuntimeWindowNameA, ApiFault> {
+    let mut bytes = Vec::with_capacity(maximum_bytes);
+    for offset in 0..maximum_bytes {
+        let offset = u32::try_from(offset).map_err(|_| {
+            ApiFault::runtime_defect(
+                "user32-windows",
+                "window-title-a-offset-invalid",
+                "validated window-title bound does not fit x86 accounting",
+            )
+        })?;
+        let byte_address = address
+            .0
+            .checked_add(offset)
+            .map(GuestAddress)
+            .ok_or_else(|| {
+                ApiFault::invalid_call(
+                    "user32-windows",
+                    "window-title-a-address-overflow",
+                    "window-title read overflowed x86 address accounting",
+                )
+            })?;
+        let byte = memory
+            .read(byte_address, 1)
+            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?[0];
+        if byte == 0 {
+            let (decoded, had_errors) = SHIFT_JIS.decode_without_bom_handling(&bytes);
+            if had_errors {
+                return Err(ApiFault::unsupported(
+                    "user32-windows",
+                    "window-title-a-windows-932-invalid",
+                    "window title is not a valid bounded Windows-932 byte sequence",
+                ));
+            }
+            return Ok(RuntimeWindowNameA {
+                value: decoded.into_owned(),
+                encoding: RUNTIME_WINDOW_NAME_A_ENCODING.to_owned(),
+            });
+        }
+        bytes.push(byte);
+    }
+    Err(ApiFault::unsupported(
+        "user32-windows",
+        "window-title-a-bound-exceeded",
+        "window title is not NUL-terminated within the controlled Windows-932 bound",
     ))
 }
 
@@ -7123,6 +7366,7 @@ pub fn user32_contract_for_endpoint(
         "LoadIconA" => Ok(Some(load_icon_a_contract(endpoint)?)),
         "LoadImageA" => Ok(Some(load_image_a_contract(endpoint)?)),
         "SendMessageA" => Ok(Some(send_message_a_contract(endpoint)?)),
+        "SetWindowTextA" => Ok(Some(set_window_text_a_contract(endpoint)?)),
         "SetWindowPos" => Ok(Some(set_window_pos_contract(endpoint)?)),
         "ShowWindow" => Ok(Some(show_window_contract(endpoint)?)),
         "UpdateWindow" => Ok(Some(update_window_contract(endpoint)?)),
@@ -7259,6 +7503,26 @@ pub fn send_message_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Optional,
         implementation_id: SEND_MESSAGE_A_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn set_window_text_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                logical_window_handle_argument("window", false),
+                windows_932_input_string("windowTitle", 512),
+            ],
+            return_value: ApiReturnSchema::Bool32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Optional,
+        implementation_id: SET_WINDOW_TEXT_A_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -7936,6 +8200,26 @@ fn windows_932_name_or_ordinal(name: &str, maximum_code_units: u32) -> ApiArgume
     }
 }
 
+fn windows_932_input_string(name: &str, maximum_code_units: u32) -> ApiArgumentSchema {
+    ApiArgumentSchema {
+        name: name.to_owned(),
+        direction: ApiDirection::In,
+        value: ApiValueSchema::Pointer {
+            constraint: ApiPointerConstraint {
+                nullable: false,
+                alignment: 1,
+                byte_length: 1,
+                pointee: ApiPointeeSchema::String {
+                    encoding: crate::api::ApiStringEncoding::Windows932,
+                    maximum_code_units,
+                    nul_terminated: true,
+                },
+                write_requirement: ApiWriteRequirement::None,
+            },
+        },
+    }
+}
+
 fn logical_window_handle_argument(name: &str, nullable: bool) -> ApiArgumentSchema {
     logical_handle_argument(name, LOGICAL_WINDOW_HANDLE_NAMESPACE, nullable)
 }
@@ -8424,7 +8708,7 @@ mod tests {
         pointer_release.validate().unwrap();
         assert_eq!(
             pointer_release.schema_version,
-            USER32_COMPATIBILITY_POLICY_VERSION
+            USER32_COMPATIBILITY_POLICY_POINTER_RELEASE_VERSION
         );
         let pointer_release_profile = pointer_release
             .def_window_proc_a_pointer_release
@@ -8447,6 +8731,28 @@ mod tests {
         assert_eq!(
             invalid_pointer_release.validate().unwrap_err().code,
             "user32-def-window-proc-a-pointer-release-profile-invalid"
+        );
+
+        let window_text = User32CompatibilityPolicy::controlled_v36();
+        window_text.validate().unwrap();
+        assert_eq!(
+            window_text.schema_version,
+            USER32_COMPATIBILITY_POLICY_VERSION
+        );
+        let window_text_profile = window_text.set_window_text_a.as_ref().unwrap();
+        assert_eq!(window_text_profile.message, WM_SETTEXT);
+        assert_eq!(window_text_profile.w_param, 0);
+        assert_eq!(window_text_profile.maximum_title_bytes, 256);
+
+        let mut invalid_window_text = User32CompatibilityPolicy::controlled_v36();
+        invalid_window_text
+            .set_window_text_a
+            .as_mut()
+            .unwrap()
+            .maximum_title_bytes = 257;
+        assert_eq!(
+            invalid_window_text.validate().unwrap_err().code,
+            "user32-set-window-text-a-profile-invalid"
         );
 
         let mut invalid_monitor = User32CompatibilityPolicy::controlled_v30();

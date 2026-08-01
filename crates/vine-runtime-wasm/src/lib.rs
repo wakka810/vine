@@ -743,7 +743,7 @@ impl BrowserRuntime {
             .register_writable_profile(writable_profile)
             .map_err(error_string)?;
         let user32_policy = if capabilities.user32_def_window_proc_a_pointer_release {
-            User32CompatibilityPolicy::controlled_v35()
+            User32CompatibilityPolicy::controlled_v36()
         } else if capabilities.user32_def_window_proc_a_pointer_down {
             User32CompatibilityPolicy::controlled_v34()
         } else if capabilities.user32_set_focus_same_window {
@@ -1940,6 +1940,7 @@ impl BrowserRuntime {
                             "user32.set-window-long-a.gwl-style.v1"
                                 | "shell32.drag-accept-files.logical-window-style-v1"
                                 | vine_core::SET_FOCUS_IMPLEMENTATION
+                                | vine_core::SET_WINDOW_TEXT_A_IMPLEMENTATION
                         ) {
                             let handle = completion.frame.argument_u32(0).ok_or_else(|| {
                                 format!(
@@ -2815,6 +2816,12 @@ impl BrowserRuntime {
                         vine_core::RuntimeUpdateWindowCallbackAction::Completed { window },
                     )) => metadata["window"] = json!(window),
                     _ => {}
+                }
+                if completion.implementation_id == vine_core::SET_WINDOW_TEXT_A_IMPLEMENTATION {
+                    let handle = completion.frame.argument_u32(0).ok_or_else(|| {
+                        "SetWindowTextA callback completion has no logical HWND argument".to_owned()
+                    })?;
+                    metadata["window"] = json!(self.runtime.window(handle).map_err(error_string)?);
                 }
                 if let BrowserRuntimeTarget::Bgi {
                     user32_policy,

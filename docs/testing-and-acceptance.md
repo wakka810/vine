@@ -997,11 +997,18 @@ subresolution remainder、stale read／advance plan、cursor regression／range 
 固定する。Dispatcher testはwall／tick／QPC／WinMM readを固定し、NodeとBrowser Workerは各API／COM
 dispatchでchecked u64 cursorを渡し、host／browser時刻をguest authorityへimportしない。
 
-Primary acceptanceはcanonical Node replayを同一source／policyで二回実行し、clock sample、TIMERPROC、
-ordered semantics、terminal memory、next structured stopが一致することを要求する。Public Chrome Worker E2Eは
-versioned protocolで同じcursor transportとRust authorityを検査する。Clockが進行してwindow timer callbackが
-継続してもthird `Present`へ到達しない場合、clock freeze／timer non-deliveryをpresentation stallの近因とは
-分類しない。Exact count、hash、next endpointとprivate Chrome replayのclaim有無は
+Primary acceptanceはcanonical Node replayとprivate Chrome Worker replayを同一source／policyで実行し、clock sample、
+TIMERPROC、ordered semantics、authoritative mapping delta、terminal memory、next structured stopが一致することを要求する。
+Browserはscheduled logical deadlineをzero-delay taskでcompleteし、requested host wall delayをguest clockへ再適用しない。
+Lifecycle freeze中はcompletionを保留し、resume後もhost経過時間をimportしない。Raw memory generationとwriteback batch数は
+slice／transport固有なのでcross-adapter equalityから除外するが、各adapter内のmonotonicity、acknowledgement、nonzero
+reconciliationは検査する。Public Chrome Worker E2Eはversioned protocolで同じcursor transportとRust authorityを検査する。
+
+Deterministic primary inputは2回目のPresent後にmain waitable-timer cycleを数え、253周期目のrearm直後にnormalized
+primary-button downをcommitし、最初の`GetAsyncKeyState(VK_LBUTTON)` consumer直後にupをcommitする。NodeとChromeは
+event／keyboard／cursor／queued `WM_LBUTTONDOWN`／`WM_LBUTTONUP` receiptをexactに比較する。Clockが進行してwindow
+timer callbackとこのinput flowが継続してもthird `Present`へ到達しない場合、clock freeze、timer non-delivery、browser
+wall pacing、input schedulingをpresentation stallの近因とは分類しない。Exact count、hash、next endpointは
 [current-checkpoint.json](current-checkpoint.json)だけを正本とする。Audio sample clockとframe cadenceは引き続き
 別authorityであり、scheduled guest clockへ統合しない。
 
@@ -1663,6 +1670,20 @@ stale icon planではwindow／class／icon、callback allocator、guest memory�
 WndProcがSendのdirect child／same threadで4 argumentsをそのまま受け、result 0とLastError preserveを返し、
 callerが`LRESULT`を読まずwindow-position setupへ進むことを比較する。Cross-thread／queued send、arbitrary
 message、unbounded reentrancy、timeout、DOM dispatchは実装済みまたはgoldenとしない。
+
+Reached `SetWindowTextA` contractはtwo-argument x86 stdcall、same-thread created HWND、最大256-byteの
+NUL-terminated Windows-932 input、registered WndProcへの`WM_SETTEXT` synchronous callback、BOOL-normalized
+result、LastError preserve、zero guest writeを固定する。Owner／dispatcher testsはunaligned guest pointer、
+exact callback arguments、`DefWindowProcA`を通った時だけのcopied-title commit、idempotent generation、
+default processing省略時のno mutation、unknown HWND、empty／malformed／unterminated input、disabled policy、
+stale plan、callback preflight failureのfailure atomicityを比較する。Frida native oracleはBGI caller RVA
+`0x0008343B`でtitle bytes `83 54 83 4E 83 89 83 6D 8E 8D`、
+`SetWindowTextA enter -> WndProc WM_SETTEXT -> DefWindowProcA enter/leave -> WndProc leave -> API leave`、
+各result TRUE、LastError 0、同一input pointer relationを固定する。Static decompileはcallerがBOOLへbranchし、
+success時だけ同じtitle pointerを次処理へ渡すことを補完する。Primary Nodeはlogical title `サクラノ詩`、
+callback depth zero、次の`FindFirstFileA` stopを要求する。Exact sequence、instruction、hashは
+[current-checkpoint.json](current-checkpoint.json)だけを正とし、cross-thread send、general `WM_SETTEXT`、
+Unicode title、browser tab title同期はclaimしない。
 
 Primary window-position contractはversioned initial show／hideとsame-geometry activation profileを扱う。Showは
 `SetWindowPos(HWND_NOTOPMOST, 15360, 8640, 0, 0, 0x559)`をlogical display／non-client geometryへ解釈し、

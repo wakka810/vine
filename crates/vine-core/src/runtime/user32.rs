@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use encoding_rs::SHIFT_JIS;
 use serde::Serialize;
 
 use crate::memory::GuestAddress;
@@ -263,6 +264,27 @@ pub struct RuntimeWindowClassReference {
 pub struct RuntimeWindowNameA {
     pub value: String,
     pub encoding: String,
+}
+
+impl RuntimeWindowNameA {
+    pub fn windows_932_bytes(&self) -> Result<Vec<u8>, RuntimeStateError> {
+        if self.encoding != RUNTIME_WINDOW_NAME_A_ENCODING || self.value.contains('\0') {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-user32",
+                "window-name-a-invalid",
+                "logical window title requires copied Windows-932 text without embedded NULs",
+            ));
+        }
+        let (bytes, _, had_errors) = SHIFT_JIS.encode(&self.value);
+        if had_errors || bytes.len() > RUNTIME_WINDOW_NAME_A_LIMIT {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-user32",
+                "window-name-a-invalid",
+                "logical window title must be representable within the bounded Windows-932 profile",
+            ));
+        }
+        Ok(bytes.into_owned())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -708,6 +730,18 @@ enum RuntimeWindowSmallIconDisposition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeWindowTitleDisposition {
+    Unchanged {
+        window: RuntimeWindow,
+    },
+    Update {
+        previous: RuntimeWindow,
+        next: Box<RuntimeWindow>,
+        next_generation: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum RuntimeWindowStyleUpdateDisposition {
     Unchanged {
         window: RuntimeWindow,
@@ -860,6 +894,12 @@ pub(super) struct RuntimeWindowCreationCallbackPlan {
 pub(super) struct RuntimeWindowSmallIconPlan {
     expected_generation: u64,
     disposition: RuntimeWindowSmallIconDisposition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeWindowTitlePlan {
+    expected_generation: u64,
+    disposition: RuntimeWindowTitleDisposition,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2901,6 +2941,90 @@ impl RuntimeUser32 {
         }
     }
 
+    pub(super) fn plan_window_title(
+        &self,
+        window_handle: u32,
+        owner_thread_id: RuntimeThreadId,
+        title: RuntimeWindowNameA,
+    ) -> Result<RuntimeWindowTitlePlan, RuntimeStateError> {
+        let previous = self.window(window_handle)?.clone();
+        self.validate_created_window_owner(&previous, owner_thread_id)?;
+        if title.value.is_empty() {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-user32",
+                "window-title-empty-unsupported",
+                "the active logical window-title profile requires nonempty text",
+            ));
+        }
+        title.windows_932_bytes()?;
+        let disposition = if previous.creation.name == title {
+            RuntimeWindowTitleDisposition::Unchanged { window: previous }
+        } else {
+            let mut next = previous.clone();
+            next.creation.name = title;
+            RuntimeWindowTitleDisposition::Update {
+                previous,
+                next: Box::new(next),
+                next_generation: self.next_generation()?,
+            }
+        };
+        Ok(RuntimeWindowTitlePlan {
+            expected_generation: self.generation,
+            disposition,
+        })
+    }
+
+    pub(super) fn preflight_window_title(
+        &self,
+        plan: &RuntimeWindowTitlePlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "window-title-plan-stale",
+                "User32 state changed after logical window-title planning",
+            ));
+        }
+        let (previous, next) = match &plan.disposition {
+            RuntimeWindowTitleDisposition::Unchanged { window } => (window, window),
+            RuntimeWindowTitleDisposition::Update { previous, next, .. } => {
+                (previous, next.as_ref())
+            }
+        };
+        if self.windows.get(&previous.id) != Some(previous)
+            || self.window_handle_index.get(&previous.handle) != Some(&previous.id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "window-title-plan-stale",
+                "logical window identity or title changed after title planning",
+            ));
+        }
+        self.validate_window_creation_references(&previous.creation)?;
+        self.validate_window_creation_references(&next.creation)
+    }
+
+    pub(super) fn commit_window_title(
+        &mut self,
+        plan: RuntimeWindowTitlePlan,
+    ) -> Result<RuntimeWindow, RuntimeStateError> {
+        self.preflight_window_title(&plan)?;
+        match plan.disposition {
+            RuntimeWindowTitleDisposition::Unchanged { window } => Ok(window),
+            RuntimeWindowTitleDisposition::Update {
+                next,
+                next_generation,
+                ..
+            } => {
+                let next = *next;
+                self.generation = next_generation;
+                let replaced = self.windows.insert(next.id, next.clone());
+                debug_assert!(replaced.is_some());
+                Ok(next)
+            }
+        }
+    }
+
     pub(super) fn plan_window_style_update(
         &self,
         window_handle: u32,
@@ -4894,10 +5018,7 @@ fn validate_window_creation_request(
         || request.instance.module_id != request.class.module_id
         || request.instance.load_base.0 == 0
         || request.name.value.is_empty()
-        || request.name.value.len() > RUNTIME_WINDOW_NAME_A_LIMIT
-        || !request.name.value.is_ascii()
-        || request.name.value.as_bytes().contains(&0)
-        || request.name.encoding != RUNTIME_WINDOW_NAME_A_ENCODING
+        || request.name.windows_932_bytes().is_err()
         || request.style == 0
         || request.effective_style & request.style != request.style
         || request.effective_extended_style & request.extended_style != request.extended_style
@@ -5967,6 +6088,83 @@ mod tests {
             "window-handle-unknown"
         );
         assert_eq!(user32, before_unknown);
+    }
+
+    #[test]
+    fn window_title_plan_copies_windows_932_and_rejects_stale_or_invalid_changes_atomically() {
+        let (mut user32, window_handle, _) = created_window_with_small_icon();
+        let title = RuntimeWindowNameA {
+            value: "サクラノ詩".to_owned(),
+            encoding: RUNTIME_WINDOW_NAME_A_ENCODING.to_owned(),
+        };
+        assert_eq!(
+            title.windows_932_bytes().unwrap(),
+            [0x83, 0x54, 0x83, 0x4e, 0x83, 0x89, 0x83, 0x6d, 0x8e, 0x8d]
+        );
+        let plan = user32
+            .plan_window_title(window_handle, RuntimeThreadId(0x2000), title.clone())
+            .unwrap();
+        let before_commit = user32.clone();
+        assert_ne!(
+            before_commit.window(window_handle).unwrap().creation.name,
+            title
+        );
+        let updated = user32.commit_window_title(plan).unwrap();
+        assert_eq!(updated.creation.name, title);
+        assert_eq!(user32.window(window_handle).unwrap(), &updated);
+
+        let repeated = user32
+            .plan_window_title(window_handle, RuntimeThreadId(0x2000), title.clone())
+            .unwrap();
+        let before_repeated = user32.clone();
+        assert_eq!(user32.commit_window_title(repeated).unwrap(), updated);
+        assert_eq!(user32, before_repeated);
+
+        let stale = user32
+            .plan_window_title(
+                window_handle,
+                RuntimeThreadId(0x2000),
+                RuntimeWindowNameA {
+                    value: "next".to_owned(),
+                    encoding: RUNTIME_WINDOW_NAME_A_ENCODING.to_owned(),
+                },
+            )
+            .unwrap();
+        let mut intervening_resource = resource(103, 7, 0x7000);
+        intervening_resource.width = 16;
+        intervening_resource.height = 16;
+        intervening_resource.icon_data_size = 1_128;
+        let intervening = user32.plan_shared_icon_load(intervening_resource).unwrap();
+        user32.commit_shared_icon_load(intervening).unwrap();
+        let before_stale = user32.clone();
+        assert_eq!(
+            user32.commit_window_title(stale).unwrap_err().code,
+            "window-title-plan-stale"
+        );
+        assert_eq!(user32, before_stale);
+
+        for (owner, value, code) in [
+            (
+                RuntimeThreadId(0x2001),
+                "other",
+                "window-message-owner-thread-mismatch",
+            ),
+            (RuntimeThreadId(0x2000), "title-😀", "window-name-a-invalid"),
+        ] {
+            let before = user32.clone();
+            let error = user32
+                .plan_window_title(
+                    window_handle,
+                    owner,
+                    RuntimeWindowNameA {
+                        value: value.to_owned(),
+                        encoding: RUNTIME_WINDOW_NAME_A_ENCODING.to_owned(),
+                    },
+                )
+                .unwrap_err();
+            assert_eq!(error.code, code);
+            assert_eq!(user32, before);
+        }
     }
 
     #[test]

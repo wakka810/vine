@@ -36,8 +36,8 @@ use vine_core::{
     materialize_pe32_image, monitor_from_window_contract, peek_message_a_contract,
     register_class_ex_a_contract, release_dc_contract, send_message_a_contract, set_focus_contract,
     set_rect_contract, set_timer_contract, set_window_long_a_contract, set_window_pos_contract,
-    show_window_contract, swap_mouse_button_contract, translate_message_contract,
-    update_window_contract, user32_contract_for_endpoint,
+    set_window_text_a_contract, show_window_contract, swap_mouse_button_contract,
+    translate_message_contract, update_window_contract, user32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -90,6 +90,11 @@ const SEND_MESSAGE_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 24);
 const WINDOW_IMAGE_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1c00;
 const SEND_MESSAGE_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x1d00;
 const SEND_MESSAGE_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1006_7f58);
+const SET_WINDOW_TEXT_A_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0ec0);
+const SET_WINDOW_TEXT_A_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 136);
+const SET_WINDOW_TEXT_A_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2fe0;
+const SET_WINDOW_TEXT_A_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_343b);
+const UPDATED_WINDOW_TITLE_BASE: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2b82);
 const IMM_GET_DEFAULT_IME_WND_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_00a0);
 const IMM_ASSOCIATE_CONTEXT_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_00b0);
 const IMM_GET_DEFAULT_IME_WND_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 68);
@@ -1207,6 +1212,7 @@ struct RegisterClassFixture {
     def_window_proc_endpoint: ApiEndpointIdentity,
     image_endpoint: ApiEndpointIdentity,
     send_message_endpoint: ApiEndpointIdentity,
+    set_window_text_a_endpoint: ApiEndpointIdentity,
     imm_get_default_ime_wnd_endpoint: ApiEndpointIdentity,
     imm_associate_context_endpoint: ApiEndpointIdentity,
     set_window_pos_endpoint: ApiEndpointIdentity,
@@ -1321,6 +1327,10 @@ impl RegisterClassFixture {
             ),
             (WINDOW_IMAGE_IAT_ADDRESS, IMAGE_ENDPOINT_ADDRESS),
             (SEND_MESSAGE_IAT_ADDRESS, SEND_MESSAGE_ENDPOINT_ADDRESS),
+            (
+                SET_WINDOW_TEXT_A_IAT_ADDRESS,
+                SET_WINDOW_TEXT_A_ENDPOINT_ADDRESS,
+            ),
             (
                 IMM_GET_DEFAULT_IME_WND_IAT_ADDRESS,
                 IMM_GET_DEFAULT_IME_WND_ENDPOINT_ADDRESS,
@@ -1710,6 +1720,21 @@ impl RegisterClassFixture {
             disposition: ImportThunkDisposition::DeclaredRuntimeExport,
             target: ImportTarget::Name {
                 name: "SendMessageA".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
+        let set_window_text_a_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(237),
+            address: SET_WINDOW_TEXT_A_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_148c),
+            iat_address: SET_WINDOW_TEXT_A_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "SetWindowTextA".to_owned(),
                 hint: 0,
                 name_rva: vine_core::Rva(0),
             },
@@ -2129,6 +2154,7 @@ impl RegisterClassFixture {
                 def_window_proc_endpoint.clone(),
                 image_endpoint.clone(),
                 send_message_endpoint.clone(),
+                set_window_text_a_endpoint.clone(),
                 imm_get_default_ime_wnd_endpoint.clone(),
                 imm_associate_context_endpoint.clone(),
                 set_window_pos_endpoint.clone(),
@@ -2167,6 +2193,8 @@ impl RegisterClassFixture {
                 load_image_a_contract(image_endpoint.clone()).expect("window image contract"),
                 send_message_a_contract(send_message_endpoint.clone())
                     .expect("synchronous message contract"),
+                set_window_text_a_contract(set_window_text_a_endpoint.clone())
+                    .expect("window-title contract"),
                 imm_get_default_ime_wnd_contract(imm_get_default_ime_wnd_endpoint.clone())
                     .expect("default IME window contract"),
                 imm_associate_context_contract(imm_associate_context_endpoint.clone())
@@ -2238,6 +2266,7 @@ impl RegisterClassFixture {
             def_window_proc_endpoint,
             image_endpoint,
             send_message_endpoint,
+            set_window_text_a_endpoint,
             imm_get_default_ime_wnd_endpoint,
             imm_associate_context_endpoint,
             set_window_pos_endpoint,
@@ -2522,6 +2551,34 @@ impl RegisterClassFixture {
             self.send_message_endpoint.clone(),
             GuestAddress(SEND_MESSAGE_STACK_POINTER),
             SEND_MESSAGE_RETURN_ADDRESS,
+        )
+    }
+
+    fn configure_set_window_text_a(
+        &mut self,
+        window_handle: u32,
+        title_address: GuestAddress,
+        title: &[u8],
+    ) {
+        self.memory
+            .write(title_address, title)
+            .expect("write SetWindowTextA title");
+        self.write_live_words(
+            GuestAddress(SET_WINDOW_TEXT_A_STACK_POINTER),
+            &[
+                SET_WINDOW_TEXT_A_RETURN_ADDRESS.0,
+                window_handle,
+                title_address.0,
+            ],
+        );
+        self.acknowledge_pending_delta();
+    }
+
+    fn dispatch_set_window_text_a(&mut self) -> DispatchOutcome {
+        self.dispatch_endpoint(
+            self.set_window_text_a_endpoint.clone(),
+            GuestAddress(SET_WINDOW_TEXT_A_STACK_POINTER),
+            SET_WINDOW_TEXT_A_RETURN_ADDRESS,
         )
     }
 
@@ -3451,6 +3508,48 @@ fn send_message_a_contract_is_four_argument_stdcall_optional_callback_with_lresu
     assert_eq!(contract.abi.return_value, ApiReturnSchema::U32);
     assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
     assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Optional);
+}
+
+#[test]
+fn set_window_text_a_contract_is_two_argument_stdcall_windows_932_callback_with_bool() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(237),
+        address: SET_WINDOW_TEXT_A_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_148c),
+        iat_address: SET_WINDOW_TEXT_A_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "SetWindowTextA".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = set_window_text_a_contract(endpoint).expect("SetWindowTextA contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 2);
+    let ApiValueSchema::Pointer { constraint } = &contract.abi.arguments[1].value else {
+        panic!("SetWindowTextA title must be a bounded input string pointer");
+    };
+    assert!(!constraint.nullable);
+    assert_eq!(constraint.alignment, 1);
+    assert_eq!(constraint.byte_length, 1);
+    assert!(matches!(
+        constraint.pointee,
+        ApiPointeeSchema::String {
+            encoding: vine_core::ApiStringEncoding::Windows932,
+            maximum_code_units: 512,
+            nul_terminated: true,
+        }
+    ));
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
     assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
     assert_eq!(contract.callback_policy, CallbackPolicy::Optional);
 }
@@ -7483,6 +7582,229 @@ fn send_message_a_dispatches_same_thread_small_icon_to_registered_window_procedu
             .callback_frames
             .is_empty()
     );
+}
+
+#[test]
+fn set_window_text_a_dispatches_wm_settext_and_def_window_proc_commits_copied_windows_932_title() {
+    const TITLE: &[u8] = &[
+        0x83, 0x54, 0x83, 0x4e, 0x83, 0x89, 0x83, 0x6d, 0x8e, 0x8d, 0,
+    ];
+
+    let mut fixture = RegisterClassFixture::new();
+    fixture.policy = User32CompatibilityPolicy::controlled_v36();
+    let (window_handle, _) = fixture.prepare_created_window_and_small_icon();
+    fixture.configure_set_window_text_a(window_handle, UPDATED_WINDOW_TITLE_BASE, TITLE);
+    fixture
+        .runtime
+        .set_current_last_error(0x2468_1357)
+        .expect("seed SetWindowTextA LastError");
+    let windows_before = fixture.runtime.windows().clone();
+    let memory_generation_before = fixture.memory.stats().generation;
+
+    let call = match fixture.dispatch_set_window_text_a() {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected SetWindowTextA window callback, got {other:?}"),
+    };
+    assert_eq!(call.request.target, fixture.window_procedure);
+    assert_eq!(
+        call.request.arguments,
+        [window_handle, 0x000c, 0, UPDATED_WINDOW_TITLE_BASE.0]
+            .into_iter()
+            .map(GuestCallbackArgument::U32)
+            .collect::<Vec<_>>()
+    );
+    assert!(call.request.scratch.is_empty());
+    assert!(call.request.scratch_pointer_relocations.is_empty());
+    assert_eq!(call.request.return_sentinel, fixture.callback_sentinel);
+    assert_eq!(
+        call.request.completion_policy,
+        GuestCallbackCompletionPolicy::ReturnBool32WithLastError {
+            last_error: 0x2468_1357,
+        }
+    );
+    assert_eq!(fixture.runtime.windows(), &windows_before);
+    assert_eq!(fixture.memory.stats().generation, memory_generation_before);
+
+    let prepared = begin_fixture_callback(&mut fixture, &call);
+    let callback_frame = fixture
+        .memory
+        .read(prepared.stack_pointer, 20)
+        .expect("read SetWindowTextA callback frame");
+    assert_eq!(
+        callback_frame,
+        [
+            fixture.callback_sentinel.0,
+            window_handle,
+            0x000c,
+            0,
+            UPDATED_WINDOW_TITLE_BASE.0,
+        ]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect::<Vec<_>>()
+    );
+
+    let default_completion = match fixture.dispatch_def_window_proc_args(
+        window_handle,
+        0x000c,
+        0,
+        UPDATED_WINDOW_TITLE_BASE.0,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected nested WM_SETTEXT default completion, got {other:?}"),
+    };
+    assert_eq!(default_completion.eax, RegisterUpdate::Set(1));
+    assert_eq!(default_completion.last_error, 0x2468_1357);
+    let window = fixture
+        .runtime
+        .window(window_handle)
+        .expect("updated window");
+    assert_eq!(window.creation.name.value, "サクラノ詩");
+    assert_eq!(
+        window.creation.name.windows_932_bytes().unwrap(),
+        &TITLE[..TITLE.len() - 1]
+    );
+    let windows_with_title = fixture.runtime.windows().clone();
+
+    let repeated_default = match fixture.dispatch_def_window_proc_args(
+        window_handle,
+        0x000c,
+        0,
+        UPDATED_WINDOW_TITLE_BASE.0,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected repeated WM_SETTEXT default completion, got {other:?}"),
+    };
+    assert_eq!(repeated_default.eax, RegisterUpdate::Set(1));
+    assert_eq!(fixture.runtime.windows(), &windows_with_title);
+
+    let completion = {
+        let mut session = ExecutionSession::new(&mut fixture.memory, &mut fixture.runtime);
+        match fixture
+            .dispatcher
+            .complete_guest_callback_result(call, 1, &mut session)
+        {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected completed SetWindowTextA, got {other:?}"),
+        }
+    };
+    fixture
+        .runtime
+        .pop_callback_frame(prepared.frame_id)
+        .expect("retire SetWindowTextA callback frame");
+    assert_eq!(completion.eax, RegisterUpdate::Set(1));
+    assert_eq!(completion.last_error, 0x2468_1357);
+    assert_eq!(
+        completion.instruction_pointer,
+        SET_WINDOW_TEXT_A_RETURN_ADDRESS
+    );
+    assert_eq!(
+        completion.stack_pointer,
+        GuestAddress(SET_WINDOW_TEXT_A_STACK_POINTER + 12)
+    );
+    assert!(completion.guest_writes.is_empty());
+}
+
+#[test]
+fn set_window_text_a_does_not_mutate_title_when_wndproc_skips_default_processing() {
+    const TITLE: &[u8] = &[
+        0x83, 0x54, 0x83, 0x4e, 0x83, 0x89, 0x83, 0x6d, 0x8e, 0x8d, 0,
+    ];
+
+    let mut fixture = RegisterClassFixture::new();
+    fixture.policy = User32CompatibilityPolicy::controlled_v36();
+    let (window_handle, _) = fixture.prepare_created_window_and_small_icon();
+    fixture.configure_set_window_text_a(window_handle, UPDATED_WINDOW_TITLE_BASE, TITLE);
+    let windows_before = fixture.runtime.windows().clone();
+    let call = match fixture.dispatch_set_window_text_a() {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected SetWindowTextA callback, got {other:?}"),
+    };
+    let prepared = begin_fixture_callback(&mut fixture, &call);
+    let completion = {
+        let mut session = ExecutionSession::new(&mut fixture.memory, &mut fixture.runtime);
+        match fixture
+            .dispatcher
+            .complete_guest_callback_result(call, 0, &mut session)
+        {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected rejected SetWindowTextA completion, got {other:?}"),
+        }
+    };
+    fixture
+        .runtime
+        .pop_callback_frame(prepared.frame_id)
+        .expect("retire rejected SetWindowTextA callback frame");
+    assert_eq!(completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(fixture.runtime.windows(), &windows_before);
+}
+
+#[test]
+fn set_window_text_a_rejects_disabled_invalid_and_malformed_variants_without_partial_mutation() {
+    let mut disabled = RegisterClassFixture::new();
+    let (disabled_window, _) = disabled.prepare_created_window_and_small_icon();
+    disabled.configure_set_window_text_a(disabled_window, UPDATED_WINDOW_TITLE_BASE, b"disabled\0");
+    let disabled_windows = disabled.runtime.windows().clone();
+    let disabled_fault = match disabled.dispatch_set_window_text_a() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled SetWindowTextA fault, got {other:?}"),
+    };
+    assert_eq!(disabled_fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(disabled_fault.code, "set-window-text-a-policy-disabled");
+    assert_eq!(disabled.runtime.windows(), &disabled_windows);
+
+    let mut invalid_handle = RegisterClassFixture::new();
+    invalid_handle.policy = User32CompatibilityPolicy::controlled_v36();
+    invalid_handle.prepare_created_window_and_small_icon();
+    invalid_handle.configure_set_window_text_a(
+        0x4801_ffff,
+        UPDATED_WINDOW_TITLE_BASE,
+        b"invalid handle\0",
+    );
+    invalid_handle
+        .runtime
+        .set_current_last_error(0x2468_1357)
+        .unwrap();
+    let invalid_windows = invalid_handle.runtime.windows().clone();
+    let invalid_completion = match invalid_handle.dispatch_set_window_text_a() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected invalid-HWND SetWindowTextA completion, got {other:?}"),
+    };
+    assert_eq!(invalid_completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_completion.last_error, 1400);
+    assert_eq!(invalid_handle.runtime.windows(), &invalid_windows);
+
+    for (title, code) in [
+        (vec![0x82, 0], "window-title-a-windows-932-invalid"),
+        (vec![b'A'; 256], "window-title-a-bound-exceeded"),
+        (vec![0], "set-window-text-a-empty-title-unsupported"),
+    ] {
+        let mut malformed = RegisterClassFixture::new();
+        malformed.policy = User32CompatibilityPolicy::controlled_v36();
+        let (window_handle, _) = malformed.prepare_created_window_and_small_icon();
+        malformed.configure_set_window_text_a(window_handle, UPDATED_WINDOW_TITLE_BASE, &title);
+        malformed
+            .runtime
+            .set_current_last_error(0x2468_1357)
+            .unwrap();
+        let windows_before = malformed.runtime.windows().clone();
+        let fault = match malformed.dispatch_set_window_text_a() {
+            DispatchOutcome::Fault(fault) => fault,
+            other => panic!("expected malformed SetWindowTextA fault, got {other:?}"),
+        };
+        assert_eq!(fault.class, ApiFaultClass::Unsupported);
+        assert_eq!(fault.code, code);
+        assert_eq!(malformed.runtime.windows(), &windows_before);
+        assert_eq!(malformed.runtime.current_last_error().unwrap(), 0x2468_1357);
+        assert!(
+            malformed
+                .runtime
+                .current_thread_state()
+                .unwrap()
+                .callback_frames
+                .is_empty()
+        );
+    }
 }
 
 #[test]

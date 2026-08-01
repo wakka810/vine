@@ -656,6 +656,9 @@ pub enum GuestCallbackArgument {
 pub enum GuestCallbackCompletionPolicy {
     ReturnU32,
     ReturnBool32,
+    ReturnBool32WithLastError {
+        last_error: u32,
+    },
     ReturnConstantU32 {
         value: u32,
     },
@@ -684,6 +687,7 @@ impl GuestCallbackCompletionPolicy {
             | (Self::ReturnConstantU32 { .. }, ApiReturnSchema::U32)
             | (Self::SetWindowPosDefault { .. }, ApiReturnSchema::U32)
             | (Self::ReturnBool32, ApiReturnSchema::Bool32)
+            | (Self::ReturnBool32WithLastError { .. }, ApiReturnSchema::Bool32)
             | (Self::SetWindowPos { .. }, ApiReturnSchema::Bool32)
             | (Self::UpdateWindow { .. }, ApiReturnSchema::Bool32) => true,
             (
@@ -701,6 +705,12 @@ impl GuestCallbackCompletionPolicy {
         let value = match self {
             Self::ReturnU32 => ApiReturnValue::U32(result),
             Self::ReturnBool32 => ApiReturnValue::Bool32(result != 0),
+            Self::ReturnBool32WithLastError { last_error } => {
+                return Some(
+                    ApiImmediate::new(ApiReturnValue::Bool32(result != 0))
+                        .with_last_error(last_error),
+                );
+            }
             Self::ReturnConstantU32 { value } => ApiReturnValue::U32(value),
             Self::CreateWindowExA { .. }
             | Self::SetWindowPos { .. }
@@ -1409,6 +1419,7 @@ impl<'a> ExecutionSession<'a> {
         match completion_policy {
             GuestCallbackCompletionPolicy::ReturnU32
             | GuestCallbackCompletionPolicy::ReturnBool32
+            | GuestCallbackCompletionPolicy::ReturnBool32WithLastError { .. }
             | GuestCallbackCompletionPolicy::ReturnConstantU32 { .. } => Ok(None),
             GuestCallbackCompletionPolicy::CreateWindowExA {
                 window_id,
@@ -2183,6 +2194,7 @@ impl ApiDispatcher {
             }
             GuestCallbackCompletionPolicy::ReturnU32
             | GuestCallbackCompletionPolicy::ReturnBool32
+            | GuestCallbackCompletionPolicy::ReturnBool32WithLastError { .. }
             | GuestCallbackCompletionPolicy::ReturnConstantU32 { .. } => {
                 ApiHandlerResult::Fault(ApiFault::runtime_defect(
                     "api-dispatch",

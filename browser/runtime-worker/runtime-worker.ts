@@ -357,6 +357,14 @@ function isD3d9Present(
   );
 }
 
+function isScheduledSharedClockSetWindowText(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile === "user32-set-window-text-a-post-scheduled-shared-clock"
+  );
+}
+
 function isD3d9PostPresentContinuation(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
@@ -680,6 +688,15 @@ function isInputProgressGatewayCheckpoint(
     profile === "user32-window-timer-callback-post-waitable-timer-cycle" ||
     profile ===
       "user32-peek-message-a-post-window-timer-callback-continuation"
+  );
+}
+
+function usesDeferredInputSchedule(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isInputProgressGatewayCheckpoint(profile) ||
+    isScheduledSharedClockSetWindowText(profile)
   );
 }
 
@@ -3324,6 +3341,12 @@ class BrowserRuntimeSession {
   #profileLeaseAcquisitionTask: Promise<void> | null = null;
   #profileLease: WritableProfileLease | null = null;
   #nextBgiCallSequence = 0;
+  #scheduledSharedClockSampleCount = 0;
+  #scheduledSharedClockWindowTimerCallbackCount = 0;
+  #scheduledSharedClockPresentCount = 0;
+  #scheduledSharedClockDefaultProcessingSequence: number | null = null;
+  #scheduledSharedClockInputTimerCycleOpen = false;
+  #scheduledSharedClockInputTimerCycleCount = 0;
   readonly #bgiCallbackCallSequences = new Map<number, number>();
   #windowTimerCallbackEntry: {
     sequence: number;
@@ -3725,7 +3748,10 @@ class BrowserRuntimeSession {
       configuration.pageLifecycle,
     );
     invariant(
-      !isD3d9Present(configuration.capabilityProfile) ||
+      !isD3d9Present(configuration.capabilityProfile) &&
+          !isScheduledSharedClockSetWindowText(
+            configuration.capabilityProfile,
+          ) ||
         d3d9Canvas !== undefined,
       "D3D9 Present profile requires a transferred OffscreenCanvas",
     );
@@ -3749,7 +3775,10 @@ class BrowserRuntimeSession {
       const sourceBackedWorkload =
         workload === "controlled-source-read" ||
         (workload === "private-bgi" &&
-          (this.#configuration.capabilityProfile ===
+          (isScheduledSharedClockSetWindowText(
+            this.#configuration.capabilityProfile,
+          ) ||
+            this.#configuration.capabilityProfile ===
             "kernel32-archive-source-read" ||
             this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
             this.#configuration.capabilityProfile ===
@@ -3851,6 +3880,10 @@ class BrowserRuntimeSession {
       if (this.#terminal || this.#stopping) {
         return;
       }
+      const scheduledSharedClockSetWindowText =
+        isScheduledSharedClockSetWindowText(
+          this.#configuration.capabilityProfile,
+        );
       const preparedOutput =
         workload === "private-bgi"
           ? bridge.prepareBgi(
@@ -3859,45 +3892,68 @@ class BrowserRuntimeSession {
               sourceManifestBytes,
               writableProfileBytes ??
                 failInvariant("BGI writable profile is missing"),
-              includesD3d9Clear(this.#configuration.capabilityProfile),
-              isSetRect(this.#configuration.capabilityProfile),
-              isD3d9AddDirtyRect(this.#configuration.capabilityProfile),
-              isD3d9UpdateTexture(this.#configuration.capabilityProfile),
-              isD3d9BeginScene(this.#configuration.capabilityProfile),
-              isD3d9InitialSamplerStates(this.#configuration.capabilityProfile),
-              isD3d9InitialTextureStageStates(
-                this.#configuration.capabilityProfile,
-              ),
-              isD3d9SetTexture(this.#configuration.capabilityProfile),
-              isD3d9SetFvf(this.#configuration.capabilityProfile),
-              isD3d9SetStreamSource(this.#configuration.capabilityProfile),
-              isD3d9DrawPrimitive(this.#configuration.capabilityProfile),
-              isD3d9EndScene(this.#configuration.capabilityProfile),
-              isD3d9Present(this.#configuration.capabilityProfile),
-              isUser32AsyncKeyStateInitialScan(
-                this.#configuration.capabilityProfile,
-              ),
-              includesHeapAllocationEvidence(
-                this.#configuration.capabilityProfile,
-              ),
-              includesPostHeapTimeGetTimeEvidence(
-                this.#configuration.capabilityProfile,
-              ),
-              hasWindowTimerCallbackDelivery(
-                this.#configuration.capabilityProfile,
-              ),
-              isPointerMessageActionProgressGatewayCheckpoint(
-                this.#configuration.capabilityProfile,
-              ),
-              hasSetFocusActionContinuation(
-                this.#configuration.capabilityProfile,
-              ),
-              hasDefWindowProcAActionContinuation(
-                this.#configuration.capabilityProfile,
-              ),
-              isDefWindowProcAPointerReleaseContinuationCheckpoint(
-                this.#configuration.capabilityProfile,
-              ),
+              scheduledSharedClockSetWindowText ||
+                includesD3d9Clear(this.#configuration.capabilityProfile),
+              scheduledSharedClockSetWindowText ||
+                isSetRect(this.#configuration.capabilityProfile),
+              scheduledSharedClockSetWindowText ||
+                isD3d9AddDirtyRect(this.#configuration.capabilityProfile),
+              scheduledSharedClockSetWindowText ||
+                isD3d9UpdateTexture(this.#configuration.capabilityProfile),
+              scheduledSharedClockSetWindowText ||
+                isD3d9BeginScene(this.#configuration.capabilityProfile),
+              scheduledSharedClockSetWindowText ||
+                isD3d9InitialSamplerStates(
+                  this.#configuration.capabilityProfile,
+                ),
+              scheduledSharedClockSetWindowText ||
+                isD3d9InitialTextureStageStates(
+                  this.#configuration.capabilityProfile,
+                ),
+              scheduledSharedClockSetWindowText ||
+                isD3d9SetTexture(this.#configuration.capabilityProfile),
+              scheduledSharedClockSetWindowText ||
+                isD3d9SetFvf(this.#configuration.capabilityProfile),
+              scheduledSharedClockSetWindowText ||
+                isD3d9SetStreamSource(this.#configuration.capabilityProfile),
+              scheduledSharedClockSetWindowText ||
+                isD3d9DrawPrimitive(this.#configuration.capabilityProfile),
+              scheduledSharedClockSetWindowText ||
+                isD3d9EndScene(this.#configuration.capabilityProfile),
+              scheduledSharedClockSetWindowText ||
+                isD3d9Present(this.#configuration.capabilityProfile),
+              scheduledSharedClockSetWindowText ||
+                isUser32AsyncKeyStateInitialScan(
+                  this.#configuration.capabilityProfile,
+                ),
+              scheduledSharedClockSetWindowText ||
+                includesHeapAllocationEvidence(
+                  this.#configuration.capabilityProfile,
+                ),
+              scheduledSharedClockSetWindowText ||
+                includesPostHeapTimeGetTimeEvidence(
+                  this.#configuration.capabilityProfile,
+                ),
+              scheduledSharedClockSetWindowText ||
+                hasWindowTimerCallbackDelivery(
+                  this.#configuration.capabilityProfile,
+                ),
+              scheduledSharedClockSetWindowText ||
+                isPointerMessageActionProgressGatewayCheckpoint(
+                  this.#configuration.capabilityProfile,
+                ),
+              scheduledSharedClockSetWindowText ||
+                hasSetFocusActionContinuation(
+                  this.#configuration.capabilityProfile,
+                ),
+              scheduledSharedClockSetWindowText ||
+                hasDefWindowProcAActionContinuation(
+                  this.#configuration.capabilityProfile,
+                ),
+              scheduledSharedClockSetWindowText ||
+                isDefWindowProcAPointerReleaseContinuationCheckpoint(
+                  this.#configuration.capabilityProfile,
+                ),
             )
           : workload === "controlled-source-read"
             ? bridge.prepareSourceRead(
@@ -3953,15 +4009,18 @@ class BrowserRuntimeSession {
         generation: preparedOutput.metadata.runtime.currentDirectoryGeneration,
       };
       if (
+        scheduledSharedClockSetWindowText ||
         isUser32AsyncKeyStateInitialScan(this.#configuration.capabilityProfile)
       ) {
         const cursor = preparedOutput.metadata.runtime.cursorPosition;
         invariant(
           preparedOutput.metadata.runtime.user32Policy ===
-            (isDefWindowProcAPointerReleaseContinuationCheckpoint(
+            (scheduledSharedClockSetWindowText
+              ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-set-window-text-v36"
+              : isDefWindowProcAPointerReleaseContinuationCheckpoint(
               this.#configuration.capabilityProfile,
             )
-              ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35"
+              ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-set-window-text-v36"
               : hasDefWindowProcAActionContinuation(
               this.#configuration.capabilityProfile,
             )
@@ -4620,7 +4679,7 @@ class BrowserRuntimeSession {
       this.#report.keyboardInput.receivedMessages += 1;
       if (
         !this.#runtimePrepared ||
-        isInputProgressGatewayCheckpoint(
+        usesDeferredInputSchedule(
           this.#configuration.capabilityProfile,
         )
       ) {
@@ -4656,7 +4715,7 @@ class BrowserRuntimeSession {
       this.#report.pointerInput.receivedMessages += 1;
       if (
         !this.#runtimePrepared ||
-        isInputProgressGatewayCheckpoint(
+        usesDeferredInputSchedule(
           this.#configuration.capabilityProfile,
         )
       ) {
@@ -4681,7 +4740,7 @@ class BrowserRuntimeSession {
 
   #flushPendingInputEvents(): void {
     if (
-      isInputProgressGatewayCheckpoint(this.#configuration.capabilityProfile)
+      usesDeferredInputSchedule(this.#configuration.capabilityProfile)
     ) {
       return;
     }
@@ -4799,7 +4858,15 @@ class BrowserRuntimeSession {
     return metadata;
   }
 
-  #advanceInputProgressKeyboard(call: RuntimeSupportedCallSnapshot): void {
+  #advanceInputProgress(call: RuntimeSupportedCallSnapshot): void {
+    if (
+      isScheduledSharedClockSetWindowText(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      this.#advanceScheduledSharedClockPointer(call);
+      return;
+    }
     if (
       !isInputProgressGatewayCheckpoint(
         this.#configuration.capabilityProfile,
@@ -4947,6 +5014,156 @@ class BrowserRuntimeSession {
         },
         receipt: structuredClone(metadata.receipt),
         keyboard: structuredClone(metadata.keyboard),
+      });
+    }
+  }
+
+  #advanceScheduledSharedClockPointer(
+    call: RuntimeSupportedCallSnapshot,
+  ): void {
+    const mainTimerHandle = 0x5701_0002;
+    const eventCount = this.#inputProgressPointerEvents.length;
+    if (eventCount === 0) {
+      if (this.#scheduledSharedClockPresentCount < 2) {
+        return;
+      }
+      const startsMainTimerCycle =
+        call.implementationId ===
+          "kernel32.wait-for-single-object-ex.waitable-timer.v1" &&
+        call.arguments[0] === mainTimerHandle;
+      if (startsMainTimerCycle) {
+        invariant(
+          !this.#scheduledSharedClockInputTimerCycleOpen,
+          "scheduled input reached a second main timer wait before rearm",
+        );
+        this.#scheduledSharedClockInputTimerCycleOpen = true;
+        return;
+      }
+      const closesMainTimerCycle =
+        this.#scheduledSharedClockInputTimerCycleOpen &&
+        call.implementationId ===
+          "kernel32.set-waitable-timer.relative-one-shot.v1" &&
+        call.arguments[0] === mainTimerHandle;
+      if (!closesMainTimerCycle) {
+        return;
+      }
+      this.#scheduledSharedClockInputTimerCycleOpen = false;
+      this.#scheduledSharedClockInputTimerCycleCount += 1;
+      if (
+        this.#scheduledSharedClockInputTimerCycleCount <
+        this.#inputProgressBaseline.cycleCount
+      ) {
+        return;
+      }
+      invariant(
+        this.#scheduledSharedClockInputTimerCycleCount ===
+            this.#inputProgressBaseline.cycleCount &&
+          this.#scheduledSharedClockPresentCount === 2 &&
+          this.#inputProgressAsyncKeyStateQuery === null &&
+          this.#pendingInputEvents.length === 2,
+        "scheduled input did not retain its two-event trace through the 253-cycle boundary",
+      );
+      const pending = this.#pendingInputEvents.shift();
+      invariant(
+        pending?.source === "pointer" &&
+          pending.event.sequence === "1" &&
+          pending.event.kind === "button-down" &&
+          pending.event.button === "primary" &&
+          pending.event.normalizedX === 0x8000 &&
+          pending.event.normalizedY === 0x8000,
+        "scheduled input pointer-down event changed",
+      );
+      const event = pending.event;
+      const metadata = this.#commitPointerInput(event);
+      invariant(
+        metadata.receipt.input.virtualKey === 0x01 &&
+          metadata.receipt.input.keyboard.generation === 1 &&
+          inputAffectedKeysIdentity(
+            metadata.receipt.input.keyboard.affectedKeys,
+          ) ===
+            inputAffectedKeysIdentity([
+              {
+                virtualKey: 0x01,
+                down: true,
+                pressedSinceLastQuery: true,
+              },
+            ]) &&
+          metadata.keyboard.generation === 1 &&
+          metadata.keyboard.downWords.join(",") === "2,0,0,0,0,0,0,0" &&
+          metadata.keyboard.pressedWords.join(",") === "2,0,0,0,0,0,0,0" &&
+          metadata.receipt.message.message === 0x0201 &&
+          metadata.receipt.message.wParam === 0x0001,
+        "scheduled input pointer-down did not commit authoritative input and message state",
+      );
+      this.#inputProgressPointerEvents.push({
+        committedAfterSequence: call.sequence,
+        committedAfterInstructionCount: this.#report.instructions,
+        event: { ...structuredClone(event), sequence: 1 },
+        receipt: structuredClone(metadata.receipt),
+        keyboard: structuredClone(metadata.keyboard),
+        cursor: structuredClone(metadata.cursor),
+      });
+      return;
+    }
+    if (
+      eventCount === 1 &&
+      this.#inputProgressAsyncKeyStateQuery === null &&
+      call.implementationId === "user32.get-async-key-state.v1" &&
+      call.arguments[0] === 0x01
+    ) {
+      invariant(
+        "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 0xffff_8001 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0 &&
+          this.#pendingInputEvents.length === 1,
+        "scheduled input async-key consumer changed",
+      );
+      const pending = this.#pendingInputEvents.shift();
+      invariant(
+        pending?.source === "pointer" &&
+          pending.event.sequence === "2" &&
+          pending.event.kind === "button-up" &&
+          pending.event.button === "primary" &&
+          pending.event.normalizedX === 0x8000 &&
+          pending.event.normalizedY === 0x8000,
+        "scheduled input pointer-up event changed",
+      );
+      const event = pending.event;
+      const metadata = this.#commitPointerInput(event);
+      invariant(
+        metadata.receipt.input.virtualKey === 0x01 &&
+          metadata.receipt.input.keyboard.generation === 3 &&
+          inputAffectedKeysIdentity(
+            metadata.receipt.input.keyboard.affectedKeys,
+          ) ===
+            inputAffectedKeysIdentity([
+              {
+                virtualKey: 0x01,
+                down: false,
+                pressedSinceLastQuery: false,
+              },
+            ]) &&
+          metadata.keyboard.generation === 3 &&
+          metadata.keyboard.downWords.every((word) => word === 0) &&
+          metadata.keyboard.pressedWords.every((word) => word === 0) &&
+          metadata.receipt.message.message === 0x0202 &&
+          metadata.receipt.message.wParam === 0,
+        "scheduled input pointer-up did not release authoritative input state",
+      );
+      this.#inputProgressAsyncKeyStateQuery = {
+        ...structuredClone(call),
+        runtimeThreadId: this.#currentThreadId,
+        trapInstructionCount: this.#report.instructions,
+      };
+      this.#inputProgressPointerEvents.push({
+        committedAfterSequence: call.sequence,
+        committedAfterInstructionCount: this.#report.instructions,
+        event: { ...structuredClone(event), sequence: 2 },
+        receipt: structuredClone(metadata.receipt),
+        keyboard: structuredClone(metadata.keyboard),
+        cursor: structuredClone(metadata.cursor),
       });
     }
   }
@@ -7298,9 +7515,12 @@ class BrowserRuntimeSession {
             "BGI callback frame reused an active call sequence",
           );
           if (
-            hasWindowTimerCallbackDelivery(
+            (hasWindowTimerCallbackDelivery(
               this.#configuration.capabilityProfile,
-            ) &&
+            ) ||
+              isScheduledSharedClockSetWindowText(
+                this.#configuration.capabilityProfile,
+              )) &&
             metadata.target === 0x1009_9600
           ) {
             invariant(
@@ -7852,7 +8072,10 @@ class BrowserRuntimeSession {
       return undefined;
     }
     invariant(
-      isD3d9Present(this.#configuration.capabilityProfile) &&
+      (isD3d9Present(this.#configuration.capabilityProfile) ||
+        isScheduledSharedClockSetWindowText(
+          this.#configuration.capabilityProfile,
+        )) &&
         this.#d3d9Renderer !== null &&
         metadata.graphicsDevice !== undefined,
       "Present reached without its browser renderer or Rust device snapshot",
@@ -7924,24 +8147,135 @@ class BrowserRuntimeSession {
     ) {
       this.#d3d9RasterStatusCompletionCount += 1;
     }
-    this.#recordD3d9RecreatedTextureCall(call);
-    this.#recordD3d9ClearCall(call);
-    this.#recordD3d9AddDirtyRectCall(call);
-    this.#recordD3d9TextureLockRectCall(call);
-    this.#recordD3d9UpdateTextureCall(call);
-    this.#recordD3d9TestCooperativeLevelCall(call);
-    this.#recordD3d9BeginSceneCall(call);
-    this.#recordD3d9InitialSamplerStateCall(call);
-    this.#recordD3d9InitialTextureStageStateCall(call);
-    this.#recordD3d9SetTextureCall(call);
-    this.#recordD3d9SetFvfCall(call);
-    this.#recordD3d9SetStreamSourceCall(call);
-    this.#recordD3d9DrawPrimitiveCall(call);
-    this.#recordD3d9EndSceneCall(call);
-    this.#recordD3d9PostEndSceneRasterStatusCall(call);
-    this.#recordD3d9PresentCall(call);
+    if (
+      isScheduledSharedClockSetWindowText(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      if (call.interface === "IDirect3DDevice9" && call.vtableSlot === 17) {
+        this.#scheduledSharedClockPresentCount += 1;
+      }
+    } else {
+      this.#recordD3d9RecreatedTextureCall(call);
+      this.#recordD3d9ClearCall(call);
+      this.#recordD3d9AddDirtyRectCall(call);
+      this.#recordD3d9TextureLockRectCall(call);
+      this.#recordD3d9UpdateTextureCall(call);
+      this.#recordD3d9TestCooperativeLevelCall(call);
+      this.#recordD3d9BeginSceneCall(call);
+      this.#recordD3d9InitialSamplerStateCall(call);
+      this.#recordD3d9InitialTextureStageStateCall(call);
+      this.#recordD3d9SetTextureCall(call);
+      this.#recordD3d9SetFvfCall(call);
+      this.#recordD3d9SetStreamSourceCall(call);
+      this.#recordD3d9DrawPrimitiveCall(call);
+      this.#recordD3d9EndSceneCall(call);
+      this.#recordD3d9PostEndSceneRasterStatusCall(call);
+      this.#recordD3d9PresentCall(call);
+      this.#recordPresentationProgressComCall(call, comOccurrence);
+    }
     this.#recordCompletedCallEvidence(call);
-    this.#recordPresentationProgressComCall(call, comOccurrence);
+  }
+
+  #recordScheduledSharedClockCall(call: RuntimeSupportedCallSnapshot): void {
+    if (
+      !isScheduledSharedClockSetWindowText(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      return;
+    }
+    const tickCount = call.tickCount;
+    if (tickCount !== undefined) {
+      const scheduled = tickCount.scheduledExecutionClock;
+      invariant(
+        tickCount.clockProfileId ===
+          "scheduled-shared-logical-deadline-v1" &&
+          tickCount.nextTickCount === tickCount.returnedTickCount &&
+          tickCount.incrementPerRead === 0 &&
+          scheduled !== undefined &&
+          Number.isSafeInteger(scheduled.retiredInstructions) &&
+          scheduled.retiredInstructions >= 0 &&
+          Number.isSafeInteger(scheduled.pendingRetiredInstructions) &&
+          scheduled.pendingRetiredInstructions >= 0 &&
+          scheduled.retiredInstructionsPerSecond === 2_000_000,
+        "scheduled shared clock call metadata changed",
+      );
+      this.#scheduledSharedClockSampleCount += 1;
+    }
+    if (
+      call.module.toLowerCase() === "user32.dll" &&
+      call.symbol === "DefWindowProcA" &&
+      call.arguments[1] === 0x000c
+    ) {
+      invariant(
+        this.#scheduledSharedClockDefaultProcessingSequence === null &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 1,
+        "scheduled SetWindowTextA default processing changed",
+      );
+      this.#scheduledSharedClockDefaultProcessingSequence = call.sequence;
+    }
+    if (
+      call.module.toLowerCase() !== "user32.dll" ||
+      call.symbol !== "SetWindowTextA"
+    ) {
+      return;
+    }
+    const defaultProcessingSequence =
+      this.#scheduledSharedClockDefaultProcessingSequence;
+    const inputQuerySequence =
+      this.#inputProgressAsyncKeyStateQuery?.sequence ?? null;
+    invariant(
+      this.#report.checkpointCompletion === null &&
+        defaultProcessingSequence !== null &&
+        this.#inputProgressPointerEvents.length === 2 &&
+        this.#pendingInputEvents.length === 0 &&
+        this.#scheduledSharedClockInputTimerCycleCount ===
+          this.#inputProgressBaseline.cycleCount &&
+        !this.#scheduledSharedClockInputTimerCycleOpen &&
+        inputQuerySequence !== null &&
+        this.#bgiCallbackCallSequences.size === 0 &&
+        call.arguments.length === 2 &&
+        call.arguments[0] === 0x4801_0001 &&
+        "action" in call.result &&
+        call.result.action === "set" &&
+        call.result.value === 1 &&
+        call.implementationId ===
+          "user32.set-window-text-a.same-thread-wm-settext.v1" &&
+        call.lastError === 0 &&
+        call.guestWrites.length === 0 &&
+        call.window?.handle === 0x4801_0001 &&
+        call.window.name.value === "サクラノ詩" &&
+        call.window.name.encoding === "windows-932-v1" &&
+        this.#scheduledSharedClockPresentCount === 2,
+      "scheduled SetWindowTextA completion changed",
+    );
+    this.#report.checkpointCompletion = {
+      capability: "user32-set-window-text-a-post-scheduled-shared-clock",
+      implementationId:
+        "runtime.user32-set-window-text-a-post-scheduled-shared-clock.v1",
+      requiredCompletions: 1,
+      completionCount: 1,
+      lastCompletionSequence: call.sequence,
+      lastCompletionInstructionCount: this.#report.instructions,
+      defaultProcessingSequence,
+      callbackEventCount: 2,
+      clockProfileId: "scheduled-shared-logical-deadline-v1",
+      clockSampleCount: this.#scheduledSharedClockSampleCount,
+      windowTimerCallbackCount:
+        this.#scheduledSharedClockWindowTimerCallbackCount,
+      presentCount: this.#scheduledSharedClockPresentCount,
+      pointerInputEventCount: this.#inputProgressPointerEvents.length,
+      inputTimerCycleCount: this.#scheduledSharedClockInputTimerCycleCount,
+      inputQuerySequence,
+      thirdPresentReached: false,
+      clockFreezeWasProximateCause: false,
+      instructionCount: 0,
+      nextEndpoint: { id: 0, address: 0 },
+      memoryContentSha256: "",
+    };
   }
 
   #recordCompletedCallEvidence(call: RuntimeSupportedCallSnapshot): void {
@@ -7958,7 +8292,7 @@ class BrowserRuntimeSession {
           isDefWindowProcAPointerReleaseContinuationCheckpoint(
             this.#configuration.capabilityProfile,
           )
-            ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35"
+            ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-set-window-text-v36"
             : hasDefWindowProcAActionContinuation(
             this.#configuration.capabilityProfile,
           )
@@ -8031,7 +8365,7 @@ class BrowserRuntimeSession {
           isDefWindowProcAPointerReleaseContinuationCheckpoint(
             this.#configuration.capabilityProfile,
           )
-            ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35"
+            ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-set-window-text-v36"
             : hasDefWindowProcAActionContinuation(
             this.#configuration.capabilityProfile,
           )
@@ -8151,7 +8485,7 @@ class BrowserRuntimeSession {
     }
     this.#semanticCallDigest.update(call);
     this.#report.supportedCallCount += 1;
-    this.#advanceInputProgressKeyboard(call);
+    this.#advanceInputProgress(call);
     if (this.#configuration.evidenceLevel === "full") {
       this.#report.supportedCalls.push(call);
     }
@@ -8162,6 +8496,50 @@ class BrowserRuntimeSession {
     stackPointer: number,
   ): void {
     const checkpoint = this.#report.checkpointCompletion;
+    if (
+      isScheduledSharedClockSetWindowText(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      invariant(
+        checkpoint?.capability ===
+          "user32-set-window-text-a-post-scheduled-shared-clock" &&
+          this.#configuration.capabilityProfile === checkpoint.capability &&
+          this.#requirePrepared().runtime.kernel32Policy ===
+            "kernel32-create-directory-a-v1" &&
+          this.#bgiCallbackCallSequences.size === 0,
+        "scheduled SetWindowTextA checkpoint has no matching runtime state",
+      );
+      const endpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpointAddress,
+      );
+      invariant(
+        endpoint?.id === 26 &&
+          endpoint.module?.toLowerCase() === "kernel32.dll" &&
+          endpoint.symbol?.kind === "name" &&
+          endpoint.symbol.name === "FindFirstFileA",
+        `scheduled SetWindowTextA checkpoint reached a different endpoint: ${JSON.stringify({ endpointAddress, endpoint })}`,
+      );
+      const reflection =
+        this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-memory-summary" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation) &&
+          /^[0-9a-f]{64}$/u.test(reflection.contentSha256),
+        "scheduled SetWindowTextA checkpoint memory summary changed",
+      );
+      checkpoint.instructionCount = this.#report.instructions;
+      checkpoint.nextEndpoint = endpoint;
+      checkpoint.memoryContentSha256 = reflection.contentSha256;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "Scheduled shared-clock SetWindowTextA checkpoint completed",
+        null,
+      );
+      return;
+    }
     invariant(
       checkpoint !== null &&
         this.#configuration.capabilityProfile === checkpoint.capability &&
@@ -9702,6 +10080,9 @@ class BrowserRuntimeSession {
     const windowTimerProfile =
       hasWindowTimerCallbackDelivery(
         this.#configuration.capabilityProfile,
+      ) ||
+      isScheduledSharedClockSetWindowText(
+        this.#configuration.capabilityProfile,
       );
     const windowTimerCallbackCompleting =
       windowTimerProfile &&
@@ -9791,6 +10172,8 @@ class BrowserRuntimeSession {
         "user32.set-focus.same-current-window.v1" ||
       completion.implementationId ===
         "user32.update-window.full-client-paint.v1" ||
+      completion.implementationId ===
+        "user32.set-window-text-a.same-thread-wm-settext.v1" ||
       completion.implementationId ===
         "shell32.drag-accept-files.logical-window-style-v1";
     invariant(
@@ -9978,6 +10361,26 @@ class BrowserRuntimeSession {
       completion.implementationId,
       implementationOccurrence,
     );
+    this.#recordScheduledSharedClockCall(call);
+    if (
+      isScheduledSharedClockSetWindowText(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      this.#recordCompletedCallEvidence(call);
+      if (windowTimerCallback !== undefined) {
+        invariant(
+          this.#report.checkpointCompletion === null &&
+            this.#windowTimerCallbackEntry !== null &&
+            call.windowTimer !== undefined &&
+            call.callback !== undefined,
+          "scheduled window timer callback lost its completed dispatch evidence",
+        );
+        this.#scheduledSharedClockWindowTimerCallbackCount += 1;
+        this.#windowTimerCallbackEntry = null;
+      }
+      return;
+    }
     if (
       isWindowTimerCallbackPostWaitableTimerCycleCheckpoint(
         this.#configuration.capabilityProfile,
@@ -12665,7 +13068,10 @@ class BrowserRuntimeSession {
       "kernel32.sleep-zero.yield-current-thread.v1"
     ) {
       invariant(
-        (this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
+        (isScheduledSharedClockSetWindowText(
+          this.#configuration.capabilityProfile,
+        ) ||
+          this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
           this.#configuration.capabilityProfile ===
             "kernel32-global-memory-status" ||
           this.#configuration.capabilityProfile ===
@@ -12732,8 +13138,11 @@ class BrowserRuntimeSession {
       "kernel32.global-memory-status.x86-deterministic.v1"
     ) {
       invariant(
-        (this.#configuration.capabilityProfile ===
-          "kernel32-global-memory-status" ||
+        (isScheduledSharedClockSetWindowText(
+          this.#configuration.capabilityProfile,
+        ) ||
+          this.#configuration.capabilityProfile ===
+            "kernel32-global-memory-status" ||
           this.#configuration.capabilityProfile ===
             "kernel32-get-file-attributes-a" ||
           this.#configuration.capabilityProfile ===
@@ -12795,7 +13204,10 @@ class BrowserRuntimeSession {
     }
     if (
       completion.implementationId ===
-      "kernel32.create-directory-a.runtime-vfs.v1"
+        "kernel32.create-directory-a.runtime-vfs.v1" &&
+      !isScheduledSharedClockSetWindowText(
+        this.#configuration.capabilityProfile,
+      )
     ) {
       const [pathAddress, securityAttributes] = call.arguments;
       const directoryCreate = metadata.writableDirectoryCreate;
@@ -12862,7 +13274,10 @@ class BrowserRuntimeSession {
     }
     if (
       completion.implementationId ===
-      "kernel32.get-file-attributes-a.runtime-vfs.v1"
+        "kernel32.get-file-attributes-a.runtime-vfs.v1" &&
+      !isScheduledSharedClockSetWindowText(
+        this.#configuration.capabilityProfile,
+      )
     ) {
       const [pathAddress] = call.arguments;
       invariant(
@@ -12930,7 +13345,10 @@ class BrowserRuntimeSession {
     this.#recordPointerMessageActionCall(call, implementationOccurrence);
     this.#recordCompletedCallEvidence(call);
     if (
-      windowTimerCallback !== undefined
+      windowTimerCallback !== undefined &&
+      !isScheduledSharedClockSetWindowText(
+        this.#configuration.capabilityProfile,
+      )
     ) {
       const entry = this.#windowTimerCallbackEntry;
       invariant(
@@ -17106,7 +17524,7 @@ class BrowserRuntimeSession {
         isDefWindowProcAPointerReleaseContinuationCheckpoint(
           this.#configuration.capabilityProfile,
         )
-          ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35"
+          ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-set-window-text-v36"
           : hasDefWindowProcAActionContinuation(
           this.#configuration.capabilityProfile,
         )
@@ -17261,6 +17679,42 @@ class BrowserRuntimeSession {
         metadata.memory.acknowledgedGeneration === Number(this.#generation),
       "unsupported BGI call changed or failed to acknowledge memory",
     );
+    if (
+      isScheduledSharedClockSetWindowText(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      const checkpoint = this.#report.checkpointCompletion;
+      invariant(
+        metadata.kind === "api-fault" &&
+          checkpoint?.capability ===
+          "user32-set-window-text-a-post-scheduled-shared-clock" &&
+          metadata.capabilityCluster === "kernel32-api-contract" &&
+          metadata.endpoint.id === 26 &&
+          metadata.endpoint.address === 0x7f00_0190 &&
+          metadata.endpoint.module.toLowerCase() === "kernel32.dll" &&
+          metadata.endpoint.symbol.kind === "name" &&
+          metadata.endpoint.symbol.name === "FindFirstFileA" &&
+          this.#bgiCallbackCallSequences.size === 0,
+        "scheduled SetWindowTextA checkpoint reached a different structured stop",
+      );
+      this.#report.firstUnsupported = {
+        capabilityCluster: metadata.capabilityCluster,
+        endpoint: metadata.endpoint,
+        fault: metadata.fault,
+        instructionCount: this.#report.instructions,
+        memoryContentSha256: metadata.memoryContentSha256,
+      };
+      checkpoint.instructionCount = this.#report.instructions;
+      checkpoint.nextEndpoint = metadata.endpoint;
+      checkpoint.memoryContentSha256 = metadata.memoryContentSha256;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "Scheduled shared-clock SetWindowTextA checkpoint completed",
+        null,
+      );
+      return;
+    }
     this.#report.firstUnsupported = {
       capabilityCluster: metadata.capabilityCluster,
       endpoint: metadata.endpoint,
@@ -17931,8 +18385,17 @@ class BrowserRuntimeSession {
     selection: ApiBoundaryThreadSelection | undefined,
     executionBoundary: ApiCompletion["executionBoundary"],
   ): void {
-    if (executionBoundary === "yield-current-thread") {
+    if (
+      executionBoundary === "yield-current-thread" &&
+      !isScheduledSharedClockSetWindowText(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
       const sleepZero = this.#report.sleepZero;
+      invariant(
+        sleepZero !== null,
+        "Sleep(0) execution boundary has no completed API evidence",
+      );
       invariant(
         (this.#configuration.capabilityProfile === "kernel32-sleep-zero" ||
           this.#configuration.capabilityProfile ===
@@ -17944,7 +18407,6 @@ class BrowserRuntimeSession {
           includesSetWindowPosRepeatActivation(
             this.#configuration.capabilityProfile,
           )) &&
-          sleepZero !== null &&
           sleepZero.callCount ===
             sleepZero.schedulerSelections.selectionCount +
               sleepZero.noCompetitorCompletions +
@@ -18509,7 +18971,7 @@ class BrowserRuntimeSession {
           "timer pacing sequence is already registered",
         );
         this.#timerPacedCallSequences.add(completionSequence);
-        this.#timerPacing.schedule({
+        const pacingRequest = {
           requestId: metadata.requestId,
           threadId: metadata.threadId,
           delayMilliseconds,
@@ -18523,7 +18985,16 @@ class BrowserRuntimeSession {
               result: 1,
             });
           },
-        });
+        };
+        if (
+          isScheduledSharedClockSetWindowText(
+            this.#configuration.capabilityProfile,
+          )
+        ) {
+          this.#timerPacing.scheduleLogicalDeadline(pacingRequest);
+        } else {
+          this.#timerPacing.schedule(pacingRequest);
+        }
       }
     } else if (metadata.service === "storage.source-read.v1") {
       if (this.#configuration.mode === "success") {

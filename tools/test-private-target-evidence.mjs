@@ -222,9 +222,9 @@ function validEvidence() {
           "checkpoint endpoint identity must include a module",
         );
         const manifestCompletion = structuredClone(
-          checkpoint.activeRuntimeCheckpoint.latestEvidence
-            .capabilityCheckpointCompletion ??
-            checkpoint.nextStructuredStop.completion,
+          checkpoint.nextStructuredStop.completion ??
+            checkpoint.activeRuntimeCheckpoint.latestEvidence
+              .capabilityCheckpointCompletion,
         );
         const { dispatchSequence, dispatchInstructionCount, ...completion } =
           manifestCompletion;

@@ -30,7 +30,12 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "advanced one Rust-owned clock from cumulative retired guest instructions across 100,508 API/COM samples and 36 TIMERPROC callbacks without per-read increments; it still observed 2 Presents and no third Present",
+    "completed the reached Windows-932 SetWindowTextA and synchronous WM_SETTEXT default-processing callback",
+  ),
+);
+assert.ok(
+  rendered.includes(
+    "the shared clock had already completed 100,508 samples and 36 TIMERPROC callbacks, while Present remained at 2",
   ),
 );
 assert.ok(rendered.includes("| Shared clock |"));

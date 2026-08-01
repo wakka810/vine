@@ -409,6 +409,15 @@ timer time    = elapsed100ns
 retired-instruction progressionはjump後のtimeから継続する。Profileはprocess start前にversioned Kernel32
 policyから一度だけ選択し、per-read tick／QPC incrementとは併用しない。Active primary profileはscheduled
 shared progressionを選択し、TypeScript、host wall clock、browser performance clockに第二のguest clockを作らない。
+Rustがscheduled profileのlogical deadline到達をhost serviceとして通知した時、Browser Workerのpacing adapterは
+requested wall delayを再適用せず、zero-delay task boundaryでcompletionを返す。Deadlineへのclock jumpとwait結果は
+すでにRustがauthorityとしてcommitしているため、このtaskはreentrancyを避けるtransportであり時刻源ではない。
+Page lifecycleがfrozenならtask completionも保留し、resume後にbounded completionするが、background中のhost経過時間を
+guest clockへ加算しない。Legacy pacing profileだけがhost wall delayをadapter policyとして選べる。
+
+NodeとBrowser Workerのslice size／reconciliation cadenceはadapter固有であり、raw memory generationとwriteback batch数は
+一致を要求しない。Cross-adapter equivalenceはordered semantic-call digest、authoritative mapping delta、scheduler transition、
+final guest-memory content、logical clock／timer／input receiptで判定する。Adapter transport countをguest semanticsへ昇格させない。
 
 WinMMのcapability queryとresolution requestもclock sourceそのものから分離する。
 WinMM capability queryのvirtual rangeはversioned Rust compatibility policyが所有し、queryは
@@ -709,6 +718,17 @@ window、selected owner thread、registered class／WndProc、live shared 16×16
 WndProcの`LRESULT`はouter API resultへ戻す。Wrong／stale identity、callback preflight、duplicate／stale
 commitはwindow／icon relationとallocatorを部分更新しない。Cross-thread send、queue integration、
 timeout／cancel、browser icon associationは後続message gatewayで別contractとして扱う。
+
+Reached `SetWindowTextA`も同じsynchronous callback boundaryを使う。Dispatcherはsame-owner threadの
+live `created` windowとbounded NUL-terminated Windows-932 inputを検証し、logical titleをcopyした
+mutation-free planを保持したまま、registered WndProcへ`(HWND, WM_SETTEXT, 0, original guest pointer)`を
+渡す。Guest pointerはcallback durationだけのborrowでありwindow recordへ保存しない。WndProcが
+`DefWindowProcA(WM_SETTEXT)`へ到達した時だけpointerを再検証し、`RuntimeUser32` ownerがtitle planを
+targeted commitする。Outer APIはWndProc `LRESULT`をBOOLへ正規化し、entry LastErrorを復元する。
+WndProcがdefault processingを省略した場合、malformed／unterminated input、wrong HWND／owner、callback
+preflight failure、stale／duplicate planではtitle、generation、callback allocator、guest bytesを変更しない。
+Worker／browser adapterはRust completionのimmutable window snapshotだけを観測し、DOM titleやbrowser
+resourceをguest-visible window-title authorityへ昇格させない。
 
 Reached `SetTimer` profileはlive top-level HWND、timer ID 1、20 ms、same-owner thread、mapped executable
 TIMERPROCだけを受理する。User32 dispatcherはregister call中にcallbackを起動せず、`RuntimeTimers`へopaqueな

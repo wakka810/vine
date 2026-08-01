@@ -6139,3 +6139,38 @@ by the controlled PE／dispatcher tests. It supports a validated release
 zero-result, zero-mutation leaf and does not establish capture acquisition,
 move／wheel／double-click, nonclient／right-button handling, or general
 `DefWindowProcA` behavior.
+
+## 184. BGI `SetWindowTextA` and synchronous `WM_SETTEXT`
+
+The ignored Frida 17.11.0 oracle script is 6,453 bytes／SHA-256
+`a1bb795865f9fa50b9a07a2d1c37e1dfaaba9c3b4067829273564a1284278149`;
+its 3,620-byte JSON report has SHA-256
+`8fa3b9ef52e817490b5786eeeebcd375b92bfd4b1683c8a39c7f7f841c8aa58c`.
+It runs an isolated copy of the unchanged 1,193,472-byte primary executable,
+SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`,
+and captures the reached caller return RVA `0x0008343B`.
+
+The input is ten Windows-932 bytes
+`83 54 83 4E 83 89 83 6D 8E 8D` (`サクラノ詩`). The API returns TRUE,
+entry and exit LastError are 0, and a following `GetWindowTextA` observes the
+same bytes. Nested order is exactly `SetWindowTextA enter -> BGI WndProc
+WM_SETTEXT -> DefWindowProcA enter -> DefWindowProcA leave -> WndProc leave ->
+SetWindowTextA leave`; the WndProc and default procedure receive message 12,
+`wParam = 0`, and the original title pointer, and all three returns are TRUE.
+Native HWND, pointer, module base, thread ID, and hook address remain artifact
+identity. Static decompile of `sub_483420` independently shows the BOOL branch:
+only success passes the same title pointer to `sub_466A20`.
+
+Vine copies and validates the title before callback entry but publishes it only
+when `DefWindowProcA(WM_SETTEXT)` revalidates the live same-thread window and
+guest pointer. The `RuntimeUser32` title plan owns generation and stale／duplicate
+rejection; guest memory remains authoritative for callback-duration bytes.
+Canonical Node enters outer sequence 251,691 at instruction 323,858,232 and
+completes its synchronous callback return at instruction 323,858,285,
+nested default processing sequence 251,692, logical title `サクラノ詩`, BOOL 1,
+LastError 0, zero guest writes, and callback depth zero. It then reaches
+`KERNEL32.dll!FindFirstFileA` at instruction 323,860,141 while Present remains
+at two. Exact current report identity and next-stop fields remain authoritative
+only in [current-checkpoint.json](current-checkpoint.json). This evidence does
+not claim cross-thread delivery, arbitrary WndProc handling, Unicode APIs,
+browser tab-title synchronization, or general title-length behavior.

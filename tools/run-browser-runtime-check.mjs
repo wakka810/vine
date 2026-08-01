@@ -74,8 +74,15 @@ assert(
   !bgiCpuProfile || bgiBenchmarkMilliseconds > 0,
   "--bgi-cpu-profile requires a BGI benchmark",
 );
+const scheduledSharedClockSetWindowTextProfile =
+  bgiProfileOverride === null &&
+  checkpoint.activeRuntimeCheckpoint.runtimeKernelCheckpoint ===
+    "user32-set-window-text-a-post-scheduled-shared-clock";
 const bgiProfile =
-  bgiProfileOverride ?? checkpoint.activeRuntimeCheckpoint.profile;
+  bgiProfileOverride ??
+  (scheduledSharedClockSetWindowTextProfile
+    ? "user32-set-window-text-a-post-scheduled-shared-clock"
+    : checkpoint.activeRuntimeCheckpoint.profile);
 const d3d9PostRasterStatusWaitableTimerProfile =
   bgiProfile === "d3d9-post-raster-status-waitable-timer";
 const d3d9PostScenePresentGatewayProfile =
@@ -326,6 +333,7 @@ const setWindowPosRepeatActivationProfile =
   d3d9RecreatedTexturesProfile ||
   bgiProfile === "user32-set-window-pos-repeat-activation";
 const createDirectoryAProfile =
+  scheduledSharedClockSetWindowTextProfile ||
   setWindowPosRepeatActivationProfile ||
   bgiProfile === "kernel32-create-directory-a";
 const createDirectoryAInstructionOffset = createDirectoryAProfile ? 521 : 0;
@@ -370,7 +378,11 @@ const sourceObjectPath = path.join(
 const bgiOracleReportPath = path.join(
   root,
   ".work",
-  bgiProfileOutputDirectory(bgiProfile),
+  bgiProfileOutputDirectory(
+    scheduledSharedClockSetWindowTextProfile
+      ? checkpoint.activeRuntimeCheckpoint.profile
+      : bgiProfile,
+  ),
   "report.json",
 );
 const bgiBenchmarkConfigurationPath = path.join(
@@ -915,6 +927,93 @@ async function waitForBgiCheckpoint(client, timeoutMs = 30_000) {
   );
 }
 
+function validateScheduledSharedClockBgiProbe(evidence, scenario) {
+  const report = evidence.report;
+  if (scenario !== "success") {
+    assert.equal(report.outcome, scenario === "watchdog" ? "watchdog" : "cancelled");
+    if (scenario === "watchdog") {
+      assert.match(report.error, /^Watchdog (?:instruction|wall-clock) limit/u);
+    } else {
+      assert.equal(report.error, "Session cancelled by user");
+    }
+    return;
+  }
+  const expected = checkpoint.nextStructuredStop;
+  const completion = report.checkpointCompletion;
+  assert.equal(report.outcome, "checkpoint-complete");
+  assert.equal(report.error, null);
+  assert.equal(report.firstUnsupported.capabilityCluster, "kernel32-api-contract");
+  assert.equal(report.firstUnsupported.endpoint.id, 26);
+  assert.equal(report.firstUnsupported.endpoint.address, 0x7f00_0190);
+  assert.equal(
+    report.firstUnsupported.endpoint.module.toLowerCase(),
+    "kernel32.dll",
+  );
+  assert.deepEqual(report.firstUnsupported.endpoint.symbol, {
+    kind: "name",
+    name: "FindFirstFileA",
+  });
+  assert.equal(report.supportedCallSemanticsAlgorithm, "sha256-canonical-json-v1");
+  assert.deepEqual(report.registeredThreadIds, [8192, 8193]);
+  assert.deepEqual(report.executedThreadIds, [8192, 8193]);
+  assert.equal(report.pointerInput.receivedMessages, 2);
+  assert.equal(report.pointerInput.queuedBeforePrepare, 2);
+  assert.equal(report.pointerInput.receipts.length, 2);
+  assert.equal(report.keyboardInput.receivedMessages, 0);
+  assert.equal(report.keyboardInput.receipts.length, 0);
+  assert.equal(completion.capability, expected.completion.capability);
+  assert.equal(completion.implementationId, expected.completion.implementationId);
+  assert.equal(
+    completion.lastCompletionSequence,
+    expected.completion.lastCompletionSequence,
+    `scheduled SetWindowTextA sequence differs: ${JSON.stringify({
+      supportedCallCount: report.supportedCallCount,
+      supportedCallSemanticsSha256: report.supportedCallSemanticsSha256,
+      instructions: report.instructions,
+      timerPacing: report.timerPacing,
+      completion,
+    })}`,
+  );
+  assert.equal(
+    completion.lastCompletionInstructionCount,
+    expected.completion.lastCompletionInstructionCount,
+  );
+  assert.equal(
+    completion.defaultProcessingSequence,
+    expected.completion.defaultProcessingSequence,
+  );
+  assert.equal(completion.callbackEventCount, 2);
+  assert.equal(
+    completion.clockProfileId,
+    "scheduled-shared-logical-deadline-v1",
+  );
+  assert.equal(
+    completion.clockSampleCount,
+    expected.completion.clockSampleCount,
+  );
+  assert.equal(
+    completion.windowTimerCallbackCount,
+    expected.completion.windowTimerCallbackCount,
+  );
+  assert.equal(completion.presentCount, 2);
+  assert.equal(completion.pointerInputEventCount, 2);
+  assert.equal(completion.inputTimerCycleCount, 253);
+  assert.equal(completion.inputQuerySequence, 222_096);
+  assert.equal(completion.thirdPresentReached, false);
+  assert.equal(completion.clockFreezeWasProximateCause, false);
+  assert.equal(completion.instructionCount, expected.instructionCount);
+  assert.equal(completion.nextEndpoint.id, expected.nextEndpoint.endpointId);
+  assert.equal(
+    completion.nextEndpoint.address,
+    Number.parseInt(expected.nextEndpoint.endpointAddress, 16),
+  );
+  assert.equal(completion.nextEndpoint.module.toLowerCase(), "kernel32.dll");
+  assert.deepEqual(completion.nextEndpoint.symbol, {
+    kind: "name",
+    name: "FindFirstFileA",
+  });
+}
+
 async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
   const target = await createDebugTarget(
     browserWebSocketUrl,
@@ -926,7 +1025,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     await client.send("Page.enable");
     const evidence = await waitForBgiCheckpoint(
       client,
-      scenario === "success" && user32AsyncKeyStateInitialScanProfile
+      scenario === "success" &&
+        (scheduledSharedClockSetWindowTextProfile ||
+          user32AsyncKeyStateInitialScanProfile)
         ? 600_000
         : scenario === "success" && sleepZeroProfile
           ? 300_000
@@ -941,6 +1042,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.report.pendingCallbacks, 0);
     assertExecutionStateMachine(evidence.report, scenario);
     assertExecutionEngine(evidence.report);
+    if (scheduledSharedClockSetWindowTextProfile) {
+      validateScheduledSharedClockBgiProbe(evidence, scenario);
+      return evidence;
+    }
     assert.deepEqual(
       evidence.report.registeredThreadIds,
       [
@@ -3390,7 +3495,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(
           scan.compatibilityPolicyId,
           defWindowProcAPointerReleaseContinuationProfile
-            ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35"
+            ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-set-window-text-v36"
             : defWindowProcAActionContinuationProfile
             ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
             : setFocusEvidenceProfile
@@ -3838,7 +3943,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(
           peek.compatibilityPolicyId,
           defWindowProcAPointerReleaseContinuationProfile
-            ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35"
+            ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-set-window-text-v36"
             : defWindowProcAActionContinuationProfile
             ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
             : setFocusEvidenceProfile
@@ -4063,7 +4168,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert.equal(
           iconic.compatibilityPolicyId,
           defWindowProcAPointerReleaseContinuationProfile
-            ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-release-v35"
+            ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-set-window-text-v36"
             : defWindowProcAActionContinuationProfile
             ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
             : setFocusEvidenceProfile
@@ -5661,7 +5766,93 @@ function normalizeSetRect(snapshot) {
   };
 }
 
+function validateScheduledSharedClockBgiEquivalence(browser, oracle) {
+  const report = browser.report;
+  const completion = report.checkpointCompletion;
+  assert.equal(oracle.schema, "vine.v86-bgi-scheduled-shared-clock-primary");
+  assert.equal(report.evidenceLevel, fullEvidence ? "full" : "summary");
+  assert.equal(
+    report.supportedCalls.length,
+    fullEvidence ? report.supportedCallCount : 0,
+  );
+  assert.equal(
+    report.supportedCallCount,
+    oracle.execution.completedSupportedCalls,
+    "Chrome Worker supported-call count differs from the scheduled Node oracle",
+  );
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    oracle.execution.supportedCallSemanticsSha256,
+    "Chrome Worker call semantics differ from the scheduled Node oracle",
+  );
+  assert.equal(report.instructions, oracle.stop.terminal.instructionCount);
+  assert(
+    Number.isSafeInteger(report.finalGeneration) &&
+      report.finalGeneration > report.initialGeneration,
+    "Chrome Worker final memory generation did not advance",
+  );
+  assert(
+    Number.isSafeInteger(report.writebackBatches) && report.writebackBatches > 0,
+    "Chrome Worker did not reconcile any execution slices",
+  );
+  assert.equal(
+    report.mappingDeltas,
+    oracle.synchronization.hostDeltaBatches,
+    "Chrome Worker and Node observed different authoritative mapping deltas",
+  );
+  assert.equal(
+    report.contextSwitches,
+    oracle.execution.threadExecution.contextSwitches,
+  );
+  assert.equal(
+    completion.memoryContentSha256,
+    oracle.stop.fault.memoryContentSha256,
+  );
+  assert.equal(
+    completion.clockSampleCount,
+    oracle.execution.clockSamples.count,
+  );
+  assert.equal(
+    completion.windowTimerCallbackCount,
+    oracle.execution.windowTimerCallbacks.count,
+  );
+  assert.equal(
+    completion.presentCount,
+    oracle.execution.presentations.count,
+  );
+  assert.equal(
+    completion.lastCompletionInstructionCount,
+    oracle.execution.setWindowTextA.call.callback.returnInstructionCount,
+  );
+  assert.equal(completion.thirdPresentReached, false);
+  assert.equal(oracle.execution.keyboardInput.count, 0);
+  assert.equal(report.keyboardInput.receivedMessages, 0);
+  assert.equal(oracle.execution.pointerInput.count, 2);
+  assert.equal(report.pointerInput.receivedMessages, 2);
+  assert.equal(report.pointerInput.queuedBeforePrepare, 2);
+  assert.equal(report.pointerInput.receipts.length, 2);
+  assert.deepEqual(
+    report.pointerInput.receipts[0],
+    oracle.execution.pointerInput.first.receipt,
+  );
+  assert.deepEqual(
+    report.pointerInput.receipts[1],
+    oracle.execution.pointerInput.last.receipt,
+  );
+  assert.equal(
+    completion.inputQuerySequence,
+    oracle.execution.pointerInput.last.committedAfterSequence,
+  );
+  assert.equal(report.timerPacing.requests, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.completions, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.pending, 0);
+}
+
 function validateBgiEquivalence(browser, oracle) {
+  if (scheduledSharedClockSetWindowTextProfile) {
+    validateScheduledSharedClockBgiEquivalence(browser, oracle);
+    return;
+  }
   const evidenceLevel = fullEvidence ? "full" : "summary";
   assert.equal(
     browser.report.supportedCallCount,
