@@ -4313,7 +4313,7 @@ fn run_v86_generic_runtime_session(
         user32_policy.screen_dc = None;
     }
     user32_policy.validate().map_err(api_fault)?;
-    let mut gdi32_policy = Gdi32CompatibilityPolicy::controlled_v8();
+    let mut gdi32_policy = Gdi32CompatibilityPolicy::controlled_v9();
     if !font_enumeration_enabled {
         gdi32_policy.enum_font_families_ex_a = None;
     }
@@ -13579,24 +13579,20 @@ fn generic_runtime_gdi_completion(
                         "completed GetOutlineTextMetricsA selected font is not live",
                     )
                 })?;
-            if !matches!(
-                &selected_font.object,
-                vine_core::RuntimeGdiObjectKind::FontA { .. }
-            ) {
+            let vine_core::RuntimeGdiObjectKind::FontA { log_font } = &selected_font.object else {
                 return Err(LoaderError::runtime_defect(
                     "runtime-gdi",
                     "outline-text-metrics-font-kind-invalid-after-dispatch",
                     "completed GetOutlineTextMetricsA selected object is not a FontA",
                 ));
-            }
+            };
             let profile_id = policy
-                .get_outline_text_metrics_a
-                .as_ref()
+                .outline_text_metrics_profile_for_font(log_font)
                 .ok_or_else(|| {
                     LoaderError::runtime_defect(
                         "runtime-gdi",
                         "outline-text-metrics-policy-missing-after-dispatch",
-                        "completed GetOutlineTextMetricsA has no active compatibility policy",
+                        "completed GetOutlineTextMetricsA has no matching compatibility profile",
                     )
                 })?
                 .profile_id
@@ -15085,6 +15081,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "gdi-create-font-a-224x112" => GenericRuntimeCapability::DeleteFileA,
                 "gdi-create-dib-section-448x336" => GenericRuntimeCapability::DeleteFileA,
+                "gdi-outline-text-metrics-224x112" => GenericRuntimeCapability::DeleteFileA,
                 "d3d9-recreated-textures" => GenericRuntimeCapability::D3d9RecreatedTextures,
                 "user32-set-window-pos-frame-change-move" => {
                     GenericRuntimeCapability::D3d9RecreatedTextures

@@ -618,6 +618,20 @@ guest bytes、LastError以外のGDI state、allocatorを部分更新しないこ
 18,619／18,621、size queryと269-byte write、HDC `0x47010004`、font `0x47020002`、selection generation 2、same
 semantic digest／terminal memoryを要求する。
 
+Post-DIB 224 x 112 outline-metrics gateは、同じhandlerへ二件目のcreation-profile-linked catalog entryを追加する。
+Focused Frida 17.15.4 two-run oracleはsize／full return 269、LastError 0、fixed size 212、同じ四string offsets、
+caller return RVA `0x0002C51F`／`0x0002C539`、raw output SHA-256
+`62452e3bb6959c14d2ad749d3c58d34afd056fe32d0d678958fc513675b74907`を固定する。Run間padding
+offsets 57／58／59／71はzero-normalizeし、canonical output SHA-256
+`61c4984d45246eb696425105af0908561546b01acf02a4242fe2c9f6cf884adc`をpolicy valueとする。Rust testsは
+64 x 32／224 x 112の明示的creation-to-metrics mapping、wrong profile、stale／wrong-thread HDC、NULL query、
+cross-page output、capacity／write failureのatomicityを要求する。Canonical Node／Chrome gateはsequence
+261,036／261,038、instruction 342,875,244／342,875,297、HDC `0x4701000b`、font `0x47020006`、bitmap
+`0x47020007`、selection generation 2、269-byte output、282,388-call semantic digest、terminal memoryを一致させる。
+同じrunは100,550 clock samples、40 TIMERPROC callbacks、3 Presentまで進み、instruction 375,285,853の
+`USER32.dll!GetCursorInfo`で停止する。したがってこのvariantはthird Present停滞の近因ではないが、可読sceneや
+224 x 112 glyph raster、一般font measurementはclaimしない。
+
 Reached TextOut raster gateはfive-word x86 stdcall `TextOutA`のexact primary variantを固定する。Native two-run
 evidenceはorigin 0／0、Windows-932 byte `0x61`、BOOL 1／LastError 0、zero-filled 128 x 96 top-down 8-bpp planeの
 FNV-1a `0x52965dc5 -> 0xe6fc8461`、476 changed bytes、x 3..28／logical y 20..54を要求する。Repeat callと
@@ -2144,6 +2158,16 @@ terminal memory digest `ae64fe329dde1e281c28e72fd56000e3c64b7e85f6e83119f830600f
 を一致させ、次の`CreateDIBSection` endpoint 257で停止する。Host／browser font discovery、
 このfontのoutline metrics／glyph raster、third Presentはclaimしないため、font creation自体も
 現在の描画停滞の近因ではない。
+
+続く448 x -336 DIBと224 x 112 outline-metricsの機能群は、既存GDI／GuestMemory／address-space
+transactionへ二件目のexact DIB profileと、GDI32 policy v9の二件目のoutline catalog entryを追加する。
+Node／ChromeはDIB sequence 261,031、metrics sequence 261,036／261,038、canonical 269-byte SHA-256
+`61c4984d45246eb696425105af0908561546b01acf02a4242fe2c9f6cf884adc`、282,388 supported calls、
+375,285,853 instructions、100,550 clock samples、40 TIMERPROC callbacks、154 source reads、3 Present、
+semantic digest `9a25b07001da053004f9007b1f1ed546c686a6a2b71e3ad1a0f1f3586067561e`、terminal memory digest
+`cb8497abf612962fe1d7f6cef19d62e17d786daa3018a666d2f88096b5f10312`を一致させ、次の
+`USER32.dll!GetCursorInfo` endpoint 168で停止する。Host／browser font measurement、224 x 112 glyph raster、
+一般outline metric、可読title sceneはclaimしない。
 
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 

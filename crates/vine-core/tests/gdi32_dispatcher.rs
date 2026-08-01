@@ -291,7 +291,7 @@ impl FontFixture {
         )
         .expect("GDI fixture dispatcher");
         let user32_policy = User32CompatibilityPolicy::controlled_v30();
-        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v8();
+        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v9();
         user32_policy.validate().expect("valid User32 policy");
         gdi32_policy.validate().expect("valid GDI32 policy");
         let mut runtime = controlled_runtime();
@@ -495,8 +495,16 @@ impl FontFixture {
     }
 
     fn create_primary_font_memory_dc(&mut self) -> (u32, u32, u32) {
+        self.create_font_memory_dc(primary_create_font_arguments())
+    }
+
+    fn create_post_heap_growth_font_memory_dc(&mut self) -> (u32, u32, u32) {
+        self.create_font_memory_dc(post_heap_growth_create_font_arguments())
+    }
+
+    fn create_font_memory_dc(&mut self, arguments: [u32; 13]) -> (u32, u32, u32) {
         self.install_face_name(&primary_face_name());
-        self.configure_create_font(primary_create_font_arguments(), FACE_NAME_ADDRESS);
+        self.configure_create_font(arguments, FACE_NAME_ADDRESS);
         let font = match self.dispatch_create_font() {
             DispatchOutcome::Immediate(completion) => match completion.eax {
                 RegisterUpdate::Set(handle) => handle,
@@ -1188,6 +1196,127 @@ fn outline_text_metrics_matches_native_size_partial_failure_and_full_buffer_cont
         other => panic!("expected font deletion, got {other:?}"),
     };
     assert_eq!(delete_font.eax, RegisterUpdate::Set(1));
+}
+
+#[test]
+fn post_heap_growth_font_outline_metrics_match_native_selected_font_profile() {
+    let mut fixture = FontFixture::new();
+    let (font, device_context, default_font) = fixture.create_post_heap_growth_font_memory_dc();
+    let runtime_before_queries = fixture.runtime.clone();
+
+    let size = match fixture.dispatch_outline_text_metrics(device_context, 0, GuestAddress(0)) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected post-font outline size completion, got {other:?}"),
+    };
+    assert_eq!(
+        size.eax,
+        RegisterUpdate::Set(X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32)
+    );
+    assert_eq!(size.last_error, INITIAL_LAST_ERROR);
+    assert!(size.guest_writes.is_empty());
+    assert_eq!(fixture.runtime, runtime_before_queries);
+
+    fixture
+        .memory
+        .write(OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS, &[0xa5; 320])
+        .expect("initialize post-font outline output");
+    fixture.acknowledge_pending_delta();
+    let full = match fixture.dispatch_outline_text_metrics(
+        device_context,
+        X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32,
+        OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected post-font outline full completion, got {other:?}"),
+    };
+    assert_eq!(
+        full.eax,
+        RegisterUpdate::Set(X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32)
+    );
+    assert_eq!(full.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(full.guest_writes.len(), 1);
+    fixture.acknowledge_pending_delta();
+    let bytes = fixture
+        .memory
+        .read(OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS, 320)
+        .expect("post-font outline output and guard");
+    for (offset, value) in [
+        (0, 269),
+        (4, 225),
+        (8, 193),
+        (12, 32),
+        (16, 1),
+        (20, 0),
+        (24, 112),
+        (28, 442),
+        (32, 400),
+        (36, 0),
+        (40, 96),
+        (44, 96),
+        (80, 1),
+        (84, 0),
+        (88, 0),
+        (92, 256),
+        (96, 193),
+        (100, -32),
+        (104, 0),
+        (108, 112),
+        (112, 56),
+        (116, -219),
+        (120, 193),
+        (124, 223),
+        (128, -31),
+        (132, 193),
+        (136, -32),
+        (140, 0),
+        (144, 25),
+        (148, 112),
+        (152, 112),
+        (156, 0),
+        (160, 81),
+        (164, 112),
+        (168, 112),
+        (172, 0),
+        (176, 193),
+        (180, 11),
+        (184, 58),
+        (188, 17),
+        (192, -15),
+        (196, 212),
+        (200, 226),
+        (204, 240),
+        (208, 245),
+    ] {
+        assert_eq!(read_i32(&bytes, offset), value, "field at offset {offset}");
+    }
+    assert_eq!(&bytes[57..60], &[0, 0, 0]);
+    assert_eq!(bytes[71], 0);
+    assert_eq!(&bytes[212..225], MS_GOTHIC_WINDOWS_932);
+    assert_eq!(bytes[225], 0);
+    assert_eq!(&bytes[226..239], MS_GOTHIC_WINDOWS_932);
+    assert_eq!(bytes[239], 0);
+    assert_eq!(&bytes[240..245], &[0x95, 0x57, 0x8f, 0x80, 0]);
+    assert_eq!(&bytes[245..255], b"Microsoft:");
+    assert_eq!(&bytes[255..268], MS_GOTHIC_WINDOWS_932);
+    assert_eq!(bytes[268], 0);
+    assert_eq!(&bytes[269..], &[0xa5; 51]);
+    assert_eq!(fixture.runtime, runtime_before_queries);
+
+    let restore = match fixture.dispatch_select_object(device_context, default_font) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected post-font restore completion, got {other:?}"),
+    };
+    assert_eq!(restore.eax, RegisterUpdate::Set(font));
+    let delete_font = match fixture.dispatch_delete_object(font) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected post-font deletion, got {other:?}"),
+    };
+    assert_eq!(delete_font.eax, RegisterUpdate::Set(1));
+    let delete_dc = match fixture.dispatch_delete_dc(device_context) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected post-font DC deletion, got {other:?}"),
+    };
+    assert_eq!(delete_dc.eax, RegisterUpdate::Set(1));
 }
 
 #[test]

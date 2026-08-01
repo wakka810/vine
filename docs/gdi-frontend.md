@@ -10,8 +10,9 @@ two exact `GDI32!CreateFontA` logical object variants. It also implements the
 NULL-source `GDI32!CreateCompatibleDC` memory-DC lifecycle and `GDI32!DeleteDC`,
 the two reached 8-bpp `GDI32!CreateDIBSection` object and backing profiles, exact
 font／bitmap `GetObjectA`, memory-DC `SelectObject`, and bounded `DeleteObject`.
-The selected created font also supports bounded `GDI32!GetOutlineTextMetricsA`
-and one exact `GDI32!TextOutA` CP932 glyph raster into the selected 8-bpp DIB.
+Both selected created-font variants support bounded
+`GDI32!GetOutlineTextMetricsA`; the 64 x 32 variant additionally supports one
+exact `GDI32!TextOutA` CP932 glyph raster into its selected 8-bpp DIB.
 It also supports the reached D3D9 system-memory surface. `GDI32!GetStockObject`
 for `BLACK_BRUSH` and `USER32!FillRect` remain bounded to the reached window and
 graphics-surface paths. This establishes the responsibility boundary needed for
@@ -204,8 +205,9 @@ and the same NUL-bounded Windows-932 face; their height／width pairs are 64／3
 and 224／112. The handler reads at most 32 bytes, requires the terminating NUL,
 preflights the full request and owner capacity, then commits one `RuntimeGdi`
 font object. Success returns the logical handle, writes no guest bytes, and
-preserves LastError. The 224 x 112 object remains logical state only; it does
-not extend the 64 x 32 outline-metric or text-raster contracts.
+preserves LastError. The 224 x 112 object remains logical state only; its
+outline-metric record is a separate policy entry and it does not extend the
+64 x 32 text-raster contract.
 
 NULL, unterminated, cross-page, embedded-NUL policy mismatch, unsupported field
 values, exhausted identity, and stale or duplicate plans fail without consuming
@@ -215,6 +217,18 @@ state, or renderer resource. Object selection, `GetObjectA`, deletion, outline
 metrics, and the exact raster are independent bounded contracts. General text
 measurement, glyph rasterization, and font substitution are not implied.
 
+GDI32 compatibility policy version 9 owns two exact outline-metrics profiles,
+linked explicitly to the two creation profiles. Each fixes the 212-byte
+`OUTLINETEXTMETRICA` prefix, four Windows-932 string offsets, required size 269,
+and a canonical 269-byte output. `RuntimeGdi` resolves the live same-thread
+memory HDC and selected nonshared font, then the policy resolver validates that
+font's creation profile before any guest write. A NULL output is a mutation-free
+size query; full output is committed only after the complete writable range is
+preflighted. The 224 x 112 canonical output SHA-256 is
+`61c4984d45246eb696425105af0908561546b01acf02a4242fe2c9f6cf884adc`.
+Native padding, host／browser font measurement, and callsite identity do not
+participate in profile selection.
+
 The compatible-DC profile independently admits only source HDC zero. The
 aggregate resolves and revalidates the Rust-owned primary display before the
 GDI owner plans one HDC plus any missing default objects. Capacity for the DC
@@ -223,13 +237,13 @@ duplicate plan, invalid display relation, non-NULL source, identity exhaustion,
 or object-index conflict changes neither collection nor allocator. The policy
 does not authorize a host-compatible DC or renderer state.
 
-The independent DIB profile admits only the reached 40-byte `BITMAPINFOHEADER`:
-width 128, height -96, one plane, 8 bits per pixel, `BI_RGB`, 256 colors, usage
-`DIB_RGB_COLORS`, NULL section, and zero offset. The palette must be the exact
-reverse grayscale table. The runtime derives stride and backing length with
-checked arithmetic. Other dimensions, bit depths, compression, palette shapes,
-file-mapping sections, deleted HDCs, and non-memory HDCs stop before allocation
-or output mutation.
+The two independent DIB profiles admit only the reached 40-byte
+`BITMAPINFOHEADER` shapes: 128 x -96 and 448 x -336, one plane, 8 bits per
+pixel, `BI_RGB`, 256 colors, usage `DIB_RGB_COLORS`, NULL section, and zero
+offset. Both palettes must be the exact reverse grayscale table. The runtime
+derives stride and backing length with checked arithmetic. Other dimensions,
+bit depths, compression, palette shapes, file-mapping sections, stale HDCs, and
+non-memory HDCs stop before allocation or output mutation.
 
 The text profile admits only origin `(0, 0)`, one Windows-932 byte `0x61`, the
 selected 64 x 32 created font, and the selected 128 x 96 top-down 8-bpp DIB.

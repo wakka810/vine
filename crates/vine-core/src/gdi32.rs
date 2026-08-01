@@ -19,7 +19,7 @@ use crate::runtime::{
 };
 
 pub const GDI32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.gdi32-compatibility-policy";
-pub const GDI32_COMPATIBILITY_POLICY_VERSION: u32 = 8;
+pub const GDI32_COMPATIBILITY_POLICY_VERSION: u32 = 9;
 pub const GET_STOCK_OBJECT_IMPLEMENTATION: &str = "gdi32.get-stock-object.black-brush.v1";
 pub const ENUM_FONT_FAMILIES_EX_A_IMPLEMENTATION: &str =
     "gdi32.enum-font-families-ex-a.cp932-screen.v1";
@@ -166,7 +166,14 @@ pub struct Gdi32DibSectionProfile {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Gdi32OutlineTextMetricsPolicy {
+    pub profiles: Vec<Gdi32OutlineTextMetricsProfile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Gdi32OutlineTextMetricsProfile {
     pub profile_id: String,
+    pub font_creation_profile_id: String,
     pub fixed_byte_length: u32,
     pub partial_size_marker: u32,
     pub metrics_a: Vec<u8>,
@@ -203,11 +210,11 @@ pub struct Gdi32CompatibilityPolicy {
 }
 
 impl Gdi32CompatibilityPolicy {
-    pub fn controlled_v8() -> Self {
+    pub fn controlled_v9() -> Self {
         Self {
             schema: GDI32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: GDI32_COMPATIBILITY_POLICY_VERSION,
-            id: "gdi32-primary-cp932-text-raster-v8".to_owned(),
+            id: "gdi32-primary-cp932-text-raster-v9".to_owned(),
             enum_font_families_ex_a: Some(controlled_font_enumeration_policy()),
             create_font_a: Some(controlled_font_creation_policy()),
             create_compatible_dc: Some(controlled_compatible_dc_policy()),
@@ -283,6 +290,23 @@ impl Gdi32CompatibilityPolicy {
             ));
         }
         Ok(())
+    }
+
+    pub fn outline_text_metrics_profile_for_font(
+        &self,
+        selected_font: &RuntimeLogFontA,
+    ) -> Option<&Gdi32OutlineTextMetricsProfile> {
+        let creation_profile = self
+            .create_font_a
+            .as_ref()?
+            .profiles
+            .iter()
+            .find(|profile| profile.log_font == *selected_font)?;
+        self.get_outline_text_metrics_a
+            .as_ref()?
+            .profiles
+            .iter()
+            .find(|profile| profile.font_creation_profile_id == creation_profile.profile_id)
     }
 }
 
@@ -644,7 +668,7 @@ fn handle_get_outline_text_metrics_a(
     frame: &ApiCallFrame,
     session: &mut ExecutionSession<'_>,
 ) -> Result<ApiImmediate, ApiFault> {
-    let outline = policy.get_outline_text_metrics_a.as_ref().ok_or_else(|| {
+    policy.get_outline_text_metrics_a.as_ref().ok_or_else(|| {
         ApiFault::unsupported(
             "gdi32-outline-text-metrics",
             "outline-text-metrics-policy-disabled",
@@ -681,28 +705,15 @@ fn handle_get_outline_text_metrics_a(
         }
         Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
     };
-    let creation = policy.create_font_a.as_ref().ok_or_else(|| {
-        ApiFault::runtime_defect(
-            "gdi32-outline-text-metrics",
-            "outline-text-metrics-font-policy-missing",
-            "outline text metrics policy requires the created FontA policy",
-        )
-    })?;
-    let expected_font = font_creation_profile(creation, PRIMARY_FONT_CREATION_PROFILE_ID)
+    let outline = policy
+        .outline_text_metrics_profile_for_font(&selected_font)
         .ok_or_else(|| {
-            ApiFault::runtime_defect(
-                "gdi32-outline-text-metrics",
-                "outline-text-metrics-font-profile-missing",
-                "outline text metrics policy requires the primary 64x32 FontA profile",
-            )
-        })?;
-    if selected_font != expected_font.log_font {
-        return Err(ApiFault::unsupported(
+            ApiFault::unsupported(
             "gdi32-outline-text-metrics",
             "outline-text-metrics-font-variant-unsupported",
-            "GetOutlineTextMetricsA selected font does not match the evidenced CP932 FontA",
-        ));
-    }
+                "GetOutlineTextMetricsA selected font does not match an evidenced CP932 FontA metrics profile",
+            )
+        })?;
 
     let required_byte_length = u32::try_from(outline.metrics_a.len()).map_err(|_| {
         ApiFault::runtime_defect(
@@ -1818,10 +1829,32 @@ fn controlled_dib_section_profile(
 
 fn controlled_outline_text_metrics_policy() -> Gdi32OutlineTextMetricsPolicy {
     Gdi32OutlineTextMetricsPolicy {
-        profile_id: "primary-cp932-ms-gothic-outline-metrics-v1".to_owned(),
+        profiles: vec![
+            controlled_outline_text_metrics_profile(
+                "primary-cp932-ms-gothic-64x32-outline-metrics-v1",
+                PRIMARY_FONT_CREATION_PROFILE_ID,
+                controlled_outline_text_metrics_64x32_a(),
+            ),
+            controlled_outline_text_metrics_profile(
+                "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+                POST_HEAP_GROWTH_FONT_CREATION_PROFILE_ID,
+                controlled_outline_text_metrics_224x112_a(),
+            ),
+        ],
+    }
+}
+
+fn controlled_outline_text_metrics_profile(
+    profile_id: &str,
+    font_creation_profile_id: &str,
+    metrics_a: Vec<u8>,
+) -> Gdi32OutlineTextMetricsProfile {
+    Gdi32OutlineTextMetricsProfile {
+        profile_id: profile_id.to_owned(),
+        font_creation_profile_id: font_creation_profile_id.to_owned(),
         fixed_byte_length: X86_OUTLINE_TEXT_METRIC_A_FIXED_BYTE_LENGTH as u32,
         partial_size_marker: 0x0000_0122,
-        metrics_a: controlled_outline_text_metrics_a(),
+        metrics_a,
     }
 }
 
@@ -1841,9 +1874,8 @@ fn controlled_text_out_a_policy() -> Gdi32TextOutAPolicy {
     }
 }
 
-fn controlled_outline_text_metrics_a() -> Vec<u8> {
-    let mut bytes = vec![0; X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH];
-    for (offset, value) in [
+fn controlled_outline_text_metrics_64x32_a() -> Vec<u8> {
+    controlled_outline_text_metrics_a(&[
         (0, X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as i32),
         (4, 64),
         (8, 55),
@@ -1884,7 +1916,57 @@ fn controlled_outline_text_metrics_a() -> Vec<u8> {
         (184, 17),
         (188, 5),
         (192, -4),
-    ] {
+    ])
+}
+
+fn controlled_outline_text_metrics_224x112_a() -> Vec<u8> {
+    controlled_outline_text_metrics_a(&[
+        (0, X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as i32),
+        (4, 225),
+        (8, 193),
+        (12, 32),
+        (16, 1),
+        (20, 0),
+        (24, 112),
+        (28, 442),
+        (32, 400),
+        (36, 0),
+        (40, 96),
+        (44, 96),
+        (80, 1),
+        (84, 0),
+        (88, 0),
+        (96, 193),
+        (100, -32),
+        (104, 0),
+        (108, 112),
+        (112, 56),
+        (116, -219),
+        (120, 193),
+        (124, 223),
+        (128, -31),
+        (132, 193),
+        (136, -32),
+        (140, 0),
+        (144, 25),
+        (148, 112),
+        (152, 112),
+        (156, 0),
+        (160, 81),
+        (164, 112),
+        (168, 112),
+        (172, 0),
+        (176, 193),
+        (180, 11),
+        (184, 58),
+        (188, 17),
+        (192, -15),
+    ])
+}
+
+fn controlled_outline_text_metrics_a(fixed_fields: &[(usize, i32)]) -> Vec<u8> {
+    let mut bytes = vec![0; X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH];
+    for &(offset, value) in fixed_fields {
         write_i32(&mut bytes, offset, value);
     }
     bytes[48] = 0;
@@ -2165,7 +2247,7 @@ mod tests {
 
     #[test]
     fn controlled_gdi32_policy_is_canonical_and_bounded() {
-        let policy = Gdi32CompatibilityPolicy::controlled_v8();
+        let policy = Gdi32CompatibilityPolicy::controlled_v9();
         policy.validate().unwrap();
         let enumeration = policy.enum_font_families_ex_a.as_ref().unwrap();
         assert_eq!(enumeration.input_character_set, SHIFT_JIS_CHARSET);
@@ -2278,25 +2360,62 @@ mod tests {
             primary_dib.descriptor.palette
         );
         let outline = policy.get_outline_text_metrics_a.as_ref().unwrap();
-        assert_eq!(outline.fixed_byte_length, 212);
-        assert_eq!(outline.partial_size_marker, 0x122);
-        assert_eq!(outline.metrics_a.len(), 269);
-        assert_eq!(read_u32(&outline.metrics_a, 0), 269);
-        assert_eq!(&outline.metrics_a[57..60], &[0, 0, 0]);
-        assert_eq!(outline.metrics_a[71], 0);
-        assert_eq!(read_u32(&outline.metrics_a, 196), 212);
-        assert_eq!(read_u32(&outline.metrics_a, 200), 226);
-        assert_eq!(read_u32(&outline.metrics_a, 204), 240);
-        assert_eq!(read_u32(&outline.metrics_a, 208), 245);
-        assert_eq!(&outline.metrics_a[212..225], MS_GOTHIC_WINDOWS_932);
-        assert_eq!(outline.metrics_a[225], 0);
-        assert_eq!(&outline.metrics_a[226..239], MS_GOTHIC_WINDOWS_932);
-        assert_eq!(outline.metrics_a[239], 0);
-        assert_eq!(&outline.metrics_a[240..244], REGULAR_WINDOWS_932);
-        assert_eq!(outline.metrics_a[244], 0);
-        assert_eq!(&outline.metrics_a[245..255], MICROSOFT_PREFIX);
-        assert_eq!(&outline.metrics_a[255..268], MS_GOTHIC_WINDOWS_932);
-        assert_eq!(outline.metrics_a[268], 0);
+        assert_eq!(outline.profiles.len(), 2);
+        let primary_outline = &outline.profiles[0];
+        assert_eq!(
+            primary_outline.profile_id,
+            "primary-cp932-ms-gothic-64x32-outline-metrics-v1"
+        );
+        assert_eq!(
+            primary_outline.font_creation_profile_id,
+            PRIMARY_FONT_CREATION_PROFILE_ID
+        );
+        assert_eq!(primary_outline.fixed_byte_length, 212);
+        assert_eq!(primary_outline.partial_size_marker, 0x122);
+        assert_eq!(primary_outline.metrics_a.len(), 269);
+        assert_eq!(read_u32(&primary_outline.metrics_a, 0), 269);
+        assert_eq!(read_i32(&primary_outline.metrics_a, 4), 64);
+        assert_eq!(read_i32(&primary_outline.metrics_a, 8), 55);
+        assert_eq!(read_i32(&primary_outline.metrics_a, 12), 9);
+        assert_eq!(&primary_outline.metrics_a[57..60], &[0, 0, 0]);
+        assert_eq!(primary_outline.metrics_a[71], 0);
+        assert_eq!(read_u32(&primary_outline.metrics_a, 196), 212);
+        assert_eq!(read_u32(&primary_outline.metrics_a, 200), 226);
+        assert_eq!(read_u32(&primary_outline.metrics_a, 204), 240);
+        assert_eq!(read_u32(&primary_outline.metrics_a, 208), 245);
+        assert_eq!(&primary_outline.metrics_a[212..225], MS_GOTHIC_WINDOWS_932);
+        assert_eq!(primary_outline.metrics_a[225], 0);
+        assert_eq!(&primary_outline.metrics_a[226..239], MS_GOTHIC_WINDOWS_932);
+        assert_eq!(primary_outline.metrics_a[239], 0);
+        assert_eq!(&primary_outline.metrics_a[240..244], REGULAR_WINDOWS_932);
+        assert_eq!(primary_outline.metrics_a[244], 0);
+        assert_eq!(&primary_outline.metrics_a[245..255], MICROSOFT_PREFIX);
+        assert_eq!(&primary_outline.metrics_a[255..268], MS_GOTHIC_WINDOWS_932);
+        assert_eq!(primary_outline.metrics_a[268], 0);
+        let post_heap_growth_outline = &outline.profiles[1];
+        assert_eq!(
+            post_heap_growth_outline.profile_id,
+            "primary-cp932-ms-gothic-224x112-outline-metrics-v1"
+        );
+        assert_eq!(
+            post_heap_growth_outline.font_creation_profile_id,
+            POST_HEAP_GROWTH_FONT_CREATION_PROFILE_ID
+        );
+        assert_eq!(post_heap_growth_outline.metrics_a.len(), 269);
+        assert_eq!(read_i32(&post_heap_growth_outline.metrics_a, 4), 225);
+        assert_eq!(read_i32(&post_heap_growth_outline.metrics_a, 8), 193);
+        assert_eq!(read_i32(&post_heap_growth_outline.metrics_a, 12), 32);
+        assert_eq!(read_i32(&post_heap_growth_outline.metrics_a, 24), 112);
+        assert_eq!(read_i32(&post_heap_growth_outline.metrics_a, 28), 442);
+        assert_eq!(read_i32(&post_heap_growth_outline.metrics_a, 96), 193);
+        assert_eq!(read_i32(&post_heap_growth_outline.metrics_a, 100), -32);
+        assert_eq!(read_i32(&post_heap_growth_outline.metrics_a, 192), -15);
+        assert_eq!(&post_heap_growth_outline.metrics_a[57..60], &[0, 0, 0]);
+        assert_eq!(post_heap_growth_outline.metrics_a[71], 0);
+        assert_eq!(
+            &post_heap_growth_outline.metrics_a[212..],
+            &primary_outline.metrics_a[212..]
+        );
         let text_out = policy.text_out_a.as_ref().unwrap();
         assert_eq!(text_out.text_windows_932, b"a");
         assert_eq!(text_out.cell_top, 20);
@@ -2327,7 +2446,7 @@ mod tests {
 
     #[test]
     fn mutated_font_policy_is_rejected() {
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v8();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v9();
         policy
             .enum_font_families_ex_a
             .as_mut()
@@ -2337,14 +2456,14 @@ mod tests {
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-font-enumeration-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v8();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v9();
         policy.create_font_a.as_mut().unwrap().profiles[0]
             .log_font
             .quality = 1;
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-font-creation-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v8();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v9();
         policy
             .create_compatible_dc
             .as_mut()
@@ -2353,7 +2472,7 @@ mod tests {
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-compatible-dc-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v8();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v9();
         policy.create_dib_section.as_mut().unwrap().profiles[0]
             .descriptor
             .palette[0]
@@ -2361,16 +2480,12 @@ mod tests {
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-dib-section-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v8();
-        policy
-            .get_outline_text_metrics_a
-            .as_mut()
-            .unwrap()
-            .metrics_a[57] = 1;
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v9();
+        policy.get_outline_text_metrics_a.as_mut().unwrap().profiles[0].metrics_a[57] = 1;
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-outline-text-metrics-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v8();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v9();
         policy.text_out_a.as_mut().unwrap().row_masks[0] ^= 1;
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-text-out-a-profile-invalid");

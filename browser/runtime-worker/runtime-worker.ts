@@ -366,7 +366,8 @@ function isScheduledSharedClockSetWindowText(
     profile === "kernel32-delete-file-a" ||
     profile === "kernel32-private-heap-ordinary-segment-growth" ||
     profile === "gdi-create-font-a-224x112" ||
-    profile === "gdi-create-dib-section-448x336"
+    profile === "gdi-create-dib-section-448x336" ||
+    profile === "gdi-outline-text-metrics-224x112"
   );
 }
 
@@ -378,7 +379,8 @@ function isFindFileAProfile(
     profile === "kernel32-delete-file-a" ||
     profile === "kernel32-private-heap-ordinary-segment-growth" ||
     profile === "gdi-create-font-a-224x112" ||
-    profile === "gdi-create-dib-section-448x336"
+    profile === "gdi-create-dib-section-448x336" ||
+    profile === "gdi-outline-text-metrics-224x112"
   );
 }
 
@@ -388,7 +390,8 @@ function isPrivateHeapOrdinarySegmentGrowthProfile(
   return (
     profile === "kernel32-private-heap-ordinary-segment-growth" ||
     profile === "gdi-create-font-a-224x112" ||
-    profile === "gdi-create-dib-section-448x336"
+    profile === "gdi-create-dib-section-448x336" ||
+    profile === "gdi-outline-text-metrics-224x112"
   );
 }
 
@@ -397,14 +400,24 @@ function isCreateFontA224x112Profile(
 ): boolean {
   return (
     profile === "gdi-create-font-a-224x112" ||
-    profile === "gdi-create-dib-section-448x336"
+    profile === "gdi-create-dib-section-448x336" ||
+    profile === "gdi-outline-text-metrics-224x112"
   );
 }
 
 function isCreateDibSection448x336Profile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "gdi-create-dib-section-448x336";
+  return (
+    profile === "gdi-create-dib-section-448x336" ||
+    profile === "gdi-outline-text-metrics-224x112"
+  );
+}
+
+function isOutlineTextMetrics224x112Profile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "gdi-outline-text-metrics-224x112";
 }
 
 function isD3d9PostPresentContinuation(
@@ -3395,6 +3408,8 @@ class BrowserRuntimeSession {
   #scheduledSharedClockDefaultProcessingSequence: number | null = null;
   #scheduledSharedClockInputTimerCycleOpen = false;
   #scheduledSharedClockInputTimerCycleCount = 0;
+  #outlineTextMetrics224x112SizeQuery: RuntimeSupportedCallSnapshot | null =
+    null;
   #findFileFirstSequence: number | null = null;
   #findFileFirstInstructionCount: number | null = null;
   #findFileSuccessfulNextCount = 0;
@@ -8775,6 +8790,180 @@ class BrowserRuntimeSession {
       };
     }
     if (
+      call.module.toLowerCase() === "gdi32.dll" &&
+      call.symbol === "GetOutlineTextMetricsA" &&
+      call.gdi?.action === "outline-text-metrics-read" &&
+      call.gdi.profileId ===
+        "primary-cp932-ms-gothic-224x112-outline-metrics-v1" &&
+      isOutlineTextMetrics224x112Profile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      const previous = this.#report.checkpointCompletion;
+      const gdi =
+        call.gdi?.action === "outline-text-metrics-read"
+          ? call.gdi
+          : undefined;
+      const commonCallMatches =
+        previous?.capability ===
+          "gdi32-create-dib-section-448x336-post-create-font-a-224x112" &&
+        call.arguments[0] === 0x4701_000b &&
+        "action" in call.result &&
+        call.result.action === "set" &&
+        call.result.value === 269 &&
+        call.implementationId ===
+          "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1" &&
+        call.stackPointerBefore === 0x006f_f448 &&
+        call.stackPointerAfter === 0x006f_f458 &&
+        call.lastError === 0 &&
+        gdi !== undefined &&
+        gdi.deviceContext.id === 11 &&
+        gdi.deviceContext.handle === 0x4701_000b &&
+        gdi.deviceContext.ownerThreadId === 8_192 &&
+        gdi.deviceContext.targetKind === "memory" &&
+        gdi.deviceContext.selectedFontId === 6 &&
+        gdi.deviceContext.selectedBitmapId === 7 &&
+        gdi.deviceContext.selectionGeneration === 2 &&
+        gdi.selectedFont.id === 6 &&
+        gdi.selectedFont.handle === 0x4702_0006 &&
+        gdi.selectedFont.shared === false &&
+        gdi.selectedFont.object.kind === "font-a" &&
+        gdi.selectedFont.object.logFont.height === 224 &&
+        gdi.selectedFont.object.logFont.width === 112 &&
+        gdi.profileId ===
+          "primary-cp932-ms-gothic-224x112-outline-metrics-v1" &&
+        gdi.returnedByteLength === 269;
+      if (call.arguments[1] === 0 && call.arguments[2] === 0) {
+        invariant(
+          commonCallMatches &&
+            this.#outlineTextMetrics224x112SizeQuery === null &&
+            call.sequence === 261_036 &&
+            call.returnAddress === 0x1002_c51f &&
+            call.guestWrites.length === 0 &&
+            gdi.requestedByteLength === 0 &&
+            gdi.outputAddress === 0 &&
+            gdi.writtenByteLength === 0,
+          `GetOutlineTextMetricsA 224x112 size query changed: ${JSON.stringify({
+            previousCapability: previous?.capability,
+            sequence: call.sequence,
+            arguments: call.arguments,
+            result: call.result,
+            implementationId: call.implementationId,
+            returnAddress: call.returnAddress,
+            stackPointerBefore: call.stackPointerBefore,
+            stackPointerAfter: call.stackPointerAfter,
+            lastError: call.lastError,
+            gdi,
+          })}`,
+        );
+        this.#outlineTextMetrics224x112SizeQuery = structuredClone(call);
+      } else {
+        const sizeQuery = this.#outlineTextMetrics224x112SizeQuery;
+        const outputWrite = call.guestWrites[0];
+        invariant(
+          commonCallMatches &&
+            sizeQuery !== null &&
+            call.sequence === 261_038 &&
+            call.arguments[1] === 269 &&
+            call.arguments[2] === 0x20ff_d9f8 &&
+            call.returnAddress === 0x1002_c539 &&
+            call.guestWrites.length === 1 &&
+            outputWrite?.address === 0x20ff_d9f8 &&
+            "bytes" in outputWrite &&
+            outputWrite.bytes.length === 269 &&
+            gdi.requestedByteLength === 269 &&
+            gdi.outputAddress === 0x20ff_d9f8 &&
+            gdi.writtenByteLength === 269,
+          `GetOutlineTextMetricsA 224x112 full read changed: ${JSON.stringify({
+            previousCapability: previous?.capability,
+            sizeQuery,
+            sequence: call.sequence,
+            arguments: call.arguments,
+            result: call.result,
+            implementationId: call.implementationId,
+            returnAddress: call.returnAddress,
+            stackPointerBefore: call.stackPointerBefore,
+            stackPointerAfter: call.stackPointerAfter,
+            lastError: call.lastError,
+            guestWrites: call.guestWrites,
+            gdi,
+          })}`,
+        );
+        const outputBytes = outputWrite.bytes;
+        const outputView = new DataView(Uint8Array.from(outputBytes).buffer);
+        invariant(
+          outputView.getUint32(0, true) === 269 &&
+            outputView.getInt32(4, true) === 225 &&
+            outputView.getInt32(8, true) === 193 &&
+            outputView.getInt32(12, true) === 32 &&
+            outputView.getInt32(24, true) === 112 &&
+            outputView.getInt32(28, true) === 442 &&
+            outputView.getInt32(32, true) === 400 &&
+            outputView.getInt32(92, true) === 256 &&
+            outputView.getInt32(116, true) === -219 &&
+            outputView.getInt32(192, true) === -15 &&
+            outputView.getInt32(208, true) === 245 &&
+            outputBytes[57] === 0 &&
+            outputBytes[58] === 0 &&
+            outputBytes[59] === 0 &&
+            outputBytes[71] === 0 &&
+            outputBytes.slice(212).join(",") ===
+              "130,108,130,114,32,131,83,131,86,131,98,131,78,0,130,108,130,114,32,131,83,131,86,131,98,131,78,0,149,87,143,128,0,77,105,99,114,111,115,111,102,116,58,130,108,130,114,32,131,83,131,86,131,98,131,78,0",
+          "GetOutlineTextMetricsA 224x112 output bytes changed",
+        );
+        this.#report.checkpointCompletion = {
+          capability:
+            "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
+          implementationId:
+            "runtime.gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336.v1",
+          requiredCompletions: 2,
+          completionCount: 2,
+          prerequisiteDibSectionSequence: previous.lastCompletionSequence,
+          prerequisiteDibSectionInstructionCount:
+            previous.lastCompletionInstructionCount,
+          firstCompletionSequence: sizeQuery.sequence,
+          firstCompletionInstructionCount: 342_875_244,
+          lastCompletionSequence: call.sequence,
+          lastCompletionInstructionCount: this.#report.instructions,
+          sizeQueryCall: sizeQuery,
+          fullCall: structuredClone(call),
+          outlineTextMetricsProfileId:
+            "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+          metricsByteLength: 269,
+          logicalDeviceContextId: 11,
+          logicalDeviceContextHandle: 0x4701_000b,
+          logicalFontObjectId: 6,
+          logicalFontHandle: 0x4702_0006,
+          logicalBitmapObjectId: 7,
+          logicalBitmapHandle: 0x4702_0007,
+          selectionGeneration: 2,
+          outputAddress: 0x20ff_d9f8,
+          writtenByteLength: 269,
+          hostFontImported: false,
+          browserFontImported: false,
+          clockProfileId: previous.clockProfileId,
+          clockSampleCount: this.#scheduledSharedClockSampleCount,
+          windowTimerCallbackCount:
+            this.#scheduledSharedClockWindowTimerCallbackCount,
+          presentCount: this.#scheduledSharedClockPresentCount,
+          pointerInputEventCount: previous.pointerInputEventCount,
+          inputTimerCycleCount: previous.inputTimerCycleCount,
+          inputQuerySequence: previous.inputQuerySequence,
+          thirdPresentReached: false,
+          clockFreezeWasProximateCause: false,
+          archiveEnumerationWasProximateCause: false,
+          missingFileDeleteWasProximateCause: false,
+          ordinaryHeapCapacityWasProximateCause: false,
+          fontCreationWasProximateCause: false,
+          dibSectionWasProximateCause: false,
+          outlineTextMetricsWasProximateCause: false,
+          instructionCount: 0,
+          nextEndpoint: { id: 0, address: 0 },
+          memoryContentSha256: "",
+        };
+      }
+    }
+    if (
       call.module.toLowerCase() !== "user32.dll" ||
       call.symbol !== "SetWindowTextA"
     ) {
@@ -10941,7 +11130,9 @@ class BrowserRuntimeSession {
                  checkpoint.capability ===
                    "gdi32-create-font-a-224x112-post-private-heap-segment-growth" ||
                  checkpoint.capability ===
-                   "gdi32-create-dib-section-448x336-post-create-font-a-224x112"))) &&
+                   "gdi32-create-dib-section-448x336-post-create-font-a-224x112" ||
+                 checkpoint.capability ===
+                   "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336"))) &&
             this.#windowTimerCallbackEntry !== null &&
             call.windowTimer !== undefined &&
             call.callback !== undefined,
@@ -18256,19 +18447,27 @@ class BrowserRuntimeSession {
       )
     ) {
       const checkpoint = this.#report.checkpointCompletion;
-      const dibSectionProfile = isCreateDibSection448x336Profile(
-        this.#configuration.capabilityProfile,
-      );
+      const outlineTextMetricsProfile =
+        isOutlineTextMetrics224x112Profile(
+          this.#configuration.capabilityProfile,
+        );
+      const dibSectionProfile =
+        isCreateDibSection448x336Profile(
+          this.#configuration.capabilityProfile,
+        ) && !outlineTextMetricsProfile;
       const fontCreationProfile =
         isCreateFontA224x112Profile(
           this.#configuration.capabilityProfile,
-        ) && !dibSectionProfile;
+        ) &&
+        !dibSectionProfile &&
+        !outlineTextMetricsProfile;
       const heapGrowthProfile =
         isPrivateHeapOrdinarySegmentGrowthProfile(
           this.#configuration.capabilityProfile,
         ) &&
         !fontCreationProfile &&
-        !dibSectionProfile;
+        !dibSectionProfile &&
+        !outlineTextMetricsProfile;
       const deleteFileProfile =
         this.#configuration.capabilityProfile === "kernel32-delete-file-a";
       const findFileProfile =
@@ -18276,7 +18475,10 @@ class BrowserRuntimeSession {
         "kernel32-find-first-file-a";
       invariant(
         metadata.kind === "api-fault" &&
-          (dibSectionProfile
+          (outlineTextMetricsProfile
+            ? checkpoint?.capability ===
+              "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336"
+            : dibSectionProfile
             ? checkpoint?.capability ===
               "gdi32-create-dib-section-448x336-post-create-font-a-224x112"
             : fontCreationProfile
@@ -18294,17 +18496,35 @@ class BrowserRuntimeSession {
             : checkpoint?.capability ===
               "user32-set-window-text-a-post-scheduled-shared-clock") &&
           metadata.capabilityCluster ===
-            (dibSectionProfile || fontCreationProfile || heapGrowthProfile
+            (outlineTextMetricsProfile
+              ? "user32-api-contract"
+              : dibSectionProfile || fontCreationProfile || heapGrowthProfile
               ? "gdi32-api-contract"
               : deleteFileProfile
               ? "kernel32-private-heap-allocation"
               : "kernel32-api-contract") &&
           metadata.endpoint.module.toLowerCase() ===
-            (dibSectionProfile || fontCreationProfile || heapGrowthProfile
+            (outlineTextMetricsProfile
+              ? "user32.dll"
+              : dibSectionProfile || fontCreationProfile || heapGrowthProfile
               ? "gdi32.dll"
               : "kernel32.dll") &&
           metadata.endpoint.symbol.kind === "name" &&
-          (dibSectionProfile
+          (outlineTextMetricsProfile
+            ? this.#requirePrepared().runtime.kernel32Policy ===
+                "kernel32-delete-file-a-v1" &&
+              metadata.endpoint.id === 168 &&
+              metadata.endpoint.address === 0x7f00_0a70 &&
+              metadata.endpoint.symbol.name === "GetCursorInfo" &&
+              typeof metadata.fault === "object" &&
+              metadata.fault !== null &&
+              "class" in metadata.fault &&
+              metadata.fault.class === "unsupported" &&
+              "stage" in metadata.fault &&
+              metadata.fault.stage === "api-dispatch" &&
+              "code" in metadata.fault &&
+              metadata.fault.code === "endpoint-contract-missing"
+            : dibSectionProfile
             ? this.#requirePrepared().runtime.kernel32Policy ===
                 "kernel32-delete-file-a-v1" &&
               metadata.endpoint.id === 259 &&
@@ -18400,12 +18620,27 @@ class BrowserRuntimeSession {
       checkpoint.windowTimerCallbackCount =
         this.#scheduledSharedClockWindowTimerCallbackCount;
       checkpoint.presentCount = this.#scheduledSharedClockPresentCount;
+      if (
+        outlineTextMetricsProfile &&
+        checkpoint.capability ===
+          "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336"
+      ) {
+        invariant(
+          this.#scheduledSharedClockPresentCount === 3,
+          "GetOutlineTextMetricsA checkpoint did not preserve the third Present",
+        );
+        checkpoint.thirdPresentReached = true;
+      }
       checkpoint.instructionCount = this.#report.instructions;
       checkpoint.nextEndpoint = metadata.endpoint;
       checkpoint.memoryContentSha256 = metadata.memoryContentSha256;
       this.#cancelAndFinish(
         "checkpoint-complete",
-        fontCreationProfile
+        outlineTextMetricsProfile
+          ? "GDI32 GetOutlineTextMetricsA 224x112 checkpoint completed"
+          : dibSectionProfile
+          ? "GDI32 CreateDIBSection 448x336 checkpoint completed"
+          : fontCreationProfile
           ? "GDI32 CreateFontA 224x112 checkpoint completed"
           : heapGrowthProfile
           ? "Ordinary private-heap segment growth checkpoint completed"

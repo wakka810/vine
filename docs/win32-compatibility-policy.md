@@ -198,7 +198,7 @@ DOM screen geometry, or browser renderer resource.
 
 ## GDI32 font catalog and logical object policy
 
-`Gdi32CompatibilityPolicy` version 8 is a separate Rust-owned policy because a
+`Gdi32CompatibilityPolicy` version 9 is a separate Rust-owned policy because a
 guest-visible Windows font catalog and its metrics are neither display topology
 nor browser resource state. Profile `primary-cp932-ms-gothic-regular-v1`
 accepts only the reached flags-zero `SHIFTJIS_CHARSET`／Windows-932 `MS Gothic`
@@ -223,8 +223,19 @@ The handler reads at most 32 face bytes, preserves LastError, writes no guest
 bytes, and asks `RuntimeGdi` to allocate one distinct nonshared logical object
 through its owner-local plan／commit boundary. Missing or unterminated strings,
 mismatched fields, disabled policy, exhaustion, and stale plans fail before
-object identity or allocator mutation. The second profile does not authorize
-new outline metrics or glyph rasterization.
+object identity or allocator mutation.
+
+The outline-metrics catalog independently links those creation profile IDs to
+`primary-cp932-ms-gothic-64x32-outline-metrics-v1` and
+`primary-cp932-ms-gothic-224x112-outline-metrics-v1`. Both require a live
+same-thread memory DC with that exact nonshared font selected, return required
+size 269 for a NULL output, and own a canonical 212-byte fixed record plus four
+Windows-932 strings at offsets 212／226／240／245. The 224 x 112 canonical output
+SHA-256 is
+`61c4984d45246eb696425105af0908561546b01acf02a4242fe2c9f6cf884adc`.
+Unsupported creation profiles, stale selection, and invalid output ranges fail
+before guest-memory or GDI mutation. Native padding bytes are zero-normalized;
+callsite／RVA and host／browser font metrics are not policy selectors.
 
 The policy neither discovers host fonts nor creates a browser `FontFace`,
 selected DC state, metric consumer, or glyph rasterizer. Native numeric font

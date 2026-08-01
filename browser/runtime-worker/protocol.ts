@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 106 as const;
+export const protocolVersion = 107 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -23,6 +23,7 @@ export type BgiCapabilityProfile =
   | "kernel32-private-heap-ordinary-segment-growth"
   | "gdi-create-font-a-224x112"
   | "gdi-create-dib-section-448x336"
+  | "gdi-outline-text-metrics-224x112"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1833,6 +1834,58 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336";
+        implementationId: "runtime.gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336.v1";
+        requiredCompletions: 2;
+        completionCount: 2;
+        prerequisiteDibSectionSequence: number;
+        prerequisiteDibSectionInstructionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        sizeQueryCall: RuntimeSupportedCallSnapshot;
+        fullCall: RuntimeSupportedCallSnapshot;
+        outlineTextMetricsProfileId: "primary-cp932-ms-gothic-224x112-outline-metrics-v1";
+        metricsByteLength: 269;
+        logicalDeviceContextId: 11;
+        logicalDeviceContextHandle: 1_191_247_883;
+        logicalFontObjectId: 6;
+        logicalFontHandle: 1_191_313_414;
+        logicalBitmapObjectId: 7;
+        logicalBitmapHandle: 1_191_313_415;
+        selectionGeneration: 2;
+        outputAddress: 553_638_392;
+        writtenByteLength: 269;
+        hostFontImported: false;
+        browserFontImported: false;
+        clockProfileId: "scheduled-shared-logical-deadline-v1";
+        clockSampleCount: number;
+        windowTimerCallbackCount: number;
+        presentCount: number;
+        pointerInputEventCount: number;
+        inputTimerCycleCount: number;
+        inputQuerySequence: number;
+        thirdPresentReached: boolean;
+        clockFreezeWasProximateCause: false;
+        archiveEnumerationWasProximateCause: false;
+        missingFileDeleteWasProximateCause: false;
+        ordinaryHeapCapacityWasProximateCause: false;
+        fontCreationWasProximateCause: false;
+        dibSectionWasProximateCause: false;
+        outlineTextMetricsWasProximateCause: false;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        memoryContentSha256: string;
+      }
     | {
         capability: "gdi32-create-dib-section-448x336-post-create-font-a-224x112";
         implementationId: "runtime.gdi32-create-dib-section-448x336-post-create-font-a-224x112.v1";

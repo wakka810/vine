@@ -86,7 +86,10 @@ const bgiProfile =
     : checkpoint.activeRuntimeCheckpoint.capabilityProfile ??
       checkpoint.activeRuntimeCheckpoint.profile);
 const deleteFileAProfile = bgiProfile === "kernel32-delete-file-a";
+const outlineTextMetrics224x112Profile =
+  bgiProfile === "gdi-outline-text-metrics-224x112";
 const createDibSection448x336Profile =
+  outlineTextMetrics224x112Profile ||
   bgiProfile === "gdi-create-dib-section-448x336";
 const createFontA224x112Profile =
   createDibSection448x336Profile ||
@@ -364,7 +367,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v106";
+const runtimeProtocol = "vine.browser-runtime-worker.v107";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -1292,6 +1295,176 @@ function validatePrivateHeapOrdinarySegmentGrowthBgiProbe(
   );
 }
 
+function validateOutlineTextMetrics224x112BgiProbe(evidence, scenario) {
+  if (scenario !== "success") {
+    validateScheduledSharedClockBgiProbe(evidence, scenario);
+    return;
+  }
+  const report = evidence.report;
+  const completion = report.checkpointCompletion;
+  const sizeQuery = completion.sizeQueryCall;
+  const fullCall = completion.fullCall;
+  assert.equal(report.outcome, "checkpoint-complete");
+  assert.equal(report.error, null);
+  assert.equal(report.supportedCallCount, 282_388);
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    "9a25b07001da053004f9007b1f1ed546c686a6a2b71e3ad1a0f1f3586067561e",
+  );
+  assert.equal(report.instructions, 375_285_853);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert.equal(report.sourceReads.length, 154);
+  assert.equal(report.writableDirectoryCreates.length, 1);
+  assert.equal((report.heapPageMaterializations ?? []).length, 3_112);
+  assert.equal(report.firstUnsupported.capabilityCluster, "user32-api-contract");
+  assert.equal(report.firstUnsupported.endpoint.id, 168);
+  assert.equal(report.firstUnsupported.endpoint.address, 0x7f00_0a70);
+  assert.equal(
+    report.firstUnsupported.endpoint.module.toLowerCase(),
+    "user32.dll",
+  );
+  assert.deepEqual(report.firstUnsupported.endpoint.symbol, {
+    kind: "name",
+    name: "GetCursorInfo",
+  });
+  assert.equal(report.firstUnsupported.fault.class, "unsupported");
+  assert.equal(report.firstUnsupported.fault.stage, "api-dispatch");
+  assert.equal(report.firstUnsupported.fault.code, "endpoint-contract-missing");
+  assert.equal(
+    report.firstUnsupported.memoryContentSha256,
+    "cb8497abf612962fe1d7f6cef19d62e17d786daa3018a666d2f88096b5f10312",
+  );
+  assert.equal(
+    completion.capability,
+    "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
+  );
+  assert.equal(
+    completion.implementationId,
+    "runtime.gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336.v1",
+  );
+  assert.equal(completion.requiredCompletions, 2);
+  assert.equal(completion.completionCount, 2);
+  assert.equal(completion.prerequisiteDibSectionSequence, 261_031);
+  assert.equal(completion.prerequisiteDibSectionInstructionCount, 342_875_151);
+  assert.equal(completion.firstCompletionSequence, 261_036);
+  assert.equal(completion.firstCompletionInstructionCount, 342_875_244);
+  assert.equal(completion.lastCompletionSequence, 261_038);
+  assert.equal(completion.lastCompletionInstructionCount, 342_875_297);
+  assert.equal(
+    completion.outlineTextMetricsProfileId,
+    "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+  );
+  assert.equal(completion.metricsByteLength, 269);
+  assert.equal(completion.logicalDeviceContextId, 11);
+  assert.equal(completion.logicalDeviceContextHandle, 0x4701_000b);
+  assert.equal(completion.logicalFontObjectId, 6);
+  assert.equal(completion.logicalFontHandle, 0x4702_0006);
+  assert.equal(completion.logicalBitmapObjectId, 7);
+  assert.equal(completion.logicalBitmapHandle, 0x4702_0007);
+  assert.equal(completion.selectionGeneration, 2);
+  assert.equal(completion.outputAddress, 0x20ff_d9f8);
+  assert.equal(completion.writtenByteLength, 269);
+  assert.equal(completion.hostFontImported, false);
+  assert.equal(completion.browserFontImported, false);
+  for (const [call, expected] of [
+    [
+      sizeQuery,
+      {
+        sequence: 261_036,
+        arguments: [0x4701_000b, 0, 0],
+        returnAddress: 0x1002_c51f,
+        requestedByteLength: 0,
+        outputAddress: 0,
+        writtenByteLength: 0,
+        guestWriteCount: 0,
+      },
+    ],
+    [
+      fullCall,
+      {
+        sequence: 261_038,
+        arguments: [0x4701_000b, 269, 0x20ff_d9f8],
+        returnAddress: 0x1002_c539,
+        requestedByteLength: 269,
+        outputAddress: 0x20ff_d9f8,
+        writtenByteLength: 269,
+        guestWriteCount: 1,
+      },
+    ],
+  ]) {
+    assert.equal(call.sequence, expected.sequence);
+    assert.equal(call.module.toLowerCase(), "gdi32.dll");
+    assert.equal(call.symbol, "GetOutlineTextMetricsA");
+    assert.deepEqual(call.arguments, expected.arguments);
+    assert.deepEqual(call.result, { action: "set", value: 269 });
+    assert.equal(
+      call.implementationId,
+      "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1",
+    );
+    assert.equal(call.returnAddress, expected.returnAddress);
+    assert.equal(call.stackPointerBefore, 0x006f_f448);
+    assert.equal(call.stackPointerAfter, 0x006f_f458);
+    assert.equal(call.lastError, 0);
+    assert.equal(call.guestWrites.length, expected.guestWriteCount);
+    assert.equal(call.gdi.action, "outline-text-metrics-read");
+    assert.equal(call.gdi.deviceContext.id, 11);
+    assert.equal(call.gdi.deviceContext.handle, 0x4701_000b);
+    assert.equal(call.gdi.deviceContext.ownerThreadId, 8_192);
+    assert.equal(call.gdi.deviceContext.targetKind, "memory");
+    assert.equal(call.gdi.deviceContext.selectedFontId, 6);
+    assert.equal(call.gdi.deviceContext.selectedBitmapId, 7);
+    assert.equal(call.gdi.deviceContext.selectionGeneration, 2);
+    assert.equal(call.gdi.selectedFont.id, 6);
+    assert.equal(call.gdi.selectedFont.handle, 0x4702_0006);
+    assert.equal(call.gdi.selectedFont.shared, false);
+    assert.equal(call.gdi.selectedFont.object.kind, "font-a");
+    assert.equal(call.gdi.selectedFont.object.logFont.height, 224);
+    assert.equal(call.gdi.selectedFont.object.logFont.width, 112);
+    assert.equal(
+      call.gdi.profileId,
+      "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+    );
+    assert.equal(
+      call.gdi.requestedByteLength,
+      expected.requestedByteLength,
+    );
+    assert.equal(call.gdi.returnedByteLength, 269);
+    assert.equal(call.gdi.outputAddress, expected.outputAddress);
+    assert.equal(call.gdi.writtenByteLength, expected.writtenByteLength);
+  }
+  assert.equal(fullCall.guestWrites[0].address, 0x20ff_d9f8);
+  assert.equal(fullCall.guestWrites[0].bytes.length, 269);
+  assert.equal(
+    hash(Buffer.from(fullCall.guestWrites[0].bytes)),
+    "61c4984d45246eb696425105af0908561546b01acf02a4242fe2c9f6cf884adc",
+  );
+  assert.equal(completion.clockSampleCount, 100_550);
+  assert.equal(completion.windowTimerCallbackCount, 40);
+  assert.equal(completion.presentCount, 3);
+  assert.equal(completion.pointerInputEventCount, 2);
+  assert.equal(completion.inputTimerCycleCount, 253);
+  assert.equal(completion.inputQuerySequence, 222_096);
+  assert.equal(completion.thirdPresentReached, true);
+  assert.equal(completion.clockFreezeWasProximateCause, false);
+  assert.equal(completion.archiveEnumerationWasProximateCause, false);
+  assert.equal(completion.missingFileDeleteWasProximateCause, false);
+  assert.equal(completion.ordinaryHeapCapacityWasProximateCause, false);
+  assert.equal(completion.fontCreationWasProximateCause, false);
+  assert.equal(completion.dibSectionWasProximateCause, false);
+  assert.equal(completion.outlineTextMetricsWasProximateCause, false);
+  assert.equal(completion.instructionCount, report.instructions);
+  assert.equal(completion.nextEndpoint.id, 168);
+  assert.equal(completion.nextEndpoint.address, 0x7f00_0a70);
+  assert.deepEqual(completion.nextEndpoint.symbol, {
+    kind: "name",
+    name: "GetCursorInfo",
+  });
+  assert.equal(
+    completion.memoryContentSha256,
+    report.firstUnsupported.memoryContentSha256,
+  );
+}
+
 function validateCreateDibSection448x336BgiProbe(evidence, scenario) {
   if (scenario !== "success") {
     validateScheduledSharedClockBgiProbe(evidence, scenario);
@@ -1613,6 +1786,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.report.pendingCallbacks, 0);
     assertExecutionStateMachine(evidence.report, scenario);
     assertExecutionEngine(evidence.report);
+    if (outlineTextMetrics224x112Profile) {
+      validateOutlineTextMetrics224x112BgiProbe(evidence, scenario);
+      return evidence;
+    }
     if (createDibSection448x336Profile) {
       validateCreateDibSection448x336BgiProbe(evidence, scenario);
       return evidence;
@@ -6753,6 +6930,117 @@ function validatePrivateHeapOrdinarySegmentGrowthBgiEquivalence(
   assert.equal(report.timerPacing.pending, 0);
 }
 
+function validateOutlineTextMetrics224x112BgiEquivalence(browser, oracle) {
+  const report = browser.report;
+  const completion = report.checkpointCompletion;
+  const oracleCalls = oracle.execution.outlineTextMetrics224x112.calls;
+  assert.equal(
+    oracle.schema,
+    "vine.v86-bgi-outline-text-metrics-224x112-primary",
+  );
+  assert.equal(report.evidenceLevel, fullEvidence ? "full" : "summary");
+  assert.equal(
+    report.supportedCallCount,
+    oracle.execution.completedSupportedCalls,
+  );
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    oracle.execution.supportedCallSemanticsSha256,
+  );
+  assert.equal(report.instructions, oracle.stop.terminal.instructionCount);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert(
+    oracle.synchronization.finalGeneration >= oracle.process.memory.generation,
+  );
+  assert.deepEqual(
+    report.sourceReads.map(normalizeBrowserSourceRead),
+    oracle.synchronization.sourceReads.map(normalizeNodeSourceRead),
+  );
+  assert.deepEqual(
+    (report.heapPageMaterializations ?? []).map(
+      normalizeHeapPageMaterialization,
+    ),
+    oracle.synchronization.heapPageMaterializations.map(
+      normalizeHeapPageMaterialization,
+    ),
+  );
+  assert.deepEqual(
+    report.writableDirectoryCreates.map(normalizeWritableDirectoryCreate),
+    oracle.synchronization.writableDirectoryCreates.map(
+      normalizeWritableDirectoryCreate,
+    ),
+  );
+  assert.deepEqual(
+    report.firstUnsupported.endpoint,
+    oracle.stop.fault.endpoint.endpoint,
+  );
+  assert.deepEqual(report.firstUnsupported.fault, oracle.stop.fault.fault);
+  assert.equal(
+    report.firstUnsupported.memoryContentSha256,
+    oracle.stop.fault.memoryContentSha256,
+  );
+  assert.equal(oracleCalls.length, 2);
+  assert.deepEqual(
+    normalizeSemanticCall(completion.sizeQueryCall),
+    normalizeSemanticCall(oracleCalls[0]),
+  );
+  assert.deepEqual(
+    normalizeSemanticCall(completion.fullCall),
+    normalizeSemanticCall(oracleCalls[1]),
+  );
+  assert.equal(
+    completion.firstCompletionInstructionCount,
+    oracleCalls[0].trapInstructionCount,
+  );
+  assert.equal(
+    completion.lastCompletionInstructionCount,
+    oracleCalls[1].trapInstructionCount,
+  );
+  assert.equal(
+    hash(Buffer.from(completion.fullCall.guestWrites[0].bytes)),
+    hash(Buffer.from(oracleCalls[1].guestWrites[0].bytes)),
+  );
+  assert.equal(
+    completion.clockSampleCount,
+    oracle.execution.clockSamples.count,
+  );
+  assert.equal(
+    completion.windowTimerCallbackCount,
+    oracle.execution.windowTimerCallbacks.count,
+  );
+  assert.equal(completion.presentCount, oracle.execution.presentations.count);
+  assert.equal(
+    completion.thirdPresentReached,
+    oracle.execution.presentations.thirdPresentReached,
+  );
+  assert.equal(completion.thirdPresentReached, true);
+  assert.equal(completion.clockFreezeWasProximateCause, false);
+  assert.equal(completion.archiveEnumerationWasProximateCause, false);
+  assert.equal(completion.missingFileDeleteWasProximateCause, false);
+  assert.equal(completion.ordinaryHeapCapacityWasProximateCause, false);
+  assert.equal(completion.fontCreationWasProximateCause, false);
+  assert.equal(completion.dibSectionWasProximateCause, false);
+  assert.equal(completion.outlineTextMetricsWasProximateCause, false);
+  assert.equal(completion.instructionCount, oracle.stop.terminal.instructionCount);
+  assert.deepEqual(completion.nextEndpoint, oracle.stop.fault.endpoint.endpoint);
+  assert.equal(
+    completion.memoryContentSha256,
+    oracle.stop.fault.memoryContentSha256,
+  );
+  assert.equal(report.pointerInput.receipts.length, 2);
+  assert.deepEqual(
+    report.pointerInput.receipts[0],
+    oracle.execution.pointerInput.first.receipt,
+  );
+  assert.deepEqual(
+    report.pointerInput.receipts[1],
+    oracle.execution.pointerInput.last.receipt,
+  );
+  assert.equal(report.timerPacing.requests, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.completions, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.pending, 0);
+}
+
 function validateCreateDibSection448x336BgiEquivalence(browser, oracle) {
   const report = browser.report;
   const completion = report.checkpointCompletion;
@@ -6934,6 +7222,10 @@ function validateCreateFontA224x112BgiEquivalence(browser, oracle) {
 }
 
 function validateBgiEquivalence(browser, oracle) {
+  if (outlineTextMetrics224x112Profile) {
+    validateOutlineTextMetrics224x112BgiEquivalence(browser, oracle);
+    return;
+  }
   if (createDibSection448x336Profile) {
     validateCreateDibSection448x336BgiEquivalence(browser, oracle);
     return;

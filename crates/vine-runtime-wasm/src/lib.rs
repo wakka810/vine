@@ -756,7 +756,7 @@ impl BrowserRuntime {
             User32CompatibilityPolicy::controlled_v30()
         };
         user32_policy.validate().map_err(api_fault_string)?;
-        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v8();
+        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v9();
         gdi32_policy.validate().map_err(api_fault_string)?;
         let gdiplus_policy = GdiplusCompatibilityPolicy::controlled_v1();
         gdiplus_policy.validate().map_err(api_fault_string)?;
@@ -4422,17 +4422,16 @@ fn bgi_gdi_completion_metadata(
             let selected_font = runtime.gdi_objects().get(&font_id).ok_or_else(|| {
                 "GetOutlineTextMetricsA completion selected font is not live".to_owned()
             })?;
-            if !matches!(
-                &selected_font.object,
-                vine_core::RuntimeGdiObjectKind::FontA { .. }
-            ) {
+            let vine_core::RuntimeGdiObjectKind::FontA { log_font } = &selected_font.object else {
                 return Err(
                     "GetOutlineTextMetricsA completion selected object is not a FontA".to_owned(),
                 );
-            }
-            let outline_policy = policy.get_outline_text_metrics_a.as_ref().ok_or_else(|| {
-                "GetOutlineTextMetricsA completed with its GDI32 policy disabled".to_owned()
-            })?;
+            };
+            let outline_profile = policy
+                .outline_text_metrics_profile_for_font(log_font)
+                .ok_or_else(|| {
+                    "GetOutlineTextMetricsA completion has no matching policy profile".to_owned()
+                })?;
             let written_byte_length = completion
                 .guest_writes
                 .first()
@@ -4442,7 +4441,7 @@ fn bgi_gdi_completion_metadata(
                 "action": "outline-text-metrics-read",
                 "deviceContext": device_context,
                 "selectedFont": selected_font,
-                "profileId": outline_policy.profile_id,
+                "profileId": outline_profile.profile_id,
                 "requestedByteLength": requested_byte_length,
                 "returnedByteLength": returned_byte_length,
                 "outputAddress": output_address,

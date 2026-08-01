@@ -30,12 +30,12 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "Runtime VFS search enumerates all 45 data0????.arc entries, both missing-file DeleteFileA calls complete, the third ordinary private-heap segment succeeds, and the reached CreateFontA(224,112,...) plus exact 448x336 DIB pipeline complete before the next GetOutlineTextMetricsA variant",
+    "Runtime VFS search enumerates all 45 data0????.arc entries, both missing-file DeleteFileA calls complete, the third ordinary private-heap segment succeeds, and the 224 x 112 selected-font GetOutlineTextMetricsA pair completes before the next GetCursorInfo contract",
   ),
 );
 assert.ok(
   rendered.includes(
-    "Node primary recorded 100,534 samples / 39 TIMERPROC callbacks",
+    "Node primary recorded 100,550 samples / 40 TIMERPROC callbacks",
   ),
 );
 assert.ok(rendered.includes("| Shared clock |"));

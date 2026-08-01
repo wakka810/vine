@@ -54,7 +54,7 @@ behaviorとgeneral fairnessである。
 | R-FAIRNESS | Cooperative schedulingがtiming-sensitive threadをstarveさせる、またはtitle-relevant raceを変える | Runnable-lane selectionとbounded Worker execution | Thread traceからfairness／virtual-time policyを定義し、測定上必要な場合だけSAB／multi-Workerを比較する |
 | R-LIFECYCLE | Background throttle／page lifecycle／resumeがtimer storm、desync、save corruptionを起こす | Worker isolation、Rust-owned logical timer registration、generation-checked cancel／stale rejection、remaining-delay freeze／resume、one-per-task catch-up | `WM_TIMER`／TIMERPROC、audio、saveへ広げる前に各resourceのclock authorityとlong-idle browser E2Eを固定する |
 | R-COMPAT | Subtle Win32／COM behaviorまたはsilent stubがbootを進め、後段stateを壊す | Caller-consumer oracle、typed fault、mutation-free negative path | Stubを正しいstateまたはfirst divergenceでのexplicit structured stopへ置き換える |
-| R-GRAPHICS | Pixel format、pitch／ROP、font metric、backend差、context lossで画面が読めない | Logical surface／resourceとbrowser rendererを分離する。Node／private Chromeのdeterministic shared-clock replayは39回のwindow-timer callback、同一pointer receipts、title commit、archive enumeration、missing-file deletion、第三ordinary heap segment、二件目のbounded logical fontと448 x 336 DIB作成まで完了してもPresentは2回であり、clock／timer／input scheduleとこれらのleafをthird Present停滞の近因から除外した | 次のreached `GetOutlineTextMetricsA` font variantのconsumer／outputを固定し、既存GDI policyへboundedに追加する。DIB mutationとglyph rasterizationを可読性へ接続し、非対応browser／GPUをtier分けする |
+| R-GRAPHICS | Pixel format、pitch／ROP、font metric、backend差、context lossで画面が読めない | Logical surface／resourceとbrowser rendererを分離する。Node／private Chromeのdeterministic shared-clock replayは40回のwindow-timer callback、224 x 112 outline-metrics pair、三回目のPresentまで一致し、timer／input scheduleと直近GDI leafを進行停止の近因から除外した | 次のreached `GetCursorInfo` contractを固定して進行を継続し、DIB mutationとglyph rasterizationを可読性へ接続する。三回目のPresentだけで可読sceneをclaimせず、非対応browser／GPUをtier分けする |
 | R-MEDIA | Audio timing／media dependencyまたはD3D9 scopeがplanned browser subsetを超える | Corpus-bounded frontendとseparate backend adapter | Early feasibility traceを行い、広いAPI実装前にsupport bandを再設計する |
 | R-DATA | Crash、quota、path差、external replacementでsaveを失う、またはsource moduleが変わる | Immutable source／writable overlay ruleとexplicit durability boundary | Read-only failureまたはlast committed stateへrollbackし、source EXE／DLLをshadow／rewriteしない |
 | R-EXHAUSTION | Malformed inputまたはguest resource growthがmemory、thread、surface、log、parser limitを枯渇させる | Memory-safe bounded parser、quota、watchdog、typed exhaustion | Partial commitなしでtitleを停止し、最小diagnosticとregression fixtureを残す |
@@ -93,9 +93,10 @@ success、duplicate／parent／file-conflict oracle、cancel、terminal drainを
 第三ordinary segmentに続く`CreateFontA(224,112,...)`もpolicy-boundedなdistinct logical fontとして
 `RuntimeGdi`へfailure-atomicに作成した。続く448 x -336、8-bpp reverse-grayscale `CreateDIBSection`も
 既存GDI／GuestMemory／address-space transactionへexact profileとして追加し、`GetObjectA`とbitmap／font selectionまで
-Node／private Chromeで一致した。同一shared-clock scheduleと39 TIMERPROC callbacksを完了してもPresentは2回である。
-したがってtimer／archive／missing deletion／旧heap capacity／logical font creation／DIB creationは現在の描画停滞の
-近因ではない。次の到達点は同じ224 x 112 fontを選択した`GetOutlineTextMetricsA` variantである。既存logical windowへ到達した
+Node／private Chromeで一致した。同じ224 x 112 fontを選択した`GetOutlineTextMetricsA` size／full pairも
+version 9 policyへ追加し、40 TIMERPROC callbacksと三回目のPresentまで一致した。したがってtimer／archive／missing
+deletion／旧heap capacity／logical font creation／DIB creation／outline metricsは現在の進行停止の近因ではない。
+次の到達点は`USER32.dll!GetCursorInfo`である。既存logical windowへ到達した
 `USER32.dll!SetWindowPos` repeat activation variantは、既存三relationがtargetのときの
 `WM_WINDOWPOSCHANGING`一回だけのvalidate-only leafとして閉じ、geometry、visibility、relation、generation不変を固定した。
 続く旧`MessageBoxA`はD3D9 texture failure branchと判明したため、version 17はnativeで再現した三つの
@@ -155,9 +156,9 @@ Native未初期化tailもsemantic stringと分離でき、二つのexact `Create
 `RuntimeGdi`へfailure-atomicに作成できた。NULL-source compatible memory DC、共有default font／bitmap、exact
 `DeleteDC` lifetime、DIB bytes／object selection／introspection／deletion、selected FontAのbounded outline metric
 outputも同じownerへ接続し、host／browser font discoveryやnative HDCは同期APIへ取り込んでいない。二件目の
-448 x 336 DIB descriptor／palette／page-rounded backing relationも同じtransactionへ追加できた。次のgraphics riskは
-224 x 112 selected fontのoutline metricsをbounded policyで固定した後、DIB mutation、glyph rasterization／substitutionを
-可読性要件へ接続できるかである。Host HDCやDOM `Screen`、browser `FontFace`を
+448 x 336 DIB descriptor／palette／page-rounded backing relationと、224 x 112 selected fontのcanonical outline metricsも
+同じauthority分離で追加できた。次のgraphics riskはDIB mutation、glyph rasterization／substitutionを可読性要件へ
+接続できるかである。Host HDCやDOM `Screen`、browser `FontFace`を
 第二のauthorityにしない。
 
 Default IME windowのlogical HWND、thread default HIMC、app-window association、status-window close／open requestは

@@ -6251,3 +6251,43 @@ Canonical Node and Chrome both complete the DIB at sequence 261,031／instructio
 was not the proximate cause of the third-Present stall. Exact artifact identity,
 semantic digest, and current next-stop arguments remain authoritative only in
 [current-checkpoint.json](current-checkpoint.json).
+
+## 187. BGI 224 x 112 selected-font outline metrics
+
+The ignored focused Frida 17.15.4 oracle script
+`.work/get-outline-text-metrics-224x112-native-oracle.py` is 8,990 bytes with
+SHA-256
+`f2eefe715e9a47720e9113ecff30bae321cc31f1feeb3244fe2568bc0e105249`.
+Two isolated runs produced 13,088／13,080-byte reports with SHA-256
+`6fd2c5abe5bd98cbee5ee8e12c5d2438c50ed1924b0db609a37e04ed2c5efed3` and
+`fd96fb2eb678e592abd2b33c26202eaf1b162f70281ba6d8363b4eae70978ae5`.
+The 1,193,472-byte source executable retained SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`
+before and after both runs.
+
+The reached caller first invokes `GetOutlineTextMetricsA(hdc, 0, NULL)` from
+return RVA `0x0002C51F`, then calls it with 269 bytes from return RVA
+`0x0002C539`. Both calls return 269 and preserve LastError 0 in both runs. The
+selected font is the preceding height 224／width 112, weight 100,
+`SHIFTJIS_CHARSET` `ＭＳ ゴシック` object, and the selected bitmap is the
+preceding 448 x 336 DIB. The fixed record occupies 212 bytes; family, face,
+style, and full-name strings begin at offsets 212／226／240／245. The raw
+269-byte output matches across runs with SHA-256
+`62452e3bb6959c14d2ad749d3c58d34afd056fe32d0d678958fc513675b74907`.
+
+Bytes at offsets 57／58／59／71 are native padding, observed as
+`14 B0 76 77`, and are not guest semantics. Vine zero-normalizes only those
+four bytes, yielding canonical SHA-256
+`61c4984d45246eb696425105af0908561546b01acf02a4242fe2c9f6cf884adc`.
+Native HDC／HFONT／HBITMAP values, process addresses, thread identity, and caller
+RVA are evidence identities, not dispatch selectors.
+
+Vine therefore adds one exact creation-profile-linked entry to the existing
+GDI32 outline-metrics catalog. Canonical Node and Chrome complete the size and
+full calls at sequences 261,036／261,038 and instructions
+342,875,244／342,875,297, write 269 bytes to `0x20FFD9F8`, reach a third
+Present, and stop at `USER32.dll!GetCursorInfo` on instruction 375,285,853.
+Exact report and artifact identities remain authoritative only in
+[current-checkpoint.json](current-checkpoint.json). This evidence does not
+establish arbitrary font metrics, 224 x 112 glyph rasterization, host／browser
+font substitution, or readable title-scene output.

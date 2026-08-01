@@ -91,6 +91,16 @@ capability profile. `--checkpoint` and `--profile` are mutually exclusive. The
 Browser runner derives the Node oracle report directory from the same active
 profile.
 
+The checkpoint wrapper starts only its replay child with a measured 8,192 MiB
+V8 old-space ceiling. The cumulative primary report crossed Node's default
+approximately 4 GiB heap during the 224 x 112 outline-metrics checkpoint; an
+explicit 6,144 MiB trial also reproducibly exhausted old-space near 5.8 GiB,
+while the same deterministic workload completed at 8,192 MiB. This is an
+explicit tooling resource bound, not guest memory, Win32 semantics, a retry, or
+a relaxed acceptance threshold; report digest, terminal memory, watchdog, and
+browser equivalence remain unchanged. Capacity must be revisited from measured
+replay evidence if this bounded child fails again.
+
 The last command adds a 30-minute repeated lifecycle soak and is not part of the
 ordinary short gate. Its exact evidence and non-claims are recorded in
 [browser-runtime-worker.md](browser-runtime-worker.md).

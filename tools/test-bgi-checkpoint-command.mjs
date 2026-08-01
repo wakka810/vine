@@ -63,6 +63,20 @@ const genericRunner = fs.readFileSync(
   path.join(root, "tools", "run-runtime-v86-bgi-first-trap.mjs"),
   "utf8",
 );
+const checkpointWrapper = fs.readFileSync(
+  path.join(root, "tools", "run-bgi-checkpoint.mjs"),
+  "utf8",
+);
+assert.match(
+  checkpointWrapper,
+  /const runtimeReplayHeapLimitMiB = 8 \* 1024;/u,
+  "BGI checkpoint wrapper must retain the measured replay heap bound",
+);
+assert.match(
+  checkpointWrapper,
+  /`--max-old-space-size=\$\{runtimeReplayHeapLimitMiB\}`/u,
+  "BGI checkpoint wrapper must apply the replay heap bound to its Node child",
+);
 assert(
   browserRunner.includes(
     `const runtimeProtocol = "${manifest.browserCheckpoint.browserRuntimeProtocol}";`,
@@ -204,6 +218,10 @@ assert.equal(
 assert.equal(
   bgiProfileOutputDirectory("gdi-create-dib-section-448x336"),
   "v86-bgi-create-dib-section-448x336",
+);
+assert.equal(
+  bgiProfileOutputDirectory("gdi-outline-text-metrics-224x112"),
+  "v86-bgi-outline-text-metrics-224x112",
 );
 assert.equal(
   bgiProfileOutputDirectory("shell32-drag-accept-files"),

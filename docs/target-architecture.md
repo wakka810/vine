@@ -1021,8 +1021,10 @@ Canvas resourceを第二のauthorityにしない。`DeleteDC`はmatching memory 
 bits outputを含めて全owner preflight後にpublishする。Mapping paddingをDIB logical contentとして公開しない。
 `GetObjectA`／`SelectObject`／`DeleteObject`はこのfont／DIB lifecycleだけを扱い、selected object deleteはmutation-freeに
 拒否する。Reached `GetOutlineTextMetricsA`はselected FontAを`RuntimeGdi`から再検証し、versioned GDI32 policyが
-fixed metricとCP932 stringを所有して`GuestMemory`へbounded outputをcommitする。Native padding、host／browser font
-measurement、native HDCをauthorityへ取り込まない。Reached `TextOutA`は同じselected FontA／DIB relationと
+creation profileごとのfixed metricとCP932 stringを所有して`GuestMemory`へbounded outputをcommitする。現在の
+64 x 32／224 x 112 profileは同じhandlerとowner boundaryを共有するが、catalog entryとcanonical bytesは独立している。
+Native padding、callsite、host／browser font measurement、native HDCをauthorityへ取り込まない。Reached `TextOutA`は
+同じselected FontA／DIB relationと
 content generationを`RuntimeGdi`、pixel bytesを`GuestMemory`へ一意に置き、exact CP932 `0x61` maskのexpected
 before-imageとwritable rangeをpreflightしてmemory writeとcontent-generation advanceを一つのtransactionでcommitする。
 Browser／host font rasterizationやbitmap resourceを第二のauthorityにしない。Mapping、clip、ROP、一般text

@@ -1162,7 +1162,8 @@ function isScheduledSharedClockNodeReport(report) {
     report?.schema ===
       "vine.v86-bgi-private-heap-ordinary-segment-growth-primary" ||
     report?.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
-    report?.schema === "vine.v86-bgi-create-dib-section-448x336-primary"
+    report?.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
+    report?.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary"
   );
 }
 
@@ -1171,6 +1172,111 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (
+    nodeReport.schema ===
+    "vine.v86-bgi-outline-text-metrics-224x112-primary"
+  ) {
+    const outline = execution.outlineTextMetrics224x112;
+    const [sizeQuery, fullCall] = outline.calls;
+    const nextEndpoint = nodeReport.stop.fault.endpoint.endpoint;
+    const reachedNextEndpointAfterOutlineMetrics =
+      execution.clockSamples.count > 0 &&
+      execution.windowTimerCallbacks.count > 0 &&
+      execution.presentations.count === 3 &&
+      execution.presentations.thirdPresentReached === true &&
+      outline.completionCount === 2 &&
+      sizeQuery.result.value === 269 &&
+      fullCall.result.value === 269 &&
+      nodeReport.stop.fault.fault.code === "endpoint-contract-missing";
+    const deviceContext = fullCall.gdi.deviceContext;
+    const selectedFont = fullCall.gdi.selectedFont;
+    return {
+      capability:
+        "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
+      implementationId:
+        "runtime.gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336.v1",
+      requiredCompletions: 2,
+      completionCount: outline.completionCount,
+      prerequisiteDibSectionSequence:
+        execution.createDibSection448x336.call.sequence,
+      prerequisiteDibSectionInstructionCount:
+        execution.createDibSection448x336.call.trapInstructionCount,
+      firstCompletionSequence: sizeQuery.sequence,
+      firstCompletionInstructionCount: sizeQuery.trapInstructionCount,
+      lastCompletionSequence: fullCall.sequence,
+      lastCompletionInstructionCount: fullCall.trapInstructionCount,
+      sizeQueryCall: {
+        sequence: sizeQuery.sequence,
+        module: sizeQuery.module.toLowerCase(),
+        symbol: sizeQuery.symbol,
+        arguments: sizeQuery.arguments,
+        result: sizeQuery.result,
+        implementationId: sizeQuery.implementationId,
+        returnAddress: sizeQuery.returnAddress,
+        stackPointerBefore: sizeQuery.stackPointerBefore,
+        stackPointerAfter: sizeQuery.stackPointerAfter,
+        lastError: sizeQuery.lastError,
+        guestWrites: sizeQuery.guestWrites,
+        gdi: sizeQuery.gdi,
+      },
+      fullCall: {
+        sequence: fullCall.sequence,
+        module: fullCall.module.toLowerCase(),
+        symbol: fullCall.symbol,
+        arguments: fullCall.arguments,
+        result: fullCall.result,
+        implementationId: fullCall.implementationId,
+        returnAddress: fullCall.returnAddress,
+        stackPointerBefore: fullCall.stackPointerBefore,
+        stackPointerAfter: fullCall.stackPointerAfter,
+        lastError: fullCall.lastError,
+        guestWrites: fullCall.guestWrites.map(({ address, bytes }) => ({
+          address,
+          bytes,
+        })),
+        gdi: fullCall.gdi,
+      },
+      outlineTextMetricsProfileId:
+        nodeReport.contract.outlineTextMetricsProfileId,
+      metricsByteLength: 269,
+      logicalDeviceContextId: deviceContext.id,
+      logicalDeviceContextHandle: deviceContext.handle,
+      logicalFontObjectId: selectedFont.id,
+      logicalFontHandle: selectedFont.handle,
+      logicalBitmapObjectId: deviceContext.selectedBitmapId,
+      logicalBitmapHandle: execution.createDibSection448x336.call.result.value,
+      selectionGeneration: deviceContext.selectionGeneration,
+      outputAddress: fullCall.gdi.outputAddress,
+      writtenByteLength: fullCall.gdi.writtenByteLength,
+      hostFontImported: false,
+      browserFontImported: false,
+      clockProfileId: nodeReport.contract.clockProfile.id,
+      clockSampleCount: execution.clockSamples.count,
+      windowTimerCallbackCount: execution.windowTimerCallbacks.count,
+      presentCount: execution.presentations.count,
+      pointerInputEventCount: execution.pointerInput.count,
+      inputTimerCycleCount: expectedNext.completion.inputTimerCycleCount,
+      inputQuerySequence: execution.pointerInput.last.committedAfterSequence,
+      thirdPresentReached: execution.presentations.thirdPresentReached,
+      clockFreezeWasProximateCause:
+        !reachedNextEndpointAfterOutlineMetrics,
+      archiveEnumerationWasProximateCause:
+        !reachedNextEndpointAfterOutlineMetrics,
+      missingFileDeleteWasProximateCause:
+        !reachedNextEndpointAfterOutlineMetrics,
+      ordinaryHeapCapacityWasProximateCause:
+        !reachedNextEndpointAfterOutlineMetrics,
+      fontCreationWasProximateCause:
+        !reachedNextEndpointAfterOutlineMetrics,
+      dibSectionWasProximateCause:
+        !reachedNextEndpointAfterOutlineMetrics,
+      outlineTextMetricsWasProximateCause:
+        !reachedNextEndpointAfterOutlineMetrics,
+      instructionCount: nodeReport.stop.terminal.instructionCount,
+      nextEndpoint,
+      memoryContentSha256: nodeReport.stop.fault.memoryContentSha256,
+    };
+  }
   if (
     nodeReport.schema ===
     "vine.v86-bgi-create-dib-section-448x336-primary"
@@ -1674,7 +1780,8 @@ function assertScheduledSharedClockReportSemantics({
     nodeReport.schema ===
       "vine.v86-bgi-private-heap-ordinary-segment-growth-primary" ||
     nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
-    nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary"
+    nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
+    nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary"
   ) {
     const find = nodeExecution.findFileA;
     assert.equal(find.pattern, "data0????.arc");
@@ -1697,7 +1804,8 @@ function assertScheduledSharedClockReportSemantics({
     nodeReport.schema ===
       "vine.v86-bgi-private-heap-ordinary-segment-growth-primary" ||
     nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
-    nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary"
+    nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
+    nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary"
   ) {
     const deletion = nodeExecution.deleteFileA;
     assert.equal(deletion.completionCount, 2);
@@ -1719,7 +1827,8 @@ function assertScheduledSharedClockReportSemantics({
     nodeReport.schema ===
       "vine.v86-bgi-private-heap-ordinary-segment-growth-primary" ||
     nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
-    nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary"
+    nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
+    nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary"
   ) {
     const growth = nodeExecution.ordinaryHeapSegmentGrowth;
     assert.equal(growth.completionCount, 1);
@@ -1735,7 +1844,8 @@ function assertScheduledSharedClockReportSemantics({
   }
   if (
     nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
-    nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary"
+    nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
+    nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary"
   ) {
     const font = nodeExecution.createFontA224x112;
     assert.equal(font.completionCount, 1);
@@ -1780,8 +1890,8 @@ function assertScheduledSharedClockReportSemantics({
     assert.equal(font.call.gdi.liveObjects, 4);
   }
   if (
-    nodeReport.schema ===
-    "vine.v86-bgi-create-dib-section-448x336-primary"
+    nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
+    nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary"
   ) {
     const dib = nodeExecution.createDibSection448x336;
     assert.equal(dib.completionCount, 1);
@@ -1813,12 +1923,62 @@ function assertScheduledSharedClockReportSemantics({
     assert.equal(dib.call.gdi.object.object.backing.range.byteLength, 151_552);
     assert.equal(dib.call.gdi.liveObjects, 5);
   }
+  if (
+    nodeReport.schema ===
+    "vine.v86-bgi-outline-text-metrics-224x112-primary"
+  ) {
+    const outline = nodeExecution.outlineTextMetrics224x112;
+    assert.equal(outline.completionCount, 2);
+    assert.equal(outline.calls.length, 2);
+    const [sizeQuery, fullCall] = outline.calls;
+    assert.equal(sizeQuery.sequence, 261_036);
+    assert.equal(sizeQuery.trapInstructionCount, 342_875_244);
+    assert.deepEqual(sizeQuery.arguments, [0x4701_000b, 0, 0]);
+    assert.equal(sizeQuery.result.value, 269);
+    assert.equal(sizeQuery.guestWrites.length, 0);
+    assert.equal(fullCall.sequence, 261_038);
+    assert.equal(fullCall.trapInstructionCount, 342_875_297);
+    assert.deepEqual(fullCall.arguments, [
+      0x4701_000b,
+      269,
+      0x20ff_d9f8,
+    ]);
+    assert.equal(fullCall.result.value, 269);
+    assert.equal(
+      fullCall.implementationId,
+      "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1",
+    );
+    assert.equal(fullCall.guestWrites.length, 1);
+    assert.equal(fullCall.guestWrites[0].address, 0x20ff_d9f8);
+    assert.equal(fullCall.guestWrites[0].bytes.length, 269);
+    assert.equal(
+      sha256(Buffer.from(fullCall.guestWrites[0].bytes)),
+      "61c4984d45246eb696425105af0908561546b01acf02a4242fe2c9f6cf884adc",
+    );
+    assert.equal(fullCall.gdi.action, "outline-text-metrics-read");
+    assert.equal(fullCall.gdi.deviceContext.id, 11);
+    assert.equal(fullCall.gdi.deviceContext.handle, 0x4701_000b);
+    assert.equal(fullCall.gdi.deviceContext.selectedFontId, 6);
+    assert.equal(fullCall.gdi.deviceContext.selectedBitmapId, 7);
+    assert.equal(fullCall.gdi.deviceContext.selectionGeneration, 2);
+    assert.equal(fullCall.gdi.selectedFont.id, 6);
+    assert.equal(fullCall.gdi.selectedFont.handle, 0x4702_0006);
+    assert.equal(
+      fullCall.gdi.profileId,
+      "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+    );
+    assert.equal(fullCall.gdi.requestedByteLength, 269);
+    assert.equal(fullCall.gdi.returnedByteLength, 269);
+    assert.equal(fullCall.gdi.writtenByteLength, 269);
+  }
 
   const nodeEndpoint = nodeStop.fault.endpoint.endpoint;
   const expectedEndpoint = expectedNext.nextEndpoint;
   assert.equal(nodeStop.fault.capabilityCluster, expectedNext.capabilityCluster);
   const expectedFaultCode =
-    nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary"
+    nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary"
+      ? "endpoint-contract-missing"
+      : nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary"
       ? "outline-text-metrics-font-variant-unsupported"
       : nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary"
       ? "create-dib-section-variant-unsupported"

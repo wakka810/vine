@@ -251,6 +251,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-private-heap-ordinary-segment-growth",
         "gdi-create-font-a-224x112",
         "gdi-create-dib-section-448x336",
+        "gdi-outline-text-metrics-224x112",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
@@ -461,6 +462,7 @@ assert(
       "kernel32-private-heap-ordinary-segment-growth",
       "gdi-create-font-a-224x112",
       "gdi-create-dib-section-448x336",
+      "gdi-outline-text-metrics-224x112",
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
       "user32-set-window-pos-frame-change-move",
@@ -509,7 +511,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "kernel32-delete-file-a" ||
     genericRuntimeCapability === "kernel32-private-heap-ordinary-segment-growth" ||
     genericRuntimeCapability === "gdi-create-font-a-224x112" ||
-    genericRuntimeCapability === "gdi-create-dib-section-448x336"
+    genericRuntimeCapability === "gdi-create-dib-section-448x336" ||
+    genericRuntimeCapability === "gdi-outline-text-metrics-224x112"
       ? "kernel32-delete-file-a-v1.json"
       : genericRuntimeCapability === "kernel32-find-first-file-a"
       ? "kernel32-find-file-a-v1.json"
@@ -1024,7 +1027,10 @@ const d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled =
 const d3d9PostInputScanWaitableTimerCycleCheckpointEnabled =
   genericRuntimeCapability ===
     "d3d9-post-input-scan-waitable-timer-cycle";
+const outlineTextMetrics224x112CheckpointEnabled =
+  genericRuntimeCapability === "gdi-outline-text-metrics-224x112";
 const createDibSection448x336CheckpointEnabled =
+  outlineTextMetrics224x112CheckpointEnabled ||
   genericRuntimeCapability === "gdi-create-dib-section-448x336";
 const createFontA224x112CheckpointEnabled =
   createDibSection448x336CheckpointEnabled ||
@@ -1942,7 +1948,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? createDibSection448x336CheckpointEnabled
+    ? outlineTextMetrics224x112CheckpointEnabled
+      ? "v86-bgi-outline-text-metrics-224x112"
+      : createDibSection448x336CheckpointEnabled
       ? "v86-bgi-create-dib-section-448x336"
       : createFontA224x112CheckpointEnabled
       ? "v86-bgi-create-font-a-224x112"
@@ -6539,6 +6547,11 @@ async function run() {
       });
       if (genericRuntimeCapability === null) {
         validateGenericRuntimeReentryResult(genericResult);
+      } else if (outlineTextMetrics224x112CheckpointEnabled) {
+        validateOutlineTextMetrics224x112Result(
+          genericResult,
+          sourceRegistration,
+        );
       } else if (createDibSection448x336CheckpointEnabled) {
         validateCreateDibSection448x336Result(genericResult, sourceRegistration);
       } else if (createFontA224x112CheckpointEnabled) {
@@ -6887,7 +6900,9 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : createDibSection448x336CheckpointEnabled
+          : outlineTextMetrics224x112CheckpointEnabled
+            ? "bgi GDI32 GetOutlineTextMetricsA 224x112"
+            : createDibSection448x336CheckpointEnabled
             ? "bgi GDI32 CreateDIBSection 448x336"
             : createFontA224x112CheckpointEnabled
             ? "bgi GDI32 CreateFontA 224x112"
@@ -14424,7 +14439,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (fontEnumerationEnabled) {
     assert.equal(
       ready.gdi32CompatibilityPolicyId,
-      "gdi32-primary-cp932-text-raster-v8",
+      "gdi32-primary-cp932-text-raster-v9",
     );
   } else {
     assert.equal(ready.gdi32CompatibilityPolicyId, undefined);
@@ -26472,6 +26487,137 @@ function validateCreateDibSection448x336Result(result, sourceRegistration) {
     0,
     0x2000_2768,
     0x2013_9c20,
+  ]);
+  validateScheduledSharedClockCalls(result.supportedCalls);
+}
+
+function validateOutlineTextMetrics224x112Result(result, sourceRegistration) {
+  assert(outlineTextMetrics224x112CheckpointEnabled);
+  assert(createDibSection448x336CheckpointEnabled);
+  assert(createFontA224x112CheckpointEnabled);
+  assert(privateHeapOrdinarySegmentGrowthCheckpointEnabled);
+  assert(deleteFileACheckpointEnabled);
+  assert(findFirstFileACheckpointEnabled);
+  assert(scheduledSharedClockProfile);
+  assert(sourceRegistration !== null);
+  assert.equal(
+    sourceRegistration.manifest.snapshotId,
+    "primary-game-archives-v2",
+  );
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 282_388);
+  assert.equal(result.callbackEvents.length, 148);
+  assert.equal(result.heapPageMaterializations.length, 3_112);
+  assert.equal(result.sourceReads.length, 154);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+  assert.equal(result.timerPacing.length, 8_978);
+  assert.equal(result.writebacks.length, 285_586);
+  assert.equal(result.hostDeltas.length, 142_702);
+  assert.equal(result.finalGeneration, 332_637);
+  assert.deepEqual(result.threadExecution, {
+    registeredThreadIds: [8_192, 8_193],
+    executedThreadIds: [8_192, 8_193],
+    contextSwitches: 2_268,
+    threadExits: [],
+  });
+  const calls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId ===
+        "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1" &&
+      call.gdi?.profileId ===
+        "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+  );
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls.map((call) => call.sequence), [261_036, 261_038]);
+  assert.deepEqual(calls.map((call) => call.trapInstructionCount), [
+    342_875_244,
+    342_875_297,
+  ]);
+  assert.deepEqual(calls[0].arguments, [0x4701_000b, 0, 0]);
+  assert.deepEqual(calls[1].arguments, [
+    0x4701_000b,
+    269,
+    0x20ff_d9f8,
+  ]);
+  assert.deepEqual(calls.map((call) => call.result), [
+    { action: "set", value: 269 },
+    { action: "set", value: 269 },
+  ]);
+  assert.deepEqual(calls.map((call) => call.returnAddress), [
+    0x1002_c51f,
+    0x1002_c539,
+  ]);
+  assert.deepEqual(calls.map((call) => call.stackPointerBefore), [
+    0x006f_f448,
+    0x006f_f448,
+  ]);
+  assert.deepEqual(calls.map((call) => call.stackPointerAfter), [
+    0x006f_f458,
+    0x006f_f458,
+  ]);
+  assert.deepEqual(calls.map((call) => call.lastError), [0, 0]);
+  assert.equal(calls[0].guestWrites.length, 0);
+  assert.equal(calls[1].guestWrites.length, 1);
+  assert.equal(calls[1].guestWrites[0].address, 0x20ff_d9f8);
+  assert.equal(calls[1].guestWrites[0].bytes.length, 269);
+  assert.equal(
+    sha256(Buffer.from(calls[1].guestWrites[0].bytes)),
+    "61c4984d45246eb696425105af0908561546b01acf02a4242fe2c9f6cf884adc",
+  );
+  assert.equal(calls[1].guestWrites[0].result.bytesWritten, 269);
+  assert.equal(calls[1].guestWrites[0].result.dirtyPages, 1);
+  assert.equal(
+    calls[1].guestWrites[0].result.invalidation.generation,
+    296_733,
+  );
+  for (const call of calls) {
+    assert.equal(call.gdi?.action, "outline-text-metrics-read");
+    assert.equal(call.gdi?.deviceContext?.id, 11);
+    assert.equal(call.gdi?.deviceContext?.handle, 0x4701_000b);
+    assert.equal(call.gdi?.deviceContext?.selectedFontId, 6);
+    assert.equal(call.gdi?.deviceContext?.selectedBitmapId, 7);
+    assert.equal(call.gdi?.deviceContext?.selectionGeneration, 2);
+    assert.equal(call.gdi?.selectedFont?.id, 6);
+    assert.equal(call.gdi?.selectedFont?.handle, 0x4702_0006);
+    assert.equal(call.gdi?.selectedFont?.object?.kind, "font-a");
+    assert.equal(call.gdi?.selectedFont?.object?.logFont?.height, 224);
+    assert.equal(call.gdi?.selectedFont?.object?.logFont?.width, 112);
+    assert.equal(
+      call.gdi?.profileId,
+      "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+    );
+  }
+  assert.equal(result.fault?.capabilityCluster, "user32-api-contract");
+  assert.equal(result.fault?.fault?.class, "unsupported");
+  assert.equal(result.fault?.fault?.stage, "api-dispatch");
+  assert.equal(result.fault?.fault?.code, "endpoint-contract-missing");
+  assert.equal(
+    result.fault?.fault?.message,
+    "owned endpoint user32.dll!GetCursorInfo has no API contract",
+  );
+  assert.deepEqual(result.fault?.endpoint?.endpoint, {
+    id: 168,
+    address: 0x7f00_0a70,
+    module: "user32.dll",
+    symbol: { kind: "name", name: "GetCursorInfo" },
+    iatAddress: 0x100d_1378,
+    disposition: "declared-runtime-export",
+  });
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "cb8497abf612962fe1d7f6cef19d62e17d786daa3018a666d2f88096b5f10312",
+  );
+  assert.equal(result.terminal.instructionCount, 375_285_853);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1008_8c98);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1), [
+    0x006f_f530,
+    20,
+    0,
+    0,
+    0,
+    0,
+    0x006f_f588,
   ]);
   validateScheduledSharedClockCalls(result.supportedCalls);
 }
@@ -39606,7 +39752,13 @@ function buildGenericRuntimeReentryReport({
       );
       if (findFirstFileACheckpointEnabled) {
         if (deleteFileACheckpointEnabled) {
-          if (createDibSection448x336CheckpointEnabled) {
+          if (outlineTextMetrics224x112CheckpointEnabled) {
+            assert.equal(completedSupportedCalls.length, 282_388);
+            assert.equal(
+              supportedCallSemanticsSha256,
+              "9a25b07001da053004f9007b1f1ed546c686a6a2b71e3ad1a0f1f3586067561e",
+            );
+          } else if (createDibSection448x336CheckpointEnabled) {
             assert.equal(completedSupportedCalls.length, 261_035);
             assert.equal(
               supportedCallSemanticsSha256,
@@ -42825,6 +42977,16 @@ function buildScheduledSharedClockPrimaryReport({
           call.gdi?.object?.object?.descriptor?.height === -336,
       ) ?? null
     : null;
+  const outlineTextMetrics224x112Calls =
+    outlineTextMetrics224x112CheckpointEnabled
+      ? completedSupportedCalls.filter(
+          (call) =>
+            call.implementationId ===
+              "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1" &&
+            call.gdi?.profileId ===
+              "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+        )
+      : [];
   const successfulFindCalls = [
     ...findFirstCalls,
     ...findNextCalls.filter((call) => call.result.value === 1),
@@ -42843,7 +43005,9 @@ function buildScheduledSharedClockPrimaryReport({
     };
   });
   return {
-    schema: createDibSection448x336CheckpointEnabled
+    schema: outlineTextMetrics224x112CheckpointEnabled
+      ? "vine.v86-bgi-outline-text-metrics-224x112-primary"
+      : createDibSection448x336CheckpointEnabled
       ? "vine.v86-bgi-create-dib-section-448x336-primary"
       : createFontA224x112CheckpointEnabled
       ? "vine.v86-bgi-create-font-a-224x112-primary"
@@ -42920,6 +43084,16 @@ function buildScheduledSharedClockPrimaryReport({
             dibSectionPixelByteLength: 150_528,
             dibSectionMappedByteLength: 151_552,
             dibSectionBrowserBitmapImported: false,
+          }
+        : {}),
+      ...(outlineTextMetrics224x112CheckpointEnabled
+        ? {
+            outlineTextMetricsAuthority:
+              "runtime/gdi.rs::RuntimeGdi+gdi32-versioned-policy",
+            outlineTextMetricsProfileId:
+              "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
+            outlineTextMetricsHostFontImported: false,
+            outlineTextMetricsBrowserFontImported: false,
           }
         : {}),
     },
@@ -43033,6 +43207,14 @@ function buildScheduledSharedClockPrimaryReport({
             createDibSection448x336: {
               completionCount: createDibSection448x336Call === null ? 0 : 1,
               call: createDibSection448x336Call,
+            },
+          }
+        : {}),
+      ...(outlineTextMetrics224x112CheckpointEnabled
+        ? {
+            outlineTextMetrics224x112: {
+              completionCount: outlineTextMetrics224x112Calls.length,
+              calls: outlineTextMetrics224x112Calls,
             },
           }
         : {}),

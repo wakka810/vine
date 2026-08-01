@@ -7,6 +7,7 @@ import { planBgiCheckpointCommand } from "./bgi-checkpoint-command.mjs";
 import { loadCurrentCheckpoint } from "./current-checkpoint.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const runtimeReplayHeapLimitMiB = 8 * 1024;
 const manifest = loadCurrentCheckpoint(
   path.join(root, "docs", "current-checkpoint.json"),
 );
@@ -20,7 +21,11 @@ try {
 }
 const result = spawnSync(
   process.execPath,
-  [path.join(root, "tools", "run-runtime-v86-bgi-first-trap.mjs"), ...plan.runnerArguments],
+  [
+    `--max-old-space-size=${runtimeReplayHeapLimitMiB}`,
+    path.join(root, "tools", "run-runtime-v86-bgi-first-trap.mjs"),
+    ...plan.runnerArguments,
+  ],
   { cwd: root, stdio: "inherit" },
 );
 if (result.error) {
