@@ -1227,24 +1227,33 @@ function assertScheduledSharedClockReportSemantics({
   assert.deepEqual(nodeReport.contract.clockProfile, scheduled.profile);
   assert.deepEqual(policy.clockProfile, scheduled.profile);
   assert.equal(nodeReport.contract.scheduleSource, scheduled.scheduleSource);
-  assert.equal(policy.clockScheduleSource, scheduled.scheduleSource);
+  assert.equal(
+    active.kernel32CompatibilityPolicy.clockScheduleSource,
+    scheduled.scheduleSource,
+  );
   assert.equal(
     nodeReport.contract.retiredInstructionsPerSecond,
     scheduled.retiredInstructionsPerSecond,
   );
   assert.equal(
-    policy.clockScheduledRetiredInstructionsPerSecond,
+    active.kernel32CompatibilityPolicy.clockScheduledRetiredInstructionsPerSecond,
     scheduled.retiredInstructionsPerSecond,
   );
   assert.equal(nodeReport.contract.resolution100ns, scheduled.resolution100ns);
-  assert.equal(policy.clockResolution100ns, scheduled.resolution100ns);
+  assert.equal(
+    active.kernel32CompatibilityPolicy.clockResolution100ns,
+    scheduled.resolution100ns,
+  );
   assert.equal(nodeReport.contract.apiReadsAdvanceClock, false);
-  assert.equal(policy.clockApiReadsAdvance, false);
+  assert.equal(active.kernel32CompatibilityPolicy.clockApiReadsAdvance, false);
   assert.equal(nodeReport.contract.waitDeadlinesShareClock, true);
-  assert.equal(policy.clockWaitDeadlinesShareAuthority, true);
+  assert.equal(
+    active.kernel32CompatibilityPolicy.clockWaitDeadlinesShareAuthority,
+    true,
+  );
   assert.equal(nodeReport.contract.hostTimeImported, false);
-  assert.equal(policy.clockHostTimeImported, false);
-  assert.equal(policy.clockBrowserTimeImported, false);
+  assert.equal(active.kernel32CompatibilityPolicy.clockHostTimeImported, false);
+  assert.equal(active.kernel32CompatibilityPolicy.clockBrowserTimeImported, false);
   assert.equal(
     nodeReport.contract.semanticCallDigestAlgorithm,
     "sha256-canonical-json-v1",
