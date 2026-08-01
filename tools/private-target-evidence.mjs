@@ -19,6 +19,32 @@ function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+export function projectPrivateTargetExpectedBrowserEvidence(checkpoint) {
+  const historical = checkpoint.browserCheckpoint.bgiRuntimeEvidence;
+  const scheduled = checkpoint.activeRuntimeCheckpoint.scheduledSharedClock;
+  if (
+    !isRecord(scheduled) ||
+    scheduled.status !== "passed" ||
+    scheduled.profile?.progression !== "scheduled-shared"
+  ) {
+    return historical;
+  }
+
+  const node = scheduled.nodePrimaryEvidence;
+  const browser = scheduled.browserBoundaryEvidence;
+  return {
+    ...historical,
+    sourceBytes: node.sourceBytes,
+    sourceSha256: node.sourceSha256,
+    callSemanticsSha256: node.supportedCallSemanticsSha256,
+    nodeFinalGeneration: node.finalMemoryGeneration,
+    finalGeneration: browser.privatePrimaryFinalMemoryGeneration,
+    memoryContentSha256: node.terminalMemoryContentSha256,
+    runtimeCoreWasmBytes: browser.runtimeCoreWasmBytes,
+    runtimeCoreWasmSha256: browser.runtimeCoreWasmSha256,
+  };
+}
+
 function requireRecord(value, label, errors) {
   if (!isRecord(value)) {
     errors.push(`${label} must be an object`);
@@ -1862,7 +1888,8 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
   requireInteger(source.bytes, "evidence.source.bytes", errors, 1);
   requireSha256(source.sha256, "evidence.source.sha256", errors);
 
-  const expectedBrowser = checkpoint.browserCheckpoint.bgiRuntimeEvidence;
+  const expectedBrowser =
+    projectPrivateTargetExpectedBrowserEvidence(checkpoint);
   checkEqual(source.bytes, expectedBrowser.sourceBytes, "evidence.source.bytes", errors);
   checkEqual(source.sha256, expectedBrowser.sourceSha256, "evidence.source.sha256", errors);
 

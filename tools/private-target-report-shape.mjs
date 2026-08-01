@@ -12,7 +12,7 @@ function requireRecord(value, label) {
 }
 
 export function projectWaitableTimerPacingRequests(waitableTimerWait) {
-  const wait = requireRecord(waitableTimerWait, "waitableTimerWait");
+  const wait = requireRecord(waitableTimerWait, "timer pacing evidence");
   const hasFull = Object.hasOwn(wait, "pacingRequests");
   const compactFields = [
     "pacingRequestCount",
@@ -20,14 +20,16 @@ export function projectWaitableTimerPacingRequests(waitableTimerWait) {
     "lastPacingRequest",
   ];
   const hasCompact = compactFields.some((field) => Object.hasOwn(wait, field));
-  if (hasFull === hasCompact) {
+  const scheduledFields = ["count", "first", "last"];
+  const hasScheduled = scheduledFields.some((field) => Object.hasOwn(wait, field));
+  if ([hasFull, hasCompact, hasScheduled].filter(Boolean).length !== 1) {
     throw new TypeError(
-      "waitableTimerWait must have exactly one full or compact pacing shape",
+      "timer pacing evidence must have exactly one full, compact, or scheduled shape",
     );
   }
   if (hasFull) {
     if (!Array.isArray(wait.pacingRequests)) {
-      throw new TypeError("waitableTimerWait.pacingRequests must be an array");
+      throw new TypeError("timer pacing evidence.pacingRequests must be an array");
     }
     return {
       totalCount: wait.pacingRequests.length,
@@ -35,28 +37,30 @@ export function projectWaitableTimerPacingRequests(waitableTimerWait) {
     };
   }
 
-  const totalCount = wait.pacingRequestCount;
+  const totalCount = hasScheduled ? wait.count : wait.pacingRequestCount;
   if (!Number.isSafeInteger(totalCount) || totalCount < 0) {
     throw new TypeError(
-      "waitableTimerWait.pacingRequestCount must be a non-negative integer",
+      "timer pacing evidence count must be a non-negative integer",
     );
   }
+  const firstRequest = hasScheduled ? wait.first : wait.firstPacingRequest;
+  const lastRequest = hasScheduled ? wait.last : wait.lastPacingRequest;
   if (totalCount === 0) {
-    if (wait.firstPacingRequest !== null || wait.lastPacingRequest !== null) {
+    if (firstRequest !== null || lastRequest !== null) {
       throw new TypeError(
-        "empty compact pacing evidence must have null first and last requests",
+        "empty pacing evidence must have null first and last requests",
       );
     }
     return { totalCount, sampledRequests: [] };
   }
 
   const first = requireRecord(
-    wait.firstPacingRequest,
-    "waitableTimerWait.firstPacingRequest",
+    firstRequest,
+    "timer pacing evidence first request",
   );
   const last = requireRecord(
-    wait.lastPacingRequest,
-    "waitableTimerWait.lastPacingRequest",
+    lastRequest,
+    "timer pacing evidence last request",
   );
   if (totalCount === 1) {
     if (!isDeepStrictEqual(first, last)) {

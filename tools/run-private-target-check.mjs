@@ -17,6 +17,7 @@ import {
   finalizePrivateTargetEvidence,
   PRIVATE_TARGET_EVIDENCE_SCHEMA,
   PRIVATE_TARGET_EVIDENCE_VERSION,
+  projectPrivateTargetExpectedBrowserEvidence,
 } from "./private-target-evidence.mjs";
 import {
   projectCapabilityCheckpointCompletion,
@@ -1153,6 +1154,319 @@ function assertExecutionStateReport(report, scenario) {
   }
 }
 
+function isScheduledSharedClockNodeReport(report) {
+  return report?.schema === "vine.v86-bgi-scheduled-shared-clock-primary";
+}
+
+function projectScheduledSharedClockCheckpointCompletion(
+  nodeReport,
+  expectedNext,
+) {
+  const execution = nodeReport.execution;
+  const setWindowText = execution.setWindowTextA;
+  const call = setWindowText.call;
+  const nextEndpoint = nodeReport.stop.fault.endpoint.endpoint;
+  const reachedNextEndpointWithClockProgress =
+    execution.clockSamples.count > 0 &&
+    execution.windowTimerCallbacks.count > 0 &&
+    setWindowText.count > 0 &&
+    nodeReport.stop.fault.fault.code === "endpoint-contract-missing";
+  return {
+    capability: "user32-set-window-text-a-post-scheduled-shared-clock",
+    implementationId:
+      "runtime.user32-set-window-text-a-post-scheduled-shared-clock.v1",
+    requiredCompletions: 1,
+    completionCount: setWindowText.count,
+    lastCompletionSequence: call.sequence,
+    lastCompletionInstructionCount: call.callback.returnInstructionCount,
+    defaultProcessingSequence: setWindowText.defaultProcessing.sequence,
+    callbackEventCount: setWindowText.callbackEvents.length,
+    clockProfileId: nodeReport.contract.clockProfile.id,
+    clockSampleCount: execution.clockSamples.count,
+    windowTimerCallbackCount: execution.windowTimerCallbacks.count,
+    presentCount: execution.presentations.count,
+    pointerInputEventCount: execution.pointerInput.count,
+    // The cycle is a static scenario scheduling boundary. The compact Node
+    // report records both injected receipts and their exact call boundaries.
+    inputTimerCycleCount: expectedNext.completion.inputTimerCycleCount,
+    inputQuerySequence: execution.pointerInput.last.committedAfterSequence,
+    thirdPresentReached: execution.presentations.thirdPresentReached,
+    clockFreezeWasProximateCause: !reachedNextEndpointWithClockProgress,
+    instructionCount: nodeReport.stop.terminal.instructionCount,
+    nextEndpoint,
+    memoryContentSha256: nodeReport.stop.fault.memoryContentSha256,
+  };
+}
+
+function assertScheduledSharedClockReportSemantics({
+  checkpoint,
+  nodeReport,
+  browserReport,
+  policy,
+  executionEngine,
+  source,
+}) {
+  const active = checkpoint.activeRuntimeCheckpoint;
+  const scheduled = active.scheduledSharedClock;
+  const expected = projectPrivateTargetExpectedBrowserEvidence(checkpoint);
+  const expectedNext = checkpoint.nextStructuredStop;
+  const nodeExecution = nodeReport.execution;
+  const nodeStop = nodeReport.stop;
+  const browser = browserReport.success.report;
+  const sourceIdentity = { bytes: source.bytes, sha256: source.sha256 };
+
+  assert.equal(expectedNext.kind, "capability-checkpoint");
+  assert.equal(scheduled.status, "passed");
+  assert.deepEqual(nodeReport.source, sourceIdentity, "Node source fingerprint mismatch");
+  assert.deepEqual(browserReport.source, sourceIdentity, "browser source fingerprint mismatch");
+  assert.deepEqual(nodeReport.sourceSnapshot, {
+    immutableAcrossRun: true,
+    before: sourceIdentity,
+    after: sourceIdentity,
+  });
+  assert.deepEqual(nodeReport.contract.clockProfile, scheduled.profile);
+  assert.deepEqual(policy.clockProfile, scheduled.profile);
+  assert.equal(nodeReport.contract.scheduleSource, scheduled.scheduleSource);
+  assert.equal(policy.clockScheduleSource, scheduled.scheduleSource);
+  assert.equal(
+    nodeReport.contract.retiredInstructionsPerSecond,
+    scheduled.retiredInstructionsPerSecond,
+  );
+  assert.equal(
+    policy.clockScheduledRetiredInstructionsPerSecond,
+    scheduled.retiredInstructionsPerSecond,
+  );
+  assert.equal(nodeReport.contract.resolution100ns, scheduled.resolution100ns);
+  assert.equal(policy.clockResolution100ns, scheduled.resolution100ns);
+  assert.equal(nodeReport.contract.apiReadsAdvanceClock, false);
+  assert.equal(policy.clockApiReadsAdvance, false);
+  assert.equal(nodeReport.contract.waitDeadlinesShareClock, true);
+  assert.equal(policy.clockWaitDeadlinesShareAuthority, true);
+  assert.equal(nodeReport.contract.hostTimeImported, false);
+  assert.equal(policy.clockHostTimeImported, false);
+  assert.equal(policy.clockBrowserTimeImported, false);
+  assert.equal(
+    nodeReport.contract.semanticCallDigestAlgorithm,
+    "sha256-canonical-json-v1",
+  );
+  assert.equal(
+    nodeReport.process.implementedApiContracts,
+    active.genericDispatcherContractCount,
+  );
+  assert.equal(
+    nodeExecution.completedSupportedCalls,
+    active.genericDispatcherCallOccurrenceCount,
+  );
+  assert.equal(
+    nodeExecution.completedSupportedCalls,
+    scheduled.nodePrimaryEvidence.completedSupportedCalls,
+  );
+  assert.equal(
+    nodeExecution.supportedCallSemanticsSha256,
+    scheduled.nodePrimaryEvidence.supportedCallSemanticsSha256,
+  );
+  assert.equal(nodeExecution.supportedCallSemanticsSha256, expected.callSemanticsSha256);
+  assert.equal(Object.hasOwn(nodeExecution, "supportedCalls"), false);
+  assert.deepEqual(
+    nodeExecution.threadExecution.registeredThreadIds,
+    browser.registeredThreadIds,
+  );
+  assert.deepEqual(
+    nodeExecution.threadExecution.executedThreadIds,
+    browser.executedThreadIds,
+  );
+  assert.equal(
+    nodeExecution.threadExecution.contextSwitches,
+    browser.contextSwitches,
+  );
+
+  const nodePacing = projectWaitableTimerPacingRequests(
+    nodeExecution.timerPacing,
+  );
+  assert.equal(
+    nodePacing.totalCount,
+    scheduled.nodePrimaryEvidence.timerPacingCompletionCount,
+  );
+  assert.equal(
+    nodePacing.totalCount,
+    scheduled.browserBoundaryEvidence.privatePrimaryTimerPacingCompletionCount,
+  );
+  for (const request of nodePacing.sampledRequests) {
+    assert.equal(request.outcome, "object-signaled");
+    assert.equal(request.pacing, "deterministic-node-ack");
+  }
+  assert.deepEqual(browser.timerPacing, {
+    requests: nodePacing.totalCount,
+    completions: nodePacing.totalCount,
+    cancellations: 0,
+    freezes: 0,
+    resumes: 0,
+    staleCallbacks: 0,
+    boundedCatchUps: 0,
+    pending: 0,
+  });
+
+  assert.equal(
+    nodeExecution.clockSamples.count,
+    scheduled.nodePrimaryEvidence.clockSampleCount,
+  );
+  assert.equal(
+    nodeExecution.windowTimerCallbacks.count,
+    scheduled.nodePrimaryEvidence.windowTimerCallbackCount,
+  );
+  assert.equal(
+    nodeExecution.presentations.count,
+    scheduled.nodePrimaryEvidence.presentCount,
+  );
+  assert.equal(nodeExecution.presentations.thirdPresentReached, false);
+  assert.equal(nodeExecution.keyboardInput.count, 0);
+  assert.equal(nodeExecution.pointerInput.count, 2);
+  assert.equal(browser.keyboardInput.receivedMessages, 0);
+  assert.equal(browser.keyboardInput.receipts.length, 0);
+  assert.equal(browser.pointerInput.receivedMessages, 2);
+  assert.equal(browser.pointerInput.queuedBeforePrepare, 2);
+  assert.deepEqual(browser.pointerInput.receipts, [
+    nodeExecution.pointerInput.first.receipt,
+    nodeExecution.pointerInput.last.receipt,
+  ]);
+  assert.equal(
+    nodeExecution.pointerInput.first.committedAfterSequence,
+    scheduled.nodePrimaryEvidence.pointerInputDownCommittedAfterSequence,
+  );
+  assert.equal(
+    nodeExecution.pointerInput.last.committedAfterSequence,
+    scheduled.nodePrimaryEvidence.pointerInputUpCommittedAfterSequence,
+  );
+
+  const setWindowText = nodeExecution.setWindowTextA;
+  assert.equal(setWindowText.count, 1);
+  assert.equal(setWindowText.call.symbol, "SetWindowTextA");
+  assert.equal(setWindowText.call.result.value, 1);
+  assert.equal(setWindowText.call.window.name.value, "サクラノ詩");
+  assert.equal(setWindowText.call.window.name.encoding, "windows-932-v1");
+  assert.equal(setWindowText.call.callback.result, 1);
+  assert.equal(setWindowText.defaultProcessing.symbol, "DefWindowProcA");
+  assert.deepEqual(
+    setWindowText.callbackEvents.map(({ action }) => action),
+    ["enter", "return"],
+  );
+
+  const nodeEndpoint = nodeStop.fault.endpoint.endpoint;
+  const expectedEndpoint = expectedNext.nextEndpoint;
+  assert.equal(nodeStop.fault.capabilityCluster, expectedNext.capabilityCluster);
+  assert.equal(nodeStop.fault.fault.code, "endpoint-contract-missing");
+  assert.equal(nodeStop.fault.endpoint.kind, expectedEndpoint.endpointKind);
+  assert.equal(nodeEndpoint.id, expectedEndpoint.endpointId);
+  assert.equal(hex32(nodeEndpoint.address), expectedEndpoint.endpointAddress);
+  assert.equal(optionalHex32(nodeEndpoint.iatAddress), expectedEndpoint.iatAddress);
+  assert.equal(
+    `${nodeEndpoint.module}!${formatRuntimeEndpointSymbol(nodeEndpoint)}`.toLowerCase(),
+    expectedEndpoint.api.toLowerCase(),
+  );
+  assert.equal(nodeStop.terminal.instructionCount, expectedNext.instructionCount);
+  assert.equal(
+    hex32(nodeStop.terminal.terminal.returnAddress),
+    expectedEndpoint.returnAddress,
+  );
+  assert.deepEqual(nodeStop.arguments.map(hex32), expectedEndpoint.arguments);
+  assert.equal(nodeStop.fault.memoryContentSha256, expected.memoryContentSha256);
+
+  const nodeCheckpoint = projectScheduledSharedClockCheckpointCompletion(
+    nodeReport,
+    expectedNext,
+  );
+  assertCapabilityCheckpoint(nodeCheckpoint, expectedNext);
+  assert.equal(nodeCheckpoint.memoryContentSha256, expected.memoryContentSha256);
+
+  assert.equal(browserReport.runtimeProtocol, checkpoint.browserCheckpoint.browserRuntimeProtocol);
+  assert.equal(browserReport.schema, BROWSER_BGI_REPORT_SCHEMA);
+  assert.equal(browserReport.schemaVersion, BROWSER_BGI_REPORT_SCHEMA_VERSION);
+  assert.equal(browser.outcome, "checkpoint-complete");
+  assert.equal(browser.evidenceLevel, "summary");
+  assert.equal(browser.supportedCallCount, nodeExecution.completedSupportedCalls);
+  assert.equal(browser.supportedCalls.length, 0);
+  assert.equal(browser.supportedCallSemanticsAlgorithm, "sha256-canonical-json-v1");
+  assert.equal(
+    browser.supportedCallSemanticsSha256,
+    nodeExecution.supportedCallSemanticsSha256,
+  );
+  assert.equal(browser.instructions, expectedNext.instructionCount);
+  assert.equal(
+    browser.finalGeneration,
+    scheduled.browserBoundaryEvidence.privatePrimaryFinalMemoryGeneration,
+  );
+  assert.equal(
+    browser.mappingDeltas,
+    scheduled.browserBoundaryEvidence.privatePrimaryMappingDeltas,
+  );
+  assert.equal(
+    browser.writebackBatches,
+    scheduled.browserBoundaryEvidence.privatePrimaryWritebackBatches,
+  );
+  assert.equal(browser.pendingHostCalls, 0);
+  assert.equal(browser.pendingCallbacks, 0);
+
+  const browserUnsupported = browser.firstUnsupported;
+  assert.equal(browserUnsupported.capabilityCluster, expectedNext.capabilityCluster);
+  assert.equal(browserUnsupported.fault.code, "endpoint-contract-missing");
+  assert.equal(browserUnsupported.instructionCount, expectedNext.instructionCount);
+  assert.equal(browserUnsupported.memoryContentSha256, expected.memoryContentSha256);
+  assert.equal(browserUnsupported.endpoint.id, expectedEndpoint.endpointId);
+  assert.equal(hex32(browserUnsupported.endpoint.address), expectedEndpoint.endpointAddress);
+  assert.equal(
+    optionalHex32(browserUnsupported.endpoint.iatAddress),
+    expectedEndpoint.iatAddress,
+  );
+  assert.equal(
+    `${browserUnsupported.endpoint.module}!${formatRuntimeEndpointSymbol(
+      browserUnsupported.endpoint,
+    )}`.toLowerCase(),
+    expectedEndpoint.api.toLowerCase(),
+  );
+  assertCapabilityCheckpoint(browser.checkpointCompletion, expectedNext);
+  assert.equal(
+    browser.checkpointCompletion.memoryContentSha256,
+    expected.memoryContentSha256,
+  );
+  assert.equal(
+    browser.checkpointCompletion.memoryContentSha256,
+    nodeCheckpoint.memoryContentSha256,
+    "Node/browser final memory mismatch",
+  );
+  assert.equal(
+    nodeReport.synchronization.finalGeneration,
+    scheduled.nodePrimaryEvidence.finalMemoryGeneration,
+  );
+  assert.equal(
+    nodeReport.synchronization.writebackBatches,
+    scheduled.nodePrimaryEvidence.writebackBatches,
+  );
+  assert.equal(
+    nodeReport.synchronization.hostDeltaBatches,
+    scheduled.nodePrimaryEvidence.hostDeltaBatches,
+  );
+  assert.equal(nodeReport.synchronization.activeCallbackDepth, 0);
+
+  assert.equal(browserReport.cancellation.report.pendingHostCalls, 0);
+  assert.equal(browserReport.cancellation.report.pendingCallbacks, 0);
+  assert.equal(browserReport.watchdog.report.pendingHostCalls, 0);
+  assert.equal(browserReport.watchdog.report.pendingCallbacks, 0);
+  assertExecutionStateReport(browser, "success");
+  assertExecutionStateReport(browserReport.cancellation.report, "cancellation");
+  assertExecutionStateReport(browserReport.watchdog.report, "watchdog");
+  for (const report of [
+    browser,
+    browserReport.cancellation.report,
+    browserReport.watchdog.report,
+  ]) {
+    assert.deepEqual(report.executionEngine, executionEngine);
+  }
+  assert.equal(
+    browser.executionEngineLinearMemoryBytes,
+    expected.executionEngineLinearMemoryBytes,
+  );
+}
+
 function assertReportSemantics({
   checkpoint,
   nodeReport,
@@ -1161,6 +1475,17 @@ function assertReportSemantics({
   executionEngine,
   source,
 }) {
+  if (isScheduledSharedClockNodeReport(nodeReport)) {
+    assertScheduledSharedClockReportSemantics({
+      checkpoint,
+      nodeReport,
+      browserReport,
+      policy,
+      executionEngine,
+      source,
+    });
+    return;
+  }
   const active = checkpoint.activeRuntimeCheckpoint;
   const expectedBrowser = checkpoint.browserCheckpoint.bgiRuntimeEvidence;
   const expectedNext = checkpoint.nextStructuredStop;
@@ -1529,7 +1854,7 @@ const source = {
   bytes: bgiBytes.byteLength,
   sha256: sha256(bgiBytes),
 };
-const expectedSource = checkpoint.browserCheckpoint.bgiRuntimeEvidence;
+const expectedSource = projectPrivateTargetExpectedBrowserEvidence(checkpoint);
 if (
   source.bytes !== expectedSource.sourceBytes ||
   source.sha256 !== expectedSource.sourceSha256
@@ -1643,9 +1968,35 @@ assert.deepEqual(
 assert.equal(browserReport.nodeOracle.bytes, artifacts.nodeReport.bytes);
 assert.equal(browserReport.nodeOracle.sha256, artifacts.nodeReport.sha256);
 
-const expectedBrowser = checkpoint.browserCheckpoint.bgiRuntimeEvidence;
+const expectedBrowser = projectPrivateTargetExpectedBrowserEvidence(checkpoint);
 const benchmark = checkpoint.browserCheckpoint.bgiBenchmarkEvidence;
 const actualAllowedDirtyPaths = beforeDirtyPaths.filter((entry) => allowed.has(entry));
+const scheduledNodeReport = isScheduledSharedClockNodeReport(nodeReport);
+const nodeCheckpointCompletion =
+  checkpoint.nextStructuredStop.kind !== "capability-checkpoint"
+    ? null
+    : scheduledNodeReport
+      ? projectScheduledSharedClockCheckpointCompletion(
+          nodeReport,
+          checkpoint.nextStructuredStop,
+        )
+      : nodeReport.checkpointCompletion;
+const nodeSupportedCalls = scheduledNodeReport
+  ? nodeReport.execution.completedSupportedCalls
+  : nodeReport.supportedCallCount;
+const nodeCallSemanticsSha256 = scheduledNodeReport
+  ? nodeReport.execution.supportedCallSemanticsSha256
+  : nodeReport.supportedCallSemanticsSha256;
+const nodeInstructions = scheduledNodeReport
+  ? nodeReport.stop.terminal.instructionCount
+  : checkpoint.nextStructuredStop.kind === "capability-checkpoint"
+    ? nodeReport.checkpointCompletion.instructionCount
+    : nodeReport.firstUnsupported.instructionCount;
+const nodeMemoryContentSha256 = scheduledNodeReport
+  ? nodeReport.stop.fault.memoryContentSha256
+  : checkpoint.nextStructuredStop.kind === "capability-checkpoint"
+    ? nodeReport.checkpointCompletion.memoryContentSha256
+    : nodeReport.firstUnsupported.memoryContentSha256;
 const evidence = finalizePrivateTargetEvidence({
   schema: PRIVATE_TARGET_EVIDENCE_SCHEMA,
   schemaVersion: PRIVATE_TARGET_EVIDENCE_VERSION,
@@ -1717,27 +2068,25 @@ const evidence = finalizePrivateTargetEvidence({
           ? "checkpoint-complete"
           : "structured-stop",
       implementedApiContracts: nodeReport.process.implementedApiContracts,
-      supportedCalls: nodeReport.supportedCallCount,
-      callSemanticsSha256: nodeReport.supportedCallSemanticsSha256,
-      instructions:
-        checkpoint.nextStructuredStop.kind === "capability-checkpoint"
-          ? nodeReport.checkpointCompletion.instructionCount
-          : nodeReport.firstUnsupported.instructionCount,
+      supportedCalls: nodeSupportedCalls,
+      callSemanticsSha256: nodeCallSemanticsSha256,
+      instructions: nodeInstructions,
       finalGeneration: nodeReport.synchronization.finalGeneration,
-      memoryContentSha256:
-        checkpoint.nextStructuredStop.kind === "capability-checkpoint"
-          ? nodeReport.checkpointCompletion.memoryContentSha256
-          : nodeReport.firstUnsupported.memoryContentSha256,
+      memoryContentSha256: nodeMemoryContentSha256,
       ...(checkpoint.nextStructuredStop.kind === "capability-checkpoint"
         ? {
             checkpointCompletion: projectCapabilityCheckpointCompletion(
-              nodeReport.checkpointCompletion,
+              nodeCheckpointCompletion,
             ),
           }
         : {}),
       writebackBatches: nodeReport.synchronization.writebackBatches,
-      dirtyPages: nodeReport.synchronization.dirtyPages,
-      changedBytes: nodeReport.synchronization.changedBytes,
+      ...(nodeReport.synchronization.dirtyPages === undefined
+        ? {}
+        : { dirtyPages: nodeReport.synchronization.dirtyPages }),
+      ...(nodeReport.synchronization.changedBytes === undefined
+        ? {}
+        : { changedBytes: nodeReport.synchronization.changedBytes }),
       hostDeltaBatches: nodeReport.synchronization.hostDeltaBatches,
     },
     browser: {

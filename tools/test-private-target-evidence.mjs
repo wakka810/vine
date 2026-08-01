@@ -12,6 +12,7 @@ import {
   finalizePrivateTargetEvidence,
   PRIVATE_TARGET_EVIDENCE_SCHEMA,
   PRIVATE_TARGET_EVIDENCE_VERSION,
+  projectPrivateTargetExpectedBrowserEvidence,
   validatePrivateTargetEvidenceDescendantPaths,
   validatePrivateTargetEvidence,
 } from "./private-target-evidence.mjs";
@@ -105,6 +106,17 @@ assert.deepEqual(
 );
 assert.deepEqual(
   projectWaitableTimerPacingRequests({
+    count: 4_706,
+    first: firstPacingRequest,
+    last: lastPacingRequest,
+  }),
+  {
+    totalCount: 4_706,
+    sampledRequests: [firstPacingRequest, lastPacingRequest],
+  },
+);
+assert.deepEqual(
+  projectWaitableTimerPacingRequests({
     pacingRequestCount: 1,
     firstPacingRequest,
     lastPacingRequest: structuredClone(firstPacingRequest),
@@ -122,7 +134,7 @@ assert.throws(
       firstPacingRequest: null,
       lastPacingRequest: null,
     }),
-  /exactly one full or compact pacing shape/u,
+  /exactly one full, compact, or scheduled shape/u,
 );
 assert.throws(
   () =>
@@ -160,6 +172,30 @@ assert.throws(
   () => projectCapabilityCheckpointCompletion(wrongOwnerCompletion),
   /requires the SetFocus owner thread/u,
 );
+
+const expectedBrowserEvidence =
+  projectPrivateTargetExpectedBrowserEvidence(checkpoint);
+if (
+  checkpoint.activeRuntimeCheckpoint.scheduledSharedClock?.status === "passed"
+) {
+  const scheduled = checkpoint.activeRuntimeCheckpoint.scheduledSharedClock;
+  assert.equal(
+    expectedBrowserEvidence.callSemanticsSha256,
+    scheduled.nodePrimaryEvidence.supportedCallSemanticsSha256,
+  );
+  assert.equal(
+    expectedBrowserEvidence.nodeFinalGeneration,
+    scheduled.nodePrimaryEvidence.finalMemoryGeneration,
+  );
+  assert.equal(
+    expectedBrowserEvidence.finalGeneration,
+    scheduled.browserBoundaryEvidence.privatePrimaryFinalMemoryGeneration,
+  );
+  assert.equal(
+    expectedBrowserEvidence.runtimeCoreWasmSha256,
+    scheduled.browserBoundaryEvidence.runtimeCoreWasmSha256,
+  );
+}
 
 assert.equal(
   formatRuntimeEndpointSymbol({ name: "DirectSoundCreate8" }),
@@ -204,7 +240,7 @@ assert.throws(
 );
 
 function validEvidence() {
-  const browser = checkpoint.browserCheckpoint.bgiRuntimeEvidence;
+  const browser = projectPrivateTargetExpectedBrowserEvidence(checkpoint);
   const policy = checkpoint.activeRuntimeCheckpoint.kernel32CompatibilityPolicy;
   const capabilityCheckpoint =
     checkpoint.nextStructuredStop.kind === "capability-checkpoint";
