@@ -1742,7 +1742,10 @@ function assertScheduledSharedClockReportSemantics({
     nodeExecution.presentations.count,
     scheduled.nodePrimaryEvidence.presentCount,
   );
-  assert.equal(nodeExecution.presentations.thirdPresentReached, false);
+  assert.equal(
+    nodeExecution.presentations.thirdPresentReached,
+    scheduled.nodePrimaryEvidence.thirdPresentReached,
+  );
   assert.equal(nodeExecution.keyboardInput.count, 0);
   assert.equal(nodeExecution.pointerInput.count, 2);
   assert.equal(browser.keyboardInput.receivedMessages, 0);

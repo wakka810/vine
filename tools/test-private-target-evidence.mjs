@@ -34,6 +34,11 @@ assert.match(
   privateTargetRunner,
   /if \(expected\.completion\.requiredEntries !== undefined\) \{[\s\S]*?actual\.releaseCallbackEntry\.depth,[\s\S]*?actual\.queueDepthAtDispatchEntry,[\s\S]*?if \(expected\.completion\.requiredCompletions !== undefined\) \{[\s\S]*?postReleasePeek[\s\S]*?actual\.peekMessagePostRelease\.sequence[\s\S]*?actual\.postReleaseQueueDepthAfter, 0[\s\S]*?actual\.defWindowProcARelease\.sequence[\s\S]*?actual\.releaseCallbackReturn\.frameId,[\s\S]*?actual\.activeCallbackDepthAtStop, 0[\s\S]*?\} else \{[\s\S]*?actual\.activeCallbackDepthAtStop, 1[\s\S]*?\}[\s\S]*?\} else if \(expected\.completion\.requiredPointerMessages !== undefined\)/u,
 );
+assert.match(
+  privateTargetRunner,
+  /nodeExecution\.presentations\.thirdPresentReached,\s*scheduled\.nodePrimaryEvidence\.thirdPresentReached/u,
+  "private target gate must derive third-Present acceptance from the active manifest",
+);
 const checkpoint = loadCurrentCheckpoint(
   path.join(root, "docs", "current-checkpoint.json"),
 );
