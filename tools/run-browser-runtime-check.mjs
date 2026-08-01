@@ -86,7 +86,10 @@ const bgiProfile =
     : checkpoint.activeRuntimeCheckpoint.capabilityProfile ??
       checkpoint.activeRuntimeCheckpoint.profile);
 const deleteFileAProfile = bgiProfile === "kernel32-delete-file-a";
+const createFontA224x112Profile =
+  bgiProfile === "gdi-create-font-a-224x112";
 const privateHeapOrdinarySegmentGrowthProfile =
+  createFontA224x112Profile ||
   bgiProfile === "kernel32-private-heap-ordinary-segment-growth";
 const findFirstFileAProfile =
   deleteFileAProfile ||
@@ -358,7 +361,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v104";
+const runtimeProtocol = "vine.browser-runtime-worker.v105";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -1286,6 +1289,135 @@ function validatePrivateHeapOrdinarySegmentGrowthBgiProbe(
   );
 }
 
+function validateCreateFontA224x112BgiProbe(evidence, scenario) {
+  if (scenario !== "success") {
+    validateScheduledSharedClockBgiProbe(evidence, scenario);
+    return;
+  }
+  const report = evidence.report;
+  const completion = report.checkpointCompletion;
+  const call = completion.call;
+  assert.equal(report.outcome, "checkpoint-complete");
+  assert.equal(report.error, null);
+  assert.equal(report.supportedCallCount, 261_030);
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    "8058bf7a6ebd37f36c7f486316a8b22faf44368dbc313938dfe4d0eb076c1c13",
+  );
+  assert.equal(report.instructions, 342_875_151);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert.equal(report.sourceReads.length, 139);
+  assert.equal(report.writableDirectoryCreates.length, 1);
+  assert.equal((report.heapPageMaterializations ?? []).length, 3_108);
+  assert.equal(report.firstUnsupported.capabilityCluster, "gdi32-api-contract");
+  assert.equal(report.firstUnsupported.endpoint.id, 257);
+  assert.equal(report.firstUnsupported.endpoint.address, 0x7f00_1000);
+  assert.equal(
+    report.firstUnsupported.endpoint.module.toLowerCase(),
+    "gdi32.dll",
+  );
+  assert.deepEqual(report.firstUnsupported.endpoint.symbol, {
+    kind: "name",
+    name: "CreateDIBSection",
+  });
+  assert.equal(report.firstUnsupported.fault.class, "unsupported");
+  assert.equal(report.firstUnsupported.fault.stage, "gdi32-dib-section");
+  assert.equal(
+    report.firstUnsupported.fault.code,
+    "create-dib-section-variant-unsupported",
+  );
+  assert.equal(
+    report.firstUnsupported.memoryContentSha256,
+    "ae64fe329dde1e281c28e72fd56000e3c64b7e85f6e83119f830600f21840039",
+  );
+  assert.equal(
+    completion.capability,
+    "gdi32-create-font-a-224x112-post-private-heap-segment-growth",
+  );
+  assert.equal(
+    completion.implementationId,
+    "runtime.gdi32-create-font-a-224x112-post-private-heap-segment-growth.v1",
+  );
+  assert.equal(completion.requiredCompletions, 1);
+  assert.equal(completion.completionCount, 1);
+  assert.equal(completion.prerequisiteHeapGrowthSequence, 260_631);
+  assert.equal(
+    completion.prerequisiteHeapGrowthInstructionCount,
+    341_618_572,
+  );
+  assert.equal(completion.completionSequence, 261_028);
+  assert.equal(completion.completionInstructionCount, 342_873_024);
+  assert.equal(call.sequence, 261_028);
+  assert.equal(call.module.toLowerCase(), "gdi32.dll");
+  assert.equal(call.symbol, "CreateFontA");
+  assert.deepEqual(call.arguments, [
+    224,
+    112,
+    0,
+    0,
+    100,
+    0,
+    0,
+    0,
+    128,
+    4,
+    0,
+    2,
+    0,
+    0x2013_9c20,
+  ]);
+  assert.deepEqual(call.result, { action: "set", value: 0x4702_0006 });
+  assert.equal(
+    call.implementationId,
+    "gdi32.create-font-a.cp932-logical-object.v1",
+  );
+  assert.equal(call.returnAddress, 0x1002_c838);
+  assert.equal(call.stackPointerBefore, 0x006f_f3ac);
+  assert.equal(call.stackPointerAfter, 0x006f_f3e8);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.equal(call.gdi.action, "font-created");
+  assert.equal(call.gdi.object.id, 6);
+  assert.equal(call.gdi.object.handle, 0x4702_0006);
+  assert.equal(call.gdi.object.shared, false);
+  assert.equal(call.gdi.object.object.kind, "font-a");
+  assert.equal(call.gdi.object.object.logFont.height, 224);
+  assert.equal(call.gdi.object.object.logFont.width, 112);
+  assert.equal(call.gdi.liveObjects, 4);
+  assert.equal(
+    completion.creationProfileId,
+    "primary-cp932-ms-gothic-224x112-thin-v1",
+  );
+  assert.equal(completion.logicalFontObjectId, 6);
+  assert.equal(completion.logicalFontHandle, 0x4702_0006);
+  assert.equal(completion.liveGdiObjects, 4);
+  assert.equal(completion.hostFontImported, false);
+  assert.equal(completion.browserFontImported, false);
+  assert.equal(completion.clockSampleCount, 100_534);
+  assert.equal(completion.windowTimerCallbackCount, 39);
+  assert.equal(completion.presentCount, 2);
+  assert.equal(completion.pointerInputEventCount, 2);
+  assert.equal(completion.inputTimerCycleCount, 253);
+  assert.equal(completion.inputQuerySequence, 222_096);
+  assert.equal(completion.thirdPresentReached, false);
+  assert.equal(completion.clockFreezeWasProximateCause, false);
+  assert.equal(completion.archiveEnumerationWasProximateCause, false);
+  assert.equal(completion.missingFileDeleteWasProximateCause, false);
+  assert.equal(completion.ordinaryHeapCapacityWasProximateCause, false);
+  assert.equal(completion.fontCreationWasProximateCause, false);
+  assert.equal(completion.instructionCount, report.instructions);
+  assert.equal(completion.nextEndpoint.id, 257);
+  assert.equal(completion.nextEndpoint.address, 0x7f00_1000);
+  assert.deepEqual(completion.nextEndpoint.symbol, {
+    kind: "name",
+    name: "CreateDIBSection",
+  });
+  assert.equal(
+    completion.memoryContentSha256,
+    report.firstUnsupported.memoryContentSha256,
+  );
+}
+
 async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
   const target = await createDebugTarget(
     browserWebSocketUrl,
@@ -1314,6 +1446,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.report.pendingCallbacks, 0);
     assertExecutionStateMachine(evidence.report, scenario);
     assertExecutionEngine(evidence.report);
+    if (createFontA224x112Profile) {
+      validateCreateFontA224x112BgiProbe(evidence, scenario);
+      return evidence;
+    }
     if (privateHeapOrdinarySegmentGrowthProfile) {
       validatePrivateHeapOrdinarySegmentGrowthBgiProbe(evidence, scenario);
       return evidence;
@@ -6446,7 +6582,99 @@ function validatePrivateHeapOrdinarySegmentGrowthBgiEquivalence(
   assert.equal(report.timerPacing.pending, 0);
 }
 
+function validateCreateFontA224x112BgiEquivalence(browser, oracle) {
+  const report = browser.report;
+  const completion = report.checkpointCompletion;
+  assert.equal(oracle.schema, "vine.v86-bgi-create-font-a-224x112-primary");
+  assert.equal(report.evidenceLevel, fullEvidence ? "full" : "summary");
+  assert.equal(
+    report.supportedCallCount,
+    oracle.execution.completedSupportedCalls,
+  );
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    oracle.execution.supportedCallSemanticsSha256,
+  );
+  assert.equal(report.instructions, oracle.stop.terminal.instructionCount);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert(
+    oracle.synchronization.finalGeneration >= oracle.process.memory.generation,
+  );
+  assert.deepEqual(
+    report.sourceReads.map(normalizeBrowserSourceRead),
+    oracle.synchronization.sourceReads.map(normalizeNodeSourceRead),
+  );
+  assert.deepEqual(
+    (report.heapPageMaterializations ?? []).map(
+      normalizeHeapPageMaterialization,
+    ),
+    oracle.synchronization.heapPageMaterializations.map(
+      normalizeHeapPageMaterialization,
+    ),
+  );
+  assert.deepEqual(
+    report.writableDirectoryCreates.map(normalizeWritableDirectoryCreate),
+    oracle.synchronization.writableDirectoryCreates.map(
+      normalizeWritableDirectoryCreate,
+    ),
+  );
+  assert.deepEqual(
+    report.firstUnsupported.endpoint,
+    oracle.stop.fault.endpoint.endpoint,
+  );
+  assert.deepEqual(report.firstUnsupported.fault, oracle.stop.fault.fault);
+  assert.equal(
+    report.firstUnsupported.memoryContentSha256,
+    oracle.stop.fault.memoryContentSha256,
+  );
+  assert.equal(
+    completion.call.implementationId,
+    oracle.execution.createFontA224x112.call.implementationId,
+  );
+  assert.deepEqual(
+    normalizeSemanticCall(completion.call),
+    normalizeSemanticCall(oracle.execution.createFontA224x112.call),
+  );
+  assert.equal(
+    completion.clockSampleCount,
+    oracle.execution.clockSamples.count,
+  );
+  assert.equal(
+    completion.windowTimerCallbackCount,
+    oracle.execution.windowTimerCallbacks.count,
+  );
+  assert.equal(completion.presentCount, oracle.execution.presentations.count);
+  assert.equal(completion.thirdPresentReached, false);
+  assert.equal(completion.clockFreezeWasProximateCause, false);
+  assert.equal(completion.archiveEnumerationWasProximateCause, false);
+  assert.equal(completion.missingFileDeleteWasProximateCause, false);
+  assert.equal(completion.ordinaryHeapCapacityWasProximateCause, false);
+  assert.equal(completion.fontCreationWasProximateCause, false);
+  assert.equal(completion.instructionCount, oracle.stop.terminal.instructionCount);
+  assert.deepEqual(completion.nextEndpoint, oracle.stop.fault.endpoint.endpoint);
+  assert.equal(
+    completion.memoryContentSha256,
+    oracle.stop.fault.memoryContentSha256,
+  );
+  assert.equal(report.pointerInput.receipts.length, 2);
+  assert.deepEqual(
+    report.pointerInput.receipts[0],
+    oracle.execution.pointerInput.first.receipt,
+  );
+  assert.deepEqual(
+    report.pointerInput.receipts[1],
+    oracle.execution.pointerInput.last.receipt,
+  );
+  assert.equal(report.timerPacing.requests, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.completions, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.pending, 0);
+}
+
 function validateBgiEquivalence(browser, oracle) {
+  if (createFontA224x112Profile) {
+    validateCreateFontA224x112BgiEquivalence(browser, oracle);
+    return;
+  }
   if (privateHeapOrdinarySegmentGrowthProfile) {
     validatePrivateHeapOrdinarySegmentGrowthBgiEquivalence(browser, oracle);
     return;

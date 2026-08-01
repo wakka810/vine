@@ -1160,7 +1160,8 @@ function isScheduledSharedClockNodeReport(report) {
     report?.schema === "vine.v86-bgi-find-file-a-primary" ||
     report?.schema === "vine.v86-bgi-delete-file-a-primary" ||
     report?.schema ===
-      "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
+      "vine.v86-bgi-private-heap-ordinary-segment-growth-primary" ||
+    report?.schema === "vine.v86-bgi-create-font-a-224x112-primary"
   );
 }
 
@@ -1169,6 +1170,76 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary") {
+    const font = execution.createFontA224x112;
+    const call = font.call;
+    const nextEndpoint = nodeReport.stop.fault.endpoint.endpoint;
+    const reachedNextEndpointAfterFontCreation =
+      execution.clockSamples.count > 0 &&
+      execution.windowTimerCallbacks.count > 0 &&
+      execution.presentations.count === 2 &&
+      font.completionCount === 1 &&
+      call.result.value === 0x4702_0006 &&
+      nodeReport.stop.fault.fault.code ===
+        "create-dib-section-variant-unsupported";
+    return {
+      capability:
+        "gdi32-create-font-a-224x112-post-private-heap-segment-growth",
+      implementationId:
+        "runtime.gdi32-create-font-a-224x112-post-private-heap-segment-growth.v1",
+      requiredCompletions: 1,
+      completionCount: font.completionCount,
+      prerequisiteHeapGrowthSequence:
+        execution.ordinaryHeapSegmentGrowth.call.sequence,
+      prerequisiteHeapGrowthInstructionCount:
+        execution.ordinaryHeapSegmentGrowth.call.trapInstructionCount,
+      completionSequence: call.sequence,
+      completionInstructionCount: call.trapInstructionCount,
+      lastCompletionSequence: call.sequence,
+      lastCompletionInstructionCount: call.trapInstructionCount,
+      call: {
+        sequence: call.sequence,
+        module: call.module.toLowerCase(),
+        symbol: call.symbol,
+        arguments: call.arguments,
+        result: call.result,
+        implementationId: call.implementationId,
+        returnAddress: call.returnAddress,
+        stackPointerBefore: call.stackPointerBefore,
+        stackPointerAfter: call.stackPointerAfter,
+        lastError: call.lastError,
+        guestWrites: call.guestWrites,
+        gdi: call.gdi,
+      },
+      creationProfileId: font.creationProfileId ??
+        "primary-cp932-ms-gothic-224x112-thin-v1",
+      logicalFontObjectId: call.gdi.object.id,
+      logicalFontHandle: call.gdi.object.handle,
+      liveGdiObjects: call.gdi.liveObjects,
+      hostFontImported: false,
+      browserFontImported: false,
+      clockProfileId: nodeReport.contract.clockProfile.id,
+      clockSampleCount: execution.clockSamples.count,
+      windowTimerCallbackCount: execution.windowTimerCallbacks.count,
+      presentCount: execution.presentations.count,
+      pointerInputEventCount: execution.pointerInput.count,
+      inputTimerCycleCount: expectedNext.completion.inputTimerCycleCount,
+      inputQuerySequence: execution.pointerInput.last.committedAfterSequence,
+      thirdPresentReached: execution.presentations.thirdPresentReached,
+      clockFreezeWasProximateCause: !reachedNextEndpointAfterFontCreation,
+      archiveEnumerationWasProximateCause:
+        !reachedNextEndpointAfterFontCreation,
+      missingFileDeleteWasProximateCause:
+        !reachedNextEndpointAfterFontCreation,
+      ordinaryHeapCapacityWasProximateCause:
+        !reachedNextEndpointAfterFontCreation,
+      fontCreationWasProximateCause:
+        !reachedNextEndpointAfterFontCreation,
+      instructionCount: nodeReport.stop.terminal.instructionCount,
+      nextEndpoint,
+      memoryContentSha256: nodeReport.stop.fault.memoryContentSha256,
+    };
+  }
   if (
     nodeReport.schema ===
     "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
@@ -1521,7 +1592,8 @@ function assertScheduledSharedClockReportSemantics({
     nodeReport.schema === "vine.v86-bgi-find-file-a-primary" ||
     nodeReport.schema === "vine.v86-bgi-delete-file-a-primary" ||
     nodeReport.schema ===
-      "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
+      "vine.v86-bgi-private-heap-ordinary-segment-growth-primary" ||
+    nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary"
   ) {
     const find = nodeExecution.findFileA;
     assert.equal(find.pattern, "data0????.arc");
@@ -1542,7 +1614,8 @@ function assertScheduledSharedClockReportSemantics({
   if (
     nodeReport.schema === "vine.v86-bgi-delete-file-a-primary" ||
     nodeReport.schema ===
-      "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
+      "vine.v86-bgi-private-heap-ordinary-segment-growth-primary" ||
+    nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary"
   ) {
     const deletion = nodeExecution.deleteFileA;
     assert.equal(deletion.completionCount, 2);
@@ -1562,7 +1635,8 @@ function assertScheduledSharedClockReportSemantics({
   }
   if (
     nodeReport.schema ===
-    "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
+      "vine.v86-bgi-private-heap-ordinary-segment-growth-primary" ||
+    nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary"
   ) {
     const growth = nodeExecution.ordinaryHeapSegmentGrowth;
     assert.equal(growth.completionCount, 1);
@@ -1576,12 +1650,48 @@ function assertScheduledSharedClockReportSemantics({
     assert.equal(growth.ordinarySegmentCountAfter, 3);
     assert.equal(nodeReport.contract.ordinaryHeapProcessSlotLimit, 32);
   }
+  if (nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary") {
+    const font = nodeExecution.createFontA224x112;
+    assert.equal(font.completionCount, 1);
+    assert.equal(font.call.sequence, 261_028);
+    assert.equal(font.call.trapInstructionCount, 342_873_024);
+    assert.deepEqual(font.call.arguments, [
+      224,
+      112,
+      0,
+      0,
+      100,
+      0,
+      0,
+      0,
+      128,
+      4,
+      0,
+      2,
+      0,
+      0x2013_a220,
+    ]);
+    assert.equal(font.call.result.value, 0x4702_0006);
+    assert.equal(
+      font.call.implementationId,
+      "gdi32.create-font-a.cp932-logical-object.v1",
+    );
+    assert.equal(font.call.gdi.action, "font-created");
+    assert.equal(font.call.gdi.object.id, 6);
+    assert.equal(font.call.gdi.object.handle, 0x4702_0006);
+    assert.equal(font.call.gdi.object.object.kind, "font-a");
+    assert.equal(font.call.gdi.object.object.logFont.height, 224);
+    assert.equal(font.call.gdi.object.object.logFont.width, 112);
+    assert.equal(font.call.gdi.liveObjects, 4);
+  }
 
   const nodeEndpoint = nodeStop.fault.endpoint.endpoint;
   const expectedEndpoint = expectedNext.nextEndpoint;
   assert.equal(nodeStop.fault.capabilityCluster, expectedNext.capabilityCluster);
   const expectedFaultCode =
-    nodeReport.schema ===
+    nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary"
+      ? "create-dib-section-variant-unsupported"
+      : nodeReport.schema ===
     "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
       ? "create-font-a-variant-unsupported"
       : nodeReport.schema === "vine.v86-bgi-delete-file-a-primary"

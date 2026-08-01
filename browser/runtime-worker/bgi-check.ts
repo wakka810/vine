@@ -46,7 +46,8 @@ const scheduledSharedClockSetWindowText =
     "user32-set-window-text-a-post-scheduled-shared-clock" ||
   capabilityProfile === "kernel32-find-first-file-a" ||
   capabilityProfile === "kernel32-delete-file-a" ||
-  capabilityProfile === "kernel32-private-heap-ordinary-segment-growth";
+  capabilityProfile === "kernel32-private-heap-ordinary-segment-growth" ||
+  capabilityProfile === "gdi-create-font-a-224x112";
 const d3d9Canvas =
   scheduledSharedClockSetWindowText ||
   capabilityProfile === "d3d9-first-present" ||
@@ -227,7 +228,8 @@ const startMessage = {
         ? 1
         : capabilityProfile === "kernel32-delete-file-a" ||
             capabilityProfile ===
-              "kernel32-private-heap-ordinary-segment-growth"
+              "kernel32-private-heap-ordinary-segment-growth" ||
+            capabilityProfile === "gdi-create-font-a-224x112"
           ? 350_000_000
         : scheduledSharedClockSetWindowText
           ? 340_000_000
@@ -692,6 +694,7 @@ function parseCapabilityProfile(
     value === "kernel32-find-first-file-a" ||
     value === "kernel32-delete-file-a" ||
     value === "kernel32-private-heap-ordinary-segment-growth" ||
+    value === "gdi-create-font-a-224x112" ||
     value === "kernel32-wait-for-single-object-ex" ||
     value === "kernel32-enter-critical-section" ||
     value === "primary-main-loop-progression" ||

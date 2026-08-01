@@ -198,6 +198,10 @@ assert.equal(
   "v86-bgi-private-heap-ordinary-segment-growth",
 );
 assert.equal(
+  bgiProfileOutputDirectory("gdi-create-font-a-224x112"),
+  "v86-bgi-create-font-a-224x112",
+);
+assert.equal(
   bgiProfileOutputDirectory("shell32-drag-accept-files"),
   "v86-bgi-drag-accept-files",
 );

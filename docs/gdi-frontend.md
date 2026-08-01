@@ -6,7 +6,7 @@ The GDI frontend owns guest-visible GDI identity, lifetime, and logical drawing
 state in Rust. The current bounded slice implements `USER32!GetDC` and
 `USER32!ReleaseDC` for a logical window, the NULL-window primary screen
 acquisition, one policy-owned `GDI32!EnumFontFamiliesExA` callback record, and
-one exact `GDI32!CreateFontA` logical object variant. It also implements the
+two exact `GDI32!CreateFontA` logical object variants. It also implements the
 NULL-source `GDI32!CreateCompatibleDC` memory-DC lifecycle and `GDI32!DeleteDC`,
 the reached 8-bpp `GDI32!CreateDIBSection` object and backing lifecycle, exact
 font／bitmap `GetObjectA`, memory-DC `SelectObject`, and bounded `DeleteObject`.
@@ -175,7 +175,7 @@ typed `memory-dc-drawing-unsupported` failure before mutation.
 ## Bounded font, memory DC, and DIB policy
 
 `Gdi32CompatibilityPolicy` owns the reached catalog, metrics, and exact raster
-mask, not `RuntimeGdi`, the browser, or a host font query. Version 6 accepts
+mask, not `RuntimeGdi`, the browser, or a host font query. Version 7 accepts
 only flags zero and the exact
 Windows-932 `MS Gothic` face with `SHIFTJIS_CHARSET` on a live same-thread
 screen HDC. Other `LOGFONTA` fields are deliberately ignored because the native
@@ -194,13 +194,15 @@ name, style, script, numeric LOGFONT fields, text metrics, and font signature
 are compatibility evidence.
 
 The enumeration record is logical catalog and metric data only. Separately,
-the creation profile accepts the exact reached request: height 64, width 32,
-zero escapement and orientation, weight 100, no italic／underline／strikeout,
+the creation catalog accepts two exact reached requests. Both use zero
+escapement and orientation, weight 100, no italic／underline／strikeout,
 charset 128, output precision 4, clip precision 0, quality 2, pitch-family 0,
-and the same NUL-bounded Windows-932 face. The handler reads at most 32 bytes,
-requires the terminating NUL, preflights the full request and owner capacity,
-then commits one `RuntimeGdi` font object. Success returns the logical handle,
-writes no guest bytes, and preserves LastError.
+and the same NUL-bounded Windows-932 face; their height／width pairs are 64／32
+and 224／112. The handler reads at most 32 bytes, requires the terminating NUL,
+preflights the full request and owner capacity, then commits one `RuntimeGdi`
+font object. Success returns the logical handle, writes no guest bytes, and
+preserves LastError. The 224 x 112 object remains logical state only; it does
+not extend the 64 x 32 outline-metric or text-raster contracts.
 
 NULL, unterminated, cross-page, embedded-NUL policy mismatch, unsupported field
 values, exhausted identity, and stale or duplicate plans fail without consuming
@@ -272,7 +274,7 @@ screen release, policy/display authority, and failure atomicity. GDI32
 dispatcher tests additionally cover the exact 284-byte callback payload,
 callback-result propagation, stale／cross-thread HDCs, unsupported filters and
 flags, callback preparation failure, and allocator／memory preservation. The
-same suite covers the exact 14-word `CreateFontA` ABI, distinct logical object
+same suite covers both exact 14-word `CreateFontA` variants, distinct logical object
 identity, exact LOGFONTA state, bounded string reads, policy-disabled and
 malformed variants, stale plans, and allocator／memory preservation. Compatible
 DC tests cover the one-word create／delete ABIs, distinct HDC identity, shared

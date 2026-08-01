@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 104 as const;
+export const protocolVersion = 105 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -21,6 +21,7 @@ export type BgiCapabilityProfile =
   | "kernel32-find-first-file-a"
   | "kernel32-delete-file-a"
   | "kernel32-private-heap-ordinary-segment-growth"
+  | "gdi-create-font-a-224x112"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1831,6 +1832,48 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "gdi32-create-font-a-224x112-post-private-heap-segment-growth";
+        implementationId: "runtime.gdi32-create-font-a-224x112-post-private-heap-segment-growth.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        prerequisiteHeapGrowthSequence: number;
+        prerequisiteHeapGrowthInstructionCount: number;
+        completionSequence: number;
+        completionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        call: RuntimeSupportedCallSnapshot;
+        creationProfileId: "primary-cp932-ms-gothic-224x112-thin-v1";
+        logicalFontObjectId: 6;
+        logicalFontHandle: 1_191_313_414;
+        liveGdiObjects: 4;
+        hostFontImported: false;
+        browserFontImported: false;
+        clockProfileId: "scheduled-shared-logical-deadline-v1";
+        clockSampleCount: number;
+        windowTimerCallbackCount: number;
+        presentCount: number;
+        pointerInputEventCount: number;
+        inputTimerCycleCount: number;
+        inputQuerySequence: number;
+        thirdPresentReached: false;
+        clockFreezeWasProximateCause: false;
+        archiveEnumerationWasProximateCause: false;
+        missingFileDeleteWasProximateCause: false;
+        ordinaryHeapCapacityWasProximateCause: false;
+        fontCreationWasProximateCause: false;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        memoryContentSha256: string;
+      }
     | {
         capability: "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a";
         implementationId: "runtime.kernel32-private-heap-ordinary-segment-growth-post-delete-file-a.v1";

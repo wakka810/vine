@@ -80,7 +80,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 70);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 71);
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
 const lastPacingRequest = { requestId: "4708", sequence: 89_218 };
@@ -949,10 +949,8 @@ for (const [label, evidence, expected] of [
   [
     "runtime core Wasm artifact mismatch",
     mutated((value) => {
-      value.artifacts.runtimeCoreWasm.sha256 =
-        checkpoint.browserCheckpoint.browserRuntimeCoreWasm.sha256;
-      value.artifacts.runtimeCoreWasm.bytes =
-        checkpoint.browserCheckpoint.browserRuntimeCoreWasm.bytes;
+      value.artifacts.runtimeCoreWasm.sha256 = sha("runtime-core-mismatch");
+      value.artifacts.runtimeCoreWasm.bytes += 1;
     }),
     "evidence.artifacts.runtimeCoreWasm",
   ],

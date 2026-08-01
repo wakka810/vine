@@ -291,7 +291,7 @@ impl FontFixture {
         )
         .expect("GDI fixture dispatcher");
         let user32_policy = User32CompatibilityPolicy::controlled_v30();
-        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v6();
+        let gdi32_policy = Gdi32CompatibilityPolicy::controlled_v7();
         user32_policy.validate().expect("valid User32 policy");
         gdi32_policy.validate().expect("valid GDI32 policy");
         let mut runtime = controlled_runtime();
@@ -2077,6 +2077,32 @@ fn create_font_a_creates_distinct_rust_owned_objects_without_guest_writes() {
     };
     assert_eq!(completion.eax, RegisterUpdate::Set(first_handle + 1));
     assert_eq!(fixture.runtime.gdi_objects().len(), 2);
+
+    fixture.configure_create_font(post_heap_growth_create_font_arguments(), FACE_NAME_ADDRESS);
+    let completion = match fixture.dispatch_create_font() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected post-heap-growth CreateFontA completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(first_handle + 2));
+    let post_heap_growth = fixture
+        .runtime
+        .gdi_objects()
+        .values()
+        .find(|object| object.handle == first_handle + 2)
+        .expect("created post-heap-growth logical font");
+    let RuntimeGdiObjectKind::FontA { log_font } = &post_heap_growth.object else {
+        panic!("post-heap-growth object is not a font")
+    };
+    assert_eq!(log_font.height, 224);
+    assert_eq!(log_font.width, 112);
+    assert_eq!(log_font.weight, 100);
+    assert_eq!(log_font.character_set, 128);
+    assert_eq!(log_font.output_precision, 4);
+    assert_eq!(log_font.clip_precision, 0);
+    assert_eq!(log_font.quality, 2);
+    assert_eq!(log_font.pitch_and_family, 0);
+    assert_eq!(log_font.face_name_windows_932, MS_GOTHIC_WINDOWS_932);
+    assert_eq!(fixture.runtime.gdi_objects().len(), 3);
 }
 
 #[test]
@@ -2510,6 +2536,10 @@ fn primary_bitmap_info() -> Vec<u8> {
 
 fn primary_create_font_arguments() -> [u32; 13] {
     [64, 32, 0, 0, 100, 0, 0, 0, 128, 4, 0, 2, 0]
+}
+
+fn post_heap_growth_create_font_arguments() -> [u32; 13] {
+    [224, 112, 0, 0, 100, 0, 0, 0, 128, 4, 0, 2, 0]
 }
 
 fn primary_face_name() -> Vec<u8> {

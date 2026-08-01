@@ -2122,6 +2122,20 @@ Focused Frida oracleはnon-NULL HFONT、LastError preserve、object+152への保
 16 MiB超過、33番目のprocess backing、general heap serialization、new CreateFontA variantの実装は
 このgatewayのclaimに含めない。
 
+Reached `CreateFontA(224,112,...)` leafは、GDI32 policy v7の二件目のexact creation
+profileとして既存`RuntimeGdi` ownerへ接続する。Focused Frida oracleとdecompile consumerは
+CP932 `ＭＳ ゴシック`、weight 100、charset 128、output precision 4、quality 2、non-NULL
+HFONT、LastError preserve、object+152への保存とnonzero branchを固定する。Rust dispatcher
+testsは14-word stdcall、bounded face read、distinct logical font identity、exact LOGFONTA、zero
+guest write、unsupported variantとfailure atomicityを検査する。Node／Chromeはsequence 261,028／
+instruction 342,873,024のlogical font object ID 6／handle `0x47020006`、261,030 calls、
+342,875,151 instructions、100,534 clock samples、39 TIMERPROC callbacks、139 source reads、
+2 Present、semantic digest `8058bf7a6ebd37f36c7f486316a8b22faf44368dbc313938dfe4d0eb076c1c13`、
+terminal memory digest `ae64fe329dde1e281c28e72fd56000e3c64b7e85f6e83119f830600f21840039`
+を一致させ、次の`CreateDIBSection` endpoint 257で停止する。Host／browser font discovery、
+このfontのoutline metrics／glyph raster、third Presentはclaimしないため、font creation自体も
+現在の描画停滞の近因ではない。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

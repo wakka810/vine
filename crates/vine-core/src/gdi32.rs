@@ -19,7 +19,7 @@ use crate::runtime::{
 };
 
 pub const GDI32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.gdi32-compatibility-policy";
-pub const GDI32_COMPATIBILITY_POLICY_VERSION: u32 = 6;
+pub const GDI32_COMPATIBILITY_POLICY_VERSION: u32 = 7;
 pub const GET_STOCK_OBJECT_IMPLEMENTATION: &str = "gdi32.get-stock-object.black-brush.v1";
 pub const ENUM_FONT_FAMILIES_EX_A_IMPLEMENTATION: &str =
     "gdi32.enum-font-families-ex-a.cp932-screen.v1";
@@ -46,6 +46,8 @@ pub const X86_OUTLINE_TEXT_METRIC_A_FIXED_BYTE_LENGTH: usize = 212;
 pub const X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH: usize = 269;
 
 const SHIFT_JIS_CHARSET: u8 = 128;
+const PRIMARY_FONT_CREATION_PROFILE_ID: &str = "primary-cp932-ms-gothic-64x32-thin-v1";
+const POST_HEAP_GROWTH_FONT_CREATION_PROFILE_ID: &str = "primary-cp932-ms-gothic-224x112-thin-v1";
 const ERROR_INVALID_HANDLE: u32 = 6;
 const ERROR_CAN_NOT_COMPLETE: u32 = 1003;
 const TRUETYPE_FONTTYPE: u32 = 0x0000_0004;
@@ -118,6 +120,12 @@ pub struct Gdi32FontEnumerationPolicy {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Gdi32FontCreationPolicy {
+    pub profiles: Vec<Gdi32FontCreationProfile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Gdi32FontCreationProfile {
     pub profile_id: String,
     pub log_font: RuntimeLogFontA,
 }
@@ -187,11 +195,11 @@ pub struct Gdi32CompatibilityPolicy {
 }
 
 impl Gdi32CompatibilityPolicy {
-    pub fn controlled_v6() -> Self {
+    pub fn controlled_v7() -> Self {
         Self {
             schema: GDI32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: GDI32_COMPATIBILITY_POLICY_VERSION,
-            id: "gdi32-primary-cp932-text-raster-v6".to_owned(),
+            id: "gdi32-primary-cp932-text-raster-v7".to_owned(),
             enum_font_families_ex_a: Some(controlled_font_enumeration_policy()),
             create_font_a: Some(controlled_font_creation_policy()),
             create_compatible_dc: Some(controlled_compatible_dc_policy()),
@@ -227,7 +235,7 @@ impl Gdi32CompatibilityPolicy {
             return Err(ApiFault::runtime_defect(
                 "gdi32-compatibility-policy",
                 "gdi32-font-creation-profile-invalid",
-                "GDI32 font creation policy must match the evidenced CP932 MS Gothic request",
+                "GDI32 font creation policy must match the evidenced CP932 MS Gothic requests",
             ));
         }
         if let Some(compatible_dc) = self.create_compatible_dc.as_ref()
@@ -670,13 +678,21 @@ fn handle_get_outline_text_metrics_a(
         }
         Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
     };
-    let expected_font = policy.create_font_a.as_ref().ok_or_else(|| {
+    let creation = policy.create_font_a.as_ref().ok_or_else(|| {
         ApiFault::runtime_defect(
             "gdi32-outline-text-metrics",
             "outline-text-metrics-font-policy-missing",
             "outline text metrics policy requires the created FontA policy",
         )
     })?;
+    let expected_font = font_creation_profile(creation, PRIMARY_FONT_CREATION_PROFILE_ID)
+        .ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "gdi32-outline-text-metrics",
+                "outline-text-metrics-font-profile-missing",
+                "outline text metrics policy requires the primary 64x32 FontA profile",
+            )
+        })?;
     if selected_font != expected_font.log_font {
         return Err(ApiFault::unsupported(
             "gdi32-outline-text-metrics",
@@ -783,7 +799,7 @@ fn handle_text_out_a(
         }
         Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
     };
-    let expected_font = policy.create_font_a.as_ref().ok_or_else(|| {
+    let creation = policy.create_font_a.as_ref().ok_or_else(|| {
         ApiFault::runtime_defect(
             "gdi32-text-raster",
             "text-out-a-font-policy-missing",
@@ -797,6 +813,14 @@ fn handle_text_out_a(
             "TextOutA policy requires the DIB section policy",
         )
     })?;
+    let expected_font = font_creation_profile(creation, PRIMARY_FONT_CREATION_PROFILE_ID)
+        .ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "gdi32-text-raster",
+                "text-out-a-font-profile-missing",
+                "TextOutA policy requires the primary 64x32 FontA profile",
+            )
+        })?;
     if target.log_font != expected_font.log_font || target.descriptor != expected_dib.descriptor {
         return Err(ApiFault::unsupported(
             "gdi32-text-raster",
@@ -1117,11 +1141,15 @@ fn handle_create_font_a(
         pitch_and_family: required_byte_argument(frame, 12, "pitch and family")?,
         face_name_windows_932: read_font_face_name(contract, session, GuestAddress(face_address))?,
     };
-    if request != creation.log_font {
+    if !creation
+        .profiles
+        .iter()
+        .any(|profile| profile.log_font == request)
+    {
         return Err(ApiFault::unsupported(
             "gdi32-fonts",
             "create-font-a-variant-unsupported",
-            "CreateFontA currently supports only the evidenced CP932 MS Gothic request",
+            "CreateFontA currently supports only the evidenced CP932 MS Gothic requests",
         ));
     }
     let preserved_last_error = session
@@ -1658,10 +1686,23 @@ fn controlled_font_enumeration_policy() -> Gdi32FontEnumerationPolicy {
 
 fn controlled_font_creation_policy() -> Gdi32FontCreationPolicy {
     Gdi32FontCreationPolicy {
-        profile_id: "primary-cp932-ms-gothic-64x32-thin-v1".to_owned(),
+        profiles: vec![
+            font_creation_profile_policy(PRIMARY_FONT_CREATION_PROFILE_ID, 64, 32),
+            font_creation_profile_policy(POST_HEAP_GROWTH_FONT_CREATION_PROFILE_ID, 224, 112),
+        ],
+    }
+}
+
+fn font_creation_profile_policy(
+    profile_id: &str,
+    height: i32,
+    width: i32,
+) -> Gdi32FontCreationProfile {
+    Gdi32FontCreationProfile {
+        profile_id: profile_id.to_owned(),
         log_font: RuntimeLogFontA {
-            height: 64,
-            width: 32,
+            height,
+            width,
             escapement: 0,
             orientation: 0,
             weight: 100,
@@ -1676,6 +1717,16 @@ fn controlled_font_creation_policy() -> Gdi32FontCreationPolicy {
             face_name_windows_932: MS_GOTHIC_WINDOWS_932.to_vec(),
         },
     }
+}
+
+fn font_creation_profile<'a>(
+    policy: &'a Gdi32FontCreationPolicy,
+    profile_id: &str,
+) -> Option<&'a Gdi32FontCreationProfile> {
+    policy
+        .profiles
+        .iter()
+        .find(|profile| profile.profile_id == profile_id)
 }
 
 fn controlled_compatible_dc_policy() -> Gdi32CompatibleDcPolicy {
@@ -2072,7 +2123,7 @@ mod tests {
 
     #[test]
     fn controlled_gdi32_policy_is_canonical_and_bounded() {
-        let policy = Gdi32CompatibilityPolicy::controlled_v6();
+        let policy = Gdi32CompatibilityPolicy::controlled_v7();
         policy.validate().unwrap();
         let enumeration = policy.enum_font_families_ex_a.as_ref().unwrap();
         assert_eq!(enumeration.input_character_set, SHIFT_JIS_CHARSET);
@@ -2099,24 +2150,42 @@ mod tests {
             SHIFT_JIS_CHARSET
         );
         let creation = policy.create_font_a.as_ref().unwrap();
-        assert_eq!(creation.log_font.height, 64);
-        assert_eq!(creation.log_font.width, 32);
-        assert_eq!(creation.log_font.weight, 100);
-        assert_eq!(creation.log_font.character_set, SHIFT_JIS_CHARSET);
-        assert_eq!(creation.log_font.output_precision, 4);
-        assert_eq!(creation.log_font.clip_precision, 0);
-        assert_eq!(creation.log_font.quality, 2);
-        assert_eq!(creation.log_font.pitch_and_family, 0);
+        assert_eq!(creation.profiles.len(), 2);
+        let primary = &creation.profiles[0];
+        assert_eq!(primary.profile_id, PRIMARY_FONT_CREATION_PROFILE_ID);
+        assert_eq!(primary.log_font.height, 64);
+        assert_eq!(primary.log_font.width, 32);
+        assert_eq!(primary.log_font.weight, 100);
+        assert_eq!(primary.log_font.character_set, SHIFT_JIS_CHARSET);
+        assert_eq!(primary.log_font.output_precision, 4);
+        assert_eq!(primary.log_font.clip_precision, 0);
+        assert_eq!(primary.log_font.quality, 2);
+        assert_eq!(primary.log_font.pitch_and_family, 0);
         assert_eq!(
-            creation.log_font.face_name_windows_932,
+            primary.log_font.face_name_windows_932,
             MS_GOTHIC_WINDOWS_932
         );
         assert_eq!(
-            creation.log_font.to_bytes().unwrap()[..46],
+            primary.log_font.to_bytes().unwrap()[..46],
             [
                 64, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 128, 4, 0,
                 2, 0, 130, 108, 130, 114, 32, 131, 83, 131, 86, 131, 98, 131, 78, 0, 0, 0, 0, 0,
             ]
+        );
+        let post_heap_growth = &creation.profiles[1];
+        assert_eq!(
+            post_heap_growth.profile_id,
+            POST_HEAP_GROWTH_FONT_CREATION_PROFILE_ID
+        );
+        assert_eq!(post_heap_growth.log_font.height, 224);
+        assert_eq!(post_heap_growth.log_font.width, 112);
+        assert_eq!(
+            post_heap_growth.log_font.to_bytes().unwrap()[..8],
+            [224, 0, 0, 0, 112, 0, 0, 0]
+        );
+        assert_eq!(
+            post_heap_growth.log_font.face_name_windows_932,
+            MS_GOTHIC_WINDOWS_932
         );
         let compatible_dc = policy.create_compatible_dc.as_ref().unwrap();
         assert_eq!(compatible_dc.source_device_context, 0);
@@ -2199,7 +2268,7 @@ mod tests {
 
     #[test]
     fn mutated_font_policy_is_rejected() {
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v6();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v7();
         policy
             .enum_font_families_ex_a
             .as_mut()
@@ -2209,12 +2278,14 @@ mod tests {
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-font-enumeration-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v6();
-        policy.create_font_a.as_mut().unwrap().log_font.quality = 1;
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v7();
+        policy.create_font_a.as_mut().unwrap().profiles[0]
+            .log_font
+            .quality = 1;
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-font-creation-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v6();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v7();
         policy
             .create_compatible_dc
             .as_mut()
@@ -2223,7 +2294,7 @@ mod tests {
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-compatible-dc-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v6();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v7();
         policy
             .create_dib_section
             .as_mut()
@@ -2234,7 +2305,7 @@ mod tests {
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-dib-section-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v6();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v7();
         policy
             .get_outline_text_metrics_a
             .as_mut()
@@ -2243,7 +2314,7 @@ mod tests {
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-outline-text-metrics-profile-invalid");
 
-        let mut policy = Gdi32CompatibilityPolicy::controlled_v6();
+        let mut policy = Gdi32CompatibilityPolicy::controlled_v7();
         policy.text_out_a.as_mut().unwrap().row_masks[0] ^= 1;
         let fault = policy.validate().unwrap_err();
         assert_eq!(fault.code, "gdi32-text-out-a-profile-invalid");

@@ -249,6 +249,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-find-first-file-a",
         "kernel32-delete-file-a",
         "kernel32-private-heap-ordinary-segment-growth",
+        "gdi-create-font-a-224x112",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
@@ -457,6 +458,7 @@ assert(
       "kernel32-find-first-file-a",
       "kernel32-delete-file-a",
       "kernel32-private-heap-ordinary-segment-growth",
+      "gdi-create-font-a-224x112",
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
       "user32-set-window-pos-frame-change-move",
@@ -503,7 +505,8 @@ assert(
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
     genericRuntimeCapability === "kernel32-delete-file-a" ||
-    genericRuntimeCapability === "kernel32-private-heap-ordinary-segment-growth"
+    genericRuntimeCapability === "kernel32-private-heap-ordinary-segment-growth" ||
+    genericRuntimeCapability === "gdi-create-font-a-224x112"
       ? "kernel32-delete-file-a-v1.json"
       : genericRuntimeCapability === "kernel32-find-first-file-a"
       ? "kernel32-find-file-a-v1.json"
@@ -1018,7 +1021,10 @@ const d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled =
 const d3d9PostInputScanWaitableTimerCycleCheckpointEnabled =
   genericRuntimeCapability ===
     "d3d9-post-input-scan-waitable-timer-cycle";
+const createFontA224x112CheckpointEnabled =
+  genericRuntimeCapability === "gdi-create-font-a-224x112";
 const privateHeapOrdinarySegmentGrowthCheckpointEnabled =
+  createFontA224x112CheckpointEnabled ||
   genericRuntimeCapability === "kernel32-private-heap-ordinary-segment-growth";
 const deleteFileACheckpointEnabled =
   privateHeapOrdinarySegmentGrowthCheckpointEnabled ||
@@ -1930,8 +1936,10 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? privateHeapOrdinarySegmentGrowthCheckpointEnabled
-      ? "v86-bgi-private-heap-ordinary-segment-growth"
+    ? createFontA224x112CheckpointEnabled
+      ? "v86-bgi-create-font-a-224x112"
+      : privateHeapOrdinarySegmentGrowthCheckpointEnabled
+        ? "v86-bgi-private-heap-ordinary-segment-growth"
       : deleteFileACheckpointEnabled
       ? "v86-bgi-delete-file-a"
       : findFirstFileACheckpointEnabled
@@ -6523,6 +6531,8 @@ async function run() {
       });
       if (genericRuntimeCapability === null) {
         validateGenericRuntimeReentryResult(genericResult);
+      } else if (createFontA224x112CheckpointEnabled) {
+        validateCreateFontA224x112Result(genericResult, sourceRegistration);
       } else if (privateHeapOrdinarySegmentGrowthCheckpointEnabled) {
         validatePrivateHeapOrdinarySegmentGrowthResult(
           genericResult,
@@ -6867,8 +6877,10 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : privateHeapOrdinarySegmentGrowthCheckpointEnabled
-            ? "bgi private-heap ordinary segment growth"
+          : createFontA224x112CheckpointEnabled
+            ? "bgi GDI32 CreateFontA 224x112"
+            : privateHeapOrdinarySegmentGrowthCheckpointEnabled
+              ? "bgi private-heap ordinary segment growth"
           : deleteFileACheckpointEnabled
             ? "bgi KERNEL32 DeleteFileA missing-file probes"
           : findFirstFileACheckpointEnabled
@@ -14400,7 +14412,7 @@ function validateGenericRuntimeReady(ready, offer) {
   if (fontEnumerationEnabled) {
     assert.equal(
       ready.gdi32CompatibilityPolicyId,
-      "gdi32-primary-cp932-text-raster-v6",
+      "gdi32-primary-cp932-text-raster-v7",
     );
   } else {
     assert.equal(ready.gdi32CompatibilityPolicyId, undefined);
@@ -26289,6 +26301,153 @@ function validatePrivateHeapOrdinarySegmentGrowthResult(
     0,
     0,
     100,
+    0,
+    0,
+  ]);
+  validateScheduledSharedClockCalls(result.supportedCalls);
+}
+
+function validateCreateFontA224x112Result(result, sourceRegistration) {
+  assert(createFontA224x112CheckpointEnabled);
+  assert(privateHeapOrdinarySegmentGrowthCheckpointEnabled);
+  assert(deleteFileACheckpointEnabled);
+  assert(findFirstFileACheckpointEnabled);
+  assert(scheduledSharedClockProfile);
+  assert(sourceRegistration !== null);
+  assert.equal(
+    sourceRegistration.manifest.snapshotId,
+    "primary-game-archives-v2",
+  );
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 261_030);
+  assert.equal(result.callbackEvents.length, 146);
+  assert.equal(result.heapPageMaterializations.length, 3_108);
+  assert.equal(result.sourceReads.length, 139);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+  assert.equal(result.timerPacing.length, 7_721);
+  assert.equal(result.writebacks.length, 264_223);
+  assert.equal(result.hostDeltas.length, 128_182);
+  assert.equal(result.finalGeneration, 296_719);
+  assert.deepEqual(result.threadExecution, {
+    registeredThreadIds: [8_192, 8_193],
+    executedThreadIds: [8_192, 8_193],
+    contextSwitches: 1_954,
+    threadExits: [],
+  });
+  const call = result.supportedCalls[261_027];
+  assert.equal(call.sequence, 261_028);
+  assert.equal(call.module.toLowerCase(), "gdi32.dll");
+  assert.equal(call.symbol, "CreateFontA");
+  assert.deepEqual(call.arguments.slice(0, 13), [
+    224,
+    112,
+    0,
+    0,
+    100,
+    0,
+    0,
+    0,
+    128,
+    4,
+    0,
+    2,
+    0,
+  ]);
+  assert.equal(call.arguments[13], 0x2013_9c20);
+  assert.equal(
+    call.implementationId,
+    "gdi32.create-font-a.cp932-logical-object.v1",
+  );
+  assert.equal(call.returnAddress, 0x1002_c838);
+  assert.deepEqual(call.result, { action: "set", value: 0x4702_0006 });
+  assert.equal(call.stackPointerBefore, 0x006f_f3ac);
+  assert.equal(call.stackPointerAfter, 0x006f_f3e8);
+  assert.equal(call.stackPointerAfter - call.stackPointerBefore, 60);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.equal(call.gdi?.action, "font-created");
+  assert.equal(call.gdi?.object?.id, 6);
+  assert.equal(call.gdi?.object?.handle, 0x4702_0006);
+  assert.equal(
+    call.gdi?.object?.namespace,
+    "vine.logical-gdi-object.v1",
+  );
+  assert.equal(call.gdi?.object?.shared, false);
+  assert.equal(call.gdi?.object?.object?.kind, "font-a");
+  assert.deepEqual(call.gdi?.object?.object?.logFont, {
+    height: 224,
+    width: 112,
+    escapement: 0,
+    orientation: 0,
+    weight: 100,
+    italic: 0,
+    underline: 0,
+    strikeOut: 0,
+    characterSet: 128,
+    outputPrecision: 4,
+    clipPrecision: 0,
+    quality: 2,
+    pitchAndFamily: 0,
+    faceNameWindows932: [
+      0x82, 0x6c, 0x82, 0x72, 0x20, 0x83, 0x53, 0x83, 0x56, 0x83, 0x62,
+      0x83, 0x4e,
+    ],
+  });
+  assert.equal(call.gdi?.liveObjects, 4);
+  assert.equal(
+    result.supportedCalls.filter(
+      (candidate) =>
+        candidate.interface === "IDirect3DDevice9" &&
+        candidate.vtableSlot === 17,
+    ).length,
+    2,
+  );
+  assert.equal(
+    result.supportedCalls.filter((candidate) => candidate.tickCount !== undefined)
+      .length,
+    100_534,
+  );
+  assert.equal(
+    result.supportedCalls.filter(
+      (candidate) =>
+        candidate.module.toLowerCase() === "user32.dll" &&
+        candidate.symbol === "DispatchMessageA" &&
+        candidate.windowTimer !== undefined &&
+        candidate.callback !== undefined,
+    ).length,
+    39,
+  );
+  assert.equal(result.fault?.capabilityCluster, "gdi32-api-contract");
+  assert.equal(result.fault?.fault?.class, "unsupported");
+  assert.equal(result.fault?.fault?.stage, "gdi32-dib-section");
+  assert.equal(
+    result.fault?.fault?.code,
+    "create-dib-section-variant-unsupported",
+  );
+  assert.equal(
+    result.fault?.fault?.message,
+    "CreateDIBSection currently supports only the evidenced 128x-96 reverse-grayscale DIB",
+  );
+  assert.deepEqual(result.fault?.endpoint?.endpoint, {
+    id: 257,
+    address: 0x7f00_1000,
+    module: "gdi32.dll",
+    symbol: { kind: "name", name: "CreateDIBSection" },
+    iatAddress: 0x100d_1090,
+    disposition: "declared-runtime-export",
+  });
+  assert.equal(
+    result.fault?.memoryContentSha256,
+    "ae64fe329dde1e281c28e72fd56000e3c64b7e85f6e83119f830600f21840039",
+  );
+  assert.equal(result.terminal.instructionCount, 342_875_151);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1002_c8c5);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1), [
+    0x4701_000b,
+    0x3e40_e3d0,
+    0,
+    0x20ff_d9e8,
+    0,
     0,
     0,
   ]);
@@ -39278,7 +39437,13 @@ function buildGenericRuntimeReentryReport({
       );
       if (findFirstFileACheckpointEnabled) {
         if (deleteFileACheckpointEnabled) {
-          if (privateHeapOrdinarySegmentGrowthCheckpointEnabled) {
+          if (createFontA224x112CheckpointEnabled) {
+            assert.equal(completedSupportedCalls.length, 261_030);
+            assert.equal(
+              supportedCallSemanticsSha256,
+              "8058bf7a6ebd37f36c7f486316a8b22faf44368dbc313938dfe4d0eb076c1c13",
+            );
+          } else if (privateHeapOrdinarySegmentGrowthCheckpointEnabled) {
             assert.equal(completedSupportedCalls.length, 261_027);
             assert.equal(
               supportedCallSemanticsSha256,
@@ -42467,6 +42632,15 @@ function buildScheduledSharedClockPrimaryReport({
             call.arguments[2] === 0x0040_6000,
         ) ?? null
       : null;
+  const createFontA224x112Call = createFontA224x112CheckpointEnabled
+    ? completedSupportedCalls.find(
+        (call) =>
+          call.implementationId ===
+            "gdi32.create-font-a.cp932-logical-object.v1" &&
+          call.arguments[0] === 224 &&
+          call.arguments[1] === 112,
+      ) ?? null
+    : null;
   const successfulFindCalls = [
     ...findFirstCalls,
     ...findNextCalls.filter((call) => call.result.value === 1),
@@ -42485,8 +42659,10 @@ function buildScheduledSharedClockPrimaryReport({
     };
   });
   return {
-    schema: privateHeapOrdinarySegmentGrowthCheckpointEnabled
-      ? "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
+    schema: createFontA224x112CheckpointEnabled
+      ? "vine.v86-bgi-create-font-a-224x112-primary"
+      : privateHeapOrdinarySegmentGrowthCheckpointEnabled
+        ? "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
       : deleteFileACheckpointEnabled
       ? "vine.v86-bgi-delete-file-a-primary"
       : findFirstFileACheckpointEnabled
@@ -42538,6 +42714,15 @@ function buildScheduledSharedClockPrimaryReport({
             ordinaryHeapSingleRequestMaximumBytes: 16 * 1024 * 1024,
             ordinaryHeapSegmentSelection:
               "primary-then-lowest-address-first-fit-extensions",
+          }
+        : {}),
+      ...(createFontA224x112CheckpointEnabled
+        ? {
+            fontCreationAuthority: "runtime/gdi.rs::RuntimeGdi",
+            fontCreationProfileId:
+              "primary-cp932-ms-gothic-224x112-thin-v1",
+            fontCreationHostFontImported: false,
+            fontCreationBrowserFontImported: false,
           }
         : {}),
     },
@@ -42635,6 +42820,14 @@ function buildScheduledSharedClockPrimaryReport({
               ordinarySegmentCountAfter: 3,
               segmentSelectionPolicy:
                 "primary-then-lowest-address-first-fit-extensions",
+            },
+          }
+        : {}),
+      ...(createFontA224x112CheckpointEnabled
+        ? {
+            createFontA224x112: {
+              completionCount: createFontA224x112Call === null ? 0 : 1,
+              call: createFontA224x112Call,
             },
           }
         : {}),
