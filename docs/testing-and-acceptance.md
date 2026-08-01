@@ -2105,6 +2105,23 @@ enumeration、missing-file deletionはthird Present停滞の近因ではなく�
 private heap ordinary-segment growthである。Existing-object deletion、delete-pending handles、sharing／
 readonly behavior、durable delete transactionは実装済みとしない。
 
+Reached ordinary-segment growth gatewayは、growable heapのextension backingをper-heap slot mapとして
+`RuntimeHeaps`へ所有させ、process-wide 32 controlled slotを上限にする。各requestは16 MiB以下、
+new backingはhighest free slot、既存allocation探索はprimaryからguest address昇順extensionへ進む。
+Rust testsは第三segment allocation／free／reuse／teardown、fixed heap、process slot exhaustion、
+maximum segment、stale plan、collisionのmutation-free failureを要求する。Primary Node／Chromeは
+`HeapAlloc(0x68010001,0,0x00406000)`をsequence 260,631／instruction 341,618,572、
+allocation ID 1847、slot 31／address `0x3e000000`で完了し、261,027 calls、342,873,024
+instructions、100,534 clock samples、39 TIMERPROC callbacks、139 source reads、2 Present、
+semantic digest `c92d8866b1e9355c076db7126a3ab286b7d67289ca4601a6f9cfb749c23b3a16`、
+terminal memory digest `c214835487a1ed382c3ea9cbb459d9c09faa1f329fba2c60c492587443d52806`
+を一致させる。続くstopは`CreateFontA` endpoint 256、caller RVA `0x0002C838`、height 224、
+width 112、weight 100、charset 128、output precision 4、quality 2、CP932 `ＭＳ ゴシック`である。
+Focused Frida oracleはnon-NULL HFONT、LastError preserve、object+152への保存とnonzero branchを固定する。
+この後もthird Presentはないため、旧ordinary heap capacityは描画停滞の近因ではない。単一request
+16 MiB超過、33番目のprocess backing、general heap serialization、new CreateFontA variantの実装は
+このgatewayのclaimに含めない。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

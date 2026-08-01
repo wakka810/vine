@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 103 as const;
+export const protocolVersion = 104 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -20,6 +20,7 @@ export type BgiCapabilityProfile =
   | "kernel32-create-directory-a"
   | "kernel32-find-first-file-a"
   | "kernel32-delete-file-a"
+  | "kernel32-private-heap-ordinary-segment-growth"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1830,6 +1831,45 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a";
+        implementationId: "runtime.kernel32-private-heap-ordinary-segment-growth-post-delete-file-a.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        prerequisiteDeleteFileASequence: number;
+        prerequisiteDeleteFileAInstructionCount: number;
+        completionSequence: number;
+        completionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        call: RuntimeSupportedCallSnapshot;
+        ordinarySegmentSlot: 31;
+        ordinarySegmentCapacityBytes: 16_777_216;
+        ordinarySegmentCountAfter: 3;
+        segmentSelectionPolicy: "primary-then-lowest-address-first-fit-extensions";
+        clockProfileId: "scheduled-shared-logical-deadline-v1";
+        clockSampleCount: number;
+        windowTimerCallbackCount: number;
+        presentCount: number;
+        pointerInputEventCount: number;
+        inputTimerCycleCount: number;
+        inputQuerySequence: number;
+        thirdPresentReached: false;
+        clockFreezeWasProximateCause: false;
+        archiveEnumerationWasProximateCause: false;
+        missingFileDeleteWasProximateCause: false;
+        ordinaryHeapCapacityWasProximateCause: false;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        memoryContentSha256: string;
+      }
     | {
         capability: "kernel32-delete-file-a-post-find-file-a";
         implementationId: "runtime.kernel32-delete-file-a-post-find-file-a.v1";

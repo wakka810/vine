@@ -54,7 +54,7 @@ behaviorとgeneral fairnessである。
 | R-FAIRNESS | Cooperative schedulingがtiming-sensitive threadをstarveさせる、またはtitle-relevant raceを変える | Runnable-lane selectionとbounded Worker execution | Thread traceからfairness／virtual-time policyを定義し、測定上必要な場合だけSAB／multi-Workerを比較する |
 | R-LIFECYCLE | Background throttle／page lifecycle／resumeがtimer storm、desync、save corruptionを起こす | Worker isolation、Rust-owned logical timer registration、generation-checked cancel／stale rejection、remaining-delay freeze／resume、one-per-task catch-up | `WM_TIMER`／TIMERPROC、audio、saveへ広げる前に各resourceのclock authorityとlong-idle browser E2Eを固定する |
 | R-COMPAT | Subtle Win32／COM behaviorまたはsilent stubがbootを進め、後段stateを壊す | Caller-consumer oracle、typed fault、mutation-free negative path | Stubを正しいstateまたはfirst divergenceでのexplicit structured stopへ置き換える |
-| R-GRAPHICS | Pixel format、pitch／ROP、font metric、backend差、context lossで画面が読めない | Logical surface／resourceとbrowser rendererを分離する。Node／private Chromeのdeterministic shared-clock replayで39回のwindow-timer callback、同一pointer receipts、SetWindowTextA／WM_SETTEXT title commit、45件のarchive enumeration、2件のmissing-file DeleteFileA、追加14件のsource readを完了してもPresentは2回のため、clock freeze／timer non-delivery／browser wall pacing／input schedule／title API／archive enumeration／missing deletionはthird Present停滞の近因から除外した | Current private-heap ordinary-segment capacity gatewayを閉じてcontent／graphics flowを継続し、supported format／stateをboundしてsemantic＋visual oracleを追加し、非対応browser／GPUをtier分けする |
+| R-GRAPHICS | Pixel format、pitch／ROP、font metric、backend差、context lossで画面が読めない | Logical surface／resourceとbrowser rendererを分離する。Node／private Chromeのdeterministic shared-clock replayで39回のwindow-timer callback、同一pointer receipts、SetWindowTextA／WM_SETTEXT title commit、45件のarchive enumeration、2件のmissing-file DeleteFileA、第三ordinary heap segment、追加15件のsource readを完了してもPresentは2回のため、clock freeze／timer non-delivery／browser wall pacing／input schedule／title API／archive enumeration／missing deletion／旧heap capacityはthird Present停滞の近因から除外した | Reached `CreateFontA(224,112,...)` leafを既存GDI authorityへ追加してcontent／graphics flowを継続し、supported format／stateをboundしてsemantic＋visual oracleを追加し、非対応browser／GPUをtier分けする |
 | R-MEDIA | Audio timing／media dependencyまたはD3D9 scopeがplanned browser subsetを超える | Corpus-bounded frontendとseparate backend adapter | Early feasibility traceを行い、広いAPI実装前にsupport bandを再設計する |
 | R-DATA | Crash、quota、path差、external replacementでsaveを失う、またはsource moduleが変わる | Immutable source／writable overlay ruleとexplicit durability boundary | Read-only failureまたはlast committed stateへrollbackし、source EXE／DLLをshadow／rewriteしない |
 | R-EXHAUSTION | Malformed inputまたはguest resource growthがmemory、thread、surface、log、parser limitを枯渇させる | Memory-safe bounded parser、quota、watchdog、typed exhaustion | Partial commitなしでtitleを停止し、最小diagnosticとregression fixtureを残す |
@@ -88,10 +88,12 @@ durably publishした後だけRust existenceをcommitする。Private Node／Chr
 success、duplicate／parent／file-conflict oracle、cancel、terminal drainを固定した。既存logical windowへ到達した
 `FindFirstFileA`／`FindNextFileA`／`FindClose`はRust-owned immutable open-viewで45 archiveを完了し、続く
 二件の`DeleteFileA`は不存在`.sud`をFALSE／2へ投影するだけでsource、overlay、SQLite、hostを変更しないleafとして
-閉じた。Node／private Chromeは100,534 shared-clock samplesと39 TIMERPROC callbacksまで一致し、さらに14 source readsを
-進めてもPresentは2回のままなのでtimer／archive／missing deletionは現在の描画停滞の近因ではない。現在の実行停止は
-`HeapAlloc(...,0x00406000)`に対する二つ目のordinary backing後のcapacity limitであり、native同callerは成功するため
-R-EXHAUSTIONのbounded subsystem gatewayとして扱う。既存logical windowへ到達した
+閉じた。続くordinary heap gatewayはper-heap extension collectionをprocess-wide 32 controlled slotまで拡張し、
+`HeapAlloc(...,0x00406000)`を第三segment `0x3e000000`で成功させた。Node／private Chromeは
+261,027 calls、342,873,024 instructions、100,534 shared-clock samples、39 TIMERPROC callbacksまで一致し、
+さらに15 source readsを進めてもPresentは2回のままである。したがってtimer／archive／missing deletion／旧heap
+capacityは現在の描画停滞の近因ではない。現在の実行停止はfocused native oracleでnon-NULL successを確認した
+`CreateFontA(224,112,...)` variantであり、既存GDI subsystem内のsemantic leafとして扱う。既存logical windowへ到達した
 `USER32.dll!SetWindowPos` repeat activation variantは、既存三relationがtargetのときの
 `WM_WINDOWPOSCHANGING`一回だけのvalidate-only leafとして閉じ、geometry、visibility、relation、generation不変を固定した。
 続く旧`MessageBoxA`はD3D9 texture failure branchと判明したため、version 17はnativeで再現した三つの

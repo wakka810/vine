@@ -86,8 +86,12 @@ const bgiProfile =
     : checkpoint.activeRuntimeCheckpoint.capabilityProfile ??
       checkpoint.activeRuntimeCheckpoint.profile);
 const deleteFileAProfile = bgiProfile === "kernel32-delete-file-a";
+const privateHeapOrdinarySegmentGrowthProfile =
+  bgiProfile === "kernel32-private-heap-ordinary-segment-growth";
 const findFirstFileAProfile =
-  deleteFileAProfile || bgiProfile === "kernel32-find-first-file-a";
+  deleteFileAProfile ||
+  privateHeapOrdinarySegmentGrowthProfile ||
+  bgiProfile === "kernel32-find-first-file-a";
 const scheduledSharedClockProfile =
   scheduledSharedClockSetWindowTextProfile || findFirstFileAProfile;
 const d3d9PostRasterStatusWaitableTimerProfile =
@@ -354,7 +358,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v103";
+const runtimeProtocol = "vine.browser-runtime-worker.v104";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -1170,6 +1174,118 @@ function validateDeleteFileABgiProbe(evidence, scenario) {
   );
 }
 
+function validatePrivateHeapOrdinarySegmentGrowthBgiProbe(
+  evidence,
+  scenario,
+) {
+  if (scenario !== "success") {
+    validateScheduledSharedClockBgiProbe(evidence, scenario);
+    return;
+  }
+  const report = evidence.report;
+  const completion = report.checkpointCompletion;
+  const call = completion.call;
+  assert.equal(report.outcome, "checkpoint-complete");
+  assert.equal(report.error, null);
+  assert.equal(report.supportedCallCount, 261_027);
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    "c92d8866b1e9355c076db7126a3ab286b7d67289ca4601a6f9cfb749c23b3a16",
+  );
+  assert.equal(report.instructions, 342_873_024);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert.equal(report.sourceReads.length, 139);
+  assert.equal(report.writableDirectoryCreates.length, 1);
+  assert.equal((report.heapPageMaterializations ?? []).length, 3_108);
+  assert.equal(report.firstUnsupported.capabilityCluster, "gdi32-api-contract");
+  assert.equal(report.firstUnsupported.endpoint.id, 256);
+  assert.equal(report.firstUnsupported.endpoint.address, 0x7f00_0ff0);
+  assert.equal(
+    report.firstUnsupported.endpoint.module.toLowerCase(),
+    "gdi32.dll",
+  );
+  assert.deepEqual(report.firstUnsupported.endpoint.symbol, {
+    kind: "name",
+    name: "CreateFontA",
+  });
+  assert.equal(report.firstUnsupported.fault.class, "unsupported");
+  assert.equal(report.firstUnsupported.fault.stage, "gdi32-fonts");
+  assert.equal(
+    report.firstUnsupported.fault.code,
+    "create-font-a-variant-unsupported",
+  );
+  assert.equal(
+    report.firstUnsupported.memoryContentSha256,
+    "c214835487a1ed382c3ea9cbb459d9c09faa1f329fba2c60c492587443d52806",
+  );
+  assert.equal(
+    completion.capability,
+    "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a",
+  );
+  assert.equal(
+    completion.implementationId,
+    "runtime.kernel32-private-heap-ordinary-segment-growth-post-delete-file-a.v1",
+  );
+  assert.equal(completion.requiredCompletions, 1);
+  assert.equal(completion.completionCount, 1);
+  assert.equal(completion.prerequisiteDeleteFileASequence, 255_432);
+  assert.equal(
+    completion.prerequisiteDeleteFileAInstructionCount,
+    328_097_369,
+  );
+  assert.equal(completion.completionSequence, 260_631);
+  assert.equal(completion.completionInstructionCount, 341_618_572);
+  assert.equal(call.sequence, 260_631);
+  assert.equal(call.module.toLowerCase(), "kernel32.dll");
+  assert.equal(call.symbol, "HeapAlloc");
+  assert.deepEqual(call.arguments, [0x6801_0001, 0, 0x0040_6000]);
+  assert.deepEqual(call.result, { action: "set", value: 0x3e00_0000 });
+  assert.equal(call.implementationId, "kernel32.heap-alloc.v2");
+  assert.equal(call.returnAddress, 0x100a_4a33);
+  assert.equal(call.stackPointerBefore, 0x006f_f62c);
+  assert.equal(call.stackPointerAfter, 0x006f_f63c);
+  assert.equal(call.heapAllocation.heapHandle, 0x6801_0001);
+  assert.equal(call.heapAllocation.allocation.address, 0x3e00_0000);
+  assert.equal(call.heapAllocation.allocation.byteLength, 0x0040_6000);
+  assert.equal(
+    call.heapAllocation.allocation.reservedByteLength,
+    0x0040_6000,
+  );
+  assert.equal(
+    call.heapAllocation.allocation.initialization,
+    "deterministic-uninitialized",
+  );
+  assert.equal(completion.ordinarySegmentSlot, 31);
+  assert.equal(completion.ordinarySegmentCapacityBytes, 16_777_216);
+  assert.equal(completion.ordinarySegmentCountAfter, 3);
+  assert.equal(
+    completion.segmentSelectionPolicy,
+    "primary-then-lowest-address-first-fit-extensions",
+  );
+  assert.equal(completion.clockSampleCount, 100_534);
+  assert.equal(completion.windowTimerCallbackCount, 39);
+  assert.equal(completion.presentCount, 2);
+  assert.equal(completion.pointerInputEventCount, 2);
+  assert.equal(completion.inputTimerCycleCount, 253);
+  assert.equal(completion.inputQuerySequence, 222_096);
+  assert.equal(completion.thirdPresentReached, false);
+  assert.equal(completion.clockFreezeWasProximateCause, false);
+  assert.equal(completion.archiveEnumerationWasProximateCause, false);
+  assert.equal(completion.missingFileDeleteWasProximateCause, false);
+  assert.equal(completion.ordinaryHeapCapacityWasProximateCause, false);
+  assert.equal(completion.instructionCount, report.instructions);
+  assert.equal(completion.nextEndpoint.id, 256);
+  assert.equal(completion.nextEndpoint.address, 0x7f00_0ff0);
+  assert.deepEqual(completion.nextEndpoint.symbol, {
+    kind: "name",
+    name: "CreateFontA",
+  });
+  assert.equal(
+    completion.memoryContentSha256,
+    report.firstUnsupported.memoryContentSha256,
+  );
+}
+
 async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
   const target = await createDebugTarget(
     browserWebSocketUrl,
@@ -1198,6 +1314,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.report.pendingCallbacks, 0);
     assertExecutionStateMachine(evidence.report, scenario);
     assertExecutionEngine(evidence.report);
+    if (privateHeapOrdinarySegmentGrowthProfile) {
+      validatePrivateHeapOrdinarySegmentGrowthBgiProbe(evidence, scenario);
+      return evidence;
+    }
     if (deleteFileAProfile) {
       validateDeleteFileABgiProbe(evidence, scenario);
       return evidence;
@@ -6241,7 +6361,96 @@ function validateDeleteFileABgiEquivalence(browser, oracle) {
   assert.equal(report.timerPacing.pending, 0);
 }
 
+function validatePrivateHeapOrdinarySegmentGrowthBgiEquivalence(
+  browser,
+  oracle,
+) {
+  const report = browser.report;
+  const completion = report.checkpointCompletion;
+  assert.equal(
+    oracle.schema,
+    "vine.v86-bgi-private-heap-ordinary-segment-growth-primary",
+  );
+  assert.equal(report.evidenceLevel, fullEvidence ? "full" : "summary");
+  assert.equal(
+    report.supportedCallCount,
+    oracle.execution.completedSupportedCalls,
+  );
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    oracle.execution.supportedCallSemanticsSha256,
+  );
+  assert.equal(report.instructions, oracle.stop.terminal.instructionCount);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert(
+    oracle.synchronization.finalGeneration >= oracle.process.memory.generation,
+  );
+  assert.deepEqual(
+    report.sourceReads.map(normalizeBrowserSourceRead),
+    oracle.synchronization.sourceReads.map(normalizeNodeSourceRead),
+  );
+  assert.deepEqual(
+    (report.heapPageMaterializations ?? []).map(
+      normalizeHeapPageMaterialization,
+    ),
+    oracle.synchronization.heapPageMaterializations.map(
+      normalizeHeapPageMaterialization,
+    ),
+  );
+  assert.deepEqual(
+    report.writableDirectoryCreates.map(normalizeWritableDirectoryCreate),
+    oracle.synchronization.writableDirectoryCreates.map(
+      normalizeWritableDirectoryCreate,
+    ),
+  );
+  assert.deepEqual(
+    report.firstUnsupported.endpoint,
+    oracle.stop.fault.endpoint.endpoint,
+  );
+  assert.deepEqual(report.firstUnsupported.fault, oracle.stop.fault.fault);
+  assert.equal(
+    report.firstUnsupported.memoryContentSha256,
+    oracle.stop.fault.memoryContentSha256,
+  );
+  assert.equal(
+    completion.clockSampleCount,
+    oracle.execution.clockSamples.count,
+  );
+  assert.equal(
+    completion.windowTimerCallbackCount,
+    oracle.execution.windowTimerCallbacks.count,
+  );
+  assert.equal(completion.presentCount, oracle.execution.presentations.count);
+  assert.equal(completion.thirdPresentReached, false);
+  assert.equal(completion.clockFreezeWasProximateCause, false);
+  assert.equal(completion.archiveEnumerationWasProximateCause, false);
+  assert.equal(completion.missingFileDeleteWasProximateCause, false);
+  assert.equal(completion.ordinaryHeapCapacityWasProximateCause, false);
+  assert.equal(completion.instructionCount, oracle.stop.terminal.instructionCount);
+  assert.deepEqual(completion.nextEndpoint, oracle.stop.fault.endpoint.endpoint);
+  assert.equal(
+    completion.memoryContentSha256,
+    oracle.stop.fault.memoryContentSha256,
+  );
+  assert.equal(report.pointerInput.receipts.length, 2);
+  assert.deepEqual(
+    report.pointerInput.receipts[0],
+    oracle.execution.pointerInput.first.receipt,
+  );
+  assert.deepEqual(
+    report.pointerInput.receipts[1],
+    oracle.execution.pointerInput.last.receipt,
+  );
+  assert.equal(report.timerPacing.requests, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.completions, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.pending, 0);
+}
+
 function validateBgiEquivalence(browser, oracle) {
+  if (privateHeapOrdinarySegmentGrowthProfile) {
+    validatePrivateHeapOrdinarySegmentGrowthBgiEquivalence(browser, oracle);
+    return;
+  }
   if (deleteFileAProfile) {
     validateDeleteFileABgiEquivalence(browser, oracle);
     return;

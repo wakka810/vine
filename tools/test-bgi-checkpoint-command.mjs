@@ -192,6 +192,12 @@ assert.equal(
   "v86-bgi-delete-file-a",
 );
 assert.equal(
+  bgiProfileOutputDirectory(
+    "kernel32-private-heap-ordinary-segment-growth",
+  ),
+  "v86-bgi-private-heap-ordinary-segment-growth",
+);
+assert.equal(
   bgiProfileOutputDirectory("shell32-drag-accept-files"),
   "v86-bgi-drag-accept-files",
 );

@@ -35,9 +35,9 @@ fn heap_slot_allocator_ownership_preserves_runtime_serialization_shape() {
 }
 
 #[test]
-fn growable_heap_uses_a_bounded_second_segment_and_tears_both_down_atomically() {
+fn growable_heap_uses_multiple_bounded_segments_and_tears_them_down_atomically() {
     let mut memory = GuestMemory::new(MemoryLimits {
-        max_physical_pages: 8_192,
+        max_physical_pages: 12_288,
         ..MemoryLimits::default()
     })
     .unwrap();
@@ -59,7 +59,7 @@ fn growable_heap_uses_a_bounded_second_segment_and_tears_both_down_atomically() 
     assert!(runtime.heap_extension_backing(handle).unwrap().is_none());
 
     let extension = ExecutionSession::new(&mut memory, &mut runtime)
-        .allocate_private_heap_block(handle, 0x2000, RuntimeHeapInitialization::Zeroed)
+        .allocate_private_heap_block(handle, first_length, RuntimeHeapInitialization::Zeroed)
         .unwrap();
     acknowledge_delta(&mut memory);
     let extension_slot_base = RUNTIME_PRIVATE_HEAP_ARENA_BASE.0
@@ -68,19 +68,42 @@ fn growable_heap_uses_a_bounded_second_segment_and_tears_both_down_atomically() 
     let extension_backing = runtime.heap_extension_backing(handle).unwrap().unwrap();
     let extension_allocation_id = extension_backing.address_allocation_id;
     assert_eq!(extension_backing.range.start(), extension.address);
-    assert_eq!(extension_backing.committed_bytes, 0x2000);
+    assert_eq!(extension_backing.committed_bytes, first_length);
     assert_eq!(runtime.heap(handle).unwrap().live_allocations, 2);
 
+    let third = ExecutionSession::new(&mut memory, &mut runtime)
+        .allocate_private_heap_block(handle, 0x406000, RuntimeHeapInitialization::Zeroed)
+        .unwrap();
+    acknowledge_delta(&mut memory);
+    let third_slot = RUNTIME_PRIVATE_HEAP_BACKING_LIMIT - 1;
+    let third_slot_base = RUNTIME_PRIVATE_HEAP_ARENA_BASE.0
+        + u32::from(third_slot - 1) * RUNTIME_PRIVATE_HEAP_ARENA_STRIDE;
+    assert_eq!(third.address, GuestAddress(third_slot_base));
+    assert_eq!(
+        runtime
+            .private_heap_allocation(handle, third.address)
+            .unwrap(),
+        third
+    );
+    let third_allocation_id = runtime
+        .process_address_space_allocator()
+        .allocation_for_purpose(&ProcessAddressAllocationPurpose::PrivateHeapSlot {
+            slot: third_slot,
+        })
+        .unwrap()
+        .id;
+    assert_eq!(runtime.heap(handle).unwrap().live_allocations, 3);
+
     let freed = ExecutionSession::new(&mut memory, &mut runtime)
-        .free_private_heap_block(handle, extension.address)
+        .free_private_heap_block(handle, third.address)
         .unwrap();
     acknowledge_delta(&mut memory);
-    assert_eq!(freed, extension);
+    assert_eq!(freed, third);
     let reused = ExecutionSession::new(&mut memory, &mut runtime)
-        .allocate_private_heap_block(handle, 0x2000, RuntimeHeapInitialization::Zeroed)
+        .allocate_private_heap_block(handle, 0x406000, RuntimeHeapInitialization::Zeroed)
         .unwrap();
     acknowledge_delta(&mut memory);
-    assert_eq!(reused.address, extension.address);
+    assert_eq!(reused.address, third.address);
 
     let primary_allocation_id = runtime
         .heap_backing(handle)
@@ -93,15 +116,76 @@ fn growable_heap_uses_a_bounded_second_segment_and_tears_both_down_atomically() 
     acknowledge_delta(&mut memory);
     assert_eq!(
         teardown.address_allocation_ids,
-        vec![primary_allocation_id, extension_allocation_id]
+        vec![
+            primary_allocation_id,
+            third_allocation_id,
+            extension_allocation_id
+        ]
     );
-    assert_eq!(teardown.allocations_discarded, 2);
+    assert_eq!(teardown.allocations_discarded, 3);
     assert_eq!(
         teardown.reserved_bytes_released,
-        u64::from(RUNTIME_PRIVATE_HEAP_ARENA_STRIDE) * 2
+        u64::from(RUNTIME_PRIVATE_HEAP_ARENA_STRIDE) * 3
     );
     assert_eq!(memory.stats().owners, 0);
     assert_eq!(memory.stats().regions, 0);
+}
+
+#[test]
+fn extension_slot_exhaustion_and_fixed_heap_growth_rejection_are_atomic() {
+    let mut memory = GuestMemory::new(MemoryLimits {
+        max_physical_pages: 8_192,
+        ..MemoryLimits::default()
+    })
+    .unwrap();
+    let mut runtime = running_runtime();
+    let handle = runtime.allocate_private_heap(0, 0, 0).unwrap().handle;
+    for _ in 1..RUNTIME_PRIVATE_HEAP_BACKING_LIMIT {
+        runtime.allocate_private_heap(0, 0, 0).unwrap();
+    }
+    ExecutionSession::new(&mut memory, &mut runtime)
+        .allocate_private_heap_block(
+            handle,
+            RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
+            RuntimeHeapInitialization::DeterministicUninitialized,
+        )
+        .unwrap();
+    acknowledge_initial_reflection(&mut memory);
+    let runtime_before_exhaustion = runtime.clone();
+    let memory_before_exhaustion = memory.stats();
+    let error = ExecutionSession::new(&mut memory, &mut runtime)
+        .allocate_private_heap_block(handle, 8, RuntimeHeapInitialization::Zeroed)
+        .unwrap_err();
+    assert_eq!(error.code, "heap-extension-backing-slot-exhausted");
+    assert_eq!(runtime, runtime_before_exhaustion);
+    assert_eq!(memory.stats(), memory_before_exhaustion);
+
+    let mut fixed_memory = GuestMemory::new(MemoryLimits {
+        max_physical_pages: 16,
+        ..MemoryLimits::default()
+    })
+    .unwrap();
+    let mut fixed_runtime = running_runtime();
+    let fixed_handle = fixed_runtime
+        .allocate_private_heap(0, 0, 0x1000)
+        .unwrap()
+        .handle;
+    ExecutionSession::new(&mut fixed_memory, &mut fixed_runtime)
+        .allocate_private_heap_block(
+            fixed_handle,
+            0x1000,
+            RuntimeHeapInitialization::DeterministicUninitialized,
+        )
+        .unwrap();
+    acknowledge_initial_reflection(&mut fixed_memory);
+    let runtime_before_fixed_growth = fixed_runtime.clone();
+    let memory_before_fixed_growth = fixed_memory.stats();
+    let error = ExecutionSession::new(&mut fixed_memory, &mut fixed_runtime)
+        .allocate_private_heap_block(fixed_handle, 8, RuntimeHeapInitialization::Zeroed)
+        .unwrap_err();
+    assert_eq!(error.code, "heap-backing-capacity-exceeded");
+    assert_eq!(fixed_runtime, runtime_before_fixed_growth);
+    assert_eq!(fixed_memory.stats(), memory_before_fixed_growth);
 }
 
 #[test]
@@ -328,6 +412,13 @@ fn private_heap_backing_is_atomic_reusable_and_process_owned() {
 fn acknowledge_delta(memory: &mut GuestMemory) {
     let delta = memory.pending_delta().unwrap();
     memory.acknowledge_delta(delta.generation).unwrap();
+}
+
+fn acknowledge_initial_reflection(memory: &mut GuestMemory) {
+    let reflection = memory.pending_reflection().unwrap();
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .unwrap();
 }
 
 fn running_runtime() -> RuntimeState {

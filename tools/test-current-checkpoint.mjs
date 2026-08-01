@@ -30,7 +30,7 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "Runtime VFS search enumerates all 45 data0????.arc entries, and both missing-file DeleteFileA calls complete before the next private-heap allocation",
+    "Runtime VFS search enumerates all 45 data0????.arc entries, both missing-file DeleteFileA calls complete, and the third ordinary private-heap segment succeeds before the next CreateFontA variant",
   ),
 );
 assert.ok(

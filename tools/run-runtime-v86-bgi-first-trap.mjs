@@ -248,6 +248,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-create-directory-a",
         "kernel32-find-first-file-a",
         "kernel32-delete-file-a",
+        "kernel32-private-heap-ordinary-segment-growth",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
@@ -455,6 +456,7 @@ assert(
       "kernel32-create-directory-a",
       "kernel32-find-first-file-a",
       "kernel32-delete-file-a",
+      "kernel32-private-heap-ordinary-segment-growth",
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
       "user32-set-window-pos-frame-change-move",
@@ -500,7 +502,8 @@ assert(
 );
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-delete-file-a"
+    genericRuntimeCapability === "kernel32-delete-file-a" ||
+    genericRuntimeCapability === "kernel32-private-heap-ordinary-segment-growth"
       ? "kernel32-delete-file-a-v1.json"
       : genericRuntimeCapability === "kernel32-find-first-file-a"
       ? "kernel32-find-file-a-v1.json"
@@ -1015,7 +1018,10 @@ const d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled =
 const d3d9PostInputScanWaitableTimerCycleCheckpointEnabled =
   genericRuntimeCapability ===
     "d3d9-post-input-scan-waitable-timer-cycle";
+const privateHeapOrdinarySegmentGrowthCheckpointEnabled =
+  genericRuntimeCapability === "kernel32-private-heap-ordinary-segment-growth";
 const deleteFileACheckpointEnabled =
+  privateHeapOrdinarySegmentGrowthCheckpointEnabled ||
   genericRuntimeCapability === "kernel32-delete-file-a";
 const findFirstFileACheckpointEnabled =
   deleteFileACheckpointEnabled ||
@@ -1924,7 +1930,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? deleteFileACheckpointEnabled
+    ? privateHeapOrdinarySegmentGrowthCheckpointEnabled
+      ? "v86-bgi-private-heap-ordinary-segment-growth"
+      : deleteFileACheckpointEnabled
       ? "v86-bgi-delete-file-a"
       : findFirstFileACheckpointEnabled
       ? "v86-bgi-find-first-file-a"
@@ -6515,6 +6523,11 @@ async function run() {
       });
       if (genericRuntimeCapability === null) {
         validateGenericRuntimeReentryResult(genericResult);
+      } else if (privateHeapOrdinarySegmentGrowthCheckpointEnabled) {
+        validatePrivateHeapOrdinarySegmentGrowthResult(
+          genericResult,
+          sourceRegistration,
+        );
       } else if (deleteFileACheckpointEnabled) {
         validateDeleteFileAResult(genericResult, sourceRegistration);
       } else if (findFirstFileACheckpointEnabled) {
@@ -6854,6 +6867,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : privateHeapOrdinarySegmentGrowthCheckpointEnabled
+            ? "bgi private-heap ordinary segment growth"
           : deleteFileACheckpointEnabled
             ? "bgi KERNEL32 DeleteFileA missing-file probes"
           : findFirstFileACheckpointEnabled
@@ -9414,6 +9429,7 @@ async function runGenericRuntimeReentry({
           active.endpoint,
           generation,
           context,
+          active.apiArguments,
         );
         callbackEvents.push({
           action: "return",
@@ -10289,7 +10305,17 @@ async function runGenericRuntimeReentry({
     if (response.kind === runtimeFrame.guestCallback) {
       assert.equal(response.payload.length, 0);
       const entry = JSON.parse(response.control.toString("utf8"));
-      validateGenericCallbackEntry(entry, endpoint, generation, context);
+      const apiArguments = terminal.stackWords.slice(
+        1,
+        1 + entry.apiArgumentCount,
+      );
+      validateGenericCallbackEntry(
+        entry,
+        endpoint,
+        generation,
+        context,
+        apiArguments,
+      );
       occurrences.set(occurrenceKey, occurrence);
       const manifestCheckpoint =
         sequence <= selectedCheckpoint.supportedCallCount
@@ -10302,7 +10328,7 @@ async function runGenericRuntimeReentry({
         symbol: endpoint.symbol,
         occurrence,
         trapInstructionCount: continuation.instructionCount,
-        arguments: terminal.stackWords.slice(1, 1 + entry.apiArgumentCount),
+        arguments: apiArguments,
         pendingCallback: true,
       });
       const outerState = continuation.finalState;
@@ -10314,6 +10340,7 @@ async function runGenericRuntimeReentry({
         trapInstructionCount: continuation.instructionCount,
         outerState,
         entry,
+        apiArguments,
         callIndex,
         manifestCheckpoint,
       });
@@ -15293,7 +15320,13 @@ function captureGenericComFaultStack(context, continuation, fault) {
   };
 }
 
-function validateGenericCallbackEntry(entry, endpoint, generation, context) {
+function validateGenericCallbackEntry(
+  entry,
+  endpoint,
+  generation,
+  context,
+  apiArguments,
+) {
   assert.equal(entry.schema, "vine.v86-generic-runtime-callback");
   assert.equal(entry.schemaVersion, 1);
   assert.equal(entry.endpoint.kind, endpoint.kind);
@@ -15357,6 +15390,7 @@ function validateGenericCallbackEntry(entry, endpoint, generation, context) {
     endpoint.module.toLowerCase() === "gdi32.dll" &&
     endpoint.symbol === "EnumFontFamiliesExA"
   ) {
+    assert(apiArguments.length >= 4);
     assert.equal(entry.target, 0x1002_d2e0);
     assert.equal(entry.argumentCount, 4);
     assert.equal(entry.scratchBytes, 188 + 96);
@@ -15368,7 +15402,7 @@ function validateGenericCallbackEntry(entry, endpoint, generation, context) {
           `EnumFontFamiliesExA callback argument ${index - 1}`,
         ),
       ),
-      [entry.scratchAddress, entry.scratchAddress + 188, 4, 0x100d_ce7c],
+      [entry.scratchAddress, entry.scratchAddress + 188, 4, apiArguments[3]],
     );
     const expected = Buffer.alloc(188 + 96);
     expected.writeInt32LE(32, 0);
@@ -26154,6 +26188,109 @@ function validateDeleteFileAResult(result, sourceRegistration) {
     0x6801_0001,
     0,
     0x0040_6000,
+  ]);
+  validateScheduledSharedClockCalls(result.supportedCalls);
+}
+
+function validatePrivateHeapOrdinarySegmentGrowthResult(
+  result,
+  sourceRegistration,
+) {
+  assert(privateHeapOrdinarySegmentGrowthCheckpointEnabled);
+  assert(deleteFileACheckpointEnabled);
+  assert(findFirstFileACheckpointEnabled);
+  assert(scheduledSharedClockProfile);
+  assert(sourceRegistration !== null);
+  assert.equal(
+    sourceRegistration.manifest.snapshotId,
+    "primary-game-archives-v2",
+  );
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 261_027);
+  assert.equal(result.callbackEvents.length, 146);
+  assert.equal(result.heapPageMaterializations.length, 3_108);
+  assert.equal(result.sourceReads.length, 139);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+  assert.equal(result.timerPacing.length, 7_721);
+  assert.equal(result.writebacks.length, 264_220);
+  assert.equal(result.hostDeltas.length, 128_181);
+  assert.equal(result.finalGeneration, 296_715);
+  assert.deepEqual(result.threadExecution, {
+    registeredThreadIds: [8_192, 8_193],
+    executedThreadIds: [8_192, 8_193],
+    contextSwitches: 1_954,
+    threadExits: [],
+  });
+  const growthAllocation = result.supportedCalls[260_630];
+  assert.equal(growthAllocation.sequence, 260_631);
+  assert.equal(growthAllocation.module.toLowerCase(), "kernel32.dll");
+  assert.equal(growthAllocation.symbol, "HeapAlloc");
+  assert.deepEqual(growthAllocation.arguments, [0x6801_0001, 0, 0x0040_6000]);
+  assert.deepEqual(growthAllocation.result, {
+    action: "set",
+    value: 0x3e00_0000,
+  });
+  assert.equal(growthAllocation.implementationId, "kernel32.heap-alloc.v2");
+  assert.equal(growthAllocation.trapInstructionCount, 341_618_572);
+  assert.equal(growthAllocation.returnAddress, 0x100a_4a33);
+  assert.equal(
+    result.supportedCalls.filter(
+      (call) =>
+        call.implementationId ===
+        "kernel32.delete-file-a.missing-runtime-vfs.v1",
+    ).length,
+    2,
+  );
+  assert.equal(
+    result.supportedCalls.filter(
+      (call) => call.interface === "IDirect3DDevice9" && call.vtableSlot === 17,
+    ).length,
+    2,
+  );
+  assert.equal(
+    result.supportedCalls.filter((call) => call.tickCount !== undefined).length,
+    100_534,
+  );
+  assert.equal(
+    result.supportedCalls.filter(
+      (call) =>
+        call.module.toLowerCase() === "user32.dll" &&
+        call.symbol === "DispatchMessageA" &&
+        call.windowTimer !== undefined &&
+        call.callback !== undefined,
+    ).length,
+    39,
+  );
+  assert.equal(result.fault?.capabilityCluster, "gdi32-api-contract");
+  assert.equal(result.fault?.fault?.class, "unsupported");
+  assert.equal(result.fault?.fault?.stage, "gdi32-fonts");
+  assert.equal(result.fault?.fault?.code, "create-font-a-variant-unsupported");
+  assert.equal(
+    result.fault?.fault?.message,
+    "CreateFontA currently supports only the evidenced CP932 MS Gothic request",
+  );
+  assert.deepEqual(result.fault?.endpoint?.endpoint, {
+    id: 256,
+    address: 0x7f00_0ff0,
+    module: "gdi32.dll",
+    symbol: { kind: "name", name: "CreateFontA" },
+    iatAddress: 0x100d_108c,
+    disposition: "declared-runtime-export",
+  });
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "c214835487a1ed382c3ea9cbb459d9c09faa1f329fba2c60c492587443d52806",
+  );
+  assert.equal(result.terminal.instructionCount, 342_873_024);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1002_c838);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1), [
+    224,
+    112,
+    0,
+    0,
+    100,
+    0,
+    0,
   ]);
   validateScheduledSharedClockCalls(result.supportedCalls);
 }
@@ -39141,11 +39278,19 @@ function buildGenericRuntimeReentryReport({
       );
       if (findFirstFileACheckpointEnabled) {
         if (deleteFileACheckpointEnabled) {
-          assert.equal(completedSupportedCalls.length, 260_630);
-          assert.equal(
-            supportedCallSemanticsSha256,
-            "3721b7922b0e2fb15f1fd9390faa214b227056a664885a2ee6f3c4ab09c5082d",
-          );
+          if (privateHeapOrdinarySegmentGrowthCheckpointEnabled) {
+            assert.equal(completedSupportedCalls.length, 261_027);
+            assert.equal(
+              supportedCallSemanticsSha256,
+              "c92d8866b1e9355c076db7126a3ab286b7d67289ca4601a6f9cfb749c23b3a16",
+            );
+          } else {
+            assert.equal(completedSupportedCalls.length, 260_630);
+            assert.equal(
+              supportedCallSemanticsSha256,
+              "3721b7922b0e2fb15f1fd9390faa214b227056a664885a2ee6f3c4ab09c5082d",
+            );
+          }
         } else {
           assert.equal(completedSupportedCalls.length, 255_410);
           assert.equal(
@@ -42312,6 +42457,16 @@ function buildScheduledSharedClockPrimaryReport({
       call.implementationId ===
       "kernel32.delete-file-a.missing-runtime-vfs.v1",
   );
+  const ordinaryHeapSegmentGrowthCall =
+    privateHeapOrdinarySegmentGrowthCheckpointEnabled
+      ? completedSupportedCalls.find(
+          (call) =>
+            call.implementationId === "kernel32.heap-alloc.v2" &&
+            call.arguments[0] === 0x6801_0001 &&
+            call.arguments[1] === 0 &&
+            call.arguments[2] === 0x0040_6000,
+        ) ?? null
+      : null;
   const successfulFindCalls = [
     ...findFirstCalls,
     ...findNextCalls.filter((call) => call.result.value === 1),
@@ -42330,7 +42485,9 @@ function buildScheduledSharedClockPrimaryReport({
     };
   });
   return {
-    schema: deleteFileACheckpointEnabled
+    schema: privateHeapOrdinarySegmentGrowthCheckpointEnabled
+      ? "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
+      : deleteFileACheckpointEnabled
       ? "vine.v86-bgi-delete-file-a-primary"
       : findFirstFileACheckpointEnabled
       ? "vine.v86-bgi-find-file-a-primary"
@@ -42371,6 +42528,16 @@ function buildScheduledSharedClockPrimaryReport({
             fileDeletionVariant: "missing-final-component-only",
             existingObjectMutationImplemented: false,
             hostFilesystemMutationImported: false,
+          }
+        : {}),
+      ...(privateHeapOrdinarySegmentGrowthCheckpointEnabled
+        ? {
+            ordinaryHeapBackingAuthority: "runtime/heaps.rs::RuntimeHeaps",
+            ordinaryHeapSegmentCapacityBytes: 16 * 1024 * 1024,
+            ordinaryHeapProcessSlotLimit: 32,
+            ordinaryHeapSingleRequestMaximumBytes: 16 * 1024 * 1024,
+            ordinaryHeapSegmentSelection:
+              "primary-then-lowest-address-first-fit-extensions",
           }
         : {}),
     },
@@ -42457,6 +42624,20 @@ function buildScheduledSharedClockPrimaryReport({
             },
           }
         : {}),
+      ...(privateHeapOrdinarySegmentGrowthCheckpointEnabled
+        ? {
+            ordinaryHeapSegmentGrowth: {
+              completionCount:
+                ordinaryHeapSegmentGrowthCall === null ? 0 : 1,
+              call: ordinaryHeapSegmentGrowthCall,
+              ordinarySegmentSlot: 31,
+              ordinarySegmentCapacityBytes: 16 * 1024 * 1024,
+              ordinarySegmentCountAfter: 3,
+              segmentSelectionPolicy:
+                "primary-then-lowest-address-first-fit-extensions",
+            },
+          }
+        : {}),
     },
     synchronization: {
       writebackBatches: genericResult.writebacks.length,
@@ -42479,7 +42660,9 @@ function buildScheduledSharedClockPrimaryReport({
       terminal: genericResult.terminal,
       arguments: genericResult.terminal.terminal.stackWords.slice(
         1,
-        deleteFileACheckpointEnabled
+        privateHeapOrdinarySegmentGrowthCheckpointEnabled
+          ? undefined
+          : deleteFileACheckpointEnabled
           ? 4
           : findFirstFileACheckpointEnabled
             ? 2

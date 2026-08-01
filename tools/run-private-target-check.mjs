@@ -1158,7 +1158,9 @@ function isScheduledSharedClockNodeReport(report) {
   return (
     report?.schema === "vine.v86-bgi-scheduled-shared-clock-primary" ||
     report?.schema === "vine.v86-bgi-find-file-a-primary" ||
-    report?.schema === "vine.v86-bgi-delete-file-a-primary"
+    report?.schema === "vine.v86-bgi-delete-file-a-primary" ||
+    report?.schema ===
+      "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
   );
 }
 
@@ -1167,6 +1169,71 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (
+    nodeReport.schema ===
+    "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
+  ) {
+    const growth = execution.ordinaryHeapSegmentGrowth;
+    const call = growth.call;
+    const nextEndpoint = nodeReport.stop.fault.endpoint.endpoint;
+    const reachedNextEndpointAfterGrowth =
+      execution.clockSamples.count > 0 &&
+      execution.windowTimerCallbacks.count > 0 &&
+      execution.presentations.count === 2 &&
+      growth.completionCount === 1 &&
+      call.result.value === 0x3e00_0000 &&
+      nodeReport.stop.fault.fault.code ===
+        "create-font-a-variant-unsupported";
+    return {
+      capability:
+        "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a",
+      implementationId:
+        "runtime.kernel32-private-heap-ordinary-segment-growth-post-delete-file-a.v1",
+      requiredCompletions: 1,
+      completionCount: growth.completionCount,
+      prerequisiteDeleteFileASequence: execution.deleteFileA.last.sequence,
+      prerequisiteDeleteFileAInstructionCount:
+        execution.deleteFileA.last.trapInstructionCount,
+      completionSequence: call.sequence,
+      completionInstructionCount: call.trapInstructionCount,
+      lastCompletionSequence: call.sequence,
+      lastCompletionInstructionCount: call.trapInstructionCount,
+      call: {
+        sequence: call.sequence,
+        module: call.module.toLowerCase(),
+        symbol: call.symbol,
+        arguments: call.arguments,
+        result: call.result,
+        implementationId: call.implementationId,
+        returnAddress: call.returnAddress,
+        stackPointerBefore: call.stackPointerBefore,
+        stackPointerAfter: call.stackPointerAfter,
+        lastError: call.lastError,
+        guestWrites: call.guestWrites,
+        heapAllocation: call.heapAllocation,
+      },
+      ordinarySegmentSlot: growth.ordinarySegmentSlot,
+      ordinarySegmentCapacityBytes: growth.ordinarySegmentCapacityBytes,
+      ordinarySegmentCountAfter: growth.ordinarySegmentCountAfter,
+      segmentSelectionPolicy: growth.segmentSelectionPolicy,
+      clockProfileId: nodeReport.contract.clockProfile.id,
+      clockSampleCount: execution.clockSamples.count,
+      windowTimerCallbackCount: execution.windowTimerCallbacks.count,
+      presentCount: execution.presentations.count,
+      pointerInputEventCount: execution.pointerInput.count,
+      inputTimerCycleCount: expectedNext.completion.inputTimerCycleCount,
+      inputQuerySequence: execution.pointerInput.last.committedAfterSequence,
+      thirdPresentReached: execution.presentations.thirdPresentReached,
+      clockFreezeWasProximateCause: !reachedNextEndpointAfterGrowth,
+      archiveEnumerationWasProximateCause: !reachedNextEndpointAfterGrowth,
+      missingFileDeleteWasProximateCause: !reachedNextEndpointAfterGrowth,
+      ordinaryHeapCapacityWasProximateCause:
+        !reachedNextEndpointAfterGrowth,
+      instructionCount: nodeReport.stop.terminal.instructionCount,
+      nextEndpoint,
+      memoryContentSha256: nodeReport.stop.fault.memoryContentSha256,
+    };
+  }
   if (nodeReport.schema === "vine.v86-bgi-delete-file-a-primary") {
     const deletion = execution.deleteFileA;
     const nextEndpoint = nodeReport.stop.fault.endpoint.endpoint;
@@ -1452,7 +1519,9 @@ function assertScheduledSharedClockReportSemantics({
   );
   if (
     nodeReport.schema === "vine.v86-bgi-find-file-a-primary" ||
-    nodeReport.schema === "vine.v86-bgi-delete-file-a-primary"
+    nodeReport.schema === "vine.v86-bgi-delete-file-a-primary" ||
+    nodeReport.schema ===
+      "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
   ) {
     const find = nodeExecution.findFileA;
     assert.equal(find.pattern, "data0????.arc");
@@ -1470,7 +1539,11 @@ function assertScheduledSharedClockReportSemantics({
     assert.equal(find.searchHandleNamespace, "vine.runtime-file-search.v1");
     assert.equal(nodeReport.contract.hostDirectoryEnumerationImported, false);
   }
-  if (nodeReport.schema === "vine.v86-bgi-delete-file-a-primary") {
+  if (
+    nodeReport.schema === "vine.v86-bgi-delete-file-a-primary" ||
+    nodeReport.schema ===
+      "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
+  ) {
     const deletion = nodeExecution.deleteFileA;
     assert.equal(deletion.completionCount, 2);
     assert.equal(deletion.first.sequence, 255_411);
@@ -1487,12 +1560,31 @@ function assertScheduledSharedClockReportSemantics({
     assert.equal(nodeReport.contract.fileDeletionAuthority, "rust-runtime-vfs");
     assert.equal(nodeReport.contract.hostFilesystemMutationImported, false);
   }
+  if (
+    nodeReport.schema ===
+    "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
+  ) {
+    const growth = nodeExecution.ordinaryHeapSegmentGrowth;
+    assert.equal(growth.completionCount, 1);
+    assert.equal(growth.call.sequence, 260_631);
+    assert.equal(growth.call.trapInstructionCount, 341_618_572);
+    assert.deepEqual(growth.call.arguments, [0x6801_0001, 0, 0x0040_6000]);
+    assert.equal(growth.call.result.value, 0x3e00_0000);
+    assert.equal(growth.call.heapAllocation.allocation.id, 1_847);
+    assert.equal(growth.call.heapAllocation.liveAllocations, 1_144);
+    assert.equal(growth.ordinarySegmentSlot, 31);
+    assert.equal(growth.ordinarySegmentCountAfter, 3);
+    assert.equal(nodeReport.contract.ordinaryHeapProcessSlotLimit, 32);
+  }
 
   const nodeEndpoint = nodeStop.fault.endpoint.endpoint;
   const expectedEndpoint = expectedNext.nextEndpoint;
   assert.equal(nodeStop.fault.capabilityCluster, expectedNext.capabilityCluster);
   const expectedFaultCode =
-    nodeReport.schema === "vine.v86-bgi-delete-file-a-primary"
+    nodeReport.schema ===
+    "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
+      ? "create-font-a-variant-unsupported"
+      : nodeReport.schema === "vine.v86-bgi-delete-file-a-primary"
       ? "heap-backing-capacity-exceeded"
       : "endpoint-contract-missing";
   assert.equal(nodeStop.fault.fault.code, expectedFaultCode);

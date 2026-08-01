@@ -158,9 +158,13 @@ function validateExecutionStateMachine(value, label, errors) {
 export function validateCurrentCheckpoint(manifest) {
   const errors = [];
   const root = requireRecord(manifest, "manifest", errors);
-  const deleteFileAPostFindFileAActive =
+  const privateHeapOrdinarySegmentGrowthActive =
     root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
-    "kernel32-delete-file-a-post-find-file-a";
+    "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a";
+  const deleteFileAPostFindFileAActive =
+    privateHeapOrdinarySegmentGrowthActive ||
+    root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
+      "kernel32-delete-file-a-post-find-file-a";
   const findFileAPostSetWindowTextActive =
     deleteFileAPostFindFileAActive ||
     root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
@@ -183,7 +187,10 @@ export function validateCurrentCheckpoint(manifest) {
           "kernel32-find-file-a-post-set-window-text") ||
       (deleteFileAPostFindFileAActive &&
         root.nextStructuredStop?.completion?.capability ===
-          "kernel32-delete-file-a-post-find-file-a"));
+          "kernel32-delete-file-a-post-find-file-a") ||
+      (privateHeapOrdinarySegmentGrowthActive &&
+        root.nextStructuredStop?.completion?.capability ===
+          "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a"));
   const primaryMainLoopProgressionActive =
     root.activeRuntimeCheckpoint?.profile === "primary-main-loop-progression";
   const leaveCriticalSectionActive =
@@ -552,7 +559,11 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9RecreatedTexturesActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-set-window-pos-repeat-activation";
+  const privateHeapOrdinarySegmentGrowthProfileActive =
+    root.activeRuntimeCheckpoint?.capabilityProfile ===
+    "kernel32-private-heap-ordinary-segment-growth";
   const deleteFileAActive =
+    privateHeapOrdinarySegmentGrowthProfileActive ||
     root.activeRuntimeCheckpoint?.capabilityProfile === "kernel32-delete-file-a";
   const findFileAActive =
     deleteFileAActive ||
@@ -1364,7 +1375,27 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    deleteFileAActive
+    privateHeapOrdinarySegmentGrowthProfileActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_997,
+        browserMappingDirtyPages: 150_402,
+        browserSuccessExecutionTransitions: 589_100,
+        browserFinalGeneration: 315_160,
+        browserReportSchemaVersion: 70,
+        latestSchema:
+          "vine.v86-bgi-private-heap-ordinary-segment-growth-primary",
+        latestWritebackBatches: 165_242,
+        latestWritebackDirtyPages: 244_675,
+        latestWritebackChangedBytes: 43_072_557,
+        latestHostDeltaBatches: 127_997,
+        latestFinalMemoryGeneration: 296_715,
+        semanticCallDigestSha256:
+          "c92d8866b1e9355c076db7126a3ab286b7d67289ca4601a6f9cfb749c23b3a16",
+        memoryContentSha256:
+          "c214835487a1ed382c3ea9cbb459d9c09faa1f329fba2c60c492587443d52806",
+      }
+    : deleteFileAActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_997,
@@ -3423,7 +3454,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    deleteFileAPostFindFileAActive
+    privateHeapOrdinarySegmentGrowthActive
+      ? "vine.browser-runtime-worker.v104"
+      : deleteFileAPostFindFileAActive
       ? "vine.browser-runtime-worker.v103"
       : findFileAPostSetWindowTextActive
       ? "vine.browser-runtime-worker.v102"
@@ -4266,7 +4299,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (deleteFileAActive
+      (privateHeapOrdinarySegmentGrowthProfileActive
+        ? 70
+        : deleteFileAActive
         ? 69
         : findFileAActive
         ? 68
@@ -14150,7 +14185,7 @@ export function validateCurrentCheckpoint(manifest) {
     errors,
   );
   if (
-    heaps.schema !== "vine.runtime-private-heap-backing.v6" ||
+    heaps.schema !== "vine.runtime-private-heap-backing.v7" ||
     heaps.stateOwner !== "runtime/heaps.rs::RuntimeHeaps" ||
     heaps.mutableCollectionVisibility !== "private" ||
     heaps.readInspection !== "immutable-borrow" ||
@@ -14163,11 +14198,11 @@ export function validateCurrentCheckpoint(manifest) {
       "runtime-state-borrowed-compatibility-view" ||
     !Array.isArray(heaps.ownedState) ||
     heaps.ownedState.join(",") !==
-      "logical-heap-map,guest-memory-backing-map,guest-memory-extension-backing-map,private-heap-slot-allocator,per-heap-allocation-id-allocators,process-large-allocation-backing,large-allocation-materialized-page-index" ||
+      "logical-heap-map,guest-memory-backing-map,per-heap-guest-memory-extension-backing-map,private-heap-slot-allocator,per-heap-allocation-id-allocators,process-large-allocation-backing,large-allocation-materialized-page-index" ||
     heaps.crossSubsystemMutation !==
       "heap-slot-plan-object-memory-preflight-targeted-commit" ||
-    heaps.subsystemTests < 7 ||
-    heaps.crossSubsystemAtomicTests < 3 ||
+    heaps.subsystemTests < 8 ||
+    heaps.crossSubsystemAtomicTests < 4 ||
     heaps.logicalAndBackingCollectionsCoOwned !== true ||
     heaps.directCollectionMutationFromAggregate !== false ||
     heaps.directAllocatorMutationFromAggregate !== false ||
@@ -14180,13 +14215,13 @@ export function validateCurrentCheckpoint(manifest) {
     heaps.arenaBase !== "0x20000000" ||
     heaps.arenaEndExclusive !== "0x40000000" ||
     heaps.backingLimit !== 32 ||
-    heaps.capacityBytesPerHeap !== 16 * 1024 * 1024 ||
-    heaps.maximumOrdinarySegmentsPerHeap !== 2 ||
-    heaps.maximumOrdinaryCapacityBytesPerHeap !== 32 * 1024 * 1024 ||
+    heaps.ordinarySegmentCapacityBytes !== 16 * 1024 * 1024 ||
+    heaps.maximumOrdinarySegmentsPerHeap !== 32 ||
+    heaps.maximumOrdinaryCapacityBytesPerHeap !== 512 * 1024 * 1024 ||
     heaps.allocationPolicy !==
-      "primary-then-extension-lowest-address-first-fit-per-segment" ||
+      "primary-then-extensions-ascending-address-lowest-address-first-fit-per-segment" ||
     heaps.extensionBackingSelection !==
-      "growable-heap-only-lowest-free-controlled-slot" ||
+      "growable-heap-only-highest-free-controlled-slot" ||
     heaps.extensionBackingPublication !==
       "address-memory-preflight-before-targeted-heap-commit" ||
     heaps.extensionBackingStalePlanError !==
@@ -23887,7 +23922,43 @@ export function validateCurrentCheckpoint(manifest) {
           errors,
         )
       : {};
-    const expectedNode = deleteFileAPostFindFileAActive
+    const ordinaryHeapSegmentGrowth = privateHeapOrdinarySegmentGrowthActive
+      ? requireRecord(
+          node.ordinaryHeapSegmentGrowth,
+          "activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence.ordinaryHeapSegmentGrowth",
+          errors,
+        )
+      : {};
+    const expectedNode = privateHeapOrdinarySegmentGrowthActive
+      ? {
+          schema:
+            "vine.v86-bgi-private-heap-ordinary-segment-growth-primary",
+          runtimeKernelCheckpoint:
+            "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a",
+          repeatRuns: 1,
+          reportBytes: 2_400_978,
+          reportSha256:
+            "92e5665eb98dd6dee9362b77784aff1967b1e4c26c50d7b76a5053d3c3619045",
+          completedSupportedCalls: 261_027,
+          supportedCallSemanticsSha256:
+            "c92d8866b1e9355c076db7126a3ab286b7d67289ca4601a6f9cfb749c23b3a16",
+          clockSampleCount: 100_534,
+          lastClockTick: 3_774_751,
+          lastClockTime100ns: 1_747_515_000,
+          lastClockGeneration: 13_464,
+          lastClockRetiredInstructions: 341_616_859,
+          lastClockPendingRetiredInstructions: 859,
+          windowTimerCallbackCount: 39,
+          timerPacingCompletionCount: 7_721,
+          writebackBatches: 264_220,
+          hostDeltaBatches: 128_181,
+          callbackEventCount: 146,
+          finalMemoryGeneration: 296_715,
+          terminalInstructionCount: 342_873_024,
+          terminalMemoryContentSha256:
+            "c214835487a1ed382c3ea9cbb459d9c09faa1f329fba2c60c492587443d52806",
+        }
+      : deleteFileAPostFindFileAActive
       ? {
           schema: "vine.v86-bgi-delete-file-a-primary",
           runtimeKernelCheckpoint:
@@ -23977,7 +24048,71 @@ export function validateCurrentCheckpoint(manifest) {
         };
     const expectedCompletion = currentStop.completion ?? {};
     const expectedEndpoint = currentStop.nextEndpoint ?? {};
-    const currentStopValid = deleteFileAPostFindFileAActive
+    const currentStopValid = privateHeapOrdinarySegmentGrowthActive
+      ? currentStop.kind === "capability-checkpoint" &&
+        currentStop.classification === "semantic-leaf" &&
+        currentStop.nextCheckpoint ===
+          "gdi32-create-font-a-224x112-post-private-heap-segment-growth" &&
+        currentStop.pausedHistoricalCheckpoint ===
+          "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a" &&
+        currentStop.instructionCount === 342_873_024 &&
+        currentStop.capabilityCluster === "gdi32-api-contract" &&
+        currentStop.reason ===
+          "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a-checkpoint-complete" &&
+        expectedCompletion.capability ===
+          "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a" &&
+        expectedCompletion.implementationId ===
+          "runtime.kernel32-private-heap-ordinary-segment-growth-post-delete-file-a.v1" &&
+        expectedCompletion.requiredCompletions === 1 &&
+        expectedCompletion.completionCount === 1 &&
+        expectedCompletion.prerequisiteDeleteFileASequence === 255_432 &&
+        expectedCompletion.prerequisiteDeleteFileAInstructionCount ===
+          328_097_369 &&
+        expectedCompletion.completionSequence === 260_631 &&
+        expectedCompletion.completionInstructionCount === 341_618_572 &&
+        expectedCompletion.call?.module?.toLowerCase() === "kernel32.dll" &&
+        expectedCompletion.call?.symbol === "HeapAlloc" &&
+        expectedCompletion.call?.arguments?.join(",") ===
+          "1744896001,0,4218880" &&
+        expectedCompletion.call?.result?.action === "set" &&
+        expectedCompletion.call?.result?.value === 1_040_187_392 &&
+        expectedCompletion.call?.implementationId ===
+          "kernel32.heap-alloc.v2" &&
+        expectedCompletion.call?.heapAllocation?.allocation?.id === 1_847 &&
+        expectedCompletion.call?.heapAllocation?.liveAllocations === 1_144 &&
+        expectedCompletion.ordinarySegmentSlot === 31 &&
+        expectedCompletion.ordinarySegmentCapacityBytes === 16_777_216 &&
+        expectedCompletion.ordinarySegmentCountAfter === 3 &&
+        expectedCompletion.segmentSelectionPolicy ===
+          "primary-then-lowest-address-first-fit-extensions" &&
+        expectedCompletion.clockProfileId === profile.id &&
+        expectedCompletion.clockSampleCount === node.clockSampleCount &&
+        expectedCompletion.windowTimerCallbackCount ===
+          node.windowTimerCallbackCount &&
+        expectedCompletion.presentCount === 2 &&
+        expectedCompletion.pointerInputEventCount === 2 &&
+        expectedCompletion.inputTimerCycleCount === 253 &&
+        expectedCompletion.inputQuerySequence === 222_096 &&
+        expectedCompletion.thirdPresentReached === false &&
+        expectedCompletion.clockFreezeWasProximateCause === false &&
+        expectedCompletion.archiveEnumerationWasProximateCause === false &&
+        expectedCompletion.missingFileDeleteWasProximateCause === false &&
+        expectedCompletion.ordinaryHeapCapacityWasProximateCause === false &&
+        expectedCompletion.instructionCount === 342_873_024 &&
+        expectedCompletion.memoryContentSha256 ===
+          expectedNode.terminalMemoryContentSha256 &&
+        currentStop.fault?.class === "unsupported" &&
+        currentStop.fault?.stage === "gdi32-fonts" &&
+        currentStop.fault?.code === "create-font-a-variant-unsupported" &&
+        expectedEndpoint.endpointId === 256 &&
+        expectedEndpoint.api?.toLowerCase() === "gdi32.dll!createfonta" &&
+        expectedEndpoint.endpointAddress === "0x7f000ff0" &&
+        expectedEndpoint.iatAddress === "0x100d108c" &&
+        expectedEndpoint.arguments?.join(",") ===
+          "0x000000e0,0x00000070,0x00000000,0x00000000,0x00000064,0x00000000,0x00000000" &&
+        expectedEndpoint.returnAddress === "0x1002c838" &&
+        expectedEndpoint.stackPointer === "0x006ff3ac"
+      : deleteFileAPostFindFileAActive
       ? currentStop.kind === "capability-checkpoint" &&
         currentStop.classification === "subsystem-gateway" &&
         currentStop.nextCheckpoint ===
@@ -24283,6 +24418,60 @@ export function validateCurrentCheckpoint(manifest) {
           5 &&
         latestEvidence.nativeHeapAfterDeleteOracleExecutableHashUnchanged ===
           true);
+    const ordinaryHeapSegmentGrowthEvidenceValid =
+      !privateHeapOrdinarySegmentGrowthActive ||
+      (ordinaryHeapSegmentGrowth.completionCount === 1 &&
+        ordinaryHeapSegmentGrowth.sequence === 260_631 &&
+        ordinaryHeapSegmentGrowth.instructionCount === 341_618_572 &&
+        ordinaryHeapSegmentGrowth.heapHandle === "0x68010001" &&
+        ordinaryHeapSegmentGrowth.flags === 0 &&
+        ordinaryHeapSegmentGrowth.requestedBytes === 4_218_880 &&
+        ordinaryHeapSegmentGrowth.allocationId === 1_847 &&
+        ordinaryHeapSegmentGrowth.resultAddress === "0x3e000000" &&
+        ordinaryHeapSegmentGrowth.ordinarySegmentSlot === 31 &&
+        ordinaryHeapSegmentGrowth.ordinarySegmentCountAfter === 3 &&
+        ordinaryHeapSegmentGrowth.ordinarySegmentCapacityBytes ===
+          16_777_216 &&
+        ordinaryHeapSegmentGrowth.implementationId ===
+          "kernel32.heap-alloc.v2" &&
+        ordinaryHeapSegmentGrowth.returnAddress === "0x100a4a33" &&
+        ordinaryHeapSegmentGrowth.stackPointers?.join(",") ===
+          "0x006ff62c,0x006ff63c" &&
+        ordinaryHeapSegmentGrowth.lastError === 0 &&
+        ordinaryHeapSegmentGrowth.guestWriteBytes === 0 &&
+        ordinaryHeapSegmentGrowth.sourceReadCountAtNextStop === 139 &&
+        ordinaryHeapSegmentGrowth.backingAuthority ===
+          "runtime/heaps.rs::RuntimeHeaps" &&
+        ordinaryHeapSegmentGrowth.memoryAuthority === "rust-guest-memory" &&
+        ordinaryHeapSegmentGrowth.browserOwnsHeapState === false &&
+        latestEvidence.ordinaryHeapMultiSegmentGrowthImplemented === true &&
+        latestEvidence.ordinaryHeapMultiSegmentGrowthSchema ===
+          "vine.runtime-private-heap-backing.v7" &&
+        latestEvidence.ordinaryHeapMaximumSegmentsPerHeap === 32 &&
+        latestEvidence.ordinaryHeapGrowthAllocationId === 1_847 &&
+        latestEvidence.ordinaryHeapGrowthResultAddress === "0x3e000000" &&
+        latestEvidence.ordinaryHeapGrowthSegmentCountAfter === 3 &&
+        latestEvidence.ordinaryHeapGrowthNodeCompletions === 1 &&
+        latestEvidence.ordinaryHeapGrowthChromeCompletions === 1 &&
+        latestEvidence.ordinaryHeapGrowthNodeChromeOrderedSemanticsMatched ===
+          true &&
+        latestEvidence.ordinaryHeapCapacityWasProximateCause === false &&
+        latestEvidence.nativeCreateFontVariantOracleScriptBytes === 5_850 &&
+        latestEvidence.nativeCreateFontVariantOracleScriptSha256 ===
+          "cf6085dd5e4bc5d439b2f658a134f91145fae3187db16dfc752423af31f9e9b3" &&
+        latestEvidence.nativeCreateFontVariantOracleReportBytes === 3_192 &&
+        latestEvidence.nativeCreateFontVariantOracleReportSha256 ===
+          "ca8e7d11f1de4d6e40bc952a441d5ba558117562ebd31f0cfab542b88bcd1680" &&
+        latestEvidence.nativeCreateFontVariantOracleFridaVersion ===
+          "17.15.4" &&
+        latestEvidence.nativeCreateFontVariantCallerReturnRva ===
+          "0x0002c838" &&
+        latestEvidence.nativeCreateFontVariantArguments?.join(",") ===
+          "224,112,0,0,100,0,0,0,128,4,0,2,0" &&
+        latestEvidence.nativeCreateFontVariantFace === "ＭＳ ゴシック" &&
+        latestEvidence.nativeCreateFontVariantResultNonNull === true &&
+        latestEvidence.nativeCreateFontVariantExecutableHashUnchanged ===
+          true);
     if (
       scheduled.schema !== "vine.scheduled-shared-clock-checkpoint" ||
       scheduled.schemaVersion !== 1 ||
@@ -24352,7 +24541,9 @@ export function validateCurrentCheckpoint(manifest) {
       node.terminalMemoryContentSha256 !==
         expectedNode.terminalMemoryContentSha256 ||
       browserBoundary.runtimeProtocol !==
-        (deleteFileAPostFindFileAActive
+        (privateHeapOrdinarySegmentGrowthActive
+          ? "vine.browser-runtime-worker.v104"
+          : deleteFileAPostFindFileAActive
           ? "vine.browser-runtime-worker.v103"
           : findFileAPostSetWindowTextActive
           ? "vine.browser-runtime-worker.v102"
@@ -24360,26 +24551,46 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.retiredInstructionCursorTransport !==
         "checked-u64-low-high-per-api-and-com-dispatch" ||
       browserBoundary.browserOwnsGuestClockState !== false ||
+      (privateHeapOrdinarySegmentGrowthActive &&
+        browserBoundary.browserReportSchemaVersion !== 70) ||
       browserBoundary.controlledChromeE2e !== "passed" ||
       browserBoundary.controlledChromeCommand !==
         "npm run check:runtime:browser-worker" ||
       browserBoundary.chromeVersion !== "150.0.7871.187" ||
       browserBoundary.reportBytes !==
-        (deleteFileAPostFindFileAActive ? 35_961 : 35_951) ||
+        (privateHeapOrdinarySegmentGrowthActive
+          ? 35_939
+          : deleteFileAPostFindFileAActive
+          ? 35_961
+          : 35_951) ||
       browserBoundary.reportSha256 !==
-        (deleteFileAPostFindFileAActive
+        (privateHeapOrdinarySegmentGrowthActive
+          ? "a370479cf8c5986412832af3018094c70e0464920cbf1cb8e961220df92bd20d"
+          : deleteFileAPostFindFileAActive
           ? "bd77deb28553190382622adb663ac87b99e4c9f9df719bbba2282f5bae5bca94"
           : "ecd982f21410c69c4d844a114041e301fd140fedbb520cf5773f4d13d2846aa1") ||
       browserBoundary.runtimeWorkerBytes !==
-        (deleteFileAPostFindFileAActive ? 1_053_379 : 1_049_048) ||
+        (privateHeapOrdinarySegmentGrowthActive
+          ? 1_058_477
+          : deleteFileAPostFindFileAActive
+          ? 1_053_379
+          : 1_049_048) ||
       browserBoundary.runtimeWorkerSha256 !==
-        (deleteFileAPostFindFileAActive
+        (privateHeapOrdinarySegmentGrowthActive
+          ? "896d56ce153c8d053c9d77f69d96687bd80422bbb239f0c36e2523282ae0ae34"
+          : deleteFileAPostFindFileAActive
           ? "1f2812982a31f8b94c994ba531c7d58285122b9299da1b51169b49631790f420"
           : "dbb154a48ed3db86b915396bb549add364443e050b6d68f52f0c811c8b46b1c4") ||
       browserBoundary.runtimeCoreWasmBytes !==
-        (deleteFileAPostFindFileAActive ? 5_361_144 : 5_354_885) ||
+        (privateHeapOrdinarySegmentGrowthActive
+          ? 5_397_236
+          : deleteFileAPostFindFileAActive
+          ? 5_361_144
+          : 5_354_885) ||
       browserBoundary.runtimeCoreWasmSha256 !==
-        (deleteFileAPostFindFileAActive
+        (privateHeapOrdinarySegmentGrowthActive
+          ? "98602e4041a3c1cb59f2863c7b473e9c1f798e74f20ee53e907d613eeaf6c048"
+          : deleteFileAPostFindFileAActive
           ? "c7fd9b0ceb900ebff6a7e2d92e7e726c3b9486c95c87291fe1eb19635c65808c"
           : "14ebc235916489a3e4b892eb85d1afc4d3d600a9029cd26af28ab047f0991f7e") ||
       browserBoundary.privatePrimaryReplay !==
@@ -24387,9 +24598,15 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.privatePrimaryCommand !==
         "node tools/run-browser-runtime-check.mjs --bgi" ||
       browserBoundary.privatePrimaryReportBytes !==
-        (deleteFileAPostFindFileAActive ? 2_598_978 : 2_592_093) ||
+        (privateHeapOrdinarySegmentGrowthActive
+          ? 2_600_572
+          : deleteFileAPostFindFileAActive
+          ? 2_598_978
+          : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
-        (deleteFileAPostFindFileAActive
+        (privateHeapOrdinarySegmentGrowthActive
+          ? "2fa1df814b382d440629a357eb7e70a0e92855fa3014277582ca70142552b9e5"
+          : deleteFileAPostFindFileAActive
           ? "deeb6cf84d0c0bdc44a1101f99786d66cb906e1ebcf513351c4d722a85582f7f"
           : "fe50788a2734f8dad6aeba2985eb713a4c0c790d3bb8707aa5eeb8c8fa8350ae") ||
       browserBoundary.privatePrimaryChromeVersion !==
@@ -24426,9 +24643,14 @@ export function validateCurrentCheckpoint(manifest) {
       !setWindowTextAEvidenceValid ||
       !findFileAEvidenceValid ||
       !deleteFileAEvidenceValid ||
+      !ordinaryHeapSegmentGrowthEvidenceValid ||
       conclusion.clockFreezeWasProximateCause !== false ||
+      (privateHeapOrdinarySegmentGrowthActive &&
+        conclusion.ordinaryHeapCapacityWasProximateCause !== false) ||
       conclusion.nextEndpoint !==
-        (deleteFileAPostFindFileAActive
+        (privateHeapOrdinarySegmentGrowthActive
+          ? "GDI32.dll!CreateFontA"
+          : deleteFileAPostFindFileAActive
           ? "KERNEL32.dll!HeapAlloc"
           : findFileAPostSetWindowTextActive
           ? "KERNEL32.dll!DeleteFileA"

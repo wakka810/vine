@@ -15080,6 +15080,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-create-directory-a" => GenericRuntimeCapability::CreateDirectoryA,
                 "kernel32-find-first-file-a" => GenericRuntimeCapability::FindFirstFileA,
                 "kernel32-delete-file-a" => GenericRuntimeCapability::DeleteFileA,
+                "kernel32-private-heap-ordinary-segment-growth" => {
+                    GenericRuntimeCapability::DeleteFileA
+                }
                 "d3d9-recreated-textures" => GenericRuntimeCapability::D3d9RecreatedTextures,
                 "user32-set-window-pos-frame-change-move" => {
                     GenericRuntimeCapability::D3d9RecreatedTextures

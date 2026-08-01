@@ -363,7 +363,8 @@ function isScheduledSharedClockSetWindowText(
   return (
     profile === "user32-set-window-text-a-post-scheduled-shared-clock" ||
     profile === "kernel32-find-first-file-a" ||
-    profile === "kernel32-delete-file-a"
+    profile === "kernel32-delete-file-a" ||
+    profile === "kernel32-private-heap-ordinary-segment-growth"
   );
 }
 
@@ -372,8 +373,15 @@ function isFindFileAProfile(
 ): boolean {
   return (
     profile === "kernel32-find-first-file-a" ||
-    profile === "kernel32-delete-file-a"
+    profile === "kernel32-delete-file-a" ||
+    profile === "kernel32-private-heap-ordinary-segment-growth"
   );
+}
+
+function isPrivateHeapOrdinarySegmentGrowthProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "kernel32-private-heap-ordinary-segment-growth";
 }
 
 function isD3d9PostPresentContinuation(
@@ -8349,7 +8357,10 @@ class BrowserRuntimeSession {
       } else if (call.symbol === "DeleteFileA") {
         const previous = this.#report.checkpointCompletion;
         invariant(
-          this.#configuration.capabilityProfile === "kernel32-delete-file-a" &&
+          (this.#configuration.capabilityProfile === "kernel32-delete-file-a" ||
+            isPrivateHeapOrdinarySegmentGrowthProfile(
+              this.#configuration.capabilityProfile,
+            )) &&
             previous?.capability ===
               "kernel32-find-file-a-post-set-window-text" &&
             this.#deleteFileACompletionCount < 2 &&
@@ -8408,6 +8419,91 @@ class BrowserRuntimeSession {
             memoryContentSha256: "",
           };
         }
+      } else if (
+        call.symbol === "HeapAlloc" &&
+        isPrivateHeapOrdinarySegmentGrowthProfile(
+          this.#configuration.capabilityProfile,
+        ) &&
+        this.#report.checkpointCompletion?.capability ===
+          "kernel32-delete-file-a-post-find-file-a" &&
+        call.arguments[0] === 0x6801_0001 &&
+        call.arguments[1] === 0 &&
+        call.arguments[2] === 0x0040_6000
+      ) {
+        const previous = this.#report.checkpointCompletion;
+        const heapAllocation = call.heapAllocation;
+        invariant(
+          previous?.capability ===
+            "kernel32-delete-file-a-post-find-file-a" &&
+            call.sequence === 260_631 &&
+            call.arguments.length === 3 &&
+            call.arguments[0] === 0x6801_0001 &&
+            call.arguments[1] === 0 &&
+            call.arguments[2] === 0x0040_6000 &&
+            "action" in call.result &&
+            call.result.action === "set" &&
+            call.result.value === 0x3e00_0000 &&
+            call.implementationId === "kernel32.heap-alloc.v2" &&
+            call.returnAddress === 0x100a_4a33 &&
+            heapAllocation !== undefined &&
+            heapAllocation.heapHandle === 0x6801_0001 &&
+            heapAllocation.allocation.address === 0x3e00_0000 &&
+            heapAllocation.allocation.byteLength === 0x0040_6000 &&
+            heapAllocation.allocation.reservedByteLength === 0x0040_6000 &&
+            heapAllocation.allocation.initialization ===
+              "deterministic-uninitialized",
+          `ordinary private-heap segment growth completion changed: ${JSON.stringify(
+            {
+              previousCapability: previous?.capability,
+              sequence: call.sequence,
+              arguments: call.arguments,
+              result: call.result,
+              implementationId: call.implementationId,
+              returnAddress: call.returnAddress,
+              stackPointerBefore: call.stackPointerBefore,
+              stackPointerAfter: call.stackPointerAfter,
+              lastError: call.lastError,
+              heapAllocation,
+            },
+          )}`,
+        );
+        this.#report.checkpointCompletion = {
+          capability:
+            "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a",
+          implementationId:
+            "runtime.kernel32-private-heap-ordinary-segment-growth-post-delete-file-a.v1",
+          requiredCompletions: 1,
+          completionCount: 1,
+          prerequisiteDeleteFileASequence: previous.lastCompletionSequence,
+          prerequisiteDeleteFileAInstructionCount:
+            previous.lastCompletionInstructionCount,
+          completionSequence: call.sequence,
+          completionInstructionCount: this.#report.instructions,
+          lastCompletionSequence: call.sequence,
+          lastCompletionInstructionCount: this.#report.instructions,
+          call: structuredClone(call),
+          ordinarySegmentSlot: 31,
+          ordinarySegmentCapacityBytes: 16_777_216,
+          ordinarySegmentCountAfter: 3,
+          segmentSelectionPolicy:
+            "primary-then-lowest-address-first-fit-extensions",
+          clockProfileId: previous.clockProfileId,
+          clockSampleCount: this.#scheduledSharedClockSampleCount,
+          windowTimerCallbackCount:
+            this.#scheduledSharedClockWindowTimerCallbackCount,
+          presentCount: this.#scheduledSharedClockPresentCount,
+          pointerInputEventCount: previous.pointerInputEventCount,
+          inputTimerCycleCount: previous.inputTimerCycleCount,
+          inputQuerySequence: previous.inputQuerySequence,
+          thirdPresentReached: false,
+          clockFreezeWasProximateCause: false,
+          archiveEnumerationWasProximateCause: false,
+          missingFileDeleteWasProximateCause: false,
+          ordinaryHeapCapacityWasProximateCause: false,
+          instructionCount: 0,
+          nextEndpoint: { id: 0, address: 0 },
+          memoryContentSha256: "",
+        };
       }
     }
     if (
@@ -10565,10 +10661,15 @@ class BrowserRuntimeSession {
         const checkpoint = this.#report.checkpointCompletion;
         invariant(
           (checkpoint === null ||
-            (this.#configuration.capabilityProfile ===
-              "kernel32-delete-file-a" &&
-              checkpoint.capability ===
-                "kernel32-delete-file-a-post-find-file-a")) &&
+            ((this.#configuration.capabilityProfile ===
+              "kernel32-delete-file-a" ||
+              isPrivateHeapOrdinarySegmentGrowthProfile(
+                this.#configuration.capabilityProfile,
+              )) &&
+              (checkpoint.capability ===
+                "kernel32-delete-file-a-post-find-file-a" ||
+                checkpoint.capability ===
+                  "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a"))) &&
             this.#windowTimerCallbackEntry !== null &&
             call.windowTimer !== undefined &&
             call.callback !== undefined,
@@ -17883,6 +17984,10 @@ class BrowserRuntimeSession {
       )
     ) {
       const checkpoint = this.#report.checkpointCompletion;
+      const heapGrowthProfile =
+        isPrivateHeapOrdinarySegmentGrowthProfile(
+          this.#configuration.capabilityProfile,
+        );
       const deleteFileProfile =
         this.#configuration.capabilityProfile === "kernel32-delete-file-a";
       const findFileProfile =
@@ -17890,7 +17995,10 @@ class BrowserRuntimeSession {
         "kernel32-find-first-file-a";
       invariant(
         metadata.kind === "api-fault" &&
-          (deleteFileProfile
+          (heapGrowthProfile
+            ? checkpoint?.capability ===
+              "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a"
+            : deleteFileProfile
             ? checkpoint?.capability ===
               "kernel32-delete-file-a-post-find-file-a"
             : findFileProfile
@@ -17899,12 +18007,29 @@ class BrowserRuntimeSession {
             : checkpoint?.capability ===
               "user32-set-window-text-a-post-scheduled-shared-clock") &&
           metadata.capabilityCluster ===
-            (deleteFileProfile
+            (heapGrowthProfile
+              ? "gdi32-api-contract"
+              : deleteFileProfile
               ? "kernel32-private-heap-allocation"
               : "kernel32-api-contract") &&
-          metadata.endpoint.module.toLowerCase() === "kernel32.dll" &&
+          metadata.endpoint.module.toLowerCase() ===
+            (heapGrowthProfile ? "gdi32.dll" : "kernel32.dll") &&
           metadata.endpoint.symbol.kind === "name" &&
-          (deleteFileProfile
+          (heapGrowthProfile
+            ? this.#requirePrepared().runtime.kernel32Policy ===
+                "kernel32-delete-file-a-v1" &&
+              metadata.endpoint.id === 256 &&
+              metadata.endpoint.address === 0x7f00_0ff0 &&
+              metadata.endpoint.symbol.name === "CreateFontA" &&
+              typeof metadata.fault === "object" &&
+              metadata.fault !== null &&
+              "class" in metadata.fault &&
+              metadata.fault.class === "unsupported" &&
+              "stage" in metadata.fault &&
+              metadata.fault.stage === "gdi32-fonts" &&
+              "code" in metadata.fault &&
+              metadata.fault.code === "create-font-a-variant-unsupported"
+            : deleteFileProfile
             ? this.#requirePrepared().runtime.kernel32Policy ===
                 "kernel32-delete-file-a-v1" &&
               metadata.endpoint.id === 75 &&
@@ -17954,7 +18079,9 @@ class BrowserRuntimeSession {
       checkpoint.memoryContentSha256 = metadata.memoryContentSha256;
       this.#cancelAndFinish(
         "checkpoint-complete",
-        deleteFileProfile
+        heapGrowthProfile
+          ? "Ordinary private-heap segment growth checkpoint completed"
+          : deleteFileProfile
           ? "Scheduled shared-clock DeleteFileA checkpoint completed"
           : findFileProfile
           ? "Scheduled shared-clock FindFileA checkpoint completed"

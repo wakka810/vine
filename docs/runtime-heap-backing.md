@@ -61,7 +61,7 @@ Logical heap handleの16-bit slotをprocess address-space allocatorの同じheap
 対応させるため、first heap
 `0x68010001`は`0x20000000`、second heap `0x68010002`は`0x21000000`から始まる。
 
-- growable heapのprimary controlled capacityは16 MiBで、active schema v6は必要時に一つの16 MiB extensionを許す
+- growable heapの各ordinary segmentは16 MiBで、active schema v7はprocess全体の32 controlled slotを上限として複数extensionを許す
 - ordinary fixed maximumは4 KiBへround upし、16 MiBを超える通常要求をstructured resource limitにする
 - initial sizeは4 KiBへround upし、first allocation時に必要なtailまでcommitする
 - ownerは`MemoryOwnerKind::Anonymous`、regionは`MemoryRegionKind::Heap`
@@ -74,14 +74,15 @@ handleからbaseを直接再計算しない。Image、stack、runtime arena等�
 `GuestMemoryTransaction`でrollbackされ、logical heap metadata、generation、owner／region countを
 変えない。同じheapでcollisionを除去した後にretryできる。
 
-Active `RuntimeHeaps` backing schema v6は、growable heapのprimary segmentで
-要求を配置できなくなった場合に限り、同じcontrolled bandのlowest free slotを
-一つだけextensionとして割り当てる。Extensionは別のGuestMemory owner／address
-allocation relationとprivate backing mapを持つが、logical heap、allocation-ID
+Active `RuntimeHeaps` backing schema v7は、growable heapの既存ordinary segmentで
+要求を配置できなくなった場合に限り、同じcontrolled bandのhighest free slotを
+新しいextensionとして割り当てる。Extensionはslotをkeyとするper-heap private mapに
+別のGuestMemory owner／address-allocation relationを持つが、logical heap、allocation-ID
 cursor、live-allocation countのauthorityは同じ`RuntimeHeaps` ownerに留まる。
-単一ordinary requestの上限は引き続き16 MiBであり、二segmentは一heapの累積
-ordinary capacityを最大32 MiBへ広げるためのものとなる。Fixed heap、三つ目の
-ordinary segment、controlled slot exhaustionはmutation前にrejectする。
+既存segmentの探索はprimary、次にextensionをguest address昇順で行い、各segment内では
+lowest-address first-fitを維持する。単一ordinary requestの上限は引き続き16 MiBであり、
+一heapの累積capacityは他heapが占有するprimary slotを含むprocess-wide 32-slot budgetに
+よりboundされる。Fixed heapとcontrolled slot exhaustionはmutation前にrejectする。
 
 Extension planはselected slot、address-allocation ID、heap generation、既存
 backing relationを固定する。GuestMemoryのreserve／commitをpreflightした後だけ
@@ -114,7 +115,7 @@ normal mapping delta and never own a duplicate page index.
 `ExecutionSession`が`GuestMemory`と`RuntimeState`を同時にborrowし、次を一 operationとしてcommitする。
 
 1. target heap、process／thread lifecycle、capacity、allocation countをpreflightする。
-2. primary、次にextensionの各segmentで8-byte aligned blockをlowest-address first-fit free block、なければhigh-water tailへplanする。
+2. primary、次にguest address昇順の全extensionで8-byte aligned blockをlowest-address first-fit free block、なければhigh-water tailへplanする。
 3. 必要なpage tailをmemory transaction内でcommitする。
 4. aligned block全体をselected policyでinitializeする。
 5. memory operationがすべて成功した後、target heap metadataだけをcommitする。
@@ -152,7 +153,7 @@ mutation-free.
 
 ## Heap and process teardown
 
-`destroy_private_heap`はlive allocationsを含むprimary／extension backing regionをreleaseし、memory owner、logical
+`destroy_private_heap`はlive allocationsを含むprimary／全extension backing regionをreleaseし、memory owner、logical
 heap payload、typed subsystem-owned object／handleを同じoperationでretireする。Old handleはobject-table
 generation policyにより`runtime-handle-stale`となる。
 
@@ -208,14 +209,23 @@ The active large-allocation contract additionally fixes:
 
 The active ordinary-extension contract additionally fixes:
 
-- at most two 16 MiB ordinary segments for a growable logical heap while each
-  individual request remains bounded to 16 MiB;
-- lowest-free controlled-slot selection without aliasing a primary or another
-  extension backing;
-- free／size／reuse lookup across both segments and teardown of both GuestMemory
-  owners with the one logical heap;
-- mutation-free fixed-heap, third-segment, exhausted-slot, collision, and stale
-  extension-plan rejection.
+- up to the process-wide 32-slot limit of 16 MiB ordinary segments for a
+  growable logical heap while each individual request remains bounded to 16 MiB;
+- highest-free controlled-slot creation without aliasing a primary or another
+  extension backing, followed by deterministic lowest-address segment search;
+- free／size／reuse lookup across every segment and teardown of every GuestMemory
+  owner with the one logical heap;
+- mutation-free fixed-heap, exhausted-slot, maximum-segment, collision, and
+  stale extension-plan rejection.
+
+The primary scheduled-clock workload proves the third ordinary segment:
+`HeapAlloc(0x68010001, 0, 0x00406000)` completes as allocation ID 1847 at
+`0x3e000000` (controlled slot 31) and then reaches 397 more supported calls and
+`GDI32.dll!CreateFontA`. Node and Chrome agree on 261,027 calls, 342,873,024
+instructions, semantic digest
+`c92d8866b1e9355c076db7126a3ab286b7d67289ca4601a6f9cfb749c23b3a16`,
+and terminal memory digest
+`c214835487a1ed382c3ea9cbb459d9c09faa1f329fba2c60c492587443d52806`.
 
 Primary BGI reaches allocation ID 12 at `0x40000000`, materializes one page at
 instruction 50,123, and continues to `CreateFileA` with Node／Chrome memory
@@ -242,10 +252,10 @@ regression evidence, not a replacement baseline.
 ## Non-claims and next dependency
 
 The active guest policy covers flags `0`／`HEAP_ZERO_MEMORY`, every nonzero
-ordinary allocation size through the controlled 16 MiB per-heap ceiling, and
-one exact process-wide 64 MiB large variant. A growable heap may own two
-ordinary segments for at most 32 MiB cumulative ordinary capacity; this does not
-enable a single request above 16 MiB or a third segment. Intermediate large
+ordinary allocation size through the controlled 16 MiB per-request ceiling, and
+one exact process-wide 64 MiB large variant. A growable heap may own multiple
+ordinary segments within the process-wide 32-slot budget; this does not enable
+a single request above 16 MiB or more than 32 total ordinary backings. Intermediate large
 sizes are not enabled. Historical
 schema-v1 exact pairs remain readable only for checkpoint reproduction. The
 runtime does not implement other allocation/free flags, failure return／exception

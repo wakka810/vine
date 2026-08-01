@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 103 as const/u);
+assert.match(protocol, /protocolVersion = 104 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -331,11 +331,16 @@ assert.match(protocol, /RuntimeGetFileAttributesACallSnapshot/u);
 assert.match(protocol, /getFileAttributesA:/u);
 assert.match(protocol, /kernel32-create-directory-a/u);
 assert.match(protocol, /kernel32-find-first-file-a/u);
+assert.match(protocol, /kernel32-private-heap-ordinary-segment-growth/u);
 assert.match(protocol, /RuntimeCreateDirectoryACallSnapshot/u);
 assert.match(protocol, /createDirectoryA:/u);
 assert.match(
   worker,
   /profile === "kernel32-find-first-file-a"/u,
+);
+assert.match(
+  worker,
+  /profile === "kernel32-private-heap-ordinary-segment-growth"/u,
 );
 assert.match(protocol, /user32-set-window-pos-repeat-activation/u);
 assert.match(protocol, /RuntimeSetWindowPosRepeatActivationCallSnapshot/u);

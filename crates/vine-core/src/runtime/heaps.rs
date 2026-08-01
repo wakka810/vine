@@ -12,7 +12,8 @@ pub const LOGICAL_PRIVATE_HEAP_NAMESPACE: &str = "vine.logical-private-heap.v1";
 pub const RUNTIME_PRIVATE_HEAP_ARENA_BASE: GuestAddress = GuestAddress(0x2000_0000);
 pub const RUNTIME_PRIVATE_HEAP_ARENA_STRIDE: u32 = 0x0100_0000;
 pub const RUNTIME_PRIVATE_HEAP_BACKING_LIMIT: u16 = 32;
-pub const RUNTIME_PRIVATE_HEAP_MAX_ORDINARY_SEGMENTS: usize = 2;
+pub const RUNTIME_PRIVATE_HEAP_MAX_ORDINARY_SEGMENTS: usize =
+    RUNTIME_PRIVATE_HEAP_BACKING_LIMIT as usize;
 pub const RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE: GuestAddress = GuestAddress(0x4000_0000);
 pub const RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE: u32 = 0x0400_0000;
 pub const RUNTIME_PRIVATE_HEAP_ALIGNMENT: u32 = 8;
@@ -118,7 +119,16 @@ pub struct RuntimeHeapTeardown {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RuntimeHeapBackingKind {
     Primary,
-    Extension,
+    Extension { slot: u16 },
+}
+
+impl RuntimeHeapBackingKind {
+    const fn slot(self, handle: u32) -> u16 {
+        match self {
+            Self::Primary => RuntimeHandle(handle).slot(),
+            Self::Extension { slot } => slot,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -227,7 +237,7 @@ pub(super) struct RuntimeHeaps {
     #[serde(skip)]
     backings: BTreeMap<u32, RuntimeHeapBacking>,
     #[serde(skip)]
-    extension_backings: BTreeMap<u32, RuntimeHeapBacking>,
+    extension_backings: BTreeMap<u32, BTreeMap<u16, RuntimeHeapBacking>>,
     #[serde(skip)]
     large_backing: Option<RuntimeLargeHeapAllocationBacking>,
     #[serde(skip)]
@@ -291,7 +301,19 @@ impl RuntimeHeaps {
     }
 
     pub(super) fn extension_backing(&self, handle: u32) -> Option<&RuntimeHeapBacking> {
-        self.extension_backings.get(&handle)
+        self.extension_backings
+            .get(&handle)
+            .and_then(|backings| backings.values().next_back())
+    }
+
+    fn extension_backings(
+        &self,
+        handle: u32,
+    ) -> impl DoubleEndedIterator<Item = (u16, &RuntimeHeapBacking)> {
+        self.extension_backings
+            .get(&handle)
+            .into_iter()
+            .flat_map(|backings| backings.iter().map(|(&slot, backing)| (slot, backing)))
     }
 
     fn backing_for_kind(
@@ -301,7 +323,10 @@ impl RuntimeHeaps {
     ) -> Option<&RuntimeHeapBacking> {
         match kind {
             RuntimeHeapBackingKind::Primary => self.backings.get(&handle),
-            RuntimeHeapBackingKind::Extension => self.extension_backings.get(&handle),
+            RuntimeHeapBackingKind::Extension { slot } => self
+                .extension_backings
+                .get(&handle)
+                .and_then(|backings| backings.get(&slot)),
         }
     }
 
@@ -312,7 +337,10 @@ impl RuntimeHeaps {
     ) -> Option<&mut RuntimeHeapBacking> {
         match kind {
             RuntimeHeapBackingKind::Primary => self.backings.get_mut(&handle),
-            RuntimeHeapBackingKind::Extension => self.extension_backings.get_mut(&handle),
+            RuntimeHeapBackingKind::Extension { slot } => self
+                .extension_backings
+                .get_mut(&handle)
+                .and_then(|backings| backings.get_mut(&slot)),
         }
     }
 
@@ -449,7 +477,7 @@ impl RuntimeHeaps {
     fn extension_slot_claimed(&self, slot: u16) -> bool {
         self.extension_backings
             .values()
-            .any(|backing| runtime_heap_backing_slot(backing) == Some(slot))
+            .any(|backings| backings.contains_key(&slot))
     }
 
     fn slot_claimed(&self, slot: u16) -> bool {
@@ -499,8 +527,7 @@ impl RuntimeHeaps {
         if let Some(backing) = ordinary_backing {
             validate_runtime_heap_backing(heap, backing, next_allocation_id)?;
         }
-        let extension_backing = self.extension_backing(handle);
-        if let Some(backing) = extension_backing {
+        for (_, backing) in self.extension_backings(handle) {
             validate_runtime_heap_backing(heap, backing, next_allocation_id)?;
         }
         let large_backing = self
@@ -515,10 +542,10 @@ impl RuntimeHeaps {
         {
             return Ok(*allocation);
         }
-        if let Some(backing) = extension_backing
-            && let Some(allocation) = backing.allocations.get(&address.0)
-        {
-            return Ok(*allocation);
+        for (_, backing) in self.extension_backings(handle) {
+            if let Some(allocation) = backing.allocations.get(&address.0) {
+                return Ok(*allocation);
+            }
         }
         if let Some(backing) = large_backing
             && backing.allocation.address == address
@@ -557,14 +584,14 @@ impl RuntimeHeaps {
             )?;
             validate_runtime_heap_backing(heap, backing, next_allocation_id)?;
         }
-        if let Some(backing) = self.extension_backing(handle) {
-            let slot = runtime_heap_backing_slot(backing).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
+        for (slot, backing) in self.extension_backings(handle) {
+            if runtime_heap_backing_slot(backing) != Some(slot) {
+                return Err(RuntimeStateError::runtime_defect(
                     "runtime-heap-backing",
                     "heap-extension-backing-slot-invalid",
-                    "private heap extension backing does not identify a controlled slot",
-                )
-            })?;
+                    "private heap extension backing does not match its controlled slot identity",
+                ));
+            }
             if slot == RuntimeHandle(handle).slot() {
                 return Err(RuntimeStateError::runtime_defect(
                     "runtime-heap-backing",
@@ -626,7 +653,7 @@ impl RuntimeHeaps {
                 "private heap allocation identifier space is exhausted",
             )
         })?;
-        let existing_plan = self
+        let mut existing_plan = self
             .backing(handle)
             .map(|backing| {
                 plan_existing_heap_backing_allocation(
@@ -636,18 +663,19 @@ impl RuntimeHeaps {
                 )
             })
             .transpose()?
-            .flatten()
-            .or(self
-                .extension_backing(handle)
-                .map(|backing| {
-                    plan_existing_heap_backing_allocation(
-                        RuntimeHeapBackingKind::Extension,
-                        backing,
-                        reserved_byte_length,
-                    )
-                })
-                .transpose()?
-                .flatten());
+            .flatten();
+        if existing_plan.is_none() {
+            for (slot, backing) in self.extension_backings(handle) {
+                if let Some(plan) = plan_existing_heap_backing_allocation(
+                    RuntimeHeapBackingKind::Extension { slot },
+                    backing,
+                    reserved_byte_length,
+                )? {
+                    existing_plan = Some(plan);
+                    break;
+                }
+            }
+        }
         let (
             backing_plan,
             allocation_offset,
@@ -754,7 +782,26 @@ impl RuntimeHeaps {
                 0,
                 initial_committed_bytes.max(required_commit),
             )
-        } else if self.extension_backing(handle).is_none() && heap.growable {
+        } else if heap.growable {
+            let ordinary_segment_count = 1usize
+                .checked_add(self.extension_backings(handle).count())
+                .ok_or_else(|| {
+                    RuntimeStateError::runtime_defect(
+                        "runtime-heap-backing",
+                        "heap-segment-count-overflow",
+                        "private heap ordinary segment count overflowed host accounting",
+                    )
+                })?;
+            if ordinary_segment_count >= RUNTIME_PRIVATE_HEAP_MAX_ORDINARY_SEGMENTS {
+                return Err(RuntimeStateError::resource_limit(
+                    "runtime-heap-backing",
+                    "heap-backing-capacity-exceeded",
+                    format!(
+                        "allocation requires another ordinary backing after the bounded {}-segment heap capacity",
+                        RUNTIME_PRIVATE_HEAP_MAX_ORDINARY_SEGMENTS
+                    ),
+                ));
+            }
             let slot = self.available_extension_slot().ok_or_else(|| {
                 RuntimeStateError::resource_limit(
                     "runtime-heap-backing",
@@ -786,7 +833,7 @@ impl RuntimeHeaps {
             )?;
             (
                 RuntimeHeapBackingPlan::New {
-                    kind: RuntimeHeapBackingKind::Extension,
+                    kind: RuntimeHeapBackingKind::Extension { slot },
                     address_allocation_id: address_allocation.id,
                     range,
                     initial_committed_bytes: 0,
@@ -800,10 +847,7 @@ impl RuntimeHeaps {
             return Err(RuntimeStateError::resource_limit(
                 "runtime-heap-backing",
                 "heap-backing-capacity-exceeded",
-                format!(
-                    "allocation requires another ordinary backing after the bounded {}-segment heap capacity",
-                    RUNTIME_PRIVATE_HEAP_MAX_ORDINARY_SEGMENTS
-                ),
+                "allocation exceeds the fixed private heap backing capacity",
             ));
         };
 
@@ -974,14 +1018,22 @@ impl RuntimeHeaps {
                         "private heap backing appeared after allocation planning",
                     ));
                 }
-                if kind == RuntimeHeapBackingKind::Extension {
-                    let slot = runtime_heap_range_slot(range).ok_or_else(|| {
-                        RuntimeStateError::runtime_defect(
+                let slot = kind.slot(plan.handle);
+                if runtime_heap_range_slot(range) != Some(slot) {
+                    return Err(RuntimeStateError::runtime_defect(
+                        "runtime-heap-backing",
+                        "heap-backing-slot-invalid",
+                        "planned private heap backing does not match its controlled slot identity",
+                    ));
+                }
+                if let RuntimeHeapBackingKind::Extension { slot } = kind {
+                    if slot == RuntimeHandle(plan.handle).slot() {
+                        return Err(RuntimeStateError::runtime_defect(
                             "runtime-heap-backing",
-                            "heap-extension-backing-slot-invalid",
-                            "planned private heap extension does not identify a controlled slot",
-                        )
-                    })?;
+                            "heap-extension-backing-slot-alias",
+                            "planned private heap extension aliases its primary slot",
+                        ));
+                    }
                     if self.slot_claimed(slot) {
                         return Err(RuntimeStateError::conflict(
                             "runtime-heap-backing",
@@ -1013,8 +1065,11 @@ impl RuntimeHeaps {
                     RuntimeHeapBackingKind::Primary => {
                         self.backings.insert(plan.handle, backing);
                     }
-                    RuntimeHeapBackingKind::Extension => {
-                        self.extension_backings.insert(plan.handle, backing);
+                    RuntimeHeapBackingKind::Extension { slot } => {
+                        self.extension_backings
+                            .entry(plan.handle)
+                            .or_default()
+                            .insert(slot, backing);
                     }
                 }
             }
@@ -1124,8 +1179,7 @@ impl RuntimeHeaps {
         if let Some(backing) = ordinary_backing {
             validate_runtime_heap_backing(heap, backing, next_allocation_id)?;
         }
-        let extension_backing = self.extension_backing(handle);
-        if let Some(backing) = extension_backing {
+        for (_, backing) in self.extension_backings(handle) {
             validate_runtime_heap_backing(heap, backing, next_allocation_id)?;
         }
         let large_backing = self
@@ -1135,13 +1189,19 @@ impl RuntimeHeaps {
         if let Some(backing) = large_backing {
             validate_large_heap_backing(heap, backing, next_allocation_id)?;
         }
-        for (kind, backing) in [
-            (RuntimeHeapBackingKind::Primary, ordinary_backing),
-            (RuntimeHeapBackingKind::Extension, extension_backing),
-        ] {
-            if let Some(backing) = backing
-                && let Some(plan) = plan_small_heap_free(handle, address, kind, backing)?
-            {
+        if let Some(backing) = ordinary_backing
+            && let Some(plan) =
+                plan_small_heap_free(handle, address, RuntimeHeapBackingKind::Primary, backing)?
+        {
+            return Ok(plan);
+        }
+        for (slot, backing) in self.extension_backings(handle) {
+            if let Some(plan) = plan_small_heap_free(
+                handle,
+                address,
+                RuntimeHeapBackingKind::Extension { slot },
+                backing,
+            )? {
                 return Ok(plan);
             }
         }
@@ -1276,14 +1336,14 @@ impl RuntimeHeaps {
             )?;
             validate_runtime_heap_backing(heap, ordinary_backing, next_allocation_id)?;
         }
-        if let Some(extension_backing) = self.extension_backing(backing.handle) {
-            let slot = runtime_heap_backing_slot(extension_backing).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
+        for (slot, extension_backing) in self.extension_backings(backing.handle) {
+            if runtime_heap_backing_slot(extension_backing) != Some(slot) {
+                return Err(RuntimeStateError::runtime_defect(
                     "runtime-heap-backing",
                     "heap-extension-backing-slot-invalid",
-                    "private heap extension backing does not identify a controlled slot",
-                )
-            })?;
+                    "private heap extension backing does not match its controlled slot identity",
+                ));
+            }
             validate_heap_backing_address_allocation(allocator, slot, extension_backing)?;
             validate_runtime_heap_backing(heap, extension_backing, next_allocation_id)?;
         }
@@ -1380,15 +1440,14 @@ impl RuntimeHeaps {
             )?;
             validate_runtime_heap_backing(heap, backing, next_allocation_id)?;
         }
-        let extension_backing = self.extension_backing(handle);
-        if let Some(backing) = extension_backing {
-            let slot = runtime_heap_backing_slot(backing).ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
+        for (slot, backing) in self.extension_backings(handle) {
+            if runtime_heap_backing_slot(backing) != Some(slot) {
+                return Err(RuntimeStateError::runtime_defect(
                     "runtime-heap-backing",
                     "heap-extension-backing-slot-invalid",
-                    "private heap extension backing does not identify a controlled slot",
-                )
-            })?;
+                    "private heap extension backing does not match its controlled slot identity",
+                ));
+            }
             validate_heap_backing_address_allocation(allocator, slot, backing)?;
             validate_runtime_heap_backing(heap, backing, next_allocation_id)?;
         }
@@ -1401,7 +1460,10 @@ impl RuntimeHeaps {
             validate_large_heap_backing(heap, backing, next_allocation_id)?;
         }
         let live_allocations = primary_backing.map_or(0, |backing| backing.allocations.len())
-            + extension_backing.map_or(0, |backing| backing.allocations.len())
+            + self
+                .extension_backings(handle)
+                .map(|(_, backing)| backing.allocations.len())
+                .sum::<usize>()
             + usize::from(large_backing.is_some());
         if usize::try_from(heap.live_allocations).ok() != Some(live_allocations) {
             return Err(RuntimeStateError::runtime_defect(
@@ -1412,9 +1474,9 @@ impl RuntimeHeaps {
         }
         Ok(RuntimeHeapDestructionPlan {
             handle,
-            small_backings: [primary_backing, extension_backing]
+            small_backings: primary_backing
                 .into_iter()
-                .flatten()
+                .chain(self.extension_backings(handle).map(|(_, backing)| backing))
                 .map(|backing| {
                     (
                         backing.address_allocation_id,
@@ -1449,13 +1511,14 @@ impl RuntimeHeaps {
         let mut committed_bytes_released = 0u64;
         for plan in plans {
             let heap = self.heap(plan.handle)?;
-            let small_backings = [
-                self.backings.get(&plan.handle),
-                self.extension_backings.get(&plan.handle),
-            ];
-            let actual_small_backings = small_backings
+            let actual_small_backings = self
+                .backings
+                .get(&plan.handle)
                 .into_iter()
-                .flatten()
+                .chain(
+                    self.extension_backings(plan.handle)
+                        .map(|(_, backing)| backing),
+                )
                 .map(|backing| {
                     (
                         backing.address_allocation_id,
@@ -1469,9 +1532,14 @@ impl RuntimeHeaps {
                 .large_backing
                 .as_ref()
                 .filter(|backing| backing.handle == plan.handle);
-            let actual_live_allocations = small_backings
+            let actual_live_allocations = self
+                .backings
+                .get(&plan.handle)
                 .into_iter()
-                .flatten()
+                .chain(
+                    self.extension_backings(plan.handle)
+                        .map(|(_, backing)| backing),
+                )
                 .map(|backing| backing.allocations.len())
                 .sum::<usize>()
                 + usize::from(actual_large_backing.is_some());
@@ -1576,6 +1644,33 @@ impl RuntimeHeaps {
     }
 
     fn validate_allocation_count(&self, heap: &RuntimeHeap) -> Result<(), RuntimeStateError> {
+        let primary_backing = self.backings.get(&heap.handle);
+        let extension_backings = self.extension_backings.get(&heap.handle);
+        if primary_backing.is_none()
+            && extension_backings.is_some_and(|backings| !backings.is_empty())
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-heap-backing",
+                "heap-extension-backing-without-primary",
+                "private heap extension backing exists without its primary backing",
+            ));
+        }
+        let ordinary_segment_count = usize::from(primary_backing.is_some())
+            .checked_add(extension_backings.map_or(0, BTreeMap::len))
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-heap-backing",
+                    "heap-segment-count-overflow",
+                    "private heap ordinary segment count overflowed host accounting",
+                )
+            })?;
+        if ordinary_segment_count > RUNTIME_PRIVATE_HEAP_MAX_ORDINARY_SEGMENTS {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-heap-backing",
+                "heap-segment-count-invalid",
+                "private heap owns more ordinary segments than the controlled process arena",
+            ));
+        }
         let ordinary_allocations = self
             .backings
             .get(&heap.handle)
@@ -1583,7 +1678,12 @@ impl RuntimeHeaps {
             + self
                 .extension_backings
                 .get(&heap.handle)
-                .map_or(0, |backing| backing.allocations.len());
+                .map_or(0, |backings| {
+                    backings
+                        .values()
+                        .map(|backing| backing.allocations.len())
+                        .sum()
+                });
         let large_allocations = usize::from(
             self.large_backing
                 .as_ref()
@@ -1598,19 +1698,16 @@ impl RuntimeHeaps {
                 "logical heap and ordinary/large backing allocation counts disagree",
             ));
         }
-        if let (Some(primary), Some(extension)) = (
-            self.backings.get(&heap.handle),
-            self.extension_backings.get(&heap.handle),
+        let mut allocation_ids = BTreeSet::new();
+        for backing in primary_backing.into_iter().chain(
+            extension_backings
+                .into_iter()
+                .flat_map(|backings| backings.values()),
         ) {
-            let primary_ids = primary
+            if backing
                 .allocations
                 .values()
-                .map(|allocation| allocation.id)
-                .collect::<BTreeSet<_>>();
-            if extension
-                .allocations
-                .values()
-                .any(|allocation| primary_ids.contains(&allocation.id))
+                .any(|allocation| !allocation_ids.insert(allocation.id))
             {
                 return Err(RuntimeStateError::runtime_defect(
                     "runtime-heap-backing",
@@ -2211,7 +2308,9 @@ mod tests {
             },
             allocation_offset: 0,
             backing: RuntimeHeapBackingPlan::New {
-                kind: RuntimeHeapBackingKind::Extension,
+                kind: RuntimeHeapBackingKind::Extension {
+                    slot: RUNTIME_PRIVATE_HEAP_BACKING_LIMIT,
+                },
                 address_allocation_id: ProcessAddressAllocationId(32),
                 range: extension_range,
                 initial_committed_bytes: 0,
