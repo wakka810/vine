@@ -2,20 +2,24 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-08-01T11:48:41.580Z",
+  "recordedAt": "2026-08-01T13:27:01.551Z",
   "repository": {
-    "implementationCommit": "0d63f31e9406b7c1728dc7db46cb20bd95815070",
-    "implementationTree": "2d44ee55884577b4c0749cf1acf0388f7a80fb6d",
-    "headCommit": "0d63f31e9406b7c1728dc7db46cb20bd95815070",
-    "dirty": false,
-    "dirtyPaths": [],
-    "allowedDirtyPaths": [],
+    "implementationCommit": "a394a91a1cf030209c80ca6946a47812253a6214",
+    "implementationTree": "bd08a20251dec8f6f335e3a40bc2af9d94fcd8a9",
+    "headCommit": "a394a91a1cf030209c80ca6946a47812253a6214",
+    "dirty": true,
+    "dirtyPaths": [
+      "CON"
+    ],
+    "allowedDirtyPaths": [
+      "CON"
+    ],
     "executionInputsClean": true,
     "disallowedDirtyPaths": []
   },
   "command": {
     "canonical": "npm run check:private-target",
-    "invocation": "npm run check:private-target",
+    "invocation": "npm run check:private-target -- --allow-dirty \"CON\"",
     "semanticGate": "required",
     "performanceGate": "separate-observation"
   },
@@ -27,15 +31,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "kernel32-find-file-a-post-set-window-text",
+    "runtimeCheckpoint": "kernel32-delete-file-a-post-find-file-a",
     "runtimeProfile": "user32-peek-message-a-post-window-timer-callback-continuation",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
-    "policyId": "kernel32-find-file-a-v1",
-    "policySource": "fixtures/runtime-policies/kernel32-find-file-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-find-file-a-primary",
+    "policyId": "kernel32-delete-file-a-v1",
+    "policySource": "fixtures/runtime-policies/kernel32-delete-file-a-v1.json",
+    "nodeReportSchema": "vine.v86-bgi-delete-file-a-primary",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v102",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v103",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -69,29 +73,29 @@
     "outcome": "passed",
     "node": {
       "outcome": "checkpoint-complete",
-      "implementedApiContracts": 135,
-      "supportedCalls": 255410,
-      "callSemanticsSha256": "009e8aad3a75ddc158474c6cf150eda7e8c92d72615acd5a51fe457063c6f52c",
-      "instructions": 328088002,
-      "finalGeneration": 288337,
-      "memoryContentSha256": "fb4f9ce7f37975be923a7656e0608186c68f9bff76301c206ee7d29a7fc29764",
+      "implementedApiContracts": 136,
+      "supportedCalls": 260630,
+      "callSemanticsSha256": "3721b7922b0e2fb15f1fd9390faa214b227056a664885a2ee6f3c4ab09c5082d",
+      "instructions": 341618572,
+      "finalGeneration": 296088,
+      "memoryContentSha256": "ecafc2724de30b5a776dd08323db95e0520e4b5235a766ed7bc1d38311a46d5c",
       "checkpointCompletion": {
-        "capability": "kernel32-find-file-a-post-set-window-text",
-        "implementationId": "runtime.kernel32-find-file-a-post-set-window-text.v1",
-        "requiredCompletions": 1,
-        "completionCount": 1,
-        "lastCompletionSequence": 251740,
-        "lastCompletionInstructionCount": 323869665,
-        "firstCompletionSequence": 251694,
-        "firstCompletionInstructionCount": 323860141,
-        "entryCount": 45,
-        "lastSuccessfulNextSequence": 251738,
-        "terminalNextSequence": 251739,
-        "terminalWin32Error": 18,
-        "searchHandle": "0x53010001",
+        "capability": "kernel32-delete-file-a-post-find-file-a",
+        "implementationId": "runtime.kernel32-delete-file-a-post-find-file-a.v1",
+        "requiredCompletions": 2,
+        "completionCount": 2,
+        "prerequisiteFindCloseSequence": 251740,
+        "prerequisiteFindCloseInstructionCount": 323869665,
+        "firstCompletionSequence": 255411,
+        "firstCompletionInstructionCount": 328088002,
+        "lastCompletionSequence": 255432,
+        "lastCompletionInstructionCount": 328097369,
+        "win32Error": 2,
+        "missingFileOnly": true,
+        "existingObjectMutation": false,
         "clockProfileId": "scheduled-shared-logical-deadline-v1",
-        "clockSampleCount": 100509,
-        "windowTimerCallbackCount": 36,
+        "clockSampleCount": 100534,
+        "windowTimerCallbackCount": 39,
         "presentCount": 2,
         "pointerInputEventCount": 2,
         "inputTimerCycleCount": 253,
@@ -99,47 +103,48 @@
         "thirdPresentReached": false,
         "clockFreezeWasProximateCause": false,
         "archiveEnumerationWasProximateCause": false,
-        "instructionCount": 328088002,
+        "missingFileDeleteWasProximateCause": false,
+        "instructionCount": 341618572,
         "nextEndpoint": {
-          "id": 38,
-          "address": 2130707024,
+          "id": 75,
+          "address": 2130707616,
           "module": "kernel32.dll",
           "symbol": {
             "kind": "name",
-            "name": "DeleteFileA"
+            "name": "HeapAlloc"
           },
-          "iatAddress": 269291840,
+          "iatAddress": 269291988,
           "disposition": "declared-runtime-export"
         },
-        "memoryContentSha256": "fb4f9ce7f37975be923a7656e0608186c68f9bff76301c206ee7d29a7fc29764"
+        "memoryContentSha256": "ecafc2724de30b5a776dd08323db95e0520e4b5235a766ed7bc1d38311a46d5c"
       },
-      "writebackBatches": 258599,
-      "hostDeltaBatches": 125449
+      "writebackBatches": 263822,
+      "hostDeltaBatches": 127963
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 255410,
-      "callSemanticsSha256": "009e8aad3a75ddc158474c6cf150eda7e8c92d72615acd5a51fe457063c6f52c",
-      "instructions": 328088002,
-      "finalGeneration": 307207,
-      "memoryContentSha256": "fb4f9ce7f37975be923a7656e0608186c68f9bff76301c206ee7d29a7fc29764",
+      "supportedCalls": 260630,
+      "callSemanticsSha256": "3721b7922b0e2fb15f1fd9390faa214b227056a664885a2ee6f3c4ab09c5082d",
+      "instructions": 341618572,
+      "finalGeneration": 315720,
+      "memoryContentSha256": "ecafc2724de30b5a776dd08323db95e0520e4b5235a766ed7bc1d38311a46d5c",
       "checkpointCompletion": {
-        "capability": "kernel32-find-file-a-post-set-window-text",
-        "implementationId": "runtime.kernel32-find-file-a-post-set-window-text.v1",
-        "requiredCompletions": 1,
-        "completionCount": 1,
-        "lastCompletionSequence": 251740,
-        "lastCompletionInstructionCount": 323869665,
-        "firstCompletionSequence": 251694,
-        "firstCompletionInstructionCount": 323860141,
-        "entryCount": 45,
-        "lastSuccessfulNextSequence": 251738,
-        "terminalNextSequence": 251739,
-        "terminalWin32Error": 18,
-        "searchHandle": "0x53010001",
+        "capability": "kernel32-delete-file-a-post-find-file-a",
+        "implementationId": "runtime.kernel32-delete-file-a-post-find-file-a.v1",
+        "requiredCompletions": 2,
+        "completionCount": 2,
+        "prerequisiteFindCloseSequence": 251740,
+        "prerequisiteFindCloseInstructionCount": 323869665,
+        "firstCompletionSequence": 255411,
+        "firstCompletionInstructionCount": 328088002,
+        "lastCompletionSequence": 255432,
+        "lastCompletionInstructionCount": 328097369,
+        "win32Error": 2,
+        "missingFileOnly": true,
+        "existingObjectMutation": false,
         "clockProfileId": "scheduled-shared-logical-deadline-v1",
-        "clockSampleCount": 100509,
-        "windowTimerCallbackCount": 36,
+        "clockSampleCount": 100534,
+        "windowTimerCallbackCount": 39,
         "presentCount": 2,
         "pointerInputEventCount": 2,
         "inputTimerCycleCount": 253,
@@ -147,25 +152,26 @@
         "thirdPresentReached": false,
         "clockFreezeWasProximateCause": false,
         "archiveEnumerationWasProximateCause": false,
-        "instructionCount": 328088002,
+        "missingFileDeleteWasProximateCause": false,
+        "instructionCount": 341618572,
         "nextEndpoint": {
-          "address": 2130707024,
+          "address": 2130707616,
           "disposition": "declared-runtime-export",
-          "iatAddress": 269291840,
-          "id": 38,
+          "iatAddress": 269291988,
+          "id": 75,
           "module": "kernel32.dll",
           "symbol": {
             "kind": "name",
-            "name": "DeleteFileA"
+            "name": "HeapAlloc"
           }
         },
-        "memoryContentSha256": "fb4f9ce7f37975be923a7656e0608186c68f9bff76301c206ee7d29a7fc29764"
+        "memoryContentSha256": "ecafc2724de30b5a776dd08323db95e0520e4b5235a766ed7bc1d38311a46d5c"
       },
-      "wasmBridgeCalls": 678415,
+      "wasmBridgeCalls": 692461,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 856992,
+          "transitionCount": 875980,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -212,50 +218,59 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "kernel32-delete-file-a-post-find-file-a",
-      "pausedHistoricalCheckpoint": "kernel32-find-file-a-post-set-window-text",
-      "instructionCount": 328088002,
-      "capabilityCluster": "kernel32-api-contract",
-      "reason": "kernel32-find-file-a-post-set-window-text-checkpoint-complete",
+      "classification": "subsystem-gateway",
+      "nextCheckpoint": "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a",
+      "pausedHistoricalCheckpoint": "kernel32-delete-file-a-post-find-file-a",
+      "instructionCount": 341618572,
+      "capabilityCluster": "kernel32-private-heap-allocation",
+      "reason": "kernel32-delete-file-a-post-find-file-a-checkpoint-complete",
       "completion": {
-        "capability": "kernel32-find-file-a-post-set-window-text",
-        "implementationId": "runtime.kernel32-find-file-a-post-set-window-text.v1",
-        "requiredCompletions": 1,
-        "completionCount": 1,
-        "lastCompletionSequence": 251740,
-        "lastCompletionInstructionCount": 323869665,
-        "firstCompletionSequence": 251694,
-        "firstCompletionInstructionCount": 323860141,
-        "entryCount": 45,
-        "lastSuccessfulNextSequence": 251738,
-        "terminalNextSequence": 251739,
-        "terminalWin32Error": 18,
-        "searchHandle": "0x53010001",
+        "capability": "kernel32-delete-file-a-post-find-file-a",
+        "implementationId": "runtime.kernel32-delete-file-a-post-find-file-a.v1",
+        "requiredCompletions": 2,
+        "completionCount": 2,
+        "prerequisiteFindCloseSequence": 251740,
+        "prerequisiteFindCloseInstructionCount": 323869665,
+        "firstCompletionSequence": 255411,
+        "firstCompletionInstructionCount": 328088002,
+        "lastCompletionSequence": 255432,
+        "lastCompletionInstructionCount": 328097369,
+        "win32Error": 2,
+        "missingFileOnly": true,
+        "existingObjectMutation": false,
         "clockProfileId": "scheduled-shared-logical-deadline-v1",
-        "clockSampleCount": 100509,
-        "windowTimerCallbackCount": 36,
+        "clockSampleCount": 100534,
+        "windowTimerCallbackCount": 39,
         "presentCount": 2,
         "pointerInputEventCount": 2,
         "inputTimerCycleCount": 253,
         "inputQuerySequence": 222096,
         "thirdPresentReached": false,
         "clockFreezeWasProximateCause": false,
-        "archiveEnumerationWasProximateCause": false
+        "archiveEnumerationWasProximateCause": false,
+        "missingFileDeleteWasProximateCause": false
+      },
+      "fault": {
+        "class": "resource-limit",
+        "stage": "runtime-heap-backing",
+        "code": "heap-backing-capacity-exceeded"
       },
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
-        "endpointId": 38,
-        "api": "KERNEL32.dll!DeleteFileA",
-        "endpointAddress": "0x7f000250",
-        "iatAddress": "0x100d1140",
+        "endpointId": 75,
+        "api": "KERNEL32.dll!HeapAlloc",
+        "endpointAddress": "0x7f0004a0",
+        "iatAddress": "0x100d11d4",
         "observedModule": "KERNEL32.dll",
-        "observedSymbol": "DeleteFileA",
+        "observedSymbol": "HeapAlloc",
         "disposition": "declared-runtime-export",
         "arguments": [
-          "0x006ff388"
+          "0x68010001",
+          "0x00000000",
+          "0x00406000"
         ],
-        "returnAddress": "0x100828e2",
-        "stackPointer": "0x006ff378"
+        "returnAddress": "0x100a4a33",
+        "stackPointer": "0x006ff62c"
       }
     },
     "cleanup": {
@@ -271,14 +286,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-find-first-file-a/report.json",
-      "bytes": 2393428,
-      "sha256": "2527efb1cce79c7ec4c2e949d1cca23bafd879adc9653deeb6a056cc18778156"
+      "path": ".work/v86-bgi-delete-file-a/report.json",
+      "bytes": 2399179,
+      "sha256": "ba882c9283683c7dd844146f944bcf12fa5a63560af861fa4ec480535110158a"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2592069,
-      "sha256": "f01af16cf07d15577621c6855dbbb4e09b3ec3de8f9575f98988c98dd6d4795b"
+      "bytes": 2598970,
+      "sha256": "c042324a08abc3faee14bcece9345b580cb3b18d45946b0ffb92b22e381c857b"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -293,12 +308,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3768,
-      "sha256": "5c221c2d8559a5902b42cc4bc8f9b7aafca010c722d8c4a59c29a866bc3cc112"
+      "sha256": "649431a93e8f139d70e402ef6e2a4f5e24bf44f82c4b2f1b474cd790d0886376"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 5354885,
-      "sha256": "14ebc235916489a3e4b892eb85d1afc4d3d600a9029cd26af28ab047f0991f7e"
+      "bytes": 5361144,
+      "sha256": "c7fd9b0ceb900ebff6a7e2d92e7e726c3b9486c95c87291fe1eb19635c65808c"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -330,5 +345,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "6c259cf230cccb1b8af39cbe2bcdc39b20c22b1ac1f4b6fedf326293331079d4"
+  "payloadSha256": "3b1ddf640e9369988b5899df3ad794301008f04595dd7427644c5376450d7b3f"
 }
