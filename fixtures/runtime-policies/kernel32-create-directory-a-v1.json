@@ -140,8 +140,12 @@
     "suiteMask": 256,
     "productType": 1
   },
-  "tickCount": { "incrementPerRead": 1 },
-  "performanceCounter": { "incrementPerRead": 10000 },
+  "clockProfile": {
+    "schema": "vine.runtime-clock-profile",
+    "schemaVersion": 1,
+    "id": "scheduled-shared-logical-deadline-v1",
+    "progression": "scheduled-shared"
+  },
   "heapAllocator": {
     "allowedFlags": [0, 8],
     "maximumAllocationBytes": 16777216,

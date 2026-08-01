@@ -46,7 +46,8 @@ use super::audio::{
     RuntimeAudioDeviceId, RuntimeAudioWindowTarget,
 };
 use super::clock::{
-    RuntimeClockAdvancePlan, RuntimeClockProfile, RuntimeClockState, RuntimeTimerClockState,
+    RuntimeClockAdvancePlan, RuntimeClockProfile, RuntimeClockState,
+    RuntimeScheduledExecutionClockState, RuntimeTimerClockState,
 };
 use super::com::{
     RUNTIME_COM_ADDRESS_OWNER, RuntimeCom, RuntimeComIid, RuntimeComInterfaceId,
@@ -638,6 +639,8 @@ struct RuntimeProcessStateSnapshot<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     clock_profile: Option<&'a RuntimeClockProfile>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    scheduled_execution_clock: Option<RuntimeScheduledExecutionClockState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     timer_resolution: Option<RuntimeTimerResolutionState>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     window_timers: &'a BTreeMap<RuntimeWindowTimerId, RuntimeWindowTimer>,
@@ -680,6 +683,7 @@ impl Serialize for RuntimeProcessView<'_> {
                 .process
                 .uses_scheduled_shared_clock()
                 .then(|| self.process.clock_profile()),
+            scheduled_execution_clock: self.process.scheduled_execution_clock_state(),
             timer_resolution: self.timers.state(),
             window_timers: self.timers.window_timers(),
         }
@@ -747,6 +751,7 @@ impl Serialize for RuntimeKernel {
                     .process
                     .uses_scheduled_shared_clock()
                     .then(|| self.process.clock_profile()),
+                scheduled_execution_clock: self.process.scheduled_execution_clock_state(),
                 timer_resolution: self.timers.state(),
                 window_timers: self.timers.window_timers(),
             },
@@ -1208,6 +1213,10 @@ impl RuntimeKernel {
 
     pub fn timer_clock_state(&self) -> RuntimeTimerClockState {
         self.process.timer_clock_state()
+    }
+
+    pub fn scheduled_execution_clock_state(&self) -> Option<RuntimeScheduledExecutionClockState> {
+        self.process.scheduled_execution_clock_state()
     }
 
     fn require_timer_operation_state(&self) -> Result<(), RuntimeStateError> {
@@ -2944,6 +2953,24 @@ impl RuntimeKernel {
         let plan = self.process.plan_clock_advance(target_time_100ns)?;
         self.process.preflight_clock_advance(&plan)?;
         self.process.commit_clock_advance(plan)
+    }
+
+    pub fn advance_scheduled_clock_for_execution(
+        &mut self,
+        retired_instructions: u64,
+    ) -> Result<Option<RuntimeTimerClockState>, RuntimeStateError> {
+        self.require_timer_operation_state()?;
+        if !self.process.uses_scheduled_shared_clock() {
+            return Ok(None);
+        }
+        let plan = self
+            .process
+            .plan_scheduled_execution_clock_advance(retired_instructions)?;
+        self.process
+            .preflight_scheduled_execution_clock_advance(&plan)?;
+        self.process
+            .commit_scheduled_execution_clock_advance(plan)
+            .map(Some)
     }
 
     pub fn sample_tick_count(&mut self, increment_per_read: u32) -> Result<u32, RuntimeStateError> {

@@ -1386,12 +1386,16 @@ impl BrowserRuntime {
         endpoint_address: GuestAddress,
         stack_pointer: GuestAddress,
         return_address: GuestAddress,
+        retired_instructions: u64,
     ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
         let (route_id, argument_bytes, endpoint) = self
             .routes
             .get(&endpoint_address)
             .map(|route| (route.id, route.argument_bytes, route.endpoint.clone()))
             .ok_or_else(|| format!("unowned API endpoint {:#010x}", endpoint_address.0))?;
+        self.runtime
+            .advance_scheduled_clock_for_execution(retired_instructions)
+            .map_err(error_string)?;
         let trap = ApiTrap {
             endpoint_id: vine_core::ImportThunkId(route_id),
             endpoint_address,
@@ -1443,6 +1447,8 @@ impl BrowserRuntime {
                 _ => None,
             })
             .flatten();
+        let scheduled_shared_clock = self.runtime.clock_profile().progression
+            == vine_core::RuntimeClockProgression::ScheduledShared;
         let callback_sentinel = self.callback_sentinel;
         let target = &self.target;
         let dispatcher = &self.dispatcher;
@@ -1628,25 +1634,47 @@ impl BrowserRuntime {
                 let tick_count = if matches!(
                     completion.implementation_id.as_str(),
                     "winmm.time-get-time.v1" | "kernel32.get-tick-count.v1"
-                ) && let Some(increment_per_read) = tick_count_increment
-                {
+                ) {
                     let RegisterUpdate::Set(returned_tick_count) = completion.eax else {
                         return Err(
                             "completed monotonic tick query did not return a tick count".to_owned()
                         );
                     };
                     let next_tick_count = self.runtime.clock().tick_count;
-                    if next_tick_count != returned_tick_count.wrapping_add(increment_per_read) {
-                        return Err(
-                            "completed monotonic tick query clock state does not follow its policy increment"
-                                .to_owned(),
-                        );
+                    if scheduled_shared_clock {
+                        if next_tick_count != returned_tick_count {
+                            return Err(
+                                "scheduled monotonic tick query advanced the shared clock on read"
+                                    .to_owned(),
+                            );
+                        }
+                        Some(json!({
+                            "returnedTickCount": returned_tick_count,
+                            "nextTickCount": next_tick_count,
+                            "incrementPerRead": 0,
+                            "clockProfileId": self.runtime.clock_profile().id.clone(),
+                            "timerClock": self.runtime.timer_clock_state(),
+                            "scheduledExecutionClock": self
+                                .runtime
+                                .scheduled_execution_clock_state(),
+                        }))
+                    } else {
+                        let increment_per_read = tick_count_increment.ok_or_else(|| {
+                            "completed monotonic tick query has no API-read clock increment"
+                                .to_owned()
+                        })?;
+                        if next_tick_count != returned_tick_count.wrapping_add(increment_per_read) {
+                            return Err(
+                                "completed monotonic tick query clock state does not follow its policy increment"
+                                    .to_owned(),
+                            );
+                        }
+                        Some(json!({
+                            "returnedTickCount": returned_tick_count,
+                            "nextTickCount": next_tick_count,
+                            "incrementPerRead": increment_per_read,
+                        }))
                     }
-                    Some(json!({
-                        "returnedTickCount": returned_tick_count,
-                        "nextTickCount": next_tick_count,
-                        "incrementPerRead": increment_per_read,
-                    }))
                 } else {
                     None
                 };
@@ -2029,6 +2057,7 @@ impl BrowserRuntime {
         endpoint_address: GuestAddress,
         stack_pointer: GuestAddress,
         return_address: GuestAddress,
+        retired_instructions: u64,
     ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
         let d3d9_policy = self.d3d9_policy.as_deref();
         let dinput8_policy = self.dinput8_policy.as_deref();
@@ -2047,6 +2076,9 @@ impl BrowserRuntime {
         let routes_to_dsound = class_identity
             .as_deref()
             .is_some_and(|identity| identity.starts_with("dsound."));
+        self.runtime
+            .advance_scheduled_clock_for_execution(retired_instructions)
+            .map_err(error_string)?;
         let outcome = {
             let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
             let trap = ComCallTrap {
@@ -4941,12 +4973,17 @@ pub extern "C" fn vine_bridge_dispatch(
     endpoint_address: u32,
     stack_pointer: u32,
     return_address: u32,
+    retired_instructions_low: u32,
+    retired_instructions_high: u32,
 ) -> u32 {
     run_bridge(|bridge| {
+        let retired_instructions =
+            u64::from(retired_instructions_low) | (u64::from(retired_instructions_high) << 32);
         let (metadata, delta) = bridge.runtime_mut()?.dispatch(
             GuestAddress(endpoint_address),
             GuestAddress(stack_pointer),
             GuestAddress(return_address),
+            retired_instructions,
         )?;
         let (control, payload) = delta
             .map(|buffers| (buffers.control, buffers.page_bytes))
@@ -4970,12 +5007,17 @@ pub extern "C" fn vine_bridge_dispatch_com(
     endpoint_address: u32,
     stack_pointer: u32,
     return_address: u32,
+    retired_instructions_low: u32,
+    retired_instructions_high: u32,
 ) -> u32 {
     run_bridge(|bridge| {
+        let retired_instructions =
+            u64::from(retired_instructions_low) | (u64::from(retired_instructions_high) << 32);
         let (metadata, delta) = bridge.runtime_mut()?.dispatch_com(
             GuestAddress(endpoint_address),
             GuestAddress(stack_pointer),
             GuestAddress(return_address),
+            retired_instructions,
         )?;
         let (control, payload) = delta
             .map(|buffers| (buffers.control, buffers.page_bytes))

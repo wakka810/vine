@@ -56,8 +56,9 @@ pub(crate) use audio::{
 };
 pub use clock::{
     RUNTIME_CLOCK_PROFILE_SCHEMA, RUNTIME_CLOCK_PROFILE_VERSION,
-    RUNTIME_SCHEDULED_SHARED_CLOCK_PROFILE_ID, RuntimeClockProfile, RuntimeClockProgression,
-    RuntimeClockState, RuntimeTimerClockState,
+    RUNTIME_SCHEDULED_RETIRED_INSTRUCTIONS_PER_SECOND, RUNTIME_SCHEDULED_SHARED_CLOCK_PROFILE_ID,
+    RuntimeClockProfile, RuntimeClockProgression, RuntimeClockState,
+    RuntimeScheduledExecutionClockState, RuntimeTimerClockState,
 };
 pub use com::{
     RUNTIME_COM_IUNKNOWN_IID, RUNTIME_COM_MAX_INTERFACES_PER_OBJECT,

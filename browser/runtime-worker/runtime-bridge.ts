@@ -217,9 +217,21 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   vine_bridge_current_reflection(): number;
   vine_bridge_current_memory_summary(): number;
   vine_bridge_service_page_fault(faultAddress: number, errorCode: number): number;
-  vine_bridge_dispatch(endpoint: number, stackPointer: number, returnAddress: number): number;
+  vine_bridge_dispatch(
+    endpoint: number,
+    stackPointer: number,
+    returnAddress: number,
+    retiredInstructionsLow: number,
+    retiredInstructionsHigh: number,
+  ): number;
   vine_bridge_resolve_com_endpoint(endpoint: number): number;
-  vine_bridge_dispatch_com(endpoint: number, stackPointer: number, returnAddress: number): number;
+  vine_bridge_dispatch_com(
+    endpoint: number,
+    stackPointer: number,
+    returnAddress: number,
+    retiredInstructionsLow: number,
+    retiredInstructionsHigh: number,
+  ): number;
   vine_bridge_complete_host(low: number, high: number, result: number): number;
   vine_bridge_complete_source_read(
     low: number,
@@ -275,6 +287,14 @@ function invariant(condition: unknown, message: string): asserts condition {
 function splitU64(value: bigint): [number, number] {
   invariant(value >= 0n && value <= 0xffff_ffff_ffff_ffffn, "64-bit bridge value is out of range");
   return [Number(value & 0xffff_ffffn), Number((value >> 32n) & 0xffff_ffffn)];
+}
+
+function splitRetiredInstructions(value: number): [number, number] {
+  invariant(
+    Number.isSafeInteger(value) && value >= 0,
+    "retired instruction cursor must be a non-negative safe integer",
+  );
+  return splitU64(BigInt(value));
 }
 
 function combineU64(low: number, high: number): bigint {
@@ -461,9 +481,18 @@ export class RuntimeBridge {
     endpoint: number,
     stackPointer: number,
     returnAddress: number,
+    retiredInstructions: number,
   ): BridgeOutput<T> {
+    const [retiredInstructionsLow, retiredInstructionsHigh] =
+      splitRetiredInstructions(retiredInstructions);
     return this.#invoke(() =>
-      this.#exports.vine_bridge_dispatch(endpoint, stackPointer, returnAddress),
+      this.#exports.vine_bridge_dispatch(
+        endpoint,
+        stackPointer,
+        returnAddress,
+        retiredInstructionsLow,
+        retiredInstructionsHigh,
+      ),
     );
   }
 
@@ -475,9 +504,18 @@ export class RuntimeBridge {
     endpoint: number,
     stackPointer: number,
     returnAddress: number,
+    retiredInstructions: number,
   ): BridgeOutput<T> {
+    const [retiredInstructionsLow, retiredInstructionsHigh] =
+      splitRetiredInstructions(retiredInstructions);
     return this.#invoke(() =>
-      this.#exports.vine_bridge_dispatch_com(endpoint, stackPointer, returnAddress),
+      this.#exports.vine_bridge_dispatch_com(
+        endpoint,
+        stackPointer,
+        returnAddress,
+        retiredInstructionsLow,
+        retiredInstructionsHigh,
+      ),
     );
   }
 

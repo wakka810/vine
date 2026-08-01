@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 100 as const;
+export const protocolVersion = 101 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -1005,6 +1005,16 @@ export interface RuntimeSupportedCallSnapshot {
     returnedTickCount: number;
     nextTickCount: number;
     incrementPerRead: number;
+    clockProfileId?: string;
+    timerClock?: {
+      currentTime100ns: number;
+      generation: number;
+    };
+    scheduledExecutionClock?: {
+      retiredInstructions: number;
+      pendingRetiredInstructions: number;
+      retiredInstructionsPerSecond: number;
+    };
   };
   heapFree?: {
     heapHandle: number;

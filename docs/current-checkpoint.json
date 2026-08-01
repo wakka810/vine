@@ -16,7 +16,7 @@
         "id": "logical-window-and-message-flow",
         "label": "Logical window and message flow",
         "status": "in-progress",
-        "evidenceBoundary": "Primary logical window creation, activation, paint, and owner-thread timers pass. A normalized primary-button down is mapped by Rust to foreground client coordinates, atomically queued as WM_LBUTTONDOWN, removed by PeekMessageA, translated, and dispatched to the registered WndProc in Node and Chrome. The same current-thread active, focused, foreground window completes idempotent SetFocus and a shared process-clock sample; DefWindowProcA validates the cursor-derived WM_LBUTTONDOWN and returns zero before the callback and outer DispatchMessageA unwind. The following current-thread unfiltered PM_REMOVE PeekMessageA atomically writes the matching WM_LBUTTONUP MSG and empties the Rust-owned queue; TranslateMessage validates that exact GuestMemory MSG read-only, DispatchMessageA enters the registered WndProc, and User32 v35 validates the release DefWindowProcA relation without state, guest-memory, LastError, or capture mutation before the release callback and outer dispatch unwind to depth zero. After the reached waitable-timer cycle, the empty current-thread queue materializes the third WM_TIMER, TranslateMessage remains a no-op, and DispatchMessageA completes TIMERPROC frame 35 with one nested shared-clock GetTickCount before the next poll. Replacement, KillTimer, focus-transition messages, cross-thread focus, capture transitions, move/wheel, filtered and cross-thread retrieval, and general message-flow breadth remain partial."
+        "evidenceBoundary": "Primary logical window creation, activation, paint, owner-thread timers, and the previously verified normalized primary-button down/up flow pass. The active scheduled profile advances one Rust-owned process clock from cumulative retired guest instructions at every API and COM dispatch boundary; clock reads are pure, while wait deadlines and window timers use the same authority. The deterministic Node primary replay records 100,508 shared-clock samples and 36 TIMERPROC callbacks before stopping at USER32!SetWindowTextA. Replacement, KillTimer, focus-transition messages, cross-thread focus, capture transitions, move/wheel, filtered and cross-thread retrieval, and general message-flow breadth remain partial; the private primary Chrome replay was not rerun at this clock checkpoint."
       },
       {
         "id": "immutable-source-asset-access",
@@ -28,13 +28,13 @@
         "id": "first-present-readable-screen",
         "label": "First present and readable screen",
         "status": "in-progress",
-        "evidenceBoundary": "Controlled Canvas pixel passes; the primary D3D9 logical device completes two bounded scene/draw/present cycles and synchronous Worker WebGL2 materialization. The pointer-action continuation dispatches WM_LBUTTONDOWN, completes same-window SetFocus, process-clock sampling, and bounded default processing, then removes, translates, dispatches, and completes bounded default processing plus callback unwind for WM_LBUTTONUP. A following waitable-timer cycle and third WM_TIMER/TIMERPROC callback also complete without changing the preserved 1280x720 black browser frame or reaching a third Present. Readable title content, visible release response, capture behavior, resize, device loss/recovery, general stack overflow/SEH, and long-run stability remain unproven."
+        "evidenceBoundary": "Controlled Canvas pixel and public Chrome Worker boundary pass; the primary D3D9 logical device has completed two bounded scene/draw/present cycles and synchronous Worker WebGL2 materialization. Under the active deterministic scheduled clock, 100,508 clock samples and 36 TIMERPROC callbacks complete, but Present remains at two and USER32!SetWindowTextA is reached before any third Present. Clock freeze or missing timer delivery is therefore not the proximate cause of the current presentation stall. Readable title content, visible input response, the private primary Chrome replay under this profile, resize, device loss/recovery, general stack overflow/SEH, and long-run stability remain unproven."
       },
       {
         "id": "user-input-consumption",
         "label": "User input consumption",
         "status": "in-progress",
-        "evidenceBoundary": "The active Node/Chrome-equivalent profile commits normalized primary-button down and up events through Rust-owned input, cursor, window, message queue, wait, guest-memory, and callback-frame authorities. GetAsyncKeyState(VK_LBUTTON) consumes 0xFFFF8001; PeekMessageA removes WM_LBUTTONDOWN, TranslateMessage returns false, DispatchMessageA enters the registered WndProc, and same-window SetFocus plus bounded DefWindowProcA down processing complete before callback unwind. A subsequent current-thread unfiltered PM_REMOVE PeekMessageA writes the exact WM_LBUTTONUP MSG and leaves the Rust-owned queue empty; TranslateMessage validates the preserved MSG read-only, DispatchMessageA enters the registered WndProc, and bounded release DefWindowProcA plus callback completion return zero at callback depth zero while preserving LastError and Windows state. The reached post-input waitable-timer cycle then drives a third WM_TIMER through TIMERPROC and a nested GetTickCount before returning to the next PeekMessageA poll. Visible gameplay response, focus-transition messages, pointer capture/move/wheel, DirectInput keyboard/mouse devices, and general input remain unproven."
+        "evidenceBoundary": "The verified primary-button down/up path commits normalized input through Rust-owned cursor, window, message queue, wait, guest-memory, and callback-frame authorities, consumes VK_LBUTTON, and unwinds the registered WndProc at callback depth zero. The active scheduled Node replay continues deterministically through 36 TIMERPROC callbacks and shared-clock reads before USER32!SetWindowTextA; it does not produce a third Present. Visible gameplay response, the private primary Chrome replay under this profile, focus-transition messages, pointer capture/move/wheel, DirectInput keyboard/mouse devices, and general input remain unproven."
       },
       {
         "id": "audible-output",
@@ -185,13 +185,13 @@
     "workload": "private-bgi-generic-session",
     "bgiSession": "semantic-equivalence-passed",
     "bgiBenchmark": "threshold-passed",
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v100",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v101",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json",
     "browserRuntimeWorker": true,
     "browserRuntimeCoreWasm": {
       "imports": 0,
-      "bytes": 5191303,
-      "sha256": "248feea6a66df1ed8d87f17ca811ea97f03490f12f14fe0cbf5e378028acfe3c"
+      "bytes": 5231801,
+      "sha256": "60314a8102d1f6578d30177748534b7fcfe4d5e17a9786d0f5d25520484d0ec4"
     },
     "browserRuntimeFixture": {
       "bytes": 3584,
@@ -5686,7 +5686,7 @@
     "decisionScope": "controlled-browser-runtime-baseline"
   },
   "activeRuntimeCheckpoint": {
-    "runtimeKernelCheckpoint": "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
+    "runtimeKernelCheckpoint": "scheduled-shared-clock-primary",
     "status": "checkpoint-complete",
     "profile": "user32-peek-message-a-post-window-timer-callback-continuation",
     "runtimeStateAuthority": "rust",
@@ -6154,7 +6154,7 @@
         "kernel32_virtual_memory_dispatcher::owner_capacity_failure_is_atomic_across_allocator_and_guest_memory",
         "kernel32_virtual_memory_dispatcher::guest_region_overlap_rejects_before_allocator_commit_or_owner_id_advance"
       ],
-      "capabilityExpansionPausedAt": "winmm-time-get-time-post-window-timer-callback-continuation"
+      "capabilityExpansionPausedAt": "user32-set-window-text-a-post-scheduled-shared-clock"
     },
     "runtimeObjectModel": {
       "schema": "vine.runtime-object-table.v2",
@@ -11035,7 +11035,7 @@
       "guestHeapAllocOtherFlags": false,
       "guestHeapAllocReturnAddress": "0x20000000",
       "guestHeapAllocFailureReturnSemantics": false,
-      "capabilityExpansionPausedAt": "winmm-time-get-time-post-window-timer-callback-continuation"
+      "capabilityExpansionPausedAt": "user32-set-window-text-a-post-scheduled-shared-clock"
     },
     "processAddressSpaceAllocator": {
       "schema": "vine.process-address-space-allocator.v1",
@@ -11319,9 +11319,21 @@
       ],
       "osVersionInfoAHostVersionImported": false,
       "osVersionInfoABrowserVersionImported": false,
-      "tickCountIncrementPerRead": 1,
+      "clockProfile": {
+        "schema": "vine.runtime-clock-profile",
+        "schemaVersion": 1,
+        "id": "scheduled-shared-logical-deadline-v1",
+        "progression": "scheduled-shared"
+      },
+      "clockScheduleSource": "cumulative-retired-guest-instructions",
+      "clockScheduleAuthority": "runtime/clock.rs::RuntimeClock",
+      "clockScheduledRetiredInstructionsPerSecond": 2000000,
+      "clockResolution100ns": 10000,
+      "clockApiReadsAdvance": false,
+      "clockWaitDeadlinesShareAuthority": true,
+      "clockHostTimeImported": false,
+      "clockBrowserTimeImported": false,
       "performanceCounterFrequency": 10000000,
-      "performanceCounterIncrementPerRead": 10000,
       "performanceCounterAuthority": "runtime/process.rs::RuntimeProcessState",
       "performanceCounterHostClockImported": false,
       "performanceCounterBrowserClockImported": false,
@@ -13155,6 +13167,81 @@
       "apiSpecificRequestsOrReceipts": false,
       "reportBytes": 407009,
       "reportSha256": "da95600680cdb922a2952a7045ac5ace1b6f2510f5f553773343854e2f2310a1"
+    },
+    "scheduledSharedClock": {
+      "schema": "vine.scheduled-shared-clock-checkpoint",
+      "schemaVersion": 1,
+      "status": "passed",
+      "profile": {
+        "schema": "vine.runtime-clock-profile",
+        "schemaVersion": 1,
+        "id": "scheduled-shared-logical-deadline-v1",
+        "progression": "scheduled-shared"
+      },
+      "scheduleSource": "cumulative-retired-guest-instructions",
+      "retiredInstructionsPerSecond": 2000000,
+      "resolution100ns": 10000,
+      "apiReadsAdvanceClock": false,
+      "waitDeadlinesShareClock": true,
+      "hostTimeImported": false,
+      "browserTimeImported": false,
+      "allApiAndComDispatchBoundariesUseSharedSchedule": true,
+      "regressingInstructionCursorRejectedBeforeMutation": true,
+      "nodePrimaryEvidence": {
+        "schema": "vine.v86-bgi-scheduled-shared-clock-primary",
+        "schemaVersion": 1,
+        "canonicalCommand": "npm run check:runtime:bgi",
+        "repeatRuns": 2,
+        "reportPath": ".work/v86-bgi-peek-message-a-post-window-timer-callback-continuation/report.json",
+        "reportBytes": 40392,
+        "reportSha256": "aa38f22c008892f0104af00bca405a64cf44024e1c4e7643762c06b717346bac",
+        "reflectionSha256": "65f3b728ff9570a0f3081571c05996df74232711142bbfc5045d2c780dcecf49",
+        "sourceBytes": 1193472,
+        "sourceSha256": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
+        "sourceImmutableAcrossRun": true,
+        "completedSupportedCalls": 251690,
+        "supportedCallSemanticsSha256": "f7232ff5593f5eeda54e3ae2c9ff314949997b44d3569dfcf51b674bd32734f1",
+        "clockSampleCount": 100508,
+        "firstClockTick": 3600000,
+        "firstClockRetiredInstructions": 29,
+        "lastClockTick": 3765605,
+        "lastClockTime100ns": 1656055000,
+        "lastClockGeneration": 12376,
+        "lastClockRetiredInstructions": 323857971,
+        "lastClockPendingRetiredInstructions": 1971,
+        "apiReadIncrement": 0,
+        "windowTimerCallbackCount": 36,
+        "timerPacingCompletionCount": 7174,
+        "presentCount": 2,
+        "thirdPresentReached": false,
+        "writebackBatches": 254878,
+        "hostDeltaBatches": 123200,
+        "callbackEventCount": 136,
+        "activeCallbackDepth": 0,
+        "finalMemoryGeneration": 282334,
+        "terminalInstructionCount": 323858232,
+        "terminalMemoryContentSha256": "fd19b775f777ef6885305a0826309964a97316e3956901673d863d173b69aab3"
+      },
+      "browserBoundaryEvidence": {
+        "runtimeProtocol": "vine.browser-runtime-worker.v101",
+        "retiredInstructionCursorTransport": "checked-u64-low-high-per-api-and-com-dispatch",
+        "browserOwnsGuestClockState": false,
+        "controlledChromeE2e": "passed",
+        "controlledChromeCommand": "npm run check:runtime:browser-worker",
+        "chromeVersion": "150.0.7871.187",
+        "reportBytes": 35954,
+        "reportSha256": "0f479bd74fa1aacb173a9cba1efd7d0a98bd47bd5a3769fb15be02838b198a6c",
+        "runtimeWorkerBytes": 1026918,
+        "runtimeWorkerSha256": "acc0c1b08d705b3156cf00a0c7c7b78e01265a02d57692dadfe13cbf037e3bf7",
+        "runtimeCoreWasmBytes": 5231801,
+        "runtimeCoreWasmSha256": "60314a8102d1f6578d30177748534b7fcfe4d5e17a9786d0f5d25520484d0ec4",
+        "privatePrimaryReplay": "not-rerun-at-this-clock-checkpoint"
+      },
+      "proximateCauseConclusion": {
+        "clockFreezeWasProximateCause": false,
+        "reason": "scheduled progression completed 100508 shared-clock samples and 36 TIMERPROC callbacks without a third Present before the next unsupported endpoint",
+        "nextEndpoint": "USER32.dll!SetWindowTextA"
+      }
     },
     "latestEvidence": {
       "schema": "vine.v86-bgi-user32-peek-message-a-post-window-timer-callback-continuation",
@@ -25277,59 +25364,55 @@
       "pointerReleaseMessageQueued": false,
       "guestInstructions": 321469098
     },
-    "canonicalReproductionCommand": "npm run check:runtime:bgi-browser"
+    "canonicalReproductionCommand": "npm run check:runtime:bgi"
   },
   "activeBlocker": null,
   "nextStructuredStop": {
     "kind": "capability-checkpoint",
-    "nextCheckpoint": "winmm-time-get-time-post-window-timer-callback-continuation",
+    "nextCheckpoint": "user32-set-window-text-a-post-scheduled-shared-clock",
     "pausedHistoricalCheckpoint": "user32-peek-message-a-post-window-timer-callback-continuation",
-    "instructionCount": 321469098,
-    "capabilityCluster": "winmm-post-window-timer-callback-clock-continuation",
-    "reason": "user32-peek-message-a-post-window-timer-callback-continuation-checkpoint-complete",
+    "instructionCount": 323858232,
+    "capabilityCluster": "user32-api-contract",
+    "reason": "scheduled-shared-clock-primary-checkpoint-complete",
     "completion": {
-      "capability": "user32-peek-message-a-post-window-timer-callback-continuation",
-      "implementationId": "runtime.user32-peek-message-a-post-window-timer-callback-continuation.v1",
+      "capability": "scheduled-shared-clock-primary",
+      "implementationId": "runtime.scheduled-shared-clock-primary.v1",
       "requiredCompletions": 1,
       "completionCount": 1,
-      "requiredDeliveries": 1,
-      "deliveryCount": 3,
-      "prerequisiteTimerWaitSequence": 162082,
-      "prerequisiteTimerWaitInstructionCount": 321468349,
-      "prerequisiteTestCooperativeLevelSequence": 162080,
-      "prerequisiteTestCooperativeLevelInstructionCount": 321468292,
-      "firstCompletionSequence": 162087,
-      "firstCompletionInstructionCount": 321469064,
-      "lastCompletionSequence": 162087,
-      "lastCompletionInstructionCount": 321469064,
-      "cumulativeTimerArmCompletions": 11476,
-      "cumulativeTimerWaitCompletions": 11475,
-      "windowTimerCallbackNestedCompletionCount": 1,
-      "windowTimerCallbackActiveDepthAtCompletion": 1,
-      "maximumRepeatCompletions": 16,
-      "requiredEntries": 1,
-      "entryCount": 1,
-      "lastEntrySequence": 161951,
-      "lastEntryInstructionCount": 321462435,
-      "prerequisiteWindowTimerDispatchSequence": 162085,
-      "prerequisiteWindowTimerDispatchInstructionCount": 321469055,
-      "peekMessagePostWindowTimerCallbackActiveCallbackDepthAtCompletion": 0,
-      "postWindowTimerCallbackQueueDepthBefore": 0,
-      "postWindowTimerCallbackQueueDepthAfter": 0,
-      "postWindowTimerCallbackMessageBytesPreserved": true
+      "lastCompletionSequence": 251690,
+      "lastCompletionInstructionCount": 323857971,
+      "clockProfileId": "scheduled-shared-logical-deadline-v1",
+      "scheduleSource": "cumulative-retired-guest-instructions",
+      "retiredInstructionsPerSecond": 2000000,
+      "resolution100ns": 10000,
+      "apiReadsAdvanceClock": false,
+      "waitDeadlinesShareClock": true,
+      "clockSampleCount": 100508,
+      "windowTimerCallbackCount": 36,
+      "timerPacingCompletionCount": 7174,
+      "presentCount": 2,
+      "thirdPresentReached": false,
+      "completedSupportedCalls": 251690,
+      "lastClockRetiredInstructions": 323857971,
+      "lastClockPendingRetiredInstructions": 1971,
+      "repeatRuns": 2,
+      "clockFreezeWasProximateCause": false
     },
     "nextEndpoint": {
       "endpointKind": "runtime-system-export",
-      "endpointId": 8,
-      "api": "WINMM.dll!timeGetTime",
-      "endpointAddress": "0x7f000070",
-      "iatAddress": "0x100d14e4",
-      "observedModule": "WINMM.dll",
-      "observedSymbol": "timeGetTime",
+      "endpointId": 237,
+      "api": "USER32.dll!SetWindowTextA",
+      "endpointAddress": "0x7f000ec0",
+      "iatAddress": "0x100d148c",
+      "observedModule": "USER32.dll",
+      "observedSymbol": "SetWindowTextA",
       "disposition": "declared-runtime-export",
-      "arguments": [],
-      "returnAddress": "0x10091ebf",
-      "stackPointer": "0x006ff904"
+      "arguments": [
+        "0x48010001",
+        "0x20262c02"
+      ],
+      "returnAddress": "0x1008343b",
+      "stackPointer": "0x006ff688"
     }
   }
 }

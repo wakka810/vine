@@ -5,6 +5,7 @@ use super::RuntimeStateError;
 pub const RUNTIME_CLOCK_PROFILE_SCHEMA: &str = "vine.runtime-clock-profile";
 pub const RUNTIME_CLOCK_PROFILE_VERSION: u32 = 1;
 pub const RUNTIME_SCHEDULED_SHARED_CLOCK_PROFILE_ID: &str = "scheduled-shared-logical-deadline-v1";
+pub const RUNTIME_SCHEDULED_RETIRED_INSTRUCTIONS_PER_SECOND: u64 = 2_000_000;
 
 const FILE_TIME_TICKS_PER_SECOND: u128 = 10_000_000;
 const FILE_TIME_TICKS_PER_MILLISECOND: u64 = 10_000;
@@ -101,11 +102,20 @@ pub struct RuntimeTimerClockState {
     pub generation: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeScheduledExecutionClockState {
+    pub retired_instructions: u64,
+    pub pending_retired_instructions: u64,
+    pub retired_instructions_per_second: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeClock {
     epoch: RuntimeClockState,
     state: RuntimeClockState,
     timer: RuntimeTimerClockState,
+    scheduled_execution: RuntimeScheduledExecutionClockState,
     profile: RuntimeClockProfile,
     profile_revision: u64,
 }
@@ -136,6 +146,13 @@ pub(super) struct RuntimeClockAdvancePlan {
     next_state: RuntimeClockState,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeScheduledExecutionAdvancePlan {
+    previous_execution: RuntimeScheduledExecutionClockState,
+    next_execution: RuntimeScheduledExecutionClockState,
+    clock: RuntimeClockAdvancePlan,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RuntimeTickCountSamplePlan {
     previous: u32,
@@ -164,6 +181,11 @@ impl RuntimeClock {
                 current_time_100ns: 0,
                 generation: 0,
             },
+            scheduled_execution: RuntimeScheduledExecutionClockState {
+                retired_instructions: 0,
+                pending_retired_instructions: 0,
+                retired_instructions_per_second: RUNTIME_SCHEDULED_RETIRED_INSTRUCTIONS_PER_SECOND,
+            },
             profile: RuntimeClockProfile::api_read_increment_v1(),
             profile_revision: 0,
         })
@@ -179,6 +201,11 @@ impl RuntimeClock {
 
     pub(super) fn profile(&self) -> &RuntimeClockProfile {
         &self.profile
+    }
+
+    pub(super) fn scheduled_execution_state(&self) -> Option<RuntimeScheduledExecutionClockState> {
+        self.uses_scheduled_shared_progression()
+            .then_some(self.scheduled_execution)
     }
 
     pub(super) fn uses_scheduled_shared_progression(&self) -> bool {
@@ -389,6 +416,98 @@ impl RuntimeClock {
             },
             next_state,
         })
+    }
+
+    pub(super) fn plan_scheduled_execution_advance(
+        &self,
+        retired_instructions: u64,
+    ) -> Result<RuntimeScheduledExecutionAdvancePlan, RuntimeStateError> {
+        if !self.uses_scheduled_shared_progression() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-clock",
+                "scheduled-execution-clock-profile-inactive",
+                "retired-instruction clock progression requires the scheduled shared profile",
+            ));
+        }
+        if retired_instructions < self.scheduled_execution.retired_instructions {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-clock",
+                "scheduled-execution-instruction-count-regressed",
+                "retired guest instruction count cannot move backwards",
+            ));
+        }
+        let retired_delta = retired_instructions - self.scheduled_execution.retired_instructions;
+        let pending_retired_instructions = self
+            .scheduled_execution
+            .pending_retired_instructions
+            .checked_add(retired_delta)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-clock",
+                    "scheduled-execution-instruction-range-exhausted",
+                    "pending retired guest instruction progression exceeded its range",
+                )
+            })?;
+        let retired_instructions_per_millisecond =
+            self.scheduled_execution.retired_instructions_per_second / 1_000;
+        let elapsed_milliseconds =
+            pending_retired_instructions / retired_instructions_per_millisecond;
+        let pending_retired_instructions =
+            pending_retired_instructions % retired_instructions_per_millisecond;
+        let elapsed_delta_100ns = elapsed_milliseconds
+            .checked_mul(FILE_TIME_TICKS_PER_MILLISECOND)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-clock",
+                    "scheduled-execution-time-range-exhausted",
+                    "retired guest instruction progression exceeded the logical clock range",
+                )
+            })?;
+        let target_time_100ns = self
+            .timer
+            .current_time_100ns
+            .checked_add(elapsed_delta_100ns)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-clock",
+                    "scheduled-execution-time-range-exhausted",
+                    "retired guest instruction progression exceeded the logical clock range",
+                )
+            })?;
+        Ok(RuntimeScheduledExecutionAdvancePlan {
+            previous_execution: self.scheduled_execution,
+            next_execution: RuntimeScheduledExecutionClockState {
+                retired_instructions,
+                pending_retired_instructions,
+                ..self.scheduled_execution
+            },
+            clock: self.plan_advance(target_time_100ns)?,
+        })
+    }
+
+    pub(super) fn preflight_scheduled_execution_advance(
+        &self,
+        plan: &RuntimeScheduledExecutionAdvancePlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.scheduled_execution != plan.previous_execution {
+            return Err(RuntimeStateError::conflict(
+                "runtime-clock",
+                "scheduled-execution-advance-plan-stale",
+                "retired guest instruction state changed after clock progression preflight",
+            ));
+        }
+        self.preflight_advance(&plan.clock)
+    }
+
+    pub(super) fn commit_scheduled_execution_advance(
+        &mut self,
+        plan: RuntimeScheduledExecutionAdvancePlan,
+    ) -> Result<RuntimeTimerClockState, RuntimeStateError> {
+        self.preflight_scheduled_execution_advance(&plan)?;
+        let next_execution = plan.next_execution;
+        let timer = self.commit_advance(plan.clock)?;
+        self.scheduled_execution = next_execution;
+        Ok(timer)
     }
 
     pub(super) fn preflight_advance(

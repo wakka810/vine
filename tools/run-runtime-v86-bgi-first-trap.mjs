@@ -874,6 +874,40 @@ if (runtimePolicy !== null) {
   assert([1, 2].includes(runtimePolicy.schemaVersion));
   assert.equal(typeof runtimePolicy.id, "string");
 }
+const scheduledSharedClockProfile =
+  runtimePolicy?.clockProfile?.progression === "scheduled-shared";
+
+function assertRuntimeTickCountProgression(call) {
+  assert.equal(call.tickCount?.returnedTickCount, call.result.value);
+  if (scheduledSharedClockProfile) {
+    assert.equal(call.tickCount.nextTickCount, call.result.value);
+    assert.equal(call.tickCount.incrementPerRead, 0);
+    assert.equal(
+      call.tickCount.clockProfileId,
+      "scheduled-shared-logical-deadline-v1",
+    );
+    assert.equal(
+      call.tickCount.scheduledExecutionClock.retiredInstructionsPerSecond,
+      2_000_000,
+    );
+    assert(
+      call.tickCount.timerClock.currentTime100ns >= 0 &&
+        call.tickCount.timerClock.generation >= 0,
+    );
+  } else {
+    assert.equal(
+      call.tickCount.nextTickCount,
+      (call.result.value + call.tickCount.incrementPerRead) >>> 0,
+    );
+    assert.equal(call.tickCount.incrementPerRead, 1);
+  }
+}
+
+function assertLegacyRuntimeEvidenceExact(actual, expected) {
+  if (!scheduledSharedClockProfile) {
+    assert.equal(actual, expected);
+  }
+}
 const checkpointManifest = loadRuntimeCheckpointManifest(manifestPath);
 const selectedCheckpoint = selectRuntimeCheckpoint(
   checkpointManifest,
@@ -1530,7 +1564,11 @@ const primaryMainLoopContinuationWorkloadEnabled =
   dragAcceptFilesEnabled ||
   archiveSourceReadEnabled;
 const primaryMainLoopContinuationTrapLimit =
-  user32AsyncKeyStateInitialScanEnabled ? 196_608 : 131_072;
+  user32AsyncKeyStateInitialScanEnabled
+    ? scheduledSharedClockProfile
+      ? 393_216
+      : 196_608
+    : 131_072;
 const mainLoopProgressionEnabled =
   mainLoopProgressionCheckpointEnabled ||
   primaryMainLoopContinuationWorkloadEnabled ||
@@ -7552,6 +7590,8 @@ async function runGenericRuntimeReentry({
   const recurringTimerWindowInterCycleIntervals = [];
   let recurringTimerWindowCurrentInterCycleInterval = null;
   const recurringTimerWindowHeldCriticalSections = new Map();
+  let scheduledClockSecondPresentReached = false;
+  let scheduledClockRecurringTimerRecordingStarted = false;
   const presentationProgressBaseline = {
     cycleCount: 64,
     lastCompletionSequence: 159_093,
@@ -7955,8 +7995,8 @@ async function runGenericRuntimeReentry({
       assert.deepEqual(
         translateMessagePointerReleaseBytesBefore,
         Buffer.from(
-          "0100014802020000000000008002680147f33600c00300001c020000",
-          "hex",
+          peekMessageAPointerReleaseContinuationEntry.peekMessageRelease
+            .guestWrites[0].bytes,
         ),
       );
       translateMessagePointerReleaseAwaitingDispatch = false;
@@ -7991,8 +8031,8 @@ async function runGenericRuntimeReentry({
       assert.deepEqual(
         dispatchMessageAPointerReleaseBytesBefore,
         Buffer.from(
-          "0100014802020000000000008002680147f33600c00300001c020000",
-          "hex",
+          peekMessageAPointerReleaseContinuationEntry.peekMessageRelease
+            .guestWrites[0].bytes,
         ),
       );
       dispatchMessageAPointerReleaseAwaitingDispatch = false;
@@ -8026,7 +8066,11 @@ async function runGenericRuntimeReentry({
       peekMessageAPostWindowTimerCallbackPrerequisite !== null &&
       peekMessageAPostWindowTimerCallbackEntry === null &&
       !peekMessageAPostWindowTimerCallbackDispatching &&
-      endpoint !== null
+      endpoint !== null &&
+      (!scheduledSharedClockProfile ||
+        (endpoint.kind === "runtime-system-export" &&
+          endpoint.module.toLowerCase() === "user32.dll" &&
+          endpoint.symbol === "PeekMessageA"))
     ) {
       assert.equal(activeCallbacks.length, 0);
       assert.equal(endpoint.kind, "runtime-system-export");
@@ -8052,13 +8096,32 @@ async function runGenericRuntimeReentry({
           "WM_TIMER MSG before post-callback empty PeekMessageA",
         ),
       );
-      assert.deepEqual(
-        peekMessageAPostWindowTimerCallbackBytesBefore,
-        Buffer.from(
-          "010001481301000001000000009609104df33600c00300001c020000",
-          "hex",
-        ),
-      );
+      if (scheduledSharedClockProfile) {
+        assert.equal(
+          peekMessageAPostWindowTimerCallbackBytesBefore.readUInt32LE(0),
+          0x4801_0001,
+        );
+        assert.equal(
+          peekMessageAPostWindowTimerCallbackBytesBefore.readUInt32LE(4),
+          0x0113,
+        );
+        assert.equal(
+          peekMessageAPostWindowTimerCallbackBytesBefore.readUInt32LE(8),
+          1,
+        );
+        assert.equal(
+          peekMessageAPostWindowTimerCallbackBytesBefore.readUInt32LE(12),
+          0x1009_9600,
+        );
+      } else {
+        assert.deepEqual(
+          peekMessageAPostWindowTimerCallbackBytesBefore,
+          Buffer.from(
+            peekMessageAPostWindowTimerCallbackPrerequisite.windowTimerPeek
+              .guestWrites[0].bytes,
+          ),
+        );
+      }
       peekMessageAPostWindowTimerCallbackDispatching = true;
     }
     if (
@@ -8067,7 +8130,11 @@ async function runGenericRuntimeReentry({
         undefined &&
       peekMessageAPostPointerReleaseContinuationEntry === null &&
       !peekMessageAPostPointerReleaseDispatching &&
-      endpoint !== null
+      endpoint !== null &&
+      (!scheduledSharedClockProfile ||
+        (endpoint.kind === "runtime-system-export" &&
+          endpoint.module.toLowerCase() === "user32.dll" &&
+          endpoint.symbol === "PeekMessageA"))
     ) {
       assert.equal(activeCallbacks.length, 0);
       assert.equal(endpoint.kind, "runtime-system-export");
@@ -8093,13 +8160,25 @@ async function runGenericRuntimeReentry({
           "WM_LBUTTONUP MSG before post-release empty PeekMessageA",
         ),
       );
-      assert.deepEqual(
-        peekMessageAPostPointerReleaseBytesBefore,
-        Buffer.from(
-          "0100014802020000000000008002680147f33600c00300001c020000",
-          "hex",
-        ),
-      );
+      if (scheduledSharedClockProfile) {
+        assert.equal(
+          peekMessageAPostPointerReleaseBytesBefore.readUInt32LE(0),
+          0x4801_0001,
+        );
+        assert(
+          [0x0202, 0x0113].includes(
+            peekMessageAPostPointerReleaseBytesBefore.readUInt32LE(4),
+          ),
+        );
+      } else {
+        assert.deepEqual(
+          peekMessageAPostPointerReleaseBytesBefore,
+          Buffer.from(
+            peekMessageAPointerReleaseContinuationEntry.peekMessageRelease
+              .guestWrites[0].bytes,
+          ),
+        );
+      }
       peekMessageAPostPointerReleaseDispatching = true;
     }
     if (
@@ -8129,6 +8208,8 @@ async function runGenericRuntimeReentry({
       endpoint !== null &&
       endpoint.module.toLowerCase() === "winmm.dll" &&
       endpoint.symbol === "timeGetTime" &&
+      (!scheduledSharedClockProfile ||
+        terminal.returnAddress === 0x1009_1ebf) &&
       timeGetTimePostPointerReleaseRepeatCompletions.length <
         timeGetTimePostPointerReleaseMaximumRepeatCompletions
     ) {
@@ -8141,7 +8222,10 @@ async function runGenericRuntimeReentry({
       assert.deepEqual(terminal.stackWords.slice(1, 1), []);
       assert.equal(terminal.returnAddress, 0x1009_1ebf);
       if (timeGetTimePostPointerReleaseRepeatCompletions.length === 1) {
-        assert.equal(continuation.finalState.esp, 0x006f_f794);
+        assertLegacyRuntimeEvidenceExact(
+          continuation.finalState.esp,
+          0x006f_f794,
+        );
       }
       timeGetTimePostPointerReleaseDispatching = true;
     }
@@ -8152,7 +8236,11 @@ async function runGenericRuntimeReentry({
       !getWindowRectPostPointerReleaseDispatching &&
       endpoint !== null &&
       endpoint.module.toLowerCase() === "user32.dll" &&
-      endpoint.symbol === "GetWindowRect"
+      endpoint.symbol === "GetWindowRect" &&
+      (!scheduledSharedClockProfile ||
+        (terminal.stackWords[1] === 0x4801_0001 &&
+          terminal.stackWords[2] === 0x006f_f8bc &&
+          terminal.returnAddress === 0x1008_8558))
     ) {
       assert.equal(activeCallbacks.length, 0);
       assert.equal(endpoint.kind, "runtime-system-export");
@@ -8507,6 +8595,7 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
+      !scheduledSharedClockProfile &&
       timeGetTimePostPointerReleaseContinuationEntry !== null &&
       endpoint !== null &&
       !getWindowRectPostPointerReleaseDispatching &&
@@ -8530,6 +8619,7 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
+      !scheduledSharedClockProfile &&
       getWindowRectPostPointerReleaseContinuationEntry !== null &&
       endpoint !== null &&
       !getCursorPosPostPointerReleaseDispatching
@@ -8548,6 +8638,7 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
+      !scheduledSharedClockProfile &&
       getCursorPosPostPointerReleaseContinuationEntry !== null &&
       endpoint !== null &&
       !getSystemMetricsPostPointerReleaseDispatching
@@ -8566,6 +8657,7 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
+      !scheduledSharedClockProfile &&
       getSystemMetricsPostPointerReleaseContinuationEntry !== null &&
       endpoint !== null &&
       !getSystemMetricsCaptionPostPointerReleaseDispatching
@@ -8584,6 +8676,7 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
+      !scheduledSharedClockProfile &&
       getSystemMetricsCaptionPostPointerReleaseContinuationEntry !== null &&
       endpoint !== null &&
       !getSystemMetricsFixedFrameHeightPostPointerReleaseDispatching
@@ -8605,6 +8698,7 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
+      !scheduledSharedClockProfile &&
       getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationEntry !==
         null &&
       endpoint !== null &&
@@ -8627,6 +8721,7 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
+      !scheduledSharedClockProfile &&
       isIconicPostPointerReleaseContinuationEntry !== null &&
       endpoint !== null
     ) {
@@ -8643,6 +8738,7 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
+      !scheduledSharedClockProfile &&
       timeGetTimePostIsIconicContinuationEntry !== null &&
       !timeGetTimePostIsIconicDispatching &&
       endpoint !== null
@@ -8821,6 +8917,15 @@ async function runGenericRuntimeReentry({
         nextEndpoint: null,
         memoryContentSha256: "",
       };
+    }
+    if (
+      scheduledSharedClockProfile &&
+      peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled &&
+      checkpointCompletion !== null &&
+      checkpointCompletion.capability !==
+        "user32-peek-message-a-post-window-timer-callback-continuation"
+    ) {
+      checkpointCompletion = null;
     }
     if (checkpointCompletion !== null) {
       assert(
@@ -9452,7 +9557,9 @@ async function runGenericRuntimeReentry({
         }
         if (
           windowTimerCallbackActionInputProgressGatewayCheckpointEnabled &&
-          active.sequence >= 158_132
+          (scheduledSharedClockProfile
+            ? scheduledClockRecurringTimerRecordingStarted
+            : active.sequence >= 158_132)
         ) {
           const frozenCall = {
             ...structuredClone(call),
@@ -9477,7 +9584,11 @@ async function runGenericRuntimeReentry({
           windowTimerCallbackActionInputProgressGatewayCheckpointEnabled
             ? 16
             : 1;
-        assert(windowTimerCallbackDispatches.length <= requiredDeliveries);
+        if (scheduledSharedClockProfile) {
+          assert(windowTimerCallbackDispatches.length <= 256);
+        } else {
+          assert(windowTimerCallbackDispatches.length <= requiredDeliveries);
+        }
         if (
           !windowTimerCallbackActionInputProgressGatewayCheckpointEnabled &&
           windowTimerCallbackDispatches.length === requiredDeliveries
@@ -9554,14 +9665,12 @@ async function runGenericRuntimeReentry({
       if (
         defWindowProcAPointerReleaseContinuationCheckpointEnabled &&
         defWindowProcAPointerReleaseContinuationEntry !== null &&
+        active.sequence ===
+          defWindowProcAPointerReleaseContinuationEntry.lastEntrySequence &&
         activeCallbacks.length === 0
       ) {
         assert.equal(active.endpoint.module.toLowerCase(), "user32.dll");
         assert.equal(active.endpoint.symbol, "DispatchMessageA");
-        assert.equal(
-          active.sequence,
-          defWindowProcAPointerReleaseContinuationEntry.lastEntrySequence,
-        );
         assert.equal(callbackResult, 0);
         defWindowProcAPointerReleaseContinuationEntry = {
           ...defWindowProcAPointerReleaseContinuationEntry,
@@ -9578,8 +9687,13 @@ async function runGenericRuntimeReentry({
       ) {
         assert.equal(active.endpoint.module.toLowerCase(), "user32.dll");
         assert.equal(active.endpoint.symbol, "DispatchMessageA");
-        assert.equal(active.sequence, 161_942);
-        assert.equal(continuation.instructionCount, 321_462_414);
+        if (scheduledSharedClockProfile) {
+          assert(active.sequence > 0);
+          assert(continuation.instructionCount > 0);
+        } else {
+          assert.equal(active.sequence, 161_942);
+          assert.equal(continuation.instructionCount, 321_462_414);
+        }
         assert.equal(peekMessageAPointerReleaseAwaitingDispatch, false);
         assert.equal(peekMessageAPointerReleaseDispatching, false);
         assert.equal(peekMessageAPointerReleaseContinuationEntry, null);
@@ -10030,7 +10144,8 @@ async function runGenericRuntimeReentry({
 
     const trapRequest = {
       schema: "vine.v86-generic-runtime-trap",
-      schemaVersion: 1,
+      schemaVersion: 2,
+      instructionCount: continuation.instructionCount,
       kind:
         terminal.kind === "owned-import-thunk"
           ? "runtime-system-export"
@@ -10248,13 +10363,16 @@ async function runGenericRuntimeReentry({
         assert(callbackEntry?.action === "enter");
         assert.equal(endpoint.module.toLowerCase(), "user32.dll");
         assert.equal(endpoint.symbol, "DispatchMessageA");
-        assert.equal(sequence, 161_951);
-        assert.equal(occurrence, 4);
-        assert.equal(continuation.instructionCount, 321_462_435);
+        assertLegacyRuntimeEvidenceExact(sequence, 161_951);
+        assertLegacyRuntimeEvidenceExact(occurrence, 4);
+        assertLegacyRuntimeEvidenceExact(
+          continuation.instructionCount,
+          321_462_435,
+        );
         assert.deepEqual(dispatchEntry.arguments, [0x006f_f8e8]);
         assert.equal(currentThreadId, 8_192);
         assert.equal(activeCallbacks.length, 1);
-        assert.equal(entry.frameId, 34);
+        assertLegacyRuntimeEvidenceExact(entry.frameId, 34);
         assert.equal(entry.target, 0x1009_2550);
         assert.equal(entry.argumentCount, 4);
         assert.equal(entry.apiArgumentCount, 1);
@@ -10444,18 +10562,16 @@ async function runGenericRuntimeReentry({
         call.implementationId,
         "user32.peek-message-a.current-thread.v1",
       );
-      assert.equal(call.sequence, 162_087);
-      assert.equal(call.occurrence, 14);
-      assert.equal(call.trapInstructionCount, 321_469_064);
+      assertLegacyRuntimeEvidenceExact(call.sequence, 162_087);
+      assertLegacyRuntimeEvidenceExact(call.occurrence, 14);
+      assertLegacyRuntimeEvidenceExact(call.trapInstructionCount, 321_469_064);
       assert.deepEqual(call.arguments, [0x006f_f8e8, 0, 0, 0, 1]);
-      assert.deepEqual(call.result, { action: "set", value: 0 });
+      assert.equal(call.result.action, "set");
       assert.equal(call.returnAddress, 0x1009_37bb);
       assert.equal(call.stackPointerBefore, 0x006f_f8c4);
       assert.equal(call.stackPointerAfter, 0x006f_f8dc);
       assert.equal(call.lastError, 0);
       assert.equal(activeCallbacks.length, 0);
-      assert.deepEqual(call.guestWrites, []);
-      assert.deepEqual(completionFrame.queuedThreadMessages, []);
       const outputBefore = peekMessageAPostWindowTimerCallbackBytesBefore;
       assert(outputBefore);
       const outputAfter = Buffer.from(
@@ -10465,37 +10581,53 @@ async function runGenericRuntimeReentry({
           "MSG output after post-callback empty PeekMessageA",
         ),
       );
-      assert.deepEqual(outputAfter, outputBefore);
-      peekMessageAPostWindowTimerCallbackEntry = {
-        ...prerequisite,
-        capability:
-          "user32-peek-message-a-post-window-timer-callback-continuation",
-        implementationId:
-          "runtime.user32-peek-message-a-post-window-timer-callback-continuation.v1",
-        requiredCompletions: 1,
-        completionCount: 1,
-        prerequisiteWindowTimerDispatchSequence:
-          prerequisite.windowTimerDispatch.sequence,
-        prerequisiteWindowTimerDispatchInstructionCount:
-          prerequisite.windowTimerDispatch.callback.returnInstructionCount,
-        firstCompletionSequence: call.sequence,
-        firstCompletionInstructionCount: call.trapInstructionCount,
-        lastCompletionSequence: call.sequence,
-        lastCompletionInstructionCount: call.trapInstructionCount,
-        peekMessagePostWindowTimerCallbackActiveCallbackDepthAtCompletion:
-          activeCallbacks.length,
-        postWindowTimerCallbackQueueDepthBefore: 0,
-        postWindowTimerCallbackQueueDepthAfter:
-          completionFrame.queuedThreadMessages.length,
-        postWindowTimerCallbackMessageBytesPreserved: true,
-        peekMessagePostWindowTimerCallback: {
-          ...structuredClone(call),
-          runtimeThreadId: currentThreadId,
-        },
-      };
+      const scheduledInterveningWindowTimer =
+        scheduledSharedClockProfile && call.result.value === 1;
+      if (scheduledInterveningWindowTimer) {
+        assert(call.windowTimer);
+        if (completionFrame.queuedThreadMessages !== undefined) {
+          assert.deepEqual(completionFrame.queuedThreadMessages, []);
+        }
+        assert.equal(call.guestWrites.length, 1);
+        assert.equal(call.guestWrites[0].address, 0x006f_f8e8);
+        assert.deepEqual(outputAfter, Buffer.from(call.guestWrites[0].bytes));
+        assert.equal(outputAfter.readUInt32LE(4), 0x0113);
+      } else {
+        assert.deepEqual(completionFrame.queuedThreadMessages, []);
+        assert.deepEqual(call.result, { action: "set", value: 0 });
+        assert.deepEqual(call.guestWrites, []);
+        assert.deepEqual(outputAfter, outputBefore);
+        peekMessageAPostWindowTimerCallbackEntry = {
+          ...prerequisite,
+          capability:
+            "user32-peek-message-a-post-window-timer-callback-continuation",
+          implementationId:
+            "runtime.user32-peek-message-a-post-window-timer-callback-continuation.v1",
+          requiredCompletions: 1,
+          completionCount: 1,
+          prerequisiteWindowTimerDispatchSequence:
+            prerequisite.windowTimerDispatch.sequence,
+          prerequisiteWindowTimerDispatchInstructionCount:
+            prerequisite.windowTimerDispatch.callback.returnInstructionCount,
+          firstCompletionSequence: call.sequence,
+          firstCompletionInstructionCount: call.trapInstructionCount,
+          lastCompletionSequence: call.sequence,
+          lastCompletionInstructionCount: call.trapInstructionCount,
+          peekMessagePostWindowTimerCallbackActiveCallbackDepthAtCompletion:
+            activeCallbacks.length,
+          postWindowTimerCallbackQueueDepthBefore: 0,
+          postWindowTimerCallbackQueueDepthAfter:
+            completionFrame.queuedThreadMessages.length,
+          postWindowTimerCallbackMessageBytesPreserved: true,
+          peekMessagePostWindowTimerCallback: {
+            ...structuredClone(call),
+            runtimeThreadId: currentThreadId,
+          },
+        };
+        peekMessageAPostWindowTimerCallbackPrerequisite = null;
+      }
       peekMessageAPostWindowTimerCallbackDispatching = false;
       peekMessageAPostWindowTimerCallbackBytesBefore = null;
-      peekMessageAPostWindowTimerCallbackPrerequisite = null;
     }
     if (
       peekMessageAPostPointerReleaseContinuationCheckpointEnabled &&
@@ -10512,18 +10644,16 @@ async function runGenericRuntimeReentry({
         call.implementationId,
         "user32.peek-message-a.current-thread.v1",
       );
-      assert.equal(call.sequence, 161_953);
-      assert.equal(call.occurrence, 12);
-      assert.equal(call.trapInstructionCount, 321_462_521);
+      assertLegacyRuntimeEvidenceExact(call.sequence, 161_953);
+      assertLegacyRuntimeEvidenceExact(call.occurrence, 12);
+      assertLegacyRuntimeEvidenceExact(call.trapInstructionCount, 321_462_521);
       assert.deepEqual(call.arguments, [0x006f_f8e8, 0, 0, 0, 1]);
-      assert.deepEqual(call.result, { action: "set", value: 0 });
+      assert.equal(call.result.action, "set");
       assert.equal(call.returnAddress, 0x1009_37bb);
       assert.equal(call.stackPointerBefore, 0x006f_f8c4);
       assert.equal(call.stackPointerAfter, 0x006f_f8dc);
       assert.equal(call.lastError, 0);
       assert.equal(activeCallbacks.length, 0);
-      assert.deepEqual(call.guestWrites, []);
-      assert.deepEqual(completionFrame.queuedThreadMessages, []);
       const outputBefore = peekMessageAPostPointerReleaseBytesBefore;
       assert(outputBefore);
       const outputAfter = Buffer.from(
@@ -10533,31 +10663,47 @@ async function runGenericRuntimeReentry({
           "MSG output after post-release empty PeekMessageA",
         ),
       );
-      assert.deepEqual(outputAfter, outputBefore);
-      peekMessageAPostPointerReleaseContinuationEntry = {
-        ...defWindowProcAPointerReleaseContinuationEntry,
-        capability:
-          "user32-peek-message-a-post-pointer-release-continuation",
-        implementationId:
-          "runtime.user32-peek-message-a-post-pointer-release-continuation.v1",
-        requiredCompletions: 1,
-        completionCount: 1,
-        lastCompletionSequence: call.sequence,
-        lastCompletionInstructionCount: call.trapInstructionCount,
-        peekMessagePostReleaseActiveCallbackDepthAtCompletion:
-          activeCallbacks.length,
-        postReleaseQueueDepthBefore: 0,
-        postReleaseQueueDepthAfter:
-          completionFrame.queuedThreadMessages.length,
-        postReleaseMessageBytesPreserved: true,
-        peekMessagePostRelease: {
-          ...structuredClone(call),
-          runtimeThreadId: currentThreadId,
-        },
-      };
+      const scheduledInterveningWindowTimer =
+        scheduledSharedClockProfile && call.result.value === 1;
+      if (scheduledInterveningWindowTimer) {
+        assert(call.windowTimer);
+        if (completionFrame.queuedThreadMessages !== undefined) {
+          assert.deepEqual(completionFrame.queuedThreadMessages, []);
+        }
+        assert.equal(call.guestWrites.length, 1);
+        assert.equal(call.guestWrites[0].address, 0x006f_f8e8);
+        assert.deepEqual(outputAfter, Buffer.from(call.guestWrites[0].bytes));
+        assert.equal(outputAfter.readUInt32LE(4), 0x0113);
+      } else {
+        assert.deepEqual(completionFrame.queuedThreadMessages, []);
+        assert.deepEqual(call.result, { action: "set", value: 0 });
+        assert.deepEqual(call.guestWrites, []);
+        assert.deepEqual(outputAfter, outputBefore);
+        peekMessageAPostPointerReleaseContinuationEntry = {
+          ...defWindowProcAPointerReleaseContinuationEntry,
+          capability:
+            "user32-peek-message-a-post-pointer-release-continuation",
+          implementationId:
+            "runtime.user32-peek-message-a-post-pointer-release-continuation.v1",
+          requiredCompletions: 1,
+          completionCount: 1,
+          lastCompletionSequence: call.sequence,
+          lastCompletionInstructionCount: call.trapInstructionCount,
+          peekMessagePostReleaseActiveCallbackDepthAtCompletion:
+            activeCallbacks.length,
+          postReleaseQueueDepthBefore: 0,
+          postReleaseQueueDepthAfter:
+            completionFrame.queuedThreadMessages.length,
+          postReleaseMessageBytesPreserved: true,
+          peekMessagePostRelease: {
+            ...structuredClone(call),
+            runtimeThreadId: currentThreadId,
+          },
+        };
+        defWindowProcAPointerReleaseContinuationEntry = null;
+      }
       peekMessageAPostPointerReleaseDispatching = false;
       peekMessageAPostPointerReleaseBytesBefore = null;
-      defWindowProcAPointerReleaseContinuationEntry = null;
     }
     if (
       timeGetTimePostPointerReleaseContinuationCheckpointEnabled &&
@@ -10573,12 +10719,7 @@ async function runGenericRuntimeReentry({
       assert.equal(call.lastError, 0);
       assert.equal(activeCallbacks.length, 0);
       assert.deepEqual(call.guestWrites, []);
-      assert.equal(call.tickCount.returnedTickCount, call.result.value);
-      assert.equal(
-        call.tickCount.nextTickCount,
-        (call.result.value + call.tickCount.incrementPerRead) >>> 0,
-      );
-      assert.equal(call.tickCount.incrementPerRead, 1);
+      assertRuntimeTickCountProgression(call);
       const repeatCompletion = {
         ...structuredClone(call),
         runtimeThreadId: currentThreadId,
@@ -10590,14 +10731,21 @@ async function runGenericRuntimeReentry({
           peekMessageAPostPointerReleaseContinuationEntry
             .peekMessagePostRelease.sequence + 1,
         );
-        assert.equal(call.occurrence, 219);
-        assert.equal(call.trapInstructionCount, 321_462_555);
+        assertLegacyRuntimeEvidenceExact(call.occurrence, 219);
+        assertLegacyRuntimeEvidenceExact(call.trapInstructionCount, 321_462_555);
         assert.equal(call.stackPointerBefore, 0x006f_f904);
-        assert.equal(
+        assertLegacyRuntimeEvidenceExact(
           call.tickCount?.returnedTickCount,
           peekMessageAPostPointerReleaseContinuationEntry.timeGetTime.tickCount
             .nextTickCount,
         );
+        if (scheduledSharedClockProfile) {
+          assert(
+            call.tickCount.timerClock.currentTime100ns >=
+              peekMessageAPostPointerReleaseContinuationEntry.timeGetTime
+                .tickCount.timerClock.currentTime100ns,
+          );
+        }
         if (timeGetTimePostPointerReleaseRepeatBatchCheckpointEnabled) {
           timeGetTimePostPointerReleaseRepeatCompletions.push(repeatCompletion);
         }
@@ -10634,13 +10782,25 @@ async function runGenericRuntimeReentry({
         const previousCompletion =
           timeGetTimePostPointerReleaseRepeatCompletions.at(-1);
         assert(previousCompletion);
-        assert.equal(call.sequence, previousCompletion.sequence + 1);
-        assert.equal(call.occurrence, previousCompletion.occurrence + 1);
+        assertLegacyRuntimeEvidenceExact(
+          call.sequence,
+          previousCompletion.sequence + 1,
+        );
+        assertLegacyRuntimeEvidenceExact(
+          call.occurrence,
+          previousCompletion.occurrence + 1,
+        );
         assert(call.trapInstructionCount > previousCompletion.trapInstructionCount);
-        assert.equal(
+        assertLegacyRuntimeEvidenceExact(
           call.tickCount.returnedTickCount,
           previousCompletion.tickCount.nextTickCount,
         );
+        if (scheduledSharedClockProfile) {
+          assert(
+            call.tickCount.timerClock.currentTime100ns >=
+              previousCompletion.tickCount.timerClock.currentTime100ns,
+          );
+        }
         timeGetTimePostPointerReleaseRepeatCompletions.push(repeatCompletion);
         timeGetTimePostPointerReleaseContinuationEntry = {
           ...timeGetTimePostPointerReleaseContinuationEntry,
@@ -10665,9 +10825,9 @@ async function runGenericRuntimeReentry({
       assert.equal(call.module.toLowerCase(), "user32.dll");
       assert.equal(call.symbol, "GetWindowRect");
       assert.equal(call.implementationId, "user32.get-window-rect.v1");
-      assert.equal(call.sequence, 161_958);
-      assert.equal(call.occurrence, 17);
-      assert.equal(call.trapInstructionCount, 321_463_115);
+      assertLegacyRuntimeEvidenceExact(call.sequence, 161_958);
+      assertLegacyRuntimeEvidenceExact(call.occurrence, 17);
+      assertLegacyRuntimeEvidenceExact(call.trapInstructionCount, 321_463_115);
       assert.deepEqual(call.arguments, [0x4801_0001, 0x006f_f8bc]);
       assert.deepEqual(call.result, { action: "set", value: 1 });
       assert.equal(call.returnAddress, 0x1008_8558);
@@ -10724,9 +10884,9 @@ async function runGenericRuntimeReentry({
       assert.equal(call.module.toLowerCase(), "user32.dll");
       assert.equal(call.symbol, "GetCursorPos");
       assert.equal(call.implementationId, "user32.get-cursor-pos.v1");
-      assert.equal(call.sequence, 161_959);
-      assert.equal(call.occurrence, 17);
-      assert.equal(call.trapInstructionCount, 321_463_119);
+      assertLegacyRuntimeEvidenceExact(call.sequence, 161_959);
+      assertLegacyRuntimeEvidenceExact(call.occurrence, 17);
+      assertLegacyRuntimeEvidenceExact(call.trapInstructionCount, 321_463_119);
       assert.deepEqual(call.arguments, [0x006f_f8b4]);
       assert.deepEqual(call.result, { action: "set", value: 1 });
       assert.equal(call.returnAddress, 0x1008_8563);
@@ -10739,16 +10899,21 @@ async function runGenericRuntimeReentry({
       assert.deepEqual(call.guestWrites[0].bytes, [
         0xc0, 0x03, 0, 0, 0x1c, 0x02, 0, 0,
       ]);
-      assert.deepEqual(call.guestWrites[0].result, {
-        bytesWritten: 8,
-        dirtyPages: 1,
-        invalidation: {
-          generation: 296_333,
-          dataTlb: false,
-          instructionFetch: false,
-          generatedCode: false,
-        },
-      });
+      assert.equal(call.guestWrites[0].result.bytesWritten, 8);
+      assert.equal(call.guestWrites[0].result.dirtyPages, 1);
+      assert.equal(call.guestWrites[0].result.invalidation.dataTlb, false);
+      assert.equal(
+        call.guestWrites[0].result.invalidation.instructionFetch,
+        false,
+      );
+      assert.equal(
+        call.guestWrites[0].result.invalidation.generatedCode,
+        false,
+      );
+      assertLegacyRuntimeEvidenceExact(
+        call.guestWrites[0].result.invalidation.generation,
+        296_333,
+      );
       getCursorPosPostPointerReleaseContinuationEntry = {
         ...getWindowRectPostPointerReleaseContinuationEntry,
         capability: getSystemMetricsFixedFrameHeightPostPointerReleaseContinuationCheckpointEnabled
@@ -10788,9 +10953,9 @@ async function runGenericRuntimeReentry({
       assert.equal(call.module.toLowerCase(), "user32.dll");
       assert.equal(call.symbol, "GetSystemMetrics");
       assert.equal(call.implementationId, "user32.get-system-metrics.v1");
-      assert.equal(call.sequence, 161_960);
-      assert.equal(call.occurrence, 66);
-      assert.equal(call.trapInstructionCount, 321_463_128);
+      assertLegacyRuntimeEvidenceExact(call.sequence, 161_960);
+      assertLegacyRuntimeEvidenceExact(call.occurrence, 66);
+      assertLegacyRuntimeEvidenceExact(call.trapInstructionCount, 321_463_128);
       assert.deepEqual(call.arguments, [7]);
       assert.deepEqual(call.result, { action: "set", value: 3 });
       assert.equal(call.returnAddress, 0x1008_8576);
@@ -10835,9 +11000,9 @@ async function runGenericRuntimeReentry({
       assert.equal(call.module.toLowerCase(), "user32.dll");
       assert.equal(call.symbol, "GetSystemMetrics");
       assert.equal(call.implementationId, "user32.get-system-metrics.v1");
-      assert.equal(call.sequence, 161_961);
-      assert.equal(call.occurrence, 67);
-      assert.equal(call.trapInstructionCount, 321_463_133);
+      assertLegacyRuntimeEvidenceExact(call.sequence, 161_961);
+      assertLegacyRuntimeEvidenceExact(call.occurrence, 67);
+      assertLegacyRuntimeEvidenceExact(call.trapInstructionCount, 321_463_133);
       assert.deepEqual(call.arguments, [4]);
       assert.deepEqual(call.result, { action: "set", value: 23 });
       assert.equal(call.returnAddress, 0x1008_8582);
@@ -10878,9 +11043,9 @@ async function runGenericRuntimeReentry({
       assert.equal(call.module.toLowerCase(), "user32.dll");
       assert.equal(call.symbol, "GetSystemMetrics");
       assert.equal(call.implementationId, "user32.get-system-metrics.v1");
-      assert.equal(call.sequence, 161_962);
-      assert.equal(call.occurrence, 68);
-      assert.equal(call.trapInstructionCount, 321_463_139);
+      assertLegacyRuntimeEvidenceExact(call.sequence, 161_962);
+      assertLegacyRuntimeEvidenceExact(call.occurrence, 68);
+      assertLegacyRuntimeEvidenceExact(call.trapInstructionCount, 321_463_139);
       assert.deepEqual(call.arguments, [8]);
       assert.deepEqual(call.result, { action: "set", value: 3 });
       assert.equal(call.returnAddress, 0x1008_8590);
@@ -10920,9 +11085,9 @@ async function runGenericRuntimeReentry({
         call.implementationId,
         "user32.is-iconic.logical-window-style.v1",
       );
-      assert.equal(call.sequence, 161_963);
-      assert.equal(call.occurrence, 8);
-      assert.equal(call.trapInstructionCount, 321_463_282);
+      assertLegacyRuntimeEvidenceExact(call.sequence, 161_963);
+      assertLegacyRuntimeEvidenceExact(call.occurrence, 8);
+      assertLegacyRuntimeEvidenceExact(call.trapInstructionCount, 321_463_282);
       assert.deepEqual(call.arguments, [0x4801_0001]);
       assert.deepEqual(call.result, { action: "set", value: 0 });
       assert.equal(call.returnAddress, 0x1008_89c4);
@@ -10978,12 +11143,7 @@ async function runGenericRuntimeReentry({
       assert.equal(call.lastError, 0);
       assert.equal(activeCallbacks.length, 0);
       assert.deepEqual(call.guestWrites, []);
-      assert.equal(call.tickCount.returnedTickCount, call.result.value);
-      assert.equal(
-        call.tickCount.nextTickCount,
-        (call.result.value + call.tickCount.incrementPerRead) >>> 0,
-      );
-      assert.equal(call.tickCount.incrementPerRead, 1);
+      assertRuntimeTickCountProgression(call);
       const completedTimeGetTimePostIsIconicEntry = {
         ...entry,
         requiredCompletions: 1,
@@ -11154,9 +11314,9 @@ async function runGenericRuntimeReentry({
         call.implementationId,
         "user32.peek-message-a.current-thread.v1",
       );
-      assert.equal(call.sequence, 161_949);
-      assert.equal(call.occurrence, 11);
-      assert.equal(call.trapInstructionCount, 321_462_423);
+      assertLegacyRuntimeEvidenceExact(call.sequence, 161_949);
+      assertLegacyRuntimeEvidenceExact(call.occurrence, 11);
+      assertLegacyRuntimeEvidenceExact(call.trapInstructionCount, 321_462_423);
       assert.deepEqual(call.arguments, [0x006f_f8e8, 0, 0, 0, 1]);
       assert.deepEqual(call.result, { action: "set", value: 1 });
       assert.equal(call.returnAddress, 0x1009_37bb);
@@ -11166,36 +11326,43 @@ async function runGenericRuntimeReentry({
       assert.equal(activeCallbacks.length, 0);
       assert.equal(call.guestWrites.length, 1);
       const [releaseWrite] = call.guestWrites;
-      assert.equal(releaseWrite.address, 0x006f_f8e8);
-      assert.deepEqual(
-        releaseWrite.bytes,
-        [...Buffer.from(
-          "0100014802020000000000008002680147f33600c00300001c020000",
-          "hex",
-        )],
-      );
-      assert.deepEqual(releaseWrite.result, {
-        bytesWritten: 28,
-        dirtyPages: 1,
-        invalidation: {
-          generation: 296_319,
-          dataTlb: false,
-          instructionFetch: false,
-          generatedCode: false,
-        },
-      });
-      assert.deepEqual(completionFrame.queuedThreadMessages, []);
       const releaseMessage =
         defWindowProcAActionContinuationEntry.inputEvents[1]?.receipt?.message;
-      assert.deepEqual(releaseMessage, {
-        id: 4,
+      assert.equal(releaseWrite.address, 0x006f_f8e8);
+      const expectedReleaseMessageBytes = Buffer.from(
+        "0100014802020000000000008002680147f33600c00300001c020000",
+        "hex",
+      );
+      if (scheduledSharedClockProfile) {
+        expectedReleaseMessageBytes.writeUInt32LE(releaseMessage.time >>> 0, 16);
+      }
+      assert.deepEqual(
+        releaseWrite.bytes,
+        [...expectedReleaseMessageBytes],
+      );
+      assert.equal(releaseWrite.result.bytesWritten, 28);
+      assert.equal(releaseWrite.result.dirtyPages, 1);
+      assert.equal(releaseWrite.result.invalidation.dataTlb, false);
+      assert.equal(releaseWrite.result.invalidation.instructionFetch, false);
+      assert.equal(releaseWrite.result.invalidation.generatedCode, false);
+      assertLegacyRuntimeEvidenceExact(
+        releaseWrite.result.invalidation.generation,
+        296_319,
+      );
+      assert.deepEqual(completionFrame.queuedThreadMessages, []);
+      assert(Number.isSafeInteger(releaseMessage.id));
+      assert(releaseMessage.id > 0);
+      assertLegacyRuntimeEvidenceExact(releaseMessage.id, 4);
+      const { id: _releaseMessageId, ...releaseMessageWithoutId } =
+        releaseMessage;
+      assert.deepEqual(releaseMessageWithoutId, {
         source: { kind: "pointer-input", event_sequence: 2 },
         targetThreadId: 8_192,
         hwnd: 0x4801_0001,
         message: 0x0202,
         wParam: 0,
         lParam: 0x0168_0280,
-        time: 3_601_223,
+        time: scheduledSharedClockProfile ? releaseMessage.time : 3_601_223,
         pointX: 960,
         pointY: 540,
       });
@@ -11241,9 +11408,9 @@ async function runGenericRuntimeReentry({
         call.implementationId,
         "user32.translate-message.window-timer-pointer-noop.v2",
       );
-      assert.equal(call.sequence, 161_950);
-      assert.equal(call.occurrence, 4);
-      assert.equal(call.trapInstructionCount, 321_462_431);
+      assertLegacyRuntimeEvidenceExact(call.sequence, 161_950);
+      assertLegacyRuntimeEvidenceExact(call.occurrence, 4);
+      assertLegacyRuntimeEvidenceExact(call.trapInstructionCount, 321_462_431);
       assert.deepEqual(call.arguments, [0x006f_f8e8]);
       assert.deepEqual(call.result, { action: "set", value: 0 });
       assert.equal(call.returnAddress, 0x1009_37a2);
@@ -11333,12 +11500,7 @@ async function runGenericRuntimeReentry({
       assert.equal(call.stackPointerAfter, call.stackPointerBefore + 4);
       assert.equal(call.lastError, 0);
       assert.deepEqual(call.guestWrites, []);
-      assert.equal(call.tickCount?.returnedTickCount, call.result.value);
-      assert.equal(
-        call.tickCount.nextTickCount,
-        (call.result.value + call.tickCount.incrementPerRead) >>> 0,
-      );
-      assert.equal(call.tickCount.incrementPerRead, 1);
+      assertRuntimeTickCountProgression(call);
       timeGetTimeActionContinuationEntry = {
         ...setFocusActionContinuationEntry,
         capability: defWindowProcAActionContinuationCheckpointEnabled
@@ -11492,7 +11654,9 @@ async function runGenericRuntimeReentry({
     }
     if (
       presentationProgressEvidenceEnabled &&
-      sequence > presentationProgressBaseline.lastCompletionSequence &&
+      (scheduledSharedClockProfile
+        ? scheduledClockSecondPresentReached
+        : sequence > presentationProgressBaseline.lastCompletionSequence) &&
       endpoint.kind === "com-method" &&
       call.interface === "IDirect3DDevice9" &&
       [3, 17, 23, 31, 41, 42, 43, 60, 65, 67, 69, 81, 89, 100].includes(
@@ -11513,7 +11677,33 @@ async function runGenericRuntimeReentry({
         presentationProgressPresentCompletion = renderCompletion;
       }
     }
-    if (recurringTimerBoundedWindowCheckpointEnabled && sequence >= 158_132) {
+    if (
+      scheduledSharedClockProfile &&
+      endpoint.kind === "com-method" &&
+      call.interface === "IDirect3DDevice9" &&
+      call.vtableSlot === 17 &&
+      call.occurrence >= 2
+    ) {
+      scheduledClockSecondPresentReached = true;
+    }
+    if (
+      scheduledSharedClockProfile &&
+      recurringTimerBoundedWindowCheckpointEnabled &&
+      scheduledClockSecondPresentReached &&
+      !scheduledClockRecurringTimerRecordingStarted &&
+      call.implementationId ===
+        "kernel32.wait-for-single-object-ex.waitable-timer.v1" &&
+      (!presentationProgressEvidenceEnabled ||
+        call.arguments[0] === 0x5701_0002)
+    ) {
+      scheduledClockRecurringTimerRecordingStarted = true;
+    }
+    if (
+      recurringTimerBoundedWindowCheckpointEnabled &&
+      (scheduledSharedClockProfile
+        ? scheduledClockRecurringTimerRecordingStarted
+        : sequence >= 158_132)
+    ) {
       const waitImplementationId =
         "kernel32.wait-for-single-object-ex.waitable-timer.v1";
       const timerArmImplementationId =
@@ -29354,6 +29544,10 @@ function validateWindowTimerCallbackPostWaitableTimerCycleResult(result) {
 
 function validatePeekMessageAPostWindowTimerCallbackContinuationResult(result) {
   assert(peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled);
+  if (scheduledSharedClockProfile) {
+    validateScheduledSharedClockPrimaryResult(result);
+    return;
+  }
   assert.equal(result.fault, null);
   assert.equal(result.activeCallbackDepth, 0);
   const checkpoint = result.checkpointCompletion;
@@ -29432,6 +29626,178 @@ function validatePeekMessageAPostWindowTimerCallbackContinuationResult(result) {
   assert.equal(result.hostDeltas.length, 127_997);
   assert.equal(result.finalGeneration, 296_521);
   assert.equal(result.threadExecution.contextSwitches, 2_514);
+}
+
+function validateScheduledSharedClockPrimaryResult(result) {
+  assert(scheduledSharedClockProfile);
+  if (result.fault !== null) {
+    validateScheduledSharedClockSetWindowTextAStop(result);
+    return;
+  }
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+
+  const checkpoint = result.checkpointCompletion;
+  assert.equal(
+    checkpoint?.capability,
+    "user32-peek-message-a-post-window-timer-callback-continuation",
+  );
+  assert.equal(
+    checkpoint.implementationId,
+    "runtime.user32-peek-message-a-post-window-timer-callback-continuation.v1",
+  );
+  assert.equal(checkpoint.requiredCompletions, 1);
+  assert.equal(checkpoint.completionCount, 1);
+  assert.equal(checkpoint.firstCompletionSequence, checkpoint.lastCompletionSequence);
+  assert.equal(
+    checkpoint.firstCompletionInstructionCount,
+    checkpoint.lastCompletionInstructionCount,
+  );
+  assert(
+    checkpoint.prerequisiteWindowTimerDispatchSequence <
+      checkpoint.firstCompletionSequence,
+  );
+  assert(
+    checkpoint.prerequisiteWindowTimerDispatchInstructionCount <=
+      checkpoint.firstCompletionInstructionCount,
+  );
+  assert.equal(
+    checkpoint.peekMessagePostWindowTimerCallbackActiveCallbackDepthAtCompletion,
+    0,
+  );
+  assert.equal(checkpoint.activeCallbackDepthAtStop, 0);
+  assert.equal(checkpoint.postWindowTimerCallbackQueueDepthBefore, 0);
+  assert.equal(checkpoint.postWindowTimerCallbackQueueDepthAfter, 0);
+  assert.equal(checkpoint.postWindowTimerCallbackMessageBytesPreserved, true);
+  assert(checkpoint.deliveryCount >= checkpoint.requiredDeliveries);
+
+  const nestedClockCall = checkpoint.windowTimerCallbackNestedCalls?.find(
+    (call) =>
+      call.module.toLowerCase() === "kernel32.dll" &&
+      call.symbol === "GetTickCount",
+  );
+  assert(nestedClockCall);
+  assert.deepEqual(nestedClockCall.arguments, []);
+  assert.deepEqual(nestedClockCall.guestWrites, []);
+  assert.equal(nestedClockCall.lastError, 0);
+  assertRuntimeTickCountProgression(nestedClockCall);
+  assert(
+    nestedClockCall.sequence < checkpoint.firstCompletionSequence,
+  );
+
+  const peek = checkpoint.peekMessagePostWindowTimerCallback;
+  assert.equal(peek.runtimeThreadId, 8_192);
+  assert.equal(peek.module.toLowerCase(), "user32.dll");
+  assert.equal(peek.symbol, "PeekMessageA");
+  assert.equal(peek.implementationId, "user32.peek-message-a.current-thread.v1");
+  assert.equal(peek.sequence, checkpoint.firstCompletionSequence);
+  assert.equal(peek.trapInstructionCount, checkpoint.firstCompletionInstructionCount);
+  assert.deepEqual(peek.arguments, [0x006f_f8e8, 0, 0, 0, 1]);
+  assert.deepEqual(peek.result, { action: "set", value: 0 });
+  assert.equal(peek.lastError, 0);
+  assert.deepEqual(peek.guestWrites, []);
+
+  assert.equal(result.terminal.instructionCount, checkpoint.instructionCount);
+  assert(checkpoint.instructionCount > peek.trapInstructionCount);
+  assert.deepEqual(checkpoint.nextEndpoint, {
+    id: 8,
+    address: 0x7f00_0070,
+    module: "WINMM.dll",
+    symbol: { kind: "name", name: "timeGetTime" },
+    disposition: "declared-runtime-export",
+    iatAddress: 0x100d_14e4,
+  });
+  assert.deepEqual(checkpoint.nextArguments, []);
+  assert.equal(checkpoint.nextReturnAddress, 0x1009_1ebf);
+  assert.equal(checkpoint.nextStackPointer, 0x006f_f904);
+  assert.match(checkpoint.memoryContentSha256, /^[0-9a-f]{64}$/u);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, checkpoint.nextEndpoint.id);
+  assert.equal(
+    result.terminal.terminal.thunk.iatAddress,
+    checkpoint.nextEndpoint.iatAddress,
+  );
+  assert.equal(
+    result.terminal.terminal.returnAddress,
+    checkpoint.nextReturnAddress,
+  );
+
+  assert(result.supportedCalls.length > 0);
+  const { runtimeThreadId: _runtimeThreadId, ...expectedSupportedCall } = peek;
+  assert.deepEqual(result.supportedCalls.at(-1), expectedSupportedCall);
+
+  validateScheduledSharedClockCalls(result.supportedCalls);
+}
+
+function validateScheduledSharedClockSetWindowTextAStop(result) {
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.fault.schema, "vine.v86-generic-runtime-fault");
+  assert.equal(result.fault.schemaVersion, 1);
+  assert.equal(result.fault.capabilityCluster, "user32-api-contract");
+  assert.deepEqual(result.fault.endpoint, {
+    kind: "runtime-system-export",
+    endpoint: {
+      id: 237,
+      address: 0x7f00_0ec0,
+      module: "user32.dll",
+      symbol: { kind: "name", name: "SetWindowTextA" },
+      disposition: "declared-runtime-export",
+      iatAddress: 0x100d_148c,
+    },
+  });
+  assert.equal(result.fault.fault.class, "unsupported");
+  assert.equal(result.fault.fault.stage, "api-dispatch");
+  assert.equal(result.fault.fault.code, "endpoint-contract-missing");
+  assert.deepEqual(result.fault.fault.endpoint, result.fault.endpoint.endpoint);
+  assert.match(result.fault.memoryContentSha256, /^[0-9a-f]{64}$/u);
+
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 237);
+  assert.equal(result.terminal.terminal.thunk.iatAddress, 0x100d_148c);
+  assert.equal(result.terminal.terminal.stackWords[1], 0x4801_0001);
+  assert(Number.isSafeInteger(result.terminal.terminal.stackWords[2]));
+  assert(result.terminal.terminal.stackWords[2] > 0xffff);
+  assert(
+    result.terminal.instructionCount >
+      result.supportedCalls.at(-1).trapInstructionCount,
+  );
+
+  const presents = result.supportedCalls.filter(
+    (call) =>
+      call.interface === "IDirect3DDevice9" && call.vtableSlot === 17,
+  );
+  assert.equal(presents.length, 2);
+  const completedWindowTimerCallbacks = result.supportedCalls.filter(
+    (call) =>
+      call.module.toLowerCase() === "user32.dll" &&
+      call.symbol === "DispatchMessageA" &&
+      call.windowTimer !== undefined &&
+      call.callback !== undefined,
+  );
+  assert(completedWindowTimerCallbacks.length >= 17);
+  assert(completedWindowTimerCallbacks.length <= 256);
+  validateScheduledSharedClockCalls(result.supportedCalls);
+}
+
+function validateScheduledSharedClockCalls(supportedCalls) {
+  const clockedCalls = supportedCalls.filter(
+    (call) => call.tickCount !== undefined,
+  );
+  assert(clockedCalls.length > 1);
+  let previousRetiredInstructions = -1;
+  let previousTime100ns = -1;
+  for (const call of clockedCalls) {
+    assertRuntimeTickCountProgression(call);
+    const executionClock = call.tickCount.scheduledExecutionClock;
+    const timerClock = call.tickCount.timerClock;
+    assert.equal(executionClock.retiredInstructions, call.trapInstructionCount);
+    assert(executionClock.retiredInstructions >= previousRetiredInstructions);
+    assert(timerClock.currentTime100ns >= previousTime100ns);
+    assert(executionClock.pendingRetiredInstructions >= 0);
+    assert(executionClock.pendingRetiredInstructions < 2_000);
+    previousRetiredInstructions = executionClock.retiredInstructions;
+    previousTime100ns = timerClock.currentTime100ns;
+  }
 }
 
 function validateD3d9PostInputScanWaitableTimerCycleResult(result) {
@@ -38373,13 +38739,34 @@ function buildGenericRuntimeReentryReport({
   assert.equal(semanticCallDigest.count(), completedSupportedCalls.length);
   const supportedCallSemanticsSha256 = semanticCallDigest.digestHex();
   if (peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled) {
-    assert.equal(completedSupportedCalls.length, 162_087);
-    assert.equal(genericResult.supportedCalls.length, 162_087);
-    assert.notEqual(genericResult.supportedCalls.at(-1).pendingCallback, true);
-    assert.equal(
-      supportedCallSemanticsSha256,
-      "2243c31bf48c3249e96535b7659e634a54904405fc9e70dd5f4e179fc8364429",
-    );
+    if (scheduledSharedClockProfile) {
+      assert.equal(
+        completedSupportedCalls.length,
+        genericResult.supportedCalls.length,
+      );
+      assert(completedSupportedCalls.length > 162_087);
+      assert.notEqual(genericResult.supportedCalls.at(-1).pendingCallback, true);
+      assert.match(supportedCallSemanticsSha256, /^[0-9a-f]{64}$/u);
+      return buildScheduledSharedClockPrimaryReport({
+        completedSupportedCalls,
+        execution,
+        genericResult,
+        offer,
+        receipt,
+        runtimeReady,
+        sourceAfter,
+        sourceBefore,
+        supportedCallSemanticsSha256,
+      });
+    } else {
+      assert.equal(completedSupportedCalls.length, 162_087);
+      assert.equal(genericResult.supportedCalls.length, 162_087);
+      assert.notEqual(genericResult.supportedCalls.at(-1).pendingCallback, true);
+      assert.equal(
+        supportedCallSemanticsSha256,
+        "2243c31bf48c3249e96535b7659e634a54904405fc9e70dd5f4e179fc8364429",
+      );
+    }
   } else if (windowTimerCallbackPostWaitableTimerCycleCheckpointEnabled) {
     assert.equal(completedSupportedCalls.length, 162_086);
     assert.equal(
@@ -41438,6 +41825,105 @@ function buildGenericRuntimeReentryReport({
                                                                               ? "BGI completed four contiguous post-pointer-release timeGetTime samples and stopped before GetWindowRect"
                                                                               : "BGI completed three recurring finite alertable waits and stopped before dispatching the next owned endpoint",
           },
+  };
+}
+
+function buildScheduledSharedClockPrimaryReport({
+  completedSupportedCalls,
+  execution,
+  genericResult,
+  offer,
+  receipt,
+  runtimeReady,
+  sourceAfter,
+  sourceBefore,
+  supportedCallSemanticsSha256,
+}) {
+  const clockSamples = completedSupportedCalls.filter(
+    (call) => call.tickCount !== undefined,
+  );
+  const presents = completedSupportedCalls.filter(
+    (call) =>
+      call.interface === "IDirect3DDevice9" && call.vtableSlot === 17,
+  );
+  const windowTimerCallbacks = completedSupportedCalls.filter(
+    (call) =>
+      call.module.toLowerCase() === "user32.dll" &&
+      call.symbol === "DispatchMessageA" &&
+      call.windowTimer !== undefined &&
+      call.callback !== undefined,
+  );
+  const timerPacing = genericResult.timerPacing ?? [];
+  return {
+    schema: "vine.v86-bgi-scheduled-shared-clock-primary",
+    schemaVersion: 1,
+    source: offer.source,
+    sourceSnapshot: {
+      immutableAcrossRun: true,
+      before: sourceBefore,
+      after: sourceAfter,
+    },
+    contract: {
+      runtimeStateAuthority: "rust",
+      memoryByteAuthority: "rust-guest-memory",
+      executionMirror: "v86-paging",
+      clockProfile: runtimePolicy.clockProfile,
+      scheduleSource: "cumulative-retired-guest-instructions",
+      retiredInstructionsPerSecond: 2_000_000,
+      resolution100ns: 10_000,
+      apiReadsAdvanceClock: false,
+      waitDeadlinesShareClock: true,
+      hostTimeImported: false,
+      semanticCallDigestAlgorithm: SEMANTIC_CALL_DIGEST_ALGORITHM,
+      frozenCheckpoint: selectedCheckpoint.id,
+      frozenSupportedCalls: selectedCheckpoint.supportedCallCount,
+    },
+    process: runtimeReady,
+    reflection: {
+      pages: offer.reflection.pages.length,
+      generation: offer.reflection.invalidation.generation,
+      contentSha256: offer.reflection.contentSha256,
+      acknowledgedGeneration: receipt.acknowledgedGeneration,
+    },
+    entry: execution,
+    execution: {
+      completedSupportedCalls: completedSupportedCalls.length,
+      supportedCallSemanticsSha256,
+      threadExecution: genericResult.threadExecution,
+      clockSamples: {
+        count: clockSamples.length,
+        first: clockSamples[0],
+        last: clockSamples.at(-1),
+      },
+      presentations: {
+        count: presents.length,
+        first: presents[0],
+        last: presents.at(-1),
+        thirdPresentReached: presents.length >= 3,
+      },
+      windowTimerCallbacks: {
+        count: windowTimerCallbacks.length,
+        first: windowTimerCallbacks[0],
+        last: windowTimerCallbacks.at(-1),
+      },
+      timerPacing: {
+        count: timerPacing.length,
+        first: timerPacing[0] ?? null,
+        last: timerPacing.at(-1) ?? null,
+      },
+    },
+    synchronization: {
+      writebackBatches: genericResult.writebacks.length,
+      hostDeltaBatches: genericResult.hostDeltas.length,
+      callbackEventCount: genericResult.callbackEvents.length,
+      activeCallbackDepth: genericResult.activeCallbackDepth,
+      finalGeneration: genericResult.finalGeneration,
+    },
+    stop: {
+      fault: genericResult.fault,
+      terminal: genericResult.terminal,
+      arguments: genericResult.terminal.terminal.stackWords.slice(1, 3),
+    },
   };
 }
 

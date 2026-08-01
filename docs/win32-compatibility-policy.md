@@ -68,12 +68,17 @@ runtime execution. It contains only target-independent bounded data:
 The scheduled clock profile is selected only before process start. It shares one
 Rust-owned logical elapsed timeline across wall FILETIME, `GetTickCount`,
 `timeGetTime`, QPC, waitable timers, window timers, and scheduler deadlines.
-Clock reads are pure; only an absolute scheduler/deadline commit advances time.
+Clock reads are pure. The runtime maps the cumulative retired guest-instruction
+cursor supplied at every API and COM dispatch onto a deterministic 2,000,000
+instructions/second, 1 ms schedule; finite wait deadline commits advance the
+same timeline. API call count, Worker slice count, host time, and browser time do
+not independently advance or own guest time.
 Schema v2 rejects a scheduled profile combined with per-read tick or QPC
 increments. The standalone profile fixture is
 `fixtures/runtime-clock-profiles/scheduled-shared-logical-deadline-v1.json`;
 `kernel32-scheduled-shared-clock-v1.json` is the public policy selection. The
-active primary checkpoint remains on its legacy read-increment profile.
+active primary policy also selects this profile; exact current evidence remains
+in `current-checkpoint.json`.
 
 Policy IDs are bounded ASCII. Entries are bounded and duplicate-free. Active
 schema v2 accepts `HeapAlloc` only when the flag is `0` or `HEAP_ZERO_MEMORY`.

@@ -7265,7 +7265,7 @@ class BrowserRuntimeSession {
       | GuestCallbackMetadata
       | CompletionMetadata
       | ApiFaultMetadata
-    >(endpoint, stackPointer, returnAddress);
+    >(endpoint, stackPointer, returnAddress, this.#report.instructions);
     const metadata = output.metadata;
     switch (metadata.kind) {
       case "host-request": {
@@ -7802,7 +7802,7 @@ class BrowserRuntimeSession {
     const returnAddress = engine.readGuestU32(stackPointer);
     const output = this.#requireBridge().dispatchCom<
       ComCompletionMetadata | ComFaultMetadata
-    >(endpoint, stackPointer, returnAddress);
+    >(endpoint, stackPointer, returnAddress, this.#report.instructions);
     const metadata = output.metadata;
     switch (metadata.kind) {
       case "com-complete": {

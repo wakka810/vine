@@ -361,7 +361,16 @@ assert.deepEqual(
   activePolicy.threadPriority?.allowedPriorities ?? null,
   summary.threadPriorityAllowedPriorities ?? null,
 );
-assert.equal(activePolicy.tickCount.incrementPerRead, summary.tickCountIncrementPerRead);
+assert.deepEqual(activePolicy.clockProfile ?? null, summary.clockProfile ?? null);
+if (activePolicy.clockProfile === undefined) {
+  assert.equal(
+    activePolicy.tickCount.incrementPerRead,
+    summary.tickCountIncrementPerRead,
+  );
+} else {
+  assert.equal(summary.tickCountIncrementPerRead ?? null, null);
+  assert.equal(summary.performanceCounterIncrementPerRead ?? null, null);
+}
 assert.deepEqual(activePolicy.systemInfo ?? null, summary.systemInfo ?? null);
 assert.deepEqual(activePolicy.memoryStatus ?? null, summary.memoryStatus ?? null);
 assert.equal(activePolicy.systemDefaultLangId, summary.systemDefaultLangId);

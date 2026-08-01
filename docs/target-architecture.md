@@ -390,9 +390,12 @@ background tab、debugger pause、audio suspend 後に catch-up するか freeze
 
 `scheduled-shared-logical-deadline-v1`は、bootstrap時のwall FILETIME、DWORD tick、QPC、
 QPC frequencyをepochとし、`RuntimeProcessState`内のprivate `RuntimeClock`が一つのabsolute
-elapsed value（100 ns単位）とgenerationを所有する。Scheduler／wait transactionだけが
-mutation-free absolute-target planを作り、全ownerのpreflight後にcommitする。API readはpure sampleであり、
-呼出回数、Worker slice、instruction countでは進行しない。各Windows projectionは次で固定する。
+elapsed value（100 ns単位）、generation、cumulative retired guest-instruction cursor、sub-millisecond
+remainderを所有する。Execution scheduleは2,000,000 retired instructions／secondを1 ms quantumへ
+決定論的に写像する。NodeとBrowser Workerは各API／COM dispatch前のcumulative cursorを渡すだけで、
+Rustが前回cursorとの差分を同じclockへplan／preflight／commitする。API call数やWorker slice数そのものでは
+進行せず、同一cursorでのAPI readはpure sampleである。Cursor regression、range exhaustion、stale planは
+clock、remainder、generationを変更する前に拒否する。各Windows projectionは次で固定する。
 
 ```text
 wall FILETIME = epoch wall + elapsed100ns
@@ -402,9 +405,10 @@ timer time    = elapsed100ns
 ```
 
 `RuntimeTimers`はwaitable／window timer identity、arm、deadline、deliveryだけを所有し、current timeを
-複製しない。Profileはprocess start前にversioned Kernel32 policyから一度だけ選択し、per-read tick／QPC
-incrementとは併用しない。現在のprimary evidenceは互換性のため`api-read-increment-v1`を継続し、
-alternate scheduled profileの選択だけではactive checkpointのexact valueを変更しない。
+複製しない。Finite waitがdeadlineへ進めるabsolute jumpも同じ`RuntimeClock`へcommitし、その後の
+retired-instruction progressionはjump後のtimeから継続する。Profileはprocess start前にversioned Kernel32
+policyから一度だけ選択し、per-read tick／QPC incrementとは併用しない。Active primary profileはscheduled
+shared progressionを選択し、TypeScript、host wall clock、browser performance clockに第二のguest clockを作らない。
 
 WinMMのcapability queryとresolution requestもclock sourceそのものから分離する。
 WinMM capability queryのvirtual rangeはversioned Rust compatibility policyが所有し、queryは

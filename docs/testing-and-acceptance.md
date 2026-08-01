@@ -988,15 +988,22 @@ ordered semantics／memory／`MessageBoxA` stop、clean cancel／watchdog、unch
 importしない。詳細は[winmm-compatibility-policy.md](winmm-compatibility-policy.md)と
 [bgi-time-get-time.md](bgi-time-get-time.md)を正とする。
 
-Alternate `scheduled-shared-logical-deadline-v1` clock profileのacceptanceは、同じscheduler
-timeで`GetSystemTimeAsFileTime`、`GetTickCount`、`timeGetTime`、
-`QueryPerformanceCounter`を複数回読んでも値とclock generationが変化しないこと、absolute
-100 ns scheduler commit後に全projectionが同じelapsedから更新されること、waitable-timer deadlineへの
-jumpが同じclockを進めることを要求する。Owner testはprofile identity、pre-start one-shot selection、
-subresolution advance後のstale read plan、regression／range failureのmutation-free rejectionを固定する。
-Dispatcher testはwall／tick／QPC／WinMM readを固定し、既存public fixture E2Eはlegacy profileのsnapshotと
-Node／Chrome behaviorが不変であることを検査する。Audio sample clock、frame cadence、host／browser timeの
-guest authority化、active primary profileの切替はclaimしない。
+Active `scheduled-shared-logical-deadline-v1` clock profileのacceptanceは、同じschedule timeで
+`GetSystemTimeAsFileTime`、`GetTickCount`、`timeGetTime`、`QueryPerformanceCounter`を複数回読んでも
+値とclock generationが変化しないこと、cumulative retired guest-instruction cursorの増分が2,000,000
+instructions／second、1 ms quantumで一つのelapsedへ反映されること、waitable-timer deadlineへのjump後も
+同じclockから継続することを要求する。Owner testはprofile identity、pre-start one-shot selection、
+subresolution remainder、stale read／advance plan、cursor regression／range failureのmutation-free rejectionを
+固定する。Dispatcher testはwall／tick／QPC／WinMM readを固定し、NodeとBrowser Workerは各API／COM
+dispatchでchecked u64 cursorを渡し、host／browser時刻をguest authorityへimportしない。
+
+Primary acceptanceはcanonical Node replayを同一source／policyで二回実行し、clock sample、TIMERPROC、
+ordered semantics、terminal memory、next structured stopが一致することを要求する。Public Chrome Worker E2Eは
+versioned protocolで同じcursor transportとRust authorityを検査する。Clockが進行してwindow timer callbackが
+継続してもthird `Present`へ到達しない場合、clock freeze／timer non-deliveryをpresentation stallの近因とは
+分類しない。Exact count、hash、next endpointとprivate Chrome replayのclaim有無は
+[current-checkpoint.json](current-checkpoint.json)だけを正本とする。Audio sample clockとframe cadenceは引き続き
+別authorityであり、scheduled guest clockへ統合しない。
 
 Heap reuse後に再到達した`timeGetTime` continuationは新しいWindows semanticsとして扱わず、
 同じ`winmm.time-get-time.v1` handlerと`RuntimeProcessState` clock authorityを要求する。

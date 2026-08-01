@@ -158,6 +158,12 @@ function validateExecutionStateMachine(value, label, errors) {
 export function validateCurrentCheckpoint(manifest) {
   const errors = [];
   const root = requireRecord(manifest, "manifest", errors);
+  const scheduledSharedClockActive =
+    root.activeRuntimeCheckpoint?.scheduledSharedClock?.status === "passed" &&
+    root.activeRuntimeCheckpoint?.kernel32CompatibilityPolicy?.clockProfile
+      ?.progression === "scheduled-shared" &&
+    root.nextStructuredStop?.completion?.capability ===
+      "scheduled-shared-clock-primary";
   const primaryMainLoopProgressionActive =
     root.activeRuntimeCheckpoint?.profile === "primary-main-loop-progression";
   const leaveCriticalSectionActive =
@@ -3347,7 +3353,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+    scheduledSharedClockActive
+      ? "vine.browser-runtime-worker.v101"
+      : peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
       ? "vine.browser-runtime-worker.v100"
       : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
       ? "vine.browser-runtime-worker.v99"
@@ -14394,9 +14402,29 @@ export function validateCurrentCheckpoint(manifest) {
       "148,156" ||
     kernel32Policy.osVersionInfoAHostVersionImported !== false ||
     kernel32Policy.osVersionInfoABrowserVersionImported !== false ||
-    kernel32Policy.tickCountIncrementPerRead !== 1 ||
+    (scheduledSharedClockActive
+      ? kernel32Policy.clockProfile?.schema !==
+          "vine.runtime-clock-profile" ||
+        kernel32Policy.clockProfile?.schemaVersion !== 1 ||
+        kernel32Policy.clockProfile?.id !==
+          "scheduled-shared-logical-deadline-v1" ||
+        kernel32Policy.clockProfile?.progression !== "scheduled-shared" ||
+        kernel32Policy.clockScheduleSource !==
+          "cumulative-retired-guest-instructions" ||
+        kernel32Policy.clockScheduleAuthority !==
+          "runtime/clock.rs::RuntimeClock" ||
+        kernel32Policy.clockScheduledRetiredInstructionsPerSecond !==
+          2_000_000 ||
+        kernel32Policy.clockResolution100ns !== 10_000 ||
+        kernel32Policy.clockApiReadsAdvance !== false ||
+        kernel32Policy.clockWaitDeadlinesShareAuthority !== true ||
+        kernel32Policy.clockHostTimeImported !== false ||
+        kernel32Policy.clockBrowserTimeImported !== false ||
+        kernel32Policy.tickCountIncrementPerRead !== undefined ||
+        kernel32Policy.performanceCounterIncrementPerRead !== undefined
+      : kernel32Policy.tickCountIncrementPerRead !== 1 ||
+        kernel32Policy.performanceCounterIncrementPerRead !== 10_000) ||
     kernel32Policy.performanceCounterFrequency !== 10_000_000 ||
-    kernel32Policy.performanceCounterIncrementPerRead !== 10_000 ||
     kernel32Policy.performanceCounterAuthority !==
       "runtime/process.rs::RuntimeProcessState" ||
     kernel32Policy.performanceCounterHostClockImported !== false ||
@@ -23660,7 +23688,135 @@ export function validateCurrentCheckpoint(manifest) {
       : currentStop.kind === "com-method"
         ? `${currentStop.interface}::${currentStop.method}`
         : currentStop.api;
-  if (
+  if (scheduledSharedClockActive) {
+    const scheduled = requireRecord(
+      active.scheduledSharedClock,
+      "activeRuntimeCheckpoint.scheduledSharedClock",
+      errors,
+    );
+    const profile = requireRecord(
+      scheduled.profile,
+      "activeRuntimeCheckpoint.scheduledSharedClock.profile",
+      errors,
+    );
+    const node = requireRecord(
+      scheduled.nodePrimaryEvidence,
+      "activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence",
+      errors,
+    );
+    const browserBoundary = requireRecord(
+      scheduled.browserBoundaryEvidence,
+      "activeRuntimeCheckpoint.scheduledSharedClock.browserBoundaryEvidence",
+      errors,
+    );
+    const conclusion = requireRecord(
+      scheduled.proximateCauseConclusion,
+      "activeRuntimeCheckpoint.scheduledSharedClock.proximateCauseConclusion",
+      errors,
+    );
+    const expectedCompletion = currentStop.completion ?? {};
+    const expectedEndpoint = currentStop.nextEndpoint ?? {};
+    if (
+      scheduled.schema !== "vine.scheduled-shared-clock-checkpoint" ||
+      scheduled.schemaVersion !== 1 ||
+      scheduled.status !== "passed" ||
+      profile.schema !== "vine.runtime-clock-profile" ||
+      profile.schemaVersion !== 1 ||
+      profile.id !== "scheduled-shared-logical-deadline-v1" ||
+      profile.progression !== "scheduled-shared" ||
+      scheduled.scheduleSource !== "cumulative-retired-guest-instructions" ||
+      scheduled.retiredInstructionsPerSecond !== 2_000_000 ||
+      scheduled.resolution100ns !== 10_000 ||
+      scheduled.apiReadsAdvanceClock !== false ||
+      scheduled.waitDeadlinesShareClock !== true ||
+      scheduled.hostTimeImported !== false ||
+      scheduled.browserTimeImported !== false ||
+      scheduled.allApiAndComDispatchBoundariesUseSharedSchedule !== true ||
+      scheduled.regressingInstructionCursorRejectedBeforeMutation !== true ||
+      active.runtimeKernelCheckpoint !== "scheduled-shared-clock-primary" ||
+      active.canonicalReproductionCommand !== "npm run check:runtime:bgi" ||
+      node.schema !== "vine.v86-bgi-scheduled-shared-clock-primary" ||
+      node.schemaVersion !== 1 ||
+      node.canonicalCommand !== active.canonicalReproductionCommand ||
+      node.repeatRuns !== 2 ||
+      node.reportBytes !== 40_392 ||
+      node.reportSha256 !==
+        "aa38f22c008892f0104af00bca405a64cf44024e1c4e7643762c06b717346bac" ||
+      node.reflectionSha256 !==
+        "65f3b728ff9570a0f3081571c05996df74232711142bbfc5045d2c780dcecf49" ||
+      node.sourceSha256 !==
+        "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1" ||
+      node.sourceImmutableAcrossRun !== true ||
+      node.completedSupportedCalls !== 251_690 ||
+      node.supportedCallSemanticsSha256 !==
+        "f7232ff5593f5eeda54e3ae2c9ff314949997b44d3569dfcf51b674bd32734f1" ||
+      node.clockSampleCount !== 100_508 ||
+      node.firstClockTick !== 3_600_000 ||
+      node.firstClockRetiredInstructions !== 29 ||
+      node.lastClockTick !== 3_765_605 ||
+      node.lastClockTime100ns !== 1_656_055_000 ||
+      node.lastClockGeneration !== 12_376 ||
+      node.lastClockRetiredInstructions !== 323_857_971 ||
+      node.lastClockPendingRetiredInstructions !== 1_971 ||
+      node.apiReadIncrement !== 0 ||
+      node.windowTimerCallbackCount !== 36 ||
+      node.timerPacingCompletionCount !== 7_174 ||
+      node.presentCount !== 2 ||
+      node.thirdPresentReached !== false ||
+      node.finalMemoryGeneration !== 282_334 ||
+      node.terminalInstructionCount !== currentStop.instructionCount ||
+      node.terminalMemoryContentSha256 !==
+        "fd19b775f777ef6885305a0826309964a97316e3956901673d863d173b69aab3" ||
+      browserBoundary.runtimeProtocol !== "vine.browser-runtime-worker.v101" ||
+      browserBoundary.retiredInstructionCursorTransport !==
+        "checked-u64-low-high-per-api-and-com-dispatch" ||
+      browserBoundary.browserOwnsGuestClockState !== false ||
+      browserBoundary.controlledChromeE2e !== "passed" ||
+      browserBoundary.controlledChromeCommand !==
+        "npm run check:runtime:browser-worker" ||
+      browserBoundary.chromeVersion !== "150.0.7871.187" ||
+      browserBoundary.reportBytes !== 35_954 ||
+      browserBoundary.reportSha256 !==
+        "0f479bd74fa1aacb173a9cba1efd7d0a98bd47bd5a3769fb15be02838b198a6c" ||
+      browserBoundary.runtimeWorkerBytes !== 1_026_918 ||
+      browserBoundary.runtimeWorkerSha256 !==
+        "acc0c1b08d705b3156cf00a0c7c7b78e01265a02d57692dadfe13cbf037e3bf7" ||
+      browserBoundary.runtimeCoreWasmBytes !== 5_231_801 ||
+      browserBoundary.runtimeCoreWasmSha256 !==
+        "60314a8102d1f6578d30177748534b7fcfe4d5e17a9786d0f5d25520484d0ec4" ||
+      browserBoundary.privatePrimaryReplay !==
+        "not-rerun-at-this-clock-checkpoint" ||
+      currentStop.kind !== "capability-checkpoint" ||
+      currentStop.nextCheckpoint !==
+        "user32-set-window-text-a-post-scheduled-shared-clock" ||
+      currentStop.instructionCount !== 323_858_232 ||
+      currentStop.capabilityCluster !== "user32-api-contract" ||
+      currentStop.reason !==
+        "scheduled-shared-clock-primary-checkpoint-complete" ||
+      expectedCompletion.implementationId !==
+        "runtime.scheduled-shared-clock-primary.v1" ||
+      expectedCompletion.clockProfileId !== profile.id ||
+      expectedCompletion.clockSampleCount !== node.clockSampleCount ||
+      expectedCompletion.windowTimerCallbackCount !==
+        node.windowTimerCallbackCount ||
+      expectedCompletion.presentCount !== node.presentCount ||
+      expectedCompletion.thirdPresentReached !== false ||
+      expectedCompletion.clockFreezeWasProximateCause !== false ||
+      expectedEndpoint.endpointId !== 237 ||
+      expectedEndpoint.api?.toLowerCase() !==
+        "user32.dll!setwindowtexta" ||
+      expectedEndpoint.endpointAddress !== "0x7f000ec0" ||
+      expectedEndpoint.iatAddress !== "0x100d148c" ||
+      expectedEndpoint.arguments?.join(",") !==
+        "0x48010001,0x20262c02" ||
+      expectedEndpoint.returnAddress !== "0x1008343b" ||
+      expectedEndpoint.stackPointer !== "0x006ff688" ||
+      conclusion.clockFreezeWasProximateCause !== false ||
+      conclusion.nextEndpoint !== "USER32.dll!SetWindowTextA"
+    ) {
+      errors.push("scheduled shared clock checkpoint evidence is invalid");
+    }
+  } else if (
     active.canonicalReproductionCommand !==
       "npm run check:runtime:bgi-browser" ||
     bgiBrowserEvidence.supportedCalls !==
@@ -23706,7 +23862,7 @@ export function validateCurrentCheckpoint(manifest) {
       "browser BGI evidence must match the active runtime checkpoint",
     );
   }
-  if (currentStop.kind === "capability-checkpoint") {
+  if (!scheduledSharedClockActive && currentStop.kind === "capability-checkpoint") {
     const expectedCompletion = currentStop.completion ?? {};
     const expectedEndpoint = currentStop.nextEndpoint ?? {};
     for (const [label, actual] of [
@@ -26000,7 +26156,10 @@ export function validateCurrentCheckpoint(manifest) {
       );
     }
   }
-  if (translateMessagePointerReleaseContinuationActive) {
+  if (
+    translateMessagePointerReleaseContinuationActive &&
+    !scheduledSharedClockActive
+  ) {
     const expectedCapability =
       peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
         ? "user32-peek-message-a-post-window-timer-callback-continuation"
@@ -33884,6 +34043,8 @@ export function renderReadmeStatus(manifest) {
   const scenario = manifest.scenarioMilestones;
   const historical = manifest.historicalBaseline;
   const active = manifest.activeRuntimeCheckpoint;
+  const scheduledClock = active.scheduledSharedClock ?? null;
+  const currentNode = scheduledClock?.nodePrimaryEvidence ?? null;
   const kernelBoundary = active.runtimeKernelBoundary;
   const latest = active.latestEvidence;
   const browser = manifest.browserCheckpoint;
@@ -33900,7 +34061,12 @@ export function renderReadmeStatus(manifest) {
     .join("\n");
   const nextSummary =
     next.kind === "capability-checkpoint"
-      ? next.completion.capability ===
+      ? next.completion.capability === "scheduled-shared-clock-primary"
+        ? `\`${next.completion.capability}\` advanced one Rust-owned clock from cumulative retired guest instructions across ` +
+          `${next.completion.clockSampleCount.toLocaleString("en-US")} API/COM samples and ${next.completion.windowTimerCallbackCount} TIMERPROC callbacks without per-read increments; ` +
+          `it still observed ${next.completion.presentCount} Presents and no third Present, then stopped at \`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +
+          `(\`${next.reason}\`)`
+        : next.completion.capability ===
         "user32-peek-message-a-post-window-timer-callback-continuation"
         ? `\`${next.completion.capability}\` observed the authoritative current-thread queue remain empty after TIMERPROC frame 35, returned FALSE without guest writes, and preserved the prior WM_TIMER MSG32 bytes at ` +
           `sequence ${next.completion.lastCompletionSequence} / instruction ${next.completion.lastCompletionInstructionCount}; ` +
@@ -34126,6 +34292,9 @@ export function renderReadmeStatus(manifest) {
     : browser.bgiBenchmarkBlocker
       ? `| Active blocker | \`${browser.bgiBenchmarkBlocker.id}\`: \`${browser.bgiBenchmarkBlocker.firstFailure.thresholdId ?? browser.bgiBenchmarkBlocker.firstFailure.reasonId}\`; ${browser.bgiBenchmarkBlocker.resumeCondition} |\n`
       : "";
+  const sharedClockSummary = scheduledClock
+    ? `| Shared clock | \`${scheduledClock.profile.id}\`: cumulative retired guest instructions at ${scheduledClock.retiredInstructionsPerSecond.toLocaleString("en-US")}/s with ${scheduledClock.resolution100ns / 10_000} ms resolution; API reads do not advance it; Node primary recorded ${currentNode.clockSampleCount.toLocaleString("en-US")} samples / ${currentNode.windowTimerCallbackCount} TIMERPROC callbacks; Chrome \`${scheduledClock.browserBoundaryEvidence.runtimeProtocol}\` boundary passed |\n`
+    : "";
 
   return `${README_STATUS_START}
 ## Current Status
@@ -34137,14 +34306,14 @@ Edit the manifest and run \`npm run docs:generate\`; do not edit this block by h
 |---|---|
 | Historical baseline | \`${historical.checkpoint}\`: ${historical.supportedCallCount} calls, ${historical.entryInstructionCount} instructions |
 | Active scenario | \`${scenario.activeMilestone}\` |
-| Runtime diagnostics | \`${active.runtimeKernelCheckpoint}\`: ${active.genericDispatcherCallOccurrenceCount} calls across ${active.genericDispatcherContractCount} endpoint contracts / ${active.genericDispatcherApiCount} APIs, memory generation ${latest.finalMemoryGeneration} |
+| Runtime diagnostics | \`${active.runtimeKernelCheckpoint}\`: ${(currentNode?.completedSupportedCalls ?? active.genericDispatcherCallOccurrenceCount).toLocaleString("en-US")} calls across ${active.genericDispatcherContractCount} endpoint contracts / ${active.genericDispatcherApiCount} APIs, memory generation ${(currentNode?.finalMemoryGeneration ?? latest.finalMemoryGeneration).toLocaleString("en-US")} |
 | Runtime architecture | \`${kernelBoundary.checkpoint}\`: \`${kernelBoundary.aggregateType}\`; \`${kernelBoundary.compatibilityAlias}\` remains a compatibility alias |
 | Browser | \`${browser.workload}\` ${browser.status}; BGI session \`${browser.bgiSession}\`; benchmark \`${browser.bgiBenchmark}\` (${browser.bgiBenchmarkEvidence.completedSessions} sessions) |
-${blockerSummary}| Engine evidence | v86 \`${engine.decision}\` from \`${engine.configuration}\` |
+${sharedClockSummary}${blockerSummary}| Engine evidence | v86 \`${engine.decision}\` from \`${engine.configuration}\` |
 | Next structured stop | ${nextSummary} |
 
-The active semantic report is ${latest.reportBytes.toLocaleString("en-US")} bytes with SHA-256
-\`${latest.reportSha256}\`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is ${(currentNode?.reportBytes ?? latest.reportBytes).toLocaleString("en-US")} bytes with SHA-256
+\`${currentNode?.reportSha256 ?? latest.reportSha256}\`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

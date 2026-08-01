@@ -134,7 +134,7 @@ const RUNTIME_FRAME_POINTER_BUTTON_INPUT_COMPLETION: u32 = 25;
 const RUNTIME_FRAME_MAX_CONTROL_BYTES: usize = 1024 * 1024;
 const RUNTIME_FRAME_MAX_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
 const GENERIC_RUNTIME_TRAP_LIMIT: usize = 32_768;
-const GENERIC_RUNTIME_MAX_TRAP_LIMIT: usize = 196_608;
+const GENERIC_RUNTIME_MAX_TRAP_LIMIT: usize = 393_216;
 const GENERIC_RUNTIME_CALLBACK_DEPTH_LIMIT: usize = 64;
 const CONTROLLED_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 
@@ -320,6 +320,7 @@ struct GenericRuntimeTrapRequest {
     schema: String,
     schema_version: u32,
     kind: GenericRuntimeTrapKind,
+    instruction_count: u64,
     endpoint_id: u32,
     endpoint_address: u32,
     stack_pointer: u32,
@@ -1054,6 +1055,12 @@ struct GenericRuntimeTickCount {
     returned_tick_count: u32,
     next_tick_count: u32,
     increment_per_read: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    clock_profile_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timer_clock: Option<vine_core::RuntimeTimerClockState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scheduled_execution_clock: Option<vine_core::RuntimeScheduledExecutionClockState>,
 }
 
 #[derive(Debug, Serialize)]
@@ -5637,11 +5644,11 @@ fn run_v86_generic_runtime_session(
                     format!("generic runtime trap metadata is invalid: {error}"),
                 )
             })?;
-        if trap.schema != "vine.v86-generic-runtime-trap" || trap.schema_version != 1 {
+        if trap.schema != "vine.v86-generic-runtime-trap" || trap.schema_version != 2 {
             return Err(LoaderError::invalid_input(
                 "runtime-reentry",
                 "runtime-trap-schema-unsupported",
-                "generic runtime trap must use vine.v86-generic-runtime-trap version 1",
+                "generic runtime trap must use vine.v86-generic-runtime-trap version 2",
             ));
         }
 
@@ -5661,6 +5668,10 @@ fn run_v86_generic_runtime_session(
                             "generic runtime trap does not identify a process-owned export endpoint",
                         )
                     })?;
+                process
+                    .runtime
+                    .advance_scheduled_clock_for_execution(trap.instruction_count)
+                    .map_err(runtime_state_error)?;
                 let interlocked_before = if matches!(
                     enabled_capability,
                     Some(
@@ -6311,45 +6322,51 @@ fn run_v86_generic_runtime_session(
                         };
                         let api_read_clock = session.runtime().clock_profile().progression
                             == vine_core::RuntimeClockProgression::ApiReadIncrement;
-                        let tick_count = if !api_read_clock {
-                            None
-                        } else if completion.implementation_id == "kernel32.get-tick-count.v1" {
-                            kernel32_policy
-                                .tick_count_increment_per_read()
-                                .map(|increment_per_read| {
-                                    let returned_tick_count = set_eax_result(
-                                        &completion,
-                                        "tick-count-return-register-invalid",
-                                        "GetTickCount dispatcher did not set EAX",
-                                    )?;
-                                    Ok(GenericRuntimeTickCount {
-                                        returned_tick_count,
-                                        next_tick_count: session.runtime().clock().tick_count,
-                                        increment_per_read,
-                                    })
-                                })
-                                .transpose()?
-                        } else if completion.implementation_id == TIME_GET_TIME_IMPLEMENTATION {
-                            let increment_per_read = winmm_policy
-                                .time_get_time
-                                .as_ref()
-                                .ok_or_else(|| {
-                                    LoaderError::runtime_defect(
-                                        "runtime-reentry",
-                                        "time-get-time-policy-missing-after-dispatch",
-                                        "completed timeGetTime has no multimedia clock policy",
-                                    )
-                                })?
-                                .increment_per_read;
+                        let tick_count = if matches!(
+                            completion.implementation_id.as_str(),
+                            "kernel32.get-tick-count.v1" | TIME_GET_TIME_IMPLEMENTATION
+                        ) {
                             let returned_tick_count = set_eax_result(
                                 &completion,
-                                "time-get-time-return-register-invalid",
-                                "timeGetTime dispatcher did not set EAX",
+                                "tick-count-return-register-invalid",
+                                "monotonic tick query dispatcher did not set EAX",
                             )?;
+                            let increment_per_read = if !api_read_clock {
+                                0
+                            } else if completion.implementation_id == "kernel32.get-tick-count.v1" {
+                                kernel32_policy.tick_count_increment_per_read().ok_or_else(
+                                    || {
+                                        LoaderError::runtime_defect(
+                                            "runtime-reentry",
+                                            "tick-count-policy-missing-after-dispatch",
+                                            "completed GetTickCount has no process clock policy",
+                                        )
+                                    },
+                                )?
+                            } else {
+                                winmm_policy
+                                    .time_get_time
+                                    .as_ref()
+                                    .ok_or_else(|| {
+                                        LoaderError::runtime_defect(
+                                            "runtime-reentry",
+                                            "time-get-time-policy-missing-after-dispatch",
+                                            "completed timeGetTime has no multimedia clock policy",
+                                        )
+                                    })?
+                                    .increment_per_read
+                            };
                             Some(GenericRuntimeTickCount {
                                 returned_tick_count,
                                 next_tick_count: session.runtime().clock().tick_count,
                                 increment_per_read,
+                                clock_profile_id: (!api_read_clock)
+                                    .then(|| session.runtime().clock_profile().id.clone()),
+                                timer_clock: (!api_read_clock)
+                                    .then(|| session.runtime().timer_clock_state()),
+                                scheduled_execution_clock: (!api_read_clock)
+                                    .then(|| session.runtime().scheduled_execution_clock_state())
+                                    .flatten(),
                             })
                         } else {
                             None
@@ -6875,6 +6892,10 @@ fn run_v86_generic_runtime_session(
                     )?;
                     return Ok(());
                 }
+                process
+                    .runtime
+                    .advance_scheduled_clock_for_execution(trap.instruction_count)
+                    .map_err(runtime_state_error)?;
                 let endpoint_identity = ApiEndpointIdentity::from_dynamic_endpoint(&endpoint);
                 let mut session = ExecutionSession::new(memory, &mut process.runtime);
                 match dispatcher.dispatch_owned(
@@ -7029,6 +7050,10 @@ fn run_v86_generic_runtime_session(
                 let target = process
                     .runtime
                     .resolve_com_method(endpoint_address)
+                    .map_err(runtime_state_error)?;
+                process
+                    .runtime
+                    .advance_scheduled_clock_for_execution(trap.instruction_count)
                     .map_err(runtime_state_error)?;
                 let endpoint = GenericRuntimeEndpoint::ComMethod {
                     target: target.clone(),

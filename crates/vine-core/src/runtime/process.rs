@@ -10,6 +10,7 @@ use crate::memory::GuestAddress;
 
 use super::clock::{
     RuntimeClock, RuntimeClockAdvancePlan, RuntimeClockProfile, RuntimeClockProfilePlan,
+    RuntimeScheduledExecutionAdvancePlan, RuntimeScheduledExecutionClockState,
 };
 use super::{
     ProcessAddressAllocationId, ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
@@ -370,6 +371,10 @@ impl RuntimeProcessState {
         self.clock.timer_state()
     }
 
+    pub fn scheduled_execution_clock_state(&self) -> Option<RuntimeScheduledExecutionClockState> {
+        self.clock.scheduled_execution_state()
+    }
+
     pub(super) fn plan_clock_profile_configuration(
         &self,
         profile: RuntimeClockProfile,
@@ -417,6 +422,28 @@ impl RuntimeProcessState {
         plan: RuntimeClockAdvancePlan,
     ) -> Result<super::RuntimeTimerClockState, RuntimeStateError> {
         self.clock.commit_advance(plan)
+    }
+
+    pub(super) fn plan_scheduled_execution_clock_advance(
+        &self,
+        retired_instructions: u64,
+    ) -> Result<RuntimeScheduledExecutionAdvancePlan, RuntimeStateError> {
+        self.clock
+            .plan_scheduled_execution_advance(retired_instructions)
+    }
+
+    pub(super) fn preflight_scheduled_execution_clock_advance(
+        &self,
+        plan: &RuntimeScheduledExecutionAdvancePlan,
+    ) -> Result<(), RuntimeStateError> {
+        self.clock.preflight_scheduled_execution_advance(plan)
+    }
+
+    pub(super) fn commit_scheduled_execution_clock_advance(
+        &mut self,
+        plan: RuntimeScheduledExecutionAdvancePlan,
+    ) -> Result<super::RuntimeTimerClockState, RuntimeStateError> {
+        self.clock.commit_scheduled_execution_advance(plan)
     }
 
     pub(super) fn plan_tick_count_sample(

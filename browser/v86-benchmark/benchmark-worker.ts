@@ -699,6 +699,7 @@ async function productionApiRoundTrips(): Promise<Record<string, unknown>> {
       endpoint,
       execution.state.esp,
       returnAddress,
+      execution.instructions,
     ).metadata;
     invariant(request.kind === "host-request", "production API dispatch was not deferred");
     invariant(request.service === "browser.deferred-add", "production API service mismatch");

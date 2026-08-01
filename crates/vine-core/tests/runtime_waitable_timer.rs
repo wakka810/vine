@@ -1,16 +1,85 @@
 use vine_core::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, ProcessAddressSpaceLayout,
-    RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RUNTIME_WAITABLE_TIMER_PACING_SERVICE,
-    RuntimeBootstrap, RuntimeClockProfile, RuntimeClockState, RuntimeCurrentDirectoryA,
-    RuntimeHandle, RuntimeObjectKind, RuntimeProcessId, RuntimeProcessImagePathA,
-    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeWaitDisposition,
-    RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome, RuntimeWaitState,
-    RuntimeWaitableTimerArm, RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId,
-    SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RUNTIME_SCHEDULED_RETIRED_INSTRUCTIONS_PER_SECOND, RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
+    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RuntimeBootstrap, RuntimeClockProfile,
+    RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeHandle, RuntimeObjectKind,
+    RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
+    RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
+    RuntimeWaitState, RuntimeWaitableTimerArm, RuntimeWaitableTimerExpiration,
+    RuntimeWaitableTimerId, SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 const PROCESS_ID: u32 = 4096;
 const THREAD_ID: RuntimeThreadId = RuntimeThreadId(8192);
+
+#[test]
+fn scheduled_shared_clock_commits_monotonic_cpu_execution_before_api_sampling() {
+    let mut runtime = runtime(false);
+    runtime
+        .configure_clock_profile(RuntimeClockProfile::scheduled_shared_v1())
+        .expect("select scheduled shared clock before process start");
+    runtime
+        .start_initial_thread()
+        .expect("start scheduled-clock fixture");
+    assert_eq!(
+        runtime.scheduled_execution_clock_state(),
+        Some(vine_core::RuntimeScheduledExecutionClockState {
+            retired_instructions: 0,
+            pending_retired_instructions: 0,
+            retired_instructions_per_second: RUNTIME_SCHEDULED_RETIRED_INSTRUCTIONS_PER_SECOND,
+        })
+    );
+
+    runtime
+        .advance_scheduled_clock_for_execution(2_000)
+        .expect("commit deterministic retired-instruction progress");
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 10_000);
+    assert_eq!(runtime.clock().tick_count, 3_600_001);
+    assert_eq!(runtime.clock().performance_counter, 12_345_688_901);
+    assert_eq!(runtime.sample_tick_count(1).unwrap(), 3_600_001);
+    assert_eq!(runtime.sample_tick_count(1).unwrap(), 3_600_001);
+    assert_eq!(runtime.timer_clock_state().generation, 1);
+
+    runtime
+        .advance_scheduled_clock_for_execution(2_000)
+        .expect("duplicate execution cursor is an idempotent schedule commit");
+    assert_eq!(runtime.timer_clock_state().generation, 1);
+    runtime
+        .advance_scheduled_clock_to(25_000)
+        .expect("jump the same clock to a scheduler deadline");
+    runtime
+        .advance_scheduled_clock_for_execution(4_000)
+        .expect("execution progress continues after the deadline jump");
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 35_000);
+    assert_eq!(runtime.clock().tick_count, 3_600_003);
+    assert_eq!(
+        runtime
+            .scheduled_execution_clock_state()
+            .unwrap()
+            .retired_instructions,
+        4_000
+    );
+
+    let before_regression = runtime.clone();
+    assert_eq!(
+        runtime
+            .advance_scheduled_clock_for_execution(3_999)
+            .unwrap_err()
+            .code,
+        "scheduled-execution-instruction-count-regressed"
+    );
+    assert_eq!(runtime, before_regression);
+
+    let before_range_failure = runtime.clone();
+    assert_eq!(
+        runtime
+            .advance_scheduled_clock_for_execution(u64::MAX)
+            .unwrap_err()
+            .code,
+        "scheduled-execution-time-range-exhausted"
+    );
+    assert_eq!(runtime, before_range_failure);
+}
 
 #[test]
 fn scheduled_shared_clock_advances_only_at_scheduler_commit_points() {
@@ -93,6 +162,14 @@ fn scheduled_shared_clock_advances_only_at_scheduler_commit_points() {
         serde_json::json!({
             "currentTime100ns": 75_000,
             "generation": 2,
+        })
+    );
+    assert_eq!(
+        process_json["scheduledExecutionClock"],
+        serde_json::json!({
+            "retiredInstructions": 0,
+            "pendingRetiredInstructions": 0,
+            "retiredInstructionsPerSecond": 2_000_000,
         })
     );
 

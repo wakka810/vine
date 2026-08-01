@@ -30,9 +30,10 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "observed the authoritative current-thread queue remain empty after TIMERPROC frame 35, returned FALSE without guest writes, and preserved the prior WM_TIMER MSG32 bytes at sequence 162087 / instruction 321469064",
+    "advanced one Rust-owned clock from cumulative retired guest instructions across 100,508 API/COM samples and 36 TIMERPROC callbacks without per-read increments; it still observed 2 Presents and no third Present",
   ),
 );
+assert.ok(rendered.includes("| Shared clock |"));
 assert.ok(rendered.includes(manifest.browserCheckpoint.bgiBenchmark));
 assert.ok(
   ["threshold-passed", "threshold-blocked", "environment-blocked"].includes(
@@ -162,11 +163,12 @@ assert.ok(
   ),
 );
 
-const mismatchedBrowserCalls = structuredClone(manifest);
-mismatchedBrowserCalls.browserCheckpoint.bgiRuntimeEvidence.supportedCalls -= 1;
+const mismatchedScheduledCalls = structuredClone(manifest);
+mismatchedScheduledCalls.activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence.completedSupportedCalls -=
+  1;
 assert.ok(
-  validateCurrentCheckpoint(mismatchedBrowserCalls).some((error) =>
-    error.includes("active runtime checkpoint"),
+  validateCurrentCheckpoint(mismatchedScheduledCalls).some((error) =>
+    error.includes("scheduled shared clock checkpoint evidence"),
   ),
 );
 
@@ -1263,17 +1265,53 @@ assert.ok(
   ),
 );
 
-const browserOwnedWindowTimer = structuredClone(manifest);
-browserOwnedWindowTimer.browserCheckpoint.bgiRuntimeEvidence.windowTimerBrowserTimerCreated =
+const browserOwnedSharedClock = structuredClone(manifest);
+browserOwnedSharedClock.activeRuntimeCheckpoint.scheduledSharedClock.browserBoundaryEvidence.browserOwnsGuestClockState =
   true;
 assert.ok(
-  validateCurrentCheckpoint(browserOwnedWindowTimer).some((error) =>
-    error.includes(
-      "queue authority evidence is invalid for the post-window-timer-callback PeekMessageA continuation pointer-release checkpoint",
-    ),
+  validateCurrentCheckpoint(browserOwnedSharedClock).some((error) =>
+    error.includes("scheduled shared clock checkpoint evidence"),
   ),
 );
 
+const advancingScheduledApiRead = structuredClone(manifest);
+advancingScheduledApiRead.activeRuntimeCheckpoint.scheduledSharedClock.apiReadsAdvanceClock =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(advancingScheduledApiRead).some((error) =>
+    error.includes("scheduled shared clock checkpoint evidence"),
+  ),
+);
+
+const staleScheduledClockSampleCount = structuredClone(manifest);
+staleScheduledClockSampleCount.nextStructuredStop.completion.clockSampleCount -=
+  1;
+assert.ok(
+  validateCurrentCheckpoint(staleScheduledClockSampleCount).some((error) =>
+    error.includes("scheduled shared clock checkpoint evidence"),
+  ),
+);
+
+const staleScheduledNextEndpoint = structuredClone(manifest);
+staleScheduledNextEndpoint.nextStructuredStop.nextEndpoint.endpointId -= 1;
+assert.ok(
+  validateCurrentCheckpoint(staleScheduledNextEndpoint).some((error) =>
+    error.includes("scheduled shared clock checkpoint evidence"),
+  ),
+);
+
+const falseScheduledClockConclusion = structuredClone(manifest);
+falseScheduledClockConclusion.activeRuntimeCheckpoint.scheduledSharedClock.proximateCauseConclusion.clockFreezeWasProximateCause =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(falseScheduledClockConclusion).some((error) =>
+    error.includes("scheduled shared clock checkpoint evidence"),
+  ),
+);
+
+// These assertions describe the immediately preceding pointer-release
+// checkpoint and remain useful when replaying an older manifest profile.
+if (!manifest.activeRuntimeCheckpoint.scheduledSharedClock) {
 const stalePostIsIconicAsyncKeyScanOrder = structuredClone(manifest);
 stalePostIsIconicAsyncKeyScanOrder.activeRuntimeCheckpoint.latestEvidence.capabilityCheckpointCompletion.scanVirtualKeys[0] =
   15;
@@ -1974,6 +2012,7 @@ assert.ok(
     ),
   ),
 );
+}
 
 const sample = `before\n${README_STATUS_START}\nstale\n${README_STATUS_END}\nafter\n`;
 assert.equal(
