@@ -45,6 +45,9 @@ use super::audio::{
     RuntimeAudioDevice, RuntimeAudioDeviceCreateRequest, RuntimeAudioDeviceCreationPlan,
     RuntimeAudioDeviceId, RuntimeAudioWindowTarget,
 };
+use super::clock::{
+    RuntimeClockAdvancePlan, RuntimeClockProfile, RuntimeClockState, RuntimeTimerClockState,
+};
 use super::com::{
     RUNTIME_COM_ADDRESS_OWNER, RuntimeCom, RuntimeComIid, RuntimeComInterfaceId,
     RuntimeComInterfaceRecord, RuntimeComMethodTarget, RuntimeComMutationPlan, RuntimeComObjectId,
@@ -153,7 +156,7 @@ use super::objects::{
 };
 use super::process::{
     RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RUNTIME_PROCESS_IMAGE_PATH_A_MAX_BYTES,
-    RuntimeClockState, RuntimeCommandLine, RuntimeCurrentDirectoryA, RuntimeEnvironmentStringCopy,
+    RuntimeCommandLine, RuntimeCurrentDirectoryA, RuntimeEnvironmentStringCopy,
     RuntimeEnvironmentStrings, RuntimeProcessCancellation, RuntimeProcessEnvironment,
     RuntimeProcessId, RuntimeProcessImagePathA, RuntimeProcessLifecycleState, RuntimeProcessState,
     RuntimeSetCurrentDirectoryAPlan, RuntimeStandardHandle, RuntimeStartupInfo,
@@ -189,12 +192,11 @@ use super::thread::{
     RuntimeTlsValue,
 };
 use super::timers::{
-    RuntimeCreateWaitableTimerAResult, RuntimeTimerClockAdvancePlan, RuntimeTimerClockState,
-    RuntimeTimerResolutionMutationResult, RuntimeTimerResolutionState, RuntimeTimers,
-    RuntimeTimersTeardownPlan, RuntimeWaitableTimer, RuntimeWaitableTimerExpiration,
-    RuntimeWaitableTimerExpirationPlan, RuntimeWaitableTimerId, RuntimeWaitableTimerRetirementPlan,
-    RuntimeWindowTimer, RuntimeWindowTimerId, RuntimeWindowTimerRegistrationRequest,
-    RuntimeWindowTimerRegistrationResult,
+    RuntimeCreateWaitableTimerAResult, RuntimeTimerResolutionMutationResult,
+    RuntimeTimerResolutionState, RuntimeTimers, RuntimeTimersTeardownPlan, RuntimeWaitableTimer,
+    RuntimeWaitableTimerExpiration, RuntimeWaitableTimerExpirationPlan, RuntimeWaitableTimerId,
+    RuntimeWaitableTimerRetirementPlan, RuntimeWindowTimer, RuntimeWindowTimerId,
+    RuntimeWindowTimerRegistrationRequest, RuntimeWindowTimerRegistrationResult,
 };
 use super::user32::{
     RuntimeBeginPaintRequest, RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId,
@@ -320,7 +322,7 @@ pub(crate) struct RuntimeWritableDirectoryCreateAggregateCompletionPlan {
 pub(crate) struct RuntimeWaitableTimerPacingCompletionPlan {
     scheduler: RuntimeHostCompletionPlan,
     registration: RuntimeWaitRegistration,
-    clock: RuntimeTimerClockAdvancePlan,
+    clock: RuntimeClockAdvancePlan,
     expiration: Option<RuntimeWaitableTimerExpirationPlan>,
     wait_updates: Option<Vec<(RuntimeObjectId, RuntimeObjectRecord)>>,
     result: RuntimeWaitForSingleObjectExResult,
@@ -634,6 +636,8 @@ struct RuntimeProcessStateSnapshot<'a> {
     waitable_timers: &'a BTreeMap<RuntimeWaitableTimerId, RuntimeWaitableTimer>,
     timer_clock: RuntimeTimerClockState,
     #[serde(skip_serializing_if = "Option::is_none")]
+    clock_profile: Option<&'a RuntimeClockProfile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     timer_resolution: Option<RuntimeTimerResolutionState>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     window_timers: &'a BTreeMap<RuntimeWindowTimerId, RuntimeWindowTimer>,
@@ -671,7 +675,11 @@ impl Serialize for RuntimeProcessView<'_> {
             allocated_tls_indices: self.allocated_tls_indices,
             fls_slots: self.fls_slots,
             waitable_timers: self.timers.waitable_timers(),
-            timer_clock: self.timers.timer_clock_state(),
+            timer_clock: self.process.timer_clock_state(),
+            clock_profile: self
+                .process
+                .uses_scheduled_shared_clock()
+                .then(|| self.process.clock_profile()),
             timer_resolution: self.timers.state(),
             window_timers: self.timers.window_timers(),
         }
@@ -734,7 +742,11 @@ impl Serialize for RuntimeKernel {
                 allocated_tls_indices: self.threads.allocated_tls_indices(),
                 fls_slots: self.threads.fls_slots(),
                 waitable_timers: self.timers.waitable_timers(),
-                timer_clock: self.timers.timer_clock_state(),
+                timer_clock: self.process.timer_clock_state(),
+                clock_profile: self
+                    .process
+                    .uses_scheduled_shared_clock()
+                    .then(|| self.process.clock_profile()),
                 timer_resolution: self.timers.state(),
                 window_timers: self.timers.window_timers(),
             },
@@ -1195,7 +1207,7 @@ impl RuntimeKernel {
     }
 
     pub fn timer_clock_state(&self) -> RuntimeTimerClockState {
-        self.timers.timer_clock_state()
+        self.process.timer_clock_state()
     }
 
     fn require_timer_operation_state(&self) -> Result<(), RuntimeStateError> {
@@ -2905,6 +2917,35 @@ impl RuntimeKernel {
         self.process.clock()
     }
 
+    pub fn clock_profile(&self) -> &RuntimeClockProfile {
+        self.process.clock_profile()
+    }
+
+    pub fn configure_clock_profile(
+        &mut self,
+        profile: RuntimeClockProfile,
+    ) -> Result<&RuntimeClockProfile, RuntimeStateError> {
+        let plan = self.process.plan_clock_profile_configuration(profile)?;
+        self.process.commit_clock_profile_configuration(plan)
+    }
+
+    pub fn advance_scheduled_clock_to(
+        &mut self,
+        target_time_100ns: u64,
+    ) -> Result<RuntimeTimerClockState, RuntimeStateError> {
+        self.require_timer_operation_state()?;
+        if !self.process.uses_scheduled_shared_clock() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-clock",
+                "scheduled-clock-profile-inactive",
+                "explicit scheduled clock advancement requires the scheduled shared profile",
+            ));
+        }
+        let plan = self.process.plan_clock_advance(target_time_100ns)?;
+        self.process.preflight_clock_advance(&plan)?;
+        self.process.commit_clock_advance(plan)
+    }
+
     pub fn sample_tick_count(&mut self, increment_per_read: u32) -> Result<u32, RuntimeStateError> {
         let plan = self.process.plan_tick_count_sample(increment_per_read)?;
         self.process.commit_tick_count_sample(plan)
@@ -3908,9 +3949,12 @@ impl RuntimeKernel {
             ));
         }
         let thread_id = self.current_thread_id();
+        let timer_clock = self.process.timer_clock_state();
         if let Some(window_timer_message) = window_timer_message
             && self.messages.is_empty(thread_id)?
-            && let Some(timer_plan) = self.timers.plan_due_window_timer_delivery(thread_id)?
+            && let Some(timer_plan) = self
+                .timers
+                .plan_due_window_timer_delivery(thread_id, timer_clock)?
         {
             let timer = timer_plan.timer();
             let window = self.user32.window(timer.window_handle)?;
@@ -3953,7 +3997,8 @@ impl RuntimeKernel {
             let write = transaction
                 .write(output, &bytes)
                 .map_err(RuntimeStateError::from_memory)?;
-            self.timers.preflight_window_timer_delivery(&timer_plan)?;
+            self.timers
+                .preflight_window_timer_delivery(&timer_plan, timer_clock)?;
             self.messages.preflight_post(&post_plan)?;
             let current_window = self.user32.window(timer.window_handle)?;
             if current_window.id != timer.window_id
@@ -3966,7 +4011,8 @@ impl RuntimeKernel {
                     "logical window timer target changed after delivery planning",
                 ));
             }
-            self.timers.commit_window_timer_delivery(timer_plan);
+            self.timers
+                .commit_window_timer_delivery(timer_plan, timer_clock);
             self.messages.commit_post(post_plan);
             if remove {
                 self.messages.commit_receive(thread_id, message.id);
@@ -4752,18 +4798,24 @@ impl RuntimeKernel {
                 "bounded waitable timer pacing does not rearm a timer with a pending wait",
             ));
         }
-        let timer_plan = self
-            .timers
-            .plan_waitable_timer_one_shot_arm(timer_id, relative_due_time_100ns)?;
+        let timer_clock = self.process.timer_clock_state();
+        let timer_plan = self.timers.plan_waitable_timer_one_shot_arm(
+            timer_id,
+            relative_due_time_100ns,
+            timer_clock,
+        )?;
         let wait_updates = self.objects.plan_wait_state_updates(&[(
             RuntimeObjectKey::WaitableTimer {
                 timer_id: timer_id.0,
             },
             RuntimeWaitState::Nonsignaled,
         )])?;
-        self.timers.preflight_waitable_timer_arm(&timer_plan)?;
+        self.timers
+            .preflight_waitable_timer_arm(&timer_plan, timer_clock)?;
         self.objects.commit_wait_state_updates(wait_updates);
-        Ok(self.timers.commit_waitable_timer_arm(timer_plan))
+        Ok(self
+            .timers
+            .commit_waitable_timer_arm(timer_plan, timer_clock))
     }
 
     pub fn begin_wait_for_single_object_ex(
@@ -4773,7 +4825,7 @@ impl RuntimeKernel {
         alertable: bool,
     ) -> Result<RuntimeWaitForSingleObjectExBegin, RuntimeStateError> {
         self.require_waitable_timer_operation_state()?;
-        let timer_clock_before = self.timers.timer_clock_state();
+        let timer_clock_before = self.process.timer_clock_state();
         let object = self
             .objects
             .object_for_handle(handle, RuntimeObjectKind::WaitableTimer)?
@@ -4878,7 +4930,7 @@ impl RuntimeKernel {
 
         self.scheduler.preflight_host_request(&host_plan)?;
         self.scheduler.preflight_wait_registration(&wait_plan)?;
-        if self.timers.timer_clock_state() != timer_clock_before
+        if self.process.timer_clock_state() != timer_clock_before
             || self.timers.waitable_timer(timer_id)? != &timer
             || self
                 .objects
@@ -4920,7 +4972,7 @@ impl RuntimeKernel {
         alertable: bool,
     ) -> Result<RuntimeWaitForSingleObjectExResult, RuntimeStateError> {
         self.require_waitable_timer_operation_state()?;
-        let timer_clock_before = self.timers.timer_clock_state();
+        let timer_clock_before = self.process.timer_clock_state();
         let object = self
             .objects
             .object_for_handle(handle, RuntimeObjectKind::WaitableTimer)?
@@ -5010,7 +5062,7 @@ impl RuntimeKernel {
             arm.deadline_time_100ns
                 .max(timer_clock_before.current_time_100ns)
         });
-        let clock_plan = self.timers.plan_timer_clock_advance(target_time_100ns)?;
+        let clock_plan = self.process.plan_clock_advance(target_time_100ns)?;
         let wait_plan = (target_time_100ns > timer_clock_before.current_time_100ns)
             .then(|| {
                 self.scheduler.plan_immediate_wait(
@@ -5044,7 +5096,7 @@ impl RuntimeKernel {
             })
             .transpose()?;
 
-        self.timers.preflight_timer_clock_advance(&clock_plan)?;
+        self.process.preflight_clock_advance(&clock_plan)?;
         if let Some(plan) = expiration_plan.as_ref() {
             self.timers.preflight_waitable_timer_expiration(plan)?;
         }
@@ -5064,7 +5116,10 @@ impl RuntimeKernel {
         }
 
         let registration = wait_plan.map(|plan| self.scheduler.commit_immediate_wait_begin(plan));
-        let timer_clock_after = self.timers.commit_timer_clock_advance(clock_plan);
+        let timer_clock_after = self
+            .process
+            .commit_clock_advance(clock_plan)
+            .expect("preflighted logical clock advance");
         let timer_after = expiration_plan.map_or(timer, |plan| {
             *self.timers.commit_waitable_timer_expiration(plan)
         });
@@ -5159,7 +5214,7 @@ impl RuntimeKernel {
         let timer_id = RuntimeWaitableTimerId(timer_id);
         if timer_id != pacing.timer_before.id
             || self.timers.waitable_timer(timer_id)? != &pacing.timer_before
-            || self.timers.timer_clock_state() != pacing.timer_clock_before
+            || self.process.timer_clock_state() != pacing.timer_clock_before
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-wait",
@@ -5212,9 +5267,7 @@ impl RuntimeKernel {
                 None
             }
         };
-        let clock = self
-            .timers
-            .plan_timer_clock_advance(pacing.target_time_100ns)?;
+        let clock = self.process.plan_clock_advance(pacing.target_time_100ns)?;
         let expiration = expiration_arm
             .map(|arm| {
                 self.timers
@@ -5236,7 +5289,7 @@ impl RuntimeKernel {
                 )])
             })
             .transpose()?;
-        self.timers.preflight_timer_clock_advance(&clock)?;
+        self.process.preflight_clock_advance(&clock)?;
         if let Some(plan) = expiration.as_ref() {
             self.timers.preflight_waitable_timer_expiration(plan)?;
         }
@@ -5290,11 +5343,7 @@ impl RuntimeKernel {
                 .wait_registration_for_thread(plan.registration.thread_id),
             Ok(Some(plan.registration))
         );
-        debug_assert!(
-            self.timers
-                .preflight_timer_clock_advance(&plan.clock)
-                .is_ok()
-        );
+        debug_assert!(self.process.preflight_clock_advance(&plan.clock).is_ok());
         if let Some(expiration) = plan.expiration.as_ref() {
             debug_assert!(
                 self.timers
@@ -5304,7 +5353,10 @@ impl RuntimeKernel {
         }
         self.scheduler
             .commit_remove_wait_registration(plan.registration);
-        let clock = self.timers.commit_timer_clock_advance(plan.clock);
+        let clock = self
+            .process
+            .commit_clock_advance(plan.clock)
+            .expect("preflighted logical clock advance");
         debug_assert_eq!(clock, plan.result.timer_clock_after);
         if let Some(expiration) = plan.expiration {
             let timer = *self.timers.commit_waitable_timer_expiration(expiration);
@@ -5725,18 +5777,22 @@ impl RuntimeKernel {
     ) -> Result<RuntimeWindowTimerRegistrationResult, RuntimeStateError> {
         self.require_user32_operation_state()?;
         let (window_id, owner_thread_id) = self.resolve_window_timer_target(window_handle)?;
-        let plan =
-            self.timers
-                .plan_window_timer_registration(RuntimeWindowTimerRegistrationRequest {
-                    window_id,
-                    window_handle,
-                    timer_id,
-                    owner_thread_id,
-                    interval_milliseconds,
-                    callback_address,
-                })?;
+        let timer_clock = self.process.timer_clock_state();
+        let plan = self.timers.plan_window_timer_registration(
+            RuntimeWindowTimerRegistrationRequest {
+                window_id,
+                window_handle,
+                timer_id,
+                owner_thread_id,
+                interval_milliseconds,
+                callback_address,
+            },
+            timer_clock,
+        )?;
         self.preflight_window_timer_registration(&plan)?;
-        Ok(self.timers.commit_window_timer_registration(plan))
+        Ok(self
+            .timers
+            .commit_window_timer_registration(plan, timer_clock))
     }
 
     pub fn window_timers(&self) -> &BTreeMap<RuntimeWindowTimerId, RuntimeWindowTimer> {
@@ -5803,7 +5859,8 @@ impl RuntimeKernel {
                 "logical window timer target changed after registration planning",
             ));
         }
-        self.timers.preflight_window_timer_registration(plan)
+        self.timers
+            .preflight_window_timer_registration(plan, self.process.timer_clock_state())
     }
 
     fn resolve_window_timer_target(

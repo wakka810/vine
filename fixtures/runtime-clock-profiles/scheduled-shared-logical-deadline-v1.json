@@ -1,0 +1,6 @@
+{
+  "schema": "vine.runtime-clock-profile",
+  "schemaVersion": 1,
+  "id": "scheduled-shared-logical-deadline-v1",
+  "progression": "scheduled-shared"
+}

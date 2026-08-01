@@ -4,7 +4,7 @@ use vine_core::{
     CallingConvention, DispatchOutcome, ExecutionSession, GuestAddress, GuestMemory, ImportTarget,
     ImportThunk, ImportThunkDisposition, ImportThunkId, LastErrorPolicy, MemoryLimits,
     MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout,
-    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeClockState,
+    ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap, RuntimeClockProfile, RuntimeClockState,
     RuntimeCurrentDirectoryA, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo,
     RuntimeState, RuntimeThreadId, StackCleanup, TIME_BEGIN_PERIOD_IMPLEMENTATION,
     TIME_END_PERIOD_IMPLEMENTATION, TIME_GET_DEV_CAPS_IMPLEMENTATION, TIME_GET_TIME_IMPLEMENTATION,
@@ -65,6 +65,10 @@ struct TimeGetTimeFixture {
 
 impl TimeGetTimeFixture {
     fn new() -> Self {
+        Self::new_with_clock_profile(None)
+    }
+
+    fn new_with_clock_profile(clock_profile: Option<RuntimeClockProfile>) -> Self {
         let (mut memory, owner) = initialized_memory();
         let thunk = ImportThunk {
             id: ImportThunkId(8),
@@ -103,6 +107,11 @@ impl TimeGetTimeFixture {
         let dispatcher =
             ApiDispatcher::new([endpoint.clone()], [contract]).expect("timeGetTime dispatcher");
         let mut runtime = controlled_runtime();
+        if let Some(clock_profile) = clock_profile {
+            runtime
+                .configure_clock_profile(clock_profile)
+                .expect("configure timeGetTime clock profile");
+        }
         runtime
             .start_initial_thread()
             .expect("start timeGetTime fixture runtime");
@@ -442,6 +451,39 @@ fn time_get_time_samples_shared_process_clock_and_preserves_last_error() {
     }
     assert_eq!(fixture.runtime.clock().tick_count, 3_600_002);
     assert_eq!(fixture.memory.stats(), before_memory);
+}
+
+#[test]
+fn time_get_time_reads_scheduled_shared_clock_without_advancing_it() {
+    let mut fixture = TimeGetTimeFixture::new_with_clock_profile(Some(
+        RuntimeClockProfile::scheduled_shared_v1(),
+    ));
+    for _ in 0..2 {
+        let completion = match fixture.dispatch() {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected scheduled timeGetTime completion, got {other:?}"),
+        };
+        assert_eq!(completion.eax, RegisterUpdate::Set(3_600_000));
+        assert_eq!(completion.last_error, INITIAL_LAST_ERROR);
+        assert!(completion.guest_writes.is_empty());
+    }
+    assert_eq!(fixture.runtime.timer_clock_state().current_time_100ns, 0);
+    assert_eq!(fixture.runtime.clock().tick_count, 3_600_000);
+
+    fixture
+        .runtime
+        .advance_scheduled_clock_to(25_000)
+        .expect("advance shared clock outside the API read");
+    let completion = match fixture.dispatch() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected advanced timeGetTime completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(3_600_002));
+    assert_eq!(fixture.runtime.clock().tick_count, 3_600_002);
+    assert_eq!(
+        fixture.runtime.timer_clock_state().current_time_100ns,
+        25_000
+    );
 }
 
 #[test]

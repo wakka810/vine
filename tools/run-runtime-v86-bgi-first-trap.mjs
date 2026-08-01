@@ -41145,7 +41145,7 @@ function buildGenericRuntimeReentryReport({
           waitableTimerWait: {
             ...repeatedCallEvidence(waitForSingleObjectExCalls),
             stateAuthority: "runtime-timers-scheduler-and-typed-object-table",
-            clockAuthority: "runtime-timers-logical-clock",
+            clockAuthority: "runtime-process-shared-logical-clock",
             timeoutMode: "finite-zero-through-ten-milliseconds",
             alertableAccepted: true,
             apcDeliveryImplemented: false,

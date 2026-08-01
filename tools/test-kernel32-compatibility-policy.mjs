@@ -53,6 +53,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-global-memory-status-v1.json",
   "fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json",
   "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
+  "fixtures/runtime-policies/kernel32-scheduled-shared-clock-v1.json",
 ];
 
 for (const relative of policyFiles) {
@@ -178,6 +179,18 @@ for (const relative of policyFiles) {
         tickCount.incrementPerRead >= 1 &&
         tickCount.incrementPerRead <= 1000,
     );
+  }
+  const clockProfile = policy.clockProfile ?? null;
+  if (clockProfile !== null) {
+    assert.equal(policy.schemaVersion, 2);
+    assert.deepEqual(clockProfile, {
+      schema: "vine.runtime-clock-profile",
+      schemaVersion: 1,
+      id: "scheduled-shared-logical-deadline-v1",
+      progression: "scheduled-shared",
+    });
+    assert.equal(tickCount, null);
+    assert.equal(policy.performanceCounter ?? null, null);
   }
   const osVersionInfoA = policy.osVersionInfoA ?? null;
   if (osVersionInfoA !== null) {

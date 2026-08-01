@@ -725,8 +725,13 @@ impl BrowserRuntime {
         let materialization = materialize_pe32_image(&mut memory, &snapshot, &plan, BGI_LOAD_BASE)
             .map_err(error_string)?;
         let runtime_catalog = runtime_catalog_for_load_plan(&plan)?;
-        let mut process =
-            prepare_bgi_runtime_process(&mut memory, &plan, &materialization, &runtime_catalog)?;
+        let mut process = prepare_bgi_runtime_process(
+            &mut memory,
+            &plan,
+            &materialization,
+            &runtime_catalog,
+            kernel32_policy.clock_profile().cloned(),
+        )?;
         if let Some(source_manifest) = source_manifest {
             process
                 .runtime
@@ -1006,7 +1011,8 @@ impl BrowserRuntime {
         .map_err(error_string)?;
         let materialization = materialize_pe32_image(&mut memory, &snapshot, &plan, LOAD_BASE)
             .map_err(error_string)?;
-        let mut runtime = controlled_runtime_state()?;
+        let mut runtime =
+            controlled_runtime_state_with_clock_profile(kernel32_policy.clock_profile().cloned())?;
         runtime
             .register_source_snapshot(source_manifest)
             .map_err(error_string)?;
@@ -1423,17 +1429,20 @@ impl BrowserRuntime {
                 ..
             }
         );
-        let tick_count_increment = match &self.target {
-            BrowserRuntimeTarget::Bgi {
-                winmm_policy,
-                tick_count_evidence: true,
-                ..
-            } => winmm_policy
-                .time_get_time
-                .as_ref()
-                .map(|clock| clock.increment_per_read),
-            _ => None,
-        };
+        let tick_count_increment = (self.runtime.clock_profile().progression
+            == vine_core::RuntimeClockProgression::ApiReadIncrement)
+            .then(|| match &self.target {
+                BrowserRuntimeTarget::Bgi {
+                    winmm_policy,
+                    tick_count_evidence: true,
+                    ..
+                } => winmm_policy
+                    .time_get_time
+                    .as_ref()
+                    .map(|clock| clock.increment_per_read),
+                _ => None,
+            })
+            .flatten();
         let callback_sentinel = self.callback_sentinel;
         let target = &self.target;
         let dispatcher = &self.dispatcher;
@@ -3141,8 +3150,9 @@ fn prepare_bgi_runtime_process(
     loader: &vine_core::LoaderIngressReport,
     materialization: &vine_core::ImageMaterialization,
     runtime_catalog: &RuntimeExportCatalog,
+    clock_profile: Option<vine_core::RuntimeClockProfile>,
 ) -> Result<BgiRuntimeProcess, String> {
-    let mut runtime = controlled_bgi_runtime_state()?;
+    let mut runtime = controlled_bgi_runtime_state(clock_profile)?;
     let mut module_handles = vec![BGI_KERNEL32_HANDLE];
     let mut canonical_modules = BTreeSet::from(["kernel32.dll".to_owned()]);
     let mut next_module_slot = 2_u16;
@@ -3195,7 +3205,9 @@ fn prepare_bgi_runtime_process(
     })
 }
 
-fn controlled_bgi_runtime_state() -> Result<RuntimeState, String> {
+fn controlled_bgi_runtime_state(
+    clock_profile: Option<vine_core::RuntimeClockProfile>,
+) -> Result<RuntimeState, String> {
     let mut startup_info = vec![0; 68];
     startup_info[..4].copy_from_slice(&68_u32.to_le_bytes());
     let mut runtime = RuntimeState::new(RuntimeBootstrap {
@@ -3227,6 +3239,11 @@ fn controlled_bgi_runtime_state() -> Result<RuntimeState, String> {
         encoded_pointer_token_prefix: 0xec01_0000,
     })
     .map_err(error_string)?;
+    if let Some(clock_profile) = clock_profile {
+        runtime
+            .configure_clock_profile(clock_profile)
+            .map_err(error_string)?;
+    }
     runtime
         .load_module(RuntimeModule {
             owner: "runtime-loaded-modules".to_owned(),
@@ -3602,6 +3619,12 @@ fn callback_argument(name: &str) -> ApiArgumentSchema {
 }
 
 fn controlled_runtime_state() -> Result<RuntimeState, String> {
+    controlled_runtime_state_with_clock_profile(None)
+}
+
+fn controlled_runtime_state_with_clock_profile(
+    clock_profile: Option<vine_core::RuntimeClockProfile>,
+) -> Result<RuntimeState, String> {
     let mut startup_info = vec![0; 68];
     startup_info[..4].copy_from_slice(&68_u32.to_le_bytes());
     let mut runtime = RuntimeState::new(RuntimeBootstrap {
@@ -3633,6 +3656,11 @@ fn controlled_runtime_state() -> Result<RuntimeState, String> {
         encoded_pointer_token_prefix: 0xec02_0000,
     })
     .map_err(error_string)?;
+    if let Some(clock_profile) = clock_profile {
+        runtime
+            .configure_clock_profile(clock_profile)
+            .map_err(error_string)?;
+    }
     runtime.start_initial_thread().map_err(error_string)?;
     Ok(runtime)
 }

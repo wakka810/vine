@@ -51,8 +51,8 @@ waited object:       second-thread object
 
 ## Bounded waitable-timer completion
 
-Reached `WaitForSingleObjectEx(handle, 10, TRUE)`は、`RuntimeTimers`のlogical 100 ns clock、
-exact arm generation、`RuntimeObjectTable`のwait state、`RuntimeWaits`のregistration、
+Reached `WaitForSingleObjectEx(handle, 10, TRUE)`は、`RuntimeProcessState`内のshared logical
+100 ns clock、`RuntimeTimers`のexact arm generation、`RuntimeObjectTable`のwait state、`RuntimeWaits`のregistration、
 `RuntimeScheduler`のlane transitionを一つのbounded transactionとして扱う。Registrationは従来の
 thread／object／handle identityにoptional timeout deadlineとalertable flagを加える。
 

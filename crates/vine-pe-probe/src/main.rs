@@ -289,6 +289,12 @@ struct GenericRuntimeProcess {
     attach_order: Vec<RuntimeModuleId>,
 }
 
+struct GenericRuntimeProfiles {
+    source_manifest: Option<RuntimeSourceSnapshotManifest>,
+    writable_profile: Option<RuntimeWritableProfileManifest>,
+    clock_profile: Option<vine_core::RuntimeClockProfile>,
+}
+
 struct RuntimeFrame {
     kind: u32,
     control: Vec<u8>,
@@ -2693,8 +2699,13 @@ fn run_v86_reflection_session(
             &materialization,
             &runtime_catalog,
             &declared_catalog,
-            source_manifest,
-            writable_profile,
+            GenericRuntimeProfiles {
+                source_manifest,
+                writable_profile,
+                clock_profile: kernel32_policy
+                    .as_ref()
+                    .and_then(|policy| policy.clock_profile().cloned()),
+            },
         )?;
         generic_runtime = Some(runtime);
         evidence_binding
@@ -3301,16 +3312,15 @@ fn prepare_generic_runtime_process(
     materialization: &ImageMaterialization,
     runtime_catalog: &RuntimeExportCatalog,
     declared_catalog: &RuntimeExportCatalog,
-    source_manifest: Option<RuntimeSourceSnapshotManifest>,
-    writable_profile: Option<RuntimeWritableProfileManifest>,
+    profiles: GenericRuntimeProfiles,
 ) -> Result<(GenericRuntimeProcess, ImportBinding), LoaderError> {
-    let mut runtime = controlled_runtime_state(&[])?;
-    if let Some(source_manifest) = source_manifest {
+    let mut runtime = controlled_runtime_state_with_clock_profile(&[], profiles.clock_profile)?;
+    if let Some(source_manifest) = profiles.source_manifest {
         runtime
             .register_source_snapshot(source_manifest)
             .map_err(runtime_state_error)?;
     }
-    if let Some(writable_profile) = writable_profile {
+    if let Some(writable_profile) = profiles.writable_profile {
         runtime
             .register_writable_profile(writable_profile)
             .map_err(runtime_state_error)?;
@@ -6299,48 +6309,51 @@ fn run_v86_generic_runtime_session(
                         } else {
                             None
                         };
-                        let tick_count =
-                            if completion.implementation_id == "kernel32.get-tick-count.v1" {
-                                kernel32_policy
-                                    .tick_count_increment_per_read()
-                                    .map(|increment_per_read| {
-                                        let returned_tick_count = set_eax_result(
-                                            &completion,
-                                            "tick-count-return-register-invalid",
-                                            "GetTickCount dispatcher did not set EAX",
-                                        )?;
-                                        Ok(GenericRuntimeTickCount {
-                                            returned_tick_count,
-                                            next_tick_count: session.runtime().clock().tick_count,
-                                            increment_per_read,
-                                        })
+                        let api_read_clock = session.runtime().clock_profile().progression
+                            == vine_core::RuntimeClockProgression::ApiReadIncrement;
+                        let tick_count = if !api_read_clock {
+                            None
+                        } else if completion.implementation_id == "kernel32.get-tick-count.v1" {
+                            kernel32_policy
+                                .tick_count_increment_per_read()
+                                .map(|increment_per_read| {
+                                    let returned_tick_count = set_eax_result(
+                                        &completion,
+                                        "tick-count-return-register-invalid",
+                                        "GetTickCount dispatcher did not set EAX",
+                                    )?;
+                                    Ok(GenericRuntimeTickCount {
+                                        returned_tick_count,
+                                        next_tick_count: session.runtime().clock().tick_count,
+                                        increment_per_read,
                                     })
-                                    .transpose()?
-                            } else if completion.implementation_id == TIME_GET_TIME_IMPLEMENTATION {
-                                let increment_per_read = winmm_policy
-                                    .time_get_time
-                                    .as_ref()
-                                    .ok_or_else(|| {
-                                        LoaderError::runtime_defect(
-                                            "runtime-reentry",
-                                            "time-get-time-policy-missing-after-dispatch",
-                                            "completed timeGetTime has no multimedia clock policy",
-                                        )
-                                    })?
-                                    .increment_per_read;
-                                let returned_tick_count = set_eax_result(
-                                    &completion,
-                                    "time-get-time-return-register-invalid",
-                                    "timeGetTime dispatcher did not set EAX",
-                                )?;
-                                Some(GenericRuntimeTickCount {
-                                    returned_tick_count,
-                                    next_tick_count: session.runtime().clock().tick_count,
-                                    increment_per_read,
                                 })
-                            } else {
-                                None
-                            };
+                                .transpose()?
+                        } else if completion.implementation_id == TIME_GET_TIME_IMPLEMENTATION {
+                            let increment_per_read = winmm_policy
+                                .time_get_time
+                                .as_ref()
+                                .ok_or_else(|| {
+                                    LoaderError::runtime_defect(
+                                        "runtime-reentry",
+                                        "time-get-time-policy-missing-after-dispatch",
+                                        "completed timeGetTime has no multimedia clock policy",
+                                    )
+                                })?
+                                .increment_per_read;
+                            let returned_tick_count = set_eax_result(
+                                &completion,
+                                "time-get-time-return-register-invalid",
+                                "timeGetTime dispatcher did not set EAX",
+                            )?;
+                            Some(GenericRuntimeTickCount {
+                                returned_tick_count,
+                                next_tick_count: session.runtime().clock().tick_count,
+                                increment_per_read,
+                            })
+                        } else {
+                            None
+                        };
                         let com_apartment =
                             if completion.implementation_id == "ole32.co-initialize.v1" {
                                 session
@@ -12557,6 +12570,13 @@ fn run_v86_encode_pointer_second_return_session(
 fn controlled_runtime_state(
     dynamic_export_thunks: &[DynamicExportThunk],
 ) -> Result<RuntimeState, LoaderError> {
+    controlled_runtime_state_with_clock_profile(dynamic_export_thunks, None)
+}
+
+fn controlled_runtime_state_with_clock_profile(
+    dynamic_export_thunks: &[DynamicExportThunk],
+    clock_profile: Option<vine_core::RuntimeClockProfile>,
+) -> Result<RuntimeState, LoaderError> {
     const PROCESS_ID: u32 = 4096;
     const INITIAL_THREAD_ID: u32 = 8192;
     const INITIAL_LAST_ERROR: u32 = 87;
@@ -12596,6 +12616,11 @@ fn controlled_runtime_state(
         encoded_pointer_token_prefix: ENCODED_POINTER_TOKEN_PREFIX,
     })
     .map_err(runtime_state_error)?;
+    if let Some(clock_profile) = clock_profile {
+        runtime
+            .configure_clock_profile(clock_profile)
+            .map_err(runtime_state_error)?;
+    }
     let kernel32_handle = X86LogicalLoadedModuleHandle::kernel32();
     runtime
         .load_module(RuntimeModule {

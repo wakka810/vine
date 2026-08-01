@@ -22,7 +22,7 @@ Compatibility policy
   versioned selectors, file types, bounded HeapAlloc allocator／HeapFree／HeapSize variants, process-view/code-page/current-directory/mutex/waitable-timer/runtime-system-module enablement
   measured InitializeCriticalSection raw spin-state field
   explicit processor-feature presence
-  virtual process affinity mask, deterministic tick-count progression, and ANSI OS-version profile
+  virtual process affinity mask, deterministic clock-profile selection, and ANSI OS-version profile
   bounded validation and mutation-free unsupported result
                          |
                          v
@@ -62,7 +62,18 @@ runtime execution. It contains only target-independent bounded data:
 - explicit processor-feature index and presence mappings;
 - an optional nonzero virtual process affinity mask;
 - an optional size-versioned ANSI OS-version profile;
-- an optional bounded deterministic `GetTickCount` increment per read.
+- either optional bounded deterministic `GetTickCount`／QPC increments per read,
+  or the versioned `scheduled-shared-logical-deadline-v1` runtime clock profile.
+
+The scheduled clock profile is selected only before process start. It shares one
+Rust-owned logical elapsed timeline across wall FILETIME, `GetTickCount`,
+`timeGetTime`, QPC, waitable timers, window timers, and scheduler deadlines.
+Clock reads are pure; only an absolute scheduler/deadline commit advances time.
+Schema v2 rejects a scheduled profile combined with per-read tick or QPC
+increments. The standalone profile fixture is
+`fixtures/runtime-clock-profiles/scheduled-shared-logical-deadline-v1.json`;
+`kernel32-scheduled-shared-clock-v1.json` is the public policy selection. The
+active primary checkpoint remains on its legacy read-increment profile.
 
 Policy IDs are bounded ASCII. Entries are bounded and duplicate-free. Active
 schema v2 accepts `HeapAlloc` only when the flag is `0` or `HEAP_ZERO_MEMORY`.
@@ -121,6 +132,7 @@ band, and one callback-free runtime-system module catalog:
 | `kernel32-create-thread-v1` | stdin, stdout, stderr | preceding schema-v2 options + 1 MiB reserve／4 KiB commit, flags `0`／`CREATE_SUSPENDED`, maximum 256 threads | same bounded allocation/free/size variants |
 | `kernel32-get-file-attributes-a-v1` | stdin, stdout, stderr | preceding schema-v2 options + RuntimeFiles-only regular `0x20`／directory `0x30` projection | same bounded file／allocation variants |
 | `kernel32-create-directory-a-v1` | stdin, stdout, stderr | preceding schema-v2 options + one explicit writable-profile directory create variant; NULL security only | same bounded file／allocation variants |
+| `kernel32-scheduled-shared-clock-v1` | stdin | one pre-start scheduled shared logical clock profile; no per-read tick／QPC increment | flags `0`／`HEAP_ZERO_MEMORY`, nonzero sizes through 16 MiB |
 
 Unlisted selectors, file classifications, file access／share／creation／flags, overlapped reads, and high-DWORD size／seek variants remain unsupported. The handler
 reports API identity through its endpoint and a policy-specific reason before

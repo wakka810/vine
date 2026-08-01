@@ -12,11 +12,11 @@ use vine_core::{
     LoaderIngressReport, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
     ModuleSnapshot, PageProtection, Pe32Limits, PreparedGuestCallback, ProcessAddressSpaceLayout,
     RUNTIME_MENU_HANDLE_BASE, RUNTIME_PRIMARY_MONITOR_HANDLE, ReentrancyPolicy, RegisterUpdate,
-    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeCurrentDirectoryA,
-    RuntimeCursorSource, RuntimeDeviceContextTarget, RuntimeDisplayProfile,
-    RuntimeGuestCallbackSemanticAction, RuntimeImeStatusWindowRequest, RuntimeInputProfile,
-    RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind, RuntimeMessageSource,
-    RuntimeModule, RuntimePointerButton, RuntimePointerButtonSourceEvent,
+    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockProfile, RuntimeClockState,
+    RuntimeCurrentDirectoryA, RuntimeCursorSource, RuntimeDeviceContextTarget,
+    RuntimeDisplayProfile, RuntimeGuestCallbackSemanticAction, RuntimeImeStatusWindowRequest,
+    RuntimeInputProfile, RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind,
+    RuntimeMessageSource, RuntimeModule, RuntimePointerButton, RuntimePointerButtonSourceEvent,
     RuntimePointerButtonSourceEventKind, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect,
     RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
     RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
@@ -1250,6 +1250,17 @@ impl RegisterClassFixture {
     }
 
     fn with_display(configure_display: bool) -> Self {
+        Self::with_display_and_clock(configure_display, None)
+    }
+
+    fn with_scheduled_shared_clock() -> Self {
+        Self::with_display_and_clock(true, Some(RuntimeClockProfile::scheduled_shared_v1()))
+    }
+
+    fn with_display_and_clock(
+        configure_display: bool,
+        clock_profile: Option<RuntimeClockProfile>,
+    ) -> Self {
         let bytes = icon_fixture_bytes();
         let mut memory = GuestMemory::new(MemoryLimits {
             max_physical_pages: 11,
@@ -1582,7 +1593,7 @@ impl RegisterClassFixture {
             .acknowledge_delta(reflection.invalidation.generation)
             .expect("acknowledge class reflection");
 
-        let mut runtime = controlled_runtime();
+        let mut runtime = controlled_runtime_with_clock_profile(clock_profile);
         runtime
             .register_main_module(RuntimeModule {
                 owner: "user32-class-test".to_owned(),
@@ -5118,7 +5129,7 @@ fn peek_message_a_preserves_empty_output_and_commits_remove_with_guest_write_ato
 
 #[test]
 fn due_window_timer_materializes_once_and_dispatches_timerproc_on_the_owner_thread() {
-    let mut fixture = RegisterClassFixture::new();
+    let mut fixture = RegisterClassFixture::with_scheduled_shared_clock();
     let (window_handle, _) = fixture.prepare_created_window_and_small_icon();
     let callback = fixture.window_procedure;
     let sentinel = 0x55aa_1234;
@@ -5194,6 +5205,7 @@ fn due_window_timer_materializes_once_and_dispatches_timerproc_on_the_owner_thre
         .collect::<Vec<_>>();
     assert_eq!(message_words.len(), 7);
     assert_eq!(&message_words[..4], &[window_handle, 0x0113, 1, callback.0]);
+    assert_eq!(message_words[4], 3_600_020);
     assert_eq!(message_words[5], 960);
     assert_eq!(message_words[6], 540);
     assert!(
@@ -11084,6 +11096,12 @@ fn write_words(
 }
 
 fn controlled_runtime() -> RuntimeState {
+    controlled_runtime_with_clock_profile(None)
+}
+
+fn controlled_runtime_with_clock_profile(
+    clock_profile: Option<RuntimeClockProfile>,
+) -> RuntimeState {
     let mut startup = vec![0; 68];
     startup[..4].copy_from_slice(&68_u32.to_le_bytes());
     let mut runtime = RuntimeState::new(RuntimeBootstrap {
@@ -11115,6 +11133,11 @@ fn controlled_runtime() -> RuntimeState {
         encoded_pointer_token_prefix: 0xec01_0000,
     })
     .expect("runtime");
+    if let Some(clock_profile) = clock_profile {
+        runtime
+            .configure_clock_profile(clock_profile)
+            .expect("configure runtime clock profile");
+    }
     runtime
         .start_initial_thread()
         .expect("start initial thread");

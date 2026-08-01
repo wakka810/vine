@@ -336,8 +336,9 @@ commitする。Browser task timerはauthorityにならない。`KillTimer`、rep
 lifecycle gatewayである。
 
 WinMM `timeGetTime`のsampled DWORDはtimer subsystemへ複製しない。既存の
-`runtime/process.rs::RuntimeProcessState`がKernel32 `GetTickCount`と共有するtick datum、
-sample plan、wrapping commitを所有し、WinMM policyはbounded incrementだけを選ぶ。
+`runtime/process.rs::RuntimeProcessState`内のdedicated clock ownerがKernel32 `GetTickCount`と
+共有するtick projectionを所有する。Legacy profileではWinMM policyがbounded incrementを選び、
+scheduled shared profileではread自体は時計を進めない。
 Resolution request table、browser clock、host uptimeはこのprocess clockのauthorityではない。
 
 Waitable timerのtyped handle／object ID／wait stateは`RuntimeObjectTable`が別authorityとして所有する。
@@ -354,7 +355,7 @@ stale／wrong-kind／capacity／lifetime validationが成功した後だけtarge
 periodic arm、APC completion、resumeはpolicyでmutation前に拒否する。Stored intervalはlogical stateであり、
 browser deadlineではない。詳細は[bgi-set-waitable-timer.md](bgi-set-waitable-timer.md)を正とする。
 
-Reached `WaitForSingleObjectEx` profileでは`RuntimeTimers`のlogical clock／exact arm expiration、
+Reached `WaitForSingleObjectEx` profileではprocess-owned logical clock、`RuntimeTimers`のexact arm expiration、
 `RuntimeObjectTable`のmanual-reset signal、`RuntimeWaits`のdeadline／alertable registration、
 `RuntimeScheduler`のrequest／lane transitionをaggregateが全件preflightする。0..10 msのtimer-only finite
 waitは、zero／already-signaledなら同期完了し、positive delayならversioned
@@ -381,27 +382,45 @@ host Windows version state. Details are in
 
 clock を browser の複数時刻源へ分散させない。
 
-- monotonic guest clock: performance counter、timer、sleep、scheduler の基準
+- scheduled guest elapsed time: performance counter、timer、sleep、scheduler、date/time projectionの基準
 - audio sample clock: 音声 consume の実測。drift correction の観測源
-- wall clock: date/time API 用。test では固定可能
 - frame clock: presentation cadence。guest clock を勝手に進めない
 
 background tab、debugger pause、audio suspend 後に catch-up するか freeze するかは title profile ではなく runtime policy として決め、trace に記録する。
+
+`scheduled-shared-logical-deadline-v1`は、bootstrap時のwall FILETIME、DWORD tick、QPC、
+QPC frequencyをepochとし、`RuntimeProcessState`内のprivate `RuntimeClock`が一つのabsolute
+elapsed value（100 ns単位）とgenerationを所有する。Scheduler／wait transactionだけが
+mutation-free absolute-target planを作り、全ownerのpreflight後にcommitする。API readはpure sampleであり、
+呼出回数、Worker slice、instruction countでは進行しない。各Windows projectionは次で固定する。
+
+```text
+wall FILETIME = epoch wall + elapsed100ns
+DWORD tick    = epoch tick + floor(elapsed100ns / 10,000)  (mod 2^32)
+QPC           = epoch QPC + floor(elapsed100ns * frequency / 10,000,000)
+timer time    = elapsed100ns
+```
+
+`RuntimeTimers`はwaitable／window timer identity、arm、deadline、deliveryだけを所有し、current timeを
+複製しない。Profileはprocess start前にversioned Kernel32 policyから一度だけ選択し、per-read tick／QPC
+incrementとは併用しない。現在のprimary evidenceは互換性のため`api-read-increment-v1`を継続し、
+alternate scheduled profileの選択だけではactive checkpointのexact valueを変更しない。
 
 WinMMのcapability queryとresolution requestもclock sourceそのものから分離する。
 WinMM capability queryのvirtual rangeはversioned Rust compatibility policyが所有し、queryは
 clockを進めずhost／browser granularityをimportしない。Resolution begin／end APIsは
 dedicated Rust timer-resolution ownerがperiod、request count、matching end、process teardownを
 plan／commitし、browser task timerやAudioContextをguest-visible request stateの代用にしない。
-Reached `timeGetTime`はKernel32 `GetTickCount`と同じprocess-owned tick counterを同じ
-plan／commitでsampleする。WinMM policyはcounterを所有せず、resolution requestはsample値を変更しない。
-現在のdeterministic incrementはcompatibility policyであり、host経過時間やbrowser millisecond精度の
-claimではない。
+Reached `timeGetTime`はKernel32 `GetTickCount`と同じprocess-owned tick projectionをsampleする。
+WinMM policyはclockを所有せず、resolution requestはsample値を変更しない。Legacy profileの
+deterministic incrementはcompatibility policyであり、host経過時間やbrowser millisecond精度のclaimではない。
+Scheduled profileでは両APIを何度読んでも同じscheduler timeの値を返す。
 
-Reached `QueryPerformanceFrequency`／`QueryPerformanceCounter`も同じprocess ownerの別datumを使う。
+Reached `QueryPerformanceFrequency`／`QueryPerformanceCounter`も同じprocess clock ownerを使う。
 Frequencyはkernel bootstrapでnonzeroを、frequency／counter双方はsigned `LARGE_INTEGER`範囲を検証する
 immutable process valueであり、counter progressionはrunning lifecycle、previous counter、nonzero policy increment、signed `LARGE_INTEGER`上限を含む
-mutation-free planからtargeted commitする。Compatibility policyはincrementだけを選び、host QPC、
+mutation-free planからtargeted commitする。Legacy compatibility policyはincrementを選び、scheduled
+profileは共有elapsed projectionを使う。どちらもhost QPC、
 browser `performance.now()`、Worker slice数、frame／audio clockをguest counterへimportしない。
 詳細は[generic-api-dispatcher.md](generic-api-dispatcher.md)と
 [runtime-process-thread-lifecycle.md](runtime-process-thread-lifecycle.md)を正とする。

@@ -34,11 +34,11 @@ use vine_core::{
     RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
     RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
     RUNTIME_STANDARD_OUTPUT_SELECTOR, RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, ReentrancyPolicy,
-    RegisterUpdate, RuntimeApiBoundaryDisposition, RuntimeBootstrap, RuntimeClockState,
-    RuntimeDynamicEndpoint, RuntimeHeap, RuntimeHeapAllocationId, RuntimeHeapInitialization,
-    RuntimeModule, RuntimeModuleLoadState, RuntimeModuleReferenceOwner, RuntimeObjectKind,
-    RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
-    RuntimeTlsValue, RuntimeWaitForSingleObjectExOutcome, RuntimeWaitState,
+    RegisterUpdate, RuntimeApiBoundaryDisposition, RuntimeBootstrap, RuntimeClockProfile,
+    RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHeap, RuntimeHeapAllocationId,
+    RuntimeHeapInitialization, RuntimeModule, RuntimeModuleLoadState, RuntimeModuleReferenceOwner,
+    RuntimeObjectKind, RuntimeProcessId, RuntimeSchedulerEvent, RuntimeStartupInfo, RuntimeState,
+    RuntimeThreadId, RuntimeTlsValue, RuntimeWaitForSingleObjectExOutcome, RuntimeWaitState,
     RuntimeWaitableTimerArm, RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId, Rva,
     SET_CURRENT_DIRECTORY_A_IMPLEMENTATION, SET_LAST_ERROR_IMPLEMENTATION,
     SET_THREAD_AFFINITY_MASK_IMPLEMENTATION, SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION,
@@ -617,6 +617,63 @@ fn query_performance_counter_advances_only_under_the_explicit_clock_policy() {
     ));
     assert_eq!(runtime, runtime_before_fault);
     assert_eq!(memory.stats(), memory_before_fault);
+}
+
+#[test]
+fn query_performance_counter_reads_scheduled_shared_clock_without_read_progression() {
+    let (mut memory, owner) = initialized_memory();
+    let (dispatcher, endpoints, frames) = dispatcher_fixture(&mut memory, owner);
+    let mut runtime = controlled_runtime_with_clock_profile(
+        controlled_startup_info(),
+        Some(RuntimeClockProfile::scheduled_shared_v1()),
+    );
+    let mut policy = Kernel32CompatibilityPolicy::controlled_v1();
+    policy.id = "kernel32-scheduled-shared-counter-test-v1".to_owned();
+    policy.performance_counter = Some(Kernel32PerformanceCounterPolicy {
+        increment_per_read: 10_000,
+    });
+    policy.validate().unwrap();
+
+    for _ in 0..2 {
+        let completion = dispatch_owned_with_policy(
+            &dispatcher,
+            &mut memory,
+            &mut runtime,
+            &endpoints[1],
+            frames[1].0,
+            frames[1].1[0],
+            &policy,
+        );
+        assert_eq!(completion.eax, RegisterUpdate::Set(1));
+        acknowledge_pending_delta(&mut memory);
+        assert_eq!(
+            memory.read(GuestAddress(OUTPUT_BASE), 8).unwrap(),
+            PERFORMANCE_COUNTER.to_le_bytes()
+        );
+    }
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 0);
+    assert_eq!(runtime.clock().performance_counter, PERFORMANCE_COUNTER);
+
+    runtime.advance_scheduled_clock_to(25_000).unwrap();
+    let completion = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[1],
+        frames[1].0,
+        frames[1].1[0],
+        &policy,
+    );
+    assert_eq!(completion.eax, RegisterUpdate::Set(1));
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory.read(GuestAddress(OUTPUT_BASE), 8).unwrap(),
+        (PERFORMANCE_COUNTER + 25_000).to_le_bytes()
+    );
+    assert_eq!(
+        runtime.clock().performance_counter,
+        PERFORMANCE_COUNTER + 25_000
+    );
 }
 
 #[test]
@@ -8647,6 +8704,83 @@ fn initialize_critical_section_uses_policy_owned_spin_state_and_void_abi() {
 }
 
 #[test]
+fn system_time_and_tick_count_share_scheduled_clock_without_read_progression() {
+    const MODULE_NAME_ADDRESS: u32 = OUTPUT_BASE + 0x200;
+    const EXPORT_NAME_ADDRESS: u32 = OUTPUT_BASE + 0x300;
+
+    let (mut memory, owner) = initialized_memory();
+    let (dispatcher, endpoints, frames) =
+        remaining_dispatcher_fixture(&mut memory, owner, MODULE_NAME_ADDRESS, EXPORT_NAME_ADDRESS);
+    let mut runtime = controlled_runtime_with_clock_profile(
+        controlled_startup_info(),
+        Some(RuntimeClockProfile::scheduled_shared_v1()),
+    );
+    let mut policy = Kernel32CompatibilityPolicy::controlled_v1();
+    policy.id = "kernel32-scheduled-shared-clock-test-v1".to_owned();
+    policy.tick_count = Some(Kernel32TickCountPolicy {
+        increment_per_read: 1,
+    });
+    policy.validate().unwrap();
+
+    for _ in 0..2 {
+        let system_time = dispatch_owned_with_policy(
+            &dispatcher,
+            &mut memory,
+            &mut runtime,
+            &endpoints[0],
+            frames[0].0,
+            frames[0].1[0],
+            &policy,
+        );
+        assert_eq!(system_time.eax, RegisterUpdate::Preserve);
+        acknowledge_pending_delta(&mut memory);
+        assert_eq!(
+            memory.read(GuestAddress(OUTPUT_BASE), 8).unwrap(),
+            134_282_016_000_000_000_u64.to_le_bytes()
+        );
+        let tick_count = dispatch_owned_with_policy(
+            &dispatcher,
+            &mut memory,
+            &mut runtime,
+            &endpoints[2],
+            frames[2].0,
+            frames[2].1[0],
+            &policy,
+        );
+        assert_eq!(tick_count.eax, RegisterUpdate::Set(3_600_000));
+    }
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 0);
+
+    runtime.advance_scheduled_clock_to(25_000).unwrap();
+    let system_time = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[0],
+        frames[0].0,
+        frames[0].1[0],
+        &policy,
+    );
+    assert_eq!(system_time.eax, RegisterUpdate::Preserve);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory.read(GuestAddress(OUTPUT_BASE), 8).unwrap(),
+        134_282_016_000_025_000_u64.to_le_bytes()
+    );
+    let tick_count = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[2],
+        frames[2].0,
+        frames[2].1[0],
+        &policy,
+    );
+    assert_eq!(tick_count.eax, RegisterUpdate::Set(3_600_002));
+    assert_eq!(runtime.clock().tick_count, 3_600_002);
+}
+
+#[test]
 fn remaining_kernel32_calls_share_the_generic_dispatcher() {
     const MODULE_NAME_ADDRESS: u32 = OUTPUT_BASE + 0x200;
     const EXPORT_NAME_ADDRESS: u32 = OUTPUT_BASE + 0x300;
@@ -9782,6 +9916,13 @@ fn suspended_dispatcher_fixture(
 }
 
 fn controlled_runtime(startup_bytes: Vec<u8>) -> RuntimeState {
+    controlled_runtime_with_clock_profile(startup_bytes, None)
+}
+
+fn controlled_runtime_with_clock_profile(
+    startup_bytes: Vec<u8>,
+    clock_profile: Option<RuntimeClockProfile>,
+) -> RuntimeState {
     let mut runtime = RuntimeState::new(RuntimeBootstrap {
         process_id: RuntimeProcessId(PROCESS_ID),
         initial_thread_id: RuntimeThreadId(THREAD_ID),
@@ -9811,6 +9952,11 @@ fn controlled_runtime(startup_bytes: Vec<u8>) -> RuntimeState {
         encoded_pointer_token_prefix: 0xec01_0000,
     })
     .expect("runtime state");
+    if let Some(clock_profile) = clock_profile {
+        runtime
+            .configure_clock_profile(clock_profile)
+            .expect("configure controlled runtime clock profile");
+    }
     runtime
         .start_initial_thread()
         .expect("start controlled initial thread");

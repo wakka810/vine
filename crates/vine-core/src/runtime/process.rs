@@ -8,6 +8,9 @@ use crate::environment::{
 };
 use crate::memory::GuestAddress;
 
+use super::clock::{
+    RuntimeClock, RuntimeClockAdvancePlan, RuntimeClockProfile, RuntimeClockProfilePlan,
+};
 use super::{
     ProcessAddressAllocationId, ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
     RuntimeAddressRange, RuntimeCancellation, RuntimeStateError, RuntimeThreadId,
@@ -33,15 +36,6 @@ const RUNTIME_STANDARD_ERROR_VARIANT: &str = "standard-error-logical-v1";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
 pub struct RuntimeProcessId(pub u32);
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuntimeClockState {
-    pub wall_clock_file_time: u64,
-    pub tick_count: u32,
-    pub performance_counter: u64,
-    pub performance_frequency: u64,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -145,7 +139,7 @@ pub struct RuntimeProcessState {
     id: RuntimeProcessId,
     lifecycle: RuntimeProcessLifecycleState,
     address_space: ProcessAddressSpaceLayout,
-    clock: RuntimeClockState,
+    clock: RuntimeClock,
     startup_info: RuntimeStartupInfo,
     image_path_a: RuntimeProcessImagePathA,
     #[serde(flatten)]
@@ -197,17 +191,13 @@ pub(super) struct RuntimeProcessMutationPlan {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RuntimeTickCountSamplePlan {
     previous_lifecycle: RuntimeProcessLifecycleState,
-    previous_tick_count: u32,
-    returned_tick_count: u32,
-    next_tick_count: u32,
+    clock: super::clock::RuntimeTickCountSamplePlan,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RuntimePerformanceCounterSamplePlan {
     previous_lifecycle: RuntimeProcessLifecycleState,
-    previous_counter: u64,
-    returned_counter: u64,
-    next_counter: u64,
+    clock: super::clock::RuntimePerformanceCounterSamplePlan,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -332,7 +322,7 @@ impl RuntimeProcessState {
     pub(super) fn new(
         id: RuntimeProcessId,
         address_space: ProcessAddressSpaceLayout,
-        clock: RuntimeClockState,
+        clock: super::RuntimeClockState,
         startup_info: RuntimeStartupInfo,
         image_path_a: RuntimeProcessImagePathA,
         directories: RuntimeProcessDirectories,
@@ -341,7 +331,7 @@ impl RuntimeProcessState {
             id,
             lifecycle: RuntimeProcessLifecycleState::Bootstrapping,
             address_space,
-            clock,
+            clock: RuntimeClock::new(clock).expect("validated runtime clock bootstrap"),
             startup_info,
             image_path_a,
             directories,
@@ -364,8 +354,69 @@ impl RuntimeProcessState {
         self.address_space
     }
 
-    pub fn clock(&self) -> &RuntimeClockState {
-        &self.clock
+    pub fn clock(&self) -> &super::RuntimeClockState {
+        self.clock.state()
+    }
+
+    pub fn clock_profile(&self) -> &RuntimeClockProfile {
+        self.clock.profile()
+    }
+
+    pub fn uses_scheduled_shared_clock(&self) -> bool {
+        self.clock.uses_scheduled_shared_progression()
+    }
+
+    pub fn timer_clock_state(&self) -> super::RuntimeTimerClockState {
+        self.clock.timer_state()
+    }
+
+    pub(super) fn plan_clock_profile_configuration(
+        &self,
+        profile: RuntimeClockProfile,
+    ) -> Result<RuntimeClockProfilePlan, RuntimeStateError> {
+        if self.lifecycle != RuntimeProcessLifecycleState::Bootstrapping {
+            return Err(RuntimeStateError::conflict(
+                "runtime-clock",
+                "clock-profile-process-state-invalid",
+                "runtime clock profile selection requires a bootstrapping process",
+            ));
+        }
+        self.clock.plan_profile_configuration(profile)
+    }
+
+    pub(super) fn commit_clock_profile_configuration(
+        &mut self,
+        plan: RuntimeClockProfilePlan,
+    ) -> Result<&RuntimeClockProfile, RuntimeStateError> {
+        if self.lifecycle != RuntimeProcessLifecycleState::Bootstrapping {
+            return Err(RuntimeStateError::conflict(
+                "runtime-clock",
+                "clock-profile-process-state-invalid",
+                "runtime clock profile selection requires a bootstrapping process",
+            ));
+        }
+        self.clock.commit_profile_configuration(plan)
+    }
+
+    pub(super) fn plan_clock_advance(
+        &self,
+        target_time_100ns: u64,
+    ) -> Result<RuntimeClockAdvancePlan, RuntimeStateError> {
+        self.clock.plan_advance(target_time_100ns)
+    }
+
+    pub(super) fn preflight_clock_advance(
+        &self,
+        plan: &RuntimeClockAdvancePlan,
+    ) -> Result<(), RuntimeStateError> {
+        self.clock.preflight_advance(plan)
+    }
+
+    pub(super) fn commit_clock_advance(
+        &mut self,
+        plan: RuntimeClockAdvancePlan,
+    ) -> Result<super::RuntimeTimerClockState, RuntimeStateError> {
+        self.clock.commit_advance(plan)
     }
 
     pub(super) fn plan_tick_count_sample(
@@ -379,18 +430,9 @@ impl RuntimeProcessState {
                 "tick-count sampling requires a running process",
             ));
         }
-        if increment_per_read == 0 {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-process-clock",
-                "tick-count-increment-zero",
-                "advancing tick-count sampling requires a nonzero increment",
-            ));
-        }
         Ok(RuntimeTickCountSamplePlan {
             previous_lifecycle: self.lifecycle,
-            previous_tick_count: self.clock.tick_count,
-            returned_tick_count: self.clock.tick_count,
-            next_tick_count: self.clock.tick_count.wrapping_add(increment_per_read),
+            clock: self.clock.plan_tick_count_sample(increment_per_read)?,
         })
     }
 
@@ -398,17 +440,14 @@ impl RuntimeProcessState {
         &mut self,
         plan: RuntimeTickCountSamplePlan,
     ) -> Result<u32, RuntimeStateError> {
-        if self.lifecycle != plan.previous_lifecycle
-            || self.clock.tick_count != plan.previous_tick_count
-        {
+        if self.lifecycle != plan.previous_lifecycle {
             return Err(RuntimeStateError::conflict(
                 "runtime-process-clock",
                 "tick-count-sample-plan-stale",
                 "process lifecycle or tick count changed after sampling preflight",
             ));
         }
-        self.clock.tick_count = plan.next_tick_count;
-        Ok(plan.returned_tick_count)
+        self.clock.commit_tick_count_sample(plan.clock)
     }
 
     pub(super) fn plan_performance_counter_sample(
@@ -422,30 +461,11 @@ impl RuntimeProcessState {
                 "performance-counter sampling requires a running process",
             ));
         }
-        if increment_per_read == 0 {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-process-clock",
-                "performance-counter-increment-zero",
-                "advancing performance-counter sampling requires a nonzero increment",
-            ));
-        }
-        let next_counter = self
-            .clock
-            .performance_counter
-            .checked_add(increment_per_read)
-            .filter(|next| *next <= i64::MAX as u64)
-            .ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-process-clock",
-                    "performance-counter-range-exhausted",
-                    "performance-counter sampling exceeded the nonnegative LARGE_INTEGER range",
-                )
-            })?;
         Ok(RuntimePerformanceCounterSamplePlan {
             previous_lifecycle: self.lifecycle,
-            previous_counter: self.clock.performance_counter,
-            returned_counter: self.clock.performance_counter,
-            next_counter,
+            clock: self
+                .clock
+                .plan_performance_counter_sample(increment_per_read)?,
         })
     }
 
@@ -453,17 +473,14 @@ impl RuntimeProcessState {
         &mut self,
         plan: RuntimePerformanceCounterSamplePlan,
     ) -> Result<u64, RuntimeStateError> {
-        if self.lifecycle != plan.previous_lifecycle
-            || self.clock.performance_counter != plan.previous_counter
-        {
+        if self.lifecycle != plan.previous_lifecycle {
             return Err(RuntimeStateError::conflict(
                 "runtime-process-clock",
                 "performance-counter-sample-plan-stale",
                 "process lifecycle or performance counter changed after sampling preflight",
             ));
         }
-        self.clock.performance_counter = plan.next_counter;
-        Ok(plan.returned_counter)
+        self.clock.commit_performance_counter_sample(plan.clock)
     }
 
     pub fn startup_info(&self) -> &RuntimeStartupInfo {
@@ -1325,6 +1342,7 @@ const fn ranges_overlap(left_start: u64, left_end: u64, right_start: u64, right_
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::RuntimeClockState;
 
     fn current_directory(bytes: &[u8]) -> RuntimeCurrentDirectoryA {
         RuntimeCurrentDirectoryA {
@@ -1387,7 +1405,7 @@ mod tests {
         );
         assert_eq!(process.clock().tick_count, 5);
 
-        process.clock.tick_count = u32::MAX;
+        process.clock.set_tick_count_for_test(u32::MAX);
         let wrapping = process.plan_tick_count_sample(1).unwrap();
         assert_eq!(process.commit_tick_count_sample(wrapping), Ok(u32::MAX));
         assert_eq!(process.clock().tick_count, 0);
@@ -1435,7 +1453,9 @@ mod tests {
         );
         assert_eq!(process.clock().performance_counter, 12);
 
-        process.clock.performance_counter = i64::MAX as u64;
+        process
+            .clock
+            .set_performance_counter_for_test(i64::MAX as u64);
         let before_exhaustion = process.clone();
         assert_eq!(
             process.plan_performance_counter_sample(1).unwrap_err().code,
@@ -1443,7 +1463,7 @@ mod tests {
         );
         assert_eq!(process, before_exhaustion);
 
-        process.clock.performance_counter = 20;
+        process.clock.set_performance_counter_for_test(20);
         let stale_lifecycle = process.plan_performance_counter_sample(4).unwrap();
         let exit = process
             .plan_exit_request(RuntimeThreadId(0x2000), 7)

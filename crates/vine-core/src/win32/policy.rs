@@ -7,7 +7,8 @@ use crate::runtime::{
     RUNTIME_GUEST_THREAD_LIMIT, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
     RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE, RUNTIME_SOURCE_READ_MAX_BYTES,
     RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_SELECTOR,
-    RUNTIME_STANDARD_OUTPUT_SELECTOR, RuntimeThreadPriority,
+    RUNTIME_STANDARD_OUTPUT_SELECTOR, RuntimeClockProfile, RuntimeClockProgression,
+    RuntimeThreadPriority,
 };
 
 pub const KERNEL32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.kernel32-compatibility-policy";
@@ -28,6 +29,8 @@ pub struct Kernel32CompatibilityPolicy {
     pub schema: String,
     pub schema_version: u32,
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clock_profile: Option<RuntimeClockProfile>,
     pub standard_handle_selectors: Vec<u32>,
     pub standard_handle_file_types: Vec<Kernel32StandardHandleFileType>,
     #[serde(default)]
@@ -368,6 +371,7 @@ impl Kernel32CompatibilityPolicy {
             schema: KERNEL32_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: KERNEL32_COMPATIBILITY_POLICY_LEGACY_VERSION,
             id: "kernel32-controlled-v1".to_owned(),
+            clock_profile: None,
             standard_handle_selectors: vec![RUNTIME_STANDARD_INPUT_SELECTOR],
             standard_handle_file_types: vec![Kernel32StandardHandleFileType {
                 selector: RUNTIME_STANDARD_INPUT_SELECTOR,
@@ -434,6 +438,18 @@ impl Kernel32CompatibilityPolicy {
             return Err(policy_error(
                 "kernel32-policy-id-invalid",
                 "Kernel32 compatibility policy ID must be bounded nonempty ASCII",
+            ));
+        }
+        if let Some(clock_profile) = self.clock_profile.as_ref()
+            && (self.schema_version != KERNEL32_COMPATIBILITY_POLICY_VERSION
+                || clock_profile.validate().is_err()
+                || clock_profile.progression != RuntimeClockProgression::ScheduledShared
+                || self.tick_count.is_some()
+                || self.performance_counter.is_some())
+        {
+            return Err(policy_error(
+                "kernel32-policy-clock-profile-invalid",
+                "runtime clock selection requires schema v2, one validated scheduled shared profile, and no per-read clock increments",
             ));
         }
         if self.standard_handle_selectors.is_empty()
@@ -1135,6 +1151,10 @@ impl Kernel32CompatibilityPolicy {
         self.tick_count.map(|clock| clock.increment_per_read)
     }
 
+    pub fn clock_profile(&self) -> Option<&RuntimeClockProfile> {
+        self.clock_profile.as_ref()
+    }
+
     pub fn performance_counter_increment_per_read(&self) -> Option<u64> {
         self.performance_counter
             .map(|clock| clock.increment_per_read)
@@ -1303,6 +1323,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn scheduled_shared_clock_fixture_selects_one_runtime_profile() {
+        let policy: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+            "../../../../fixtures/runtime-policies/kernel32-scheduled-shared-clock-v1.json"
+        ))
+        .unwrap();
+        policy.validate().unwrap();
+        assert_eq!(
+            policy.clock_profile(),
+            Some(&RuntimeClockProfile::scheduled_shared_v1())
+        );
+        assert_eq!(policy.tick_count_increment_per_read(), None);
+        assert_eq!(policy.performance_counter_increment_per_read(), None);
+
+        let mut mixed_progression = policy;
+        mixed_progression.tick_count = Some(Kernel32TickCountPolicy {
+            increment_per_read: 1,
+        });
+        assert_eq!(
+            mixed_progression.validate().unwrap_err().code,
+            "kernel32-policy-clock-profile-invalid"
+        );
+    }
+
+    #[test]
     fn validates_bounded_policy_without_target_evidence_identity() {
         let policy = Kernel32CompatibilityPolicy::controlled_v1();
         policy.validate().unwrap();
@@ -1329,6 +1373,7 @@ mod tests {
         assert_eq!(policy.thread_affinity_process_mask(), None);
         assert_eq!(policy.system_info(), None);
         assert!(policy.os_version_info_a().is_none());
+        assert!(policy.clock_profile().is_none());
         assert_eq!(policy.tick_count_increment_per_read(), None);
         assert_eq!(policy.performance_counter_increment_per_read(), None);
 
@@ -1355,6 +1400,19 @@ mod tests {
         });
         affinity.validate().unwrap();
         assert_eq!(affinity.system_info().unwrap().processor_level, 6);
+        affinity.clock_profile = Some(RuntimeClockProfile::scheduled_shared_v1());
+        affinity.validate().unwrap();
+        assert_eq!(
+            affinity.clock_profile(),
+            Some(&RuntimeClockProfile::scheduled_shared_v1())
+        );
+        let mut invalid_clock_profile = affinity.clone();
+        invalid_clock_profile.clock_profile = Some(RuntimeClockProfile::api_read_increment_v1());
+        assert_eq!(
+            invalid_clock_profile.validate().unwrap_err().code,
+            "kernel32-policy-clock-profile-invalid"
+        );
+        affinity.clock_profile = None;
         affinity.system_info.as_mut().unwrap().page_size = 8_192;
         assert_eq!(
             affinity.validate().unwrap_err().code,

@@ -20,8 +20,8 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
 | Next structured stop | `user32-peek-message-a-post-window-timer-callback-continuation` observed the authoritative current-thread queue remain empty after TIMERPROC frame 35, returned FALSE without guest writes, and preserved the prior WM_TIMER MSG32 bytes at sequence 162087 / instruction 321469064; verification stopped at the next `WINMM.dll!timeGetTime` on instruction 321469098 (`user32-peek-message-a-post-window-timer-callback-continuation-checkpoint-complete`) |
 
-The active semantic report is 3,067,477 bytes with SHA-256
-`c1aed45be6cc3c8916f191702de9c1a4e9df07f6a459f4b5fec02a5e72b2e203`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 3,067,485 bytes with SHA-256
+`97d38d195bac41d0559c7debd861f44681b3d9937bb035ad56cccc7bdb8811f5`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

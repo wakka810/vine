@@ -3199,8 +3199,8 @@
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 5203443,
-      "sha256": "fc8bf7f225814f6457e42e50bc565afe74565905b251582c57af6f9552cce287"
+      "bytes": 5228313,
+      "sha256": "5edb906f7f1202633f88b965123ce35a9b8b3bbd9f59d8f506c9615e04f6eb41"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -3232,5 +3232,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "18b5a9203fa174998a29068aa0a75f7622536803cdc5a5133e804c28e0927088"
+  "payloadSha256": "b0cf86ee00ff17e44a4ea55ec4c432d4d447ad74474b8d5f710c0c8c4d48203b"
 }

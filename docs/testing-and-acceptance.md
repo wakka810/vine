@@ -988,6 +988,16 @@ ordered semantics／memory／`MessageBoxA` stop、clean cancel／watchdog、unch
 importしない。詳細は[winmm-compatibility-policy.md](winmm-compatibility-policy.md)と
 [bgi-time-get-time.md](bgi-time-get-time.md)を正とする。
 
+Alternate `scheduled-shared-logical-deadline-v1` clock profileのacceptanceは、同じscheduler
+timeで`GetSystemTimeAsFileTime`、`GetTickCount`、`timeGetTime`、
+`QueryPerformanceCounter`を複数回読んでも値とclock generationが変化しないこと、absolute
+100 ns scheduler commit後に全projectionが同じelapsedから更新されること、waitable-timer deadlineへの
+jumpが同じclockを進めることを要求する。Owner testはprofile identity、pre-start one-shot selection、
+subresolution advance後のstale read plan、regression／range failureのmutation-free rejectionを固定する。
+Dispatcher testはwall／tick／QPC／WinMM readを固定し、既存public fixture E2Eはlegacy profileのsnapshotと
+Node／Chrome behaviorが不変であることを検査する。Audio sample clock、frame cadence、host／browser timeの
+guest authority化、active primary profileの切替はclaimしない。
+
 Heap reuse後に再到達した`timeGetTime` continuationは新しいWindows semanticsとして扱わず、
 同じ`winmm.time-get-time.v1` handlerと`RuntimeProcessState` clock authorityを要求する。
 Node／Chromeはreturned／next tickとpolicy increment、LastError preserve、zero guest write、
@@ -1457,7 +1467,7 @@ sentinel LastError preservation、hook／direct system call一致を要求する
 
 Owner testはlogical clock monotonicity、exact arm generation expiration、manual／auto reset、
 deadline-before-timeout／timeout-before-deadline、zero-time no-op、stale／duplicate plan rejectionを検査する。
-Cross-subsystem testはtimer clock、timer payload、typed-object wait state、wait registration、scheduler lane、
+Cross-subsystem testはprocess-owned timer clock、timer payload、typed-object wait state、wait registration、scheduler lane、
 host requestを全件preflightし、failure時にcollection／allocator／generationを保持することを要求する。
 Positive delayはversion 1の`runtime.timer-delay.v1` payloadへfull-width request／registration／timer／clock／arm
 identityを固定し、wrong ack、rearm、close、thread cancel、stale／duplicate completionをmutation-freeに拒否する。

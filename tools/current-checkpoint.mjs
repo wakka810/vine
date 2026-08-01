@@ -6323,7 +6323,7 @@ export function validateCurrentCheckpoint(manifest) {
     bgiBrowserEvidence.waitForSingleObjectExStateAuthority !==
       "runtime-timers-scheduler-and-typed-object-table" ||
     bgiBrowserEvidence.waitForSingleObjectExClockAuthority !==
-      "runtime-timers-logical-clock" ||
+      "runtime-process-shared-logical-clock" ||
     bgiBrowserEvidence.waitForSingleObjectExTimeoutMode !==
       "finite-zero-through-ten-milliseconds" ||
     bgiBrowserEvidence.waitForSingleObjectExAlertableAccepted !== true ||
@@ -15920,7 +15920,7 @@ export function validateCurrentCheckpoint(manifest) {
     latestEvidence.waitForSingleObjectExStateAuthority !==
       "runtime-timers-scheduler-and-typed-object-table" ||
     latestEvidence.waitForSingleObjectExClockAuthority !==
-      "runtime-timers-logical-clock" ||
+      "runtime-process-shared-logical-clock" ||
     latestEvidence.waitForSingleObjectExMutation !==
       "cross-owner-preflight-targeted-commit" ||
     latestEvidence.waitForSingleObjectExFailureAtomicity !== true ||
@@ -27565,20 +27565,20 @@ export function validateCurrentCheckpoint(manifest) {
             arguments: "",
             returnAddress: "0x10091ebf",
             stackPointer: "0x006ff904",
-            nodeReportBytes: 3_067_477,
+            nodeReportBytes: 3_067_485,
             nodeReportSha256:
-              "c1aed45be6cc3c8916f191702de9c1a4e9df07f6a459f4b5fec02a5e72b2e203",
-            browserReportBytes: 2_769_691,
+              "97d38d195bac41d0559c7debd861f44681b3d9937bb035ad56cccc7bdb8811f5",
+            browserReportBytes: 2_769_675,
             browserReportSha256:
-              "d258bea30ec76b94b346ebf51d9aac4ec59f434cd44178ac73b8246895b50add",
+              "da16dcd2b9594599d4b87b99a548231ba943a5f5f17ab7addebf29096e54cc0e",
             browserReportSchemaVersion: 67,
             browserRuntimeProtocol: "vine.browser-runtime-worker.v100",
             runtimeWorkerBytes: 1_026_196,
             runtimeWorkerSha256:
               "0b59e5c5a0833721d47b5a8a418bc6f9cdab5c081caa9cebce0037a820c007f7",
-            runtimeCoreWasmBytes: 5_203_443,
+            runtimeCoreWasmBytes: 5_228_313,
             runtimeCoreWasmSha256:
-              "fc8bf7f225814f6457e42e50bc565afe74565905b251582c57af6f9552cce287",
+              "5edb906f7f1202633f88b965123ce35a9b8b3bbd9f59d8f506c9615e04f6eb41",
             cpuSlices: 183_994,
             writebackBatches: 183_987,
             writebackPages: 282_716,

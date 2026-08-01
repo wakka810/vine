@@ -1,16 +1,108 @@
 use vine_core::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, ProcessAddressSpaceLayout,
     RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RUNTIME_WAITABLE_TIMER_PACING_SERVICE,
-    RuntimeBootstrap, RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeHandle,
-    RuntimeObjectKind, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo,
-    RuntimeState, RuntimeThreadId, RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin,
-    RuntimeWaitForSingleObjectExOutcome, RuntimeWaitState, RuntimeWaitableTimerArm,
-    RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId, SchedulerThreadState,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeBootstrap, RuntimeClockProfile, RuntimeClockState, RuntimeCurrentDirectoryA,
+    RuntimeHandle, RuntimeObjectKind, RuntimeProcessId, RuntimeProcessImagePathA,
+    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeWaitDisposition,
+    RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome, RuntimeWaitState,
+    RuntimeWaitableTimerArm, RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId,
+    SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 const PROCESS_ID: u32 = 4096;
 const THREAD_ID: RuntimeThreadId = RuntimeThreadId(8192);
+
+#[test]
+fn scheduled_shared_clock_advances_only_at_scheduler_commit_points() {
+    let mut runtime = runtime(false);
+    let selected = runtime
+        .configure_clock_profile(RuntimeClockProfile::scheduled_shared_v1())
+        .expect("select scheduled shared clock before process start");
+    assert_eq!(selected.id, "scheduled-shared-logical-deadline-v1");
+    runtime
+        .start_initial_thread()
+        .expect("start scheduled-clock fixture");
+    let before_late_profile_change = runtime.clone();
+    assert_eq!(
+        runtime
+            .configure_clock_profile(RuntimeClockProfile::scheduled_shared_v1())
+            .unwrap_err()
+            .code,
+        "clock-profile-process-state-invalid"
+    );
+    assert_eq!(runtime, before_late_profile_change);
+
+    for _ in 0..2 {
+        assert_eq!(runtime.sample_tick_count(1).unwrap(), 3_600_000);
+        assert_eq!(
+            runtime.sample_performance_counter(10_000).unwrap(),
+            12_345_678_901
+        );
+    }
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 0);
+    assert_eq!(
+        runtime.clock().wall_clock_file_time,
+        134_282_016_000_000_000
+    );
+
+    runtime
+        .advance_scheduled_clock_to(25_000)
+        .expect("commit one scheduler-selected absolute time");
+    assert_eq!(
+        runtime.clock().wall_clock_file_time,
+        134_282_016_000_025_000
+    );
+    assert_eq!(runtime.clock().tick_count, 3_600_002);
+    assert_eq!(runtime.clock().performance_counter, 12_345_703_901);
+    assert_eq!(runtime.sample_tick_count(1).unwrap(), 3_600_002);
+    assert_eq!(
+        runtime.sample_performance_counter(10_000).unwrap(),
+        12_345_703_901
+    );
+
+    let timer = runtime
+        .create_waitable_timer_a(true)
+        .expect("create logical-deadline driver");
+    runtime
+        .set_waitable_timer(timer.handle, 50_000)
+        .expect("arm after current shared time");
+    let waited = runtime
+        .wait_for_single_object_ex(timer.handle, 20, true)
+        .expect("scheduler jumps to the next logical deadline");
+    assert_eq!(waited.timer_clock_before.current_time_100ns, 25_000);
+    assert_eq!(waited.timer_clock_after.current_time_100ns, 75_000);
+    assert_eq!(
+        runtime.clock().wall_clock_file_time,
+        134_282_016_000_075_000
+    );
+    assert_eq!(runtime.clock().tick_count, 3_600_007);
+    assert_eq!(runtime.clock().performance_counter, 12_345_753_901);
+
+    let process_json = serde_json::to_value(runtime.process()).expect("serialize shared clock");
+    assert_eq!(
+        process_json["clockProfile"],
+        serde_json::json!({
+            "schema": "vine.runtime-clock-profile",
+            "schemaVersion": 1,
+            "id": "scheduled-shared-logical-deadline-v1",
+            "progression": "scheduled-shared",
+        })
+    );
+    assert_eq!(
+        process_json["timerClock"],
+        serde_json::json!({
+            "currentTime100ns": 75_000,
+            "generation": 2,
+        })
+    );
+
+    let before_regression = runtime.clone();
+    assert_eq!(
+        runtime.advance_scheduled_clock_to(74_999).unwrap_err().code,
+        "timer-clock-target-regressed"
+    );
+    assert_eq!(runtime, before_regression);
+}
 
 #[test]
 fn waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic() {
@@ -93,6 +185,7 @@ fn waitable_timer_identity_wait_state_close_and_process_teardown_are_atomic() {
     assert_eq!(runtime, before_zero_due_time);
 
     let process_json = serde_json::to_value(runtime.process()).expect("serialize process view");
+    assert!(process_json.get("clockProfile").is_none());
     assert_eq!(process_json["waitableTimers"]["1"]["manualReset"], true);
     assert_eq!(
         process_json["waitableTimers"]["1"]["arm"],

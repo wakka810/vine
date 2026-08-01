@@ -6,6 +6,7 @@
 
 mod address_space;
 mod audio;
+mod clock;
 mod com;
 mod displays;
 mod files;
@@ -52,6 +53,11 @@ pub(crate) use audio::{
     RuntimeAudioBufferCreateRequest, RuntimeAudioBufferFormatRequest,
     RuntimeAudioBufferLockRequest, RuntimeAudioBufferPlayRequest, RuntimeAudioBufferUnlockRequest,
     RuntimeAudioCooperativeLevelRequest, RuntimeAudioDeviceCreateRequest,
+};
+pub use clock::{
+    RUNTIME_CLOCK_PROFILE_SCHEMA, RUNTIME_CLOCK_PROFILE_VERSION,
+    RUNTIME_SCHEDULED_SHARED_CLOCK_PROFILE_ID, RuntimeClockProfile, RuntimeClockProgression,
+    RuntimeClockState, RuntimeTimerClockState,
 };
 pub use com::{
     RUNTIME_COM_IUNKNOWN_IID, RUNTIME_COM_MAX_INTERFACES_PER_OBJECT,
@@ -209,12 +215,11 @@ pub use process::{
     RUNTIME_PROCESS_IMAGE_PATH_A_MAX_BYTES, RUNTIME_STANDARD_ERROR_HANDLE,
     RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
     RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
-    RUNTIME_STANDARD_OUTPUT_SELECTOR, RuntimeClockState, RuntimeCommandLine,
-    RuntimeCurrentDirectoryA, RuntimeEnvironmentStringCopy, RuntimeEnvironmentStrings,
-    RuntimeProcessCancellation, RuntimeProcessEnvironment, RuntimeProcessId,
-    RuntimeProcessImagePathA, RuntimeProcessLifecycleState, RuntimeProcessState,
-    RuntimeSetCurrentDirectoryAPlan, RuntimeStandardHandle, RuntimeStartupInfo,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RUNTIME_STANDARD_OUTPUT_SELECTOR, RuntimeCommandLine, RuntimeCurrentDirectoryA,
+    RuntimeEnvironmentStringCopy, RuntimeEnvironmentStrings, RuntimeProcessCancellation,
+    RuntimeProcessEnvironment, RuntimeProcessId, RuntimeProcessImagePathA,
+    RuntimeProcessLifecycleState, RuntimeProcessState, RuntimeSetCurrentDirectoryAPlan,
+    RuntimeStandardHandle, RuntimeStartupInfo, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 pub use registries::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, RuntimeDynamicEndpoint, RuntimeEncodedPointer,
@@ -247,11 +252,11 @@ pub(crate) use timers::RUNTIME_TIMER_RESOLUTION_DISTINCT_PERIOD_LIMIT;
 pub use timers::{
     RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS, RUNTIME_WAITABLE_TIMER_LIMIT,
     RUNTIME_WINDOW_TIMER_ID_NAMESPACE, RUNTIME_WINDOW_TIMER_LIMIT,
-    RuntimeCreateWaitableTimerAResult, RuntimeTimerClockState,
-    RuntimeTimerResolutionMutationResult, RuntimeTimerResolutionState, RuntimeWaitableTimer,
-    RuntimeWaitableTimerArm, RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId,
-    RuntimeWindowTimer, RuntimeWindowTimerDelivery, RuntimeWindowTimerDeliveryState,
-    RuntimeWindowTimerId, RuntimeWindowTimerRegistrationResult,
+    RuntimeCreateWaitableTimerAResult, RuntimeTimerResolutionMutationResult,
+    RuntimeTimerResolutionState, RuntimeWaitableTimer, RuntimeWaitableTimerArm,
+    RuntimeWaitableTimerExpiration, RuntimeWaitableTimerId, RuntimeWindowTimer,
+    RuntimeWindowTimerDelivery, RuntimeWindowTimerDeliveryState, RuntimeWindowTimerId,
+    RuntimeWindowTimerRegistrationResult,
 };
 pub use user32::{
     LOGICAL_CURSOR_HANDLE_NAMESPACE, LOGICAL_ICON_HANDLE_NAMESPACE, LOGICAL_MENU_HANDLE_NAMESPACE,

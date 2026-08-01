@@ -66,7 +66,9 @@ rejected before mutation. Invalid or stale handles return `WAIT_FAILED` and
 LastError 6. `WAIT_OBJECT_0` and `WAIT_TIMEOUT` preserve the caller's
 LastError.
 
-`RuntimeTimers` owns a monotonic logical clock in 100 ns units. An arm records
+The private clock owner inside `RuntimeProcessState` owns monotonic logical time
+in 100 ns units. `RuntimeTimers` owns timer identities, arms, and deadlines but
+does not duplicate current time. An arm records
 `armedAtTime100ns`, `deadlineTime100ns`, period zero, and a monotonic arm
 generation. A finite wait advances that clock to the earlier of the timer
 deadline and timeout deadline. Expiration consumes only the exact live arm
