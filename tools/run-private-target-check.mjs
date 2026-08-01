@@ -1655,7 +1655,7 @@ function assertScheduledSharedClockReportSemantics({
     assert.equal(font.completionCount, 1);
     assert.equal(font.call.sequence, 261_028);
     assert.equal(font.call.trapInstructionCount, 342_873_024);
-    assert.deepEqual(font.call.arguments, [
+    assert.deepEqual(font.call.arguments.slice(0, 13), [
       224,
       112,
       0,
@@ -1669,8 +1669,10 @@ function assertScheduledSharedClockReportSemantics({
       0,
       2,
       0,
-      0x2013_a220,
     ]);
+    assert.equal(font.call.arguments.length, 14);
+    assert(Number.isSafeInteger(font.call.arguments[13]));
+    assert(font.call.arguments[13] > 0);
     assert.equal(font.call.result.value, 0x4702_0006);
     assert.equal(
       font.call.implementationId,
@@ -1682,6 +1684,13 @@ function assertScheduledSharedClockReportSemantics({
     assert.equal(font.call.gdi.object.object.kind, "font-a");
     assert.equal(font.call.gdi.object.object.logFont.height, 224);
     assert.equal(font.call.gdi.object.object.logFont.width, 112);
+    assert.deepEqual(
+      font.call.gdi.object.object.logFont.faceNameWindows932,
+      [
+        0x82, 0x6c, 0x82, 0x72, 0x20, 0x83, 0x53, 0x83, 0x56, 0x83, 0x62,
+        0x83, 0x4e,
+      ],
+    );
     assert.equal(font.call.gdi.liveObjects, 4);
   }
 
