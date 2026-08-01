@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation`: 162080 calls across 131 endpoint contracts / 129 APIs, memory generation 296511 |
+| Runtime diagnostics | `user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation`: 162082 calls across 131 endpoint contracts / 129 APIs, memory generation 296513 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `d3d9-test-cooperative-level-post-input-scan-continuation` completed the reached operational S_OK live-device query at sequence 162080 / instruction 321468292; verification stopped at the next `KERNEL32.dll!SetWaitableTimer` on instruction 321468343 (`d3d9-test-cooperative-level-post-input-scan-continuation-checkpoint-complete`) |
+| Next structured stop | `d3d9-post-input-scan-waitable-timer-cycle` completed the reached relative one-shot timer arm at sequence 162081 / instruction 321468343 and matching finite alertable wait at sequence 162082 / instruction 321468349; verification stopped at the next `USER32.dll!PeekMessageA` on instruction 321468397 (`d3d9-post-input-scan-waitable-timer-cycle-checkpoint-complete`) |
 
-The active semantic report is 3,054,964 bytes with SHA-256
-`d42bbc7edee3b6db4860fbaa442c418fb5972cdda9e763fedb6b351ecf03754b`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 3,057,993 bytes with SHA-256
+`7fb62321d954f3fe3f8fe9aa56f37825bd0e86296c788ae0073b74be0f34597e`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

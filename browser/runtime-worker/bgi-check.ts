@@ -114,6 +114,7 @@ const d3d9Canvas =
     "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
   capabilityProfile ===
     "d3d9-test-cooperative-level-post-input-scan-continuation" ||
+  capabilityProfile === "d3d9-post-input-scan-waitable-timer-cycle" ||
   capabilityProfile ===
     "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
   capabilityProfile ===
@@ -261,7 +262,9 @@ const startMessage = {
             capabilityProfile ===
               "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
             capabilityProfile ===
-              "d3d9-test-cooperative-level-post-input-scan-continuation"
+              "d3d9-test-cooperative-level-post-input-scan-continuation" ||
+            capabilityProfile ===
+              "d3d9-post-input-scan-waitable-timer-cycle"
           ? 340_000_000
           : capabilityProfile === "runtime-trapless-execution-budget" ||
               capabilityProfile === "kernel32-heap-free-large-buffer" ||
@@ -408,6 +411,7 @@ const startMessage = {
         "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
       capabilityProfile ===
         "d3d9-test-cooperative-level-post-input-scan-continuation" ||
+      capabilityProfile === "d3d9-post-input-scan-waitable-timer-cycle" ||
       capabilityProfile ===
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
       capabilityProfile ===
@@ -493,7 +497,8 @@ if (
   capabilityProfile ===
     "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
   capabilityProfile ===
-    "d3d9-test-cooperative-level-post-input-scan-continuation"
+    "d3d9-test-cooperative-level-post-input-scan-continuation" ||
+  capabilityProfile === "d3d9-post-input-scan-waitable-timer-cycle"
 ) {
   const pointerMessageInput =
     capabilityProfile === "primary-main-loop-pointer-message-action-progress-gateway" ||
@@ -529,7 +534,8 @@ if (
     capabilityProfile ===
       "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
     capabilityProfile ===
-      "d3d9-test-cooperative-level-post-input-scan-continuation";
+      "d3d9-test-cooperative-level-post-input-scan-continuation" ||
+    capabilityProfile === "d3d9-post-input-scan-waitable-timer-cycle";
   const actionInput =
     capabilityProfile === "primary-main-loop-action-input-progress-gateway" ||
     capabilityProfile ===
@@ -730,6 +736,7 @@ function parseCapabilityProfile(
     value ===
       "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
     value === "d3d9-test-cooperative-level-post-input-scan-continuation" ||
+    value === "d3d9-post-input-scan-waitable-timer-cycle" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-critical-section"

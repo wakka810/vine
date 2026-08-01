@@ -1357,6 +1357,18 @@ ordered semantic digest、terminal memoryを一致させ、次の`KERNEL32.dll!S
 Device lost／not-reset transition、Reset、browser context loss連携、recoveryは拡張せず、exact instruction／
 artifact identityは`current-checkpoint.json`だけを正本とする。
 
+`d3d9-post-input-scan-waitable-timer-cycle`は、直後に到達した`SetWaitableTimer`と、そのarmを消費する
+`WaitForSingleObjectEx`を一つのgeneration-checked cycleとして完了する。Rust-owned timer、typed-object、wait、
+scheduler authorityは同じmanual-reset timer 1／object 20／handleを検証し、relative due time 20,000（100 ns単位）を
+logical deadlineへarmした後、finite 10 ms alertable waitでarm generation 9のexpirationだけをcommitする。成功時は
+LastError、guest memory、callback depthを保持し、browserはpacing completionを返すだけでWindows timer stateを所有しない。
+Protocol v98／browser report schema 65のNode／Chromeはarmとwaitのsequence／occurrence／instruction、stdcall stack、
+timer／object identity、deadline、clock generation、next wait registration、cumulative completion、ordered semantic digest、
+terminal memoryを一致させ、次のcurrent-thread unfiltered `USER32.dll!PeekMessageA`の手前で停止する。APC delivery、periodic
+timer、別handle／stale generation／wrong-owner variant、一般的なalertable wait breadthはclaimせず、これらは既存の
+preflight／failure-atomic contractを越えて黙って成功させない。Exact値とartifact identityは
+`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

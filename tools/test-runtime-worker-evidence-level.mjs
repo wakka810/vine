@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 96 as const/u);
+assert.match(protocol, /protocolVersion = 98 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -102,6 +102,7 @@ assert.match(
   protocol,
   /"user32-get-async-key-state-post-is-iconic-clock-continuation"/u,
 );
+assert.match(protocol, /"d3d9-post-input-scan-waitable-timer-cycle"/u);
 assert.match(
   protocol,
   /capability: "winmm-time-get-time-action-continuation";[\s\S]*?setFocusActiveCallbackDepthAtStop: 1;[\s\S]*?activeCallbackDepthAtStop: 1;[\s\S]*?setFocus: RuntimeThreadCallSnapshot;[\s\S]*?lastCompletionSequence: number;[\s\S]*?lastCompletionInstructionCount: number;[\s\S]*?timeGetTime: RuntimeThreadCallSnapshot;[\s\S]*?nextArguments: \[number, number, number, number\];/u,
@@ -128,7 +129,7 @@ assert.match(
 );
 assert.match(
   protocol,
-  /requiredEntries: 1;[\s\S]*?defWindowProcAReleaseActiveCallbackDepthAtCompletion: 1;[\s\S]*?peekMessagePostReleaseActiveCallbackDepthAtCompletion: 0;[\s\S]*?postReleaseQueueDepthBefore: 0;[\s\S]*?postReleaseQueueDepthAfter: 0;[\s\S]*?postReleaseMessageBytesPreserved: true;[\s\S]*?peekMessagePostRelease: RuntimeThreadCallSnapshot;[\s\S]*?activeCallbackDepthAtStop: 0;[\s\S]*?nextArguments: \[\] \| \[number\] \| \[number, number\];[\s\S]*?capability:[\s\S]*?"user32-peek-message-a-post-pointer-release-continuation";[\s\S]*?requiredCompletions: 1;/u,
+  /requiredEntries: 1;[\s\S]*?defWindowProcAReleaseActiveCallbackDepthAtCompletion: 1;[\s\S]*?peekMessagePostReleaseActiveCallbackDepthAtCompletion: 0;[\s\S]*?postReleaseQueueDepthBefore: 0;[\s\S]*?postReleaseQueueDepthAfter: 0;[\s\S]*?postReleaseMessageBytesPreserved: true;[\s\S]*?peekMessagePostRelease: RuntimeThreadCallSnapshot;[\s\S]*?activeCallbackDepthAtStop: 0;[\s\S]*?nextArguments:[\s\S]*?\[\][\s\S]*?\[number\][\s\S]*?\[number, number\][\s\S]*?\[number, number, number, number, number\][\s\S]*?\[number, number, number, number, number, number\];[\s\S]*?capability:[\s\S]*?"user32-peek-message-a-post-pointer-release-continuation";[\s\S]*?requiredCompletions: 1;/u,
 );
 assert.match(
   protocol,
@@ -169,6 +170,10 @@ assert.match(
 assert.match(
   protocol,
   /capability:[\s\S]*?"user32-get-async-key-state-post-is-iconic-clock-continuation";[\s\S]*?implementationId:[\s\S]*?"runtime\.user32-get-async-key-state-post-is-iconic-clock-continuation\.v1";[\s\S]*?requiredCompletions: 38;[\s\S]*?completionCount: 38;[\s\S]*?firstCompletionSequence: number;[\s\S]*?scanVirtualKeys: number\[\];[\s\S]*?getAsyncKeyStatePostIsIconicClockActiveCallbackDepthAtCompletion: 0;[\s\S]*?getAsyncKeyStatePostIsIconicClockFirst: RuntimeThreadCallSnapshot;[\s\S]*?getAsyncKeyStatePostIsIconicClockLast: RuntimeThreadCallSnapshot;/u,
+);
+assert.match(
+  protocol,
+  /capability: "d3d9-post-input-scan-waitable-timer-cycle";[\s\S]*?implementationId:[\s\S]*?"kernel32\.wait-for-single-object-ex\.waitable-timer\.v1";[\s\S]*?prerequisiteTestCooperativeLevelSequence: number;[\s\S]*?timerArmActiveCallbackDepthAtCompletion: 0;[\s\S]*?timerWaitActiveCallbackDepthAtCompletion: 0;[\s\S]*?timerArm: RuntimeThreadCallSnapshot;[\s\S]*?timerWait: RuntimeThreadCallSnapshot;[\s\S]*?cumulativeTimerArmCompletions: number;[\s\S]*?cumulativeTimerWaitCompletions: number;/u,
 );
 assert.match(protocol, /windowTimerDelivery\?: \{/u);
 assert.match(

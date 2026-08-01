@@ -143,7 +143,10 @@ function validatePointerReleaseCompletion(
     `${label}.releaseCallbackReturn`,
     errors,
   );
+  const postInputScanWaitableTimerCycle =
+    expected.capability === "d3d9-post-input-scan-waitable-timer-cycle";
   const postInputScanTestCooperativeLevel =
+    postInputScanWaitableTimerCycle ||
     expected.capability ===
     "d3d9-test-cooperative-level-post-input-scan-continuation";
   const postIsIconicGetAsyncKeyStateScan =
@@ -190,7 +193,9 @@ function validatePointerReleaseCompletion(
     postReleaseTimeGetTime ||
     expected.capability ===
       "user32-peek-message-a-post-pointer-release-continuation";
-  const finalCallName = postInputScanTestCooperativeLevel
+  const finalCallName = postInputScanWaitableTimerCycle
+    ? "timerWait"
+    : postInputScanTestCooperativeLevel
     ? "d3d9TestCooperativeLevelPostInputScan"
     : postIsIconicGetAsyncKeyStateScan
     ? "getAsyncKeyStatePostIsIconicClockLast"
@@ -234,7 +239,9 @@ function validatePointerReleaseCompletion(
         errors,
       )
     : {};
-  const finalCall = postInputScanTestCooperativeLevel
+  const finalCall = postInputScanWaitableTimerCycle
+    ? requireRecord(completion.timerWait, `${label}.timerWait`, errors)
+    : postInputScanTestCooperativeLevel
     ? requireRecord(
         completion.d3d9TestCooperativeLevelPostInputScan,
         `${label}.d3d9TestCooperativeLevelPostInputScan`,
@@ -992,22 +999,38 @@ function validatePointerReleaseCompletion(
       [
         "firstCompletionSequence",
         completion.firstCompletionSequence,
-        postInputScanTestCooperativeLevel ? 162_080 : 161_965,
+        postInputScanWaitableTimerCycle
+          ? 162_081
+          : postInputScanTestCooperativeLevel
+            ? 162_080
+            : 161_965,
       ],
       [
         "firstCompletionInstructionCount",
         completion.firstCompletionInstructionCount,
-        postInputScanTestCooperativeLevel ? 321_468_292 : 321_463_448,
+        postInputScanWaitableTimerCycle
+          ? 321_468_343
+          : postInputScanTestCooperativeLevel
+            ? 321_468_292
+            : 321_463_448,
       ],
       [
         "lastCompletionSequence",
         completion.lastCompletionSequence,
-        postInputScanTestCooperativeLevel ? 162_080 : 162_079,
+        postInputScanWaitableTimerCycle
+          ? 162_082
+          : postInputScanTestCooperativeLevel
+            ? 162_080
+            : 162_079,
       ],
       [
         "lastCompletionInstructionCount",
         completion.lastCompletionInstructionCount,
-        postInputScanTestCooperativeLevel ? 321_468_292 : 321_468_229,
+        postInputScanWaitableTimerCycle
+          ? 321_468_349
+          : postInputScanTestCooperativeLevel
+            ? 321_468_292
+            : 321_468_229,
       ],
       [
         "scanVirtualKeys",
@@ -1116,6 +1139,155 @@ function validatePointerReleaseCompletion(
         `${label}.d3d9TestCooperativeLevelPostInputScan.${field}`,
         errors,
       );
+    }
+  }
+  if (postInputScanWaitableTimerCycle) {
+    const arm = requireRecord(completion.timerArm, `${label}.timerArm`, errors);
+    const wait = requireRecord(completion.timerWait, `${label}.timerWait`, errors);
+    const armTimer = requireRecord(
+      arm.waitableTimer,
+      `${label}.timerArm.waitableTimer`,
+      errors,
+    );
+    const waitTimer = requireRecord(
+      wait.waitableTimer,
+      `${label}.timerWait.waitableTimer`,
+      errors,
+    );
+    const armState = requireRecord(
+      armTimer.timer,
+      `${label}.timerArm.waitableTimer.timer`,
+      errors,
+    );
+    const waitState = requireRecord(
+      waitTimer.timer,
+      `${label}.timerWait.waitableTimer.timer`,
+      errors,
+    );
+    const armObject = requireRecord(
+      armTimer.objectRecord,
+      `${label}.timerArm.waitableTimer.objectRecord`,
+      errors,
+    );
+    const waitObject = requireRecord(
+      waitTimer.objectRecord,
+      `${label}.timerWait.waitableTimer.objectRecord`,
+      errors,
+    );
+    for (const [field, actual, expectedValue] of [
+      [
+        "prerequisiteTestCooperativeLevelSequence",
+        completion.prerequisiteTestCooperativeLevelSequence,
+        162_080,
+      ],
+      [
+        "prerequisiteTestCooperativeLevelInstructionCount",
+        completion.prerequisiteTestCooperativeLevelInstructionCount,
+        321_468_292,
+      ],
+      ["firstCompletionSequence", completion.firstCompletionSequence, 162_081],
+      [
+        "firstCompletionInstructionCount",
+        completion.firstCompletionInstructionCount,
+        321_468_343,
+      ],
+      [
+        "timerArmActiveCallbackDepthAtCompletion",
+        completion.timerArmActiveCallbackDepthAtCompletion,
+        0,
+      ],
+      [
+        "timerWaitActiveCallbackDepthAtCompletion",
+        completion.timerWaitActiveCallbackDepthAtCompletion,
+        0,
+      ],
+      ["timerArm.sequence", arm.sequence, 162_081],
+      ["timerArm.occurrence", arm.occurrence, 11_476],
+      ["timerArm.trapInstructionCount", arm.trapInstructionCount, 321_468_343],
+      ["timerArm.runtimeThreadId", arm.runtimeThreadId, 8_192],
+      ["timerArm.module", arm.module?.toLowerCase(), "kernel32.dll"],
+      ["timerArm.symbol", arm.symbol, "SetWaitableTimer"],
+      [
+        "timerArm.implementationId",
+        arm.implementationId,
+        "kernel32.set-waitable-timer.relative-one-shot.v1",
+      ],
+      ["timerArm.arguments", arm.arguments?.join(","), "1459683329,7338224,0,0,0,0"],
+      ["timerArm.result.action", arm.result?.action, "set"],
+      ["timerArm.result.value", arm.result?.value, 1],
+      ["timerArm.returnAddress", arm.returnAddress, 268_764_679],
+      ["timerArm.stackPointerBefore", arm.stackPointerBefore, 7_338_196],
+      ["timerArm.stackPointerAfter", arm.stackPointerAfter, 7_338_224],
+      ["timerArm.lastError", arm.lastError, 0],
+      ["timerArm.guestWrites.length", arm.guestWrites?.length, 0],
+      ["timerArm.waitableTimer.handle", armTimer.handle, 1_459_683_329],
+      ["timerArm.waitableTimer.timer.id", armState.id, 1],
+      ["timerArm.waitableTimer.timer.manualReset", armState.manualReset, true],
+      [
+        "timerArm.waitableTimer.timer.arm.relativeDueTime100ns",
+        armState.arm?.relativeDueTime100ns,
+        20_000,
+      ],
+      [
+        "timerArm.waitableTimer.timer.arm.armedAtTime100ns",
+        armState.arm?.armedAtTime100ns,
+        57_470_000,
+      ],
+      [
+        "timerArm.waitableTimer.timer.arm.deadlineTime100ns",
+        armState.arm?.deadlineTime100ns,
+        57_490_000,
+      ],
+      ["timerArm.waitableTimer.timer.arm.periodMilliseconds", armState.arm?.periodMilliseconds, 0],
+      ["timerArm.waitableTimer.timer.arm.generation", armState.arm?.generation, 9],
+      ["timerArm.waitableTimer.objectRecord.id", armObject.id, 20],
+      ["timerArm.waitableTimer.objectRecord.waitState.state", armObject.waitState?.state, "nonsignaled"],
+      ["timerWait.sequence", wait.sequence, 162_082],
+      ["timerWait.occurrence", wait.occurrence, 11_475],
+      ["timerWait.trapInstructionCount", wait.trapInstructionCount, 321_468_349],
+      ["timerWait.runtimeThreadId", wait.runtimeThreadId, 8_192],
+      ["timerWait.module", wait.module?.toLowerCase(), "kernel32.dll"],
+      ["timerWait.symbol", wait.symbol, "WaitForSingleObjectEx"],
+      [
+        "timerWait.implementationId",
+        wait.implementationId,
+        "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+      ],
+      ["timerWait.arguments", wait.arguments?.join(","), "1459683329,10,1"],
+      ["timerWait.result.action", wait.result?.action, "set"],
+      ["timerWait.result.value", wait.result?.value, 0],
+      ["timerWait.returnAddress", wait.returnAddress, 268_764_693],
+      ["timerWait.stackPointerBefore", wait.stackPointerBefore, 7_338_208],
+      ["timerWait.stackPointerAfter", wait.stackPointerAfter, 7_338_224],
+      ["timerWait.lastError", wait.lastError, 0],
+      ["timerWait.guestWrites.length", wait.guestWrites?.length, 0],
+      ["timerWait.waitableTimer.handle", waitTimer.handle, 1_459_683_329],
+      ["timerWait.waitableTimer.timer.id", waitState.id, 1],
+      ["timerWait.waitableTimer.timer.manualReset", waitState.manualReset, true],
+      [
+        "timerWait.waitableTimer.timer.lastExpiration.armGeneration",
+        waitState.lastExpiration?.armGeneration,
+        9,
+      ],
+      [
+        "timerWait.waitableTimer.timer.lastExpiration.deadlineTime100ns",
+        waitState.lastExpiration?.deadlineTime100ns,
+        57_490_000,
+      ],
+      ["timerWait.waitableTimer.objectRecord.id", waitObject.id, 20],
+      ["timerWait.waitableTimer.objectRecord.waitState.state", waitObject.waitState?.state, "signaled"],
+      ["timerWait.waitableTimer.objectRecord.waitState.exit_code", waitObject.waitState?.exit_code, 0],
+      [
+        "timerWait.waitableTimer.timerClock.currentTime100ns",
+        waitTimer.timerClock?.currentTime100ns,
+        57_490_000,
+      ],
+      ["timerWait.waitableTimer.timerClock.generation", waitTimer.timerClock?.generation, 11_474],
+      ["timerWait.waitableTimer.nextWaitRegistrationId", waitTimer.nextWaitRegistrationId, 11_475],
+      ["cumulativeTimerArmCompletions", completion.cumulativeTimerArmCompletions, 11_476],
+      ["cumulativeTimerWaitCompletions", completion.cumulativeTimerWaitCompletions, 11_475],
+    ]) {
+      checkEqual(actual, expectedValue, `${label}.${field}`, errors);
     }
   }
   checkEqual(

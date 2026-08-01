@@ -223,7 +223,11 @@ function assertCapabilityCheckpoint(
     assert.equal(actual.queueDepthAtDispatchEntry, 0);
     assert.equal(actual.dispatchMessageReleaseBytesPreserved, true);
     if (expected.completion.requiredCompletions !== undefined) {
+      const postInputScanWaitableTimerCycle =
+        expected.completion.capability ===
+        "d3d9-post-input-scan-waitable-timer-cycle";
       const postInputScanTestCooperativeLevel =
+        postInputScanWaitableTimerCycle ||
         expected.completion.capability ===
         "d3d9-test-cooperative-level-post-input-scan-continuation";
       const postIsIconicGetAsyncKeyStateScan =
@@ -286,11 +290,19 @@ function assertCapabilityCheckpoint(
       if (postIsIconicGetAsyncKeyStateScan) {
         assert.equal(
           actual.firstCompletionSequence,
-          postInputScanTestCooperativeLevel ? 162_080 : 161_965,
+          postInputScanWaitableTimerCycle
+            ? 162_081
+            : postInputScanTestCooperativeLevel
+              ? 162_080
+              : 161_965,
         );
         assert.equal(
           actual.firstCompletionInstructionCount,
-          postInputScanTestCooperativeLevel ? 321_468_292 : 321_463_448,
+          postInputScanWaitableTimerCycle
+            ? 321_468_343
+            : postInputScanTestCooperativeLevel
+              ? 321_468_292
+              : 321_463_448,
         );
         assert.deepEqual(actual.scanVirtualKeys, [
           14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98,
@@ -387,6 +399,86 @@ function assertCapabilityCheckpoint(
         assert.equal(call.objectRetired, false);
         assert.deepEqual(call.guestWrites, []);
         assert.equal(actual.cumulativeCompletions, 9);
+      }
+      if (postInputScanWaitableTimerCycle) {
+        assert.equal(actual.prerequisiteTestCooperativeLevelSequence, 162_080);
+        assert.equal(
+          actual.prerequisiteTestCooperativeLevelInstructionCount,
+          321_468_292,
+        );
+        assert.equal(actual.timerArmActiveCallbackDepthAtCompletion, 0);
+        assert.equal(actual.timerWaitActiveCallbackDepthAtCompletion, 0);
+        const arm = actual.timerArm;
+        const wait = actual.timerWait;
+        assert(arm !== undefined);
+        assert(wait !== undefined);
+        assert.equal(arm.sequence, 162_081);
+        assert.equal(arm.occurrence, 11_476);
+        assert.equal(arm.trapInstructionCount, 321_468_343);
+        assert.equal(arm.runtimeThreadId, 8_192);
+        assert.equal(arm.module.toLowerCase(), "kernel32.dll");
+        assert.equal(arm.symbol, "SetWaitableTimer");
+        assert.equal(
+          arm.implementationId,
+          "kernel32.set-waitable-timer.relative-one-shot.v1",
+        );
+        assert.deepEqual(arm.arguments, [1_459_683_329, 7_338_224, 0, 0, 0, 0]);
+        assert.deepEqual(arm.result, { action: "set", value: 1 });
+        assert.equal(arm.returnAddress, 268_764_679);
+        assert.equal(arm.stackPointerBefore, 7_338_196);
+        assert.equal(arm.stackPointerAfter, 7_338_224);
+        assert.equal(arm.lastError, 0);
+        assert.deepEqual(arm.guestWrites, []);
+        assert.equal(arm.waitableTimer.handle, 1_459_683_329);
+        assert.equal(arm.waitableTimer.timer.id, 1);
+        assert.equal(arm.waitableTimer.timer.manualReset, true);
+        assert.deepEqual(arm.waitableTimer.timer.arm, {
+          relativeDueTime100ns: 20_000,
+          armedAtTime100ns: 57_470_000,
+          deadlineTime100ns: 57_490_000,
+          periodMilliseconds: 0,
+          generation: 9,
+        });
+        assert.equal(arm.waitableTimer.objectRecord.id, 20);
+        assert.deepEqual(arm.waitableTimer.objectRecord.waitState, {
+          state: "nonsignaled",
+        });
+        assert.equal(wait.sequence, 162_082);
+        assert.equal(wait.occurrence, 11_475);
+        assert.equal(wait.trapInstructionCount, 321_468_349);
+        assert.equal(wait.runtimeThreadId, 8_192);
+        assert.equal(wait.module.toLowerCase(), "kernel32.dll");
+        assert.equal(wait.symbol, "WaitForSingleObjectEx");
+        assert.equal(
+          wait.implementationId,
+          "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+        );
+        assert.deepEqual(wait.arguments, [1_459_683_329, 10, 1]);
+        assert.deepEqual(wait.result, { action: "set", value: 0 });
+        assert.equal(wait.returnAddress, 268_764_693);
+        assert.equal(wait.stackPointerBefore, 7_338_208);
+        assert.equal(wait.stackPointerAfter, 7_338_224);
+        assert.equal(wait.lastError, 0);
+        assert.deepEqual(wait.guestWrites, []);
+        assert.equal(wait.waitableTimer.handle, 1_459_683_329);
+        assert.equal(wait.waitableTimer.timer.id, 1);
+        assert.equal(wait.waitableTimer.timer.manualReset, true);
+        assert.deepEqual(wait.waitableTimer.timer.lastExpiration, {
+          armGeneration: 9,
+          deadlineTime100ns: 57_490_000,
+        });
+        assert.equal(wait.waitableTimer.objectRecord.id, 20);
+        assert.deepEqual(wait.waitableTimer.objectRecord.waitState, {
+          state: "signaled",
+          exit_code: 0,
+        });
+        assert.deepEqual(wait.waitableTimer.timerClock, {
+          currentTime100ns: 57_490_000,
+          generation: 11_474,
+        });
+        assert.equal(wait.waitableTimer.nextWaitRegistrationId, 11_475);
+        assert.equal(actual.cumulativeTimerArmCompletions, 11_476);
+        assert.equal(actual.cumulativeTimerWaitCompletions, 11_475);
       }
       if (postReleasePeek) {
         assert.equal(

@@ -38,6 +38,7 @@ const checkpoint = loadCurrentCheckpoint(
 );
 const activeCapability = checkpoint.nextStructuredStop.completion?.capability;
 const postInputScanOrScan = [
+  "d3d9-post-input-scan-waitable-timer-cycle",
   "d3d9-test-cooperative-level-post-input-scan-continuation",
   "user32-get-async-key-state-post-is-iconic-clock-continuation",
 ].includes(activeCapability);
@@ -76,7 +77,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 64);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 65);
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
 const lastPacingRequest = { requestId: "4708", sequence: 89_218 };
@@ -701,8 +702,10 @@ if (
     ),
   );
   if (
-    activeCapability ===
-    "d3d9-test-cooperative-level-post-input-scan-continuation"
+    [
+      "d3d9-post-input-scan-waitable-timer-cycle",
+      "d3d9-test-cooperative-level-post-input-scan-continuation",
+    ].includes(activeCapability)
   ) {
     const staleTestCooperativeLevelResult = mutated((value) => {
       value.semantic.browser.checkpointCompletion.d3d9TestCooperativeLevelPostInputScan.result.value =
@@ -716,6 +719,32 @@ if (
         error.includes(
           "d3d9TestCooperativeLevelPostInputScan.result.value",
         ),
+      ),
+    );
+  }
+  if (activeCapability === "d3d9-post-input-scan-waitable-timer-cycle") {
+    const staleTimerArmGeneration = mutated((value) => {
+      value.semantic.browser.checkpointCompletion.timerArm.waitableTimer.timer.arm.generation =
+        8;
+    });
+    assert(
+      validatePrivateTargetEvidence(staleTimerArmGeneration, checkpoint).some(
+        (error) =>
+          error.includes(
+            "timerArm.waitableTimer.timer.arm.generation",
+          ),
+      ),
+    );
+    const staleNextWaitRegistration = mutated((value) => {
+      value.semantic.node.checkpointCompletion.timerWait.waitableTimer.nextWaitRegistrationId =
+        11_474;
+    });
+    assert(
+      validatePrivateTargetEvidence(
+        staleNextWaitRegistration,
+        checkpoint,
+      ).some((error) =>
+        error.includes("timerWait.waitableTimer.nextWaitRegistrationId"),
       ),
     );
   }

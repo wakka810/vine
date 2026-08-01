@@ -15057,7 +15057,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "user32-is-iconic-post-pointer-release-continuation"
                 | "winmm-time-get-time-post-is-iconic-continuation"
                 | "user32-get-async-key-state-post-is-iconic-clock-continuation"
-                | "d3d9-test-cooperative-level-post-input-scan-continuation" => {
+                | "d3d9-test-cooperative-level-post-input-scan-continuation"
+                | "d3d9-post-input-scan-waitable-timer-cycle" => {
                     GenericRuntimeCapability::User32DefWindowProcPointerRelease
                 }
                 "kernel32-leave-critical-section" => {
