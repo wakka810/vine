@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-08-01T09:37:10.918Z",
+  "recordedAt": "2026-08-01T11:48:41.580Z",
   "repository": {
-    "implementationCommit": "4aff24495ade6d4e0777a2bd9260f9c0bfff85b6",
-    "implementationTree": "b72af625406bac951499142d4b3a7ef9d4193eee",
-    "headCommit": "4aff24495ade6d4e0777a2bd9260f9c0bfff85b6",
+    "implementationCommit": "0d63f31e9406b7c1728dc7db46cb20bd95815070",
+    "implementationTree": "2d44ee55884577b4c0749cf1acf0388f7a80fb6d",
+    "headCommit": "0d63f31e9406b7c1728dc7db46cb20bd95815070",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -27,15 +27,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "user32-set-window-text-a-post-scheduled-shared-clock",
+    "runtimeCheckpoint": "kernel32-find-file-a-post-set-window-text",
     "runtimeProfile": "user32-peek-message-a-post-window-timer-callback-continuation",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
-    "policyId": "kernel32-create-directory-a-v1",
-    "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-scheduled-shared-clock-primary",
+    "policyId": "kernel32-find-file-a-v1",
+    "policySource": "fixtures/runtime-policies/kernel32-find-file-a-v1.json",
+    "nodeReportSchema": "vine.v86-bgi-find-file-a-primary",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v101",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v102",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -69,23 +69,28 @@
     "outcome": "passed",
     "node": {
       "outcome": "checkpoint-complete",
-      "implementedApiContracts": 132,
-      "supportedCalls": 251693,
-      "callSemanticsSha256": "cdbef0d0867906c08ecfcd9ec120483841c2165aba8937b6e00c8f41db2f63d1",
-      "instructions": 323860141,
-      "finalGeneration": 282341,
-      "memoryContentSha256": "aaf56dd2fa482226fb4e787c7cab4b1c4d9ff1f8c9b99ee876ade8872ef50def",
+      "implementedApiContracts": 135,
+      "supportedCalls": 255410,
+      "callSemanticsSha256": "009e8aad3a75ddc158474c6cf150eda7e8c92d72615acd5a51fe457063c6f52c",
+      "instructions": 328088002,
+      "finalGeneration": 288337,
+      "memoryContentSha256": "fb4f9ce7f37975be923a7656e0608186c68f9bff76301c206ee7d29a7fc29764",
       "checkpointCompletion": {
-        "capability": "user32-set-window-text-a-post-scheduled-shared-clock",
-        "implementationId": "runtime.user32-set-window-text-a-post-scheduled-shared-clock.v1",
+        "capability": "kernel32-find-file-a-post-set-window-text",
+        "implementationId": "runtime.kernel32-find-file-a-post-set-window-text.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "lastCompletionSequence": 251691,
-        "lastCompletionInstructionCount": 323858285,
-        "defaultProcessingSequence": 251692,
-        "callbackEventCount": 2,
+        "lastCompletionSequence": 251740,
+        "lastCompletionInstructionCount": 323869665,
+        "firstCompletionSequence": 251694,
+        "firstCompletionInstructionCount": 323860141,
+        "entryCount": 45,
+        "lastSuccessfulNextSequence": 251738,
+        "terminalNextSequence": 251739,
+        "terminalWin32Error": 18,
+        "searchHandle": "0x53010001",
         "clockProfileId": "scheduled-shared-logical-deadline-v1",
-        "clockSampleCount": 100508,
+        "clockSampleCount": 100509,
         "windowTimerCallbackCount": 36,
         "presentCount": 2,
         "pointerInputEventCount": 2,
@@ -93,41 +98,47 @@
         "inputQuerySequence": 222096,
         "thirdPresentReached": false,
         "clockFreezeWasProximateCause": false,
-        "instructionCount": 323860141,
+        "archiveEnumerationWasProximateCause": false,
+        "instructionCount": 328088002,
         "nextEndpoint": {
-          "id": 26,
-          "address": 2130706832,
+          "id": 38,
+          "address": 2130707024,
           "module": "kernel32.dll",
           "symbol": {
             "kind": "name",
-            "name": "FindFirstFileA"
+            "name": "DeleteFileA"
           },
-          "iatAddress": 269291792,
+          "iatAddress": 269291840,
           "disposition": "declared-runtime-export"
         },
-        "memoryContentSha256": "aaf56dd2fa482226fb4e787c7cab4b1c4d9ff1f8c9b99ee876ade8872ef50def"
+        "memoryContentSha256": "fb4f9ce7f37975be923a7656e0608186c68f9bff76301c206ee7d29a7fc29764"
       },
-      "writebackBatches": 254882,
-      "hostDeltaBatches": 123202
+      "writebackBatches": 258599,
+      "hostDeltaBatches": 125449
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 251693,
-      "callSemanticsSha256": "cdbef0d0867906c08ecfcd9ec120483841c2165aba8937b6e00c8f41db2f63d1",
-      "instructions": 323860141,
-      "finalGeneration": 300988,
-      "memoryContentSha256": "aaf56dd2fa482226fb4e787c7cab4b1c4d9ff1f8c9b99ee876ade8872ef50def",
+      "supportedCalls": 255410,
+      "callSemanticsSha256": "009e8aad3a75ddc158474c6cf150eda7e8c92d72615acd5a51fe457063c6f52c",
+      "instructions": 328088002,
+      "finalGeneration": 307207,
+      "memoryContentSha256": "fb4f9ce7f37975be923a7656e0608186c68f9bff76301c206ee7d29a7fc29764",
       "checkpointCompletion": {
-        "capability": "user32-set-window-text-a-post-scheduled-shared-clock",
-        "implementationId": "runtime.user32-set-window-text-a-post-scheduled-shared-clock.v1",
+        "capability": "kernel32-find-file-a-post-set-window-text",
+        "implementationId": "runtime.kernel32-find-file-a-post-set-window-text.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "lastCompletionSequence": 251691,
-        "lastCompletionInstructionCount": 323858285,
-        "defaultProcessingSequence": 251692,
-        "callbackEventCount": 2,
+        "lastCompletionSequence": 251740,
+        "lastCompletionInstructionCount": 323869665,
+        "firstCompletionSequence": 251694,
+        "firstCompletionInstructionCount": 323860141,
+        "entryCount": 45,
+        "lastSuccessfulNextSequence": 251738,
+        "terminalNextSequence": 251739,
+        "terminalWin32Error": 18,
+        "searchHandle": "0x53010001",
         "clockProfileId": "scheduled-shared-logical-deadline-v1",
-        "clockSampleCount": 100508,
+        "clockSampleCount": 100509,
         "windowTimerCallbackCount": 36,
         "presentCount": 2,
         "pointerInputEventCount": 2,
@@ -135,25 +146,26 @@
         "inputQuerySequence": 222096,
         "thirdPresentReached": false,
         "clockFreezeWasProximateCause": false,
-        "instructionCount": 323860141,
+        "archiveEnumerationWasProximateCause": false,
+        "instructionCount": 328088002,
         "nextEndpoint": {
-          "address": 2130706832,
+          "address": 2130707024,
           "disposition": "declared-runtime-export",
-          "iatAddress": 269291792,
-          "id": 26,
+          "iatAddress": 269291840,
+          "id": 38,
           "module": "kernel32.dll",
           "symbol": {
             "kind": "name",
-            "name": "FindFirstFileA"
+            "name": "DeleteFileA"
           }
         },
-        "memoryContentSha256": "aaf56dd2fa482226fb4e787c7cab4b1c4d9ff1f8c9b99ee876ade8872ef50def"
+        "memoryContentSha256": "fb4f9ce7f37975be923a7656e0608186c68f9bff76301c206ee7d29a7fc29764"
       },
-      "wasmBridgeCalls": 668265,
+      "wasmBridgeCalls": 678415,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 844380,
+          "transitionCount": 856992,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -200,45 +212,50 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "kernel32-find-first-file-a-post-set-window-text",
-      "pausedHistoricalCheckpoint": "user32-set-window-text-a-post-scheduled-shared-clock",
-      "instructionCount": 323860141,
+      "nextCheckpoint": "kernel32-delete-file-a-post-find-file-a",
+      "pausedHistoricalCheckpoint": "kernel32-find-file-a-post-set-window-text",
+      "instructionCount": 328088002,
       "capabilityCluster": "kernel32-api-contract",
-      "reason": "user32-set-window-text-a-post-scheduled-shared-clock-checkpoint-complete",
+      "reason": "kernel32-find-file-a-post-set-window-text-checkpoint-complete",
       "completion": {
-        "capability": "user32-set-window-text-a-post-scheduled-shared-clock",
-        "implementationId": "runtime.user32-set-window-text-a-post-scheduled-shared-clock.v1",
+        "capability": "kernel32-find-file-a-post-set-window-text",
+        "implementationId": "runtime.kernel32-find-file-a-post-set-window-text.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "lastCompletionSequence": 251691,
-        "lastCompletionInstructionCount": 323858285,
-        "defaultProcessingSequence": 251692,
-        "callbackEventCount": 2,
+        "lastCompletionSequence": 251740,
+        "lastCompletionInstructionCount": 323869665,
+        "firstCompletionSequence": 251694,
+        "firstCompletionInstructionCount": 323860141,
+        "entryCount": 45,
+        "lastSuccessfulNextSequence": 251738,
+        "terminalNextSequence": 251739,
+        "terminalWin32Error": 18,
+        "searchHandle": "0x53010001",
         "clockProfileId": "scheduled-shared-logical-deadline-v1",
-        "clockSampleCount": 100508,
+        "clockSampleCount": 100509,
         "windowTimerCallbackCount": 36,
         "presentCount": 2,
         "pointerInputEventCount": 2,
         "inputTimerCycleCount": 253,
         "inputQuerySequence": 222096,
         "thirdPresentReached": false,
-        "clockFreezeWasProximateCause": false
+        "clockFreezeWasProximateCause": false,
+        "archiveEnumerationWasProximateCause": false
       },
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
-        "endpointId": 26,
-        "api": "KERNEL32.dll!FindFirstFileA",
-        "endpointAddress": "0x7f000190",
-        "iatAddress": "0x100d1110",
+        "endpointId": 38,
+        "api": "KERNEL32.dll!DeleteFileA",
+        "endpointAddress": "0x7f000250",
+        "iatAddress": "0x100d1140",
         "observedModule": "KERNEL32.dll",
-        "observedSymbol": "FindFirstFileA",
+        "observedSymbol": "DeleteFileA",
         "disposition": "declared-runtime-export",
         "arguments": [
-          "0x20262c0d",
-          "0x006febe0"
+          "0x006ff388"
         ],
-        "returnAddress": "0x100623e1",
-        "stackPointer": "0x006feba4"
+        "returnAddress": "0x100828e2",
+        "stackPointer": "0x006ff378"
       }
     },
     "cleanup": {
@@ -254,14 +271,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-peek-message-a-post-window-timer-callback-continuation/report.json",
-      "bytes": 50158,
-      "sha256": "c89651cdc1b74b8b126b4b0595f9947b1c1adeb25a7cb9a1f5ce6035a973f577"
+      "path": ".work/v86-bgi-find-first-file-a/report.json",
+      "bytes": 2393428,
+      "sha256": "2527efb1cce79c7ec4c2e949d1cca23bafd879adc9653deeb6a056cc18778156"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2577645,
-      "sha256": "1023920bbb634743ce5a2389205583c847acd0e57024cfd177c7a38ca25d3ec7"
+      "bytes": 2592069,
+      "sha256": "f01af16cf07d15577621c6855dbbb4e09b3ec3de8f9575f98988c98dd6d4795b"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -276,12 +293,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3768,
-      "sha256": "775851a68013e1e939bff4a88431667c47e0ca89a81c48a5d4529175099301a5"
+      "sha256": "5c221c2d8559a5902b42cc4bc8f9b7aafca010c722d8c4a59c29a866bc3cc112"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 5283435,
-      "sha256": "06cdb92238d33e095bf4f89c30504cbd2273a9297f53527fb3b233a2d408a173"
+      "bytes": 5354885,
+      "sha256": "14ebc235916489a3e4b892eb85d1afc4d3d600a9029cd26af28ab047f0991f7e"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -313,5 +330,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "4c57380a1f1ffaea128b150edff4acfa8b34126c05a139f873cb5a4fed325577"
+  "payloadSha256": "6c259cf230cccb1b8af39cbe2bcdc39b20c22b1ac1f4b6fedf326293331079d4"
 }
