@@ -1369,6 +1369,17 @@ timer、別handle／stale generation／wrong-owner variant、一般的なalertab
 preflight／failure-atomic contractを越えて黙って成功させない。Exact値とartifact identityは
 `current-checkpoint.json`だけを正本とする。
 
+`user32-window-timer-callback-post-waitable-timer-cycle`は、そのwait完了後のempty current-thread queueから
+3回目の`WM_TIMER`をmaterializeし、`TranslateMessage`のread-only no-op、`DispatchMessageA`による
+TIMERPROC frame 35のenter／return、callback内の`KERNEL32.dll!GetTickCount`を一つの到達済みcycleとして完了する。
+Rust-owned message queue、window-timer registration、callback-frame stack、shared process clockがそれぞれidentity、
+delivery count、callback arguments、nested call、unwindを検証し、LastErrorとguest authorityを保持する。Protocol v99／
+browser report schema 66のNode／Chromeは13回目のPeek、5回目のTranslate、5回目のDispatch、nested tick
+3,601,229→3,601,230、ordered semantic digest、terminal memoryを一致させ、次のcurrent-thread unfiltered
+`PeekMessageA`直前で停止する。Browser timerやTypeScript側のWindows queue／callback stateは作らず、KillTimer、
+別thread delivery、filtered retrieval、missed-period一般化はclaimしない。Exact値とartifact identityは
+`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

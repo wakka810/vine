@@ -111,9 +111,15 @@ const d3d9TestCooperativeLevelPostInputScanContinuationProfile =
   "d3d9-test-cooperative-level-post-input-scan-continuation";
 const d3d9PostInputScanWaitableTimerCycleProfile =
   bgiProfile === "d3d9-post-input-scan-waitable-timer-cycle";
+const windowTimerCallbackPostWaitableTimerCycleProfile =
+  bgiProfile ===
+  "user32-window-timer-callback-post-waitable-timer-cycle";
+const d3d9PostInputScanWaitableTimerCycleEvidenceProfile =
+  d3d9PostInputScanWaitableTimerCycleProfile ||
+  windowTimerCallbackPostWaitableTimerCycleProfile;
 const d3d9TestCooperativeLevelPostInputScanEvidenceProfile =
   d3d9TestCooperativeLevelPostInputScanContinuationProfile ||
-  d3d9PostInputScanWaitableTimerCycleProfile;
+  d3d9PostInputScanWaitableTimerCycleEvidenceProfile;
 const getAsyncKeyStatePostIsIconicClockContinuationProfile =
   d3d9TestCooperativeLevelPostInputScanEvidenceProfile ||
   bgiProfile ===
@@ -327,7 +333,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v98";
+const runtimeProtocol = "vine.browser-runtime-worker.v99";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -1032,6 +1038,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-get-async-key-state-post-is-iconic-clock-continuation",
         "d3d9-test-cooperative-level-post-input-scan-continuation",
         "d3d9-post-input-scan-waitable-timer-cycle",
+        "user32-window-timer-callback-post-waitable-timer-cycle",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1126,6 +1133,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-get-async-key-state-post-is-iconic-clock-continuation",
         "d3d9-test-cooperative-level-post-input-scan-continuation",
         "d3d9-post-input-scan-waitable-timer-cycle",
+        "user32-window-timer-callback-post-waitable-timer-cycle",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1220,6 +1228,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "user32-get-async-key-state-post-is-iconic-clock-continuation",
         "d3d9-test-cooperative-level-post-input-scan-continuation",
         "d3d9-post-input-scan-waitable-timer-cycle",
+        "user32-window-timer-callback-post-waitable-timer-cycle",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
@@ -1363,7 +1372,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       ) {
         const pacingCount = windowTimerCallbackRecurringBatchProfile
           ? 11_902
-          : d3d9PostInputScanWaitableTimerCycleProfile
+          : d3d9PostInputScanWaitableTimerCycleEvidenceProfile
             ? 11_474
           : getAsyncKeyStatePostIsIconicClockContinuationProfile
             ? 11_473
@@ -3556,10 +3565,12 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       if (user32PeekMessageAProfile) {
         const peek = evidence.report.peekMessageA;
         assert(peek !== null, "Chrome Worker omitted PeekMessageA evidence");
-        assert.equal(
-          peek.calls.length,
-          windowTimerCallbackRecurringBatchProfile
-            ? 77
+         assert.equal(
+           peek.calls.length,
+           windowTimerCallbackPostWaitableTimerCycleProfile
+             ? 13
+             : windowTimerCallbackRecurringBatchProfile
+             ? 77
             : peekMessageAPostPointerReleaseContinuationProfile
               ? 12
             : peekMessageAPointerReleaseContinuationProfile
@@ -3604,6 +3615,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
                   161_547, 161_678, 161_809, 161_940, 161_949,
                   ...(peekMessageAPostPointerReleaseContinuationProfile
                     ? [161_953]
+                    : []),
+                  ...(windowTimerCallbackPostWaitableTimerCycleProfile
+                    ? [162_083]
                     : []),
                 ]
             : pointerMessageEvidenceProfile
@@ -3667,6 +3681,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
                   321_456_163, 321_462_072, 321_462_423,
                   ...(peekMessageAPostPointerReleaseContinuationProfile
                     ? [321_462_521]
+                    : []),
+                  ...(windowTimerCallbackPostWaitableTimerCycleProfile
+                    ? [321_468_397]
                     : []),
                 ]
             : pointerMessageEvidenceProfile
@@ -6411,7 +6428,9 @@ function validateBgiEquivalence(browser, oracle) {
       oracleCheckpoint.capability ===
         "d3d9-test-cooperative-level-post-input-scan-continuation" ||
       oracleCheckpoint.capability ===
-        "d3d9-post-input-scan-waitable-timer-cycle"
+        "d3d9-post-input-scan-waitable-timer-cycle" ||
+      oracleCheckpoint.capability ===
+        "user32-window-timer-callback-post-waitable-timer-cycle"
     ) {
       const normalizeThreadCall = (call) => ({
         ...normalizeSemanticCall(call),
@@ -6745,6 +6764,45 @@ function validateBgiEquivalence(browser, oracle) {
                 candidate.cumulativeTimerArmCompletions,
               cumulativeTimerWaitCompletions:
                 candidate.cumulativeTimerWaitCompletions,
+            }),
+        ...(candidate.windowTimerPeek === undefined
+          ? {}
+          : {
+              requiredDeliveries: candidate.requiredDeliveries,
+              deliveryCount: candidate.deliveryCount,
+              prerequisiteTimerWaitSequence:
+                candidate.prerequisiteTimerWaitSequence,
+              prerequisiteTimerWaitInstructionCount:
+                candidate.prerequisiteTimerWaitInstructionCount,
+              windowTimerPeek: {
+                ...normalizeThreadCall(candidate.windowTimerPeek),
+                runtimeThreadId: candidate.windowTimerPeek.runtimeThreadId,
+                windowTimer: candidate.windowTimerPeek.windowTimer,
+              },
+              windowTimerTranslate: {
+                ...normalizeThreadCall(candidate.windowTimerTranslate),
+                runtimeThreadId:
+                  candidate.windowTimerTranslate.runtimeThreadId,
+              },
+              windowTimerDispatch: {
+                ...normalizeThreadCall(candidate.windowTimerDispatch),
+                runtimeThreadId:
+                  candidate.windowTimerDispatch.runtimeThreadId,
+                windowTimer: candidate.windowTimerDispatch.windowTimer,
+                callback: candidate.windowTimerDispatch.callback,
+                callbackArguments:
+                  candidate.windowTimerDispatch.callbackArguments,
+              },
+              windowTimerCallbackNestedCalls:
+                candidate.windowTimerCallbackNestedCalls.map((call) => ({
+                  ...normalizeThreadCall(call),
+                  runtimeThreadId: call.runtimeThreadId,
+                  tickCount: call.tickCount,
+                })),
+              windowTimerCallbackNestedCompletionCount:
+                candidate.windowTimerCallbackNestedCompletionCount,
+              windowTimerCallbackActiveDepthAtCompletion:
+                candidate.windowTimerCallbackActiveDepthAtCompletion,
             }),
         instructionCount: candidate.instructionCount,
         nextEndpoint: {
@@ -7209,6 +7267,267 @@ function validateBgiEquivalence(browser, oracle) {
           pending: 0,
         });
         assert.equal(browser.statusMessagesObserved, 24_365);
+        assert.equal(browser.statusMessagesRetained, 4_096);
+      }
+      if (
+        oracleCheckpoint.capability ===
+        "user32-window-timer-callback-post-waitable-timer-cycle"
+      ) {
+        assert.equal(oracle.supportedCallCount, 162_086);
+        assert.equal(
+          oracle.supportedCallSemanticsSha256,
+          "a15229e2dd2f9e2e32453cc48298ea6397751c3de380943d64d0b716566b08a3",
+        );
+        assert.equal(
+          oracleCheckpoint.implementationId,
+          "runtime.user32-window-timer-callback-post-waitable-timer-cycle.v1",
+        );
+        assert.equal(oracleCheckpoint.requiredCompletions, 3);
+        assert.equal(oracleCheckpoint.completionCount, 3);
+        assert.equal(oracleCheckpoint.requiredDeliveries, 1);
+        assert.equal(oracleCheckpoint.deliveryCount, 3);
+        assert.equal(oracleCheckpoint.prerequisiteTimerWaitSequence, 162_082);
+        assert.equal(
+          oracleCheckpoint.prerequisiteTimerWaitInstructionCount,
+          321_468_349,
+        );
+        assert.equal(oracleCheckpoint.firstCompletionSequence, 162_083);
+        assert.equal(
+          oracleCheckpoint.firstCompletionInstructionCount,
+          321_468_397,
+        );
+        assert.equal(oracleCheckpoint.lastCompletionSequence, 162_085);
+        assert.equal(
+          oracleCheckpoint.lastCompletionInstructionCount,
+          321_469_055,
+        );
+        const peek = oracleCheckpoint.windowTimerPeek;
+        assert.deepEqual(
+          {
+            sequence: peek.sequence,
+            occurrence: peek.occurrence,
+            trapInstructionCount: peek.trapInstructionCount,
+            arguments: peek.arguments,
+            result: peek.result,
+            returnAddress: peek.returnAddress,
+            stackPointerBefore: peek.stackPointerBefore,
+            stackPointerAfter: peek.stackPointerAfter,
+            lastError: peek.lastError,
+            guestWriteAddress: peek.guestWrites[0]?.address,
+            guestWriteBytes: peek.guestWrites[0]?.bytes,
+            windowTimer: peek.windowTimer,
+            runtimeThreadId: peek.runtimeThreadId,
+          },
+          {
+            sequence: 162_083,
+            occurrence: 13,
+            trapInstructionCount: 321_468_397,
+            arguments: [0x006f_f8e8, 0, 0, 0, 1],
+            result: { action: "set", value: 1 },
+            returnAddress: 0x1009_378b,
+            stackPointerBefore: 0x006f_f8c8,
+            stackPointerAfter: 0x006f_f8e0,
+            lastError: 0,
+            guestWriteAddress: 0x006f_f8e8,
+            guestWriteBytes: [
+              0x01, 0x00, 0x01, 0x48, 0x13, 0x01, 0x00, 0x00, 0x01,
+              0x00, 0x00, 0x00, 0x00, 0x96, 0x09, 0x10, 0x4d, 0xf3,
+              0x36, 0x00, 0xc0, 0x03, 0x00, 0x00, 0x1c, 0x02, 0x00,
+              0x00,
+            ],
+            windowTimer: {
+              id: 1,
+              windowId: 1,
+              windowHandle: 0x4801_0001,
+              timerId: 1,
+              ownerThreadId: 8_192,
+              requestedIntervalMilliseconds: 20,
+              effectiveIntervalMilliseconds: 20,
+              callbackAddress: 0x1009_9600,
+              registrationGeneration: 1,
+              armedAtTime100ns: 57_490_000,
+              nextDeadlineTime100ns: 57_690_000,
+              deliveryCount: 3,
+              lastDelivery: {
+                registrationGeneration: 1,
+                deliveryCount: 3,
+                scheduledDeadlineTime100ns: 57_435_000,
+                deliveredAtTime100ns: 57_490_000,
+              },
+            },
+            runtimeThreadId: 8_192,
+          },
+        );
+        const translate = oracleCheckpoint.windowTimerTranslate;
+        assert.deepEqual(
+          {
+            sequence: translate.sequence,
+            occurrence: translate.occurrence,
+            trapInstructionCount: translate.trapInstructionCount,
+            arguments: translate.arguments,
+            result: translate.result,
+            returnAddress: translate.returnAddress,
+            stackPointerBefore: translate.stackPointerBefore,
+            stackPointerAfter: translate.stackPointerAfter,
+            guestWrites: translate.guestWrites,
+            runtimeThreadId: translate.runtimeThreadId,
+          },
+          {
+            sequence: 162_084,
+            occurrence: 5,
+            trapInstructionCount: 321_468_407,
+            arguments: [0x006f_f8e8],
+            result: { action: "set", value: 0 },
+            returnAddress: 0x1009_37a2,
+            stackPointerBefore: 0x006f_f8d4,
+            stackPointerAfter: 0x006f_f8dc,
+            guestWrites: [],
+            runtimeThreadId: 8_192,
+          },
+        );
+        const dispatch = oracleCheckpoint.windowTimerDispatch;
+        assert.deepEqual(
+          {
+            sequence: dispatch.sequence,
+            occurrence: dispatch.occurrence,
+            trapInstructionCount: dispatch.trapInstructionCount,
+            arguments: dispatch.arguments,
+            result: dispatch.result,
+            returnAddress: dispatch.returnAddress,
+            stackPointerBefore: dispatch.stackPointerBefore,
+            stackPointerAfter: dispatch.stackPointerAfter,
+            callback: dispatch.callback,
+            callbackArguments: dispatch.callbackArguments,
+            runtimeThreadId: dispatch.runtimeThreadId,
+          },
+          {
+            sequence: 162_085,
+            occurrence: 5,
+            trapInstructionCount: 321_468_411,
+            arguments: [0x006f_f8e8],
+            result: { action: "set", value: 0 },
+            returnAddress: 0x1009_37ac,
+            stackPointerBefore: 0x006f_f8d4,
+            stackPointerAfter: 0x006f_f8dc,
+            callback: {
+              frameId: 35,
+              target: 0x1009_9600,
+              allocationStart: 0x006f_f8c0,
+              stackPointer: 0x006f_f8c0,
+              scratchAddress: 0,
+              scratchBytes: 0,
+              frameBytes: 20,
+              returnSentinel: 0x7f01_0000,
+              returnInstructionCount: 321_469_055,
+              result: 64,
+            },
+            callbackArguments: [0x4801_0001, 0x0113, 1, 3_601_229],
+            runtimeThreadId: 8_192,
+          },
+        );
+        assert.equal(
+          oracleCheckpoint.windowTimerCallbackNestedCompletionCount,
+          1,
+        );
+        assert.equal(
+          oracleCheckpoint.windowTimerCallbackActiveDepthAtCompletion,
+          1,
+        );
+        const nested = oracleCheckpoint.windowTimerCallbackNestedCalls[0];
+        assert.deepEqual(
+          {
+            sequence: nested.sequence,
+            occurrence: nested.occurrence,
+            trapInstructionCount: nested.trapInstructionCount,
+            module: nested.module.toLowerCase(),
+            symbol: nested.symbol,
+            arguments: nested.arguments,
+            result: nested.result,
+            returnAddress: nested.returnAddress,
+            stackPointerBefore: nested.stackPointerBefore,
+            stackPointerAfter: nested.stackPointerAfter,
+            lastError: nested.lastError,
+            guestWrites: nested.guestWrites,
+            tickCount: nested.tickCount,
+            runtimeThreadId: nested.runtimeThreadId,
+          },
+          {
+            sequence: 162_086,
+            occurrence: 1_007,
+            trapInstructionCount: 321_468_432,
+            module: "kernel32.dll",
+            symbol: "GetTickCount",
+            arguments: [],
+            result: { action: "set", value: 3_601_229 },
+            returnAddress: 0x1009_9537,
+            stackPointerBefore: 0x006f_f890,
+            stackPointerAfter: 0x006f_f894,
+            lastError: 0,
+            guestWrites: [],
+            tickCount: {
+              returnedTickCount: 3_601_229,
+              nextTickCount: 3_601_230,
+              incrementPerRead: 1,
+            },
+            runtimeThreadId: 8_192,
+          },
+        );
+        assert.equal(oracleCheckpoint.activeCallbackDepthAtStop, 0);
+        assert.equal(oracleCheckpoint.instructionCount, 321_469_064);
+        assert.deepEqual(oracleCheckpoint.nextEndpoint, {
+          id: 164,
+          address: 0x7f00_0a30,
+          disposition: "declared-runtime-export",
+          iatAddress: 0x100d_1368,
+          module: "USER32.dll",
+          symbol: { kind: "name", name: "PeekMessageA" },
+        });
+        assert.deepEqual(oracleCheckpoint.nextArguments, [
+          0x006f_f8e8,
+          0,
+          0,
+          0,
+          1,
+        ]);
+        assert.equal(oracleCheckpoint.nextReturnAddress, 0x1009_37bb);
+        assert.equal(oracleCheckpoint.nextStackPointer, 0x006f_f8c4);
+        assert.equal(
+          oracleCheckpoint.memoryContentSha256,
+          "1fdadab08d4e4cbb7ab68ffbf6f0b19b0f341ff55c225843d2c536e37fdcc553",
+        );
+        assert.equal(oracle.synchronization.writebackBatches, 165_241);
+        assert.equal(oracle.synchronization.dirtyPages, 244_674);
+        assert.equal(oracle.synchronization.changedBytes, 43_072_547);
+        assert.equal(oracle.synchronization.hostDeltaBatches, 127_997);
+        assert.equal(oracle.synchronization.finalGeneration, 296_520);
+        assert.equal(oracle.threadExecution.contextSwitches, 2_514);
+        assert.equal(browser.report.instructions, 321_469_064);
+        assert.equal(browser.report.initialGeneration, 27);
+        assert.equal(browser.report.finalGeneration, 315_159);
+        assert.equal(browser.report.writebackBatches, 183_986);
+        assert.equal(browser.report.writebackPages, 282_715);
+        assert.equal(browser.report.mappingDeltas, 127_997);
+        assert.equal(browser.report.mappingDirtyPages, 150_402);
+        assert.equal(browser.report.slices, 183_993);
+        assert.equal(browser.report.budgetYields, 18_752);
+        assert.equal(browser.report.executionTransitionCount, 589_097);
+        assert.equal(browser.report.contextSwitches, 2_514);
+        assert.equal(browser.report.callbackEntries, 35);
+        assert.equal(browser.report.maximumCallbackDepth, 3);
+        assert.equal(browser.report.wasmBridgeCalls, 489_727);
+        assert.equal(browser.report.hostRequests, 11_569);
+        assert.equal(browser.report.rustSchedulerTransitions, 14_083);
+        assert.deepEqual(browser.report.timerPacing, {
+          requests: 11_474,
+          completions: 11_474,
+          cancellations: 0,
+          freezes: 0,
+          resumes: 0,
+          staleCallbacks: 0,
+          boundedCatchUps: 0,
+          pending: 0,
+        });
+        assert.equal(browser.statusMessagesObserved, 24_367);
         assert.equal(browser.statusMessagesRetained, 4_096);
       }
       if (

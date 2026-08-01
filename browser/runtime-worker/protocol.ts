@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 98 as const;
+export const protocolVersion = 99 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -86,6 +86,7 @@ export type BgiCapabilityProfile =
   | "user32-get-async-key-state-post-is-iconic-clock-continuation"
   | "d3d9-test-cooperative-level-post-input-scan-continuation"
   | "d3d9-post-input-scan-waitable-timer-cycle"
+  | "user32-window-timer-callback-post-waitable-timer-cycle"
   | "kernel32-wait-for-single-object-ex-post-timer-arm-batch"
   | "kernel32-wait-for-single-object-ex-post-timer-rearm-batch"
   | "kernel32-enter-critical-section-post-timer-wait-batch"
@@ -3390,6 +3391,66 @@ export interface SessionReport {
             timerWait: RuntimeThreadCallSnapshot;
             cumulativeTimerArmCompletions: number;
             cumulativeTimerWaitCompletions: number;
+          }
+        | {
+            capability:
+              "user32-window-timer-callback-post-waitable-timer-cycle";
+            implementationId:
+              "runtime.user32-window-timer-callback-post-waitable-timer-cycle.v1";
+            requiredCompletions: 3;
+            completionCount: 3;
+            timeGetTimePostReleaseActiveCallbackDepthAtCompletion: 0;
+            timeGetTimePostRelease: RuntimeThreadCallSnapshot;
+            maximumRepeatCompletions: 16;
+            timeGetTimePostReleaseCompletions: RuntimeThreadCallSnapshot[];
+            getWindowRectPostReleaseActiveCallbackDepthAtCompletion: 0;
+            getWindowRectPostRelease: RuntimeThreadCallSnapshot;
+            getCursorPosPostReleaseActiveCallbackDepthAtCompletion: 0;
+            getCursorPosPostRelease: RuntimeThreadCallSnapshot;
+            getSystemMetricsPostReleaseActiveCallbackDepthAtCompletion: 0;
+            getSystemMetricsPostRelease: RuntimeThreadCallSnapshot;
+            getSystemMetricsCaptionPostReleaseActiveCallbackDepthAtCompletion: 0;
+            getSystemMetricsCaptionPostRelease: RuntimeThreadCallSnapshot;
+            getSystemMetricsFixedFrameHeightPostReleaseActiveCallbackDepthAtCompletion: 0;
+            getSystemMetricsFixedFrameHeightPostRelease: RuntimeThreadCallSnapshot;
+            isIconicPostReleaseActiveCallbackDepthAtCompletion: 0;
+            isIconicPostRelease: RuntimeThreadCallSnapshot;
+            timeGetTimePostIsIconicActiveCallbackDepthAtCompletion: 0;
+            timeGetTimePostIsIconic: RuntimeThreadCallSnapshot;
+            prerequisiteScanCompletionSequence: number;
+            prerequisiteScanCompletionInstructionCount: number;
+            scanVirtualKeys: number[];
+            result: { action: "set"; value: 0 };
+            lastError: 0;
+            guestWriteBytes: 0;
+            getAsyncKeyStatePostIsIconicClockActiveCallbackDepthAtCompletion: 0;
+            getAsyncKeyStatePostIsIconicClockFirst: RuntimeThreadCallSnapshot;
+            getAsyncKeyStatePostIsIconicClockLast: RuntimeThreadCallSnapshot;
+            prerequisiteTestCooperativeLevelSequence: number;
+            prerequisiteTestCooperativeLevelInstructionCount: number;
+            firstCompletionSequence: number;
+            firstCompletionInstructionCount: number;
+            d3d9TestCooperativeLevelPostInputScanActiveCallbackDepthAtCompletion: 0;
+            d3d9TestCooperativeLevelPostInputScan: RuntimeThreadCallSnapshot;
+            cumulativeCompletions: 9;
+            timerArmActiveCallbackDepthAtCompletion: 0;
+            timerWaitActiveCallbackDepthAtCompletion: 0;
+            timerArm: RuntimeThreadCallSnapshot;
+            timerWait: RuntimeThreadCallSnapshot;
+            cumulativeTimerArmCompletions: number;
+            cumulativeTimerWaitCompletions: number;
+            requiredDeliveries: 1;
+            deliveryCount: 3;
+            prerequisiteTimerWaitSequence: number;
+            prerequisiteTimerWaitInstructionCount: number;
+            windowTimerPeek: RuntimeThreadCallSnapshot;
+            windowTimerTranslate: RuntimeThreadCallSnapshot;
+            windowTimerDispatch: RuntimeThreadCallSnapshot & {
+              callbackArguments: [number, number, number, number];
+            };
+            windowTimerCallbackNestedCalls: [RuntimeThreadCallSnapshot];
+            windowTimerCallbackNestedCompletionCount: 1;
+            windowTimerCallbackActiveDepthAtCompletion: 1;
           }
       ))
     | {

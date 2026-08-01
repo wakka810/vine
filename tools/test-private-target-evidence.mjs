@@ -38,6 +38,7 @@ const checkpoint = loadCurrentCheckpoint(
 );
 const activeCapability = checkpoint.nextStructuredStop.completion?.capability;
 const postInputScanOrScan = [
+  "user32-window-timer-callback-post-waitable-timer-cycle",
   "d3d9-post-input-scan-waitable-timer-cycle",
   "d3d9-test-cooperative-level-post-input-scan-continuation",
   "user32-get-async-key-state-post-is-iconic-clock-continuation",
@@ -77,7 +78,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 65);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 66);
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
 const lastPacingRequest = { requestId: "4708", sequence: 89_218 };
@@ -703,6 +704,7 @@ if (
   );
   if (
     [
+      "user32-window-timer-callback-post-waitable-timer-cycle",
       "d3d9-post-input-scan-waitable-timer-cycle",
       "d3d9-test-cooperative-level-post-input-scan-continuation",
     ].includes(activeCapability)
@@ -722,7 +724,12 @@ if (
       ),
     );
   }
-  if (activeCapability === "d3d9-post-input-scan-waitable-timer-cycle") {
+  if (
+    [
+      "user32-window-timer-callback-post-waitable-timer-cycle",
+      "d3d9-post-input-scan-waitable-timer-cycle",
+    ].includes(activeCapability)
+  ) {
     const staleTimerArmGeneration = mutated((value) => {
       value.semantic.browser.checkpointCompletion.timerArm.waitableTimer.timer.arm.generation =
         8;
@@ -745,6 +752,44 @@ if (
         checkpoint,
       ).some((error) =>
         error.includes("timerWait.waitableTimer.nextWaitRegistrationId"),
+      ),
+    );
+  }
+  if (
+    activeCapability ===
+    "user32-window-timer-callback-post-waitable-timer-cycle"
+  ) {
+    const staleWindowTimerDelivery = mutated((value) => {
+      value.semantic.browser.checkpointCompletion.windowTimerPeek.windowTimer.deliveryCount =
+        2;
+    });
+    assert(
+      validatePrivateTargetEvidence(
+        staleWindowTimerDelivery,
+        checkpoint,
+      ).some((error) =>
+        error.includes("windowTimerPeek.windowTimer.deliveryCount"),
+      ),
+    );
+    const staleCallbackFrame = mutated((value) => {
+      value.semantic.node.checkpointCompletion.windowTimerDispatch.callback.frameId =
+        34;
+    });
+    assert(
+      validatePrivateTargetEvidence(staleCallbackFrame, checkpoint).some(
+        (error) => error.includes("windowTimerDispatch.callback.frameId"),
+      ),
+    );
+    const staleNestedTick = mutated((value) => {
+      value.semantic.browser.checkpointCompletion.windowTimerCallbackNestedCalls[0].tickCount.nextTickCount =
+        3_601_229;
+    });
+    assert(
+      validatePrivateTargetEvidence(staleNestedTick, checkpoint).some(
+        (error) =>
+          error.includes(
+            "windowTimerCallbackNestedCalls[0].tickCount.nextTickCount",
+          ),
       ),
     );
   }

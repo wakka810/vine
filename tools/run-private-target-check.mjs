@@ -223,9 +223,13 @@ function assertCapabilityCheckpoint(
     assert.equal(actual.queueDepthAtDispatchEntry, 0);
     assert.equal(actual.dispatchMessageReleaseBytesPreserved, true);
     if (expected.completion.requiredCompletions !== undefined) {
-      const postInputScanWaitableTimerCycle =
+      const postWaitableTimerWindowCallbackCycle =
         expected.completion.capability ===
-        "d3d9-post-input-scan-waitable-timer-cycle";
+        "user32-window-timer-callback-post-waitable-timer-cycle";
+      const postInputScanWaitableTimerCycle =
+        postWaitableTimerWindowCallbackCycle ||
+        expected.completion.capability ===
+          "d3d9-post-input-scan-waitable-timer-cycle";
       const postInputScanTestCooperativeLevel =
         postInputScanWaitableTimerCycle ||
         expected.completion.capability ===
@@ -290,7 +294,9 @@ function assertCapabilityCheckpoint(
       if (postIsIconicGetAsyncKeyStateScan) {
         assert.equal(
           actual.firstCompletionSequence,
-          postInputScanWaitableTimerCycle
+          postWaitableTimerWindowCallbackCycle
+            ? 162_083
+            : postInputScanWaitableTimerCycle
             ? 162_081
             : postInputScanTestCooperativeLevel
               ? 162_080
@@ -298,7 +304,9 @@ function assertCapabilityCheckpoint(
         );
         assert.equal(
           actual.firstCompletionInstructionCount,
-          postInputScanWaitableTimerCycle
+          postWaitableTimerWindowCallbackCycle
+            ? 321_468_397
+            : postInputScanWaitableTimerCycle
             ? 321_468_343
             : postInputScanTestCooperativeLevel
               ? 321_468_292
@@ -479,6 +487,111 @@ function assertCapabilityCheckpoint(
         assert.equal(wait.waitableTimer.nextWaitRegistrationId, 11_475);
         assert.equal(actual.cumulativeTimerArmCompletions, 11_476);
         assert.equal(actual.cumulativeTimerWaitCompletions, 11_475);
+      }
+      if (postWaitableTimerWindowCallbackCycle) {
+        assert.equal(actual.requiredDeliveries, 1);
+        assert.equal(actual.deliveryCount, 3);
+        assert.equal(actual.prerequisiteTimerWaitSequence, 162_082);
+        assert.equal(
+          actual.prerequisiteTimerWaitInstructionCount,
+          321_468_349,
+        );
+        const peek = actual.windowTimerPeek;
+        assert(peek !== undefined);
+        assert.equal(peek.sequence, 162_083);
+        assert.equal(peek.occurrence, 13);
+        assert.equal(peek.trapInstructionCount, 321_468_397);
+        assert.equal(peek.runtimeThreadId, 8_192);
+        assert.equal(peek.module.toLowerCase(), "user32.dll");
+        assert.equal(peek.symbol, "PeekMessageA");
+        assert.equal(
+          peek.implementationId,
+          "user32.peek-message-a.current-thread.v1",
+        );
+        assert.deepEqual(peek.arguments, [7_338_216, 0, 0, 0, 1]);
+        assert.deepEqual(peek.result, { action: "set", value: 1 });
+        assert.equal(peek.returnAddress, 269_039_499);
+        assert.equal(peek.stackPointerBefore, 7_338_184);
+        assert.equal(peek.stackPointerAfter, 7_338_208);
+        assert.equal(peek.lastError, 0);
+        assert.equal(peek.guestWrites.length, 1);
+        assert.equal(peek.guestWrites[0].address, 7_338_216);
+        assert.deepEqual(peek.guestWrites[0].bytes, [
+          1, 0, 1, 72, 19, 1, 0, 0, 1, 0, 0, 0, 0, 150, 9, 16, 77,
+          243, 54, 0, 192, 3, 0, 0, 28, 2, 0, 0,
+        ]);
+        assert.equal(peek.windowTimer.deliveryCount, 3);
+        assert.equal(peek.windowTimer.callbackAddress, 269_063_680);
+        assert.equal(peek.windowTimer.armedAtTime100ns, 57_490_000);
+        assert.equal(peek.windowTimer.nextDeadlineTime100ns, 57_690_000);
+        assert.deepEqual(peek.windowTimer.lastDelivery, {
+          registrationGeneration: 1,
+          deliveryCount: 3,
+          scheduledDeadlineTime100ns: 57_435_000,
+          deliveredAtTime100ns: 57_490_000,
+        });
+        const translate = actual.windowTimerTranslate;
+        assert(translate !== undefined);
+        assert.equal(translate.sequence, 162_084);
+        assert.equal(translate.occurrence, 5);
+        assert.equal(translate.trapInstructionCount, 321_468_407);
+        assert.deepEqual(translate.result, { action: "set", value: 0 });
+        assert.equal(translate.stackPointerBefore, 7_338_196);
+        assert.equal(translate.stackPointerAfter, 7_338_204);
+        const dispatch = actual.windowTimerDispatch;
+        assert(dispatch !== undefined);
+        assert.equal(dispatch.sequence, 162_085);
+        assert.equal(dispatch.occurrence, 5);
+        assert.equal(dispatch.trapInstructionCount, 321_468_411);
+        assert.equal(dispatch.runtimeThreadId, 8_192);
+        assert.equal(dispatch.module.toLowerCase(), "user32.dll");
+        assert.equal(dispatch.symbol, "DispatchMessageA");
+        assert.equal(
+          dispatch.implementationId,
+          "user32.dispatch-message-a.window-timer-pointer-callback.v2",
+        );
+        assert.deepEqual(dispatch.result, { action: "set", value: 0 });
+        assert.equal(dispatch.returnAddress, 269_039_532);
+        assert.equal(dispatch.stackPointerBefore, 7_338_196);
+        assert.equal(dispatch.stackPointerAfter, 7_338_204);
+        assert.deepEqual(dispatch.callbackArguments, [
+          1_208_025_089, 275, 1, 3_601_229,
+        ]);
+        assert.deepEqual(dispatch.callback, {
+          frameId: 35,
+          target: 269_063_680,
+          allocationStart: 7_338_176,
+          stackPointer: 7_338_176,
+          scratchAddress: 0,
+          scratchBytes: 0,
+          frameBytes: 20,
+          returnSentinel: 2_130_771_968,
+          returnInstructionCount: 321_469_055,
+          result: 64,
+        });
+        assert.equal(actual.windowTimerCallbackNestedCompletionCount, 1);
+        assert.equal(actual.windowTimerCallbackActiveDepthAtCompletion, 1);
+        assert.equal(actual.windowTimerCallbackNestedCalls.length, 1);
+        const nested = actual.windowTimerCallbackNestedCalls[0];
+        assert.equal(nested.sequence, 162_086);
+        assert.equal(nested.occurrence, 1_007);
+        assert.equal(nested.trapInstructionCount, 321_468_432);
+        assert.equal(nested.runtimeThreadId, 8_192);
+        assert.equal(nested.module.toLowerCase(), "kernel32.dll");
+        assert.equal(nested.symbol, "GetTickCount");
+        assert.equal(nested.implementationId, "kernel32.get-tick-count.v1");
+        assert.deepEqual(nested.arguments, []);
+        assert.deepEqual(nested.result, { action: "set", value: 3_601_229 });
+        assert.equal(nested.returnAddress, 269_063_479);
+        assert.equal(nested.stackPointerBefore, 7_338_128);
+        assert.equal(nested.stackPointerAfter, 7_338_132);
+        assert.equal(nested.lastError, 0);
+        assert.deepEqual(nested.guestWrites, []);
+        assert.deepEqual(nested.tickCount, {
+          returnedTickCount: 3_601_229,
+          nextTickCount: 3_601_230,
+          incrementPerRead: 1,
+        });
       }
       if (postReleasePeek) {
         assert.equal(

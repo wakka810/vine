@@ -1616,16 +1616,20 @@ impl BrowserRuntime {
             DispatchOutcome::GuestCallback(call) => self.begin_callback(call),
             DispatchOutcome::Immediate(completion) => {
                 let delta = self.pending_delta()?;
-                let tick_count = if completion.implementation_id == "winmm.time-get-time.v1"
-                    && let Some(increment_per_read) = tick_count_increment
+                let tick_count = if matches!(
+                    completion.implementation_id.as_str(),
+                    "winmm.time-get-time.v1" | "kernel32.get-tick-count.v1"
+                ) && let Some(increment_per_read) = tick_count_increment
                 {
                     let RegisterUpdate::Set(returned_tick_count) = completion.eax else {
-                        return Err("completed timeGetTime did not return a tick count".to_owned());
+                        return Err(
+                            "completed monotonic tick query did not return a tick count".to_owned()
+                        );
                     };
                     let next_tick_count = self.runtime.clock().tick_count;
                     if next_tick_count != returned_tick_count.wrapping_add(increment_per_read) {
                         return Err(
-                            "completed timeGetTime clock state does not follow its policy increment"
+                            "completed monotonic tick query clock state does not follow its policy increment"
                                 .to_owned(),
                         );
                     }
