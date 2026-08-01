@@ -701,6 +701,14 @@ stale-checked lifecycle planでretireする。Selection bandはversioned policy�
 browser bitmapとのassociationは明示的なnon-owning adapter stateとし、native HCURSORやbrowser
 resource IDをguest-visible identityへimportしない。
 
+Reached `GetCursorInfo`は新しいcursor state ownerを作らず、policy-selected system-arrow sourceを
+`RuntimeUser32`のprivate source indexで解決し、screen pointを`RuntimeInput`から読むcross-subsystem
+projectionとする。Aggregateはexact x86 structure size、両ownerのliveness、GuestMemory output spanを
+preflightし、20-byte resultだけをatomic commitする。Logical HCURSOR／point／generationは変更せず、
+TypeScriptはcompletion evidenceからWindows cursor stateを再構築しない。NULL、wrong size、missing
+source、unconfigured input、bad spanはowner collection、allocator、input generation、guest bytesを
+部分更新しない。
+
 Process-local window classも`RuntimeUser32`の別identity domainとする。Class collection、ASCII
 case-foldした`(module ID, name)` index、logical ATOM index、monotonic allocator、generation、
 process teardownをprivateに所有する。Class recordはmapped module hash／base、same-module executable

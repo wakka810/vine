@@ -224,6 +224,10 @@ assert.equal(
   "v86-bgi-outline-text-metrics-224x112",
 );
 assert.equal(
+  bgiProfileOutputDirectory("user32-get-cursor-info"),
+  "v86-bgi-get-cursor-info",
+);
+assert.equal(
   bgiProfileOutputDirectory("shell32-drag-accept-files"),
   "v86-bgi-drag-accept-files",
 );

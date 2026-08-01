@@ -5727,6 +5727,13 @@ impl RuntimeKernel {
         self.user32.cursor(handle)
     }
 
+    pub fn cursor_for_source(
+        &self,
+        source: &RuntimeCursorSource,
+    ) -> Result<&RuntimeCursor, RuntimeStateError> {
+        self.user32.cursor_for_source(source)
+    }
+
     pub fn cursors(&self) -> &BTreeMap<RuntimeCursorId, RuntimeCursor> {
         self.user32.cursors()
     }

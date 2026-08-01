@@ -28,14 +28,15 @@ use vine_core::{
     dispatch_gdi32_api, dispatch_imm32_api_with_policy, dispatch_message_a_contract,
     dispatch_user32_api_with_policy, enable_menu_item_contract, end_paint_contract,
     enum_display_monitors_contract, fill_rect_contract, gdi32_contract_for_endpoint,
-    get_async_key_state_contract, get_client_rect_contract, get_cursor_pos_contract,
-    get_dc_contract, get_foreground_window_contract, get_monitor_info_a_contract,
-    get_stock_object_contract, get_system_menu_contract, get_system_metrics_contract,
-    get_window_rect_contract, imm_associate_context_contract, imm_get_default_ime_wnd_contract,
-    is_iconic_contract, load_cursor_a_contract, load_icon_a_contract, load_image_a_contract,
-    materialize_pe32_image, monitor_from_window_contract, peek_message_a_contract,
-    register_class_ex_a_contract, release_dc_contract, send_message_a_contract, set_focus_contract,
-    set_rect_contract, set_timer_contract, set_window_long_a_contract, set_window_pos_contract,
+    get_async_key_state_contract, get_client_rect_contract, get_cursor_info_contract,
+    get_cursor_pos_contract, get_dc_contract, get_foreground_window_contract,
+    get_monitor_info_a_contract, get_stock_object_contract, get_system_menu_contract,
+    get_system_metrics_contract, get_window_rect_contract, imm_associate_context_contract,
+    imm_get_default_ime_wnd_contract, is_iconic_contract, load_cursor_a_contract,
+    load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
+    monitor_from_window_contract, peek_message_a_contract, register_class_ex_a_contract,
+    release_dc_contract, send_message_a_contract, set_focus_contract, set_rect_contract,
+    set_timer_contract, set_window_long_a_contract, set_window_pos_contract,
     set_window_text_a_contract, show_window_contract, swap_mouse_button_contract,
     translate_message_contract, update_window_contract, user32_contract_for_endpoint,
 };
@@ -153,6 +154,11 @@ const GET_CURSOR_POS_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 11
 const GET_CURSOR_POS_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x22e0;
 const GET_CURSOR_POS_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8563);
 const CURSOR_POSITION_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2e30);
+const GET_CURSOR_INFO_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0a70);
+const GET_CURSOR_INFO_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 140);
+const GET_CURSOR_INFO_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2340;
+const GET_CURSOR_INFO_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8c98);
+const CURSOR_INFO_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2e40);
 const PEEK_MESSAGE_A_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0a30);
 const PEEK_MESSAGE_A_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 116);
 const PEEK_MESSAGE_A_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2f80;
@@ -1226,6 +1232,7 @@ struct RegisterClassFixture {
     get_client_rect_endpoint: ApiEndpointIdentity,
     get_window_rect_endpoint: ApiEndpointIdentity,
     get_cursor_pos_endpoint: ApiEndpointIdentity,
+    get_cursor_info_endpoint: ApiEndpointIdentity,
     peek_message_a_endpoint: ApiEndpointIdentity,
     translate_message_endpoint: ApiEndpointIdentity,
     dispatch_message_a_endpoint: ApiEndpointIdentity,
@@ -1362,6 +1369,10 @@ impl RegisterClassFixture {
                 GET_WINDOW_RECT_ENDPOINT_ADDRESS,
             ),
             (GET_CURSOR_POS_IAT_ADDRESS, GET_CURSOR_POS_ENDPOINT_ADDRESS),
+            (
+                GET_CURSOR_INFO_IAT_ADDRESS,
+                GET_CURSOR_INFO_ENDPOINT_ADDRESS,
+            ),
             (PEEK_MESSAGE_A_IAT_ADDRESS, PEEK_MESSAGE_A_ENDPOINT_ADDRESS),
             (
                 TRANSLATE_MESSAGE_IAT_ADDRESS,
@@ -1935,6 +1946,21 @@ impl RegisterClassFixture {
                 name_rva: vine_core::Rva(0),
             },
         });
+        let get_cursor_info_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+            id: ImportThunkId(236),
+            address: GET_CURSOR_INFO_ENDPOINT_ADDRESS,
+            requester_owner: runtime_owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1450),
+            iat_address: GET_CURSOR_INFO_IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "GetCursorInfo".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        });
         let peek_message_a_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
             id: ImportThunkId(164),
             address: PEEK_MESSAGE_A_ENDPOINT_ADDRESS,
@@ -2168,6 +2194,7 @@ impl RegisterClassFixture {
                 get_client_rect_endpoint.clone(),
                 get_window_rect_endpoint.clone(),
                 get_cursor_pos_endpoint.clone(),
+                get_cursor_info_endpoint.clone(),
                 peek_message_a_endpoint.clone(),
                 translate_message_endpoint.clone(),
                 dispatch_message_a_endpoint.clone(),
@@ -2218,6 +2245,8 @@ impl RegisterClassFixture {
                     .expect("window rectangle contract"),
                 get_cursor_pos_contract(get_cursor_pos_endpoint.clone())
                     .expect("cursor position contract"),
+                get_cursor_info_contract(get_cursor_info_endpoint.clone())
+                    .expect("cursor information contract"),
                 peek_message_a_contract(peek_message_a_endpoint.clone())
                     .expect("message peek contract"),
                 translate_message_contract(translate_message_endpoint.clone())
@@ -2280,6 +2309,7 @@ impl RegisterClassFixture {
             get_client_rect_endpoint,
             get_window_rect_endpoint,
             get_cursor_pos_endpoint,
+            get_cursor_info_endpoint,
             peek_message_a_endpoint,
             translate_message_endpoint,
             dispatch_message_a_endpoint,
@@ -2836,6 +2866,22 @@ impl RegisterClassFixture {
             self.get_cursor_pos_endpoint.clone(),
             GuestAddress(GET_CURSOR_POS_STACK_POINTER),
             GET_CURSOR_POS_RETURN_ADDRESS,
+        )
+    }
+
+    fn configure_get_cursor_info(&mut self, output: GuestAddress) {
+        self.write_live_words(
+            GuestAddress(GET_CURSOR_INFO_STACK_POINTER),
+            &[GET_CURSOR_INFO_RETURN_ADDRESS.0, output.0],
+        );
+        self.acknowledge_pending_delta();
+    }
+
+    fn dispatch_get_cursor_info(&mut self) -> DispatchOutcome {
+        self.dispatch_endpoint(
+            self.get_cursor_info_endpoint.clone(),
+            GuestAddress(GET_CURSOR_INFO_STACK_POINTER),
+            GET_CURSOR_INFO_RETURN_ADDRESS,
         )
     }
 
@@ -4080,6 +4126,48 @@ fn get_cursor_pos_contract_is_one_argument_stdcall_with_nullable_point_output() 
 }
 
 #[test]
+fn get_cursor_info_contract_is_one_argument_stdcall_with_nullable_bounded_inout() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(236),
+        address: GET_CURSOR_INFO_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_1450),
+        iat_address: GET_CURSOR_INFO_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "GetCursorInfo".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = get_cursor_info_contract(endpoint).expect("GetCursorInfo contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(contract.abi.arguments[0].direction, ApiDirection::InOut);
+    assert!(matches!(
+        &contract.abi.arguments[0].value,
+        ApiValueSchema::DynamicPointer { constraint }
+            if constraint.nullable
+                && constraint.alignment == 4
+                && constraint.minimum_byte_length == 4
+                && constraint.maximum_byte_length == 20
+                && constraint.write_requirement == ApiWriteRequirement::Optional
+                && matches!(
+                    &constraint.pointee,
+                    ApiPointeeSchema::Struct { type_id } if type_id == "CURSORINFO"
+                )
+    ));
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
 fn peek_message_a_contract_is_five_argument_stdcall_with_conditional_msg_output() {
     let (_, owner) = initialized_memory();
     let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
@@ -5097,6 +5185,214 @@ fn get_cursor_pos_reads_logical_screen_point_and_preserves_failure_atomicity() {
     assert_eq!(pointer_fault.code, "guest-page-fault");
     assert_eq!(fixture.runtime, pointer_fault_runtime);
     assert_eq!(fixture.memory.stats(), pointer_fault_memory);
+}
+
+#[test]
+fn get_cursor_info_projects_loaded_arrow_and_logical_position() {
+    let mut fixture = RegisterClassFixture::new();
+    fixture.prepare_resources();
+    let mut input = vec![0xa5; 20];
+    input[0..4].copy_from_slice(&20_u32.to_le_bytes());
+    fixture
+        .memory
+        .write(CURSOR_INFO_OUTPUT_ADDRESS, &input)
+        .expect("seed CURSORINFO output");
+    fixture.acknowledge_pending_delta();
+    fixture.configure_get_cursor_info(CURSOR_INFO_OUTPUT_ADDRESS);
+    let sentinel = 0x4455_6677;
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed GetCursorInfo LastError");
+    let runtime_before = fixture.runtime.clone();
+    let completion = match fixture.dispatch_get_cursor_info() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected GetCursorInfo completion, got {other:?}"),
+    };
+    let expected_bytes = [0_u32, 1, 0x4301_0001]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .chain([960_i32, 540].into_iter().flat_map(i32::to_le_bytes))
+        .collect::<Vec<_>>();
+    assert_eq!(completion.eax, RegisterUpdate::Set(1));
+    assert_eq!(completion.last_error, sentinel);
+    assert_eq!(
+        completion.stack_pointer,
+        GuestAddress(GET_CURSOR_INFO_STACK_POINTER + 8)
+    );
+    assert_eq!(
+        completion.instruction_pointer,
+        GET_CURSOR_INFO_RETURN_ADDRESS
+    );
+    assert_eq!(completion.guest_writes.len(), 1);
+    assert_eq!(
+        completion.guest_writes[0].write.address,
+        CURSOR_INFO_OUTPUT_ADDRESS
+    );
+    assert_eq!(completion.guest_writes[0].write.bytes, expected_bytes);
+    fixture.acknowledge_pending_delta();
+    assert_eq!(
+        fixture
+            .memory
+            .read(CURSOR_INFO_OUTPUT_ADDRESS, 20)
+            .expect("read completed CURSORINFO"),
+        expected_bytes
+    );
+    assert_eq!(fixture.runtime, runtime_before);
+}
+
+#[test]
+fn get_cursor_info_failures_preserve_output_and_cursor_authorities() {
+    let mut fixture = RegisterClassFixture::new();
+    fixture.prepare_resources();
+
+    fixture.configure_get_cursor_info(GuestAddress(0));
+    let memory_before_null = fixture.memory.stats();
+    let cursors_before_null = fixture.runtime.cursors().clone();
+    let cursor_position_before_null = fixture.runtime.cursor_position().cloned();
+    let null_completion = match fixture.dispatch_get_cursor_info() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected null GetCursorInfo completion, got {other:?}"),
+    };
+    assert_eq!(null_completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(null_completion.last_error, 998);
+    assert!(null_completion.guest_writes.is_empty());
+    assert_eq!(fixture.memory.stats(), memory_before_null);
+    assert_eq!(fixture.runtime.cursors(), &cursors_before_null);
+    assert_eq!(
+        fixture.runtime.cursor_position(),
+        cursor_position_before_null.as_ref()
+    );
+
+    for cb_size in [0_u32, 19, 21] {
+        let mut bytes = vec![0xa5; 20];
+        bytes[0..4].copy_from_slice(&cb_size.to_le_bytes());
+        fixture
+            .memory
+            .write(CURSOR_INFO_OUTPUT_ADDRESS, &bytes)
+            .expect("seed invalid CURSORINFO size");
+        fixture.acknowledge_pending_delta();
+        fixture.configure_get_cursor_info(CURSOR_INFO_OUTPUT_ADDRESS);
+        let cursors_before = fixture.runtime.cursors().clone();
+        let cursor_position_before = fixture.runtime.cursor_position().cloned();
+        let completion = match fixture.dispatch_get_cursor_info() {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected invalid-size GetCursorInfo completion, got {other:?}"),
+        };
+        assert_eq!(completion.eax, RegisterUpdate::Set(0));
+        assert_eq!(completion.last_error, 87);
+        assert!(completion.guest_writes.is_empty());
+        assert_eq!(
+            fixture
+                .memory
+                .read(CURSOR_INFO_OUTPUT_ADDRESS, 20)
+                .expect("read preserved invalid CURSORINFO"),
+            bytes
+        );
+        assert_eq!(fixture.runtime.cursors(), &cursors_before);
+        assert_eq!(
+            fixture.runtime.cursor_position(),
+            cursor_position_before.as_ref()
+        );
+    }
+
+    let partial_output = GuestAddress(MEMORY_BASE.0 + 0x2ffc);
+    fixture
+        .memory
+        .write(partial_output, &19_u32.to_le_bytes())
+        .expect("seed partial invalid CURSORINFO");
+    fixture.acknowledge_pending_delta();
+    fixture.configure_get_cursor_info(partial_output);
+    let partial_size_completion = match fixture.dispatch_get_cursor_info() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected partial invalid-size completion, got {other:?}"),
+    };
+    assert_eq!(partial_size_completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(partial_size_completion.last_error, 87);
+    assert_eq!(
+        fixture
+            .memory
+            .read(partial_output, 4)
+            .expect("read preserved partial size"),
+        19_u32.to_le_bytes()
+    );
+
+    fixture
+        .memory
+        .write(partial_output, &20_u32.to_le_bytes())
+        .expect("seed partial valid CURSORINFO");
+    fixture.acknowledge_pending_delta();
+    fixture.configure_get_cursor_info(partial_output);
+    let cursors_before_fault = fixture.runtime.cursors().clone();
+    let cursor_position_before_fault = fixture.runtime.cursor_position().cloned();
+    let pointer_fault = match fixture.dispatch_get_cursor_info() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected CURSORINFO write-span fault, got {other:?}"),
+    };
+    assert_eq!(pointer_fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(pointer_fault.code, "guest-page-fault");
+    assert_eq!(
+        fixture
+            .memory
+            .read(partial_output, 4)
+            .expect("read preserved partial valid size"),
+        20_u32.to_le_bytes()
+    );
+    assert_eq!(fixture.runtime.cursors(), &cursors_before_fault);
+    assert_eq!(
+        fixture.runtime.cursor_position(),
+        cursor_position_before_fault.as_ref()
+    );
+
+    let mut missing = RegisterClassFixture::new();
+    let mut valid = vec![0xa5; 20];
+    valid[0..4].copy_from_slice(&20_u32.to_le_bytes());
+    missing
+        .memory
+        .write(CURSOR_INFO_OUTPUT_ADDRESS, &valid)
+        .expect("seed missing-cursor CURSORINFO");
+    missing.acknowledge_pending_delta();
+    missing.configure_get_cursor_info(CURSOR_INFO_OUTPUT_ADDRESS);
+    let missing_fault = match missing.dispatch_get_cursor_info() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected missing logical cursor fault, got {other:?}"),
+    };
+    assert_eq!(missing_fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(missing_fault.code, "cursor-source-unknown");
+    assert!(missing.runtime.cursors().is_empty());
+    assert_eq!(
+        missing
+            .memory
+            .read(CURSOR_INFO_OUTPUT_ADDRESS, 20)
+            .expect("read preserved missing-cursor output"),
+        valid
+    );
+
+    let mut disabled = RegisterClassFixture::new();
+    disabled.prepare_resources();
+    disabled.policy.load_cursor_a = None;
+    disabled
+        .memory
+        .write(CURSOR_INFO_OUTPUT_ADDRESS, &valid)
+        .expect("seed disabled-policy CURSORINFO");
+    disabled.acknowledge_pending_delta();
+    disabled.configure_get_cursor_info(CURSOR_INFO_OUTPUT_ADDRESS);
+    let disabled_fault = match disabled.dispatch_get_cursor_info() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected disabled GetCursorInfo policy fault, got {other:?}"),
+    };
+    assert_eq!(disabled_fault.class, ApiFaultClass::Unsupported);
+    assert_eq!(
+        disabled_fault.code,
+        "get-cursor-info-cursor-policy-disabled"
+    );
+    assert_eq!(
+        disabled
+            .memory
+            .read(CURSOR_INFO_OUTPUT_ADDRESS, 20)
+            .expect("read preserved disabled-policy output"),
+        valid
+    );
 }
 
 #[test]

@@ -67,6 +67,7 @@ pub const GET_SYSTEM_METRICS_IMPLEMENTATION: &str = "user32.get-system-metrics.v
 pub const GET_CLIENT_RECT_IMPLEMENTATION: &str = "user32.get-client-rect.v1";
 pub const GET_WINDOW_RECT_IMPLEMENTATION: &str = "user32.get-window-rect.v1";
 pub const GET_CURSOR_POS_IMPLEMENTATION: &str = "user32.get-cursor-pos.v1";
+pub const GET_CURSOR_INFO_IMPLEMENTATION: &str = "user32.get-cursor-info.system-arrow.v1";
 pub const PEEK_MESSAGE_A_IMPLEMENTATION: &str = "user32.peek-message-a.current-thread.v1";
 pub const TRANSLATE_MESSAGE_IMPLEMENTATION: &str =
     "user32.translate-message.window-timer-pointer-noop.v2";
@@ -143,6 +144,8 @@ const GWL_STYLE: i32 = -16;
 const INVALID_WINDOW_LONG_INDEX: i32 = -100;
 const ERROR_RESOURCE_LANG_NOT_FOUND: u32 = 1815;
 const MONITORINFO_BYTE_LENGTH: u32 = 40;
+const CURSORINFO_BYTE_LENGTH: u32 = 20;
+const CURSOR_SHOWING: u32 = 1;
 const MONITORINFOEXA_BYTE_LENGTH: u32 = 72;
 const MONITORINFOF_PRIMARY: u32 = 1;
 
@@ -1680,6 +1683,12 @@ pub fn dispatch_user32_api_with_policy(
             Ok(immediate) => ApiHandlerResult::Immediate(immediate),
             Err(fault) => ApiHandlerResult::Fault(fault),
         },
+        GET_CURSOR_INFO_IMPLEMENTATION => {
+            match handle_get_cursor_info(policy, contract, frame, session) {
+                Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
         PEEK_MESSAGE_A_IMPLEMENTATION => {
             match handle_peek_message_a(policy, contract, frame, session) {
                 Ok(immediate) => ApiHandlerResult::Immediate(immediate),
@@ -2143,6 +2152,72 @@ fn handle_get_cursor_pos(
         .into_iter()
         .flat_map(i32::to_le_bytes)
         .collect();
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+        .with_last_error(preserved_last_error)
+        .with_guest_write(GuestAddress(output), bytes))
+}
+
+fn handle_get_cursor_info(
+    policy: &User32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let output = required_argument(contract, frame, 0, "cursor information")?;
+    if output == 0 {
+        return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(ERROR_NOACCESS));
+    }
+    let size_bytes = session
+        .memory()
+        .read(GuestAddress(output), 4)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let structure_byte_length = read_u32(&size_bytes, 0).ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "user32-input",
+            "get-cursor-info-size-read-incomplete",
+            "validated CURSORINFO size field could not be decoded",
+        )
+    })?;
+    if structure_byte_length != CURSORINFO_BYTE_LENGTH {
+        return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+            .with_last_error(ERROR_INVALID_PARAMETER));
+    }
+    let cursor_policy = policy.load_cursor_a.as_ref().ok_or_else(|| {
+        ApiFault::unsupported(
+            "user32-input",
+            "get-cursor-info-cursor-policy-disabled",
+            "GetCursorInfo requires the bounded logical system-arrow cursor policy",
+        )
+    })?;
+    let source = RuntimeCursorSource::SystemPredefined {
+        resource_id: cursor_policy.arrow_resource_id,
+        cursor: RuntimeSystemCursorKind::Arrow,
+    };
+    let cursor_handle = session
+        .runtime()
+        .cursor_for_source(&source)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
+        .handle;
+    let (screen_x, screen_y) = session
+        .runtime()
+        .cursor_position()
+        .map(|cursor| (cursor.screen_x, cursor.screen_y))
+        .ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "user32-input",
+                "cursor-position-profile-unconfigured",
+                "logical cursor position must be configured before GetCursorInfo is queried",
+            )
+        })?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let mut bytes = Vec::with_capacity(CURSORINFO_BYTE_LENGTH as usize);
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.extend_from_slice(&CURSOR_SHOWING.to_le_bytes());
+    bytes.extend_from_slice(&cursor_handle.to_le_bytes());
+    bytes.extend_from_slice(&screen_x.to_le_bytes());
+    bytes.extend_from_slice(&screen_y.to_le_bytes());
     Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
         .with_last_error(preserved_last_error)
         .with_guest_write(GuestAddress(output), bytes))
@@ -7380,6 +7455,7 @@ pub fn user32_contract_for_endpoint(
         "GetClientRect" => Ok(Some(get_client_rect_contract(endpoint)?)),
         "GetWindowRect" => Ok(Some(get_window_rect_contract(endpoint)?)),
         "GetCursorPos" => Ok(Some(get_cursor_pos_contract(endpoint)?)),
+        "GetCursorInfo" => Ok(Some(get_cursor_info_contract(endpoint)?)),
         "PeekMessageA" => Ok(Some(peek_message_a_contract(endpoint)?)),
         "TranslateMessage" => Ok(Some(translate_message_contract(endpoint)?)),
         "DispatchMessageA" => Ok(Some(dispatch_message_a_contract(endpoint)?)),
@@ -7789,6 +7865,28 @@ pub fn get_cursor_pos_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: GET_CURSOR_POS_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn get_cursor_info_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![nullable_inout_dynamic_struct(
+                "cursorInfo",
+                "CURSORINFO",
+                4,
+                CURSORINFO_BYTE_LENGTH,
+            )],
+            return_value: ApiReturnSchema::Bool32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::FromHandler,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: GET_CURSOR_INFO_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -8361,6 +8459,30 @@ fn inout_dynamic_struct(
         value: ApiValueSchema::DynamicPointer {
             constraint: ApiDynamicPointerConstraint {
                 nullable: false,
+                alignment: 4,
+                minimum_byte_length,
+                maximum_byte_length,
+                pointee: ApiPointeeSchema::Struct {
+                    type_id: type_id.to_owned(),
+                },
+                write_requirement: ApiWriteRequirement::Optional,
+            },
+        },
+    }
+}
+
+fn nullable_inout_dynamic_struct(
+    name: &str,
+    type_id: &str,
+    minimum_byte_length: u32,
+    maximum_byte_length: u32,
+) -> ApiArgumentSchema {
+    ApiArgumentSchema {
+        name: name.to_owned(),
+        direction: ApiDirection::InOut,
+        value: ApiValueSchema::DynamicPointer {
+            constraint: ApiDynamicPointerConstraint {
+                nullable: true,
                 alignment: 4,
                 minimum_byte_length,
                 maximum_byte_length,

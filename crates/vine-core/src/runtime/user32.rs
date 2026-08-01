@@ -2576,6 +2576,39 @@ impl RuntimeUser32 {
         })
     }
 
+    pub(super) fn cursor_for_source(
+        &self,
+        source: &RuntimeCursorSource,
+    ) -> Result<&RuntimeCursor, RuntimeStateError> {
+        validate_cursor_source(source)?;
+        let id = self
+            .cursor_source_index
+            .get(source)
+            .copied()
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-user32",
+                    "cursor-source-unknown",
+                    "logical shared cursor source is not loaded",
+                )
+            })?;
+        let cursor = self.cursors.get(&id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-user32",
+                "cursor-source-index-dangling",
+                "logical shared cursor source index does not resolve to a live cursor",
+            )
+        })?;
+        if self.cursor_handle_index.get(&cursor.handle) != Some(&id) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-user32",
+                "cursor-source-handle-index-mismatch",
+                "logical shared cursor source does not match its handle index",
+            ));
+        }
+        Ok(cursor)
+    }
+
     pub fn cursors(&self) -> &BTreeMap<RuntimeCursorId, RuntimeCursor> {
         &self.cursors
     }

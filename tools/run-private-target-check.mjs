@@ -1163,7 +1163,8 @@ function isScheduledSharedClockNodeReport(report) {
       "vine.v86-bgi-private-heap-ordinary-segment-growth-primary" ||
     report?.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
     report?.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
-    report?.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary"
+    report?.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary" ||
+    report?.schema === "vine.v86-bgi-get-cursor-info-primary"
   );
 }
 
@@ -1172,6 +1173,90 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary") {
+    const cursorInfo = execution.getCursorInfo;
+    const calls = cursorInfo.calls.map((call) => ({
+      sequence: call.sequence,
+      module: call.module.toLowerCase(),
+      symbol: call.symbol,
+      arguments: call.arguments,
+      result: call.result,
+      implementationId: call.implementationId,
+      returnAddress: call.returnAddress,
+      stackPointerBefore: call.stackPointerBefore,
+      stackPointerAfter: call.stackPointerAfter,
+      lastError: call.lastError,
+      guestWrites: call.guestWrites.map(({ address, bytes }) => ({
+        address,
+        bytes,
+      })),
+    }));
+    const firstBytes = Buffer.from(calls[0].guestWrites[0].bytes);
+    const target = nodeReport.stop.fault.endpoint.target;
+    return {
+      capability: "user32-get-cursor-info-post-outline-text-metrics-224x112",
+      implementationId:
+        "runtime.user32-get-cursor-info-post-outline-text-metrics-224x112.v1",
+      requiredCompletions: 2,
+      completionCount: cursorInfo.completionCount,
+      prerequisiteOutlineTextMetricsSequence:
+        execution.outlineTextMetrics224x112.calls.at(-1).sequence,
+      prerequisiteOutlineTextMetricsInstructionCount:
+        execution.outlineTextMetrics224x112.calls.at(-1).trapInstructionCount,
+      firstCompletionSequence: calls[0].sequence,
+      firstCompletionInstructionCount:
+        cursorInfo.calls[0].trapInstructionCount,
+      lastCompletionSequence: calls.at(-1).sequence,
+      lastCompletionInstructionCount:
+        cursorInfo.calls.at(-1).trapInstructionCount,
+      calls,
+      cursorInfoByteLength: firstBytes.byteLength,
+      cursorSource: "system-arrow",
+      cursorFlags: firstBytes.readUInt32LE(4),
+      logicalCursorHandle: firstBytes.readUInt32LE(8),
+      cursorPosition: {
+        x: firstBytes.readInt32LE(12),
+        y: firstBytes.readInt32LE(16),
+      },
+      cursorIdentityAuthority: "rust-runtime-user32",
+      cursorPositionAuthority: "rust-runtime-input",
+      browserOwnsCursorInfoState: false,
+      lastErrorPolicy: "preserve",
+      mutation: "guest-memory-preflight-atomic-write",
+      clockProfileId: nodeReport.contract.clockProfile.id,
+      clockSampleCount: execution.clockSamples.count,
+      windowTimerCallbackCount: execution.windowTimerCallbacks.count,
+      presentCount: execution.presentations.count,
+      pointerInputEventCount: execution.pointerInput.count,
+      inputTimerCycleCount:
+        expectedNext.completion.inputTimerCycleCount,
+      inputQuerySequence: execution.pointerInput.last.committedAfterSequence,
+      thirdPresentReached: execution.presentations.thirdPresentReached,
+      clockFreezeWasProximateCause: false,
+      archiveEnumerationWasProximateCause: false,
+      missingFileDeleteWasProximateCause: false,
+      ordinaryHeapCapacityWasProximateCause: false,
+      fontCreationWasProximateCause: false,
+      dibSectionWasProximateCause: false,
+      outlineTextMetricsWasProximateCause: false,
+      cursorInfoWasProximateCause: false,
+      instructionCount: nodeReport.stop.terminal.instructionCount,
+      nextEndpoint: {
+        endpointAddress: target.method.endpoint,
+        kind: "com-method",
+        target: {
+          endpointAddress: target.method.endpoint,
+          iid: target.interface.iid,
+          interface: target.interface.name,
+          interfaceId: target.interface.id,
+          method: target.method.name,
+          objectId: target.object.id,
+          vtableSlot: target.method.slot,
+        },
+      },
+      memoryContentSha256: nodeReport.stop.fault.memoryContentSha256,
+    };
+  }
   if (
     nodeReport.schema ===
     "vine.v86-bgi-outline-text-metrics-224x112-primary"
@@ -1613,6 +1698,83 @@ function projectScheduledSharedClockCheckpointCompletion(
   };
 }
 
+function assertCompletedCapabilityBeforeStructuredStop(
+  actual,
+  expectedCompletion,
+  expectedNext,
+) {
+  assert(actual !== null, "completed capability metadata is missing");
+  for (const field of [
+    "capability",
+    "implementationId",
+    "requiredCompletions",
+    "completionCount",
+    "prerequisiteOutlineTextMetricsSequence",
+    "prerequisiteOutlineTextMetricsInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "cursorInfoByteLength",
+    "cursorSource",
+    "cursorFlags",
+    "logicalCursorHandle",
+    "cursorIdentityAuthority",
+    "cursorPositionAuthority",
+    "browserOwnsCursorInfoState",
+    "lastErrorPolicy",
+    "mutation",
+    "clockProfileId",
+    "clockSampleCount",
+    "windowTimerCallbackCount",
+    "presentCount",
+    "pointerInputEventCount",
+    "inputTimerCycleCount",
+    "inputQuerySequence",
+    "thirdPresentReached",
+    "clockFreezeWasProximateCause",
+    "archiveEnumerationWasProximateCause",
+    "missingFileDeleteWasProximateCause",
+    "ordinaryHeapCapacityWasProximateCause",
+    "fontCreationWasProximateCause",
+    "dibSectionWasProximateCause",
+    "outlineTextMetricsWasProximateCause",
+    "cursorInfoWasProximateCause",
+    "instructionCount",
+    "memoryContentSha256",
+  ]) {
+    assert.equal(actual[field], expectedCompletion[field], field);
+  }
+  assert.deepEqual(actual.cursorPosition, expectedCompletion.cursorPosition);
+  assert.equal(actual.calls.length, expectedCompletion.completionCount);
+  for (const call of actual.calls) {
+    assert.equal(call.module.toLowerCase(), "user32.dll");
+    assert.equal(call.symbol, "GetCursorInfo");
+    assert.equal(
+      call.implementationId,
+      "user32.get-cursor-info.system-arrow.v1",
+    );
+    assert.deepEqual(call.result, { action: "set", value: 1 });
+    assert.equal(call.lastError, 0);
+    assert.equal(call.guestWrites.length, 1);
+    assert.equal(call.guestWrites[0].bytes.length, 20);
+    assert.equal(
+      sha256(Buffer.from(call.guestWrites[0].bytes)),
+      "83409a8eb120ec1c8528928c2ad5ec6935dc2a2dbca6bfbc4be4efe11b761780",
+    );
+  }
+  assert.equal(actual.nextEndpoint.kind, "com-method");
+  assert.equal(
+    hex32(actual.nextEndpoint.endpointAddress),
+    expectedNext.endpointAddress,
+  );
+  assert.equal(actual.nextEndpoint.target.interface, expectedNext.interface);
+  assert.equal(actual.nextEndpoint.target.interfaceId, expectedNext.interfaceId);
+  assert.equal(actual.nextEndpoint.target.objectId, expectedNext.objectId);
+  assert.equal(actual.nextEndpoint.target.vtableSlot, expectedNext.vtableSlot);
+  assert.equal(actual.nextEndpoint.target.method, expectedNext.method);
+}
+
 function assertScheduledSharedClockReportSemantics({
   checkpoint,
   nodeReport,
@@ -1630,7 +1792,12 @@ function assertScheduledSharedClockReportSemantics({
   const browser = browserReport.success.report;
   const sourceIdentity = { bytes: source.bytes, sha256: source.sha256 };
 
-  assert.equal(expectedNext.kind, "capability-checkpoint");
+  assert(
+    expectedNext.kind === "capability-checkpoint" ||
+      (nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary" &&
+        expectedNext.kind === "com-method"),
+    "scheduled checkpoint must end at its completed capability or the following owned COM stop",
+  );
   assert.equal(scheduled.status, "passed");
   assert.deepEqual(nodeReport.source, sourceIdentity, "Node source fingerprint mismatch");
   assert.deepEqual(browserReport.source, sourceIdentity, "browser source fingerprint mismatch");
@@ -1784,7 +1951,8 @@ function assertScheduledSharedClockReportSemantics({
       "vine.v86-bgi-private-heap-ordinary-segment-growth-primary" ||
     nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
     nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
-    nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary"
+    nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary" ||
+    nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary"
   ) {
     const find = nodeExecution.findFileA;
     assert.equal(find.pattern, "data0????.arc");
@@ -1808,7 +1976,8 @@ function assertScheduledSharedClockReportSemantics({
       "vine.v86-bgi-private-heap-ordinary-segment-growth-primary" ||
     nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
     nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
-    nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary"
+    nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary" ||
+    nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary"
   ) {
     const deletion = nodeExecution.deleteFileA;
     assert.equal(deletion.completionCount, 2);
@@ -1831,7 +2000,8 @@ function assertScheduledSharedClockReportSemantics({
       "vine.v86-bgi-private-heap-ordinary-segment-growth-primary" ||
     nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
     nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
-    nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary"
+    nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary" ||
+    nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary"
   ) {
     const growth = nodeExecution.ordinaryHeapSegmentGrowth;
     assert.equal(growth.completionCount, 1);
@@ -1848,7 +2018,8 @@ function assertScheduledSharedClockReportSemantics({
   if (
     nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
     nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
-    nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary"
+    nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary" ||
+    nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary"
   ) {
     const font = nodeExecution.createFontA224x112;
     assert.equal(font.completionCount, 1);
@@ -1894,7 +2065,8 @@ function assertScheduledSharedClockReportSemantics({
   }
   if (
     nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
-    nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary"
+    nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary" ||
+    nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary"
   ) {
     const dib = nodeExecution.createDibSection448x336;
     assert.equal(dib.completionCount, 1);
@@ -1928,7 +2100,8 @@ function assertScheduledSharedClockReportSemantics({
   }
   if (
     nodeReport.schema ===
-    "vine.v86-bgi-outline-text-metrics-224x112-primary"
+    "vine.v86-bgi-outline-text-metrics-224x112-primary" ||
+    nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary"
   ) {
     const outline = nodeExecution.outlineTextMetrics224x112;
     assert.equal(outline.completionCount, 2);
@@ -1975,11 +2148,54 @@ function assertScheduledSharedClockReportSemantics({
     assert.equal(fullCall.gdi.writtenByteLength, 269);
   }
 
-  const nodeEndpoint = nodeStop.fault.endpoint.endpoint;
-  const expectedEndpoint = expectedNext.nextEndpoint;
+  const getCursorInfoReport =
+    nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary";
+  if (getCursorInfoReport) {
+    const cursorInfo = nodeExecution.getCursorInfo;
+    assert.equal(cursorInfo.completionCount, 2);
+    assert.equal(cursorInfo.calls.length, 2);
+    assert.deepEqual(
+      cursorInfo.calls.map((call) => call.sequence),
+      [282_389, 282_396],
+    );
+    assert.deepEqual(
+      cursorInfo.calls.map((call) => call.trapInstructionCount),
+      [375_285_853, 375_288_207],
+    );
+    assert.deepEqual(
+      cursorInfo.calls.map((call) => call.arguments),
+      [[0x006f_f530], [0x006f_f550]],
+    );
+    for (const call of cursorInfo.calls) {
+      assert.equal(call.module.toLowerCase(), "user32.dll");
+      assert.equal(call.symbol, "GetCursorInfo");
+      assert.equal(
+        call.implementationId,
+        "user32.get-cursor-info.system-arrow.v1",
+      );
+      assert.deepEqual(call.result, { action: "set", value: 1 });
+      assert.equal(call.lastError, 0);
+      assert.equal(call.guestWrites.length, 1);
+      assert.equal(
+        sha256(Buffer.from(call.guestWrites[0].bytes)),
+        "83409a8eb120ec1c8528928c2ad5ec6935dc2a2dbca6bfbc4be4efe11b761780",
+      );
+    }
+    assert.equal(
+      nodeReport.contract.cursorInfoAuthority,
+      "runtime/user32.rs::RuntimeUser32+runtime/input.rs::RuntimeInput",
+    );
+    assert.equal(nodeReport.contract.cursorInfoCursorProjection, "loaded-system-arrow");
+    assert.equal(nodeReport.contract.cursorInfoFlags, "cursor-showing-not-suppressed");
+    assert.equal(nodeReport.contract.hostCursorStateImported, false);
+    assert.equal(nodeReport.contract.browserCursorStateImported, false);
+  }
+
   assert.equal(nodeStop.fault.capabilityCluster, expectedNext.capabilityCluster);
   const expectedFaultCode =
-    nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary"
+    getCursorInfoReport
+      ? expectedNext.reason
+      : nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary"
       ? "endpoint-contract-missing"
       : nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary"
       ? "outline-text-metrics-font-variant-unsupported"
@@ -1992,27 +2208,56 @@ function assertScheduledSharedClockReportSemantics({
       ? "heap-backing-capacity-exceeded"
       : "endpoint-contract-missing";
   assert.equal(nodeStop.fault.fault.code, expectedFaultCode);
-  assert.equal(nodeStop.fault.endpoint.kind, expectedEndpoint.endpointKind);
-  assert.equal(nodeEndpoint.id, expectedEndpoint.endpointId);
-  assert.equal(hex32(nodeEndpoint.address), expectedEndpoint.endpointAddress);
-  assert.equal(optionalHex32(nodeEndpoint.iatAddress), expectedEndpoint.iatAddress);
-  assert.equal(
-    `${nodeEndpoint.module}!${formatRuntimeEndpointSymbol(nodeEndpoint)}`.toLowerCase(),
-    expectedEndpoint.api.toLowerCase(),
-  );
   assert.equal(nodeStop.terminal.instructionCount, expectedNext.instructionCount);
-  assert.equal(
-    hex32(nodeStop.terminal.terminal.returnAddress),
-    expectedEndpoint.returnAddress,
-  );
-  assert.deepEqual(nodeStop.arguments.map(hex32), expectedEndpoint.arguments);
   assert.equal(nodeStop.fault.memoryContentSha256, expected.memoryContentSha256);
 
   const nodeCheckpoint = projectScheduledSharedClockCheckpointCompletion(
     nodeReport,
     expectedNext,
   );
-  assertCapabilityCheckpoint(nodeCheckpoint, expectedNext);
+  if (getCursorInfoReport) {
+    const target = nodeStop.fault.endpoint.target;
+    assert.equal(nodeStop.fault.endpoint.kind, "com-method");
+    assert.equal(target.interface.name, expectedNext.interface);
+    assert.equal(target.interface.id, expectedNext.interfaceId);
+    assert.equal(target.object.id, expectedNext.objectId);
+    assert.equal(target.method.slot, expectedNext.vtableSlot);
+    assert.equal(target.method.name, expectedNext.method);
+    assert.equal(hex32(target.method.endpoint), expectedNext.endpointAddress);
+    assert.equal(
+      hex32(nodeStop.terminal.terminal.returnAddress),
+      expectedNext.returnAddress,
+    );
+    assert.deepEqual(nodeStop.arguments.map(hex32), [
+      expectedNext.thisPointer,
+      ...expectedNext.arguments,
+    ]);
+    assertCompletedCapabilityBeforeStructuredStop(
+      nodeCheckpoint,
+      expectedNext.completion,
+      expectedNext,
+    );
+  } else {
+    const nodeEndpoint = nodeStop.fault.endpoint.endpoint;
+    const expectedEndpoint = expectedNext.nextEndpoint;
+    assert.equal(nodeStop.fault.endpoint.kind, expectedEndpoint.endpointKind);
+    assert.equal(nodeEndpoint.id, expectedEndpoint.endpointId);
+    assert.equal(hex32(nodeEndpoint.address), expectedEndpoint.endpointAddress);
+    assert.equal(
+      optionalHex32(nodeEndpoint.iatAddress),
+      expectedEndpoint.iatAddress,
+    );
+    assert.equal(
+      `${nodeEndpoint.module}!${formatRuntimeEndpointSymbol(nodeEndpoint)}`.toLowerCase(),
+      expectedEndpoint.api.toLowerCase(),
+    );
+    assert.equal(
+      hex32(nodeStop.terminal.terminal.returnAddress),
+      expectedEndpoint.returnAddress,
+    );
+    assert.deepEqual(nodeStop.arguments.map(hex32), expectedEndpoint.arguments);
+    assertCapabilityCheckpoint(nodeCheckpoint, expectedNext);
+  }
   assert.equal(nodeCheckpoint.memoryContentSha256, expected.memoryContentSha256);
 
   assert.equal(browserReport.runtimeProtocol, checkpoint.browserCheckpoint.browserRuntimeProtocol);
@@ -2048,19 +2293,51 @@ function assertScheduledSharedClockReportSemantics({
   assert.equal(browserUnsupported.fault.code, expectedFaultCode);
   assert.equal(browserUnsupported.instructionCount, expectedNext.instructionCount);
   assert.equal(browserUnsupported.memoryContentSha256, expected.memoryContentSha256);
-  assert.equal(browserUnsupported.endpoint.id, expectedEndpoint.endpointId);
-  assert.equal(hex32(browserUnsupported.endpoint.address), expectedEndpoint.endpointAddress);
-  assert.equal(
-    optionalHex32(browserUnsupported.endpoint.iatAddress),
-    expectedEndpoint.iatAddress,
-  );
-  assert.equal(
-    `${browserUnsupported.endpoint.module}!${formatRuntimeEndpointSymbol(
-      browserUnsupported.endpoint,
-    )}`.toLowerCase(),
-    expectedEndpoint.api.toLowerCase(),
-  );
-  assertCapabilityCheckpoint(browser.checkpointCompletion, expectedNext);
+  if (getCursorInfoReport) {
+    assert.equal(browserUnsupported.endpoint.kind, "com-method");
+    assert.equal(
+      hex32(browserUnsupported.endpoint.endpointAddress),
+      expectedNext.endpointAddress,
+    );
+    assert.equal(
+      browserUnsupported.endpoint.target.interface,
+      expectedNext.interface,
+    );
+    assert.equal(
+      browserUnsupported.endpoint.target.interfaceId,
+      expectedNext.interfaceId,
+    );
+    assert.equal(browserUnsupported.endpoint.target.objectId, expectedNext.objectId);
+    assert.equal(
+      browserUnsupported.endpoint.target.vtableSlot,
+      expectedNext.vtableSlot,
+    );
+    assert.equal(browserUnsupported.endpoint.target.method, expectedNext.method);
+    assert.equal(hex32(browserUnsupported.fault.callSite), expectedNext.returnAddress);
+    assertCompletedCapabilityBeforeStructuredStop(
+      browser.checkpointCompletion,
+      expectedNext.completion,
+      expectedNext,
+    );
+  } else {
+    const expectedEndpoint = expectedNext.nextEndpoint;
+    assert.equal(browserUnsupported.endpoint.id, expectedEndpoint.endpointId);
+    assert.equal(
+      hex32(browserUnsupported.endpoint.address),
+      expectedEndpoint.endpointAddress,
+    );
+    assert.equal(
+      optionalHex32(browserUnsupported.endpoint.iatAddress),
+      expectedEndpoint.iatAddress,
+    );
+    assert.equal(
+      `${browserUnsupported.endpoint.module}!${formatRuntimeEndpointSymbol(
+        browserUnsupported.endpoint,
+      )}`.toLowerCase(),
+      expectedEndpoint.api.toLowerCase(),
+    );
+    assertCapabilityCheckpoint(browser.checkpointCompletion, expectedNext);
+  }
   assert.equal(
     browser.checkpointCompletion.memoryContentSha256,
     expected.memoryContentSha256,
@@ -2609,6 +2886,10 @@ const expectedBrowser = projectPrivateTargetExpectedBrowserEvidence(checkpoint);
 const benchmark = checkpoint.browserCheckpoint.bgiBenchmarkEvidence;
 const actualAllowedDirtyPaths = beforeDirtyPaths.filter((entry) => allowed.has(entry));
 const scheduledNodeReport = isScheduledSharedClockNodeReport(nodeReport);
+const completedCapabilityBeforeStructuredStop =
+  scheduledNodeReport &&
+  nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary" &&
+  checkpoint.nextStructuredStop.kind === "com-method";
 const nodeCheckpointCompletion =
   checkpoint.nextStructuredStop.kind !== "capability-checkpoint"
     ? null
@@ -2701,7 +2982,8 @@ const evidence = finalizePrivateTargetEvidence({
     outcome: "passed",
     node: {
       outcome:
-        checkpoint.nextStructuredStop.kind === "capability-checkpoint"
+        checkpoint.nextStructuredStop.kind === "capability-checkpoint" ||
+        completedCapabilityBeforeStructuredStop
           ? "checkpoint-complete"
           : "structured-stop",
       implementedApiContracts: nodeReport.process.implementedApiContracts,

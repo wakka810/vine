@@ -104,6 +104,13 @@ record the exact raw report identity. The online gate and offline evidence
 validator compare the raw identity, endpoint ID, and address without treating
 the raw adapter symbol as guest-visible API semantics.
 
+A scheduled profile may complete its bounded leaf and encounter the following
+owned structured stop in the same replay. In that case Node and Chrome retain
+`checkpoint-complete` as the profile outcome, while `nextStructuredStop`
+records and validates the following API／COM fault independently. Completion
+metadata remains Rust-derived evidence and does not turn the following fault
+into part of the completed leaf.
+
 ## Performance classification
 
 The command runs the required current-session semantic gate. It records the

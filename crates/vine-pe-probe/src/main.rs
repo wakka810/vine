@@ -15082,6 +15082,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "gdi-create-font-a-224x112" => GenericRuntimeCapability::DeleteFileA,
                 "gdi-create-dib-section-448x336" => GenericRuntimeCapability::DeleteFileA,
                 "gdi-outline-text-metrics-224x112" => GenericRuntimeCapability::DeleteFileA,
+                "user32-get-cursor-info" => GenericRuntimeCapability::DeleteFileA,
                 "d3d9-recreated-textures" => GenericRuntimeCapability::D3d9RecreatedTextures,
                 "user32-set-window-pos-frame-change-move" => {
                     GenericRuntimeCapability::D3d9RecreatedTextures

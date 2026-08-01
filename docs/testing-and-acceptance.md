@@ -2169,6 +2169,23 @@ semantic digest `9a25b07001da053004f9007b1f1ed546c686a6a2b71e3ad1a0f1f3586067561
 `USER32.dll!GetCursorInfo` endpoint 168で停止する。Host／browser font measurement、224 x 112 glyph raster、
 一般outline metric、可読title sceneはclaimしない。
 
+Reached `GetCursorInfo` leafは、既存`RuntimeUser32`のsystem-arrow identityと`RuntimeInput`の
+cursor pointを20-byte x86 `CURSORINFO`へread-only projectionする。Focused Frida oracleは
+caller RVA `0x00088C98`、input size 20、TRUE、output `cbSize = 0`、`CURSOR_SHOWING`、
+success LastError preserveを固定し、controlled negative oracleはNULLをFALSE／998、size
+0／19／21をFALSE／87かつoutput unchangedとする。Rust dispatcher testsはexact ABI、
+logical HCURSOR `0x43010001`、point `(960, 540)`、atomic output、missing owner／policy／bad
+rangeのfailure atomicityを検査する。Node／Chromeはsequence 282,389／282,396、instruction
+375,285,853／375,288,207、output SHA-256
+`83409a8eb120ec1c8528928c2ad5ec6935dc2a2dbca6bfbc4be4efe11b761780`、282,848
+supported calls、392,353,932 instructions、100,556 clock samples、40 TIMERPROC callbacks、
+154 source reads、3 Present、semantic digest
+`c261b54c013bca8637802c8851a232580c875fba70b477db3244df79a3c57967`、terminal memory
+digest `8af674327bd71aa3281a541d83d886a82653f9559b1f8c146dde8b7fd138d4a6`
+を一致させ、次の`IDirect3DDevice9::UpdateTexture` partial dirty-region variantで停止する。
+Native HCURSOR／desktop point、cursor suppression／selection、CSS cursor、visible input responseは
+claimしない。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

@@ -2010,7 +2010,11 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
   const node = requireRecord(semantic.node, "evidence.semantic.node", errors);
   const browser = requireRecord(semantic.browser, "evidence.semantic.browser", errors);
   const expectedOutcome =
-    checkpoint.nextStructuredStop.kind === "capability-checkpoint"
+    checkpoint.nextStructuredStop.kind === "capability-checkpoint" ||
+    (checkpoint.activeRuntimeCheckpoint.runtimeKernelCheckpoint ===
+      "user32-get-cursor-info-post-outline-text-metrics-224x112" &&
+      checkpoint.nextStructuredStop.kind === "com-method" &&
+      isRecord(checkpoint.nextStructuredStop.completion))
       ? "checkpoint-complete"
       : "structured-stop";
   checkEqual(node.outcome, expectedOutcome, "evidence.semantic.node.outcome", errors);

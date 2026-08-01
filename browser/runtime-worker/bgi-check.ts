@@ -49,7 +49,8 @@ const scheduledSharedClockSetWindowText =
   capabilityProfile === "kernel32-private-heap-ordinary-segment-growth" ||
   capabilityProfile === "gdi-create-font-a-224x112" ||
   capabilityProfile === "gdi-create-dib-section-448x336" ||
-  capabilityProfile === "gdi-outline-text-metrics-224x112";
+  capabilityProfile === "gdi-outline-text-metrics-224x112" ||
+  capabilityProfile === "user32-get-cursor-info";
 const d3d9Canvas =
   scheduledSharedClockSetWindowText ||
   capabilityProfile === "d3d9-first-present" ||
@@ -228,6 +229,8 @@ const startMessage = {
     watchdogInstructionLimit:
       scenario === "watchdog"
         ? 1
+        : capabilityProfile === "user32-get-cursor-info"
+          ? 405_000_000
         : capabilityProfile === "gdi-outline-text-metrics-224x112"
           ? 385_000_000
         : capabilityProfile === "kernel32-delete-file-a" ||
@@ -702,6 +705,7 @@ function parseCapabilityProfile(
     value === "gdi-create-font-a-224x112" ||
     value === "gdi-create-dib-section-448x336" ||
     value === "gdi-outline-text-metrics-224x112" ||
+    value === "user32-get-cursor-info" ||
     value === "kernel32-wait-for-single-object-ex" ||
     value === "kernel32-enter-critical-section" ||
     value === "primary-main-loop-progression" ||

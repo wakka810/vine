@@ -367,8 +367,15 @@ function isScheduledSharedClockSetWindowText(
     profile === "kernel32-private-heap-ordinary-segment-growth" ||
     profile === "gdi-create-font-a-224x112" ||
     profile === "gdi-create-dib-section-448x336" ||
-    profile === "gdi-outline-text-metrics-224x112"
+    profile === "gdi-outline-text-metrics-224x112" ||
+    isGetCursorInfoProfile(profile)
   );
+}
+
+function isGetCursorInfoProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "user32-get-cursor-info";
 }
 
 function isFindFileAProfile(
@@ -380,7 +387,8 @@ function isFindFileAProfile(
     profile === "kernel32-private-heap-ordinary-segment-growth" ||
     profile === "gdi-create-font-a-224x112" ||
     profile === "gdi-create-dib-section-448x336" ||
-    profile === "gdi-outline-text-metrics-224x112"
+    profile === "gdi-outline-text-metrics-224x112" ||
+    isGetCursorInfoProfile(profile)
   );
 }
 
@@ -391,7 +399,8 @@ function isPrivateHeapOrdinarySegmentGrowthProfile(
     profile === "kernel32-private-heap-ordinary-segment-growth" ||
     profile === "gdi-create-font-a-224x112" ||
     profile === "gdi-create-dib-section-448x336" ||
-    profile === "gdi-outline-text-metrics-224x112"
+    profile === "gdi-outline-text-metrics-224x112" ||
+    isGetCursorInfoProfile(profile)
   );
 }
 
@@ -401,7 +410,8 @@ function isCreateFontA224x112Profile(
   return (
     profile === "gdi-create-font-a-224x112" ||
     profile === "gdi-create-dib-section-448x336" ||
-    profile === "gdi-outline-text-metrics-224x112"
+    profile === "gdi-outline-text-metrics-224x112" ||
+    isGetCursorInfoProfile(profile)
   );
 }
 
@@ -410,14 +420,18 @@ function isCreateDibSection448x336Profile(
 ): boolean {
   return (
     profile === "gdi-create-dib-section-448x336" ||
-    profile === "gdi-outline-text-metrics-224x112"
+    profile === "gdi-outline-text-metrics-224x112" ||
+    isGetCursorInfoProfile(profile)
   );
 }
 
 function isOutlineTextMetrics224x112Profile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
-  return profile === "gdi-outline-text-metrics-224x112";
+  return (
+    profile === "gdi-outline-text-metrics-224x112" ||
+    isGetCursorInfoProfile(profile)
+  );
 }
 
 function isD3d9PostPresentContinuation(
@@ -3410,6 +3424,7 @@ class BrowserRuntimeSession {
   #scheduledSharedClockInputTimerCycleCount = 0;
   #outlineTextMetrics224x112SizeQuery: RuntimeSupportedCallSnapshot | null =
     null;
+  #getCursorInfoFirstCall: RuntimeSupportedCallSnapshot | null = null;
   #findFileFirstSequence: number | null = null;
   #findFileFirstInstructionCount: number | null = null;
   #findFileSuccessfulNextCount = 0;
@@ -8959,6 +8974,113 @@ class BrowserRuntimeSession {
           outlineTextMetricsWasProximateCause: false,
           instructionCount: 0,
           nextEndpoint: { id: 0, address: 0 },
+          memoryContentSha256: "",
+        };
+      }
+    }
+    if (
+      isGetCursorInfoProfile(this.#configuration.capabilityProfile) &&
+      call.module.toLowerCase() === "user32.dll" &&
+      call.symbol === "GetCursorInfo" &&
+      call.implementationId === "user32.get-cursor-info.system-arrow.v1"
+    ) {
+      const previous = this.#report.checkpointCompletion;
+      const outputWrite = call.guestWrites[0];
+      invariant(
+        previous?.capability ===
+          "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336" &&
+          call.arguments.length === 1 &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 1 &&
+          call.returnAddress === 0x1008_8c98 &&
+          call.stackPointerAfter - call.stackPointerBefore === 8 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 1 &&
+          outputWrite !== undefined &&
+          "bytes" in outputWrite &&
+          outputWrite.address === call.arguments[0] &&
+          outputWrite.bytes.join(",") ===
+            "0,0,0,0,1,0,0,0,1,0,1,67,192,3,0,0,28,2,0,0",
+        `GetCursorInfo system-arrow projection changed: ${JSON.stringify({
+          previousCapability: previous?.capability,
+          sequence: call.sequence,
+          arguments: call.arguments,
+          result: call.result,
+          implementationId: call.implementationId,
+          returnAddress: call.returnAddress,
+          stackPointerBefore: call.stackPointerBefore,
+          stackPointerAfter: call.stackPointerAfter,
+          lastError: call.lastError,
+          guestWrites: call.guestWrites,
+        })}`,
+      );
+      if (this.#getCursorInfoFirstCall === null) {
+        invariant(
+          call.sequence === 282_389 &&
+            call.arguments[0] === 0x006f_f530 &&
+            call.stackPointerBefore === 0x006f_f528 &&
+            this.#report.instructions === 375_285_853,
+          "first GetCursorInfo completion identity changed",
+        );
+        this.#getCursorInfoFirstCall = structuredClone(call);
+      } else {
+        const firstCall = this.#getCursorInfoFirstCall;
+        invariant(
+          call.sequence === 282_396 &&
+            call.arguments[0] === 0x006f_f550 &&
+            call.stackPointerBefore === 0x006f_f548 &&
+            this.#report.instructions === 375_288_207 &&
+            previous.lastCompletionSequence === 261_038 &&
+            previous.lastCompletionInstructionCount === 342_875_297 &&
+            this.#scheduledSharedClockPresentCount === 3,
+          "second GetCursorInfo completion identity changed",
+        );
+        this.#report.checkpointCompletion = {
+          capability:
+            "user32-get-cursor-info-post-outline-text-metrics-224x112",
+          implementationId:
+            "runtime.user32-get-cursor-info-post-outline-text-metrics-224x112.v1",
+          requiredCompletions: 2,
+          completionCount: 2,
+          prerequisiteOutlineTextMetricsSequence:
+            previous.lastCompletionSequence,
+          prerequisiteOutlineTextMetricsInstructionCount:
+            previous.lastCompletionInstructionCount,
+          firstCompletionSequence: firstCall.sequence,
+          firstCompletionInstructionCount: 375_285_853,
+          lastCompletionSequence: call.sequence,
+          lastCompletionInstructionCount: this.#report.instructions,
+          calls: [firstCall, structuredClone(call)],
+          cursorInfoByteLength: 20,
+          cursorSource: "system-arrow",
+          cursorFlags: 1,
+          logicalCursorHandle: 0x4301_0001,
+          cursorPosition: { x: 960, y: 540 },
+          cursorIdentityAuthority: "rust-runtime-user32",
+          cursorPositionAuthority: "rust-runtime-input",
+          browserOwnsCursorInfoState: false,
+          lastErrorPolicy: "preserve",
+          mutation: "guest-memory-preflight-atomic-write",
+          clockProfileId: previous.clockProfileId,
+          clockSampleCount: this.#scheduledSharedClockSampleCount,
+          windowTimerCallbackCount:
+            this.#scheduledSharedClockWindowTimerCallbackCount,
+          presentCount: this.#scheduledSharedClockPresentCount,
+          pointerInputEventCount: previous.pointerInputEventCount,
+          inputTimerCycleCount: previous.inputTimerCycleCount,
+          inputQuerySequence: previous.inputQuerySequence,
+          thirdPresentReached: true,
+          clockFreezeWasProximateCause: false,
+          archiveEnumerationWasProximateCause: false,
+          missingFileDeleteWasProximateCause: false,
+          ordinaryHeapCapacityWasProximateCause: false,
+          fontCreationWasProximateCause: false,
+          dibSectionWasProximateCause: false,
+          outlineTextMetricsWasProximateCause: false,
+          cursorInfoWasProximateCause: false,
+          instructionCount: 0,
+          nextEndpoint: null,
           memoryContentSha256: "",
         };
       }
@@ -18441,6 +18563,92 @@ class BrowserRuntimeSession {
         metadata.memory.acknowledgedGeneration === Number(this.#generation),
       "unsupported BGI call changed or failed to acknowledge memory",
     );
+    if (isGetCursorInfoProfile(this.#configuration.capabilityProfile)) {
+      const checkpoint = this.#report.checkpointCompletion;
+      const endpoint = metadata.endpoint as {
+        kind?: unknown;
+        endpointAddress?: unknown;
+        target?: {
+          objectId?: unknown;
+          interfaceId?: unknown;
+          interface?: unknown;
+          method?: unknown;
+          vtableSlot?: unknown;
+          endpointAddress?: unknown;
+        };
+      };
+      const fault = metadata.fault as {
+        class?: unknown;
+        stage?: unknown;
+        code?: unknown;
+        callSite?: unknown;
+        target?: {
+          objectId?: unknown;
+          interfaceId?: unknown;
+          interface?: unknown;
+          vtableSlot?: unknown;
+          method?: unknown;
+          endpointAddress?: unknown;
+        };
+      };
+      invariant(
+        metadata.kind === "com-fault" &&
+          checkpoint?.capability ===
+            "user32-get-cursor-info-post-outline-text-metrics-224x112" &&
+          metadata.capabilityCluster === "d3d9-idirect3ddevice9-method" &&
+          endpoint.kind === "com-method" &&
+          endpoint.endpointAddress === 0x0101_1220 &&
+          endpoint.target?.objectId === "21" &&
+          endpoint.target.interfaceId === "42" &&
+          endpoint.target.interface === "IDirect3DDevice9" &&
+          endpoint.target.method === "UpdateTexture" &&
+          endpoint.target.vtableSlot === 31 &&
+          endpoint.target.endpointAddress === 0x0101_1220 &&
+          fault.class === "unsupported" &&
+          fault.stage === "d3d9-update-texture" &&
+          fault.code ===
+            "update-texture-partial-dirty-region-variant-unsupported" &&
+          fault.callSite === 0x1005_b038 &&
+          fault.target?.objectId === "21" &&
+          fault.target.interfaceId === "42" &&
+          fault.target.interface === "IDirect3DDevice9" &&
+          fault.target.vtableSlot === 31 &&
+          fault.target.method === "UpdateTexture" &&
+          fault.target.endpointAddress === 0x0101_1220 &&
+          this.#bgiCallbackCallSequences.size === 0,
+        `GetCursorInfo checkpoint reached a different structured stop: ${JSON.stringify(
+          {
+            checkpoint,
+            metadata,
+            activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+          },
+        )}`,
+      );
+      this.#report.firstUnsupported = {
+        capabilityCluster: metadata.capabilityCluster,
+        endpoint: metadata.endpoint,
+        fault: metadata.fault,
+        instructionCount: this.#report.instructions,
+        memoryContentSha256: metadata.memoryContentSha256,
+      };
+      checkpoint.clockSampleCount = this.#scheduledSharedClockSampleCount;
+      checkpoint.windowTimerCallbackCount =
+        this.#scheduledSharedClockWindowTimerCallbackCount;
+      checkpoint.presentCount = this.#scheduledSharedClockPresentCount;
+      invariant(
+        checkpoint.presentCount === 3 && checkpoint.thirdPresentReached,
+        "GetCursorInfo checkpoint did not preserve the third Present",
+      );
+      checkpoint.instructionCount = this.#report.instructions;
+      checkpoint.nextEndpoint = metadata.endpoint;
+      checkpoint.memoryContentSha256 = metadata.memoryContentSha256;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "USER32 GetCursorInfo checkpoint completed",
+        null,
+      );
+      return;
+    }
     if (
       isScheduledSharedClockSetWindowText(
         this.#configuration.capabilityProfile,

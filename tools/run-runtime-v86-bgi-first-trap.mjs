@@ -252,6 +252,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "gdi-create-font-a-224x112",
         "gdi-create-dib-section-448x336",
         "gdi-outline-text-metrics-224x112",
+        "user32-get-cursor-info",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
@@ -463,6 +464,7 @@ assert(
       "gdi-create-font-a-224x112",
       "gdi-create-dib-section-448x336",
       "gdi-outline-text-metrics-224x112",
+      "user32-get-cursor-info",
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
       "user32-set-window-pos-frame-change-move",
@@ -512,7 +514,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "kernel32-private-heap-ordinary-segment-growth" ||
     genericRuntimeCapability === "gdi-create-font-a-224x112" ||
     genericRuntimeCapability === "gdi-create-dib-section-448x336" ||
-    genericRuntimeCapability === "gdi-outline-text-metrics-224x112"
+    genericRuntimeCapability === "gdi-outline-text-metrics-224x112" ||
+    genericRuntimeCapability === "user32-get-cursor-info"
       ? "kernel32-delete-file-a-v1.json"
       : genericRuntimeCapability === "kernel32-find-first-file-a"
       ? "kernel32-find-file-a-v1.json"
@@ -1027,7 +1030,10 @@ const d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled =
 const d3d9PostInputScanWaitableTimerCycleCheckpointEnabled =
   genericRuntimeCapability ===
     "d3d9-post-input-scan-waitable-timer-cycle";
+const getCursorInfoCheckpointEnabled =
+  genericRuntimeCapability === "user32-get-cursor-info";
 const outlineTextMetrics224x112CheckpointEnabled =
+  getCursorInfoCheckpointEnabled ||
   genericRuntimeCapability === "gdi-outline-text-metrics-224x112";
 const createDibSection448x336CheckpointEnabled =
   outlineTextMetrics224x112CheckpointEnabled ||
@@ -1948,7 +1954,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? outlineTextMetrics224x112CheckpointEnabled
+    ? getCursorInfoCheckpointEnabled
+      ? "v86-bgi-get-cursor-info"
+      : outlineTextMetrics224x112CheckpointEnabled
       ? "v86-bgi-outline-text-metrics-224x112"
       : createDibSection448x336CheckpointEnabled
       ? "v86-bgi-create-dib-section-448x336"
@@ -6547,6 +6555,8 @@ async function run() {
       });
       if (genericRuntimeCapability === null) {
         validateGenericRuntimeReentryResult(genericResult);
+      } else if (getCursorInfoCheckpointEnabled) {
+        validateGetCursorInfoResult(genericResult, sourceRegistration);
       } else if (outlineTextMetrics224x112CheckpointEnabled) {
         validateOutlineTextMetrics224x112Result(
           genericResult,
@@ -6900,6 +6910,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : getCursorInfoCheckpointEnabled
+            ? "bgi USER32 GetCursorInfo"
           : outlineTextMetrics224x112CheckpointEnabled
             ? "bgi GDI32 GetOutlineTextMetricsA 224x112"
             : createDibSection448x336CheckpointEnabled
@@ -14152,7 +14164,7 @@ function validateGenericRuntimeReady(ready, offer) {
   assert.equal(
     ready.implementedApiContracts,
     declaredDispatches.length +
-      7 +
+      8 +
       (user32AsyncKeyStateInitialScanEnabled ? 2 : 0) +
       (user32PeekMessageAEnabled ? 1 : 0) +
       (user32IsIconicEnabled ? 1 : 0) +
@@ -26488,6 +26500,158 @@ function validateCreateDibSection448x336Result(result, sourceRegistration) {
     0x2000_2768,
     0x2013_9c20,
   ]);
+  validateScheduledSharedClockCalls(result.supportedCalls);
+}
+
+function validateGetCursorInfoResult(result, sourceRegistration) {
+  assert(getCursorInfoCheckpointEnabled);
+  assert(outlineTextMetrics224x112CheckpointEnabled);
+  assert(createDibSection448x336CheckpointEnabled);
+  assert(createFontA224x112CheckpointEnabled);
+  assert(privateHeapOrdinarySegmentGrowthCheckpointEnabled);
+  assert(deleteFileACheckpointEnabled);
+  assert(findFirstFileACheckpointEnabled);
+  assert(scheduledSharedClockProfile);
+  assert(sourceRegistration !== null);
+  assert.equal(
+    sourceRegistration.manifest.snapshotId,
+    "primary-game-archives-v2",
+  );
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 282_848);
+  assert.equal(result.callbackEvents.length, 148);
+  assert.equal(result.heapPageMaterializations.length, 3_112);
+  assert.equal(result.sourceReads.length, 154);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+  assert.equal(result.timerPacing.length, 9_002);
+  assert.equal(result.writebacks.length, 286_046);
+  assert.equal(result.hostDeltas.length, 143_087);
+  assert.equal(result.finalGeneration, 333_483);
+  assert.deepEqual(result.threadExecution, {
+    registeredThreadIds: [8_192, 8_193],
+    executedThreadIds: [8_192, 8_193],
+    contextSwitches: 2_274,
+    threadExits: [],
+  });
+  const calls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId ===
+      "user32.get-cursor-info.system-arrow.v1",
+  );
+  assert.equal(calls.length, 2);
+  const expectedBytes = [
+    0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 67, 192, 3, 0, 0, 28, 2, 0, 0,
+  ];
+  const expectedCalls = [
+    {
+      sequence: 282_389,
+      occurrence: 1,
+      trapInstructionCount: 375_285_853,
+      output: 0x006f_f530,
+      stackPointerBefore: 0x006f_f528,
+      generation: 332_638,
+    },
+    {
+      sequence: 282_396,
+      occurrence: 2,
+      trapInstructionCount: 375_288_207,
+      output: 0x006f_f550,
+      stackPointerBefore: 0x006f_f548,
+      generation: 332_649,
+    },
+  ];
+  for (const [index, reached] of calls.entries()) {
+    const expectedCall = expectedCalls[index];
+    assert.equal(reached.sequence, expectedCall.sequence);
+    assert.equal(reached.module.toLowerCase(), "user32.dll");
+    assert.equal(reached.symbol, "GetCursorInfo");
+    assert.equal(reached.occurrence, expectedCall.occurrence);
+    assert.equal(
+      reached.trapInstructionCount,
+      expectedCall.trapInstructionCount,
+    );
+    assert.deepEqual(reached.arguments, [expectedCall.output]);
+    assert.deepEqual(reached.result, { action: "set", value: 1 });
+    assert.equal(reached.returnAddress, 0x1008_8c98);
+    assert.equal(reached.stackPointerBefore, expectedCall.stackPointerBefore);
+    assert.equal(reached.stackPointerAfter, expectedCall.output);
+    assert.equal(reached.lastError, 0);
+    assert.equal(reached.guestWrites.length, 1);
+    const write = reached.guestWrites[0];
+    assert.equal(write.address, expectedCall.output);
+    assert.deepEqual(write.bytes, expectedBytes);
+    assert.equal(
+      sha256(Buffer.from(write.bytes)),
+      "83409a8eb120ec1c8528928c2ad5ec6935dc2a2dbca6bfbc4be4efe11b761780",
+    );
+    assert.equal(write.result.bytesWritten, 20);
+    assert.equal(write.result.dirtyPages, 1);
+    assert.deepEqual(write.result.invalidation, {
+      generation: expectedCall.generation,
+      dataTlb: false,
+      instructionFetch: false,
+      generatedCode: false,
+    });
+  }
+  assert.equal(
+    result.supportedCalls.filter((call) => call.tickCount !== undefined).length,
+    100_556,
+  );
+  assert.equal(
+    result.supportedCalls.filter(
+      (call) => call.interface === "IDirect3DDevice9" && call.vtableSlot === 17,
+    ).length,
+    3,
+  );
+  assert.equal(
+    result.supportedCalls.filter(
+      (call) =>
+        call.module.toLowerCase() === "user32.dll" &&
+        call.symbol === "DispatchMessageA" &&
+        call.windowTimer !== undefined &&
+        call.callback !== undefined,
+    ).length,
+    40,
+  );
+  assert.equal(result.fault?.schema, "vine.v86-generic-runtime-com-fault");
+  assert.equal(result.fault?.capabilityCluster, "d3d9-idirect3ddevice9-method");
+  assert.equal(result.fault?.endpoint?.kind, "com-method");
+  assert.equal(result.fault?.endpoint?.target?.object?.id, "21");
+  assert.equal(result.fault?.endpoint?.target?.interface?.id, "42");
+  assert.equal(
+    result.fault?.endpoint?.target?.interface?.name,
+    "IDirect3DDevice9",
+  );
+  assert.deepEqual(result.fault?.endpoint?.target?.method, {
+    slot: 31,
+    name: "UpdateTexture",
+    endpoint: 0x0101_1220,
+    explicitArgumentWords: 2,
+    returnKind: "h-result",
+    implementation: "frontend",
+  });
+  assert.equal(result.fault?.fault?.class, "unsupported");
+  assert.equal(result.fault?.fault?.stage, "d3d9-update-texture");
+  assert.equal(
+    result.fault?.fault?.code,
+    "update-texture-partial-dirty-region-variant-unsupported",
+  );
+  assert.equal(result.fault?.fault?.callSite, 0x1005_b038);
+  assert.equal(
+    result.fault?.memoryContentSha256,
+    "8af674327bd71aa3281a541d83d886a82653f9559b1f8c146dde8b7fd138d4a6",
+  );
+  assert.equal(result.terminal.initialInstructionCount, 392_353_918);
+  assert.equal(result.terminal.instructionCount, 392_353_932);
+  assert.equal(result.terminal.terminal.kind, "owned-com-method");
+  assert.deepEqual(result.terminal.terminal, {
+    kind: "owned-com-method",
+    endpointAddress: 0x0101_1220,
+    interfaceIndex: 1,
+    vtableSlot: 31,
+    returnAddress: 0x1005_b038,
+    stackWords: [0x1005_b038, 0x0101_0004, 0x0102_0004, 0x0103_0004],
+  });
   validateScheduledSharedClockCalls(result.supportedCalls);
 }
 
@@ -39752,7 +39916,13 @@ function buildGenericRuntimeReentryReport({
       );
       if (findFirstFileACheckpointEnabled) {
         if (deleteFileACheckpointEnabled) {
-          if (outlineTextMetrics224x112CheckpointEnabled) {
+          if (getCursorInfoCheckpointEnabled) {
+            assert.equal(completedSupportedCalls.length, 282_848);
+            assert.equal(
+              supportedCallSemanticsSha256,
+              "c261b54c013bca8637802c8851a232580c875fba70b477db3244df79a3c57967",
+            );
+          } else if (outlineTextMetrics224x112CheckpointEnabled) {
             assert.equal(completedSupportedCalls.length, 282_388);
             assert.equal(
               supportedCallSemanticsSha256,
@@ -42987,6 +43157,13 @@ function buildScheduledSharedClockPrimaryReport({
               "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
         )
       : [];
+  const getCursorInfoCalls = getCursorInfoCheckpointEnabled
+    ? completedSupportedCalls.filter(
+        (call) =>
+          call.implementationId ===
+          "user32.get-cursor-info.system-arrow.v1",
+      )
+    : [];
   const successfulFindCalls = [
     ...findFirstCalls,
     ...findNextCalls.filter((call) => call.result.value === 1),
@@ -43005,7 +43182,9 @@ function buildScheduledSharedClockPrimaryReport({
     };
   });
   return {
-    schema: outlineTextMetrics224x112CheckpointEnabled
+    schema: getCursorInfoCheckpointEnabled
+      ? "vine.v86-bgi-get-cursor-info-primary"
+      : outlineTextMetrics224x112CheckpointEnabled
       ? "vine.v86-bgi-outline-text-metrics-224x112-primary"
       : createDibSection448x336CheckpointEnabled
       ? "vine.v86-bgi-create-dib-section-448x336-primary"
@@ -43094,6 +43273,16 @@ function buildScheduledSharedClockPrimaryReport({
               "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
             outlineTextMetricsHostFontImported: false,
             outlineTextMetricsBrowserFontImported: false,
+          }
+        : {}),
+      ...(getCursorInfoCheckpointEnabled
+        ? {
+            cursorInfoAuthority:
+              "runtime/user32.rs::RuntimeUser32+runtime/input.rs::RuntimeInput",
+            cursorInfoCursorProjection: "loaded-system-arrow",
+            cursorInfoFlags: "cursor-showing-not-suppressed",
+            hostCursorStateImported: false,
+            browserCursorStateImported: false,
           }
         : {}),
     },
@@ -43215,6 +43404,14 @@ function buildScheduledSharedClockPrimaryReport({
             outlineTextMetrics224x112: {
               completionCount: outlineTextMetrics224x112Calls.length,
               calls: outlineTextMetrics224x112Calls,
+            },
+          }
+        : {}),
+      ...(getCursorInfoCheckpointEnabled
+        ? {
+            getCursorInfo: {
+              completionCount: getCursorInfoCalls.length,
+              calls: getCursorInfoCalls,
             },
           }
         : {}),

@@ -85,7 +85,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 73);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 74);
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
 const lastPacingRequest = { requestId: "4708", sequence: 89_218 };
@@ -249,7 +249,13 @@ function validEvidence() {
   const policy = checkpoint.activeRuntimeCheckpoint.kernel32CompatibilityPolicy;
   const capabilityCheckpoint =
     checkpoint.nextStructuredStop.kind === "capability-checkpoint";
-  const outcome = capabilityCheckpoint
+  const completedCapabilityBeforeStructuredStop =
+    checkpoint.activeRuntimeCheckpoint.runtimeKernelCheckpoint ===
+      "user32-get-cursor-info-post-outline-text-metrics-224x112" &&
+    checkpoint.nextStructuredStop.kind === "com-method" &&
+    checkpoint.nextStructuredStop.completion !== undefined;
+  const outcome =
+    capabilityCheckpoint || completedCapabilityBeforeStructuredStop
     ? "checkpoint-complete"
     : "structured-stop";
   const checkpointCompletion = capabilityCheckpoint

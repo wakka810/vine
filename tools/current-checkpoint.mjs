@@ -158,9 +158,13 @@ function validateExecutionStateMachine(value, label, errors) {
 export function validateCurrentCheckpoint(manifest) {
   const errors = [];
   const root = requireRecord(manifest, "manifest", errors);
-  const outlineTextMetrics224x112Active =
+  const getCursorInfoActive =
     root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
-    "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336";
+    "user32-get-cursor-info-post-outline-text-metrics-224x112";
+  const outlineTextMetrics224x112Active =
+    getCursorInfoActive ||
+    root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
+      "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336";
   const createDibSection448x336Active =
     outlineTextMetrics224x112Active ||
     root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
@@ -211,7 +215,10 @@ export function validateCurrentCheckpoint(manifest) {
           "gdi32-create-dib-section-448x336-post-create-font-a-224x112") ||
       (outlineTextMetrics224x112Active &&
         root.nextStructuredStop?.completion?.capability ===
-          "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336"));
+          "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336") ||
+      (getCursorInfoActive &&
+        root.activeRuntimeCheckpoint?.scheduledSharedClock?.status ===
+          "passed"));
   const primaryMainLoopProgressionActive =
     root.activeRuntimeCheckpoint?.profile === "primary-main-loop-progression";
   const leaveCriticalSectionActive =
@@ -580,9 +587,13 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9RecreatedTexturesActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-set-window-pos-repeat-activation";
-  const outlineTextMetrics224x112ProfileActive =
+  const getCursorInfoProfileActive =
     root.activeRuntimeCheckpoint?.capabilityProfile ===
-    "gdi-outline-text-metrics-224x112";
+    "user32-get-cursor-info";
+  const outlineTextMetrics224x112ProfileActive =
+    getCursorInfoProfileActive ||
+    root.activeRuntimeCheckpoint?.capabilityProfile ===
+      "gdi-outline-text-metrics-224x112";
   const createDibSection448x336ProfileActive =
     outlineTextMetrics224x112ProfileActive ||
     root.activeRuntimeCheckpoint?.capabilityProfile ===
@@ -1408,7 +1419,26 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    outlineTextMetrics224x112ProfileActive
+    getCursorInfoProfileActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_997,
+        browserMappingDirtyPages: 150_402,
+        browserSuccessExecutionTransitions: 589_100,
+        browserFinalGeneration: 315_160,
+        browserReportSchemaVersion: 74,
+        latestSchema: "vine.v86-bgi-get-cursor-info-primary",
+        latestWritebackBatches: 165_242,
+        latestWritebackDirtyPages: 244_675,
+        latestWritebackChangedBytes: 43_072_557,
+        latestHostDeltaBatches: 127_997,
+        latestFinalMemoryGeneration: 333_483,
+        semanticCallDigestSha256:
+          "c261b54c013bca8637802c8851a232580c875fba70b477db3244df79a3c57967",
+        memoryContentSha256:
+          "8af674327bd71aa3281a541d83d886a82653f9559b1f8c146dde8b7fd138d4a6",
+      }
+    : outlineTextMetrics224x112ProfileActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_997,
@@ -3544,7 +3574,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    outlineTextMetrics224x112Active
+    getCursorInfoActive
+      ? "vine.browser-runtime-worker.v108"
+      : outlineTextMetrics224x112Active
       ? "vine.browser-runtime-worker.v107"
       : createDibSection448x336Active
       ? "vine.browser-runtime-worker.v106"
@@ -4395,7 +4427,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (outlineTextMetrics224x112ProfileActive
+      (getCursorInfoProfileActive
+        ? 74
+        : outlineTextMetrics224x112ProfileActive
         ? 73
         : createDibSection448x336ProfileActive
         ? 72
@@ -24143,7 +24177,43 @@ export function validateCurrentCheckpoint(manifest) {
           errors,
         )
       : {};
-    const expectedNode = outlineTextMetrics224x112Active
+    const getCursorInfo = getCursorInfoActive
+      ? requireRecord(
+          node.getCursorInfo,
+          "activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence.getCursorInfo",
+          errors,
+        )
+      : {};
+    const expectedNode = getCursorInfoActive
+      ? {
+          schema: "vine.v86-bgi-get-cursor-info-primary",
+          runtimeKernelCheckpoint:
+            "user32-get-cursor-info-post-outline-text-metrics-224x112",
+          repeatRuns: 1,
+          reportBytes: 2_507_133,
+          reportSha256:
+            "baf04788d9c2cc70307af8343190d9a6acb4901f024c642b6654eeabca5bd9b1",
+          nodeReplayOldSpaceMiB: 8_192,
+          completedSupportedCalls: 282_848,
+          supportedCallSemanticsSha256:
+            "c261b54c013bca8637802c8851a232580c875fba70b477db3244df79a3c57967",
+          clockSampleCount: 100_556,
+          lastClockTick: 3_800_550,
+          lastClockTime100ns: 2_005_500_000,
+          lastClockGeneration: 16_305,
+          lastClockRetiredInstructions: 391_909_858,
+          lastClockPendingRetiredInstructions: 1_858,
+          windowTimerCallbackCount: 40,
+          timerPacingCompletionCount: 9_002,
+          writebackBatches: 286_046,
+          hostDeltaBatches: 143_087,
+          callbackEventCount: 148,
+          finalMemoryGeneration: 333_483,
+          terminalInstructionCount: 392_353_932,
+          terminalMemoryContentSha256:
+            "8af674327bd71aa3281a541d83d886a82653f9559b1f8c146dde8b7fd138d4a6",
+        }
+      : outlineTextMetrics224x112Active
       ? {
           schema: "vine.v86-bgi-outline-text-metrics-224x112-primary",
           runtimeKernelCheckpoint:
@@ -24349,7 +24419,66 @@ export function validateCurrentCheckpoint(manifest) {
         };
     const expectedCompletion = currentStop.completion ?? {};
     const expectedEndpoint = currentStop.nextEndpoint ?? {};
-    const currentStopValid = outlineTextMetrics224x112Active
+    const currentStopValid = getCursorInfoActive
+      ? currentStop.kind === "com-method" &&
+        currentStop.classification === "semantic-leaf" &&
+        currentStop.nextCheckpoint ===
+          "d3d9-update-texture-partial-dirty-region-post-get-cursor-info" &&
+        currentStop.pausedHistoricalCheckpoint ===
+          "user32-get-cursor-info-post-outline-text-metrics-224x112" &&
+        currentStop.instructionCount === 392_353_932 &&
+        currentStop.capabilityCluster ===
+          "d3d9-idirect3ddevice9-method" &&
+        currentStop.reason ===
+          "update-texture-partial-dirty-region-variant-unsupported" &&
+        currentStop.endpointKind === "com-method" &&
+        currentStop.interface === "IDirect3DDevice9" &&
+        currentStop.vtableSlot === 31 &&
+        currentStop.method === "UpdateTexture" &&
+        currentStop.thisPointer === "0x01010004" &&
+        currentStop.arguments?.join(",") ===
+          "0x01020004,0x01030004" &&
+        currentStop.endpointAddress === "0x01011220" &&
+        currentStop.returnAddress === "0x1005b038" &&
+        currentStop.objectId === "21" &&
+        currentStop.interfaceId === "42" &&
+        expectedCompletion.capability ===
+          "user32-get-cursor-info-post-outline-text-metrics-224x112" &&
+        expectedCompletion.implementationId ===
+          "runtime.user32-get-cursor-info-post-outline-text-metrics-224x112.v1" &&
+        expectedCompletion.requiredCompletions === 2 &&
+        expectedCompletion.completionCount === 2 &&
+        expectedCompletion.prerequisiteOutlineTextMetricsSequence ===
+          261_038 &&
+        expectedCompletion.prerequisiteOutlineTextMetricsInstructionCount ===
+          342_875_297 &&
+        expectedCompletion.firstCompletionSequence === 282_389 &&
+        expectedCompletion.firstCompletionInstructionCount === 375_285_853 &&
+        expectedCompletion.lastCompletionSequence === 282_396 &&
+        expectedCompletion.lastCompletionInstructionCount === 375_288_207 &&
+        expectedCompletion.cursorInfoByteLength === 20 &&
+        expectedCompletion.cursorSource === "system-arrow" &&
+        expectedCompletion.cursorFlags === 1 &&
+        expectedCompletion.logicalCursorHandle === 0x4301_0001 &&
+        expectedCompletion.cursorPosition?.x === 960 &&
+        expectedCompletion.cursorPosition?.y === 540 &&
+        expectedCompletion.cursorIdentityAuthority === "rust-runtime-user32" &&
+        expectedCompletion.cursorPositionAuthority === "rust-runtime-input" &&
+        expectedCompletion.browserOwnsCursorInfoState === false &&
+        expectedCompletion.lastErrorPolicy === "preserve" &&
+        expectedCompletion.mutation ===
+          "guest-memory-preflight-atomic-write" &&
+        expectedCompletion.clockSampleCount === 100_556 &&
+        expectedCompletion.windowTimerCallbackCount === 40 &&
+        expectedCompletion.presentCount === 3 &&
+        expectedCompletion.cursorInfoWasProximateCause === false &&
+        expectedCompletion.instructionCount === 392_353_932 &&
+        expectedCompletion.memoryContentSha256 ===
+          "8af674327bd71aa3281a541d83d886a82653f9559b1f8c146dde8b7fd138d4a6" &&
+        currentStop.fault?.class === "unsupported" &&
+        currentStop.fault?.stage === "d3d9-update-texture" &&
+        currentStop.fault?.code === currentStop.reason
+      : outlineTextMetrics224x112Active
       ? currentStop.kind === "capability-checkpoint" &&
         currentStop.classification === "semantic-leaf" &&
         currentStop.nextCheckpoint ===
@@ -25326,6 +25455,67 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.outlineTextMetrics224x112NodeChromeOrderedSemanticsMatched ===
           true &&
         latestEvidence.outlineTextMetricsWasProximateCause === false);
+    const getCursorInfoEvidenceValid =
+      !getCursorInfoActive ||
+      (getCursorInfo.completionCount === 2 &&
+        getCursorInfo.sequences?.join(",") === "282389,282396" &&
+        getCursorInfo.instructionCounts?.join(",") ===
+          "375285853,375288207" &&
+        getCursorInfo.arguments?.join(",") ===
+          "0x006ff530,0x006ff550" &&
+        getCursorInfo.results?.join(",") === "1,1" &&
+        getCursorInfo.returnAddress === "0x10088c98" &&
+        getCursorInfo.stackPointers?.join(",") ===
+          "0x006ff528,0x006ff530,0x006ff548,0x006ff550" &&
+        getCursorInfo.lastErrors?.join(",") === "0,0" &&
+        getCursorInfo.outputBytes === 20 &&
+        getCursorInfo.outputSha256 ===
+          "83409a8eb120ec1c8528928c2ad5ec6935dc2a2dbca6bfbc4be4efe11b761780" &&
+        getCursorInfo.flags === 1 &&
+        getCursorInfo.logicalCursorHandle === "0x43010001" &&
+        getCursorInfo.cursorPosition?.join(",") === "960,540" &&
+        getCursorInfo.implementationId ===
+          "user32.get-cursor-info.system-arrow.v1" &&
+        getCursorInfo.cursorIdentityAuthority ===
+          "runtime/user32.rs::RuntimeUser32" &&
+        getCursorInfo.cursorPositionAuthority ===
+          "runtime/input.rs::RuntimeInput" &&
+        getCursorInfo.byteAuthority === "rust-guest-memory" &&
+        getCursorInfo.browserOwnsCursorInfoState === false &&
+        getCursorInfo.nativeOracleScriptBytes === 7_245 &&
+        getCursorInfo.nativeOracleScriptSha256 ===
+          "a24c6ed9057e86c9ffad018100517fbd9187f58dc80a1504770d7c3c513a3355" &&
+        getCursorInfo.nativeOracleReportBytes === 7_933 &&
+        getCursorInfo.nativeOracleReportSha256 ===
+          "000ec313e08b21236c9db1c76f7f36a6883efe7a011bb0d9fc0c57f497b8f12a" &&
+        getCursorInfo.nativeOracleConfirmationReportBytes === 7_935 &&
+        getCursorInfo.nativeOracleConfirmationReportSha256 ===
+          "c491f80227ba72a6c1c2004dcca40ed5acb17217289895f2017434a0f6ee6cdf" &&
+        getCursorInfo.nativeOracleFridaVersion === "17.15.4" &&
+        getCursorInfo.nativeOracleTargetRuns === 2 &&
+        getCursorInfo.nativeOracleTargetReturnRva === "0x00088c98" &&
+        getCursorInfo.nativeOracleNullResult === 0 &&
+        getCursorInfo.nativeOracleNullLastError === 998 &&
+        getCursorInfo.nativeOracleWrongSizeLastError === 87 &&
+        getCursorInfo.nativeOracleSuccessPreservesLastError === true &&
+        getCursorInfo.nativeOracleExecutableHashUnchanged === true &&
+        latestEvidence.getCursorInfoImplemented === true &&
+        latestEvidence.getCursorInfoSequences?.join(",") ===
+          "282389,282396" &&
+        latestEvidence.getCursorInfoInstructionCounts?.join(",") ===
+          "375285853,375288207" &&
+        latestEvidence.getCursorInfoResults?.join(",") === "1,1" &&
+        latestEvidence.getCursorInfoOutputSha256 ===
+          "83409a8eb120ec1c8528928c2ad5ec6935dc2a2dbca6bfbc4be4efe11b761780" &&
+        latestEvidence.getCursorInfoLogicalCursorHandle === "0x43010001" &&
+        latestEvidence.getCursorInfoCursorPosition?.join(",") === "960,540" &&
+        latestEvidence.getCursorInfoImplementationId ===
+          "user32.get-cursor-info.system-arrow.v1" &&
+        latestEvidence.getCursorInfoNodeCompletions === 2 &&
+        latestEvidence.getCursorInfoChromeCompletions === 2 &&
+        latestEvidence.getCursorInfoNodeChromeOrderedSemanticsMatched ===
+          true &&
+        latestEvidence.cursorInfoWasProximateCause === false);
     if (
       scheduled.schema !== "vine.scheduled-shared-clock-checkpoint" ||
       scheduled.schemaVersion !== 1 ||
@@ -25403,7 +25593,9 @@ export function validateCurrentCheckpoint(manifest) {
       node.terminalMemoryContentSha256 !==
         expectedNode.terminalMemoryContentSha256 ||
       browserBoundary.runtimeProtocol !==
-        (outlineTextMetrics224x112Active
+        (getCursorInfoActive
+          ? "vine.browser-runtime-worker.v108"
+          : outlineTextMetrics224x112Active
           ? "vine.browser-runtime-worker.v107"
           : createDibSection448x336Active
           ? "vine.browser-runtime-worker.v106"
@@ -25419,7 +25611,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.retiredInstructionCursorTransport !==
         "checked-u64-low-high-per-api-and-com-dispatch" ||
       browserBoundary.browserOwnsGuestClockState !== false ||
-      (outlineTextMetrics224x112Active
+      (getCursorInfoActive
+        ? browserBoundary.browserReportSchemaVersion !== 74
+        : outlineTextMetrics224x112Active
         ? browserBoundary.browserReportSchemaVersion !== 73
         : createDibSection448x336Active
         ? browserBoundary.browserReportSchemaVersion !== 72
@@ -25432,7 +25626,9 @@ export function validateCurrentCheckpoint(manifest) {
         "npm run check:runtime:browser-worker" ||
       browserBoundary.chromeVersion !== "150.0.7871.187" ||
       browserBoundary.reportBytes !==
-        (outlineTextMetrics224x112Active
+        (getCursorInfoActive
+          ? 35_954
+          : outlineTextMetrics224x112Active
           ? 35_949
           : createDibSection448x336Active
           ? 35_953
@@ -25444,7 +25640,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 35_961
           : 35_951) ||
       browserBoundary.reportSha256 !==
-        (outlineTextMetrics224x112Active
+        (getCursorInfoActive
+          ? "f7316790374264886919f9ec46f2dde5a67976c50937c59b8ac569a7b628b830"
+          : outlineTextMetrics224x112Active
           ? "ea1726faf73327e2c93535e6915d41acd020a4d391c7162947bb009650b0ab72"
           : createDibSection448x336Active
           ? "c78cb5cd2e7f11174a47a408952d1bec49f654a4199891b3d7b9afa665b11580"
@@ -25456,7 +25654,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "bd77deb28553190382622adb663ac87b99e4c9f9df719bbba2282f5bae5bca94"
           : "ecd982f21410c69c4d844a114041e301fd140fedbb520cf5773f4d13d2846aa1") ||
       browserBoundary.runtimeWorkerBytes !==
-        (outlineTextMetrics224x112Active
+        (getCursorInfoActive
+          ? 1_087_325
+          : outlineTextMetrics224x112Active
           ? 1_080_001
           : createDibSection448x336Active
           ? 1_070_919
@@ -25468,7 +25668,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 1_053_379
           : 1_049_048) ||
       browserBoundary.runtimeWorkerSha256 !==
-        (outlineTextMetrics224x112Active
+        (getCursorInfoActive
+          ? "f019ba714b91c3218d77e7fe6cd47b3e36edb22290a35d962ac5c06d72b2a121"
+          : outlineTextMetrics224x112Active
           ? "2c2f5cc438022a1e198c9eb33961aff482a7d12a732e5b07863be9af4624c99e"
           : createDibSection448x336Active
           ? "f512b0728fa5ae6f12e908b74ee6cf56ad30e5324701ceb0b03f6777776554fb"
@@ -25480,7 +25682,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "1f2812982a31f8b94c994ba531c7d58285122b9299da1b51169b49631790f420"
           : "dbb154a48ed3db86b915396bb549add364443e050b6d68f52f0c811c8b46b1c4") ||
       browserBoundary.runtimeCoreWasmBytes !==
-        (outlineTextMetrics224x112Active
+        (getCursorInfoActive
+          ? 5_407_727
+          : outlineTextMetrics224x112Active
           ? 5_403_256
           : createDibSection448x336Active
           ? 5_401_969
@@ -25492,7 +25696,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 5_361_144
           : 5_354_885) ||
       browserBoundary.runtimeCoreWasmSha256 !==
-        (outlineTextMetrics224x112Active
+        (getCursorInfoActive
+          ? "c030ac92a6f8594ebc302a50e5790102592f460c164d130dc2cadd197345dad1"
+          : outlineTextMetrics224x112Active
           ? "d1104f3883e1c3f54de6960c25ffc931d3ce91c62a0785b169692f6e9270e8ba"
           : createDibSection448x336Active
           ? "9c9624aed3303bd78b47b52dfc21fff0fba2378b058ff73f02a95c894eac5f7e"
@@ -25508,7 +25714,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.privatePrimaryCommand !==
         "node tools/run-browser-runtime-check.mjs --bgi" ||
       browserBoundary.privatePrimaryReportBytes !==
-        (outlineTextMetrics224x112Active
+        (getCursorInfoActive
+          ? 2_613_486
+          : outlineTextMetrics224x112Active
           ? 2_620_811
           : createDibSection448x336Active
           ? 2_649_790
@@ -25520,7 +25728,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 2_598_978
           : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
-        (outlineTextMetrics224x112Active
+        (getCursorInfoActive
+          ? "08c4e5c4c758fafcbc1e27da9edc466553c0775811ef212d1087819d4d26fc27"
+          : outlineTextMetrics224x112Active
           ? "bb5a0465594fa59025aa195848da9c1db0b91c5cd70f6bbc066f6e7f108f59f4"
           : createDibSection448x336Active
           ? "6d71d43f1dcb015997f941861b89e29ae806078bd29ac35fa8e2ef5368023576"
@@ -25569,6 +25779,7 @@ export function validateCurrentCheckpoint(manifest) {
       !createFontA224x112EvidenceValid ||
       !createDibSection448x336EvidenceValid ||
       !outlineTextMetrics224x112EvidenceValid ||
+      !getCursorInfoEvidenceValid ||
       conclusion.clockFreezeWasProximateCause !== false ||
       (privateHeapOrdinarySegmentGrowthActive &&
         conclusion.ordinaryHeapCapacityWasProximateCause !== false) ||
@@ -25578,8 +25789,12 @@ export function validateCurrentCheckpoint(manifest) {
         conclusion.dibSectionWasProximateCause !== false) ||
       (outlineTextMetrics224x112Active &&
         conclusion.outlineTextMetricsWasProximateCause !== false) ||
+      (getCursorInfoActive &&
+        conclusion.cursorInfoWasProximateCause !== false) ||
       conclusion.nextEndpoint !==
-        (outlineTextMetrics224x112Active
+        (getCursorInfoActive
+          ? "IDirect3DDevice9!UpdateTexture"
+          : outlineTextMetrics224x112Active
           ? "USER32.dll!GetCursorInfo"
           : createDibSection448x336Active
           ? "GDI32.dll!GetOutlineTextMetricsA"
@@ -25595,7 +25810,19 @@ export function validateCurrentCheckpoint(manifest) {
           ? "KERNEL32.dll!FindFirstFileA"
           : "USER32.dll!SetWindowTextA")
     ) {
-      errors.push("scheduled shared clock checkpoint evidence is invalid");
+      errors.push(
+        `scheduled shared clock checkpoint evidence is invalid (${JSON.stringify({
+          currentStopValid,
+          setWindowTextAEvidenceValid,
+          findFileAEvidenceValid,
+          deleteFileAEvidenceValid,
+          ordinaryHeapSegmentGrowthEvidenceValid,
+          createFontA224x112EvidenceValid,
+          createDibSection448x336EvidenceValid,
+          outlineTextMetrics224x112EvidenceValid,
+          getCursorInfoEvidenceValid,
+        })})`,
+      );
     }
   } else if (
     active.canonicalReproductionCommand !==
@@ -34549,7 +34776,10 @@ export function validateCurrentCheckpoint(manifest) {
                 );
               }
             }
-            if (
+            if (scheduledSharedClockActive) {
+              // The scheduled continuation validator above owns the exact stop
+              // shape after the historical profile has advanced past this gate.
+            } else if (
               largeHeapFreeActive ||
               heapAlloc24Active ||
               presentationProgressGatewayActive ||
@@ -35531,6 +35761,7 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   if (
+    !scheduledSharedClockActive &&
     currentStop.kind === "com-method" &&
     (latestEvidence.firstStructuredStopInterface !== currentStop.interface ||
       latestEvidence.firstStructuredStopVtableSlot !== currentStop.vtableSlot ||
@@ -35803,10 +36034,11 @@ export function validateCurrentCheckpoint(manifest) {
   }
 
   if (
-    (next.kind !== "capability-checkpoint" &&
+    !scheduledSharedClockActive &&
+    ((next.kind !== "capability-checkpoint" &&
       bgiBrowserEvidence.nextCapabilityCluster !== next.capabilityCluster) ||
     (next.kind !== "capability-checkpoint" &&
-      bgiBrowserEvidence.nextFaultCode !== next.reason)
+      bgiBrowserEvidence.nextFaultCode !== next.reason))
   ) {
     errors.push(
       "browser BGI structured-stop summary must match nextStructuredStop",
