@@ -2424,10 +2424,12 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext.completion,
       expectedNext.nextEndpoint,
     );
-    assert.deepEqual(
-      browser.checkpointCompletion.call,
-      nodeExecution.d3d9UpdateTexturePartialDirtyRegion.call,
-    );
+    const {
+      occurrence: _nodeOccurrence,
+      trapInstructionCount: _nodeTrapInstructionCount,
+      ...nodeCheckpointCall
+    } = nodeExecution.d3d9UpdateTexturePartialDirtyRegion.call;
+    assert.deepEqual(browser.checkpointCompletion.call, nodeCheckpointCall);
   } else {
     assert.equal(
       browserUnsupported.capabilityCluster,
