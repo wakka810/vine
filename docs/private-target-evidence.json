@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-08-01T21:20:53.413Z",
+  "recordedAt": "2026-08-01T22:58:44.239Z",
   "repository": {
-    "implementationCommit": "31c9da8f7376fb077b2f1c762f5d8b3500e2a0d5",
-    "implementationTree": "da100c7dcf3a8d70e96711732897cfbfb1e08011",
-    "headCommit": "31c9da8f7376fb077b2f1c762f5d8b3500e2a0d5",
+    "implementationCommit": "69bddbbd9c9a7489a227f8371ab95922216ca979",
+    "implementationTree": "437598907f8017de6d0e7b1756f066d3eeaecfd6",
+    "headCommit": "69bddbbd9c9a7489a227f8371ab95922216ca979",
     "dirty": true,
     "dirtyPaths": [
       "CON"
@@ -31,15 +31,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "user32-get-cursor-info-post-outline-text-metrics-224x112",
+    "runtimeCheckpoint": "d3d9-update-texture-partial-dirty-region-post-get-cursor-info",
     "runtimeProfile": "user32-peek-message-a-post-window-timer-callback-continuation",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-delete-file-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-delete-file-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-get-cursor-info-primary",
+    "nodeReportSchema": "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v108",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v109",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -74,26 +74,241 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 137,
-      "supportedCalls": 282848,
-      "callSemanticsSha256": "c261b54c013bca8637802c8851a232580c875fba70b477db3244df79a3c57967",
-      "instructions": 392353932,
-      "finalGeneration": 333483,
-      "memoryContentSha256": "8af674327bd71aa3281a541d83d886a82653f9559b1f8c146dde8b7fd138d4a6",
-      "writebackBatches": 286046,
+      "supportedCalls": 282849,
+      "callSemanticsSha256": "75b983dd6bff893961769349c74bff97ebaf7b4c33a1eab229b215fa98cd58b6",
+      "instructions": 392353938,
+      "finalGeneration": 333484,
+      "memoryContentSha256": "568061b7a8f6722b0556c6f9add62e5f9b35e62591b1769c16a441250331329e",
+      "checkpointCompletion": {
+        "capability": "d3d9-update-texture-partial-dirty-region-post-get-cursor-info",
+        "implementationId": "runtime.d3d9-update-texture-partial-dirty-region-post-get-cursor-info.v1",
+        "requiredCompletions": 1,
+        "completionCount": 1,
+        "prerequisiteGetCursorInfoSequence": 282396,
+        "prerequisiteGetCursorInfoInstructionCount": 375288207,
+        "firstCompletionSequence": 282849,
+        "firstCompletionInstructionCount": 392353932,
+        "lastCompletionSequence": 282849,
+        "lastCompletionInstructionCount": 392353932,
+        "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
+        "updateTextureProfileId": "primary-recreated-system-memory-to-static-default-texture-update-v3",
+        "dirtyRegion": {
+          "left": 583,
+          "top": 530,
+          "right": 1260,
+          "bottom": 582
+        },
+        "byteAuthority": "rust-guest-memory-graphics-resource-allocation",
+        "transferPublication": "full-authoritative-source-backing",
+        "partialTransferPrecondition": "destination-immediately-preceding-source-generation",
+        "sourceContentGeneration": 4,
+        "destinationContentGeneration": 4,
+        "sourceDirtyRegionAfter": "clean",
+        "mutation": "dual-texture-plan-preflight-targeted-commit",
+        "failureAtomicity": true,
+        "admittedAdditionalPartialDirtyRegions": 1,
+        "arbitraryPartialHistoryImplemented": false,
+        "dynamicDestinationImplemented": false,
+        "activeCallbackDepthAtCompletion": 0,
+        "instructionCount": 392353938,
+        "nextEndpoint": {
+          "id": 0,
+          "address": 16847552,
+          "module": "<com>",
+          "symbol": {
+            "kind": "name",
+            "name": "interface-1-slot-41"
+          },
+          "disposition": "declared-com-method",
+          "interfaceIndex": 1,
+          "vtableSlot": 41,
+          "interface": "IDirect3DDevice9",
+          "method": "BeginScene"
+        },
+        "memoryContentSha256": "568061b7a8f6722b0556c6f9add62e5f9b35e62591b1769c16a441250331329e",
+        "nextReturnAddress": 268808264,
+        "nextStackPointer": 7321712,
+        "clockProfileId": "scheduled-shared-logical-deadline-v1",
+        "clockSampleCount": 100556,
+        "windowTimerCallbackCount": 40,
+        "presentCount": 3
+      },
+      "writebackBatches": 286047,
       "hostDeltaBatches": 143087
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 282848,
-      "callSemanticsSha256": "c261b54c013bca8637802c8851a232580c875fba70b477db3244df79a3c57967",
-      "instructions": 392353932,
-      "finalGeneration": 355938,
-      "memoryContentSha256": "8af674327bd71aa3281a541d83d886a82653f9559b1f8c146dde8b7fd138d4a6",
-      "wasmBridgeCalls": 756211,
+      "supportedCalls": 282849,
+      "callSemanticsSha256": "75b983dd6bff893961769349c74bff97ebaf7b4c33a1eab229b215fa98cd58b6",
+      "instructions": 392353938,
+      "finalGeneration": 355939,
+      "memoryContentSha256": "568061b7a8f6722b0556c6f9add62e5f9b35e62591b1769c16a441250331329e",
+      "checkpointCompletion": {
+        "capability": "d3d9-update-texture-partial-dirty-region-post-get-cursor-info",
+        "implementationId": "runtime.d3d9-update-texture-partial-dirty-region-post-get-cursor-info.v1",
+        "requiredCompletions": 1,
+        "completionCount": 1,
+        "prerequisiteGetCursorInfoSequence": 282396,
+        "prerequisiteGetCursorInfoInstructionCount": 375288207,
+        "firstCompletionSequence": 282849,
+        "firstCompletionInstructionCount": 392353932,
+        "lastCompletionSequence": 282849,
+        "lastCompletionInstructionCount": 392353932,
+        "call": {
+          "sequence": 282849,
+          "module": "<com>",
+          "symbol": "IDirect3DDevice9.UpdateTexture",
+          "interface": "IDirect3DDevice9",
+          "vtableSlot": 31,
+          "arguments": [
+            16842756,
+            16908292,
+            16973828
+          ],
+          "result": {
+            "kind": "h-result",
+            "value": 0
+          },
+          "returnAddress": 268808248,
+          "stackPointerBefore": 7321704,
+          "stackPointerAfter": 7321720,
+          "referenceCount": 5,
+          "objectRetired": false,
+          "guestWrites": [],
+          "graphicsTextureUpdate": {
+            "destination": {
+              "comObjectId": "24",
+              "content": {
+                "contentGeneration": 4,
+                "fills": [],
+                "lastUpdate": {
+                  "dirtyRegion": {
+                    "kind": "rect",
+                    "rect": {
+                      "bottom": 582,
+                      "left": 583,
+                      "right": 1260,
+                      "top": 530
+                    }
+                  },
+                  "sequence": 4,
+                  "sourceContentGeneration": 4,
+                  "sourceTextureId": 7
+                },
+                "pixelSource": {
+                  "range": {
+                    "byteLength": 8388608,
+                    "start": 1140854784
+                  },
+                  "rowPitch": 8192,
+                  "sourceContentGeneration": 4,
+                  "sourceTextureId": 7
+                }
+              },
+              "descriptor": {
+                "colorFormat": "b8g8r8x8-unorm",
+                "height": 1024,
+                "levels": 1,
+                "pool": "default",
+                "usage": "none",
+                "width": 2048
+              },
+              "deviceId": 3,
+              "dirtyRegion": {
+                "kind": "whole-texture"
+              },
+              "generation": 48,
+              "id": 8,
+              "namespace": "vine.logical-graphics-texture.v1"
+            },
+            "source": {
+              "backing": {
+                "addressAllocationId": 77,
+                "memoryOwner": 50,
+                "range": {
+                  "byteLength": 8388608,
+                  "start": 1140854784
+                },
+                "rowPitch": 8192
+              },
+              "comObjectId": "22",
+              "content": {
+                "contentGeneration": 4,
+                "fills": [],
+                "pixelSource": {
+                  "range": {
+                    "byteLength": 8388608,
+                    "start": 1140854784
+                  },
+                  "rowPitch": 8192,
+                  "sourceContentGeneration": 4,
+                  "sourceTextureId": 7
+                }
+              },
+              "descriptor": {
+                "colorFormat": "b8g8r8x8-unorm",
+                "height": 1024,
+                "levels": 1,
+                "pool": "system-memory",
+                "usage": "none",
+                "width": 2048
+              },
+              "deviceId": 3,
+              "dirtyRegion": {
+                "kind": "clean"
+              },
+              "generation": 54,
+              "id": 7,
+              "namespace": "vine.logical-graphics-texture.v1"
+            }
+          }
+        },
+        "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
+        "updateTextureProfileId": "primary-recreated-system-memory-to-static-default-texture-update-v3",
+        "dirtyRegion": {
+          "left": 583,
+          "top": 530,
+          "right": 1260,
+          "bottom": 582
+        },
+        "byteAuthority": "rust-guest-memory-graphics-resource-allocation",
+        "transferPublication": "full-authoritative-source-backing",
+        "partialTransferPrecondition": "destination-immediately-preceding-source-generation",
+        "sourceContentGeneration": 4,
+        "destinationContentGeneration": 4,
+        "sourceDirtyRegionAfter": "clean",
+        "mutation": "dual-texture-plan-preflight-targeted-commit",
+        "failureAtomicity": true,
+        "admittedAdditionalPartialDirtyRegions": 1,
+        "arbitraryPartialHistoryImplemented": false,
+        "dynamicDestinationImplemented": false,
+        "activeCallbackDepthAtCompletion": 0,
+        "clockProfileId": "scheduled-shared-logical-deadline-v1",
+        "clockSampleCount": 100556,
+        "windowTimerCallbackCount": 40,
+        "presentCount": 3,
+        "instructionCount": 392353938,
+        "nextEndpoint": {
+          "id": 0,
+          "address": 16847552,
+          "module": "<com>",
+          "symbol": {
+            "kind": "name",
+            "name": "interface-1-slot-41"
+          },
+          "disposition": "declared-com-method",
+          "interfaceIndex": 1,
+          "vtableSlot": 41,
+          "interface": "IDirect3DDevice9",
+          "method": "BeginScene"
+        },
+        "memoryContentSha256": "568061b7a8f6722b0556c6f9add62e5f9b35e62591b1769c16a441250331329e"
+      },
+      "wasmBridgeCalls": 756214,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 955428,
+          "transitionCount": 955431,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -139,27 +354,14 @@
     },
     "memoryEquivalent": true,
     "nextStructuredStop": {
-      "kind": "com-method",
+      "kind": "capability-checkpoint",
       "classification": "semantic-leaf",
-      "nextCheckpoint": "d3d9-update-texture-partial-dirty-region-post-get-cursor-info",
-      "pausedHistoricalCheckpoint": "user32-get-cursor-info-post-outline-text-metrics-224x112",
-      "instructionCount": 392353932,
+      "nextCheckpoint": "d3d9-begin-scene-post-partial-dirty-region-update",
+      "pausedHistoricalCheckpoint": "d3d9-update-texture-partial-dirty-region-post-get-cursor-info",
+      "instructionCount": 392353938,
       "capabilityCluster": "d3d9-idirect3ddevice9-method",
-      "reason": "update-texture-partial-dirty-region-variant-unsupported",
-      "endpointKind": "com-method",
-      "interface": "IDirect3DDevice9",
-      "vtableSlot": 31,
-      "method": "UpdateTexture",
-      "thisPointer": "0x01010004",
-      "arguments": [
-        "0x01020004",
-        "0x01030004"
-      ],
-      "endpointAddress": "0x01011220",
-      "returnAddress": "0x1005b038",
-      "objectId": "21",
-      "interfaceId": "42",
-      "prerequisiteCheckpoint": {
+      "reason": "d3d9-update-texture-partial-dirty-region-post-get-cursor-info-checkpoint-complete",
+      "historicalOutlineTextMetricsCheckpoint": {
         "capability": "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
         "implementationId": "runtime.gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336.v1",
         "requiredCompletions": 2,
@@ -349,7 +551,7 @@
         "instructionCount": 375285853,
         "memoryContentSha256": "cb8497abf612962fe1d7f6cef19d62e17d786daa3018a666d2f88096b5f10312"
       },
-      "completion": {
+      "prerequisiteCheckpoint": {
         "capability": "user32-get-cursor-info-post-outline-text-metrics-224x112",
         "implementationId": "runtime.user32-get-cursor-info-post-outline-text-metrics-224x112.v1",
         "requiredCompletions": 2,
@@ -392,13 +594,71 @@
         "instructionCount": 392353932,
         "memoryContentSha256": "8af674327bd71aa3281a541d83d886a82653f9559b1f8c146dde8b7fd138d4a6"
       },
-      "fault": {
+      "completion": {
+        "capability": "d3d9-update-texture-partial-dirty-region-post-get-cursor-info",
+        "implementationId": "runtime.d3d9-update-texture-partial-dirty-region-post-get-cursor-info.v1",
+        "requiredCompletions": 1,
+        "completionCount": 1,
+        "prerequisiteGetCursorInfoSequence": 282396,
+        "prerequisiteGetCursorInfoInstructionCount": 375288207,
+        "firstCompletionSequence": 282849,
+        "firstCompletionInstructionCount": 392353932,
+        "lastCompletionSequence": 282849,
+        "lastCompletionInstructionCount": 392353932,
+        "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
+        "updateTextureProfileId": "primary-recreated-system-memory-to-static-default-texture-update-v3",
+        "dirtyRegion": {
+          "left": 583,
+          "top": 530,
+          "right": 1260,
+          "bottom": 582
+        },
+        "byteAuthority": "rust-guest-memory-graphics-resource-allocation",
+        "transferPublication": "full-authoritative-source-backing",
+        "partialTransferPrecondition": "destination-immediately-preceding-source-generation",
+        "sourceContentGeneration": 4,
+        "destinationContentGeneration": 4,
+        "sourceDirtyRegionAfter": "clean",
+        "mutation": "dual-texture-plan-preflight-targeted-commit",
+        "failureAtomicity": true,
+        "admittedAdditionalPartialDirtyRegions": 1,
+        "arbitraryPartialHistoryImplemented": false,
+        "dynamicDestinationImplemented": false,
+        "activeCallbackDepthAtCompletion": 0,
+        "clockProfileId": "scheduled-shared-logical-deadline-v1",
+        "clockSampleCount": 100556,
+        "windowTimerCallbackCount": 40,
+        "presentCount": 3,
+        "instructionCount": 392353938,
+        "memoryContentSha256": "568061b7a8f6722b0556c6f9add62e5f9b35e62591b1769c16a441250331329e"
+      },
+      "nextEndpoint": {
+        "endpointKind": "com-method",
+        "endpointId": 0,
+        "api": "IDirect3DDevice9!BeginScene",
+        "endpointAddress": "0x010112c0",
+        "observedModule": "<com>",
+        "observedSymbol": "interface-1-slot-41",
+        "id": 0,
+        "address": 16847552,
+        "module": "<com>",
+        "symbol": {
+          "kind": "name",
+          "name": "interface-1-slot-41"
+        },
+        "disposition": "declared-com-method",
+        "interfaceIndex": 1,
+        "vtableSlot": 41,
+        "interface": "IDirect3DDevice9",
+        "method": "BeginScene"
+      },
+      "historicalFollowingFault": {
         "class": "unsupported",
         "stage": "d3d9-update-texture",
         "code": "update-texture-partial-dirty-region-variant-unsupported",
         "message": "D3D9 compatibility policy does not enable this partial dirty-region variant"
       },
-      "previousEndpoint": {
+      "historicalPreviousEndpoint": {
         "endpointKind": "runtime-system-export",
         "endpointId": 168,
         "api": "USER32.dll!GetCursorInfo",
@@ -433,14 +693,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-get-cursor-info/report.json",
-      "bytes": 2507133,
-      "sha256": "baf04788d9c2cc70307af8343190d9a6acb4901f024c642b6654eeabca5bd9b1"
+      "path": ".work/v86-bgi-d3d9-update-texture-partial-dirty-region/report.json",
+      "bytes": 2479724,
+      "sha256": "b2e577c2bdcaed1ee256ec71b7d2c3bfc7bf1b8ea6562bcf8f2bc0d16056ad83"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2613474,
-      "sha256": "8cc763b98d3d06faeb78161541aff4b26e1c18ec77b97f60a4bd2b3fe7f295d7"
+      "bytes": 2612508,
+      "sha256": "60539ffa38c643df983bc001b40002fd2b1abb46b92269b3a935c7881f1b219b"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -455,12 +715,12 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3768,
-      "sha256": "0021b827e25fc43b145dcd13729c736e459204d943162098249143672694b56c"
+      "sha256": "0a0be5f24190fa425d0be4f67bced7aa2d13b54c6c16d433fefb2279b801aa80"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
-      "bytes": 5407727,
-      "sha256": "c030ac92a6f8594ebc302a50e5790102592f460c164d130dc2cadd197345dad1"
+      "bytes": 5407751,
+      "sha256": "60674a1917bdd4641cf8f3884cc73dc177817d45e480f4587cc4627a1f71798e"
     },
     "v86AdapterWasm": {
       "path": ".work/browser-runtime/v86-adapter.wasm",
@@ -492,5 +752,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "1e10c762f5efbea704ee6a5fd54568293544facdad1a51b1727dbffa8e807d45"
+  "payloadSha256": "a2979d3bb3c038fea972969e3fff1bd85c43c409cb097aa5908ef7beee138f24"
 }
