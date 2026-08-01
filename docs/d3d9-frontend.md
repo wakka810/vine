@@ -680,12 +680,14 @@ oracle fixes nested lock as `D3DERR_INVALIDCALL` with unchanged output and a
 repeated unlock-without-lock as an `S_OK` no-op. The accepted
 `D3DLOCK_NO_DIRTY_UPDATE` call preserves the existing dirty region.
 
-The later exact partial `UpdateTexture` accepts `[0,0,1280,720]` only when the
-destination still represents the immediately preceding source generation. It
+The later exact partial `UpdateTexture` profiles accept `[0,0,1280,720]` and the
+subsequently reached `[583,530,1260,582]` only when the destination still
+represents the immediately preceding source generation. They
 publishes the full authoritative source backing as the destination pixel source
 while consuming the bounded source dirty region in one two-texture commit. This
 generation precondition prevents an older logical history from being silently
-combined with newer guest bytes. Arbitrary partial histories and the native
+combined with newer guest bytes. Policy v33 adds only the latter observed
+rectangle to the frozen v32 band. Arbitrary partial histories and the native
 dynamic-destination variant remain unsupported.
 
 The Worker reads the authoritative backing through the execution mirror only

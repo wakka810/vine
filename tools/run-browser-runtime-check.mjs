@@ -86,9 +86,14 @@ const bgiProfile =
     : checkpoint.activeRuntimeCheckpoint.capabilityProfile ??
       checkpoint.activeRuntimeCheckpoint.profile);
 const deleteFileAProfile = bgiProfile === "kernel32-delete-file-a";
+const d3d9UpdateTexturePartialDirtyRegionProfile =
+  bgiProfile === "d3d9-update-texture-partial-dirty-region";
 const getCursorInfoProfile = bgiProfile === "user32-get-cursor-info";
+const includesGetCursorInfoProfile =
+  d3d9UpdateTexturePartialDirtyRegionProfile || getCursorInfoProfile;
 const outlineTextMetrics224x112Profile =
-  getCursorInfoProfile || bgiProfile === "gdi-outline-text-metrics-224x112";
+  includesGetCursorInfoProfile ||
+  bgiProfile === "gdi-outline-text-metrics-224x112";
 const createDibSection448x336Profile =
   outlineTextMetrics224x112Profile ||
   bgiProfile === "gdi-create-dib-section-448x336";
@@ -298,9 +303,11 @@ const user32AsyncKeyStateInitialScanContinuationProfile =
 const user32AsyncKeyStateInitialScanProfile =
   user32AsyncKeyStateInitialScanCheckpointProfile ||
   user32AsyncKeyStateInitialScanContinuationProfile;
-const d3d9CompatibilityPolicyId = user32AsyncKeyStateInitialScanProfile
-  ? "d3d9-primary-virtual-adapter-v32"
-  : "d3d9-primary-virtual-adapter-v31";
+const d3d9CompatibilityPolicyId = d3d9UpdateTexturePartialDirtyRegionProfile
+  ? "d3d9-primary-virtual-adapter-v33"
+  : user32AsyncKeyStateInitialScanProfile
+    ? "d3d9-primary-virtual-adapter-v32"
+    : "d3d9-primary-virtual-adapter-v31";
 const user32AsyncKeyStateInitialScanVirtualKeys = [
   14, 15, 13, 16, 27, 38, 33, 40, 34, 37, 39, 49, 97, 50, 98, 51, 99, 52, 100,
   53, 101, 54, 102, 55, 103, 56, 104, 57, 105, 48, 96, 9, 17, 1, 2, 4, 5, 6,
@@ -368,7 +375,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v108";
+const runtimeProtocol = "vine.browser-runtime-worker.v109";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -1296,6 +1303,158 @@ function validatePrivateHeapOrdinarySegmentGrowthBgiProbe(
   );
 }
 
+function validateD3d9UpdateTexturePartialDirtyRegionBgiProbe(
+  evidence,
+  scenario,
+) {
+  if (scenario !== "success") {
+    validateScheduledSharedClockBgiProbe(evidence, scenario);
+    return;
+  }
+  const report = evidence.report;
+  const completion = report.checkpointCompletion;
+  const call = completion.call;
+  const source = call.graphicsTextureUpdate?.source;
+  const destination = call.graphicsTextureUpdate?.destination;
+  assert.equal(report.outcome, "checkpoint-complete");
+  assert.equal(report.error, null);
+  assert.equal(report.supportedCallCount, 282_849);
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    "75b983dd6bff893961769349c74bff97ebaf7b4c33a1eab229b215fa98cd58b6",
+  );
+  assert.equal(report.instructions, 392_353_938);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert.equal(report.sourceReads.length, 154);
+  assert.equal(report.writableDirectoryCreates.length, 1);
+  assert.equal((report.heapPageMaterializations ?? []).length, 3_112);
+  assert.equal(report.firstUnsupported, null);
+  assert.equal(
+    completion.capability,
+    "d3d9-update-texture-partial-dirty-region-post-get-cursor-info",
+  );
+  assert.equal(
+    completion.implementationId,
+    "runtime.d3d9-update-texture-partial-dirty-region-post-get-cursor-info.v1",
+  );
+  assert.equal(completion.requiredCompletions, 1);
+  assert.equal(completion.completionCount, 1);
+  assert.equal(completion.prerequisiteGetCursorInfoSequence, 282_396);
+  assert.equal(
+    completion.prerequisiteGetCursorInfoInstructionCount,
+    375_288_207,
+  );
+  assert.equal(completion.firstCompletionSequence, 282_849);
+  assert.equal(completion.firstCompletionInstructionCount, 392_353_932);
+  assert.equal(completion.lastCompletionSequence, 282_849);
+  assert.equal(completion.lastCompletionInstructionCount, 392_353_932);
+  assert.equal(call.sequence, 282_849);
+  assert.equal(call.module, "<com>");
+  assert.equal(call.symbol, "IDirect3DDevice9.UpdateTexture");
+  assert.equal(call.interface, "IDirect3DDevice9");
+  assert.equal(call.vtableSlot, 31);
+  assert.deepEqual(call.arguments, [0x0101_0004, 0x0102_0004, 0x0103_0004]);
+  assert.deepEqual(call.result, { kind: "h-result", value: 0 });
+  assert.equal(call.returnAddress, 0x1005_b038);
+  assert.equal(call.stackPointerBefore, 0x006f_b868);
+  assert.equal(call.stackPointerAfter, 0x006f_b878);
+  assert.equal(call.referenceCount, 5);
+  assert.equal(call.objectRetired, false);
+  assert.deepEqual(call.guestWrites, []);
+  assert.equal(source?.id, 7);
+  assert.equal(source?.deviceId, 3);
+  assert.equal(source?.descriptor.pool, "system-memory");
+  assert.equal(source?.backing?.addressAllocationId, 77);
+  assert.equal(source?.backing?.memoryOwner, 50);
+  assert.deepEqual(source?.backing?.range, {
+    start: 0x4400_1000,
+    byteLength: 0x0080_0000,
+  });
+  assert.equal(source?.backing?.rowPitch, 8_192);
+  assert.equal(source?.content?.contentGeneration, 4);
+  assert.deepEqual(source?.dirtyRegion, { kind: "clean" });
+  assert.equal(source?.generation, 54);
+  assert.equal(destination?.id, 8);
+  assert.equal(destination?.deviceId, 3);
+  assert.equal(destination?.descriptor.pool, "default");
+  assert.equal(destination?.content?.contentGeneration, 4);
+  assert.deepEqual(destination?.content?.pixelSource, source?.content?.pixelSource);
+  assert.deepEqual(destination?.content?.lastUpdate, {
+    sequence: 4,
+    sourceTextureId: 7,
+    sourceContentGeneration: 4,
+    dirtyRegion: {
+      kind: "rect",
+      rect: { left: 583, top: 530, right: 1_260, bottom: 582 },
+    },
+  });
+  assert.equal(destination?.generation, 48);
+  assert.equal(
+    completion.compatibilityPolicyId,
+    "d3d9-primary-virtual-adapter-v33",
+  );
+  assert.equal(
+    completion.updateTextureProfileId,
+    "primary-recreated-system-memory-to-static-default-texture-update-v3",
+  );
+  assert.deepEqual(completion.dirtyRegion, {
+    left: 583,
+    top: 530,
+    right: 1_260,
+    bottom: 582,
+  });
+  assert.equal(
+    completion.byteAuthority,
+    "rust-guest-memory-graphics-resource-allocation",
+  );
+  assert.equal(
+    completion.transferPublication,
+    "full-authoritative-source-backing",
+  );
+  assert.equal(
+    completion.partialTransferPrecondition,
+    "destination-immediately-preceding-source-generation",
+  );
+  assert.equal(completion.sourceContentGeneration, 4);
+  assert.equal(completion.destinationContentGeneration, 4);
+  assert.equal(completion.sourceDirtyRegionAfter, "clean");
+  assert.equal(
+    completion.mutation,
+    "dual-texture-plan-preflight-targeted-commit",
+  );
+  assert.equal(completion.failureAtomicity, true);
+  assert.equal(completion.admittedAdditionalPartialDirtyRegions, 1);
+  assert.equal(completion.arbitraryPartialHistoryImplemented, false);
+  assert.equal(completion.dynamicDestinationImplemented, false);
+  assert.equal(completion.activeCallbackDepthAtCompletion, 0);
+  assert.equal(
+    completion.clockProfileId,
+    "scheduled-shared-logical-deadline-v1",
+  );
+  assert.equal(completion.clockSampleCount, 100_556);
+  assert.equal(completion.windowTimerCallbackCount, 40);
+  assert.equal(completion.presentCount, 3);
+  assert.equal(completion.instructionCount, report.instructions);
+  assert.deepEqual(completion.nextEndpoint, {
+    id: 0,
+    address: 0x0101_12c0,
+    module: "<com>",
+    symbol: { kind: "name", name: "interface-1-slot-41" },
+    disposition: "declared-com-method",
+    interfaceIndex: 1,
+    vtableSlot: 41,
+    interface: "IDirect3DDevice9",
+    method: "BeginScene",
+  });
+  assert.equal(
+    completion.memoryContentSha256,
+    "568061b7a8f6722b0556c6f9add62e5f9b35e62591b1769c16a441250331329e",
+  );
+  assert.equal(report.timerPacing.requests, 9_002);
+  assert.equal(report.timerPacing.completions, 9_002);
+  assert.equal(report.timerPacing.pending, 0);
+}
+
 function validateGetCursorInfoBgiProbe(evidence, scenario) {
   if (scenario !== "success") {
     validateScheduledSharedClockBgiProbe(evidence, scenario);
@@ -1943,6 +2102,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.report.pendingCallbacks, 0);
     assertExecutionStateMachine(evidence.report, scenario);
     assertExecutionEngine(evidence.report);
+    if (d3d9UpdateTexturePartialDirtyRegionProfile) {
+      validateD3d9UpdateTexturePartialDirtyRegionBgiProbe(evidence, scenario);
+      return evidence;
+    }
     if (getCursorInfoProfile) {
       validateGetCursorInfoBgiProbe(evidence, scenario);
       return evidence;
@@ -7113,6 +7276,144 @@ function normalizeComFaultEndpoint(endpoint) {
   };
 }
 
+function validateD3d9UpdateTexturePartialDirtyRegionBgiEquivalence(
+  browser,
+  oracle,
+) {
+  const report = browser.report;
+  const completion = report.checkpointCompletion;
+  const oracleEvidence = oracle.execution.d3d9UpdateTexturePartialDirtyRegion;
+  const oracleCompletion = oracleEvidence.checkpointCompletion;
+  assert.equal(
+    oracle.schema,
+    "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary",
+  );
+  assert.equal(report.evidenceLevel, fullEvidence ? "full" : "summary");
+  assert.equal(
+    report.supportedCallCount,
+    oracle.execution.completedSupportedCalls,
+  );
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    oracle.execution.supportedCallSemanticsSha256,
+  );
+  assert.equal(report.instructions, oracle.stop.terminal.instructionCount);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert.deepEqual(
+    report.sourceReads.map(normalizeBrowserSourceRead),
+    oracle.synchronization.sourceReads.map(normalizeNodeSourceRead),
+  );
+  assert.deepEqual(
+    (report.heapPageMaterializations ?? []).map(
+      normalizeHeapPageMaterialization,
+    ),
+    oracle.synchronization.heapPageMaterializations.map(
+      normalizeHeapPageMaterialization,
+    ),
+  );
+  assert.deepEqual(
+    report.writableDirectoryCreates.map(normalizeWritableDirectoryCreate),
+    oracle.synchronization.writableDirectoryCreates.map(
+      normalizeWritableDirectoryCreate,
+    ),
+  );
+  assert.equal(report.firstUnsupported, null);
+  assert.equal(oracle.stop.fault, null);
+  assert.deepEqual(
+    normalizeSemanticCall(completion.call),
+    normalizeSemanticCall(oracleEvidence.call),
+  );
+  assert.equal(completion.capability, oracleCompletion.capability);
+  assert.equal(completion.implementationId, oracleCompletion.implementationId);
+  assert.equal(
+    completion.prerequisiteGetCursorInfoSequence,
+    oracleCompletion.prerequisiteGetCursorInfoSequence,
+  );
+  assert.equal(
+    completion.prerequisiteGetCursorInfoInstructionCount,
+    oracleCompletion.prerequisiteGetCursorInfoInstructionCount,
+  );
+  assert.equal(
+    completion.lastCompletionSequence,
+    oracleCompletion.lastCompletionSequence,
+  );
+  assert.equal(
+    completion.lastCompletionInstructionCount,
+    oracleCompletion.lastCompletionInstructionCount,
+  );
+  assert.equal(
+    completion.compatibilityPolicyId,
+    oracleCompletion.compatibilityPolicyId,
+  );
+  assert.equal(
+    completion.updateTextureProfileId,
+    oracleCompletion.updateTextureProfileId,
+  );
+  assert.deepEqual(completion.dirtyRegion, oracleCompletion.dirtyRegion);
+  assert.equal(completion.byteAuthority, oracleCompletion.byteAuthority);
+  assert.equal(
+    completion.transferPublication,
+    oracleCompletion.transferPublication,
+  );
+  assert.equal(
+    completion.partialTransferPrecondition,
+    oracleCompletion.partialTransferPrecondition,
+  );
+  assert.equal(
+    completion.sourceContentGeneration,
+    oracleCompletion.sourceContentGeneration,
+  );
+  assert.equal(
+    completion.destinationContentGeneration,
+    oracleCompletion.destinationContentGeneration,
+  );
+  assert.equal(
+    completion.sourceDirtyRegionAfter,
+    oracleCompletion.sourceDirtyRegionAfter,
+  );
+  assert.equal(completion.mutation, oracleCompletion.mutation);
+  assert.equal(completion.failureAtomicity, oracleCompletion.failureAtomicity);
+  assert.equal(
+    completion.admittedAdditionalPartialDirtyRegions,
+    oracleCompletion.admittedAdditionalPartialDirtyRegions,
+  );
+  assert.equal(
+    completion.arbitraryPartialHistoryImplemented,
+    oracleCompletion.arbitraryPartialHistoryImplemented,
+  );
+  assert.equal(
+    completion.dynamicDestinationImplemented,
+    oracleCompletion.dynamicDestinationImplemented,
+  );
+  assert.equal(
+    completion.clockSampleCount,
+    oracle.execution.clockSamples.count,
+  );
+  assert.equal(
+    completion.windowTimerCallbackCount,
+    oracle.execution.windowTimerCallbacks.count,
+  );
+  assert.equal(completion.presentCount, oracle.execution.presentations.count);
+  assert.equal(completion.instructionCount, oracle.stop.terminal.instructionCount);
+  assert.deepEqual(completion.nextEndpoint, oracleCompletion.nextEndpoint);
+  assert.equal(
+    completion.memoryContentSha256,
+    oracleCompletion.memoryContentSha256,
+  );
+  assert.equal(report.pointerInput.receipts.length, 2);
+  assert.deepEqual(
+    report.pointerInput.receipts[0],
+    oracle.execution.pointerInput.first.receipt,
+  );
+  assert.deepEqual(
+    report.pointerInput.receipts[1],
+    oracle.execution.pointerInput.last.receipt,
+  );
+  assert.equal(report.timerPacing.requests, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.completions, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.pending, 0);
+}
+
 function validateGetCursorInfoBgiEquivalence(browser, oracle) {
   const report = browser.report;
   const completion = report.checkpointCompletion;
@@ -7526,6 +7827,10 @@ function validateCreateFontA224x112BgiEquivalence(browser, oracle) {
 }
 
 function validateBgiEquivalence(browser, oracle) {
+  if (d3d9UpdateTexturePartialDirtyRegionProfile) {
+    validateD3d9UpdateTexturePartialDirtyRegionBgiEquivalence(browser, oracle);
+    return;
+  }
   if (getCursorInfoProfile) {
     validateGetCursorInfoBgiEquivalence(browser, oracle);
     return;

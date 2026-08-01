@@ -2186,6 +2186,18 @@ digest `8af674327bd71aa3281a541d83d886a82653f9559b1f8c146dde8b7fd138d4a6`
 Native HCURSOR／desktop point、cursor suppression／selection、CSS cursor、visible input responseは
 claimしない。
 
+続くreached partial `UpdateTexture` leafは、policy v33が追加したexact dirty rectangle
+`[583,530,1260,582]`だけを、destinationがsourceの直前content generationを表す場合に受理する。
+Focused Rust testsは同じpre-stateに対するv32 rejection／v33 success、source／destination role、
+full authoritative backing publication、source dirty consumption、stale／lineage／capacity failure atomicityを固定する。
+Node／Chromeはsequence 282,849、instruction 392,353,932、device／source／destination pointers
+`0x01010004`／`0x01020004`／`0x01030004`、両content generation 4、zero guest writes、semantic digest
+`75b983dd6bff893961769349c74bff97ebaf7b4c33a1eab229b215fa98cd58b6`を一致させる。
+Capability checkpointは392,353,938 instructions、100,556 clock samples、40 TIMERPROC callbacks、3 Present、
+terminal memory digest `568061b7a8f6722b0556c6f9add62e5f9b35e62591b1769c16a441250331329e`で完了し、
+次のowned endpointとして`IDirect3DDevice9::BeginScene` slot 41を記録する。Arbitrary partial history、
+dynamic destination、partial byte copy、browser-side dirty authority、続くscene completionはclaimしない。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

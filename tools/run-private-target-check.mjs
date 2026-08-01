@@ -1164,7 +1164,17 @@ function isScheduledSharedClockNodeReport(report) {
     report?.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
     report?.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
     report?.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary" ||
-    report?.schema === "vine.v86-bgi-get-cursor-info-primary"
+    report?.schema === "vine.v86-bgi-get-cursor-info-primary" ||
+    report?.schema ===
+      "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary"
+  );
+}
+
+function isGetCursorInfoOrLaterNodeReport(report) {
+  return (
+    report?.schema === "vine.v86-bgi-get-cursor-info-primary" ||
+    report?.schema ===
+      "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary"
   );
 }
 
@@ -1173,6 +1183,20 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (
+    nodeReport.schema ===
+    "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary"
+  ) {
+    const { call: _call, ...completion } =
+      execution.d3d9UpdateTexturePartialDirtyRegion.checkpointCompletion;
+    return {
+      ...structuredClone(completion),
+      clockProfileId: nodeReport.contract.clockProfile.id,
+      clockSampleCount: execution.clockSamples.count,
+      windowTimerCallbackCount: execution.windowTimerCallbacks.count,
+      presentCount: execution.presentations.count,
+    };
+  }
   if (nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary") {
     const cursorInfo = execution.getCursorInfo;
     const calls = cursorInfo.calls.map((call) => ({
@@ -1775,6 +1799,62 @@ function assertCompletedCapabilityBeforeStructuredStop(
   assert.equal(actual.nextEndpoint.target.method, expectedNext.method);
 }
 
+function assertD3d9UpdateTexturePartialDirtyRegionCheckpoint(
+  actual,
+  expectedCompletion,
+  expectedEndpoint,
+) {
+  assert(actual !== null, "partial UpdateTexture checkpoint metadata is missing");
+  for (const field of [
+    "capability",
+    "implementationId",
+    "requiredCompletions",
+    "completionCount",
+    "prerequisiteGetCursorInfoSequence",
+    "prerequisiteGetCursorInfoInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "compatibilityPolicyId",
+    "updateTextureProfileId",
+    "byteAuthority",
+    "transferPublication",
+    "partialTransferPrecondition",
+    "sourceContentGeneration",
+    "destinationContentGeneration",
+    "sourceDirtyRegionAfter",
+    "mutation",
+    "failureAtomicity",
+    "admittedAdditionalPartialDirtyRegions",
+    "arbitraryPartialHistoryImplemented",
+    "dynamicDestinationImplemented",
+    "activeCallbackDepthAtCompletion",
+    "clockProfileId",
+    "clockSampleCount",
+    "windowTimerCallbackCount",
+    "presentCount",
+    "instructionCount",
+    "memoryContentSha256",
+  ]) {
+    assert.equal(actual[field], expectedCompletion[field], field);
+  }
+  assert.deepEqual(actual.dirtyRegion, expectedCompletion.dirtyRegion);
+  for (const field of [
+    "id",
+    "address",
+    "module",
+    "disposition",
+    "interfaceIndex",
+    "vtableSlot",
+    "interface",
+    "method",
+  ]) {
+    assert.equal(actual.nextEndpoint[field], expectedEndpoint[field], field);
+  }
+  assert.deepEqual(actual.nextEndpoint.symbol, expectedEndpoint.symbol);
+}
+
 function assertScheduledSharedClockReportSemantics({
   checkpoint,
   nodeReport,
@@ -1791,6 +1871,9 @@ function assertScheduledSharedClockReportSemantics({
   const nodeStop = nodeReport.stop;
   const browser = browserReport.success.report;
   const sourceIdentity = { bytes: source.bytes, sha256: source.sha256 };
+  const d3d9UpdateTexturePartialDirtyRegionReport =
+    nodeReport.schema ===
+    "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary";
 
   assert(
     expectedNext.kind === "capability-checkpoint" ||
@@ -1952,7 +2035,7 @@ function assertScheduledSharedClockReportSemantics({
     nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
     nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
     nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary" ||
-    nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary"
+    isGetCursorInfoOrLaterNodeReport(nodeReport)
   ) {
     const find = nodeExecution.findFileA;
     assert.equal(find.pattern, "data0????.arc");
@@ -1977,7 +2060,7 @@ function assertScheduledSharedClockReportSemantics({
     nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
     nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
     nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary" ||
-    nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary"
+    isGetCursorInfoOrLaterNodeReport(nodeReport)
   ) {
     const deletion = nodeExecution.deleteFileA;
     assert.equal(deletion.completionCount, 2);
@@ -2001,7 +2084,7 @@ function assertScheduledSharedClockReportSemantics({
     nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
     nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
     nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary" ||
-    nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary"
+    isGetCursorInfoOrLaterNodeReport(nodeReport)
   ) {
     const growth = nodeExecution.ordinaryHeapSegmentGrowth;
     assert.equal(growth.completionCount, 1);
@@ -2019,7 +2102,7 @@ function assertScheduledSharedClockReportSemantics({
     nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary" ||
     nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
     nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary" ||
-    nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary"
+    isGetCursorInfoOrLaterNodeReport(nodeReport)
   ) {
     const font = nodeExecution.createFontA224x112;
     assert.equal(font.completionCount, 1);
@@ -2066,7 +2149,7 @@ function assertScheduledSharedClockReportSemantics({
   if (
     nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary" ||
     nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary" ||
-    nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary"
+    isGetCursorInfoOrLaterNodeReport(nodeReport)
   ) {
     const dib = nodeExecution.createDibSection448x336;
     assert.equal(dib.completionCount, 1);
@@ -2100,8 +2183,8 @@ function assertScheduledSharedClockReportSemantics({
   }
   if (
     nodeReport.schema ===
-    "vine.v86-bgi-outline-text-metrics-224x112-primary" ||
-    nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary"
+      "vine.v86-bgi-outline-text-metrics-224x112-primary" ||
+    isGetCursorInfoOrLaterNodeReport(nodeReport)
   ) {
     const outline = nodeExecution.outlineTextMetrics224x112;
     assert.equal(outline.completionCount, 2);
@@ -2148,8 +2231,7 @@ function assertScheduledSharedClockReportSemantics({
     assert.equal(fullCall.gdi.writtenByteLength, 269);
   }
 
-  const getCursorInfoReport =
-    nodeReport.schema === "vine.v86-bgi-get-cursor-info-primary";
+  const getCursorInfoReport = isGetCursorInfoOrLaterNodeReport(nodeReport);
   if (getCursorInfoReport) {
     const cursorInfo = nodeExecution.getCursorInfo;
     assert.equal(cursorInfo.completionCount, 2);
@@ -2191,31 +2273,77 @@ function assertScheduledSharedClockReportSemantics({
     assert.equal(nodeReport.contract.browserCursorStateImported, false);
   }
 
-  assert.equal(nodeStop.fault.capabilityCluster, expectedNext.capabilityCluster);
-  const expectedFaultCode =
-    getCursorInfoReport
-      ? expectedNext.reason
-      : nodeReport.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary"
-      ? "endpoint-contract-missing"
-      : nodeReport.schema === "vine.v86-bgi-create-dib-section-448x336-primary"
-      ? "outline-text-metrics-font-variant-unsupported"
-      : nodeReport.schema === "vine.v86-bgi-create-font-a-224x112-primary"
-      ? "create-dib-section-variant-unsupported"
-      : nodeReport.schema ===
-    "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
-      ? "create-font-a-variant-unsupported"
-      : nodeReport.schema === "vine.v86-bgi-delete-file-a-primary"
-      ? "heap-backing-capacity-exceeded"
-      : "endpoint-contract-missing";
-  assert.equal(nodeStop.fault.fault.code, expectedFaultCode);
-  assert.equal(nodeStop.terminal.instructionCount, expectedNext.instructionCount);
-  assert.equal(nodeStop.fault.memoryContentSha256, expected.memoryContentSha256);
-
   const nodeCheckpoint = projectScheduledSharedClockCheckpointCompletion(
     nodeReport,
     expectedNext,
   );
-  if (getCursorInfoReport) {
+  let expectedFaultCode = null;
+  if (d3d9UpdateTexturePartialDirtyRegionReport) {
+    const update = nodeExecution.d3d9UpdateTexturePartialDirtyRegion;
+    assert.equal(nodeStop.fault, null);
+    assert.equal(nodeStop.terminal.instructionCount, expectedNext.instructionCount);
+    assert.deepEqual(update.call, update.checkpointCompletion.call);
+    assert.equal(update.call.sequence, 282_849);
+    assert.equal(update.call.symbol, "IDirect3DDevice9.UpdateTexture");
+    assert.equal(update.call.vtableSlot, 31);
+    assert.deepEqual(update.call.arguments, [
+      0x0101_0004,
+      0x0102_0004,
+      0x0103_0004,
+    ]);
+    assert.deepEqual(update.call.result, { kind: "h-result", value: 0 });
+    assert.deepEqual(update.call.guestWrites, []);
+    assert.equal(
+      update.call.graphicsTextureUpdate.source.content.contentGeneration,
+      4,
+    );
+    assert.deepEqual(update.call.graphicsTextureUpdate.source.dirtyRegion, {
+      kind: "clean",
+    });
+    assert.equal(
+      update.call.graphicsTextureUpdate.destination.content.contentGeneration,
+      4,
+    );
+    assert.deepEqual(
+      update.call.graphicsTextureUpdate.destination.content.lastUpdate.dirtyRegion,
+      {
+        kind: "rect",
+        rect: { left: 583, top: 530, right: 1_260, bottom: 582 },
+      },
+    );
+    assertD3d9UpdateTexturePartialDirtyRegionCheckpoint(
+      nodeCheckpoint,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+  } else {
+    assert.equal(nodeStop.fault.capabilityCluster, expectedNext.capabilityCluster);
+    expectedFaultCode =
+      getCursorInfoReport
+        ? expectedNext.reason
+        : nodeReport.schema ===
+            "vine.v86-bgi-outline-text-metrics-224x112-primary"
+          ? "endpoint-contract-missing"
+          : nodeReport.schema ===
+              "vine.v86-bgi-create-dib-section-448x336-primary"
+            ? "outline-text-metrics-font-variant-unsupported"
+            : nodeReport.schema ===
+                "vine.v86-bgi-create-font-a-224x112-primary"
+              ? "create-dib-section-variant-unsupported"
+              : nodeReport.schema ===
+                  "vine.v86-bgi-private-heap-ordinary-segment-growth-primary"
+                ? "create-font-a-variant-unsupported"
+                : nodeReport.schema === "vine.v86-bgi-delete-file-a-primary"
+                  ? "heap-backing-capacity-exceeded"
+                  : "endpoint-contract-missing";
+    assert.equal(nodeStop.fault.fault.code, expectedFaultCode);
+    assert.equal(nodeStop.terminal.instructionCount, expectedNext.instructionCount);
+    assert.equal(
+      nodeStop.fault.memoryContentSha256,
+      expected.memoryContentSha256,
+    );
+  }
+  if (!d3d9UpdateTexturePartialDirtyRegionReport && getCursorInfoReport) {
     const target = nodeStop.fault.endpoint.target;
     assert.equal(nodeStop.fault.endpoint.kind, "com-method");
     assert.equal(target.interface.name, expectedNext.interface);
@@ -2237,7 +2365,7 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext.completion,
       expectedNext,
     );
-  } else {
+  } else if (!d3d9UpdateTexturePartialDirtyRegionReport) {
     const nodeEndpoint = nodeStop.fault.endpoint.endpoint;
     const expectedEndpoint = expectedNext.nextEndpoint;
     assert.equal(nodeStop.fault.endpoint.kind, expectedEndpoint.endpointKind);
@@ -2289,11 +2417,30 @@ function assertScheduledSharedClockReportSemantics({
   assert.equal(browser.pendingCallbacks, 0);
 
   const browserUnsupported = browser.firstUnsupported;
-  assert.equal(browserUnsupported.capabilityCluster, expectedNext.capabilityCluster);
-  assert.equal(browserUnsupported.fault.code, expectedFaultCode);
-  assert.equal(browserUnsupported.instructionCount, expectedNext.instructionCount);
-  assert.equal(browserUnsupported.memoryContentSha256, expected.memoryContentSha256);
-  if (getCursorInfoReport) {
+  if (d3d9UpdateTexturePartialDirtyRegionReport) {
+    assert.equal(browserUnsupported, null);
+    assertD3d9UpdateTexturePartialDirtyRegionCheckpoint(
+      browser.checkpointCompletion,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+    assert.deepEqual(
+      browser.checkpointCompletion.call,
+      nodeExecution.d3d9UpdateTexturePartialDirtyRegion.call,
+    );
+  } else {
+    assert.equal(
+      browserUnsupported.capabilityCluster,
+      expectedNext.capabilityCluster,
+    );
+    assert.equal(browserUnsupported.fault.code, expectedFaultCode);
+    assert.equal(browserUnsupported.instructionCount, expectedNext.instructionCount);
+    assert.equal(
+      browserUnsupported.memoryContentSha256,
+      expected.memoryContentSha256,
+    );
+  }
+  if (!d3d9UpdateTexturePartialDirtyRegionReport && getCursorInfoReport) {
     assert.equal(browserUnsupported.endpoint.kind, "com-method");
     assert.equal(
       hex32(browserUnsupported.endpoint.endpointAddress),
@@ -2319,7 +2466,7 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext.completion,
       expectedNext,
     );
-  } else {
+  } else if (!d3d9UpdateTexturePartialDirtyRegionReport) {
     const expectedEndpoint = expectedNext.nextEndpoint;
     assert.equal(browserUnsupported.endpoint.id, expectedEndpoint.endpointId);
     assert.equal(
@@ -2911,7 +3058,11 @@ const nodeInstructions = scheduledNodeReport
     ? nodeReport.checkpointCompletion.instructionCount
     : nodeReport.firstUnsupported.instructionCount;
 const nodeMemoryContentSha256 = scheduledNodeReport
-  ? nodeReport.stop.fault.memoryContentSha256
+  ? nodeReport.schema ===
+    "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary"
+    ? nodeReport.execution.d3d9UpdateTexturePartialDirtyRegion
+        .checkpointCompletion.memoryContentSha256
+    : nodeReport.stop.fault.memoryContentSha256
   : checkpoint.nextStructuredStop.kind === "capability-checkpoint"
     ? nodeReport.checkpointCompletion.memoryContentSha256
     : nodeReport.firstUnsupported.memoryContentSha256;

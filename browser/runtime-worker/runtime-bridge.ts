@@ -338,6 +338,7 @@ export class RuntimeBridge {
     setRectEnabled: boolean,
     d3d9AddDirtyRectEnabled: boolean,
     d3d9UpdateTextureEnabled: boolean,
+    d3d9UpdateTexturePartialDirtyRegionEnabled: boolean,
     d3d9BeginSceneEnabled: boolean,
     d3d9InitialSamplerStatesEnabled: boolean,
     d3d9InitialTextureStageStatesEnabled: boolean,
@@ -367,7 +368,9 @@ export class RuntimeBridge {
         Number(d3d9ClearEnabled),
         Number(setRectEnabled),
         Number(d3d9AddDirtyRectEnabled),
-        Number(d3d9UpdateTextureEnabled),
+        d3d9UpdateTexturePartialDirtyRegionEnabled
+          ? 2
+          : Number(d3d9UpdateTextureEnabled),
         Number(d3d9BeginSceneEnabled),
         Number(d3d9InitialSamplerStatesEnabled),
         Number(d3d9InitialTextureStageStatesEnabled),

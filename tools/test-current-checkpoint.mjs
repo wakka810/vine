@@ -30,7 +30,7 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "Runtime VFS search enumerates all 45 data0????.arc entries, both missing-file DeleteFileA calls complete, the third ordinary private-heap segment succeeds, the 224 x 112 selected-font GetOutlineTextMetricsA pair completes, and two GetCursorInfo calls project the Rust-owned system-arrow identity and (960, 540) cursor point before the next partial dirty-region UpdateTexture variant",
+    "Runtime VFS search enumerates all 45 data0????.arc entries, both missing-file DeleteFileA calls complete, the third ordinary private-heap segment succeeds, the 224 x 112 selected-font GetOutlineTextMetricsA pair and two GetCursorInfo projections complete, and the later exact partial dirty-region UpdateTexture consumes the Rust-owned source before the next BeginScene",
   ),
 );
 assert.ok(
@@ -1297,7 +1297,11 @@ assert.ok(
 );
 
 const staleScheduledNextEndpoint = structuredClone(manifest);
-staleScheduledNextEndpoint.nextStructuredStop.vtableSlot -= 1;
+if (staleScheduledNextEndpoint.nextStructuredStop.kind === "capability-checkpoint") {
+  staleScheduledNextEndpoint.nextStructuredStop.nextEndpoint.vtableSlot -= 1;
+} else {
+  staleScheduledNextEndpoint.nextStructuredStop.vtableSlot -= 1;
+}
 assert.ok(
   validateCurrentCheckpoint(staleScheduledNextEndpoint).some((error) =>
     error.includes("scheduled shared clock checkpoint evidence"),

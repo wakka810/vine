@@ -158,7 +158,11 @@ function validateExecutionStateMachine(value, label, errors) {
 export function validateCurrentCheckpoint(manifest) {
   const errors = [];
   const root = requireRecord(manifest, "manifest", errors);
+  const d3d9UpdateTexturePartialDirtyRegionActive =
+    root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
+    "d3d9-update-texture-partial-dirty-region-post-get-cursor-info";
   const getCursorInfoActive =
+    d3d9UpdateTexturePartialDirtyRegionActive ||
     root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
     "user32-get-cursor-info-post-outline-text-metrics-224x112";
   const outlineTextMetrics224x112Active =
@@ -587,7 +591,11 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9RecreatedTexturesActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-set-window-pos-repeat-activation";
+  const d3d9UpdateTexturePartialDirtyRegionProfileActive =
+    root.activeRuntimeCheckpoint?.capabilityProfile ===
+    "d3d9-update-texture-partial-dirty-region";
   const getCursorInfoProfileActive =
+    d3d9UpdateTexturePartialDirtyRegionProfileActive ||
     root.activeRuntimeCheckpoint?.capabilityProfile ===
     "user32-get-cursor-info";
   const outlineTextMetrics224x112ProfileActive =
@@ -1419,7 +1427,27 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    getCursorInfoProfileActive
+    d3d9UpdateTexturePartialDirtyRegionProfileActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_997,
+        browserMappingDirtyPages: 150_402,
+        browserSuccessExecutionTransitions: 589_100,
+        browserFinalGeneration: 315_160,
+        browserReportSchemaVersion: 75,
+        latestSchema:
+          "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary",
+        latestWritebackBatches: 165_243,
+        latestWritebackDirtyPages: 244_675,
+        latestWritebackChangedBytes: 43_072_557,
+        latestHostDeltaBatches: 127_997,
+        latestFinalMemoryGeneration: 333_484,
+        semanticCallDigestSha256:
+          "75b983dd6bff893961769349c74bff97ebaf7b4c33a1eab229b215fa98cd58b6",
+        memoryContentSha256:
+          "568061b7a8f6722b0556c6f9add62e5f9b35e62591b1769c16a441250331329e",
+      }
+    : getCursorInfoProfileActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_997,
@@ -3574,7 +3602,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    getCursorInfoActive
+    d3d9UpdateTexturePartialDirtyRegionActive
+      ? "vine.browser-runtime-worker.v109"
+      : getCursorInfoActive
       ? "vine.browser-runtime-worker.v108"
       : outlineTextMetrics224x112Active
       ? "vine.browser-runtime-worker.v107"
@@ -10747,8 +10777,12 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9.frontendDispatchBoundary !==
       "version-neutral-com-gateway-to-versioned-d3d9-handler" ||
     d3d9CompatibilityPolicy.schema !== "vine.d3d9-compatibility-policy" ||
-    d3d9CompatibilityPolicy.schemaVersion !== 32 ||
-    d3d9CompatibilityPolicy.id !== "d3d9-primary-virtual-adapter-v32" ||
+    d3d9CompatibilityPolicy.schemaVersion !==
+      (d3d9UpdateTexturePartialDirtyRegionActive ? 33 : 32) ||
+    d3d9CompatibilityPolicy.id !==
+      (d3d9UpdateTexturePartialDirtyRegionActive
+        ? "d3d9-primary-virtual-adapter-v33"
+        : "d3d9-primary-virtual-adapter-v32") ||
     d3d9CompatibilityPolicy.displayProfileId !==
       "single-monitor-1920x1080-work-1920x1032-v2" ||
     d3d9CompatibilityPolicy.surfaceDcProfileId !==
@@ -10760,7 +10794,13 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9CompatibilityPolicy.addDirtyRectProfileId !==
       "primary-recreated-system-memory-texture-dirty-rect-v1" ||
     d3d9CompatibilityPolicy.updateTextureProfileId !==
-      "primary-recreated-system-memory-to-static-default-texture-update-v2" ||
+      (d3d9UpdateTexturePartialDirtyRegionActive
+        ? "primary-recreated-system-memory-to-static-default-texture-update-v3"
+        : "primary-recreated-system-memory-to-static-default-texture-update-v2") ||
+    (d3d9UpdateTexturePartialDirtyRegionActive
+      ? d3d9CompatibilityPolicy.additionalPartialDirtyRects?.flat().join(",") !==
+        "583,530,1260,582"
+      : d3d9CompatibilityPolicy.additionalPartialDirtyRects !== undefined) ||
     d3d9CompatibilityPolicy.lockRectProfileId !==
       "primary-recreated-system-memory-presentation-lock-v1" ||
     d3d9CompatibilityPolicy.beginSceneProfileId !==
@@ -12489,7 +12529,9 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9UpdateTexture.explicitArgumentWords !== 2 ||
     d3d9UpdateTexture.returnKind !== "h-result" ||
     d3d9UpdateTexture.profileId !==
-      "primary-recreated-system-memory-to-static-default-texture-update-v2" ||
+      (d3d9UpdateTexturePartialDirtyRegionActive
+        ? "primary-recreated-system-memory-to-static-default-texture-update-v3"
+        : "primary-recreated-system-memory-to-static-default-texture-update-v2") ||
     d3d9UpdateTextureSourceVariantIndices.join(",") !== "3" ||
     d3d9UpdateTextureDestinationVariantIndices.join(",") !== "4" ||
     d3d9UpdateTexture.contentAuthority !==
@@ -21831,7 +21873,9 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureBefore !== null ||
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureAfter !== null)) ||
     latestEvidence.implementation !==
-      (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+      (d3d9UpdateTexturePartialDirtyRegionActive
+        ? "Rust-owned D3D9 UpdateTexture policy v33 admits the reached exact [583,530,1260,582] dirty region, validates source and destination lineage before one two-texture targeted commit, publishes the full authoritative source backing, consumes the source dirty state without guest writes, and completes before the next BeginScene slot 41 endpoint"
+        : peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
         ? "Rust-owned user32.peek-message-a.current-thread.v1 completes the reached post-TIMERPROC current-thread unfiltered PM_REMOVE call against the authoritative empty queue, returns FALSE without guest writes or queue mutation, preserves the prior 28-byte WM_TIMER MSG32 output and LastError at callback depth zero, imports no browser message authority, and stops before the next shared process-clock read"
         : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
         ? "Rust-owned current-thread message queue materializes the reached third WM_TIMER after the completed waitable-timer cycle, validates TranslateMessage as a no-op, dispatches the authoritative TIMERPROC frame, records its nested GetTickCount read from the shared process clock, unwinds callback frame 35, preserves LastError and guest authority, and stops before the next PeekMessageA poll"
@@ -24184,7 +24228,45 @@ export function validateCurrentCheckpoint(manifest) {
           errors,
         )
       : {};
-    const expectedNode = getCursorInfoActive
+    const d3d9UpdateTexturePartialDirtyRegionNode =
+      d3d9UpdateTexturePartialDirtyRegionActive
+        ? requireRecord(
+            node.d3d9UpdateTexturePartialDirtyRegion,
+            "activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence.d3d9UpdateTexturePartialDirtyRegion",
+            errors,
+          )
+        : {};
+    const expectedNode = d3d9UpdateTexturePartialDirtyRegionActive
+      ? {
+          schema:
+            "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary",
+          runtimeKernelCheckpoint:
+            "d3d9-update-texture-partial-dirty-region-post-get-cursor-info",
+          repeatRuns: 1,
+          reportBytes: 2_479_724,
+          reportSha256:
+            "b2e577c2bdcaed1ee256ec71b7d2c3bfc7bf1b8ea6562bcf8f2bc0d16056ad83",
+          nodeReplayOldSpaceMiB: 8_192,
+          completedSupportedCalls: 282_849,
+          supportedCallSemanticsSha256:
+            "75b983dd6bff893961769349c74bff97ebaf7b4c33a1eab229b215fa98cd58b6",
+          clockSampleCount: 100_556,
+          lastClockTick: 3_800_550,
+          lastClockTime100ns: 2_005_500_000,
+          lastClockGeneration: 16_305,
+          lastClockRetiredInstructions: 391_909_858,
+          lastClockPendingRetiredInstructions: 1_858,
+          windowTimerCallbackCount: 40,
+          timerPacingCompletionCount: 9_002,
+          writebackBatches: 286_047,
+          hostDeltaBatches: 143_087,
+          callbackEventCount: 148,
+          finalMemoryGeneration: 333_484,
+          terminalInstructionCount: 392_353_938,
+          terminalMemoryContentSha256:
+            "568061b7a8f6722b0556c6f9add62e5f9b35e62591b1769c16a441250331329e",
+        }
+      : getCursorInfoActive
       ? {
           schema: "vine.v86-bgi-get-cursor-info-primary",
           runtimeKernelCheckpoint:
@@ -24419,7 +24501,72 @@ export function validateCurrentCheckpoint(manifest) {
         };
     const expectedCompletion = currentStop.completion ?? {};
     const expectedEndpoint = currentStop.nextEndpoint ?? {};
-    const currentStopValid = getCursorInfoActive
+    const currentStopValid = d3d9UpdateTexturePartialDirtyRegionActive
+      ? currentStop.kind === "capability-checkpoint" &&
+        currentStop.classification === "semantic-leaf" &&
+        currentStop.nextCheckpoint ===
+          "d3d9-begin-scene-post-partial-dirty-region-update" &&
+        currentStop.pausedHistoricalCheckpoint ===
+          "d3d9-update-texture-partial-dirty-region-post-get-cursor-info" &&
+        currentStop.instructionCount === 392_353_938 &&
+        currentStop.capabilityCluster ===
+          "d3d9-idirect3ddevice9-method" &&
+        currentStop.reason ===
+          "d3d9-update-texture-partial-dirty-region-post-get-cursor-info-checkpoint-complete" &&
+        expectedCompletion.capability ===
+          "d3d9-update-texture-partial-dirty-region-post-get-cursor-info" &&
+        expectedCompletion.implementationId ===
+          "runtime.d3d9-update-texture-partial-dirty-region-post-get-cursor-info.v1" &&
+        expectedCompletion.requiredCompletions === 1 &&
+        expectedCompletion.completionCount === 1 &&
+        expectedCompletion.prerequisiteGetCursorInfoSequence === 282_396 &&
+        expectedCompletion.prerequisiteGetCursorInfoInstructionCount ===
+          375_288_207 &&
+        expectedCompletion.firstCompletionSequence === 282_849 &&
+        expectedCompletion.firstCompletionInstructionCount === 392_353_932 &&
+        expectedCompletion.lastCompletionSequence === 282_849 &&
+        expectedCompletion.lastCompletionInstructionCount === 392_353_932 &&
+        expectedCompletion.compatibilityPolicyId ===
+          "d3d9-primary-virtual-adapter-v33" &&
+        expectedCompletion.updateTextureProfileId ===
+          "primary-recreated-system-memory-to-static-default-texture-update-v3" &&
+        expectedCompletion.dirtyRegion?.left === 583 &&
+        expectedCompletion.dirtyRegion?.top === 530 &&
+        expectedCompletion.dirtyRegion?.right === 1_260 &&
+        expectedCompletion.dirtyRegion?.bottom === 582 &&
+        expectedCompletion.byteAuthority ===
+          "rust-guest-memory-graphics-resource-allocation" &&
+        expectedCompletion.transferPublication ===
+          "full-authoritative-source-backing" &&
+        expectedCompletion.partialTransferPrecondition ===
+          "destination-immediately-preceding-source-generation" &&
+        expectedCompletion.sourceContentGeneration === 4 &&
+        expectedCompletion.destinationContentGeneration === 4 &&
+        expectedCompletion.sourceDirtyRegionAfter === "clean" &&
+        expectedCompletion.mutation ===
+          "dual-texture-plan-preflight-targeted-commit" &&
+        expectedCompletion.failureAtomicity === true &&
+        expectedCompletion.admittedAdditionalPartialDirtyRegions === 1 &&
+        expectedCompletion.arbitraryPartialHistoryImplemented === false &&
+        expectedCompletion.dynamicDestinationImplemented === false &&
+        expectedCompletion.activeCallbackDepthAtCompletion === 0 &&
+        expectedCompletion.clockSampleCount === 100_556 &&
+        expectedCompletion.windowTimerCallbackCount === 40 &&
+        expectedCompletion.presentCount === 3 &&
+        expectedCompletion.instructionCount === 392_353_938 &&
+        expectedCompletion.memoryContentSha256 ===
+          "568061b7a8f6722b0556c6f9add62e5f9b35e62591b1769c16a441250331329e" &&
+        expectedEndpoint.id === 0 &&
+        expectedEndpoint.address === 0x0101_12c0 &&
+        expectedEndpoint.module === "<com>" &&
+        expectedEndpoint.symbol?.kind === "name" &&
+        expectedEndpoint.symbol.name === "interface-1-slot-41" &&
+        expectedEndpoint.disposition === "declared-com-method" &&
+        expectedEndpoint.interfaceIndex === 1 &&
+        expectedEndpoint.vtableSlot === 41 &&
+        expectedEndpoint.interface === "IDirect3DDevice9" &&
+        expectedEndpoint.method === "BeginScene"
+      : getCursorInfoActive
       ? currentStop.kind === "com-method" &&
         currentStop.classification === "semantic-leaf" &&
         currentStop.nextCheckpoint ===
@@ -25516,6 +25663,55 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.getCursorInfoNodeChromeOrderedSemanticsMatched ===
           true &&
         latestEvidence.cursorInfoWasProximateCause === false);
+    const d3d9UpdateTexturePartialDirtyRegionEvidenceValid =
+      !d3d9UpdateTexturePartialDirtyRegionActive ||
+      (d3d9UpdateTexturePartialDirtyRegionNode.completionCount === 1 &&
+        d3d9UpdateTexturePartialDirtyRegionNode.sequence === 282_849 &&
+        d3d9UpdateTexturePartialDirtyRegionNode.instructionCount ===
+          392_353_932 &&
+        d3d9UpdateTexturePartialDirtyRegionNode.arguments?.join(",") ===
+          "0x01010004,0x01020004,0x01030004" &&
+        d3d9UpdateTexturePartialDirtyRegionNode.result === "0x00000000" &&
+        d3d9UpdateTexturePartialDirtyRegionNode.returnAddress ===
+          "0x1005b038" &&
+        d3d9UpdateTexturePartialDirtyRegionNode.stackPointers?.join(",") ===
+          "0x006fb868,0x006fb878" &&
+        d3d9UpdateTexturePartialDirtyRegionNode.referenceCount === 5 &&
+        d3d9UpdateTexturePartialDirtyRegionNode.guestWriteBytes === 0 &&
+        d3d9UpdateTexturePartialDirtyRegionNode.sourceTextureId === 7 &&
+        d3d9UpdateTexturePartialDirtyRegionNode.sourceComObjectId === "22" &&
+        d3d9UpdateTexturePartialDirtyRegionNode.sourceGeneration === 54 &&
+        d3d9UpdateTexturePartialDirtyRegionNode.destinationTextureId === 8 &&
+        d3d9UpdateTexturePartialDirtyRegionNode.destinationComObjectId ===
+          "24" &&
+        d3d9UpdateTexturePartialDirtyRegionNode.destinationGeneration === 48 &&
+        d3d9UpdateTexturePartialDirtyRegionNode.contentGeneration === 4 &&
+        d3d9UpdateTexturePartialDirtyRegionNode.updateSequence === 4 &&
+        d3d9UpdateTexturePartialDirtyRegionNode.dirtyRegion?.join(",") ===
+          "583,530,1260,582" &&
+        d3d9UpdateTexturePartialDirtyRegionNode.sourceDirtyRegionAfter ===
+          "clean" &&
+        d3d9UpdateTexturePartialDirtyRegionNode.compatibilityPolicyId ===
+          "d3d9-primary-virtual-adapter-v33" &&
+        d3d9UpdateTexturePartialDirtyRegionNode.updateTextureProfileId ===
+          "primary-recreated-system-memory-to-static-default-texture-update-v3" &&
+        d3d9UpdateTexturePartialDirtyRegionNode.byteAuthority ===
+          "rust-guest-memory-graphics-resource-allocation" &&
+        d3d9UpdateTexturePartialDirtyRegionNode.transferPublication ===
+          "full-authoritative-source-backing" &&
+        d3d9UpdateTexturePartialDirtyRegionNode.partialTransferPrecondition ===
+          "destination-immediately-preceding-source-generation" &&
+        d3d9UpdateTexturePartialDirtyRegionNode.mutation ===
+          "dual-texture-plan-preflight-targeted-commit" &&
+        d3d9UpdateTexturePartialDirtyRegionNode.failureAtomicity === true &&
+        d3d9UpdateTexturePartialDirtyRegionNode.arbitraryPartialHistoryImplemented ===
+          false &&
+        d3d9UpdateTexturePartialDirtyRegionNode.dynamicDestinationImplemented ===
+          false &&
+        d3d9UpdateTexturePartialDirtyRegionNode.nextEndpoint ===
+          "IDirect3DDevice9!BeginScene" &&
+        d3d9UpdateTexturePartialDirtyRegionNode.nextInstructionCount ===
+          392_353_938);
     if (
       scheduled.schema !== "vine.scheduled-shared-clock-checkpoint" ||
       scheduled.schemaVersion !== 1 ||
@@ -25593,7 +25789,9 @@ export function validateCurrentCheckpoint(manifest) {
       node.terminalMemoryContentSha256 !==
         expectedNode.terminalMemoryContentSha256 ||
       browserBoundary.runtimeProtocol !==
-        (getCursorInfoActive
+        (d3d9UpdateTexturePartialDirtyRegionActive
+          ? "vine.browser-runtime-worker.v109"
+          : getCursorInfoActive
           ? "vine.browser-runtime-worker.v108"
           : outlineTextMetrics224x112Active
           ? "vine.browser-runtime-worker.v107"
@@ -25611,7 +25809,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.retiredInstructionCursorTransport !==
         "checked-u64-low-high-per-api-and-com-dispatch" ||
       browserBoundary.browserOwnsGuestClockState !== false ||
-      (getCursorInfoActive
+      (d3d9UpdateTexturePartialDirtyRegionActive
+        ? browserBoundary.browserReportSchemaVersion !== 75
+        : getCursorInfoActive
         ? browserBoundary.browserReportSchemaVersion !== 74
         : outlineTextMetrics224x112Active
         ? browserBoundary.browserReportSchemaVersion !== 73
@@ -25626,7 +25826,9 @@ export function validateCurrentCheckpoint(manifest) {
         "npm run check:runtime:browser-worker" ||
       browserBoundary.chromeVersion !== "150.0.7871.187" ||
       browserBoundary.reportBytes !==
-        (getCursorInfoActive
+        (d3d9UpdateTexturePartialDirtyRegionActive
+          ? 35_938
+          : getCursorInfoActive
           ? 35_954
           : outlineTextMetrics224x112Active
           ? 35_949
@@ -25640,7 +25842,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 35_961
           : 35_951) ||
       browserBoundary.reportSha256 !==
-        (getCursorInfoActive
+        (d3d9UpdateTexturePartialDirtyRegionActive
+          ? "655310148e47bdd75efb757c8392e77417a4f5e7309878b2473cb201a2f1d3eb"
+          : getCursorInfoActive
           ? "f7316790374264886919f9ec46f2dde5a67976c50937c59b8ac569a7b628b830"
           : outlineTextMetrics224x112Active
           ? "ea1726faf73327e2c93535e6915d41acd020a4d391c7162947bb009650b0ab72"
@@ -25654,7 +25858,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "bd77deb28553190382622adb663ac87b99e4c9f9df719bbba2282f5bae5bca94"
           : "ecd982f21410c69c4d844a114041e301fd140fedbb520cf5773f4d13d2846aa1") ||
       browserBoundary.runtimeWorkerBytes !==
-        (getCursorInfoActive
+        (d3d9UpdateTexturePartialDirtyRegionActive
+          ? 1_095_762
+          : getCursorInfoActive
           ? 1_087_325
           : outlineTextMetrics224x112Active
           ? 1_080_001
@@ -25668,7 +25874,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 1_053_379
           : 1_049_048) ||
       browserBoundary.runtimeWorkerSha256 !==
-        (getCursorInfoActive
+        (d3d9UpdateTexturePartialDirtyRegionActive
+          ? "a8493d8108587768ad382de9d7af88c3d43ca80ec8eafacb1110611d5c463ab4"
+          : getCursorInfoActive
           ? "f019ba714b91c3218d77e7fe6cd47b3e36edb22290a35d962ac5c06d72b2a121"
           : outlineTextMetrics224x112Active
           ? "2c2f5cc438022a1e198c9eb33961aff482a7d12a732e5b07863be9af4624c99e"
@@ -25682,7 +25890,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "1f2812982a31f8b94c994ba531c7d58285122b9299da1b51169b49631790f420"
           : "dbb154a48ed3db86b915396bb549add364443e050b6d68f52f0c811c8b46b1c4") ||
       browserBoundary.runtimeCoreWasmBytes !==
-        (getCursorInfoActive
+        (d3d9UpdateTexturePartialDirtyRegionActive
+          ? 5_407_751
+          : getCursorInfoActive
           ? 5_407_727
           : outlineTextMetrics224x112Active
           ? 5_403_256
@@ -25696,7 +25906,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 5_361_144
           : 5_354_885) ||
       browserBoundary.runtimeCoreWasmSha256 !==
-        (getCursorInfoActive
+        (d3d9UpdateTexturePartialDirtyRegionActive
+          ? "60674a1917bdd4641cf8f3884cc73dc177817d45e480f4587cc4627a1f71798e"
+          : getCursorInfoActive
           ? "c030ac92a6f8594ebc302a50e5790102592f460c164d130dc2cadd197345dad1"
           : outlineTextMetrics224x112Active
           ? "d1104f3883e1c3f54de6960c25ffc931d3ce91c62a0785b169692f6e9270e8ba"
@@ -25714,7 +25926,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.privatePrimaryCommand !==
         "node tools/run-browser-runtime-check.mjs --bgi" ||
       browserBoundary.privatePrimaryReportBytes !==
-        (getCursorInfoActive
+        (d3d9UpdateTexturePartialDirtyRegionActive
+          ? 2_612_491
+          : getCursorInfoActive
           ? 2_613_486
           : outlineTextMetrics224x112Active
           ? 2_620_811
@@ -25728,7 +25942,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 2_598_978
           : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
-        (getCursorInfoActive
+        (d3d9UpdateTexturePartialDirtyRegionActive
+          ? "d7cb6178d1f77f455240248ea9ac1d6e6a22f47a91f4ee804eae216d27666d8b"
+          : getCursorInfoActive
           ? "08c4e5c4c758fafcbc1e27da9edc466553c0775811ef212d1087819d4d26fc27"
           : outlineTextMetrics224x112Active
           ? "bb5a0465594fa59025aa195848da9c1db0b91c5cd70f6bbc066f6e7f108f59f4"
@@ -25780,6 +25996,7 @@ export function validateCurrentCheckpoint(manifest) {
       !createDibSection448x336EvidenceValid ||
       !outlineTextMetrics224x112EvidenceValid ||
       !getCursorInfoEvidenceValid ||
+      !d3d9UpdateTexturePartialDirtyRegionEvidenceValid ||
       conclusion.clockFreezeWasProximateCause !== false ||
       (privateHeapOrdinarySegmentGrowthActive &&
         conclusion.ordinaryHeapCapacityWasProximateCause !== false) ||
@@ -25792,7 +26009,9 @@ export function validateCurrentCheckpoint(manifest) {
       (getCursorInfoActive &&
         conclusion.cursorInfoWasProximateCause !== false) ||
       conclusion.nextEndpoint !==
-        (getCursorInfoActive
+        (d3d9UpdateTexturePartialDirtyRegionActive
+          ? "IDirect3DDevice9!BeginScene"
+          : getCursorInfoActive
           ? "IDirect3DDevice9!UpdateTexture"
           : outlineTextMetrics224x112Active
           ? "USER32.dll!GetCursorInfo"
@@ -25821,6 +26040,7 @@ export function validateCurrentCheckpoint(manifest) {
           createDibSection448x336EvidenceValid,
           outlineTextMetrics224x112EvidenceValid,
           getCursorInfoEvidenceValid,
+          d3d9UpdateTexturePartialDirtyRegionEvidenceValid,
         })})`,
       );
     }

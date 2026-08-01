@@ -261,6 +261,7 @@ enum GenericRuntimeCapability {
     SetRect,
     D3d9AddDirtyRect,
     D3d9UpdateTexture,
+    D3d9UpdateTexturePartialDirtyRegion,
     D3d9BeginScene,
     D3d9InitialSamplerStates,
     D3d9InitialTextureStageStates,
@@ -2936,6 +2937,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::SetRect
                     | GenericRuntimeCapability::D3d9AddDirtyRect
                     | GenericRuntimeCapability::D3d9UpdateTexture
+                    | GenericRuntimeCapability::D3d9UpdateTexturePartialDirtyRegion
                     | GenericRuntimeCapability::D3d9BeginScene
                     | GenericRuntimeCapability::D3d9InitialSamplerStates
                     | GenericRuntimeCapability::D3d9InitialTextureStageStates
@@ -3620,10 +3622,15 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let delete_file_a_enabled = matches!(
+    let d3d9_update_texture_partial_dirty_region_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::DeleteFileA)
+        Some(GenericRuntimeCapability::D3d9UpdateTexturePartialDirtyRegion)
     );
+    let delete_file_a_enabled = d3d9_update_texture_partial_dirty_region_enabled
+        || matches!(
+            enabled_capability,
+            Some(GenericRuntimeCapability::DeleteFileA)
+        );
     let find_first_file_a_enabled = delete_file_a_enabled
         || matches!(
             enabled_capability,
@@ -3972,6 +3979,7 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::Imm32Context
             | GenericRuntimeCapability::D3d9AddDirtyRect
             | GenericRuntimeCapability::D3d9UpdateTexture
+            | GenericRuntimeCapability::D3d9UpdateTexturePartialDirtyRegion
             | GenericRuntimeCapability::D3d9BeginScene
             | GenericRuntimeCapability::D3d9InitialSamplerStates
             | GenericRuntimeCapability::D3d9InitialTextureStageStates
@@ -4337,7 +4345,9 @@ fn run_v86_generic_runtime_session(
     gdiplus_policy.validate().map_err(api_fault)?;
     let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
     winmm_policy.validate().map_err(api_fault)?;
-    let mut d3d9_policy = if get_window_rect_enabled {
+    let mut d3d9_policy = if d3d9_update_texture_partial_dirty_region_enabled {
+        D3d9CompatibilityPolicy::controlled_v33()
+    } else if get_window_rect_enabled {
         D3d9CompatibilityPolicy::controlled_v32()
     } else {
         D3d9CompatibilityPolicy::controlled_v31()
@@ -15093,6 +15103,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "user32-set-rect" => GenericRuntimeCapability::SetRect,
                 "d3d9-add-dirty-rect" => GenericRuntimeCapability::D3d9AddDirtyRect,
                 "d3d9-update-texture" => GenericRuntimeCapability::D3d9UpdateTexture,
+                "d3d9-update-texture-partial-dirty-region" => {
+                    GenericRuntimeCapability::D3d9UpdateTexturePartialDirtyRegion
+                }
                 "d3d9-begin-scene" => GenericRuntimeCapability::D3d9BeginScene,
                 "d3d9-initial-sampler-states" => GenericRuntimeCapability::D3d9InitialSamplerStates,
                 "d3d9-initial-texture-stage-states" => {

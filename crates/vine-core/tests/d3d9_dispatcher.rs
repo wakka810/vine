@@ -246,6 +246,35 @@ fn d3d9_device_texture_and_surface_catalogs_fix_the_complete_x86_vtables() {
             .profile_id,
         "primary-live-operational-device-query-v1"
     );
+    assert!(
+        cooperative_level_policy
+            .update_texture
+            .as_ref()
+            .unwrap()
+            .additional_partial_dirty_rects
+            .is_empty()
+    );
+    let partial_dirty_region_policy = D3d9CompatibilityPolicy::controlled_v33();
+    partial_dirty_region_policy.validate().unwrap();
+    assert_eq!(partial_dirty_region_policy.schema_version, 33);
+    assert_eq!(
+        partial_dirty_region_policy.id,
+        "d3d9-primary-virtual-adapter-v33"
+    );
+    let partial_dirty_region_update = partial_dirty_region_policy.update_texture.as_ref().unwrap();
+    assert_eq!(
+        partial_dirty_region_update.profile_id,
+        "primary-recreated-system-memory-to-static-default-texture-update-v3"
+    );
+    assert_eq!(
+        partial_dirty_region_update.additional_partial_dirty_rects,
+        [RuntimeRect {
+            left: 583,
+            top: 530,
+            right: 1_260,
+            bottom: 582,
+        }]
+    );
     let mut missing_cooperative_level = cooperative_level_policy.clone();
     missing_cooperative_level.test_cooperative_level = None;
     assert_eq!(
@@ -409,6 +438,7 @@ fn d3d9_device_texture_and_surface_catalogs_fix_the_complete_x86_vtables() {
             bottom: 720,
         }
     );
+    assert!(update_texture.additional_partial_dirty_rects.is_empty());
     assert_eq!(
         policy.begin_scene.as_ref().unwrap().profile_id,
         "primary-first-frame-scene-begin-v1"
@@ -599,6 +629,25 @@ fn d3d9_device_texture_and_surface_catalogs_fix_the_complete_x86_vtables() {
         .left = 1;
     let fault = malformed_partial_update.validate().unwrap_err();
     assert_eq!(fault.code, "d3d9-update-texture-profile-invalid");
+    let mut malformed_additional_partial_update = D3d9CompatibilityPolicy::controlled_v33();
+    malformed_additional_partial_update
+        .update_texture
+        .as_mut()
+        .unwrap()
+        .additional_partial_dirty_rects[0]
+        .right = 1_259;
+    let fault = malformed_additional_partial_update.validate().unwrap_err();
+    assert_eq!(fault.code, "d3d9-update-texture-profile-invalid");
+    let mut v32_with_v33_update = D3d9CompatibilityPolicy::controlled_v33();
+    v32_with_v33_update.schema_version = 32;
+    v32_with_v33_update.id = "d3d9-primary-virtual-adapter-v32".to_owned();
+    let fault = v32_with_v33_update.validate().unwrap_err();
+    assert_eq!(fault.code, "d3d9-compatibility-policy-header-invalid");
+    let mut v33_with_v32_update = D3d9CompatibilityPolicy::controlled_v32();
+    v33_with_v32_update.schema_version = 33;
+    v33_with_v32_update.id = "d3d9-primary-virtual-adapter-v33".to_owned();
+    let fault = v33_with_v32_update.validate().unwrap_err();
+    assert_eq!(fault.code, "d3d9-compatibility-policy-header-invalid");
     let mut malformed_texture_binding = policy.clone();
     malformed_texture_binding
         .texture_binding

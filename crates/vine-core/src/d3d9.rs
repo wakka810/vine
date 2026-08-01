@@ -38,7 +38,7 @@ pub const D3D9_SDK_VERSION: u32 = 32;
 pub const D3D9_DIRECT3D_CREATE9_IMPLEMENTATION: &str = "d3d9.direct3d-create9.v1";
 pub const D3D9_IDIRECT3D9_CLASS_IDENTITY: &str = "d3d9.idirect3d9-root.v1";
 pub const D3D9_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.d3d9-compatibility-policy";
-pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 32;
+pub const D3D9_COMPATIBILITY_POLICY_VERSION: u32 = 33;
 pub const D3D9_D3DADAPTER_IDENTIFIER9_BYTE_LENGTH: u32 = 1_100;
 pub const D3D9_D3DCAPS9_BYTE_LENGTH: u32 = 304;
 pub const D3D9_D3DDISPLAYMODE_BYTE_LENGTH: u32 = 16;
@@ -405,6 +405,8 @@ pub struct D3d9UpdateTexturePolicy {
     pub source_texture_variant_indices: Vec<u32>,
     pub destination_texture_variant_indices: Vec<u32>,
     pub partial_dirty_rect: RuntimeRect,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub additional_partial_dirty_rects: Vec<RuntimeRect>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -665,6 +667,7 @@ impl D3d9CompatibilityPolicy {
                     right: 1_280,
                     bottom: 720,
                 },
+                additional_partial_dirty_rects: Vec::new(),
             }),
             begin_scene: Some(D3d9BeginScenePolicy {
                 profile_id: "primary-first-frame-scene-begin-v1".to_owned(),
@@ -684,11 +687,30 @@ impl D3d9CompatibilityPolicy {
 
     pub fn controlled_v32() -> Self {
         let mut policy = Self::controlled_v31();
-        policy.schema_version = D3D9_COMPATIBILITY_POLICY_VERSION;
+        policy.schema_version = 32;
         policy.id = "d3d9-primary-virtual-adapter-v32".to_owned();
         policy.test_cooperative_level = Some(D3d9TestCooperativeLevelPolicy {
             profile_id: "primary-live-operational-device-query-v1".to_owned(),
         });
+        policy
+    }
+
+    pub fn controlled_v33() -> Self {
+        let mut policy = Self::controlled_v32();
+        policy.schema_version = D3D9_COMPATIBILITY_POLICY_VERSION;
+        policy.id = "d3d9-primary-virtual-adapter-v33".to_owned();
+        let update = policy
+            .update_texture
+            .as_mut()
+            .expect("controlled D3D9 policy lost UpdateTexture");
+        update.profile_id =
+            "primary-recreated-system-memory-to-static-default-texture-update-v3".to_owned();
+        update.additional_partial_dirty_rects = vec![RuntimeRect {
+            left: 583,
+            top: 530,
+            right: 1_260,
+            bottom: 582,
+        }];
         policy
     }
 
@@ -733,10 +755,42 @@ impl D3d9CompatibilityPolicy {
     }
 
     pub fn validate(&self) -> Result<(), ApiFault> {
+        let update_texture_profile = self.update_texture.as_ref().map(|policy| {
+            (
+                policy.profile_id.as_str(),
+                policy.additional_partial_dirty_rects.as_slice(),
+            )
+        });
         let supported_header = match (self.schema_version, self.id.as_str()) {
-            (31, "d3d9-primary-virtual-adapter-v31") => self.test_cooperative_level.is_none(),
-            (D3D9_COMPATIBILITY_POLICY_VERSION, "d3d9-primary-virtual-adapter-v32") => {
+            (31, "d3d9-primary-virtual-adapter-v31") => {
+                self.test_cooperative_level.is_none()
+                    && matches!(
+                        update_texture_profile,
+                        None | Some((
+                            "primary-recreated-system-memory-to-static-default-texture-update-v2",
+                            []
+                        ))
+                    )
+            }
+            (32, "d3d9-primary-virtual-adapter-v32") => {
                 self.test_cooperative_level.is_some()
+                    && matches!(
+                        update_texture_profile,
+                        None | Some((
+                            "primary-recreated-system-memory-to-static-default-texture-update-v2",
+                            []
+                        ))
+                    )
+            }
+            (D3D9_COMPATIBILITY_POLICY_VERSION, "d3d9-primary-virtual-adapter-v33") => {
+                self.test_cooperative_level.is_some()
+                    && matches!(
+                        update_texture_profile,
+                        None | Some((
+                            "primary-recreated-system-memory-to-static-default-texture-update-v3",
+                            [_]
+                        ))
+                    )
             }
             _ => false,
         };
@@ -1479,7 +1533,22 @@ fn valid_update_texture_policy(
     policy: &D3d9UpdateTexturePolicy,
     texture: &D3d9CreateTexturePolicy,
 ) -> bool {
-    if policy.profile_id != "primary-recreated-system-memory-to-static-default-texture-update-v2"
+    let valid_dirty_rect_profile = match policy.profile_id.as_str() {
+        "primary-recreated-system-memory-to-static-default-texture-update-v2" => {
+            policy.additional_partial_dirty_rects.is_empty()
+        }
+        "primary-recreated-system-memory-to-static-default-texture-update-v3" => {
+            policy.additional_partial_dirty_rects
+                == [RuntimeRect {
+                    left: 583,
+                    top: 530,
+                    right: 1_260,
+                    bottom: 582,
+                }]
+        }
+        _ => false,
+    };
+    if !valid_dirty_rect_profile
         || policy.source_texture_variant_indices != [3]
         || policy.destination_texture_variant_indices != [4]
         || policy.partial_dirty_rect
@@ -3670,11 +3739,10 @@ fn dispatch_update_texture(
         }
         return call.complete(ComReturnValue::HResult(D3D9_D3DERR_INVALIDCALL), Vec::new());
     }
-    if matches!(
-        source.dirty_region,
-        RuntimeGraphicsTextureDirtyRegion::Rect(rect)
-            if rect != update_policy.partial_dirty_rect
-    ) {
+    if matches!(source.dirty_region, RuntimeGraphicsTextureDirtyRegion::Rect(rect)
+        if rect != update_policy.partial_dirty_rect
+            && !update_policy.additional_partial_dirty_rects.contains(&rect))
+    {
         return call.fault(
             ComFaultClass::Unsupported,
             "d3d9-update-texture",

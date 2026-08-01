@@ -9,11 +9,12 @@ system-arrow HCURSOR `0x43010001`、Rust-owned cursor point `(960, 540)`を返�
 LastErrorは保存し、logical cursor identity、cursor position、guest bytesのどれも
 API自身は変更しない。
 
-同じNode／Chrome replayは二呼出しを完了し、instruction 392,353,932の
-`IDirect3DDevice9::UpdateTexture` slot 31で、到達済みpolicyがまだ受理しないpartial
-dirty-region variantとしてstructured stopする。したがって`GetCursorInfo`は
-それ以前の進行停止の近因ではない。可読title sceneやvisible input responseは
-このcheckpointではclaimしない。
+このhistorical Node／Chrome replayは二呼出しを完了し、instruction 392,353,932の
+`IDirect3DDevice9::UpdateTexture` slot 31で、当時のpolicyがまだ受理しないpartial
+dirty-region variantとしてstructured stopした。そのvariantは続く
+[partial dirty-region UpdateTexture profile](bgi-d3d9-update-texture-partial-dirty-region.md)
+で完了済みである。`GetCursorInfo`はそれ以前の進行停止の近因ではない。可読title
+sceneやvisible input responseはこのcheckpointではclaimしない。
 
 ## Bounded contract and failure ordering
 
@@ -56,7 +57,7 @@ clearなら後続処理へ進む。
 Canonical Node reportは282,848 supported calls、392,353,932 instructions、100,556
 clock samples、40 TIMERPROC callbacks、3 Present、semantic digest
 `c261b54c013bca8637802c8851a232580c875fba70b477db3244df79a3c57967`、
-terminal memory digest
+historical terminal memory digest
 `8af674327bd71aa3281a541d83d886a82653f9559b1f8c146dde8b7fd138d4a6`
 を再現する。GetCursorInfo callsはsequence 282,389／282,396、instruction
 375,285,853／375,288,207、output addresses `0x006ff530`／`0x006ff550`で、
@@ -64,7 +65,7 @@ logical output SHA-256は
 `83409a8eb120ec1c8528928c2ad5ec6935dc2a2dbca6bfbc4be4efe11b761780`
 である。
 
-Chrome Worker protocol v108／BGI report schema 74は同じordered semantics、二つの
+Historical Chrome Worker protocol v108／BGI report schema 74は同じordered semantics、二つの
 CURSORINFO projection、next COM fault、terminal memoryを再現し、cancel／watchdog後に
 pending host call／callbackを残さない。Artifact hash等の現在値は
 [current-checkpoint.json](current-checkpoint.json)だけを正本とする。

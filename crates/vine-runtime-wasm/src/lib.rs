@@ -89,6 +89,7 @@ struct BgiCheckpointCapabilities {
     set_rect: bool,
     d3d9_add_dirty_rect: bool,
     d3d9_update_texture: bool,
+    d3d9_update_texture_partial_dirty_region: bool,
     d3d9_begin_scene: bool,
     d3d9_initial_sampler_states: bool,
     d3d9_initial_texture_stage_states: bool,
@@ -764,7 +765,9 @@ impl BrowserRuntime {
         imm32_policy.validate().map_err(api_fault_string)?;
         let winmm_policy = WinmmCompatibilityPolicy::controlled_v1();
         winmm_policy.validate().map_err(api_fault_string)?;
-        let mut d3d9_policy = if capabilities.user32_async_key_state_initial_scan {
+        let mut d3d9_policy = if capabilities.d3d9_update_texture_partial_dirty_region {
+            D3d9CompatibilityPolicy::controlled_v33()
+        } else if capabilities.user32_async_key_state_initial_scan {
             D3d9CompatibilityPolicy::controlled_v32()
         } else {
             D3d9CompatibilityPolicy::controlled_v31()
@@ -4819,6 +4822,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
                 set_rect: set_rect_enabled != 0,
                 d3d9_add_dirty_rect: d3d9_add_dirty_rect_enabled != 0,
                 d3d9_update_texture: d3d9_update_texture_enabled != 0,
+                d3d9_update_texture_partial_dirty_region: d3d9_update_texture_enabled == 2,
                 d3d9_begin_scene: d3d9_begin_scene_enabled != 0,
                 d3d9_initial_sampler_states: d3d9_initial_sampler_states_enabled != 0,
                 d3d9_initial_texture_stage_states: d3d9_initial_texture_stage_states_enabled != 0,

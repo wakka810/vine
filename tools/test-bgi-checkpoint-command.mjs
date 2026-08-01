@@ -228,6 +228,10 @@ assert.equal(
   "v86-bgi-get-cursor-info",
 );
 assert.equal(
+  bgiProfileOutputDirectory("d3d9-update-texture-partial-dirty-region"),
+  "v86-bgi-d3d9-update-texture-partial-dirty-region",
+);
+assert.equal(
   bgiProfileOutputDirectory("shell32-drag-accept-files"),
   "v86-bgi-drag-accept-files",
 );

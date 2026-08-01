@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 108 as const;
+export const protocolVersion = 109 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -25,6 +25,7 @@ export type BgiCapabilityProfile =
   | "gdi-create-dib-section-448x336"
   | "gdi-outline-text-metrics-224x112"
   | "user32-get-cursor-info"
+  | "d3d9-update-texture-partial-dirty-region"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1184,7 +1185,9 @@ export interface RuntimeBrowserPresentationReceipt {
 }
 
 export type D3d9CompatibilityPolicyId =
-  "d3d9-primary-virtual-adapter-v31" | "d3d9-primary-virtual-adapter-v32";
+  | "d3d9-primary-virtual-adapter-v31"
+  | "d3d9-primary-virtual-adapter-v32"
+  | "d3d9-primary-virtual-adapter-v33";
 
 export interface SessionReport {
   evidenceLevel: "full" | "summary";
@@ -1835,6 +1838,41 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "d3d9-update-texture-partial-dirty-region-post-get-cursor-info";
+        implementationId: "runtime.d3d9-update-texture-partial-dirty-region-post-get-cursor-info.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        prerequisiteGetCursorInfoSequence: number;
+        prerequisiteGetCursorInfoInstructionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        call: RuntimeSupportedCallSnapshot;
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33";
+        updateTextureProfileId: "primary-recreated-system-memory-to-static-default-texture-update-v3";
+        dirtyRegion: { left: 583; top: 530; right: 1260; bottom: 582 };
+        byteAuthority: "rust-guest-memory-graphics-resource-allocation";
+        transferPublication: "full-authoritative-source-backing";
+        partialTransferPrecondition: "destination-immediately-preceding-source-generation";
+        sourceContentGeneration: 4;
+        destinationContentGeneration: 4;
+        sourceDirtyRegionAfter: "clean";
+        mutation: "dual-texture-plan-preflight-targeted-commit";
+        failureAtomicity: true;
+        admittedAdditionalPartialDirtyRegions: 1;
+        arbitraryPartialHistoryImplemented: false;
+        dynamicDestinationImplemented: false;
+        activeCallbackDepthAtCompletion: 0;
+        clockProfileId: "scheduled-shared-logical-deadline-v1";
+        clockSampleCount: number;
+        windowTimerCallbackCount: number;
+        presentCount: number;
+        instructionCount: number;
+        nextEndpoint: unknown;
+        memoryContentSha256: string;
+      }
     | {
         capability: "user32-get-cursor-info-post-outline-text-metrics-224x112";
         implementationId: "runtime.user32-get-cursor-info-post-outline-text-metrics-224x112.v1";

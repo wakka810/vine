@@ -927,7 +927,8 @@ copy、pixel backing、renderer uploadは続く`UpdateTexture` gatewayの責務�
 Reached `UpdateTexture`はsource／destination texture relation、descriptor role、logical content、dirty state、全generation
 capacityをpreflightし、sourceのRust-owned level-zero contentをdestinationへ複製してsource dirtyをconsumeする一回の
 two-resource targeted commitを行う。後続のpartial updateは、destinationがsourceの直前generationを表す場合だけ
-exact dirty rectangleを受理し、sourceのfull authoritative backingをgeneration-checked pixel sourceとしてpublishする。
+versioned policyが列挙するexact dirty rectangleを受理し、sourceのfull authoritative backingをgeneration-checked pixel
+sourceとしてpublishする。現在のv33 bandは既存`[0,0,1280,720]`と、後に到達した`[583,530,1260,582]`だけを許可する。
 これによりlogical command historyとguest byte backingの異なる世代を混合しない。Arbitrary partial historyは
 profile外としてmutation前に拒否する。
 

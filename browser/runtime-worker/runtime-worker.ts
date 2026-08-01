@@ -368,7 +368,7 @@ function isScheduledSharedClockSetWindowText(
     profile === "gdi-create-font-a-224x112" ||
     profile === "gdi-create-dib-section-448x336" ||
     profile === "gdi-outline-text-metrics-224x112" ||
-    isGetCursorInfoProfile(profile)
+    includesGetCursorInfoProfile(profile)
   );
 }
 
@@ -376,6 +376,21 @@ function isGetCursorInfoProfile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return profile === "user32-get-cursor-info";
+}
+
+function isD3d9UpdateTexturePartialDirtyRegionProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "d3d9-update-texture-partial-dirty-region";
+}
+
+function includesGetCursorInfoProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isGetCursorInfoProfile(profile) ||
+    isD3d9UpdateTexturePartialDirtyRegionProfile(profile)
+  );
 }
 
 function isFindFileAProfile(
@@ -388,7 +403,7 @@ function isFindFileAProfile(
     profile === "gdi-create-font-a-224x112" ||
     profile === "gdi-create-dib-section-448x336" ||
     profile === "gdi-outline-text-metrics-224x112" ||
-    isGetCursorInfoProfile(profile)
+    includesGetCursorInfoProfile(profile)
   );
 }
 
@@ -400,7 +415,7 @@ function isPrivateHeapOrdinarySegmentGrowthProfile(
     profile === "gdi-create-font-a-224x112" ||
     profile === "gdi-create-dib-section-448x336" ||
     profile === "gdi-outline-text-metrics-224x112" ||
-    isGetCursorInfoProfile(profile)
+    includesGetCursorInfoProfile(profile)
   );
 }
 
@@ -411,7 +426,7 @@ function isCreateFontA224x112Profile(
     profile === "gdi-create-font-a-224x112" ||
     profile === "gdi-create-dib-section-448x336" ||
     profile === "gdi-outline-text-metrics-224x112" ||
-    isGetCursorInfoProfile(profile)
+    includesGetCursorInfoProfile(profile)
   );
 }
 
@@ -421,7 +436,7 @@ function isCreateDibSection448x336Profile(
   return (
     profile === "gdi-create-dib-section-448x336" ||
     profile === "gdi-outline-text-metrics-224x112" ||
-    isGetCursorInfoProfile(profile)
+    includesGetCursorInfoProfile(profile)
   );
 }
 
@@ -430,7 +445,7 @@ function isOutlineTextMetrics224x112Profile(
 ): boolean {
   return (
     profile === "gdi-outline-text-metrics-224x112" ||
-    isGetCursorInfoProfile(profile)
+    includesGetCursorInfoProfile(profile)
   );
 }
 
@@ -1921,9 +1936,11 @@ function includesRuntimeTraplessExecutionBudget(
 function d3d9CompatibilityPolicyId(
   profile: SessionConfiguration["capabilityProfile"],
 ): NonNullable<SessionReport["d3d9Present"]>["compatibilityPolicyId"] {
-  return isUser32AsyncKeyStateInitialScan(profile)
-    ? "d3d9-primary-virtual-adapter-v32"
-    : "d3d9-primary-virtual-adapter-v31";
+  return isD3d9UpdateTexturePartialDirtyRegionProfile(profile)
+    ? "d3d9-primary-virtual-adapter-v33"
+    : isUser32AsyncKeyStateInitialScan(profile)
+      ? "d3d9-primary-virtual-adapter-v32"
+      : "d3d9-primary-virtual-adapter-v31";
 }
 const yieldResolvers: Array<() => void> = [];
 yieldChannel.port1.addEventListener("message", () => {
@@ -3986,6 +4003,9 @@ class BrowserRuntimeSession {
                 isD3d9AddDirtyRect(this.#configuration.capabilityProfile),
               scheduledSharedClockSetWindowText ||
                 isD3d9UpdateTexture(this.#configuration.capabilityProfile),
+              isD3d9UpdateTexturePartialDirtyRegionProfile(
+                this.#configuration.capabilityProfile,
+              ),
               scheduledSharedClockSetWindowText ||
                 isD3d9BeginScene(this.#configuration.capabilityProfile),
               scheduledSharedClockSetWindowText ||
@@ -8241,6 +8261,7 @@ class BrowserRuntimeSession {
       if (call.interface === "IDirect3DDevice9" && call.vtableSlot === 17) {
         this.#scheduledSharedClockPresentCount += 1;
       }
+      this.#recordD3d9UpdateTexturePartialDirtyRegionCall(call);
     } else {
       this.#recordD3d9RecreatedTextureCall(call);
       this.#recordD3d9ClearCall(call);
@@ -8261,6 +8282,145 @@ class BrowserRuntimeSession {
       this.#recordPresentationProgressComCall(call, comOccurrence);
     }
     this.#recordCompletedCallEvidence(call);
+  }
+
+  #recordD3d9UpdateTexturePartialDirtyRegionCall(
+    call: RuntimeSupportedCallSnapshot,
+  ): void {
+    if (
+      !isD3d9UpdateTexturePartialDirtyRegionProfile(
+        this.#configuration.capabilityProfile,
+      ) ||
+      call.interface !== "IDirect3DDevice9" ||
+      call.vtableSlot !== 31 ||
+      call.sequence !== 282_849
+    ) {
+      return;
+    }
+    const previous = this.#report.checkpointCompletion;
+    const source = call.graphicsTextureUpdate?.source;
+    const destination = call.graphicsTextureUpdate?.destination;
+    const sourceBacking = source?.backing;
+    const sourcePixels = source?.content?.pixelSource;
+    const destinationPixels = destination?.content?.pixelSource;
+    const lastUpdate = destination?.content?.lastUpdate;
+    const dirtyRect =
+      lastUpdate?.dirtyRegion.kind === "rect"
+        ? lastUpdate.dirtyRegion.rect
+        : undefined;
+    invariant(
+      previous?.capability ===
+        "user32-get-cursor-info-post-outline-text-metrics-224x112" &&
+        previous.lastCompletionSequence === 282_396 &&
+        previous.lastCompletionInstructionCount === 375_288_207 &&
+        this.#report.instructions === 392_353_932 &&
+        call.symbol === "IDirect3DDevice9.UpdateTexture" &&
+        call.arguments.join(",") === "16842756,16908292,16973828" &&
+        "kind" in call.result &&
+        call.result.kind === "h-result" &&
+        call.result.value === 0 &&
+        call.returnAddress === 0x1005_b038 &&
+        call.stackPointerAfter === call.stackPointerBefore + 16 &&
+        call.referenceCount === 5 &&
+        call.objectRetired === false &&
+        call.guestWrites.length === 0 &&
+        source?.id === 7 &&
+        source.namespace === "vine.logical-graphics-texture.v1" &&
+        source.deviceId === 3 &&
+        source.descriptor.width === 2_048 &&
+        source.descriptor.height === 1_024 &&
+        source.descriptor.levels === 1 &&
+        source.descriptor.usage === "none" &&
+        source.descriptor.colorFormat === "b8g8r8x8-unorm" &&
+        source.descriptor.pool === "system-memory" &&
+        sourceBacking?.addressAllocationId === 77 &&
+        sourceBacking.memoryOwner === 50 &&
+        sourceBacking.range.start === 0x4400_1000 &&
+        sourceBacking.range.byteLength === 0x0080_0000 &&
+        sourceBacking.rowPitch === 8_192 &&
+        source.comObjectId === "22" &&
+        source.activeLock === undefined &&
+        source.dirtyRegion.kind === "clean" &&
+        source.content?.contentGeneration === 4 &&
+        source.content.fills.length === 0 &&
+        sourcePixels?.sourceTextureId === 7 &&
+        sourcePixels.sourceContentGeneration === 4 &&
+        sourcePixels.range.start === 0x4400_1000 &&
+        sourcePixels.range.byteLength === 0x0080_0000 &&
+        sourcePixels.rowPitch === 8_192 &&
+        source.generation === 54 &&
+        destination?.id === 8 &&
+        destination.namespace === "vine.logical-graphics-texture.v1" &&
+        destination.deviceId === 3 &&
+        destination.descriptor.width === 2_048 &&
+        destination.descriptor.height === 1_024 &&
+        destination.descriptor.levels === 1 &&
+        destination.descriptor.usage === "none" &&
+        destination.descriptor.colorFormat === "b8g8r8x8-unorm" &&
+        destination.descriptor.pool === "default" &&
+        destination.backing === undefined &&
+        destination.comObjectId === "24" &&
+        destination.dirtyRegion.kind === "whole-texture" &&
+        destination.content?.contentGeneration === 4 &&
+        destination.content.fills.length === 0 &&
+        destinationPixels?.sourceTextureId === 7 &&
+        destinationPixels.sourceContentGeneration === 4 &&
+        destinationPixels.range.start === 0x4400_1000 &&
+        destinationPixels.range.byteLength === 0x0080_0000 &&
+        destinationPixels.rowPitch === 8_192 &&
+        lastUpdate?.sequence === 4 &&
+        lastUpdate.sourceTextureId === 7 &&
+        lastUpdate.sourceContentGeneration === 4 &&
+        dirtyRect?.left === 583 &&
+        dirtyRect.top === 530 &&
+        dirtyRect.right === 1_260 &&
+        dirtyRect.bottom === 582 &&
+        destination.generation === 48 &&
+        this.#bgiCallbackCallSequences.size === 0,
+      `later D3D9 partial UpdateTexture ABI or authoritative byte lineage changed: ${JSON.stringify(call)}`,
+    );
+    this.#report.checkpointCompletion = {
+      capability:
+        "d3d9-update-texture-partial-dirty-region-post-get-cursor-info",
+      implementationId:
+        "runtime.d3d9-update-texture-partial-dirty-region-post-get-cursor-info.v1",
+      requiredCompletions: 1,
+      completionCount: 1,
+      prerequisiteGetCursorInfoSequence: previous.lastCompletionSequence,
+      prerequisiteGetCursorInfoInstructionCount:
+        previous.lastCompletionInstructionCount,
+      firstCompletionSequence: call.sequence,
+      firstCompletionInstructionCount: this.#report.instructions,
+      lastCompletionSequence: call.sequence,
+      lastCompletionInstructionCount: this.#report.instructions,
+      call: structuredClone(call),
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33",
+      updateTextureProfileId:
+        "primary-recreated-system-memory-to-static-default-texture-update-v3",
+      dirtyRegion: { left: 583, top: 530, right: 1_260, bottom: 582 },
+      byteAuthority: "rust-guest-memory-graphics-resource-allocation",
+      transferPublication: "full-authoritative-source-backing",
+      partialTransferPrecondition:
+        "destination-immediately-preceding-source-generation",
+      sourceContentGeneration: 4,
+      destinationContentGeneration: 4,
+      sourceDirtyRegionAfter: "clean",
+      mutation: "dual-texture-plan-preflight-targeted-commit",
+      failureAtomicity: true,
+      admittedAdditionalPartialDirtyRegions: 1,
+      arbitraryPartialHistoryImplemented: false,
+      dynamicDestinationImplemented: false,
+      activeCallbackDepthAtCompletion: 0,
+      clockProfileId: previous.clockProfileId,
+      clockSampleCount: this.#scheduledSharedClockSampleCount,
+      windowTimerCallbackCount:
+        this.#scheduledSharedClockWindowTimerCallbackCount,
+      presentCount: this.#scheduledSharedClockPresentCount,
+      instructionCount: 0,
+      nextEndpoint: null,
+      memoryContentSha256: "",
+    };
+    this.#bgiCheckpointPending = true;
   }
 
   #recordScheduledSharedClockCall(call: RuntimeSupportedCallSnapshot): void {
@@ -8979,7 +9139,7 @@ class BrowserRuntimeSession {
       }
     }
     if (
-      isGetCursorInfoProfile(this.#configuration.capabilityProfile) &&
+      includesGetCursorInfoProfile(this.#configuration.capabilityProfile) &&
       call.module.toLowerCase() === "user32.dll" &&
       call.symbol === "GetCursorInfo" &&
       call.implementationId === "user32.get-cursor-info.system-arrow.v1"
@@ -9364,6 +9524,62 @@ class BrowserRuntimeSession {
     stackPointer: number,
   ): void {
     const checkpoint = this.#report.checkpointCompletion;
+    if (
+      isD3d9UpdateTexturePartialDirtyRegionProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      invariant(
+        checkpoint?.capability ===
+          "d3d9-update-texture-partial-dirty-region-post-get-cursor-info" &&
+          this.#requirePrepared().runtime.kernel32Policy ===
+            "kernel32-delete-file-a-v1" &&
+          endpointAddress === 0x0101_12c0 &&
+          stackPointer === 0x006f_b870 &&
+          this.#requireEngine().readGuestU32(stackPointer) === 0x1005_b048 &&
+          this.#bgiCallbackCallSequences.size === 0 &&
+          this.#report.supportedCallCount === 282_849 &&
+          this.#scheduledSharedClockSampleCount === 100_556 &&
+          this.#scheduledSharedClockWindowTimerCallbackCount === 40 &&
+          this.#scheduledSharedClockPresentCount === 3 &&
+          this.#report.instructions === 392_353_938,
+        "partial dirty-region UpdateTexture checkpoint has no matching runtime state",
+      );
+      const reflection =
+        this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-memory-summary" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation) &&
+          reflection.contentSha256 ===
+            "568061b7a8f6722b0556c6f9add62e5f9b35e62591b1769c16a441250331329e",
+        "partial dirty-region UpdateTexture checkpoint memory summary changed",
+      );
+      checkpoint.clockSampleCount = this.#scheduledSharedClockSampleCount;
+      checkpoint.windowTimerCallbackCount =
+        this.#scheduledSharedClockWindowTimerCallbackCount;
+      checkpoint.presentCount = this.#scheduledSharedClockPresentCount;
+      checkpoint.instructionCount = this.#report.instructions;
+      checkpoint.nextEndpoint = {
+        id: 0,
+        address: endpointAddress,
+        module: "<com>",
+        symbol: { kind: "name", name: "interface-1-slot-41" },
+        disposition: "declared-com-method",
+        interfaceIndex: 1,
+        vtableSlot: 41,
+        interface: "IDirect3DDevice9",
+        method: "BeginScene",
+      };
+      checkpoint.memoryContentSha256 = reflection.contentSha256;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "D3D9 partial dirty-region UpdateTexture checkpoint completed",
+        null,
+      );
+      return;
+    }
     if (
       isScheduledSharedClockSetWindowText(
         this.#configuration.capabilityProfile,

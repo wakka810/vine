@@ -16,7 +16,7 @@
         "id": "logical-window-and-message-flow",
         "label": "Logical window and message flow",
         "status": "in-progress",
-        "evidenceBoundary": "Primary logical window creation, activation, paint, owner-thread timers, and the normalized primary-button flow pass. One Rust-owned scheduled clock advances from cumulative retired guest instructions across all API/COM boundaries; Node and private Chrome agree on 282,848 semantic calls, 100,556 samples, 40 TIMERPROC callbacks, and the deterministic pointer down/up receipts. The reached SetWindowTextA synchronously commits サクラノ詩, Runtime VFS search enumerates all 45 data0????.arc entries, both missing-file DeleteFileA calls complete, the third ordinary private-heap segment succeeds, the 224 x 112 selected-font GetOutlineTextMetricsA pair completes, and two GetCursorInfo calls project the Rust-owned system-arrow identity and (960, 540) cursor point before the next partial dirty-region UpdateTexture variant. Replacement, KillTimer, focus-transition messages, cross-thread focus, capture transitions, move/wheel, filtered and cross-thread retrieval, and general message-flow breadth remain partial."
+        "evidenceBoundary": "Primary logical window creation, activation, paint, owner-thread timers, and the normalized primary-button flow pass. One Rust-owned scheduled clock advances from cumulative retired guest instructions across all API/COM boundaries; Node and private Chrome agree on 282,849 semantic calls, 100,556 samples, 40 TIMERPROC callbacks, and the deterministic pointer down/up receipts. The reached SetWindowTextA synchronously commits サクラノ詩, Runtime VFS search enumerates all 45 data0????.arc entries, both missing-file DeleteFileA calls complete, the third ordinary private-heap segment succeeds, the 224 x 112 selected-font GetOutlineTextMetricsA pair and two GetCursorInfo projections complete, and the later exact partial dirty-region UpdateTexture consumes the Rust-owned source before the next BeginScene. Replacement, KillTimer, focus-transition messages, cross-thread focus, capture transitions, move/wheel, filtered and cross-thread retrieval, and general message-flow breadth remain partial."
       },
       {
         "id": "immutable-source-asset-access",
@@ -28,13 +28,13 @@
         "id": "first-present-readable-screen",
         "label": "First present and readable screen",
         "status": "in-progress",
-        "evidenceBoundary": "Controlled Canvas pixel, public Chrome Worker, and the private Node-equivalent scheduled-clock replay pass; the primary D3D9 logical device has completed three bounded scene/draw/present cycles with synchronous Worker WebGL2 materialization. Under the deterministic scheduled clock, 100,556 samples, 40 TIMERPROC callbacks, deterministic pointer down/up consumption, SetWindowTextA／WM_SETTEXT, the complete 45-entry archive search, both missing-file DeleteFileA calls, the third ordinary private-heap segment, the 224 x 112 logical font and exact 448 x 336 DIB pipeline, the two-call selected-font GetOutlineTextMetricsA contract, and two Rust-owned GetCursorInfo projections all finish before the next partial dirty-region UpdateTexture variant. Those leaves are not the proximate cause of further progression; readable title-scene content, visible input response, resize, device loss/recovery, general stack overflow/SEH, and long-run stability remain unproven."
+        "evidenceBoundary": "Controlled Canvas pixel, public Chrome Worker, and the private Node-equivalent scheduled-clock replay pass; the primary D3D9 logical device has completed three bounded scene/draw/present cycles with synchronous Worker WebGL2 materialization. Under the deterministic scheduled clock, 100,556 samples, 40 TIMERPROC callbacks, deterministic pointer down/up consumption, SetWindowTextA／WM_SETTEXT, the complete 45-entry archive search, both missing-file DeleteFileA calls, the third ordinary private-heap segment, the 224 x 112 logical font and exact 448 x 336 DIB pipeline, the two-call selected-font GetOutlineTextMetricsA contract, two Rust-owned GetCursorInfo projections, and the exact `[583,530,1260,582]` UpdateTexture all finish before the next BeginScene. Those leaves are not the proximate cause of further progression; readable title-scene content, visible input response, resize, device loss/recovery, general stack overflow/SEH, and long-run stability remain unproven."
       },
       {
         "id": "user-input-consumption",
         "label": "User input consumption",
         "status": "in-progress",
-        "evidenceBoundary": "The verified primary-button down/up path commits normalized input through Rust-owned cursor, window, message queue, wait, guest-memory, and callback-frame authorities, consumes VK_LBUTTON, and unwinds the registered WndProc at callback depth zero. Node and private Chrome commit down after scheduled main-timer cycle 253 and up after GetAsyncKeyState sequence 222,096 with identical receipts, then continue through 40 TIMERPROC callbacks, a third Present, and two GetCursorInfo calls that read the Rust-owned (960, 540) point. Visible gameplay response, focus-transition messages, pointer capture/move/wheel, DirectInput keyboard/mouse devices, and general input remain unproven."
+        "evidenceBoundary": "The verified primary-button down/up path commits normalized input through Rust-owned cursor, window, message queue, wait, guest-memory, and callback-frame authorities, consumes VK_LBUTTON, and unwinds the registered WndProc at callback depth zero. Node and private Chrome commit down after scheduled main-timer cycle 253 and up after GetAsyncKeyState sequence 222,096 with identical receipts, then continue through 40 TIMERPROC callbacks, a third Present, two GetCursorInfo calls that read the Rust-owned (960, 540) point, and the following bounded UpdateTexture. Visible gameplay response, focus-transition messages, pointer capture/move/wheel, DirectInput keyboard/mouse devices, and general input remain unproven."
       },
       {
         "id": "audible-output",
@@ -185,7 +185,7 @@
     "workload": "private-bgi-generic-session",
     "bgiSession": "semantic-equivalence-passed",
     "bgiBenchmark": "threshold-passed",
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v108",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v109",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json",
     "browserRuntimeWorker": true,
     "browserRuntimeCoreWasm": {
@@ -367,7 +367,7 @@
       "supportedCalls": 162087,
       "evidenceLevel": "summary",
       "callSemanticsAlgorithm": "sha256-canonical-json-v1",
-      "callSemanticsSha256": "c261b54c013bca8637802c8851a232580c875fba70b477db3244df79a3c57967",
+      "callSemanticsSha256": "75b983dd6bff893961769349c74bff97ebaf7b4c33a1eab229b215fa98cd58b6",
       "writebackBatches": 183987,
       "writebackPages": 282716,
       "hostDeltaBatches": 127997,
@@ -5686,10 +5686,10 @@
     "decisionScope": "controlled-browser-runtime-baseline"
   },
   "activeRuntimeCheckpoint": {
-    "runtimeKernelCheckpoint": "user32-get-cursor-info-post-outline-text-metrics-224x112",
-    "status": "structured-stop",
+    "runtimeKernelCheckpoint": "d3d9-update-texture-partial-dirty-region-post-get-cursor-info",
+    "status": "checkpoint-complete",
     "profile": "user32-peek-message-a-post-window-timer-callback-continuation",
-    "capabilityProfile": "user32-get-cursor-info",
+    "capabilityProfile": "d3d9-update-texture-partial-dirty-region",
     "runtimeStateAuthority": "rust",
     "runtimeStateScope": "single-process-controlled-and-api-created-thread-wait-message-heap-module-dll-lifecycle-critical-section-named-mutex-pointer-decoding-fls-allocation-private-heap-allocation-fls-value-interlocked-increment-second-heap-allocation-standard-input-handle-file-type-standard-output-handle-standard-output-file-type-standard-error-handle-standard-error-file-type-set-handle-count-policy-process-command-line-wide-environment-copy-lifetime-windows-932-wide-and-multibyte-conversion-one-byte-uninitialized-heap-buffer-thread-last-error-read-write-thread-local-storage-read-fiber-local-storage-read-active-code-page-read-544-byte-uninitialized-heap-buffer-active-code-page-information-output-ctype1-classification-ja-jp-lowercase-and-uppercase-mapping-interlocked-decrement-process-image-path-ansi-copy-16-byte-uninitialized-heap-buffer-4-byte-zeroed-environment-pointer-table-one-byte-private-heap-free-128-byte-zeroed-heap-buffer-explicit-processor-feature-presence-process-unhandled-exception-filter-private-heap-size-query-default-critical-section-initialization-active-code-page-selector-nul-terminated-conversion-process-current-directory-ansi-identity-current-thread-pseudo-handle-dynamic-resolution-thread-logical-affinity-mask-deterministic-monotonic-tick-progression-deterministic-high-resolution-performance-frequency-and-counter-progression-x86-virtual-system-information-single-logical-monitor-enumeration-and-work-area-query-per-thread-com-apartment-initialization-system-default-lang-id-read-process-image-drive-type-query-logical-mouse-button-mapping-focused-virtual-key-state-and-pressed-since-query-winmm-timer-capabilities-logical-winmm-timer-resolution-request-lifetime-policy-owned-ansi-os-version-information-manual-reset-unnamed-waitable-timer-identity-handle-lifetime-relative-one-shot-arm-nonsignaled-reset-logical-expiration-clock-and-bounded-finite-alertable-wait-pe-resource-catalog-module-shared-icon-identity-and-process-lifetime-system-arrow-and-module-resource-shared-cursor-identity-and-process-lifetime-process-local-window-class-identity-atom-module-wndproc-resource-reference-and-lifetime-logical-system-metrics-read-process-large-private-heap-permanent-slot-lazy-page-materialization-logical-top-level-window-five-message-synchronous-creation-callback-lifecycle-dedicated-scratch-small-icon-size-metrics-module-shared-small-icon-load-image-selection-same-thread-synchronous-wm-seticon-small-icon-relation-and-initial-offscreen-show-hide-position-visibility-callback-free-dynamic-runtime-system-module-identity-reference-and-attach-state-d3d9-device-render-state-texture-binding-flexible-vertex-format-stream-source-binding-draw-submission-lifetime-directinput8-root-com-identity-lifetime-directinput8-empty-attached-game-controller-enumeration-directsound8-root-com-audio-identity-lifetime-priority-cooperative-window-relation-primary-and-secondary-logical-audio-buffer-descriptor-format-lazy-sample-backing-lock-content-playback-and-com-lifetime-logical-window-timer-registration-identity-owner-thread-interval-callback-and-process-lifetime-guest-thread-stack-teb-bootstrap-suspend-resume-lifetime-logical-priority-and-explicit-api-boundary-yield-primary-screen-dc-acquisition-lifetime-bounded-cp932-font-enumeration-callback-catalog-logical-font-object-creation-null-source-compatible-memory-dc-dib-lifecycle-selected-font-outline-metrics-output-bounded-cp932-text-raster-into-selected-dib-and-logical-gdiplus-startup-session-token-lifetime-logical-window-file-drop-acceptance-runtime-vfs-registered-file-and-derived-directory-attribute-query-runtime-vfs-durable-writable-directory-create-same-active-window-repeat-position-validation-only-callback-current-thread-unfiltered-nonblocking-message-peek-and-optional-remove-logical-window-minimized-state-query-from-effective-style-logical-window-timer-expiry-low-priority-wm-timer-materialization-translate-noop-and-validated-timerproc-dispatch-foreground-client-pointer-button-message-production-and-wndproc-dispatch-with-queued-release-same-current-thread-active-focused-foreground-set-focus-idempotent-read-same-current-thread-visible-active-focused-foreground-cursor-derived-wm-lbuttondown-default-window-processing-current-thread-unfiltered-pm-remove-wm-lbuttonup-msg32-write-and-empty-queue-read-only-wm-lbuttonup-translate-from-guest-memory-with-empty-current-thread-queue-wm-lbuttonup-dispatch-defwindowproc-zero-result-and-callback-unwind-same-thread-wm-settext-windows-932-window-title-commit-system-arrow-cursor-info-flags-handle-and-logical-position-projection",
     "runtimeVirtualMemoryScope": "null-preferred-96m-reserve-top-down-page-readwrite-without-commit-decommit-or-release",
@@ -5805,7 +5805,7 @@
     "hostCompletionModel": "scheduler-event",
     "genericDispatcherApiCount": 135,
     "genericDispatcherContractCount": 137,
-    "genericDispatcherCallOccurrenceCount": 282848,
+    "genericDispatcherCallOccurrenceCount": 282849,
     "genericDispatcherApis": [
       "KERNEL32.dll!GetSystemTimeAsFileTime",
       "KERNEL32.dll!GetCurrentProcessId",
@@ -6162,7 +6162,7 @@
         "kernel32_virtual_memory_dispatcher::owner_capacity_failure_is_atomic_across_allocator_and_guest_memory",
         "kernel32_virtual_memory_dispatcher::guest_region_overlap_rejects_before_allocator_commit_or_owner_id_advance"
       ],
-      "capabilityExpansionPausedAt": "d3d9-update-texture-partial-dirty-region-post-get-cursor-info"
+      "capabilityExpansionPausedAt": "d3d9-begin-scene-post-partial-dirty-region-update"
     },
     "runtimeObjectModel": {
       "schema": "vine.runtime-object-table.v2",
@@ -6320,14 +6320,22 @@
       "frontendDispatchBoundary": "version-neutral-com-gateway-to-versioned-d3d9-handler",
       "compatibilityPolicy": {
         "schema": "vine.d3d9-compatibility-policy",
-        "schemaVersion": 32,
-        "id": "d3d9-primary-virtual-adapter-v32",
+        "schemaVersion": 33,
+        "id": "d3d9-primary-virtual-adapter-v33",
         "displayProfileId": "single-monitor-1920x1080-work-1920x1032-v2",
         "surfaceDcProfileId": "primary-surface-gdi-dc-v1",
         "rasterStatusProfileId": "primary-stable-last-visible-scanline-v2",
         "clearProfileId": "primary-full-render-target-black-v1",
         "addDirtyRectProfileId": "primary-recreated-system-memory-texture-dirty-rect-v1",
-        "updateTextureProfileId": "primary-recreated-system-memory-to-static-default-texture-update-v2",
+        "updateTextureProfileId": "primary-recreated-system-memory-to-static-default-texture-update-v3",
+        "additionalPartialDirtyRects": [
+          [
+            583,
+            530,
+            1260,
+            582
+          ]
+        ],
         "beginSceneProfileId": "primary-first-frame-scene-begin-v1",
         "samplerStateProfileId": "primary-first-frame-linear-sampler-states-v1",
         "textureStageStateProfileId": "primary-first-frame-fixed-function-texture-stage-zero-v1",
@@ -8596,7 +8604,7 @@
         "slot": 31,
         "explicitArgumentWords": 2,
         "returnKind": "h-result",
-        "profileId": "primary-recreated-system-memory-to-static-default-texture-update-v2",
+        "profileId": "primary-recreated-system-memory-to-static-default-texture-update-v3",
         "sourceTextureVariantIndices": [
           3
         ],
@@ -11048,7 +11056,7 @@
       "guestHeapAllocOtherFlags": false,
       "guestHeapAllocReturnAddress": "0x20000000",
       "guestHeapAllocFailureReturnSemantics": false,
-      "capabilityExpansionPausedAt": "d3d9-update-texture-partial-dirty-region-post-get-cursor-info"
+      "capabilityExpansionPausedAt": "d3d9-begin-scene-post-partial-dirty-region-update"
     },
     "processAddressSpaceAllocator": {
       "schema": "vine.process-address-space-allocator.v1",
@@ -13287,13 +13295,13 @@
       "allApiAndComDispatchBoundariesUseSharedSchedule": true,
       "regressingInstructionCursorRejectedBeforeMutation": true,
       "nodePrimaryEvidence": {
-        "schema": "vine.v86-bgi-get-cursor-info-primary",
+        "schema": "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary",
         "schemaVersion": 1,
         "canonicalCommand": "npm run check:runtime:bgi",
         "repeatRuns": 1,
-        "reportPath": ".work/v86-bgi-get-cursor-info/report.json",
-        "reportBytes": 2507133,
-        "reportSha256": "baf04788d9c2cc70307af8343190d9a6acb4901f024c642b6654eeabca5bd9b1",
+        "reportPath": ".work/v86-bgi-d3d9-update-texture-partial-dirty-region/report.json",
+        "reportBytes": 2479724,
+        "reportSha256": "b2e577c2bdcaed1ee256ec71b7d2c3bfc7bf1b8ea6562bcf8f2bc0d16056ad83",
         "nodeReplayOldSpaceMiB": 8192,
         "rejectedNodeReplayOldSpaceMiB": 6144,
         "rejectedNodeReplayOutcome": "v8-heap-out-of-memory-near-limit",
@@ -13301,8 +13309,8 @@
         "sourceBytes": 1193472,
         "sourceSha256": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
         "sourceImmutableAcrossRun": true,
-        "completedSupportedCalls": 282848,
-        "supportedCallSemanticsSha256": "c261b54c013bca8637802c8851a232580c875fba70b477db3244df79a3c57967",
+        "completedSupportedCalls": 282849,
+        "supportedCallSemanticsSha256": "75b983dd6bff893961769349c74bff97ebaf7b4c33a1eab229b215fa98cd58b6",
         "clockSampleCount": 100556,
         "firstClockTick": 3600000,
         "firstClockRetiredInstructions": 29,
@@ -13316,13 +13324,13 @@
         "timerPacingCompletionCount": 9002,
         "presentCount": 3,
         "thirdPresentReached": true,
-        "writebackBatches": 286046,
+        "writebackBatches": 286047,
         "hostDeltaBatches": 143087,
         "callbackEventCount": 148,
         "activeCallbackDepth": 0,
-        "finalMemoryGeneration": 333483,
-        "terminalInstructionCount": 392353932,
-        "terminalMemoryContentSha256": "8af674327bd71aa3281a541d83d886a82653f9559b1f8c146dde8b7fd138d4a6",
+        "finalMemoryGeneration": 333484,
+        "terminalInstructionCount": 392353938,
+        "terminalMemoryContentSha256": "568061b7a8f6722b0556c6f9add62e5f9b35e62591b1769c16a441250331329e",
         "pointerInputEventCount": 2,
         "pointerInputDownCommittedAfterSequence": 222004,
         "pointerInputUpCommittedAfterSequence": 222096,
@@ -13672,47 +13680,91 @@
           "nativeOracleWrongSizeLastError": 87,
           "nativeOracleSuccessPreservesLastError": true,
           "nativeOracleExecutableHashUnchanged": true
+        },
+        "d3d9UpdateTexturePartialDirtyRegion": {
+          "completionCount": 1,
+          "sequence": 282849,
+          "instructionCount": 392353932,
+          "arguments": [
+            "0x01010004",
+            "0x01020004",
+            "0x01030004"
+          ],
+          "result": "0x00000000",
+          "returnAddress": "0x1005b038",
+          "stackPointers": [
+            "0x006fb868",
+            "0x006fb878"
+          ],
+          "referenceCount": 5,
+          "guestWriteBytes": 0,
+          "sourceTextureId": 7,
+          "sourceComObjectId": "22",
+          "sourceGeneration": 54,
+          "destinationTextureId": 8,
+          "destinationComObjectId": "24",
+          "destinationGeneration": 48,
+          "contentGeneration": 4,
+          "updateSequence": 4,
+          "dirtyRegion": [
+            583,
+            530,
+            1260,
+            582
+          ],
+          "sourceDirtyRegionAfter": "clean",
+          "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
+          "updateTextureProfileId": "primary-recreated-system-memory-to-static-default-texture-update-v3",
+          "byteAuthority": "rust-guest-memory-graphics-resource-allocation",
+          "transferPublication": "full-authoritative-source-backing",
+          "partialTransferPrecondition": "destination-immediately-preceding-source-generation",
+          "mutation": "dual-texture-plan-preflight-targeted-commit",
+          "failureAtomicity": true,
+          "arbitraryPartialHistoryImplemented": false,
+          "dynamicDestinationImplemented": false,
+          "nextEndpoint": "IDirect3DDevice9!BeginScene",
+          "nextInstructionCount": 392353938
         }
       },
       "browserBoundaryEvidence": {
-        "runtimeProtocol": "vine.browser-runtime-worker.v108",
-        "browserReportSchemaVersion": 74,
+        "runtimeProtocol": "vine.browser-runtime-worker.v109",
+        "browserReportSchemaVersion": 75,
         "retiredInstructionCursorTransport": "checked-u64-low-high-per-api-and-com-dispatch",
         "browserOwnsGuestClockState": false,
         "controlledChromeE2e": "passed",
         "controlledChromeCommand": "npm run check:runtime:browser-worker",
         "chromeVersion": "150.0.7871.187",
-        "reportBytes": 35954,
-        "reportSha256": "f7316790374264886919f9ec46f2dde5a67976c50937c59b8ac569a7b628b830",
-        "runtimeWorkerBytes": 1087325,
-        "runtimeWorkerSha256": "f019ba714b91c3218d77e7fe6cd47b3e36edb22290a35d962ac5c06d72b2a121",
-        "runtimeCoreWasmBytes": 5407727,
-        "runtimeCoreWasmSha256": "c030ac92a6f8594ebc302a50e5790102592f460c164d130dc2cadd197345dad1",
+        "reportBytes": 35938,
+        "reportSha256": "655310148e47bdd75efb757c8392e77417a4f5e7309878b2473cb201a2f1d3eb",
+        "runtimeWorkerBytes": 1095762,
+        "runtimeWorkerSha256": "a8493d8108587768ad382de9d7af88c3d43ca80ec8eafacb1110611d5c463ab4",
+        "runtimeCoreWasmBytes": 5407751,
+        "runtimeCoreWasmSha256": "60674a1917bdd4641cf8f3884cc73dc177817d45e480f4587cc4627a1f71798e",
         "privatePrimaryReplay": "passed-node-equivalent-scheduled-shared-clock",
         "privatePrimaryCommand": "node tools/run-browser-runtime-check.mjs --bgi",
-        "privatePrimaryReportBytes": 2613486,
-        "privatePrimaryReportSha256": "08c4e5c4c758fafcbc1e27da9edc466553c0775811ef212d1087819d4d26fc27",
+        "privatePrimaryReportBytes": 2612491,
+        "privatePrimaryReportSha256": "d7cb6178d1f77f455240248ea9ac1d6e6a22f47a91f4ee804eae216d27666d8b",
         "privatePrimaryChromeVersion": "150.0.7871.187",
-        "privatePrimarySupportedCalls": 282848,
-        "privatePrimarySupportedCallSemanticsSha256": "c261b54c013bca8637802c8851a232580c875fba70b477db3244df79a3c57967",
-        "privatePrimaryInstructionCount": 392353932,
+        "privatePrimarySupportedCalls": 282849,
+        "privatePrimarySupportedCallSemanticsSha256": "75b983dd6bff893961769349c74bff97ebaf7b4c33a1eab229b215fa98cd58b6",
+        "privatePrimaryInstructionCount": 392353938,
         "privatePrimaryClockSampleCount": 100556,
         "privatePrimaryWindowTimerCallbackCount": 40,
         "privatePrimaryPresentCount": 3,
         "privatePrimaryPointerInputEventCount": 2,
         "privatePrimaryTimerPacingCompletionCount": 9002,
         "privatePrimaryMappingDeltas": 143087,
-        "privatePrimaryFinalMemoryGeneration": 355938,
-        "privatePrimaryWritebackBatches": 308611,
-        "privatePrimaryTerminalMemoryContentSha256": "8af674327bd71aa3281a541d83d886a82653f9559b1f8c146dde8b7fd138d4a6",
+        "privatePrimaryFinalMemoryGeneration": 355939,
+        "privatePrimaryWritebackBatches": 308612,
+        "privatePrimaryTerminalMemoryContentSha256": "568061b7a8f6722b0556c6f9add62e5f9b35e62591b1769c16a441250331329e",
         "privatePrimaryRawGenerationAndWritebacksAreAdapterSpecific": true,
         "privatePrimaryCancellationClean": true,
         "privatePrimaryWatchdogClean": true
       },
       "proximateCauseConclusion": {
         "clockFreezeWasProximateCause": false,
-        "reason": "scheduled progression completed 100556 shared-clock samples, 40 TIMERPROC callbacks, two GetCursorInfo projections, and a third Present before the next IDirect3DDevice9 UpdateTexture partial dirty-region variant",
-        "nextEndpoint": "IDirect3DDevice9!UpdateTexture",
+        "reason": "scheduled progression completed 100556 shared-clock samples, 40 TIMERPROC callbacks, two GetCursorInfo projections, a third Present, and the reached exact partial dirty-region UpdateTexture before the next IDirect3DDevice9 BeginScene",
+        "nextEndpoint": "IDirect3DDevice9!BeginScene",
         "archiveEnumerationWasProximateCause": false,
         "missingFileDeleteWasProximateCause": false,
         "ordinaryHeapCapacityWasProximateCause": false,
@@ -13723,7 +13775,7 @@
       }
     },
     "latestEvidence": {
-      "schema": "vine.v86-bgi-get-cursor-info-primary",
+      "schema": "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary",
       "nativeSleepZeroOracleProfile": "x86-sleep-zero-ready-competitor-v1",
       "nativeSleepZeroOracleArchitecture": "coff-i386",
       "nativeSleepZeroOracleSourceBytes": 6481,
@@ -15504,9 +15556,9 @@
       "nativeDefWindowProcPointerReleaseOracleForegroundPreserved": true,
       "nativeDefWindowProcPointerReleaseOracleCaptureBefore": null,
       "nativeDefWindowProcPointerReleaseOracleCaptureAfter": null,
-      "implementation": "Rust-owned user32.peek-message-a.current-thread.v1 completes the reached post-TIMERPROC current-thread unfiltered PM_REMOVE call against the authoritative empty queue, returns FALSE without guest writes or queue mutation, preserves the prior 28-byte WM_TIMER MSG32 output and LastError at callback depth zero, imports no browser message authority, and stops before the next shared process-clock read",
+      "implementation": "Rust-owned D3D9 UpdateTexture policy v33 admits the reached exact [583,530,1260,582] dirty region, validates source and destination lineage before one two-texture targeted commit, publishes the full authoritative source backing, consumes the source dirty state without guest writes, and completes before the next BeginScene slot 41 endpoint",
       "implementedApiContractCount": 137,
-      "genericSupportedCallCount": 282848,
+      "genericSupportedCallCount": 282849,
       "createWindowExAImplemented": true,
       "createWindowExASequence": 1388,
       "createWindowExAInstructionCount": 11476236,
@@ -15823,11 +15875,11 @@
       "initializeCriticalSectionDeltaAddress": "0x100fd000",
       "initializeCriticalSectionDeltaOwner": 1,
       "initializeCriticalSectionDeltaPayloadSha256": "80eb4797e4759ad5c9f4c484abf155aa7008a2ef8bfdffad9c17319ae36ef0fb",
-      "writebackBatches": 165242,
+      "writebackBatches": 165243,
       "writebackDirtyPages": 244675,
       "writebackChangedBytes": 43072557,
       "hostDeltaBatches": 127997,
-      "finalMemoryGeneration": 333483,
+      "finalMemoryGeneration": 333484,
       "allocationDeltaSequence": 198,
       "allocationDeltaFromGeneration": 281,
       "allocationDeltaGeneration": 282,
@@ -16028,7 +16080,7 @@
         "browserResourceCreated": false,
         "nodeChromeOrderedSemanticsMatched": true
       },
-      "memoryContentSha256": "8af674327bd71aa3281a541d83d886a82653f9559b1f8c146dde8b7fd138d4a6",
+      "memoryContentSha256": "568061b7a8f6722b0556c6f9add62e5f9b35e62591b1769c16a441250331329e",
       "enterCriticalSectionCheckpointCompletions": 3,
       "enterCriticalSectionSequences": [
         18699,
@@ -19895,7 +19947,7 @@
       "directSoundSetCooperativeLevelChromeCompletions": 1,
       "directSoundSetCooperativeLevelNodeChromeOrderedSemanticsMatched": true,
       "semanticCallDigestAlgorithm": "sha256-canonical-json-v1",
-      "semanticCallDigestSha256": "c261b54c013bca8637802c8851a232580c875fba70b477db3244df79a3c57967",
+      "semanticCallDigestSha256": "75b983dd6bff893961769349c74bff97ebaf7b4c33a1eab229b215fa98cd58b6",
       "nativeDirectSoundInitialBuffersPrimaryTraceBytes": 382086,
       "nativeDirectSoundInitialBuffersPrimaryTraceLines": 801,
       "nativeDirectSoundInitialBuffersPrimaryTraceSha256": "6d924745fb6b61efa7992ec4ccda6cd553bab625348b0734876216e12af37f33",
@@ -22205,7 +22257,7 @@
         108742,
         108743
       ],
-      "d3d9RecreatedTexturesCompatibilityPolicyId": "d3d9-primary-virtual-adapter-v32",
+      "d3d9RecreatedTexturesCompatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
       "d3d9RecreatedTexturesCreateTextureProfileId": "primary-initial-and-recreated-x8r8g8b8-textures-v2",
       "d3d9RecreatedTexturesGetSurfaceLevelProfileId": "primary-system-memory-texture-level-zero-surfaces-v2",
       "d3d9RecreatedTexturesFailureAtomicity": true,
@@ -26175,27 +26227,14 @@
   },
   "activeBlocker": null,
   "nextStructuredStop": {
-    "kind": "com-method",
+    "kind": "capability-checkpoint",
     "classification": "semantic-leaf",
-    "nextCheckpoint": "d3d9-update-texture-partial-dirty-region-post-get-cursor-info",
-    "pausedHistoricalCheckpoint": "user32-get-cursor-info-post-outline-text-metrics-224x112",
-    "instructionCount": 392353932,
+    "nextCheckpoint": "d3d9-begin-scene-post-partial-dirty-region-update",
+    "pausedHistoricalCheckpoint": "d3d9-update-texture-partial-dirty-region-post-get-cursor-info",
+    "instructionCount": 392353938,
     "capabilityCluster": "d3d9-idirect3ddevice9-method",
-    "reason": "update-texture-partial-dirty-region-variant-unsupported",
-    "endpointKind": "com-method",
-    "interface": "IDirect3DDevice9",
-    "vtableSlot": 31,
-    "method": "UpdateTexture",
-    "thisPointer": "0x01010004",
-    "arguments": [
-      "0x01020004",
-      "0x01030004"
-    ],
-    "endpointAddress": "0x01011220",
-    "returnAddress": "0x1005b038",
-    "objectId": "21",
-    "interfaceId": "42",
-    "prerequisiteCheckpoint": {
+    "reason": "d3d9-update-texture-partial-dirty-region-post-get-cursor-info-checkpoint-complete",
+    "historicalOutlineTextMetricsCheckpoint": {
       "capability": "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
       "implementationId": "runtime.gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336.v1",
       "requiredCompletions": 2,
@@ -26385,7 +26424,7 @@
       "instructionCount": 375285853,
       "memoryContentSha256": "cb8497abf612962fe1d7f6cef19d62e17d786daa3018a666d2f88096b5f10312"
     },
-    "completion": {
+    "prerequisiteCheckpoint": {
       "capability": "user32-get-cursor-info-post-outline-text-metrics-224x112",
       "implementationId": "runtime.user32-get-cursor-info-post-outline-text-metrics-224x112.v1",
       "requiredCompletions": 2,
@@ -26428,13 +26467,71 @@
       "instructionCount": 392353932,
       "memoryContentSha256": "8af674327bd71aa3281a541d83d886a82653f9559b1f8c146dde8b7fd138d4a6"
     },
-    "fault": {
+    "completion": {
+      "capability": "d3d9-update-texture-partial-dirty-region-post-get-cursor-info",
+      "implementationId": "runtime.d3d9-update-texture-partial-dirty-region-post-get-cursor-info.v1",
+      "requiredCompletions": 1,
+      "completionCount": 1,
+      "prerequisiteGetCursorInfoSequence": 282396,
+      "prerequisiteGetCursorInfoInstructionCount": 375288207,
+      "firstCompletionSequence": 282849,
+      "firstCompletionInstructionCount": 392353932,
+      "lastCompletionSequence": 282849,
+      "lastCompletionInstructionCount": 392353932,
+      "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
+      "updateTextureProfileId": "primary-recreated-system-memory-to-static-default-texture-update-v3",
+      "dirtyRegion": {
+        "left": 583,
+        "top": 530,
+        "right": 1260,
+        "bottom": 582
+      },
+      "byteAuthority": "rust-guest-memory-graphics-resource-allocation",
+      "transferPublication": "full-authoritative-source-backing",
+      "partialTransferPrecondition": "destination-immediately-preceding-source-generation",
+      "sourceContentGeneration": 4,
+      "destinationContentGeneration": 4,
+      "sourceDirtyRegionAfter": "clean",
+      "mutation": "dual-texture-plan-preflight-targeted-commit",
+      "failureAtomicity": true,
+      "admittedAdditionalPartialDirtyRegions": 1,
+      "arbitraryPartialHistoryImplemented": false,
+      "dynamicDestinationImplemented": false,
+      "activeCallbackDepthAtCompletion": 0,
+      "clockProfileId": "scheduled-shared-logical-deadline-v1",
+      "clockSampleCount": 100556,
+      "windowTimerCallbackCount": 40,
+      "presentCount": 3,
+      "instructionCount": 392353938,
+      "memoryContentSha256": "568061b7a8f6722b0556c6f9add62e5f9b35e62591b1769c16a441250331329e"
+    },
+    "nextEndpoint": {
+      "endpointKind": "com-method",
+      "endpointId": 0,
+      "api": "IDirect3DDevice9!BeginScene",
+      "endpointAddress": "0x010112c0",
+      "observedModule": "<com>",
+      "observedSymbol": "interface-1-slot-41",
+      "id": 0,
+      "address": 16847552,
+      "module": "<com>",
+      "symbol": {
+        "kind": "name",
+        "name": "interface-1-slot-41"
+      },
+      "disposition": "declared-com-method",
+      "interfaceIndex": 1,
+      "vtableSlot": 41,
+      "interface": "IDirect3DDevice9",
+      "method": "BeginScene"
+    },
+    "historicalFollowingFault": {
       "class": "unsupported",
       "stage": "d3d9-update-texture",
       "code": "update-texture-partial-dirty-region-variant-unsupported",
       "message": "D3D9 compatibility policy does not enable this partial dirty-region variant"
     },
-    "previousEndpoint": {
+    "historicalPreviousEndpoint": {
       "endpointKind": "runtime-system-export",
       "endpointId": 168,
       "api": "USER32.dll!GetCursorInfo",

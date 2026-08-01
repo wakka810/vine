@@ -12165,6 +12165,181 @@ mod tests {
             })
         );
 
+        write_d3d9_fixture_words(&mut memory, dirty_rect_address, &[0, 0, 1_280, 720]);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                0x1004_154c,
+                recreated_system_texture_interface.guest_pointer.0,
+                0,
+                locked_rect_address.0,
+                dirty_rect_address.0,
+                D3D9_D3DLOCK_NO_DIRTY_UPDATE,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let third_lock = match dispatch_d3d9_fixture_frontend(
+            &mut memory,
+            &mut runtime,
+            &D3d9CompatibilityPolicy::controlled_v31(),
+            &recreated_system_texture_interface,
+            19,
+            GuestAddress(0x1004_154c),
+        ) {
+            ComDispatchOutcome::Completed(completion) => completion,
+            other => panic!("third IDirect3DTexture9::LockRect did not complete: {other:?}"),
+        };
+        assert_eq!(third_lock.return_value, ComReturnValue::HResult(COM_S_OK));
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        memory
+            .write(texture_bits, &[0x77, 0x88, 0x99, 0])
+            .expect("write third locked texture pixel");
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                0x1004_156d,
+                recreated_system_texture_interface.guest_pointer.0,
+                0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let third_unlock = match dispatch_d3d9_fixture_frontend(
+            &mut memory,
+            &mut runtime,
+            &D3d9CompatibilityPolicy::controlled_v31(),
+            &recreated_system_texture_interface,
+            20,
+            GuestAddress(0x1004_156d),
+        ) {
+            ComDispatchOutcome::Completed(completion) => completion,
+            other => panic!("third IDirect3DTexture9::UnlockRect did not complete: {other:?}"),
+        };
+        assert_eq!(third_unlock.return_value, ComReturnValue::HResult(COM_S_OK));
+        acknowledge_d3d9_fixture_memory(&mut memory);
+
+        let later_partial_rect = RuntimeRect {
+            left: 583,
+            top: 530,
+            right: 1_260,
+            bottom: 582,
+        };
+        write_d3d9_fixture_words(
+            &mut memory,
+            dirty_rect_address,
+            &[
+                later_partial_rect.left as u32,
+                later_partial_rect.top as u32,
+                later_partial_rect.right as u32,
+                later_partial_rect.bottom as u32,
+            ],
+        );
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                0x1005_afe1,
+                recreated_system_texture_interface.guest_pointer.0,
+                dirty_rect_address.0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let later_partial_dirty = match dispatch_d3d9_fixture_frontend(
+            &mut memory,
+            &mut runtime,
+            &D3d9CompatibilityPolicy::controlled_v31(),
+            &recreated_system_texture_interface,
+            21,
+            GuestAddress(0x1005_afe1),
+        ) {
+            ComDispatchOutcome::Completed(completion) => completion,
+            other => panic!("later partial AddDirtyRect did not complete: {other:?}"),
+        };
+        assert_eq!(
+            later_partial_dirty.return_value,
+            ComReturnValue::HResult(COM_S_OK)
+        );
+        assert_eq!(
+            runtime
+                .graphics_texture_for_com_object(recreated_system_texture_interface.object_id)
+                .unwrap()
+                .dirty_region,
+            RuntimeGraphicsTextureDirtyRegion::Rect(later_partial_rect)
+        );
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                0x1005_b038,
+                device_interface.guest_pointer.0,
+                recreated_system_texture_interface.guest_pointer.0,
+                recreated_default_texture_interface.guest_pointer.0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let before_v32_memory = memory.stats();
+        let before_v32_runtime = runtime.clone();
+        let v32_fault = match dispatch_d3d9_fixture_frontend(
+            &mut memory,
+            &mut runtime,
+            &D3d9CompatibilityPolicy::controlled_v32(),
+            &device_interface,
+            31,
+            GuestAddress(0x1005_b038),
+        ) {
+            ComDispatchOutcome::Fault(fault) => fault,
+            other => panic!("v32 later partial UpdateTexture did not fault: {other:?}"),
+        };
+        assert_eq!(v32_fault.class, ComFaultClass::Unsupported);
+        assert_eq!(
+            v32_fault.code,
+            "update-texture-partial-dirty-region-variant-unsupported"
+        );
+        assert_eq!(memory.stats(), before_v32_memory);
+        assert_eq!(runtime, before_v32_runtime);
+
+        let later_partial_update = match dispatch_d3d9_fixture_frontend(
+            &mut memory,
+            &mut runtime,
+            &D3d9CompatibilityPolicy::controlled_v33(),
+            &device_interface,
+            31,
+            GuestAddress(0x1005_b038),
+        ) {
+            ComDispatchOutcome::Completed(completion) => completion,
+            other => panic!("v33 later partial UpdateTexture did not complete: {other:?}"),
+        };
+        assert_eq!(
+            later_partial_update.return_value,
+            ComReturnValue::HResult(COM_S_OK)
+        );
+        let updated_source = runtime
+            .graphics_texture_for_com_object(recreated_system_texture_interface.object_id)
+            .unwrap();
+        let updated_destination = runtime
+            .graphics_texture_for_com_object(recreated_default_texture_interface.object_id)
+            .unwrap();
+        assert_eq!(updated_source.content.content_generation, 3);
+        assert_eq!(
+            updated_source.dirty_region,
+            RuntimeGraphicsTextureDirtyRegion::Clean
+        );
+        assert_eq!(updated_destination.content.content_generation, 3);
+        assert_eq!(
+            updated_destination.content.pixel_source,
+            updated_source.content.pixel_source
+        );
+        let later_update = updated_destination.content.last_update.unwrap();
+        assert_eq!(later_update.sequence, 3);
+        assert_eq!(later_update.source_content_generation, 3);
+        assert_eq!(
+            later_update.dirty_region,
+            RuntimeGraphicsTextureDirtyRegion::Rect(later_partial_rect)
+        );
+
         let destination_texture_id = updated_destination.id;
         let texture_reference_count = runtime
             .com()
