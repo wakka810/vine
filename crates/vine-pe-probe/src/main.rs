@@ -15106,6 +15106,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-update-texture-partial-dirty-region" => {
                     GenericRuntimeCapability::D3d9UpdateTexturePartialDirtyRegion
                 }
+                "d3d9-begin-scene-post-partial-dirty-region" => {
+                    GenericRuntimeCapability::D3d9UpdateTexturePartialDirtyRegion
+                }
                 "d3d9-begin-scene" => GenericRuntimeCapability::D3d9BeginScene,
                 "d3d9-initial-sampler-states" => GenericRuntimeCapability::D3d9InitialSamplerStates,
                 "d3d9-initial-texture-stage-states" => {

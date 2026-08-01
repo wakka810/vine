@@ -943,7 +943,8 @@ Nested lock、stale plan、unwritable output、capacity failureはallocation、p
 copyするだけで、Windows texture bytes、lock、generationの第二authorityを持たない。
 
 続く`BeginScene`は同じ`RuntimeGraphicsDevice`上でinactive-to-active lifecycleと
-scene sequenceだけをplan／preflight／commitする。Reached `SetSamplerState`はdevice-owned sparse typed mapへ
+scene sequenceだけをplan／preflight／commitする。初回とpost-partial 4回目の到達はいずれも
+この同一ownerを通り、TypeScriptにscene stateを複製しない。Reached `SetSamplerState`はdevice-owned sparse typed mapへ
 sampler 0のMIN／MAG linearだけを追加し、同値repeatをgeneration不変のsuccessにする。Native driverのprofile外
 permissivenessを推測で一般化せず、unsupported sampler／state／valueはmutation前にtyped resultへ落とす。Reached
 `SetTextureStageState`も同じdevice owner上のstage 0 sparse typed stateへ、到達したcolor／alpha operationとargumentの

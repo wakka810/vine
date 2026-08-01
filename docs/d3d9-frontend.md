@@ -1173,7 +1173,10 @@ slot 31. The historical `d3d9-update-texture` profile additionally enables the e
 static SYSTEMMEM-to-DEFAULT logical-content transfer and stops at
 `IDirect3DDevice9::BeginScene` slot 41. The historical `d3d9-begin-scene` profile
 additionally enables the exact inactive-to-active scene transition and stops at
-`IDirect3DDevice9::SetSamplerState` slot 69. The historical
+`IDirect3DDevice9::SetSamplerState` slot 69. The
+`d3d9-begin-scene-post-partial-dirty-region` profile reuses that same device-owned
+scene transition after the reached fourth partial upload, records active scene
+sequence 4 without browser graphics ownership, and also stops at slot 69. The historical
 `d3d9-initial-sampler-states` profile enables only the exact sampler-0 MIN／MAG
 linear transitions, explicitly rejects the following three unprofiled render
 states, and stops at `IDirect3DDevice9::SetTextureStageState` slot 67. The historical
@@ -1218,7 +1221,8 @@ browser frame, and stops before the already-supported `WINMM.dll!timeGetTime`.
   `AddDirtyRect`, the initial whole-content and later exact partial
   SYSTEMMEM-to-DEFAULT `UpdateTexture` calls, one exact level-zero
   SYSTEMMEM `LockRect`／`UnlockRect` lifetime, one
-  exact inactive-to-active `BeginScene`, the exact two sampler-0 MIN／MAG
+  exact initial and reached post-partial inactive-to-active `BeginScene` transitions,
+  the exact two sampler-0 MIN／MAG
   linear `SetSamplerState` calls, the exact six stage-0
   `SetTextureStageState` calls, the exact stage-0 static DEFAULT
   `SetTexture` binding, the exact typed FVF `0x144`, the exact stream-0

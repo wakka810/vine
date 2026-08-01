@@ -254,6 +254,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "gdi-outline-text-metrics-224x112",
         "user32-get-cursor-info",
         "d3d9-update-texture-partial-dirty-region",
+        "d3d9-begin-scene-post-partial-dirty-region",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
@@ -467,6 +468,7 @@ assert(
       "gdi-outline-text-metrics-224x112",
       "user32-get-cursor-info",
       "d3d9-update-texture-partial-dirty-region",
+      "d3d9-begin-scene-post-partial-dirty-region",
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
       "user32-set-window-pos-frame-change-move",
@@ -518,7 +520,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "gdi-create-dib-section-448x336" ||
     genericRuntimeCapability === "gdi-outline-text-metrics-224x112" ||
     genericRuntimeCapability === "user32-get-cursor-info" ||
-    genericRuntimeCapability === "d3d9-update-texture-partial-dirty-region"
+    genericRuntimeCapability === "d3d9-update-texture-partial-dirty-region" ||
+    genericRuntimeCapability === "d3d9-begin-scene-post-partial-dirty-region"
       ? "kernel32-delete-file-a-v1.json"
       : genericRuntimeCapability === "kernel32-find-first-file-a"
       ? "kernel32-find-file-a-v1.json"
@@ -1036,8 +1039,14 @@ const d3d9PostInputScanWaitableTimerCycleCheckpointEnabled =
 const d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled =
   genericRuntimeCapability ===
   "d3d9-update-texture-partial-dirty-region";
-const getCursorInfoCheckpointEnabled =
+const d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled =
+  genericRuntimeCapability ===
+  "d3d9-begin-scene-post-partial-dirty-region";
+const d3d9UpdateTexturePartialDirtyRegionEvidenceEnabled =
   d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled ||
+  d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled;
+const getCursorInfoCheckpointEnabled =
+  d3d9UpdateTexturePartialDirtyRegionEvidenceEnabled ||
   genericRuntimeCapability === "user32-get-cursor-info";
 const outlineTextMetrics224x112CheckpointEnabled =
   getCursorInfoCheckpointEnabled ||
@@ -1517,7 +1526,7 @@ const user32AsyncKeyStateInitialScanEnabled =
   user32AsyncKeyStateInitialScanCheckpointEnabled ||
   user32AsyncKeyStateInitialScanContinuationCheckpointEnabled;
 const d3d9CompatibilityPolicyId =
-  d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled
+  d3d9UpdateTexturePartialDirtyRegionEvidenceEnabled
     ? "d3d9-primary-virtual-adapter-v33"
     : user32AsyncKeyStateInitialScanEnabled
       ? "d3d9-primary-virtual-adapter-v32"
@@ -1964,8 +1973,10 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled
-      ? "v86-bgi-d3d9-update-texture-partial-dirty-region"
+    ? d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled
+      ? "v86-bgi-d3d9-begin-scene-post-partial-dirty-region"
+      : d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled
+        ? "v86-bgi-d3d9-update-texture-partial-dirty-region"
       : getCursorInfoCheckpointEnabled
       ? "v86-bgi-get-cursor-info"
       : outlineTextMetrics224x112CheckpointEnabled
@@ -6567,6 +6578,11 @@ async function run() {
       });
       if (genericRuntimeCapability === null) {
         validateGenericRuntimeReentryResult(genericResult);
+      } else if (d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled) {
+        validateD3d9BeginScenePostPartialDirtyRegionResult(
+          genericResult,
+          sourceRegistration,
+        );
       } else if (d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled) {
         validateD3d9UpdateTexturePartialDirtyRegionResult(
           genericResult,
@@ -6927,6 +6943,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled
+            ? "bgi D3D9 BeginScene after partial dirty-region UpdateTexture"
           : d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled
             ? "bgi D3D9 UpdateTexture partial dirty-region"
           : getCursorInfoCheckpointEnabled
@@ -9042,8 +9060,16 @@ async function runGenericRuntimeReentry({
       checkpointCompletion !== null &&
       checkpointCompletion.capability !==
         "user32-peek-message-a-post-window-timer-callback-continuation" &&
-      checkpointCompletion.capability !==
-        "d3d9-update-texture-partial-dirty-region-post-get-cursor-info"
+      !(
+        d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled &&
+        checkpointCompletion.capability ===
+          "d3d9-update-texture-partial-dirty-region-post-get-cursor-info"
+      ) &&
+      !(
+        d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled &&
+        checkpointCompletion.capability ===
+          "d3d9-begin-scene-post-partial-dirty-region-update"
+      )
     ) {
       checkpointCompletion = null;
     }
@@ -9058,6 +9084,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "d3d9-begin-scene-post-partial-dirty-region-update"
+            ? "d3d9-begin-scene-post-partial-dirty-region-update-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "d3d9-update-texture-partial-dirty-region-post-get-cursor-info"
             ? "d3d9-update-texture-partial-dirty-region-post-get-cursor-info-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -9237,7 +9266,7 @@ async function runGenericRuntimeReentry({
           : { kind: "name", name: endpoint.symbol },
       };
       if (
-        d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled ||
+        d3d9UpdateTexturePartialDirtyRegionEvidenceEnabled ||
         postHeapTimeGetTimeCheckpointEnabled ||
         postCheckpointCriticalSectionRoundtripEnabled ||
         postCriticalSectionSetWaitableTimerCheckpointEnabled ||
@@ -9260,6 +9289,15 @@ async function runGenericRuntimeReentry({
               checkpointCompletion.nextEndpoint.interface =
                 "IDirect3DDevice9";
               checkpointCompletion.nextEndpoint.method = "BeginScene";
+            } else if (
+              d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled
+            ) {
+              assert.equal(endpoint.address, 0x0101_1480);
+              assert.equal(terminal.interfaceIndex, 1);
+              assert.equal(terminal.vtableSlot, 69);
+              checkpointCompletion.nextEndpoint.interface =
+                "IDirect3DDevice9";
+              checkpointCompletion.nextEndpoint.method = "SetSamplerState";
             }
           } else {
             assert.equal(terminal.kind, "owned-import-thunk");
@@ -9285,7 +9323,7 @@ async function runGenericRuntimeReentry({
             terminal.thunk.iatAddress;
         }
       }
-      if (d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled) {
+      if (d3d9UpdateTexturePartialDirtyRegionEvidenceEnabled) {
         checkpointCompletion.nextReturnAddress = terminal.returnAddress;
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (largeHeapFreeCheckpointEnabled) {
@@ -10708,7 +10746,7 @@ async function runGenericRuntimeReentry({
     }
     supportedCalls.push(call);
     if (
-      d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled &&
+      d3d9UpdateTexturePartialDirtyRegionEvidenceEnabled &&
       call.interface === "IDirect3DDevice9" &&
       call.vtableSlot === 31 &&
       call.sequence === 282_849
@@ -10772,6 +10810,77 @@ async function runGenericRuntimeReentry({
         admittedAdditionalPartialDirtyRegions: 1,
         arbitraryPartialHistoryImplemented: false,
         dynamicDestinationImplemented: false,
+        activeCallbackDepthAtCompletion: activeCallbacks.length,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
+    if (
+      d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled &&
+      call.interface === "IDirect3DDevice9" &&
+      call.vtableSlot === 41 &&
+      call.sequence === 282_850
+    ) {
+      const update = supportedCalls.find(
+        (candidate) =>
+          candidate.sequence === 282_849 &&
+          candidate.interface === "IDirect3DDevice9" &&
+          candidate.vtableSlot === 31,
+      );
+      const device = call.graphicsDevice;
+      assert.equal(checkpointCompletion, null);
+      assert(update, "later partial UpdateTexture prerequisite is missing");
+      assert(device, "later BeginScene omitted its Rust device snapshot");
+      assert.equal(activeCallbacks.length, 0);
+      assert.equal(call.symbol, "IDirect3DDevice9.BeginScene");
+      assert.equal(call.trapInstructionCount, 392_353_938);
+      assert.deepEqual(call.arguments, [0x0101_0004]);
+      assert.deepEqual(call.result, { kind: "h-result", value: 0 });
+      assert.equal(call.returnAddress, 0x1005_b048);
+      assert.equal(call.stackPointerBefore, 0x006f_b870);
+      assert.equal(call.stackPointerAfter, 0x006f_b878);
+      assert.equal(call.referenceCount, 5);
+      assert.equal(call.objectRetired, false);
+      assert.deepEqual(call.guestWrites, []);
+      assert.equal(device.id, 3);
+      assert.equal(device.namespace, "vine.logical-graphics-device.v1");
+      assert.equal(device.frontend, "d3d9");
+      assert.equal(device.comObjectId, "21");
+      assert.deepEqual(device.activeScene, { sequence: 4 });
+      assert.equal(device.generation, 71);
+      assert.equal(device.backBuffer.contentGeneration, 10);
+      assert.equal(device.backBuffer.uniformClear?.sequence, 4);
+      assert.equal(device.presentedFrame?.sequence, 3);
+      assert.equal(device.renderer, undefined);
+      checkpointCompletion = {
+        capability: "d3d9-begin-scene-post-partial-dirty-region-update",
+        implementationId:
+          "runtime.d3d9-begin-scene-post-partial-dirty-region-update.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        prerequisiteUpdateTextureSequence: update.sequence,
+        prerequisiteUpdateTextureInstructionCount:
+          update.trapInstructionCount,
+        firstCompletionSequence: call.sequence,
+        firstCompletionInstructionCount: call.trapInstructionCount,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: call.trapInstructionCount,
+        call: structuredClone(call),
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33",
+        beginSceneProfileId: "primary-first-frame-scene-begin-v1",
+        authority: "rust-runtime-graphics-logical-device",
+        lifecycle: "inactive-to-active",
+        mutation: "validate-plan-preflight-targeted-commit",
+        failureAtomicity: true,
+        logicalGraphicsDeviceId: device.id,
+        logicalGraphicsComObjectId: device.comObjectId,
+        activeSceneSequence: device.activeScene.sequence,
+        logicalGraphicsDeviceGeneration: device.generation,
+        backBufferContentGeneration: device.backBuffer.contentGeneration,
+        backBufferClearSequence:
+          device.backBuffer.uniformClear?.sequence ?? null,
+        browserRendererResourceCreated: device.renderer !== undefined,
         activeCallbackDepthAtCompletion: activeCallbacks.length,
         instructionCount: 0,
         nextEndpoint: null,
@@ -11900,7 +12009,7 @@ async function runGenericRuntimeReentry({
       presentationProgressRenderCompletions.push(renderCompletion);
       if (call.vtableSlot === 17) {
         if (
-          !d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled ||
+          !d3d9UpdateTexturePartialDirtyRegionEvidenceEnabled ||
           presentationProgressPresentCompletion === null
         ) {
           assert.equal(
@@ -26737,6 +26846,109 @@ function validateD3d9UpdateTexturePartialDirtyRegionResult(
   assert.equal(result.activeCallbackDepth, 0);
 }
 
+function validateD3d9BeginScenePostPartialDirtyRegionResult(
+  result,
+  sourceRegistration,
+) {
+  assert(d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled);
+  assert(d3d9UpdateTexturePartialDirtyRegionEvidenceEnabled);
+  assert(sourceRegistration !== null);
+  assert.equal(result.supportedCalls.length, 282_850);
+  const update = result.supportedCalls.find(
+    (call) =>
+      call.sequence === 282_849 &&
+      call.interface === "IDirect3DDevice9" &&
+      call.vtableSlot === 31,
+  );
+  const begin = result.supportedCalls.find(
+    (call) =>
+      call.sequence === 282_850 &&
+      call.interface === "IDirect3DDevice9" &&
+      call.vtableSlot === 41,
+  );
+  assert(update, "later partial UpdateTexture completion is missing");
+  assert(begin, "later BeginScene completion is missing");
+  assert.equal(begin.occurrence, 4);
+  assert.equal(begin.trapInstructionCount, 392_353_938);
+  assert.deepEqual(begin.arguments, [0x0101_0004]);
+  assert.deepEqual(begin.result, { kind: "h-result", value: 0 });
+  assert.equal(begin.returnAddress, 0x1005_b048);
+  assert.equal(begin.stackPointerBefore, 0x006f_b870);
+  assert.equal(begin.stackPointerAfter, 0x006f_b878);
+  assert.equal(begin.referenceCount, 5);
+  assert.equal(begin.objectRetired, false);
+  assert.deepEqual(begin.guestWrites, []);
+  assert.equal(begin.graphicsDevice?.id, 3);
+  assert.equal(begin.graphicsDevice?.namespace, "vine.logical-graphics-device.v1");
+  assert.equal(begin.graphicsDevice?.comObjectId, "21");
+  assert.deepEqual(begin.graphicsDevice?.activeScene, { sequence: 4 });
+  assert.equal(begin.graphicsDevice?.generation, 71);
+  assert.equal(begin.graphicsDevice?.backBuffer?.contentGeneration, 10);
+  assert.equal(begin.graphicsDevice?.backBuffer?.uniformClear?.sequence, 4);
+  assert.equal(begin.graphicsDevice?.presentedFrame?.sequence, 3);
+  assert.equal(begin.graphicsDevice?.renderer, undefined);
+  assert.equal(result.fault, null);
+  const completion = result.checkpointCompletion;
+  assert(completion, "later BeginScene checkpoint completion is missing");
+  assert.equal(
+    completion.capability,
+    "d3d9-begin-scene-post-partial-dirty-region-update",
+  );
+  assert.equal(
+    completion.implementationId,
+    "runtime.d3d9-begin-scene-post-partial-dirty-region-update.v1",
+  );
+  assert.equal(completion.prerequisiteUpdateTextureSequence, update.sequence);
+  assert.equal(
+    completion.prerequisiteUpdateTextureInstructionCount,
+    update.trapInstructionCount,
+  );
+  assert.equal(completion.lastCompletionSequence, begin.sequence);
+  assert.equal(
+    completion.lastCompletionInstructionCount,
+    begin.trapInstructionCount,
+  );
+  assert.deepEqual(completion.call, begin);
+  assert.equal(completion.compatibilityPolicyId, "d3d9-primary-virtual-adapter-v33");
+  assert.equal(completion.beginSceneProfileId, "primary-first-frame-scene-begin-v1");
+  assert.equal(completion.authority, "rust-runtime-graphics-logical-device");
+  assert.equal(completion.lifecycle, "inactive-to-active");
+  assert.equal(completion.mutation, "validate-plan-preflight-targeted-commit");
+  assert.equal(completion.failureAtomicity, true);
+  assert.equal(completion.logicalGraphicsDeviceId, 3);
+  assert.equal(completion.logicalGraphicsComObjectId, "21");
+  assert.equal(completion.activeSceneSequence, 4);
+  assert.equal(completion.logicalGraphicsDeviceGeneration, 71);
+  assert.equal(completion.backBufferContentGeneration, 10);
+  assert.equal(completion.backBufferClearSequence, 4);
+  assert.equal(completion.browserRendererResourceCreated, false);
+  assert.equal(completion.activeCallbackDepthAtCompletion, 0);
+  assert.equal(completion.instructionCount, result.terminal.instructionCount);
+  assert.equal(completion.instructionCount, 392_353_952);
+  assert.deepEqual(completion.nextEndpoint, {
+    id: 0,
+    address: 0x0101_1480,
+    module: "<com>",
+    symbol: { kind: "name", name: "interface-1-slot-69" },
+    disposition: "declared-com-method",
+    interfaceIndex: 1,
+    vtableSlot: 69,
+    interface: "IDirect3DDevice9",
+    method: "SetSamplerState",
+  });
+  assert.equal(completion.nextReturnAddress, 0x1005_b18a);
+  assert.equal(completion.nextStackPointer, 0x006f_b864);
+  assert.equal(
+    completion.memoryContentSha256,
+    "ec00efea1a7f56c0ef8af45da4c614673c6374265c0cd9ee4b79b884626a14db",
+  );
+  assert.equal(result.finalGeneration, 333_485);
+  assert.equal(result.sourceReads.length, 154);
+  assert.equal(result.heapPageMaterializations.length, 3_112);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+  assert.equal(result.activeCallbackDepth, 0);
+}
+
 function validateGetCursorInfoResult(result, sourceRegistration) {
   assert(getCursorInfoCheckpointEnabled);
   assert(outlineTextMetrics224x112CheckpointEnabled);
@@ -40150,7 +40362,13 @@ function buildGenericRuntimeReentryReport({
       );
       if (findFirstFileACheckpointEnabled) {
         if (deleteFileACheckpointEnabled) {
-          if (d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled) {
+          if (d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled) {
+            assert.equal(completedSupportedCalls.length, 282_850);
+            assert.equal(
+              supportedCallSemanticsSha256,
+              "698f2ffd737999918c14b33fa1d4699c71523ac1b93acc854d103211926e535a",
+            );
+          } else if (d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled) {
             assert.equal(completedSupportedCalls.length, 282_849);
             assert.equal(
               supportedCallSemanticsSha256,
@@ -43408,12 +43626,21 @@ function buildScheduledSharedClockPrimaryReport({
       )
     : [];
   const d3d9UpdateTexturePartialDirtyRegionCall =
-    d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled
+    d3d9UpdateTexturePartialDirtyRegionEvidenceEnabled
       ? completedSupportedCalls.find(
           (call) =>
             call.sequence === 282_849 &&
             call.interface === "IDirect3DDevice9" &&
             call.vtableSlot === 31,
+        ) ?? null
+      : null;
+  const d3d9BeginScenePostPartialDirtyRegionCall =
+    d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled
+      ? completedSupportedCalls.find(
+          (call) =>
+            call.sequence === 282_850 &&
+            call.interface === "IDirect3DDevice9" &&
+            call.vtableSlot === 41,
         ) ?? null
       : null;
   const successfulFindCalls = [
@@ -43434,8 +43661,10 @@ function buildScheduledSharedClockPrimaryReport({
     };
   });
   return {
-    schema: d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled
-      ? "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary"
+    schema: d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled
+      ? "vine.v86-bgi-d3d9-begin-scene-post-partial-dirty-region-primary"
+      : d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled
+        ? "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary"
       : getCursorInfoCheckpointEnabled
       ? "vine.v86-bgi-get-cursor-info-primary"
       : outlineTextMetrics224x112CheckpointEnabled
@@ -43669,10 +43898,20 @@ function buildScheduledSharedClockPrimaryReport({
             },
           }
         : {}),
-      ...(d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled
+      ...(d3d9UpdateTexturePartialDirtyRegionEvidenceEnabled
         ? {
             d3d9UpdateTexturePartialDirtyRegion: {
               call: d3d9UpdateTexturePartialDirtyRegionCall,
+              ...(d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled
+                ? { checkpointCompletion: genericResult.checkpointCompletion }
+                : {}),
+            },
+          }
+        : {}),
+      ...(d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled
+        ? {
+            d3d9BeginScenePostPartialDirtyRegion: {
+              call: d3d9BeginScenePostPartialDirtyRegionCall,
               checkpointCompletion: genericResult.checkpointCompletion,
             },
           }

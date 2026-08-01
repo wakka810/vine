@@ -51,7 +51,8 @@ const scheduledSharedClockSetWindowText =
   capabilityProfile === "gdi-create-dib-section-448x336" ||
   capabilityProfile === "gdi-outline-text-metrics-224x112" ||
   capabilityProfile === "user32-get-cursor-info" ||
-  capabilityProfile === "d3d9-update-texture-partial-dirty-region";
+  capabilityProfile === "d3d9-update-texture-partial-dirty-region" ||
+  capabilityProfile === "d3d9-begin-scene-post-partial-dirty-region";
 const d3d9Canvas =
   scheduledSharedClockSetWindowText ||
   capabilityProfile === "d3d9-first-present" ||
@@ -231,7 +232,8 @@ const startMessage = {
       scenario === "watchdog"
         ? 1
         : capabilityProfile === "user32-get-cursor-info" ||
-            capabilityProfile === "d3d9-update-texture-partial-dirty-region"
+            capabilityProfile === "d3d9-update-texture-partial-dirty-region" ||
+            capabilityProfile === "d3d9-begin-scene-post-partial-dirty-region"
           ? 405_000_000
         : capabilityProfile === "gdi-outline-text-metrics-224x112"
           ? 385_000_000
@@ -709,6 +711,7 @@ function parseCapabilityProfile(
     value === "gdi-outline-text-metrics-224x112" ||
     value === "user32-get-cursor-info" ||
     value === "d3d9-update-texture-partial-dirty-region" ||
+    value === "d3d9-begin-scene-post-partial-dirty-region" ||
     value === "kernel32-wait-for-single-object-ex" ||
     value === "kernel32-enter-critical-section" ||
     value === "primary-main-loop-progression" ||

@@ -384,12 +384,27 @@ function isD3d9UpdateTexturePartialDirtyRegionProfile(
   return profile === "d3d9-update-texture-partial-dirty-region";
 }
 
+function isD3d9BeginScenePostPartialDirtyRegionProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "d3d9-begin-scene-post-partial-dirty-region";
+}
+
+function includesD3d9UpdateTexturePartialDirtyRegionProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isD3d9UpdateTexturePartialDirtyRegionProfile(profile) ||
+    isD3d9BeginScenePostPartialDirtyRegionProfile(profile)
+  );
+}
+
 function includesGetCursorInfoProfile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isGetCursorInfoProfile(profile) ||
-    isD3d9UpdateTexturePartialDirtyRegionProfile(profile)
+    includesD3d9UpdateTexturePartialDirtyRegionProfile(profile)
   );
 }
 
@@ -1936,7 +1951,7 @@ function includesRuntimeTraplessExecutionBudget(
 function d3d9CompatibilityPolicyId(
   profile: SessionConfiguration["capabilityProfile"],
 ): NonNullable<SessionReport["d3d9Present"]>["compatibilityPolicyId"] {
-  return isD3d9UpdateTexturePartialDirtyRegionProfile(profile)
+  return includesD3d9UpdateTexturePartialDirtyRegionProfile(profile)
     ? "d3d9-primary-virtual-adapter-v33"
     : isUser32AsyncKeyStateInitialScan(profile)
       ? "d3d9-primary-virtual-adapter-v32"
@@ -4003,7 +4018,7 @@ class BrowserRuntimeSession {
                 isD3d9AddDirtyRect(this.#configuration.capabilityProfile),
               scheduledSharedClockSetWindowText ||
                 isD3d9UpdateTexture(this.#configuration.capabilityProfile),
-              isD3d9UpdateTexturePartialDirtyRegionProfile(
+              includesD3d9UpdateTexturePartialDirtyRegionProfile(
                 this.#configuration.capabilityProfile,
               ),
               scheduledSharedClockSetWindowText ||
@@ -8262,6 +8277,7 @@ class BrowserRuntimeSession {
         this.#scheduledSharedClockPresentCount += 1;
       }
       this.#recordD3d9UpdateTexturePartialDirtyRegionCall(call);
+      this.#recordD3d9BeginScenePostPartialDirtyRegionCall(call);
     } else {
       this.#recordD3d9RecreatedTextureCall(call);
       this.#recordD3d9ClearCall(call);
@@ -8288,7 +8304,7 @@ class BrowserRuntimeSession {
     call: RuntimeSupportedCallSnapshot,
   ): void {
     if (
-      !isD3d9UpdateTexturePartialDirtyRegionProfile(
+      !includesD3d9UpdateTexturePartialDirtyRegionProfile(
         this.#configuration.capabilityProfile,
       ) ||
       call.interface !== "IDirect3DDevice9" ||
@@ -8410,6 +8426,97 @@ class BrowserRuntimeSession {
       admittedAdditionalPartialDirtyRegions: 1,
       arbitraryPartialHistoryImplemented: false,
       dynamicDestinationImplemented: false,
+      activeCallbackDepthAtCompletion: 0,
+      clockProfileId: previous.clockProfileId,
+      clockSampleCount: this.#scheduledSharedClockSampleCount,
+      windowTimerCallbackCount:
+        this.#scheduledSharedClockWindowTimerCallbackCount,
+      presentCount: this.#scheduledSharedClockPresentCount,
+      instructionCount: 0,
+      nextEndpoint: null,
+      memoryContentSha256: "",
+    };
+    if (
+      isD3d9UpdateTexturePartialDirtyRegionProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      this.#bgiCheckpointPending = true;
+    }
+  }
+
+  #recordD3d9BeginScenePostPartialDirtyRegionCall(
+    call: RuntimeSupportedCallSnapshot,
+  ): void {
+    if (
+      !isD3d9BeginScenePostPartialDirtyRegionProfile(
+        this.#configuration.capabilityProfile,
+      ) ||
+      call.interface !== "IDirect3DDevice9" ||
+      call.vtableSlot !== 41 ||
+      call.sequence !== 282_850
+    ) {
+      return;
+    }
+    const previous = this.#report.checkpointCompletion;
+    const device = call.graphicsDevice;
+    invariant(
+      previous?.capability ===
+        "d3d9-update-texture-partial-dirty-region-post-get-cursor-info" &&
+        previous.lastCompletionSequence === 282_849 &&
+        previous.lastCompletionInstructionCount === 392_353_932 &&
+        this.#report.instructions === 392_353_938 &&
+        call.symbol === "IDirect3DDevice9.BeginScene" &&
+        call.arguments.join(",") === "16842756" &&
+        "kind" in call.result &&
+        call.result.kind === "h-result" &&
+        call.result.value === 0 &&
+        call.returnAddress === 0x1005_b048 &&
+        call.stackPointerBefore === 0x006f_b870 &&
+        call.stackPointerAfter === 0x006f_b878 &&
+        call.referenceCount === 5 &&
+        call.objectRetired === false &&
+        call.guestWrites.length === 0 &&
+        device?.id === 3 &&
+        device.namespace === "vine.logical-graphics-device.v1" &&
+        device.frontend === "d3d9" &&
+        device.comObjectId === "21" &&
+        device.activeScene?.sequence === 4 &&
+        device.generation === 71 &&
+        device.backBuffer.contentGeneration === 10 &&
+        device.backBuffer.uniformClear?.sequence === 4 &&
+        device.presentedFrame?.sequence === 3 &&
+        device.renderer === undefined &&
+        this.#bgiCallbackCallSequences.size === 0,
+      `later D3D9 BeginScene ABI or scene lifecycle changed: ${JSON.stringify(call)}`,
+    );
+    this.#report.checkpointCompletion = {
+      capability: "d3d9-begin-scene-post-partial-dirty-region-update",
+      implementationId:
+        "runtime.d3d9-begin-scene-post-partial-dirty-region-update.v1",
+      requiredCompletions: 1,
+      completionCount: 1,
+      prerequisiteUpdateTextureSequence: previous.lastCompletionSequence,
+      prerequisiteUpdateTextureInstructionCount:
+        previous.lastCompletionInstructionCount,
+      firstCompletionSequence: call.sequence,
+      firstCompletionInstructionCount: this.#report.instructions,
+      lastCompletionSequence: call.sequence,
+      lastCompletionInstructionCount: this.#report.instructions,
+      call: structuredClone(call),
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33",
+      beginSceneProfileId: "primary-first-frame-scene-begin-v1",
+      authority: "rust-runtime-graphics-logical-device",
+      lifecycle: "inactive-to-active",
+      mutation: "validate-plan-preflight-targeted-commit",
+      failureAtomicity: true,
+      logicalGraphicsDeviceId: 3,
+      logicalGraphicsComObjectId: "21",
+      activeSceneSequence: 4,
+      logicalGraphicsDeviceGeneration: 71,
+      backBufferContentGeneration: 10,
+      backBufferClearSequence: 4,
+      browserRendererResourceCreated: false,
       activeCallbackDepthAtCompletion: 0,
       clockProfileId: previous.clockProfileId,
       clockSampleCount: this.#scheduledSharedClockSampleCount,
@@ -9524,6 +9631,62 @@ class BrowserRuntimeSession {
     stackPointer: number,
   ): void {
     const checkpoint = this.#report.checkpointCompletion;
+    if (
+      isD3d9BeginScenePostPartialDirtyRegionProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      invariant(
+        checkpoint?.capability ===
+          "d3d9-begin-scene-post-partial-dirty-region-update" &&
+          this.#requirePrepared().runtime.kernel32Policy ===
+            "kernel32-delete-file-a-v1" &&
+          endpointAddress === 0x0101_1480 &&
+          stackPointer === 0x006f_b864 &&
+          this.#requireEngine().readGuestU32(stackPointer) === 0x1005_b18a &&
+          this.#bgiCallbackCallSequences.size === 0 &&
+          this.#report.supportedCallCount === 282_850 &&
+          this.#scheduledSharedClockSampleCount === 100_556 &&
+          this.#scheduledSharedClockWindowTimerCallbackCount === 40 &&
+          this.#scheduledSharedClockPresentCount === 3 &&
+          this.#report.instructions === 392_353_952,
+        "post-partial-update BeginScene checkpoint has no matching runtime state",
+      );
+      const reflection =
+        this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-memory-summary" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation) &&
+          reflection.contentSha256 ===
+            "ec00efea1a7f56c0ef8af45da4c614673c6374265c0cd9ee4b79b884626a14db",
+        "post-partial-update BeginScene checkpoint memory summary changed",
+      );
+      checkpoint.clockSampleCount = this.#scheduledSharedClockSampleCount;
+      checkpoint.windowTimerCallbackCount =
+        this.#scheduledSharedClockWindowTimerCallbackCount;
+      checkpoint.presentCount = this.#scheduledSharedClockPresentCount;
+      checkpoint.instructionCount = this.#report.instructions;
+      checkpoint.nextEndpoint = {
+        id: 0,
+        address: endpointAddress,
+        module: "<com>",
+        symbol: { kind: "name", name: "interface-1-slot-69" },
+        disposition: "declared-com-method",
+        interfaceIndex: 1,
+        vtableSlot: 69,
+        interface: "IDirect3DDevice9",
+        method: "SetSamplerState",
+      };
+      checkpoint.memoryContentSha256 = reflection.contentSha256;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "D3D9 BeginScene after partial dirty-region UpdateTexture checkpoint completed",
+        null,
+      );
+      return;
+    }
     if (
       isD3d9UpdateTexturePartialDirtyRegionProfile(
         this.#configuration.capabilityProfile,

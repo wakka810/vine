@@ -2196,7 +2196,17 @@ Node／Chromeはsequence 282,849、instruction 392,353,932、device／source／d
 Capability checkpointは392,353,938 instructions、100,556 clock samples、40 TIMERPROC callbacks、3 Present、
 terminal memory digest `568061b7a8f6722b0556c6f9add62e5f9b35e62591b1769c16a441250331329e`で完了し、
 次のowned endpointとして`IDirect3DDevice9::BeginScene` slot 41を記録する。Arbitrary partial history、
-dynamic destination、partial byte copy、browser-side dirty authority、続くscene completionはclaimしない。
+dynamic destination、partial byte copy、browser-side dirty authorityはclaimしない。
+
+Post-partial `BeginScene` leafは同じdevice ownerの既存scene plan／commitを再利用する。Node／Chromeは
+sequence 282,850、trap instruction 392,353,938、device `0x01010004`、`D3D_OK`、zero guest writes、
+reference count 5、active scene sequence 4、device generation 71、presented frame sequence 3を一致させる。
+Capability checkpointは282,850 supported calls、392,353,952 instructions、semantic digest
+`698f2ffd737999918c14b33fa1d4699c71523ac1b93acc854d103211926e535a`、terminal memory digest
+`ec00efea1a7f56c0ef8af45da4c614673c6374265c0cd9ee4b79b884626a14db`で完了し、次のowned
+endpointとして`IDirect3DDevice9::SetSamplerState` slot 69、sampler 0／state 6／value 2を記録する。
+Protocol v110／report schema 76でcancel／watchdog cleanupも維持する。一般scene、後続sampler mutation、
+可読title sceneはclaimしない。
 
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 

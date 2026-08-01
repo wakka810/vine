@@ -12,8 +12,10 @@ DEFAULT destination `0x01030004`を渡し、dirty rectangle
 同じNode／Chrome replayはcallから6 instructions後、instruction 392,353,938の
 `IDirect3DDevice9::BeginScene` slot 41をnext owned endpointとして記録して
 capability checkpointを完了する。したがってこのpartial transferはそれ以前の進行停止の
-近因ではない。新しいsceneの完了、可読title scene、一般的なpartial upload、renderer
-更新はこのcheckpointではclaimしない。
+近因ではない。後続のscene完了は
+[post-partial BeginScene profile](bgi-d3d9-begin-scene-post-partial-dirty-region.md)
+で独立に固定する。可読title scene、一般的なpartial upload、renderer更新はこのcheckpointでは
+claimしない。
 
 ## Bounded contract and failure ordering
 

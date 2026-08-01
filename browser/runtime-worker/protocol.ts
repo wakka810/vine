@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 109 as const;
+export const protocolVersion = 110 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -26,6 +26,7 @@ export type BgiCapabilityProfile =
   | "gdi-outline-text-metrics-224x112"
   | "user32-get-cursor-info"
   | "d3d9-update-texture-partial-dirty-region"
+  | "d3d9-begin-scene-post-partial-dirty-region"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1838,6 +1839,40 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "d3d9-begin-scene-post-partial-dirty-region-update";
+        implementationId: "runtime.d3d9-begin-scene-post-partial-dirty-region-update.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        prerequisiteUpdateTextureSequence: number;
+        prerequisiteUpdateTextureInstructionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        call: RuntimeSupportedCallSnapshot;
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33";
+        beginSceneProfileId: "primary-first-frame-scene-begin-v1";
+        authority: "rust-runtime-graphics-logical-device";
+        lifecycle: "inactive-to-active";
+        mutation: "validate-plan-preflight-targeted-commit";
+        failureAtomicity: true;
+        logicalGraphicsDeviceId: 3;
+        logicalGraphicsComObjectId: "21";
+        activeSceneSequence: 4;
+        logicalGraphicsDeviceGeneration: 71;
+        backBufferContentGeneration: 10;
+        backBufferClearSequence: 4;
+        browserRendererResourceCreated: false;
+        activeCallbackDepthAtCompletion: 0;
+        clockProfileId: "scheduled-shared-logical-deadline-v1";
+        clockSampleCount: number;
+        windowTimerCallbackCount: number;
+        presentCount: number;
+        instructionCount: number;
+        nextEndpoint: unknown;
+        memoryContentSha256: string;
+      }
     | {
         capability: "d3d9-update-texture-partial-dirty-region-post-get-cursor-info";
         implementationId: "runtime.d3d9-update-texture-partial-dirty-region-post-get-cursor-info.v1";

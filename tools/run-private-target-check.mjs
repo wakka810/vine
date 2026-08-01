@@ -1166,7 +1166,9 @@ function isScheduledSharedClockNodeReport(report) {
     report?.schema === "vine.v86-bgi-outline-text-metrics-224x112-primary" ||
     report?.schema === "vine.v86-bgi-get-cursor-info-primary" ||
     report?.schema ===
-      "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary"
+      "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary" ||
+    report?.schema ===
+      "vine.v86-bgi-d3d9-begin-scene-post-partial-dirty-region-primary"
   );
 }
 
@@ -1174,7 +1176,9 @@ function isGetCursorInfoOrLaterNodeReport(report) {
   return (
     report?.schema === "vine.v86-bgi-get-cursor-info-primary" ||
     report?.schema ===
-      "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary"
+      "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary" ||
+    report?.schema ===
+      "vine.v86-bgi-d3d9-begin-scene-post-partial-dirty-region-primary"
   );
 }
 
@@ -1183,6 +1187,25 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (
+    nodeReport.schema ===
+    "vine.v86-bgi-d3d9-begin-scene-post-partial-dirty-region-primary"
+  ) {
+    const {
+      call,
+      nextReturnAddress: _nextReturnAddress,
+      nextStackPointer: _nextStackPointer,
+      ...completion
+    } = execution.d3d9BeginScenePostPartialDirtyRegion.checkpointCompletion;
+    return {
+      ...structuredClone(completion),
+      presentedFrameSequence: call.graphicsDevice.presentedFrame.sequence,
+      clockProfileId: nodeReport.contract.clockProfile.id,
+      clockSampleCount: execution.clockSamples.count,
+      windowTimerCallbackCount: execution.windowTimerCallbacks.count,
+      presentCount: execution.presentations.count,
+    };
+  }
   if (
     nodeReport.schema ===
     "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary"
@@ -1855,6 +1878,69 @@ function assertD3d9UpdateTexturePartialDirtyRegionCheckpoint(
   assert.deepEqual(actual.nextEndpoint.symbol, expectedEndpoint.symbol);
 }
 
+function assertD3d9BeginScenePostPartialDirtyRegionCheckpoint(
+  actual,
+  expectedCompletion,
+  expectedEndpoint,
+) {
+  assert(actual !== null, "post-partial BeginScene checkpoint metadata is missing");
+  for (const field of [
+    "capability",
+    "implementationId",
+    "requiredCompletions",
+    "completionCount",
+    "prerequisiteUpdateTextureSequence",
+    "prerequisiteUpdateTextureInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "compatibilityPolicyId",
+    "beginSceneProfileId",
+    "authority",
+    "lifecycle",
+    "mutation",
+    "failureAtomicity",
+    "logicalGraphicsDeviceId",
+    "logicalGraphicsComObjectId",
+    "activeSceneSequence",
+    "logicalGraphicsDeviceGeneration",
+    "backBufferContentGeneration",
+    "backBufferClearSequence",
+    "browserRendererResourceCreated",
+    "activeCallbackDepthAtCompletion",
+    "clockProfileId",
+    "clockSampleCount",
+    "windowTimerCallbackCount",
+    "presentCount",
+    "instructionCount",
+    "memoryContentSha256",
+  ]) {
+    assert.equal(actual[field], expectedCompletion[field], field);
+  }
+  const presentedFrameSequence =
+    actual.presentedFrameSequence ??
+    actual.call?.graphicsDevice?.presentedFrame?.sequence;
+  assert.equal(
+    presentedFrameSequence,
+    expectedCompletion.presentedFrameSequence,
+    "presentedFrameSequence",
+  );
+  for (const field of [
+    "id",
+    "address",
+    "module",
+    "disposition",
+    "interfaceIndex",
+    "vtableSlot",
+    "interface",
+    "method",
+  ]) {
+    assert.equal(actual.nextEndpoint[field], expectedEndpoint[field], field);
+  }
+  assert.deepEqual(actual.nextEndpoint.symbol, expectedEndpoint.symbol);
+}
+
 function assertScheduledSharedClockReportSemantics({
   checkpoint,
   nodeReport,
@@ -1874,6 +1960,9 @@ function assertScheduledSharedClockReportSemantics({
   const d3d9UpdateTexturePartialDirtyRegionReport =
     nodeReport.schema ===
     "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary";
+  const d3d9BeginScenePostPartialDirtyRegionReport =
+    nodeReport.schema ===
+    "vine.v86-bgi-d3d9-begin-scene-post-partial-dirty-region-primary";
 
   assert(
     expectedNext.kind === "capability-checkpoint" ||
@@ -2278,7 +2367,40 @@ function assertScheduledSharedClockReportSemantics({
     expectedNext,
   );
   let expectedFaultCode = null;
-  if (d3d9UpdateTexturePartialDirtyRegionReport) {
+  if (d3d9BeginScenePostPartialDirtyRegionReport) {
+    const update = nodeExecution.d3d9UpdateTexturePartialDirtyRegion;
+    const begin = nodeExecution.d3d9BeginScenePostPartialDirtyRegion;
+    assert.equal(nodeStop.fault, null);
+    assert.equal(nodeStop.terminal.instructionCount, expectedNext.instructionCount);
+    assert.equal(update.call.sequence, 282_849);
+    assert.equal(update.call.symbol, "IDirect3DDevice9.UpdateTexture");
+    assert.deepEqual(
+      update.call.graphicsTextureUpdate.destination.content.lastUpdate.dirtyRegion,
+      {
+        kind: "rect",
+        rect: { left: 583, top: 530, right: 1_260, bottom: 582 },
+      },
+    );
+    assert.deepEqual(begin.call, begin.checkpointCompletion.call);
+    assert.equal(begin.call.sequence, 282_850);
+    assert.equal(begin.call.symbol, "IDirect3DDevice9.BeginScene");
+    assert.equal(begin.call.vtableSlot, 41);
+    assert.deepEqual(begin.call.arguments, [0x0101_0004]);
+    assert.deepEqual(begin.call.result, { kind: "h-result", value: 0 });
+    assert.deepEqual(begin.call.guestWrites, []);
+    assert.equal(begin.call.graphicsDevice.id, 3);
+    assert.equal(begin.call.graphicsDevice.comObjectId, "21");
+    assert.deepEqual(begin.call.graphicsDevice.activeScene, { sequence: 4 });
+    assert.equal(begin.call.graphicsDevice.generation, 71);
+    assert.equal(begin.call.graphicsDevice.backBuffer.contentGeneration, 10);
+    assert.equal(begin.call.graphicsDevice.backBuffer.uniformClear.sequence, 4);
+    assert.equal(begin.call.graphicsDevice.presentedFrame.sequence, 3);
+    assertD3d9BeginScenePostPartialDirtyRegionCheckpoint(
+      nodeCheckpoint,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+  } else if (d3d9UpdateTexturePartialDirtyRegionReport) {
     const update = nodeExecution.d3d9UpdateTexturePartialDirtyRegion;
     assert.equal(nodeStop.fault, null);
     assert.equal(nodeStop.terminal.instructionCount, expectedNext.instructionCount);
@@ -2343,7 +2465,11 @@ function assertScheduledSharedClockReportSemantics({
       expected.memoryContentSha256,
     );
   }
-  if (!d3d9UpdateTexturePartialDirtyRegionReport && getCursorInfoReport) {
+  if (
+    !d3d9BeginScenePostPartialDirtyRegionReport &&
+    !d3d9UpdateTexturePartialDirtyRegionReport &&
+    getCursorInfoReport
+  ) {
     const target = nodeStop.fault.endpoint.target;
     assert.equal(nodeStop.fault.endpoint.kind, "com-method");
     assert.equal(target.interface.name, expectedNext.interface);
@@ -2365,7 +2491,10 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext.completion,
       expectedNext,
     );
-  } else if (!d3d9UpdateTexturePartialDirtyRegionReport) {
+  } else if (
+    !d3d9BeginScenePostPartialDirtyRegionReport &&
+    !d3d9UpdateTexturePartialDirtyRegionReport
+  ) {
     const nodeEndpoint = nodeStop.fault.endpoint.endpoint;
     const expectedEndpoint = expectedNext.nextEndpoint;
     assert.equal(nodeStop.fault.endpoint.kind, expectedEndpoint.endpointKind);
@@ -2417,7 +2546,20 @@ function assertScheduledSharedClockReportSemantics({
   assert.equal(browser.pendingCallbacks, 0);
 
   const browserUnsupported = browser.firstUnsupported;
-  if (d3d9UpdateTexturePartialDirtyRegionReport) {
+  if (d3d9BeginScenePostPartialDirtyRegionReport) {
+    assert.equal(browserUnsupported, null);
+    assertD3d9BeginScenePostPartialDirtyRegionCheckpoint(
+      browser.checkpointCompletion,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+    const {
+      occurrence: _nodeOccurrence,
+      trapInstructionCount: _nodeTrapInstructionCount,
+      ...nodeCheckpointCall
+    } = nodeExecution.d3d9BeginScenePostPartialDirtyRegion.call;
+    assert.deepEqual(browser.checkpointCompletion.call, nodeCheckpointCall);
+  } else if (d3d9UpdateTexturePartialDirtyRegionReport) {
     assert.equal(browserUnsupported, null);
     assertD3d9UpdateTexturePartialDirtyRegionCheckpoint(
       browser.checkpointCompletion,
@@ -2442,7 +2584,11 @@ function assertScheduledSharedClockReportSemantics({
       expected.memoryContentSha256,
     );
   }
-  if (!d3d9UpdateTexturePartialDirtyRegionReport && getCursorInfoReport) {
+  if (
+    !d3d9BeginScenePostPartialDirtyRegionReport &&
+    !d3d9UpdateTexturePartialDirtyRegionReport &&
+    getCursorInfoReport
+  ) {
     assert.equal(browserUnsupported.endpoint.kind, "com-method");
     assert.equal(
       hex32(browserUnsupported.endpoint.endpointAddress),
@@ -2468,7 +2614,10 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext.completion,
       expectedNext,
     );
-  } else if (!d3d9UpdateTexturePartialDirtyRegionReport) {
+  } else if (
+    !d3d9BeginScenePostPartialDirtyRegionReport &&
+    !d3d9UpdateTexturePartialDirtyRegionReport
+  ) {
     const expectedEndpoint = expectedNext.nextEndpoint;
     assert.equal(browserUnsupported.endpoint.id, expectedEndpoint.endpointId);
     assert.equal(
@@ -3061,7 +3210,11 @@ const nodeInstructions = scheduledNodeReport
     : nodeReport.firstUnsupported.instructionCount;
 const nodeMemoryContentSha256 = scheduledNodeReport
   ? nodeReport.schema ===
-    "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary"
+    "vine.v86-bgi-d3d9-begin-scene-post-partial-dirty-region-primary"
+    ? nodeReport.execution.d3d9BeginScenePostPartialDirtyRegion
+        .checkpointCompletion.memoryContentSha256
+    : nodeReport.schema ===
+        "vine.v86-bgi-d3d9-update-texture-partial-dirty-region-primary"
     ? nodeReport.execution.d3d9UpdateTexturePartialDirtyRegion
         .checkpointCompletion.memoryContentSha256
     : nodeReport.stop.fault.memoryContentSha256
