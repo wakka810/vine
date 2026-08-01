@@ -223,7 +223,11 @@ function assertCapabilityCheckpoint(
     assert.equal(actual.queueDepthAtDispatchEntry, 0);
     assert.equal(actual.dispatchMessageReleaseBytesPreserved, true);
     if (expected.completion.requiredCompletions !== undefined) {
+      const postWindowTimerCallbackPeekContinuation =
+        expected.completion.capability ===
+        "user32-peek-message-a-post-window-timer-callback-continuation";
       const postWaitableTimerWindowCallbackCycle =
+        postWindowTimerCallbackPeekContinuation ||
         expected.completion.capability ===
         "user32-window-timer-callback-post-waitable-timer-cycle";
       const postInputScanWaitableTimerCycle =
@@ -294,7 +298,9 @@ function assertCapabilityCheckpoint(
       if (postIsIconicGetAsyncKeyStateScan) {
         assert.equal(
           actual.firstCompletionSequence,
-          postWaitableTimerWindowCallbackCycle
+          postWindowTimerCallbackPeekContinuation
+            ? 162_087
+            : postWaitableTimerWindowCallbackCycle
             ? 162_083
             : postInputScanWaitableTimerCycle
             ? 162_081
@@ -304,7 +310,9 @@ function assertCapabilityCheckpoint(
         );
         assert.equal(
           actual.firstCompletionInstructionCount,
-          postWaitableTimerWindowCallbackCycle
+          postWindowTimerCallbackPeekContinuation
+            ? 321_469_064
+            : postWaitableTimerWindowCallbackCycle
             ? 321_468_397
             : postInputScanWaitableTimerCycle
             ? 321_468_343
@@ -592,6 +600,38 @@ function assertCapabilityCheckpoint(
           nextTickCount: 3_601_230,
           incrementPerRead: 1,
         });
+      }
+      if (postWindowTimerCallbackPeekContinuation) {
+        assert.equal(actual.prerequisiteWindowTimerDispatchSequence, 162_085);
+        assert.equal(
+          actual.prerequisiteWindowTimerDispatchInstructionCount,
+          321_469_055,
+        );
+        assert.equal(
+          actual.peekMessagePostWindowTimerCallbackActiveCallbackDepthAtCompletion,
+          0,
+        );
+        assert.equal(actual.postWindowTimerCallbackQueueDepthBefore, 0);
+        assert.equal(actual.postWindowTimerCallbackQueueDepthAfter, 0);
+        assert.equal(actual.postWindowTimerCallbackMessageBytesPreserved, true);
+        const peek = actual.peekMessagePostWindowTimerCallback;
+        assert.equal(peek.sequence, 162_087);
+        assert.equal(peek.occurrence, 14);
+        assert.equal(peek.trapInstructionCount, 321_469_064);
+        assert.equal(peek.runtimeThreadId, 8_192);
+        assert.equal(peek.module.toLowerCase(), "user32.dll");
+        assert.equal(peek.symbol, "PeekMessageA");
+        assert.equal(
+          peek.implementationId,
+          "user32.peek-message-a.current-thread.v1",
+        );
+        assert.deepEqual(peek.arguments, [7_338_216, 0, 0, 0, 1]);
+        assert.deepEqual(peek.result, { action: "set", value: 0 });
+        assert.equal(peek.returnAddress, 269_039_547);
+        assert.equal(peek.stackPointerBefore, 7_338_180);
+        assert.equal(peek.stackPointerAfter, 7_338_204);
+        assert.equal(peek.lastError, 0);
+        assert.deepEqual(peek.guestWrites, []);
       }
       if (postReleasePeek) {
         assert.equal(

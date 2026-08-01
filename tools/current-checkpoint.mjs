@@ -208,7 +208,11 @@ export function validateCurrentCheckpoint(manifest) {
   const timeGetTimeActionContinuationActive =
     root.activeRuntimeCheckpoint?.profile ===
     "winmm-time-get-time-action-continuation";
+  const peekMessageAPostWindowTimerCallbackContinuationCheckpointActive =
+    root.activeRuntimeCheckpoint?.profile ===
+    "user32-peek-message-a-post-window-timer-callback-continuation";
   const windowTimerCallbackPostWaitableTimerCycleCheckpointActive =
+    peekMessageAPostWindowTimerCallbackContinuationCheckpointActive ||
     root.activeRuntimeCheckpoint?.profile ===
     "user32-window-timer-callback-post-waitable-timer-cycle";
   const d3d9PostInputScanWaitableTimerCycleCheckpointActive =
@@ -1322,7 +1326,27 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+    peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_997,
+        browserMappingDirtyPages: 150_402,
+        browserSuccessExecutionTransitions: 589_100,
+        browserFinalGeneration: 315_160,
+        browserReportSchemaVersion: 67,
+        latestSchema:
+          "vine.v86-bgi-user32-peek-message-a-post-window-timer-callback-continuation",
+        latestWritebackBatches: 165_242,
+        latestWritebackDirtyPages: 244_675,
+        latestWritebackChangedBytes: 43_072_557,
+        latestHostDeltaBatches: 127_997,
+        latestFinalMemoryGeneration: 296_521,
+        semanticCallDigestSha256:
+          "2243c31bf48c3249e96535b7659e634a54904405fc9e70dd5f4e179fc8364429",
+        memoryContentSha256:
+          "842ed108fc0c042836b56c1fb56b91a5270f9e53aaf7f32b18166cac8a3680e4",
+      }
+    : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_997,
@@ -3323,7 +3347,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+    peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+      ? "vine.browser-runtime-worker.v100"
+      : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
       ? "vine.browser-runtime-worker.v99"
       : d3d9PostInputScanWaitableTimerCycleCheckpointActive
       ? "vine.browser-runtime-worker.v98"
@@ -4158,7 +4184,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+      (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+        ? 67
+        : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
         ? 66
         : d3d9PostInputScanWaitableTimerCycleCheckpointActive
         ? 65
@@ -21361,7 +21389,9 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureBefore !== null ||
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureAfter !== null)) ||
     latestEvidence.implementation !==
-      (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+      (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+        ? "Rust-owned user32.peek-message-a.current-thread.v1 completes the reached post-TIMERPROC current-thread unfiltered PM_REMOVE call against the authoritative empty queue, returns FALSE without guest writes or queue mutation, preserves the prior 28-byte WM_TIMER MSG32 output and LastError at callback depth zero, imports no browser message authority, and stops before the next shared process-clock read"
+        : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
         ? "Rust-owned current-thread message queue materializes the reached third WM_TIMER after the completed waitable-timer cycle, validates TranslateMessage as a no-op, dispatches the authoritative TIMERPROC frame, records its nested GetTickCount read from the shared process clock, unwinds callback frame 35, preserves LastError and guest authority, and stops before the next PeekMessageA poll"
         : d3d9PostInputScanWaitableTimerCycleCheckpointActive
         ? "Rust-owned waitable-timer and typed-object authorities complete the reached post-input-scan relative one-shot SetWaitableTimer arm and matching finite alertable WaitForSingleObjectEx expiration as one generation-checked cycle, preserve callback depth, LastError, guest memory, and browser non-ownership, and stop before the next current-thread PeekMessageA poll"
@@ -25972,7 +26002,9 @@ export function validateCurrentCheckpoint(manifest) {
   }
   if (translateMessagePointerReleaseContinuationActive) {
     const expectedCapability =
-      windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+      peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+        ? "user32-peek-message-a-post-window-timer-callback-continuation"
+        : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
         ? "user32-window-timer-callback-post-waitable-timer-cycle"
         : d3d9PostInputScanWaitableTimerCycleCheckpointActive
         ? "d3d9-post-input-scan-waitable-timer-cycle"
@@ -26006,7 +26038,9 @@ export function validateCurrentCheckpoint(manifest) {
         ? "user32-dispatch-message-a-pointer-release-continuation"
         : "user32-translate-message-pointer-release-continuation";
     const expectedImplementation =
-      windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+      peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+        ? "runtime.user32-peek-message-a-post-window-timer-callback-continuation.v1"
+        : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
         ? "runtime.user32-window-timer-callback-post-waitable-timer-cycle.v1"
         : d3d9PostInputScanWaitableTimerCycleCheckpointActive
         ? "kernel32.wait-for-single-object-ex.waitable-timer.v1"
@@ -26040,7 +26074,9 @@ export function validateCurrentCheckpoint(manifest) {
         ? "runtime.user32-dispatch-message-a-pointer-release-continuation.v1"
         : "runtime.user32-translate-message-pointer-release-continuation.v1";
     const evidenceCapabilityLabel =
-      windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+      peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+        ? "post-window-timer-callback PeekMessageA continuation"
+        : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
         ? "post-waitable-timer window TIMERPROC cycle"
         : d3d9PostInputScanWaitableTimerCycleCheckpointActive
         ? "post-input-scan waitable-timer cycle"
@@ -26137,6 +26173,8 @@ export function validateCurrentCheckpoint(manifest) {
       const windowTimerNested =
         completion.windowTimerCallbackNestedCalls?.[0] ?? {};
       const windowTimerNestedTickCount = windowTimerNested.tickCount ?? {};
+      const peekMessagePostWindowTimerCallback =
+        completion.peekMessagePostWindowTimerCallback ?? {};
       const nextEndpoint = completion.nextEndpoint ?? {};
       const dispatchMessageReleaseInvalid =
         (peekMessageAPostPointerReleaseContinuationCheckpointActive ||
@@ -26183,7 +26221,9 @@ export function validateCurrentCheckpoint(manifest) {
         (peekMessageAPostPointerReleaseContinuationCheckpointActive ||
           defWindowProcAPointerReleaseContinuationCheckpointActive) &&
         (completion.lastCompletionSequence !==
-          (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+          (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+            ? 162_087
+            : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
             ? 162_085
             : d3d9PostInputScanWaitableTimerCycleCheckpointActive
             ? 162_082
@@ -26213,7 +26253,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 161_953
             : 161_952) ||
           completion.lastCompletionInstructionCount !==
-            (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+            (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+              ? 321_469_064
+              : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
               ? 321_469_055
               : d3d9PostInputScanWaitableTimerCycleCheckpointActive
               ? 321_468_349
@@ -26429,19 +26471,25 @@ export function validateCurrentCheckpoint(manifest) {
       const getAsyncKeyStatePostIsIconicClockInvalid =
         getAsyncKeyStatePostIsIconicClockContinuationCheckpointActive &&
         (completion.requiredCompletions !==
-            (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+            (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+              ? 1
+              : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
               ? 3
               : d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
               ? 1
               : 38) ||
           completion.completionCount !==
-            (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+            (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+              ? 1
+              : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
               ? 3
               : d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
               ? 1
               : 38) ||
           completion.firstCompletionSequence !==
-            (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+            (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+              ? 162_087
+              : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
               ? 162_083
               : d3d9PostInputScanWaitableTimerCycleCheckpointActive
               ? 162_081
@@ -26449,7 +26497,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 162_080
               : 161_965) ||
           completion.firstCompletionInstructionCount !==
-            (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+            (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+              ? 321_469_064
+              : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
               ? 321_468_397
               : d3d9PostInputScanWaitableTimerCycleCheckpointActive
               ? 321_468_343
@@ -26457,7 +26507,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 321_468_292
               : 321_463_448) ||
           completion.lastCompletionSequence !==
-            (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+            (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+              ? 162_087
+              : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
               ? 162_085
               : d3d9PostInputScanWaitableTimerCycleCheckpointActive
               ? 162_082
@@ -26465,7 +26517,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 162_080
               : 162_079) ||
           completion.lastCompletionInstructionCount !==
-            (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+            (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+              ? 321_469_064
+              : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
               ? 321_469_055
               : d3d9PostInputScanWaitableTimerCycleCheckpointActive
               ? 321_468_349
@@ -26727,6 +26781,37 @@ export function validateCurrentCheckpoint(manifest) {
           windowTimerNestedTickCount.nextTickCount !== 3_601_230 ||
           windowTimerNestedTickCount.incrementPerRead !== 1 ||
           completion.activeCallbackDepthAtStop !== 0);
+      const peekMessageAPostWindowTimerCallbackContinuationInvalid =
+        peekMessageAPostWindowTimerCallbackContinuationCheckpointActive &&
+        (completion.prerequisiteWindowTimerDispatchSequence !== 162_085 ||
+          completion.prerequisiteWindowTimerDispatchInstructionCount !==
+            321_469_055 ||
+          completion.peekMessagePostWindowTimerCallbackActiveCallbackDepthAtCompletion !==
+            0 ||
+          completion.postWindowTimerCallbackQueueDepthBefore !== 0 ||
+          completion.postWindowTimerCallbackQueueDepthAfter !== 0 ||
+          completion.postWindowTimerCallbackMessageBytesPreserved !== true ||
+          peekMessagePostWindowTimerCallback.sequence !== 162_087 ||
+          peekMessagePostWindowTimerCallback.occurrence !== 14 ||
+          peekMessagePostWindowTimerCallback.trapInstructionCount !==
+            321_469_064 ||
+          peekMessagePostWindowTimerCallback.runtimeThreadId !== 8_192 ||
+          peekMessagePostWindowTimerCallback.module?.toLowerCase() !==
+            "user32.dll" ||
+          peekMessagePostWindowTimerCallback.symbol !== "PeekMessageA" ||
+          peekMessagePostWindowTimerCallback.implementationId !==
+            "user32.peek-message-a.current-thread.v1" ||
+          peekMessagePostWindowTimerCallback.arguments?.join(",") !==
+            "7338216,0,0,0,1" ||
+          peekMessagePostWindowTimerCallback.result?.action !== "set" ||
+          peekMessagePostWindowTimerCallback.result?.value !== 0 ||
+          peekMessagePostWindowTimerCallback.returnAddress !== 269_039_547 ||
+          peekMessagePostWindowTimerCallback.stackPointerBefore !==
+            7_338_180 ||
+          peekMessagePostWindowTimerCallback.stackPointerAfter !== 7_338_204 ||
+          peekMessagePostWindowTimerCallback.lastError !== 0 ||
+          peekMessagePostWindowTimerCallback.guestWrites?.length !== 0 ||
+          completion.activeCallbackDepthAtStop !== 0);
       if (
         completion.capability !== expectedCapability ||
         completion.implementationId !== expectedImplementation ||
@@ -26848,7 +26933,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 1
               : 0) ||
         completion.requiredCompletions !==
-          (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+          (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+            ? 1
+            : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
             ? 3
             : d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
             ? 1
@@ -26860,7 +26947,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 4
               : 1) ||
         completion.completionCount !==
-          (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+          (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+            ? 1
+            : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
             ? 3
             : d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
             ? 1
@@ -26964,7 +27053,9 @@ export function validateCurrentCheckpoint(manifest) {
         releaseWrite.address !== 7_338_216 ||
         releaseWrite.bytes?.join(",") !== expectedMessageBytes ||
         completion.lastCompletionSequence !==
-          (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+          (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+            ? 162_087
+            : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
             ? 162_085
             : d3d9PostInputScanWaitableTimerCycleCheckpointActive
             ? 162_082
@@ -26996,7 +27087,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 161_952
             : 161_950) ||
         completion.lastCompletionInstructionCount !==
-          (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+          (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+            ? 321_469_064
+            : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
             ? 321_469_055
             : d3d9PostInputScanWaitableTimerCycleCheckpointActive
             ? 321_468_349
@@ -27057,8 +27150,11 @@ export function validateCurrentCheckpoint(manifest) {
         d3d9TestCooperativeLevelPostInputScanInvalid ||
         waitableTimerCycleInvalid ||
         windowTimerCallbackPostWaitableTimerCycleInvalid ||
+        peekMessageAPostWindowTimerCallbackContinuationInvalid ||
         completion.instructionCount !==
-          (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+          (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+            ? 321_469_098
+            : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
             ? 321_469_064
             : d3d9PostInputScanWaitableTimerCycleCheckpointActive
             ? 321_468_397
@@ -27092,7 +27188,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 321_462_499
             : 321_462_435) ||
         nextEndpoint.id !==
-          (d3d9PostInputScanWaitableTimerCycleCheckpointActive
+          (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+            ? 8
+            : d3d9PostInputScanWaitableTimerCycleCheckpointActive
             ? 164
             : d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
             ? 118
@@ -27122,7 +27220,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 233
             : 182) ||
         nextEndpoint.address !==
-          (d3d9PostInputScanWaitableTimerCycleCheckpointActive
+          (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+            ? 2_130_706_544
+            : d3d9PostInputScanWaitableTimerCycleCheckpointActive
             ? 2_130_709_040
             : d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
             ? 2_130_708_304
@@ -27152,7 +27252,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 2_130_710_144
             : 2_130_709_328) ||
         nextEndpoint.module?.toLowerCase() !==
-          (d3d9PostInputScanWaitableTimerCycleCheckpointActive
+          (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+            ? "winmm.dll"
+            : d3d9PostInputScanWaitableTimerCycleCheckpointActive
             ? "user32.dll"
             : d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
             ? "kernel32.dll"
@@ -27171,7 +27273,9 @@ export function validateCurrentCheckpoint(manifest) {
             : "user32.dll") ||
         nextEndpoint.symbol?.kind !== "name" ||
         nextEndpoint.symbol?.name !==
-          (d3d9PostInputScanWaitableTimerCycleCheckpointActive
+          (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+            ? "timeGetTime"
+            : d3d9PostInputScanWaitableTimerCycleCheckpointActive
             ? "PeekMessageA"
             : d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
             ? "SetWaitableTimer"
@@ -27209,7 +27313,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? "declared-com-method"
             : "declared-runtime-export") ||
         nextEndpoint.iatAddress !==
-          (d3d9PostInputScanWaitableTimerCycleCheckpointActive
+          (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+            ? 269_292_772
+            : d3d9PostInputScanWaitableTimerCycleCheckpointActive
             ? 269_292_392
             : d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
             ? 269_292_160
@@ -27245,7 +27351,9 @@ export function validateCurrentCheckpoint(manifest) {
             nextEndpoint.interface !== "IDirect3DDevice9" ||
             nextEndpoint.method !== "TestCooperativeLevel")) ||
         completion.nextArguments?.join(",") !==
-          (d3d9PostInputScanWaitableTimerCycleCheckpointActive
+          (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+            ? ""
+            : d3d9PostInputScanWaitableTimerCycleCheckpointActive
             ? "7338216,0,0,0,1"
             : d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
             ? "1459683329,7338224,0,0,0,0"
@@ -27275,7 +27383,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? "1208025089,514,0,23593600"
             : "7338216") ||
         completion.nextReturnAddress !==
-          (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+          (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+            ? 269_033_151
+            : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
             ? 269_039_547
             : d3d9PostInputScanWaitableTimerCycleCheckpointActive
             ? 269_039_499
@@ -27307,7 +27417,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 269_038_527
             : 269_039_532) ||
         completion.nextStackPointer !==
-          (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+          (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+            ? 7_338_244
+            : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
             ? 7_338_180
             : d3d9PostInputScanWaitableTimerCycleCheckpointActive
             ? 7_338_184
@@ -27341,7 +27453,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? 7_337_228
             : 7_338_196) ||
         completion.memoryContentSha256 !==
-          (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+          (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+            ? "842ed108fc0c042836b56c1fb56b91a5270f9e53aaf7f32b18166cac8a3680e4"
+            : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
             ? "1fdadab08d4e4cbb7ab68ffbf6f0b19b0f341ff55c225843d2c536e37fdcc553"
             : d3d9PostInputScanWaitableTimerCycleCheckpointActive
             ? "7613ec6d006a037d09f4f9465db2995839094f7f9be1bc653449dfdf7b405297"
@@ -27405,9 +27519,17 @@ export function validateCurrentCheckpoint(manifest) {
         evidence.translateMessageChromeCompletions !==
           (windowTimerCallbackPostWaitableTimerCycleCheckpointActive ? 5 : 4) ||
         evidence.peekMessageANodeCompletions !==
-          (windowTimerCallbackPostWaitableTimerCycleCheckpointActive ? 13 : 12) ||
+          (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+            ? 14
+            : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+              ? 13
+              : 12) ||
         evidence.peekMessageAChromeCompletions !==
-          (windowTimerCallbackPostWaitableTimerCycleCheckpointActive ? 13 : 12) ||
+          (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+            ? 14
+            : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+              ? 13
+              : 12) ||
         evidence.windowTimerNodeDeliveries !==
           (windowTimerCallbackPostWaitableTimerCycleCheckpointActive ? 3 : 2) ||
         evidence.windowTimerChromeDeliveries !==
@@ -27423,7 +27545,48 @@ export function validateCurrentCheckpoint(manifest) {
     const expectedCompletion = currentStop.completion ?? {};
     const expectedEndpoint = currentStop.nextEndpoint ?? {};
     const releaseCheckpointExpectation =
-      windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+      peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+        ? {
+            nextCheckpoint:
+              "winmm-time-get-time-post-window-timer-callback-continuation",
+            instructionCount: 321_469_098,
+            capabilityCluster:
+              "winmm-post-window-timer-callback-clock-continuation",
+            reason:
+              "user32-peek-message-a-post-window-timer-callback-continuation-checkpoint-complete",
+            endpointKind: "runtime-system-export",
+            endpointId: 8,
+            endpointApi: "winmm.dll!timegettime",
+            endpointModule: "winmm.dll",
+            endpointAddress: "0x7f000070",
+            iatAddress: "0x100d14e4",
+            observedSymbol: "timeGetTime",
+            disposition: "declared-runtime-export",
+            arguments: "",
+            returnAddress: "0x10091ebf",
+            stackPointer: "0x006ff904",
+            nodeReportBytes: 3_067_477,
+            nodeReportSha256:
+              "c1aed45be6cc3c8916f191702de9c1a4e9df07f6a459f4b5fec02a5e72b2e203",
+            browserReportBytes: 2_769_691,
+            browserReportSha256:
+              "d258bea30ec76b94b346ebf51d9aac4ec59f434cd44178ac73b8246895b50add",
+            browserReportSchemaVersion: 67,
+            browserRuntimeProtocol: "vine.browser-runtime-worker.v100",
+            runtimeWorkerBytes: 1_026_196,
+            runtimeWorkerSha256:
+              "0b59e5c5a0833721d47b5a8a418bc6f9cdab5c081caa9cebce0037a820c007f7",
+            runtimeCoreWasmBytes: 5_203_443,
+            runtimeCoreWasmSha256:
+              "fc8bf7f225814f6457e42e50bc565afe74565905b251582c57af6f9552cce287",
+            cpuSlices: 183_994,
+            writebackBatches: 183_987,
+            writebackPages: 282_716,
+            hostDeltaBatches: 127_997,
+            wasmBridgeCalls: 489_729,
+            statusMessagesObserved: 24_367,
+          }
+        : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
         ? {
             nextCheckpoint:
               "user32-peek-message-a-post-window-timer-callback-continuation",
@@ -28090,7 +28253,43 @@ export function validateCurrentCheckpoint(manifest) {
               statusMessagesObserved: 24_345,
             };
     const expectedCompletionBoundaryInvalid =
-      windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+      peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+        ? expectedCompletion.requiredCompletions !== 1 ||
+          expectedCompletion.completionCount !== 1 ||
+          expectedCompletion.requiredDeliveries !== 1 ||
+          expectedCompletion.deliveryCount !== 3 ||
+          expectedCompletion.prerequisiteTimerWaitSequence !== 162_082 ||
+          expectedCompletion.prerequisiteTimerWaitInstructionCount !==
+            321_468_349 ||
+          expectedCompletion.prerequisiteTestCooperativeLevelSequence !==
+            162_080 ||
+          expectedCompletion.prerequisiteTestCooperativeLevelInstructionCount !==
+            321_468_292 ||
+          expectedCompletion.firstCompletionSequence !== 162_087 ||
+          expectedCompletion.firstCompletionInstructionCount !==
+            321_469_064 ||
+          expectedCompletion.lastCompletionSequence !== 162_087 ||
+          expectedCompletion.lastCompletionInstructionCount !== 321_469_064 ||
+          expectedCompletion.cumulativeTimerArmCompletions !== 11_476 ||
+          expectedCompletion.cumulativeTimerWaitCompletions !== 11_475 ||
+          expectedCompletion.windowTimerCallbackNestedCompletionCount !== 1 ||
+          expectedCompletion.windowTimerCallbackActiveDepthAtCompletion !== 1 ||
+          expectedCompletion.maximumRepeatCompletions !== 16 ||
+          expectedCompletion.requiredEntries !== 1 ||
+          expectedCompletion.entryCount !== 1 ||
+          expectedCompletion.lastEntrySequence !== 161_951 ||
+          expectedCompletion.lastEntryInstructionCount !== 321_462_435 ||
+          expectedCompletion.prerequisiteWindowTimerDispatchSequence !==
+            162_085 ||
+          expectedCompletion.prerequisiteWindowTimerDispatchInstructionCount !==
+            321_469_055 ||
+          expectedCompletion.peekMessagePostWindowTimerCallbackActiveCallbackDepthAtCompletion !==
+            0 ||
+          expectedCompletion.postWindowTimerCallbackQueueDepthBefore !== 0 ||
+          expectedCompletion.postWindowTimerCallbackQueueDepthAfter !== 0 ||
+          expectedCompletion.postWindowTimerCallbackMessageBytesPreserved !==
+            true
+        : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
         ? expectedCompletion.requiredCompletions !== 3 ||
           expectedCompletion.completionCount !== 3 ||
           expectedCompletion.requiredDeliveries !== 1 ||
@@ -28426,7 +28625,9 @@ export function validateCurrentCheckpoint(manifest) {
         const calls = completion.timeGetTimePostReleaseCompletions ?? [];
         if (
           completion.requiredCompletions !==
-            (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+            (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+              ? 1
+              : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
               ? 3
               : d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
               ? 1
@@ -28446,7 +28647,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 1
               : 4) ||
           completion.completionCount !==
-            (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+            (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+              ? 1
+              : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
               ? 3
               : d3d9TestCooperativeLevelPostInputScanContinuationCheckpointActive
               ? 1
@@ -28466,7 +28669,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 1
               : 4) ||
           completion.lastCompletionSequence !==
-            (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+            (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+              ? 162_087
+              : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
               ? 162_085
               : d3d9PostInputScanWaitableTimerCycleCheckpointActive
               ? 162_082
@@ -28490,7 +28695,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? 161_958
               : 161_957) ||
           completion.lastCompletionInstructionCount !==
-            (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+            (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+              ? 321_469_064
+              : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
               ? 321_469_055
               : d3d9PostInputScanWaitableTimerCycleCheckpointActive
               ? 321_468_349
@@ -32138,7 +32345,9 @@ export function validateCurrentCheckpoint(manifest) {
             evidence.peekMessageAFilteredRetrievalImplemented !== false ||
             evidence.peekMessageACrossThreadRetrievalImplemented !== false ||
             evidence.peekMessageANodeCompletions !==
-              (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+              (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+                ? 14
+                : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
                 ? 13
                 : peekMessageAPostPointerReleaseContinuationCheckpointActive
                 ? 12
@@ -32152,7 +32361,9 @@ export function validateCurrentCheckpoint(manifest) {
                 ? 77
                 : mainLoopPollCompletionCount) ||
             evidence.peekMessageAChromeCompletions !==
-              (windowTimerCallbackPostWaitableTimerCycleCheckpointActive
+              (peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
+                ? 14
+                : windowTimerCallbackPostWaitableTimerCycleCheckpointActive
                 ? 13
                 : peekMessageAPostPointerReleaseContinuationCheckpointActive
                 ? 12
@@ -33690,6 +33901,12 @@ export function renderReadmeStatus(manifest) {
   const nextSummary =
     next.kind === "capability-checkpoint"
       ? next.completion.capability ===
+        "user32-peek-message-a-post-window-timer-callback-continuation"
+        ? `\`${next.completion.capability}\` observed the authoritative current-thread queue remain empty after TIMERPROC frame 35, returned FALSE without guest writes, and preserved the prior WM_TIMER MSG32 bytes at ` +
+          `sequence ${next.completion.lastCompletionSequence} / instruction ${next.completion.lastCompletionInstructionCount}; ` +
+          `verification stopped at the next \`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +
+          `(\`${next.reason}\`)`
+        : next.completion.capability ===
         "user32-window-timer-callback-post-waitable-timer-cycle"
         ? `\`${next.completion.capability}\` materialized the reached third WM_TIMER, completed TranslateMessage, dispatched TIMERPROC frame 35, and observed its nested GetTickCount at ` +
           `sequence ${next.completion.lastCompletionSequence} / instruction ${next.completion.lastCompletionInstructionCount}; ` +

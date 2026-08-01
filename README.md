@@ -14,14 +14,14 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation`: 162086 calls across 131 endpoint contracts / 129 APIs, memory generation 296520 |
+| Runtime diagnostics | `user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation`: 162087 calls across 131 endpoint contracts / 129 APIs, memory generation 296521 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `user32-window-timer-callback-post-waitable-timer-cycle` materialized the reached third WM_TIMER, completed TranslateMessage, dispatched TIMERPROC frame 35, and observed its nested GetTickCount at sequence 162085 / instruction 321469055; verification stopped at the next `USER32.dll!PeekMessageA` on instruction 321469064 (`user32-window-timer-callback-post-waitable-timer-cycle-checkpoint-complete`) |
+| Next structured stop | `user32-peek-message-a-post-window-timer-callback-continuation` observed the authoritative current-thread queue remain empty after TIMERPROC frame 35, returned FALSE without guest writes, and preserved the prior WM_TIMER MSG32 bytes at sequence 162087 / instruction 321469064; verification stopped at the next `WINMM.dll!timeGetTime` on instruction 321469098 (`user32-peek-message-a-post-window-timer-callback-continuation-checkpoint-complete`) |
 
-The active semantic report is 3,065,963 bytes with SHA-256
-`9e637e0daa3c970d0187b3778873327267bd2e537fef4d6c2783ebf0601e5d8f`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 3,067,477 bytes with SHA-256
+`c1aed45be6cc3c8916f191702de9c1a4e9df07f6a459f4b5fec02a5e72b2e203`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

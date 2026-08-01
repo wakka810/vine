@@ -1380,6 +1380,16 @@ browser report schema 66のNode／Chromeは13回目のPeek、5回目のTranslate
 別thread delivery、filtered retrieval、missed-period一般化はclaimしない。Exact値とartifact identityは
 `current-checkpoint.json`だけを正本とする。
 
+`user32-peek-message-a-post-window-timer-callback-continuation`は、TIMERPROC frame 35の
+unwind直後に到達したcurrent-thread unfiltered `PeekMessageA(..., PM_REMOVE)`を既存の
+`user32.peek-message-a.current-thread.v1`で完了する。Rust-owned queueはdepth 0のままFALSEを返し、
+MSG32 outputを一切書き換えず、直前にmaterializeした`WM_TIMER` bytes、LastError 0、callback depth 0を
+保持する。Protocol v100／browser report schema 67のNode／Chromeは14回目のPeek（sequence 162087、
+instruction 321469064）、stdcall stack、zero guest write、queue depth 0→0、ordered semantic digest、
+terminal memoryを一致させ、次の`WINMM.dll!timeGetTime`直前で停止する。Filtered／cross-thread retrieval、
+blocking message wait、browser側のqueue authorityは拡張せず、exact artifact identityは
+`current-checkpoint.json`だけを正本とする。
+
 Post-timer-wait `SetWaitableTimer` recurrenceは、そのframeを同じrelative one-shot transactionで消費する。
 Rustはtimer ID／logical handle／typed-object identity／manual-reset mode／live arm generation／object lifetimeを
 preflightしてから、timer payloadと`nonsignaled` wait stateをjoint commitする。Node／ChromeはBOOL／LastError、

@@ -231,6 +231,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-test-cooperative-level-post-input-scan-continuation",
         "d3d9-post-input-scan-waitable-timer-cycle",
         "user32-window-timer-callback-post-waitable-timer-cycle",
+        "user32-peek-message-a-post-window-timer-callback-continuation",
         "kernel32-wait-for-single-object-ex",
         "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
         "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -435,6 +436,7 @@ assert(
       "d3d9-test-cooperative-level-post-input-scan-continuation",
       "d3d9-post-input-scan-waitable-timer-cycle",
       "user32-window-timer-callback-post-waitable-timer-cycle",
+      "user32-peek-message-a-post-window-timer-callback-continuation",
       "kernel32-wait-for-single-object-ex",
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch",
       "kernel32-wait-for-single-object-ex-post-timer-rearm-batch",
@@ -600,6 +602,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
       "d3d9-post-input-scan-waitable-timer-cycle" ||
     genericRuntimeCapability ===
       "user32-window-timer-callback-post-waitable-timer-cycle" ||
+    genericRuntimeCapability ===
+      "user32-peek-message-a-post-window-timer-callback-continuation" ||
     genericRuntimeCapability ===
       "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     genericRuntimeCapability ===
@@ -965,13 +969,17 @@ const presentationProgressGatewayCheckpointEnabled =
   "primary-main-loop-presentation-progress-gateway";
 const d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled =
   genericRuntimeCapability ===
-  "d3d9-test-cooperative-level-post-input-scan-continuation";
+    "d3d9-test-cooperative-level-post-input-scan-continuation";
 const d3d9PostInputScanWaitableTimerCycleCheckpointEnabled =
   genericRuntimeCapability ===
-  "d3d9-post-input-scan-waitable-timer-cycle";
+    "d3d9-post-input-scan-waitable-timer-cycle";
+const peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled =
+  genericRuntimeCapability ===
+    "user32-peek-message-a-post-window-timer-callback-continuation";
 const windowTimerCallbackPostWaitableTimerCycleCheckpointEnabled =
   genericRuntimeCapability ===
-  "user32-window-timer-callback-post-waitable-timer-cycle";
+      "user32-window-timer-callback-post-waitable-timer-cycle" ||
+  peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled;
 const d3d9PostInputScanWaitableTimerCycleEvidenceEnabled =
   d3d9PostInputScanWaitableTimerCycleCheckpointEnabled ||
   windowTimerCallbackPostWaitableTimerCycleCheckpointEnabled;
@@ -1143,17 +1151,21 @@ const recurringTimerBoundedWindowCheckpointEnabled =
 const recurringTimerWindowConfiguration =
   d3d9TestCooperativeLevelPostInputScanEvidenceEnabled
     ? {
-        capability: windowTimerCallbackPostWaitableTimerCycleCheckpointEnabled
-          ? "user32-window-timer-callback-post-waitable-timer-cycle"
-          : d3d9PostInputScanWaitableTimerCycleCheckpointEnabled
-            ? "d3d9-post-input-scan-waitable-timer-cycle"
-            : "d3d9-test-cooperative-level-post-input-scan-continuation",
-        implementationId:
-          windowTimerCallbackPostWaitableTimerCycleCheckpointEnabled
-            ? "runtime.user32-window-timer-callback-post-waitable-timer-cycle.v1"
+        capability: peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled
+          ? "user32-peek-message-a-post-window-timer-callback-continuation"
+          : windowTimerCallbackPostWaitableTimerCycleCheckpointEnabled
+            ? "user32-window-timer-callback-post-waitable-timer-cycle"
             : d3d9PostInputScanWaitableTimerCycleCheckpointEnabled
-              ? "kernel32.wait-for-single-object-ex.waitable-timer.v1"
-              : "runtime.d3d9-test-cooperative-level-post-input-scan-continuation.v1",
+              ? "d3d9-post-input-scan-waitable-timer-cycle"
+              : "d3d9-test-cooperative-level-post-input-scan-continuation",
+        implementationId:
+          peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled
+            ? "runtime.user32-peek-message-a-post-window-timer-callback-continuation.v1"
+            : windowTimerCallbackPostWaitableTimerCycleCheckpointEnabled
+              ? "runtime.user32-window-timer-callback-post-waitable-timer-cycle.v1"
+              : d3d9PostInputScanWaitableTimerCycleCheckpointEnabled
+                ? "kernel32.wait-for-single-object-ex.waitable-timer.v1"
+                : "runtime.d3d9-test-cooperative-level-post-input-scan-continuation.v1",
         requiredCycles: 253,
         maximumCycles: 320,
       }
@@ -1878,8 +1890,10 @@ const outputDirectory = path.join(
                                   ? timeGetTimePostIsIconicContinuationCheckpointEnabled
                                     ? getAsyncKeyStatePostIsIconicClockContinuationCheckpointEnabled
                                       ? d3d9TestCooperativeLevelPostInputScanEvidenceEnabled
-                                        ? windowTimerCallbackPostWaitableTimerCycleCheckpointEnabled
-                                          ? "v86-bgi-window-timer-callback-post-waitable-timer-cycle"
+                                        ? peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled
+                                          ? "v86-bgi-peek-message-a-post-window-timer-callback-continuation"
+                                          : windowTimerCallbackPostWaitableTimerCycleCheckpointEnabled
+                                            ? "v86-bgi-window-timer-callback-post-waitable-timer-cycle"
                                           : d3d9PostInputScanWaitableTimerCycleCheckpointEnabled
                                             ? "v86-bgi-d3d9-post-input-scan-waitable-timer-cycle"
                                             : "v86-bgi-d3d9-test-cooperative-level-post-input-scan-continuation"
@@ -6347,7 +6361,13 @@ async function run() {
       const sourceAfter = sourceIdentity(bgiPath);
       assert.deepEqual(sourceAfter, sourceBefore);
       if (timeGetTimePostPointerReleaseRepeatBatchCheckpointEnabled) {
-        if (windowTimerCallbackPostWaitableTimerCycleCheckpointEnabled) {
+        if (
+          peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled
+        ) {
+          validatePeekMessageAPostWindowTimerCallbackContinuationResult(
+            genericResult,
+          );
+        } else if (windowTimerCallbackPostWaitableTimerCycleCheckpointEnabled) {
           validateWindowTimerCallbackPostWaitableTimerCycleResult(
             genericResult,
           );
@@ -6787,8 +6807,10 @@ async function run() {
                                         ? timeGetTimePostIsIconicContinuationCheckpointEnabled
                                           ? getAsyncKeyStatePostIsIconicClockContinuationCheckpointEnabled
                                             ? d3d9TestCooperativeLevelPostInputScanEvidenceEnabled
-                                              ? windowTimerCallbackPostWaitableTimerCycleCheckpointEnabled
-                                                ? "bgi window-timer callback post-waitable-timer cycle"
+                                              ? peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled
+                                                ? "bgi USER32 PeekMessageA post-window-timer-callback continuation"
+                                                : windowTimerCallbackPostWaitableTimerCycleCheckpointEnabled
+                                                  ? "bgi window-timer callback post-waitable-timer cycle"
                                                 : d3d9PostInputScanWaitableTimerCycleCheckpointEnabled
                                                   ? "bgi post-input-scan waitable-timer cycle"
                                                   : "bgi D3D9 TestCooperativeLevel post-input-scan continuation"
@@ -7595,6 +7617,10 @@ async function runGenericRuntimeReentry({
   let d3d9PostInputScanWaitableTimerPrerequisite = null;
   let d3d9PostInputScanWaitableTimerArm = null;
   let windowTimerCallbackPostWaitableTimerPrerequisite = null;
+  let peekMessageAPostWindowTimerCallbackPrerequisite = null;
+  let peekMessageAPostWindowTimerCallbackEntry = null;
+  let peekMessageAPostWindowTimerCallbackDispatching = false;
+  let peekMessageAPostWindowTimerCallbackBytesBefore = null;
   let inputProgressAsyncKeyStateQuery = null;
   const inputProgressVirtualKey = actionInputProgressGatewayCheckpointEnabled
     ? 0x01
@@ -7994,6 +8020,46 @@ async function runGenericRuntimeReentry({
       ]);
       assert.equal(terminal.returnAddress, 0x1009_33bf);
       assert.equal(continuation.finalState.esp, 0x006f_f50c);
+    }
+    if (
+      peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled &&
+      peekMessageAPostWindowTimerCallbackPrerequisite !== null &&
+      peekMessageAPostWindowTimerCallbackEntry === null &&
+      !peekMessageAPostWindowTimerCallbackDispatching &&
+      endpoint !== null
+    ) {
+      assert.equal(activeCallbacks.length, 0);
+      assert.equal(endpoint.kind, "runtime-system-export");
+      assert.equal(endpoint.id, 164);
+      assert.equal(endpoint.address, 0x7f00_0a30);
+      assert.equal(endpoint.module.toLowerCase(), "user32.dll");
+      assert.equal(endpoint.symbol, "PeekMessageA");
+      assert.equal(terminal.kind, "owned-import-thunk");
+      assert.equal(terminal.thunk.iatAddress, 0x100d_1368);
+      assert.deepEqual(terminal.stackWords.slice(1, 6), [
+        0x006f_f8e8,
+        0,
+        0,
+        0,
+        1,
+      ]);
+      assert.equal(terminal.returnAddress, 0x1009_37bb);
+      assert.equal(continuation.finalState.esp, 0x006f_f8c4);
+      peekMessageAPostWindowTimerCallbackBytesBefore = Buffer.from(
+        context.readVirtualBytes(
+          0x006f_f8e8,
+          28,
+          "WM_TIMER MSG before post-callback empty PeekMessageA",
+        ),
+      );
+      assert.deepEqual(
+        peekMessageAPostWindowTimerCallbackBytesBefore,
+        Buffer.from(
+          "010001481301000001000000009609104df33600c00300001c020000",
+          "hex",
+        ),
+      );
+      peekMessageAPostWindowTimerCallbackDispatching = true;
     }
     if (
       peekMessageAPostPointerReleaseContinuationCheckpointEnabled &&
@@ -8593,6 +8659,22 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
+      peekMessageAPostWindowTimerCallbackEntry !== null &&
+      endpoint !== null
+    ) {
+      assert.equal(activeCallbacks.length, 0);
+      assert.equal(peekMessageAPostWindowTimerCallbackDispatching, false);
+      assert.equal(peekMessageAPostWindowTimerCallbackBytesBefore, null);
+      assert.equal(peekMessageAPostWindowTimerCallbackPrerequisite, null);
+      checkpointCompletion = {
+        ...peekMessageAPostWindowTimerCallbackEntry,
+        activeCallbackDepthAtStop: activeCallbacks.length,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
+    if (
       peekMessageAPostPointerReleaseContinuationEntry !== null &&
       !timeGetTimePostPointerReleaseContinuationCheckpointEnabled &&
       endpoint !== null
@@ -8751,6 +8833,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "user32-peek-message-a-post-window-timer-callback-continuation"
+            ? "user32-peek-message-a-post-window-timer-callback-continuation-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "user32-window-timer-callback-post-waitable-timer-cycle"
             ? "user32-window-timer-callback-post-waitable-timer-cycle-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -8991,6 +9076,12 @@ async function runGenericRuntimeReentry({
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (postCriticalSectionSetWaitableTimerCheckpointEnabled) {
         checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 4);
+        checkpointCompletion.nextReturnAddress = terminal.returnAddress;
+        checkpointCompletion.nextStackPointer = continuation.finalState.esp;
+      } else if (
+        peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled
+      ) {
+        checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 1);
         checkpointCompletion.nextReturnAddress = terminal.returnAddress;
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (
@@ -9298,7 +9389,7 @@ async function runGenericRuntimeReentry({
           );
           assert.equal(callbackNestedCalls.length, 1);
           assert.deepEqual(peek.windowTimer, call.windowTimer);
-          checkpointCompletion = {
+          const completedWindowTimerCallbackCycle = {
             ...windowTimerCallbackPostWaitableTimerPrerequisite,
             capability:
               "user32-window-timer-callback-post-waitable-timer-cycle",
@@ -9345,6 +9436,18 @@ async function runGenericRuntimeReentry({
             nextEndpoint: null,
             memoryContentSha256: "",
           };
+          if (
+            peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled
+          ) {
+            assert.equal(
+              peekMessageAPostWindowTimerCallbackPrerequisite,
+              null,
+            );
+            peekMessageAPostWindowTimerCallbackPrerequisite =
+              completedWindowTimerCallbackCycle;
+          } else {
+            checkpointCompletion = completedWindowTimerCallbackCycle;
+          }
           windowTimerCallbackPostWaitableTimerPrerequisite = null;
         }
         if (
@@ -10327,6 +10430,73 @@ async function runGenericRuntimeReentry({
       frozenSemanticCalls += 1;
     }
     supportedCalls.push(call);
+    if (
+      peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled &&
+      peekMessageAPostWindowTimerCallbackDispatching
+    ) {
+      const prerequisite =
+        peekMessageAPostWindowTimerCallbackPrerequisite;
+      assert(prerequisite);
+      assert.equal(peekMessageAPostWindowTimerCallbackEntry, null);
+      assert.equal(call.module.toLowerCase(), "user32.dll");
+      assert.equal(call.symbol, "PeekMessageA");
+      assert.equal(
+        call.implementationId,
+        "user32.peek-message-a.current-thread.v1",
+      );
+      assert.equal(call.sequence, 162_087);
+      assert.equal(call.occurrence, 14);
+      assert.equal(call.trapInstructionCount, 321_469_064);
+      assert.deepEqual(call.arguments, [0x006f_f8e8, 0, 0, 0, 1]);
+      assert.deepEqual(call.result, { action: "set", value: 0 });
+      assert.equal(call.returnAddress, 0x1009_37bb);
+      assert.equal(call.stackPointerBefore, 0x006f_f8c4);
+      assert.equal(call.stackPointerAfter, 0x006f_f8dc);
+      assert.equal(call.lastError, 0);
+      assert.equal(activeCallbacks.length, 0);
+      assert.deepEqual(call.guestWrites, []);
+      assert.deepEqual(completionFrame.queuedThreadMessages, []);
+      const outputBefore = peekMessageAPostWindowTimerCallbackBytesBefore;
+      assert(outputBefore);
+      const outputAfter = Buffer.from(
+        context.readVirtualBytes(
+          0x006f_f8e8,
+          28,
+          "MSG output after post-callback empty PeekMessageA",
+        ),
+      );
+      assert.deepEqual(outputAfter, outputBefore);
+      peekMessageAPostWindowTimerCallbackEntry = {
+        ...prerequisite,
+        capability:
+          "user32-peek-message-a-post-window-timer-callback-continuation",
+        implementationId:
+          "runtime.user32-peek-message-a-post-window-timer-callback-continuation.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        prerequisiteWindowTimerDispatchSequence:
+          prerequisite.windowTimerDispatch.sequence,
+        prerequisiteWindowTimerDispatchInstructionCount:
+          prerequisite.windowTimerDispatch.callback.returnInstructionCount,
+        firstCompletionSequence: call.sequence,
+        firstCompletionInstructionCount: call.trapInstructionCount,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: call.trapInstructionCount,
+        peekMessagePostWindowTimerCallbackActiveCallbackDepthAtCompletion:
+          activeCallbacks.length,
+        postWindowTimerCallbackQueueDepthBefore: 0,
+        postWindowTimerCallbackQueueDepthAfter:
+          completionFrame.queuedThreadMessages.length,
+        postWindowTimerCallbackMessageBytesPreserved: true,
+        peekMessagePostWindowTimerCallback: {
+          ...structuredClone(call),
+          runtimeThreadId: currentThreadId,
+        },
+      };
+      peekMessageAPostWindowTimerCallbackDispatching = false;
+      peekMessageAPostWindowTimerCallbackBytesBefore = null;
+      peekMessageAPostWindowTimerCallbackPrerequisite = null;
+    }
     if (
       peekMessageAPostPointerReleaseContinuationCheckpointEnabled &&
       peekMessageAPostPointerReleaseDispatching
@@ -28718,6 +28888,10 @@ function validatePostWaitCriticalSectionResult(result) {
 }
 
 function validateRecurringTimerBoundedWindowResult(result) {
+  if (peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled) {
+    validatePeekMessageAPostWindowTimerCallbackContinuationResult(result);
+    return;
+  }
   if (windowTimerCallbackPostWaitableTimerCycleCheckpointEnabled) {
     validateWindowTimerCallbackPostWaitableTimerCycleResult(result);
     return;
@@ -29176,6 +29350,88 @@ function validateWindowTimerCallbackPostWaitableTimerCycleResult(result) {
   );
   assert.equal(result.hostDeltas.length, 127_997);
   assert.equal(result.finalGeneration, 296_520);
+}
+
+function validatePeekMessageAPostWindowTimerCallbackContinuationResult(result) {
+  assert(peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled);
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  const checkpoint = result.checkpointCompletion;
+  assert.equal(
+    checkpoint?.capability,
+    "user32-peek-message-a-post-window-timer-callback-continuation",
+  );
+  assert.equal(
+    checkpoint.implementationId,
+    "runtime.user32-peek-message-a-post-window-timer-callback-continuation.v1",
+  );
+  assert.equal(checkpoint.requiredCompletions, 1);
+  assert.equal(checkpoint.completionCount, 1);
+  assert.equal(checkpoint.prerequisiteWindowTimerDispatchSequence, 162_085);
+  assert.equal(
+    checkpoint.prerequisiteWindowTimerDispatchInstructionCount,
+    321_469_055,
+  );
+  assert.equal(checkpoint.lastCompletionSequence, 162_087);
+  assert.equal(checkpoint.lastCompletionInstructionCount, 321_469_064);
+  assert.equal(checkpoint.firstCompletionSequence, 162_087);
+  assert.equal(checkpoint.firstCompletionInstructionCount, 321_469_064);
+  assert.equal(
+    checkpoint.peekMessagePostWindowTimerCallbackActiveCallbackDepthAtCompletion,
+    0,
+  );
+  assert.equal(checkpoint.postWindowTimerCallbackQueueDepthBefore, 0);
+  assert.equal(checkpoint.postWindowTimerCallbackQueueDepthAfter, 0);
+  assert.equal(checkpoint.postWindowTimerCallbackMessageBytesPreserved, true);
+  const peek = checkpoint.peekMessagePostWindowTimerCallback;
+  assert.equal(peek.runtimeThreadId, 8_192);
+  assert.equal(peek.sequence, 162_087);
+  assert.equal(peek.occurrence, 14);
+  assert.equal(peek.trapInstructionCount, 321_469_064);
+  assert.deepEqual(peek.arguments, [0x006f_f8e8, 0, 0, 0, 1]);
+  assert.deepEqual(peek.result, { action: "set", value: 0 });
+  assert.equal(peek.returnAddress, 0x1009_37bb);
+  assert.equal(peek.stackPointerBefore, 0x006f_f8c4);
+  assert.equal(peek.stackPointerAfter, 0x006f_f8dc);
+  assert.equal(peek.lastError, 0);
+  assert.deepEqual(peek.guestWrites, []);
+  assert.equal(checkpoint.activeCallbackDepthAtStop, 0);
+  assert.equal(checkpoint.instructionCount, 321_469_098);
+  assert.deepEqual(checkpoint.nextEndpoint, {
+    id: 8,
+    address: 0x7f00_0070,
+    module: "WINMM.dll",
+    symbol: { kind: "name", name: "timeGetTime" },
+    disposition: "declared-runtime-export",
+    iatAddress: 0x100d_14e4,
+  });
+  assert.deepEqual(checkpoint.nextArguments, []);
+  assert.equal(checkpoint.nextReturnAddress, 0x1009_1ebf);
+  assert.equal(checkpoint.nextStackPointer, 0x006f_f904);
+  assert.equal(
+    checkpoint.memoryContentSha256,
+    "842ed108fc0c042836b56c1fb56b91a5270f9e53aaf7f32b18166cac8a3680e4",
+  );
+  assert.equal(result.terminal.instructionCount, checkpoint.instructionCount);
+  assert.equal(result.supportedCalls.length, 162_087);
+  assert.equal(result.writebacks.length, 165_242);
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.dirtyPages.length,
+      0,
+    ),
+    244_675,
+  );
+  assert.equal(
+    result.writebacks.reduce(
+      (total, writeback) => total + writeback.receipt.changedBytes,
+      0,
+    ),
+    43_072_557,
+  );
+  assert.equal(result.hostDeltas.length, 127_997);
+  assert.equal(result.finalGeneration, 296_521);
+  assert.equal(result.threadExecution.contextSwitches, 2_514);
 }
 
 function validateD3d9PostInputScanWaitableTimerCycleResult(result) {
@@ -38116,7 +38372,15 @@ function buildGenericRuntimeReentryReport({
   }
   assert.equal(semanticCallDigest.count(), completedSupportedCalls.length);
   const supportedCallSemanticsSha256 = semanticCallDigest.digestHex();
-  if (windowTimerCallbackPostWaitableTimerCycleCheckpointEnabled) {
+  if (peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled) {
+    assert.equal(completedSupportedCalls.length, 162_087);
+    assert.equal(genericResult.supportedCalls.length, 162_087);
+    assert.notEqual(genericResult.supportedCalls.at(-1).pendingCallback, true);
+    assert.equal(
+      supportedCallSemanticsSha256,
+      "2243c31bf48c3249e96535b7659e634a54904405fc9e70dd5f4e179fc8364429",
+    );
+  } else if (windowTimerCallbackPostWaitableTimerCycleCheckpointEnabled) {
     assert.equal(completedSupportedCalls.length, 162_086);
     assert.equal(
       genericResult.supportedCalls.length,
@@ -41107,6 +41371,11 @@ function buildGenericRuntimeReentryReport({
                                                                                 .capability ===
                                                                               "primary-main-loop-window-timer-callback-delivery-gateway"
                                                                             ? "BGI materialized one due WM_TIMER, completed TranslateMessage and TIMERPROC dispatch, and stopped before the next message poll"
+                                                                            : genericResult
+                                                                                .checkpointCompletion
+                                                                                .capability ===
+                                                                              "user32-peek-message-a-post-window-timer-callback-continuation"
+                                                                            ? "BGI confirmed the post-TIMERPROC current-thread queue is empty, preserved the WM_TIMER MSG bytes, and stopped before timeGetTime"
                                                                             : genericResult
                                                                                 .checkpointCompletion
                                                                                 .capability ===

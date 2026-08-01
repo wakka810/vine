@@ -143,7 +143,11 @@ function validatePointerReleaseCompletion(
     `${label}.releaseCallbackReturn`,
     errors,
   );
+  const postWindowTimerCallbackPeekContinuation =
+    expected.capability ===
+    "user32-peek-message-a-post-window-timer-callback-continuation";
   const postWaitableTimerWindowCallbackCycle =
+    postWindowTimerCallbackPeekContinuation ||
     expected.capability ===
     "user32-window-timer-callback-post-waitable-timer-cycle";
   const postInputScanWaitableTimerCycle =
@@ -197,7 +201,9 @@ function validatePointerReleaseCompletion(
     postReleaseTimeGetTime ||
     expected.capability ===
       "user32-peek-message-a-post-pointer-release-continuation";
-  const finalCallName = postWaitableTimerWindowCallbackCycle
+  const finalCallName = postWindowTimerCallbackPeekContinuation
+    ? "peekMessagePostWindowTimerCallback"
+    : postWaitableTimerWindowCallbackCycle
     ? "windowTimerDispatch"
     : postInputScanWaitableTimerCycle
     ? "timerWait"
@@ -245,7 +251,13 @@ function validatePointerReleaseCompletion(
         errors,
       )
     : {};
-  const finalCall = postWaitableTimerWindowCallbackCycle
+  const finalCall = postWindowTimerCallbackPeekContinuation
+    ? requireRecord(
+        completion.peekMessagePostWindowTimerCallback,
+        `${label}.peekMessagePostWindowTimerCallback`,
+        errors,
+      )
+    : postWaitableTimerWindowCallbackCycle
     ? requireRecord(
         completion.windowTimerDispatch,
         `${label}.windowTimerDispatch`,
@@ -323,12 +335,14 @@ function validatePointerReleaseCompletion(
     errors,
   );
   checkEqual(
-    postWaitableTimerWindowCallbackCycle
+    postWaitableTimerWindowCallbackCycle &&
+      !postWindowTimerCallbackPeekContinuation
       ? finalCall.callback?.returnInstructionCount
       : finalCall.trapInstructionCount,
     expected.lastCompletionInstructionCount,
     `${label}.${finalCallName}.${
-      postWaitableTimerWindowCallbackCycle
+      postWaitableTimerWindowCallbackCycle &&
+      !postWindowTimerCallbackPeekContinuation
         ? "callback.returnInstructionCount"
         : "trapInstructionCount"
     }`,
@@ -1007,7 +1021,9 @@ function validatePointerReleaseCompletion(
       [
         "requiredCompletions",
         completion.requiredCompletions,
-        postWaitableTimerWindowCallbackCycle
+        postWindowTimerCallbackPeekContinuation
+          ? 1
+          : postWaitableTimerWindowCallbackCycle
           ? 3
           : postInputScanTestCooperativeLevel
             ? 1
@@ -1016,7 +1032,9 @@ function validatePointerReleaseCompletion(
       [
         "completionCount",
         completion.completionCount,
-        postWaitableTimerWindowCallbackCycle
+        postWindowTimerCallbackPeekContinuation
+          ? 1
+          : postWaitableTimerWindowCallbackCycle
           ? 3
           : postInputScanTestCooperativeLevel
             ? 1
@@ -1025,7 +1043,9 @@ function validatePointerReleaseCompletion(
       [
         "firstCompletionSequence",
         completion.firstCompletionSequence,
-        postWaitableTimerWindowCallbackCycle
+        postWindowTimerCallbackPeekContinuation
+          ? 162_087
+          : postWaitableTimerWindowCallbackCycle
           ? 162_083
           : postInputScanWaitableTimerCycle
           ? 162_081
@@ -1036,7 +1056,9 @@ function validatePointerReleaseCompletion(
       [
         "firstCompletionInstructionCount",
         completion.firstCompletionInstructionCount,
-        postWaitableTimerWindowCallbackCycle
+        postWindowTimerCallbackPeekContinuation
+          ? 321_469_064
+          : postWaitableTimerWindowCallbackCycle
           ? 321_468_397
           : postInputScanWaitableTimerCycle
           ? 321_468_343
@@ -1047,7 +1069,9 @@ function validatePointerReleaseCompletion(
       [
         "lastCompletionSequence",
         completion.lastCompletionSequence,
-        postWaitableTimerWindowCallbackCycle
+        postWindowTimerCallbackPeekContinuation
+          ? 162_087
+          : postWaitableTimerWindowCallbackCycle
           ? 162_085
           : postInputScanWaitableTimerCycle
           ? 162_082
@@ -1058,7 +1082,9 @@ function validatePointerReleaseCompletion(
       [
         "lastCompletionInstructionCount",
         completion.lastCompletionInstructionCount,
-        postWaitableTimerWindowCallbackCycle
+        postWindowTimerCallbackPeekContinuation
+          ? 321_469_064
+          : postWaitableTimerWindowCallbackCycle
           ? 321_469_055
           : postInputScanWaitableTimerCycle
           ? 321_468_349
@@ -1222,12 +1248,20 @@ function validatePointerReleaseCompletion(
       [
         "firstCompletionSequence",
         completion.firstCompletionSequence,
-        postWaitableTimerWindowCallbackCycle ? 162_083 : 162_081,
+        postWindowTimerCallbackPeekContinuation
+          ? 162_087
+          : postWaitableTimerWindowCallbackCycle
+            ? 162_083
+            : 162_081,
       ],
       [
         "firstCompletionInstructionCount",
         completion.firstCompletionInstructionCount,
-        postWaitableTimerWindowCallbackCycle ? 321_468_397 : 321_468_343,
+        postWindowTimerCallbackPeekContinuation
+          ? 321_469_064
+          : postWaitableTimerWindowCallbackCycle
+            ? 321_468_397
+            : 321_468_343,
       ],
       [
         "timerArmActiveCallbackDepthAtCompletion",
@@ -1507,6 +1541,82 @@ function validatePointerReleaseCompletion(
       ["windowTimerCallbackNestedCalls[0].tickCount.returnedTickCount", nested.tickCount?.returnedTickCount, 3_601_229],
       ["windowTimerCallbackNestedCalls[0].tickCount.nextTickCount", nested.tickCount?.nextTickCount, 3_601_230],
       ["windowTimerCallbackNestedCalls[0].tickCount.incrementPerRead", nested.tickCount?.incrementPerRead, 1],
+    ]) {
+      checkEqual(actual, expectedValue, `${label}.${field}`, errors);
+    }
+  }
+  if (postWindowTimerCallbackPeekContinuation) {
+    const peek = requireRecord(
+      completion.peekMessagePostWindowTimerCallback,
+      `${label}.peekMessagePostWindowTimerCallback`,
+      errors,
+    );
+    for (const [field, actual, expectedValue] of [
+      [
+        "prerequisiteWindowTimerDispatchSequence",
+        completion.prerequisiteWindowTimerDispatchSequence,
+        162_085,
+      ],
+      [
+        "prerequisiteWindowTimerDispatchInstructionCount",
+        completion.prerequisiteWindowTimerDispatchInstructionCount,
+        321_469_055,
+      ],
+      [
+        "peekMessagePostWindowTimerCallbackActiveCallbackDepthAtCompletion",
+        completion.peekMessagePostWindowTimerCallbackActiveCallbackDepthAtCompletion,
+        0,
+      ],
+      [
+        "postWindowTimerCallbackQueueDepthBefore",
+        completion.postWindowTimerCallbackQueueDepthBefore,
+        0,
+      ],
+      [
+        "postWindowTimerCallbackQueueDepthAfter",
+        completion.postWindowTimerCallbackQueueDepthAfter,
+        0,
+      ],
+      [
+        "postWindowTimerCallbackMessageBytesPreserved",
+        completion.postWindowTimerCallbackMessageBytesPreserved,
+        true,
+      ],
+      ["peekMessagePostWindowTimerCallback.sequence", peek.sequence, 162_087],
+      ["peekMessagePostWindowTimerCallback.occurrence", peek.occurrence, 14],
+      [
+        "peekMessagePostWindowTimerCallback.trapInstructionCount",
+        peek.trapInstructionCount,
+        321_469_064,
+      ],
+      [
+        "peekMessagePostWindowTimerCallback.runtimeThreadId",
+        peek.runtimeThreadId,
+        8_192,
+      ],
+      [
+        "peekMessagePostWindowTimerCallback.module",
+        peek.module?.toLowerCase(),
+        "user32.dll",
+      ],
+      ["peekMessagePostWindowTimerCallback.symbol", peek.symbol, "PeekMessageA"],
+      [
+        "peekMessagePostWindowTimerCallback.implementationId",
+        peek.implementationId,
+        "user32.peek-message-a.current-thread.v1",
+      ],
+      [
+        "peekMessagePostWindowTimerCallback.arguments",
+        peek.arguments?.join(","),
+        "7338216,0,0,0,1",
+      ],
+      ["peekMessagePostWindowTimerCallback.result.action", peek.result?.action, "set"],
+      ["peekMessagePostWindowTimerCallback.result.value", peek.result?.value, 0],
+      ["peekMessagePostWindowTimerCallback.returnAddress", peek.returnAddress, 269_039_547],
+      ["peekMessagePostWindowTimerCallback.stackPointerBefore", peek.stackPointerBefore, 7_338_180],
+      ["peekMessagePostWindowTimerCallback.stackPointerAfter", peek.stackPointerAfter, 7_338_204],
+      ["peekMessagePostWindowTimerCallback.lastError", peek.lastError, 0],
+      ["peekMessagePostWindowTimerCallback.guestWrites.length", peek.guestWrites?.length, 0],
     ]) {
       checkEqual(actual, expectedValue, `${label}.${field}`, errors);
     }

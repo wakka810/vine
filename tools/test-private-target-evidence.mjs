@@ -38,6 +38,7 @@ const checkpoint = loadCurrentCheckpoint(
 );
 const activeCapability = checkpoint.nextStructuredStop.completion?.capability;
 const postInputScanOrScan = [
+  "user32-peek-message-a-post-window-timer-callback-continuation",
   "user32-window-timer-callback-post-waitable-timer-cycle",
   "d3d9-post-input-scan-waitable-timer-cycle",
   "d3d9-test-cooperative-level-post-input-scan-continuation",
@@ -78,7 +79,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 66);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 67);
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
 const lastPacingRequest = { requestId: "4708", sequence: 89_218 };
@@ -704,6 +705,7 @@ if (
   );
   if (
     [
+      "user32-peek-message-a-post-window-timer-callback-continuation",
       "user32-window-timer-callback-post-waitable-timer-cycle",
       "d3d9-post-input-scan-waitable-timer-cycle",
       "d3d9-test-cooperative-level-post-input-scan-continuation",
@@ -726,6 +728,7 @@ if (
   }
   if (
     [
+      "user32-peek-message-a-post-window-timer-callback-continuation",
       "user32-window-timer-callback-post-waitable-timer-cycle",
       "d3d9-post-input-scan-waitable-timer-cycle",
     ].includes(activeCapability)
@@ -756,8 +759,10 @@ if (
     );
   }
   if (
-    activeCapability ===
-    "user32-window-timer-callback-post-waitable-timer-cycle"
+    [
+      "user32-peek-message-a-post-window-timer-callback-continuation",
+      "user32-window-timer-callback-post-waitable-timer-cycle",
+    ].includes(activeCapability)
   ) {
     const staleWindowTimerDelivery = mutated((value) => {
       value.semantic.browser.checkpointCompletion.windowTimerPeek.windowTimer.deliveryCount =
@@ -792,6 +797,25 @@ if (
           ),
       ),
     );
+    if (
+      activeCapability ===
+      "user32-peek-message-a-post-window-timer-callback-continuation"
+    ) {
+      const mutatedPostCallbackPeek = mutated((value) => {
+        value.semantic.node.checkpointCompletion.peekMessagePostWindowTimerCallback.result.value =
+          1;
+      });
+      assert(
+        validatePrivateTargetEvidence(
+          mutatedPostCallbackPeek,
+          checkpoint,
+        ).some((error) =>
+          error.includes(
+            "peekMessagePostWindowTimerCallback.result.value",
+          ),
+        ),
+      );
+    }
   }
 }
 if (

@@ -108,12 +108,16 @@ const timeGetTimeActionContinuationProfile =
   bgiProfile === "winmm-time-get-time-action-continuation";
 const d3d9TestCooperativeLevelPostInputScanContinuationProfile =
   bgiProfile ===
-  "d3d9-test-cooperative-level-post-input-scan-continuation";
+    "d3d9-test-cooperative-level-post-input-scan-continuation";
 const d3d9PostInputScanWaitableTimerCycleProfile =
   bgiProfile === "d3d9-post-input-scan-waitable-timer-cycle";
+const peekMessageAPostWindowTimerCallbackContinuationProfile =
+  bgiProfile ===
+    "user32-peek-message-a-post-window-timer-callback-continuation";
 const windowTimerCallbackPostWaitableTimerCycleProfile =
   bgiProfile ===
-  "user32-window-timer-callback-post-waitable-timer-cycle";
+      "user32-window-timer-callback-post-waitable-timer-cycle" ||
+  peekMessageAPostWindowTimerCallbackContinuationProfile;
 const d3d9PostInputScanWaitableTimerCycleEvidenceProfile =
   d3d9PostInputScanWaitableTimerCycleProfile ||
   windowTimerCallbackPostWaitableTimerCycleProfile;
@@ -333,7 +337,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v99";
+const runtimeProtocol = "vine.browser-runtime-worker.v100";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -1039,6 +1043,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-test-cooperative-level-post-input-scan-continuation",
         "d3d9-post-input-scan-waitable-timer-cycle",
         "user32-window-timer-callback-post-waitable-timer-cycle",
+        "user32-peek-message-a-post-window-timer-callback-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1134,6 +1139,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-test-cooperative-level-post-input-scan-continuation",
         "d3d9-post-input-scan-waitable-timer-cycle",
         "user32-window-timer-callback-post-waitable-timer-cycle",
+        "user32-peek-message-a-post-window-timer-callback-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? [8192, 8193]
         : [8192],
@@ -1229,6 +1235,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         "d3d9-test-cooperative-level-post-input-scan-continuation",
         "d3d9-post-input-scan-waitable-timer-cycle",
         "user32-window-timer-callback-post-waitable-timer-cycle",
+        "user32-peek-message-a-post-window-timer-callback-continuation",
       ].includes(bgiProfile) && scenario === "success"
         ? user32AsyncKeyStateInitialScanProfile
           ? user32AsyncKeyStateInitialScanContinuationProfile
@@ -3567,7 +3574,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         assert(peek !== null, "Chrome Worker omitted PeekMessageA evidence");
          assert.equal(
            peek.calls.length,
-           windowTimerCallbackPostWaitableTimerCycleProfile
+           peekMessageAPostWindowTimerCallbackContinuationProfile
+             ? 14
+             : windowTimerCallbackPostWaitableTimerCycleProfile
              ? 13
              : windowTimerCallbackRecurringBatchProfile
              ? 77
@@ -3618,6 +3627,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
                     : []),
                   ...(windowTimerCallbackPostWaitableTimerCycleProfile
                     ? [162_083]
+                    : []),
+                  ...(peekMessageAPostWindowTimerCallbackContinuationProfile
+                    ? [162_087]
                     : []),
                 ]
             : pointerMessageEvidenceProfile
@@ -3684,6 +3696,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
                     : []),
                   ...(windowTimerCallbackPostWaitableTimerCycleProfile
                     ? [321_468_397]
+                    : []),
+                  ...(peekMessageAPostWindowTimerCallbackContinuationProfile
+                    ? [321_469_064]
                     : []),
                 ]
             : pointerMessageEvidenceProfile
@@ -6430,7 +6445,9 @@ function validateBgiEquivalence(browser, oracle) {
       oracleCheckpoint.capability ===
         "d3d9-post-input-scan-waitable-timer-cycle" ||
       oracleCheckpoint.capability ===
-        "user32-window-timer-callback-post-waitable-timer-cycle"
+        "user32-window-timer-callback-post-waitable-timer-cycle" ||
+      oracleCheckpoint.capability ===
+        "user32-peek-message-a-post-window-timer-callback-continuation"
     ) {
       const normalizeThreadCall = (call) => ({
         ...normalizeSemanticCall(call),
@@ -6803,6 +6820,36 @@ function validateBgiEquivalence(browser, oracle) {
                 candidate.windowTimerCallbackNestedCompletionCount,
               windowTimerCallbackActiveDepthAtCompletion:
                 candidate.windowTimerCallbackActiveDepthAtCompletion,
+            }),
+        ...(candidate.peekMessagePostWindowTimerCallback === undefined
+          ? {}
+          : {
+              prerequisiteWindowTimerDispatchSequence:
+                candidate.prerequisiteWindowTimerDispatchSequence,
+              prerequisiteWindowTimerDispatchInstructionCount:
+                candidate.prerequisiteWindowTimerDispatchInstructionCount,
+              firstCompletionSequence: candidate.firstCompletionSequence,
+              firstCompletionInstructionCount:
+                candidate.firstCompletionInstructionCount,
+              lastCompletionSequence: candidate.lastCompletionSequence,
+              lastCompletionInstructionCount:
+                candidate.lastCompletionInstructionCount,
+              peekMessagePostWindowTimerCallbackActiveCallbackDepthAtCompletion:
+                candidate
+                  .peekMessagePostWindowTimerCallbackActiveCallbackDepthAtCompletion,
+              postWindowTimerCallbackQueueDepthBefore:
+                candidate.postWindowTimerCallbackQueueDepthBefore,
+              postWindowTimerCallbackQueueDepthAfter:
+                candidate.postWindowTimerCallbackQueueDepthAfter,
+              postWindowTimerCallbackMessageBytesPreserved:
+                candidate.postWindowTimerCallbackMessageBytesPreserved,
+              peekMessagePostWindowTimerCallback: {
+                ...normalizeThreadCall(
+                  candidate.peekMessagePostWindowTimerCallback,
+                ),
+                runtimeThreadId:
+                  candidate.peekMessagePostWindowTimerCallback.runtimeThreadId,
+              },
             }),
         instructionCount: candidate.instructionCount,
         nextEndpoint: {
@@ -7515,6 +7562,142 @@ function validateBgiEquivalence(browser, oracle) {
         assert.equal(browser.report.callbackEntries, 35);
         assert.equal(browser.report.maximumCallbackDepth, 3);
         assert.equal(browser.report.wasmBridgeCalls, 489_727);
+        assert.equal(browser.report.hostRequests, 11_569);
+        assert.equal(browser.report.rustSchedulerTransitions, 14_083);
+        assert.deepEqual(browser.report.timerPacing, {
+          requests: 11_474,
+          completions: 11_474,
+          cancellations: 0,
+          freezes: 0,
+          resumes: 0,
+          staleCallbacks: 0,
+          boundedCatchUps: 0,
+          pending: 0,
+        });
+        assert.equal(browser.statusMessagesObserved, 24_367);
+        assert.equal(browser.statusMessagesRetained, 4_096);
+      }
+      if (
+        oracleCheckpoint.capability ===
+        "user32-peek-message-a-post-window-timer-callback-continuation"
+      ) {
+        assert.equal(oracle.supportedCallCount, 162_087);
+        assert.equal(
+          oracle.supportedCallSemanticsSha256,
+          "2243c31bf48c3249e96535b7659e634a54904405fc9e70dd5f4e179fc8364429",
+        );
+        assert.equal(
+          oracleCheckpoint.implementationId,
+          "runtime.user32-peek-message-a-post-window-timer-callback-continuation.v1",
+        );
+        assert.equal(oracleCheckpoint.requiredCompletions, 1);
+        assert.equal(oracleCheckpoint.completionCount, 1);
+        assert.equal(
+          oracleCheckpoint.prerequisiteWindowTimerDispatchSequence,
+          162_085,
+        );
+        assert.equal(
+          oracleCheckpoint.prerequisiteWindowTimerDispatchInstructionCount,
+          321_469_055,
+        );
+        assert.equal(oracleCheckpoint.firstCompletionSequence, 162_087);
+        assert.equal(
+          oracleCheckpoint.firstCompletionInstructionCount,
+          321_469_064,
+        );
+        assert.equal(oracleCheckpoint.lastCompletionSequence, 162_087);
+        assert.equal(
+          oracleCheckpoint.lastCompletionInstructionCount,
+          321_469_064,
+        );
+        assert.equal(
+          oracleCheckpoint.peekMessagePostWindowTimerCallbackActiveCallbackDepthAtCompletion,
+          0,
+        );
+        assert.equal(
+          oracleCheckpoint.postWindowTimerCallbackQueueDepthBefore,
+          0,
+        );
+        assert.equal(
+          oracleCheckpoint.postWindowTimerCallbackQueueDepthAfter,
+          0,
+        );
+        assert.equal(
+          oracleCheckpoint.postWindowTimerCallbackMessageBytesPreserved,
+          true,
+        );
+        const peek = oracleCheckpoint.peekMessagePostWindowTimerCallback;
+        assert.deepEqual(
+          {
+            sequence: peek.sequence,
+            occurrence: peek.occurrence,
+            trapInstructionCount: peek.trapInstructionCount,
+            module: peek.module.toLowerCase(),
+            symbol: peek.symbol,
+            arguments: peek.arguments,
+            result: peek.result,
+            implementationId: peek.implementationId,
+            returnAddress: peek.returnAddress,
+            stackPointerBefore: peek.stackPointerBefore,
+            stackPointerAfter: peek.stackPointerAfter,
+            lastError: peek.lastError,
+            guestWrites: peek.guestWrites,
+            runtimeThreadId: peek.runtimeThreadId,
+          },
+          {
+            sequence: 162_087,
+            occurrence: 14,
+            trapInstructionCount: 321_469_064,
+            module: "user32.dll",
+            symbol: "PeekMessageA",
+            arguments: [0x006f_f8e8, 0, 0, 0, 1],
+            result: { action: "set", value: 0 },
+            implementationId: "user32.peek-message-a.current-thread.v1",
+            returnAddress: 0x1009_37bb,
+            stackPointerBefore: 0x006f_f8c4,
+            stackPointerAfter: 0x006f_f8dc,
+            lastError: 0,
+            guestWrites: [],
+            runtimeThreadId: 8_192,
+          },
+        );
+        assert.equal(oracleCheckpoint.activeCallbackDepthAtStop, 0);
+        assert.equal(oracleCheckpoint.instructionCount, 321_469_098);
+        assert.deepEqual(oracleCheckpoint.nextEndpoint, {
+          id: 8,
+          address: 0x7f00_0070,
+          disposition: "declared-runtime-export",
+          iatAddress: 0x100d_14e4,
+          module: "WINMM.dll",
+          symbol: { kind: "name", name: "timeGetTime" },
+        });
+        assert.deepEqual(oracleCheckpoint.nextArguments, []);
+        assert.equal(oracleCheckpoint.nextReturnAddress, 0x1009_1ebf);
+        assert.equal(oracleCheckpoint.nextStackPointer, 0x006f_f904);
+        assert.equal(
+          oracleCheckpoint.memoryContentSha256,
+          "842ed108fc0c042836b56c1fb56b91a5270f9e53aaf7f32b18166cac8a3680e4",
+        );
+        assert.equal(oracle.synchronization.writebackBatches, 165_242);
+        assert.equal(oracle.synchronization.dirtyPages, 244_675);
+        assert.equal(oracle.synchronization.changedBytes, 43_072_557);
+        assert.equal(oracle.synchronization.hostDeltaBatches, 127_997);
+        assert.equal(oracle.synchronization.finalGeneration, 296_521);
+        assert.equal(oracle.threadExecution.contextSwitches, 2_514);
+        assert.equal(browser.report.instructions, 321_469_098);
+        assert.equal(browser.report.initialGeneration, 27);
+        assert.equal(browser.report.finalGeneration, 315_160);
+        assert.equal(browser.report.writebackBatches, 183_987);
+        assert.equal(browser.report.writebackPages, 282_716);
+        assert.equal(browser.report.mappingDeltas, 127_997);
+        assert.equal(browser.report.mappingDirtyPages, 150_402);
+        assert.equal(browser.report.slices, 183_994);
+        assert.equal(browser.report.budgetYields, 18_752);
+        assert.equal(browser.report.executionTransitionCount, 589_100);
+        assert.equal(browser.report.contextSwitches, 2_514);
+        assert.equal(browser.report.callbackEntries, 35);
+        assert.equal(browser.report.maximumCallbackDepth, 3);
+        assert.equal(browser.report.wasmBridgeCalls, 489_729);
         assert.equal(browser.report.hostRequests, 11_569);
         assert.equal(browser.report.rustSchedulerTransitions, 14_083);
         assert.deepEqual(browser.report.timerPacing, {

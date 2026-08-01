@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 99 as const/u);
+assert.match(protocol, /protocolVersion = 100 as const/u);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);
@@ -109,6 +109,10 @@ assert.match(
 );
 assert.match(
   protocol,
+  /"user32-peek-message-a-post-window-timer-callback-continuation"/u,
+);
+assert.match(
+  protocol,
   /capability: "winmm-time-get-time-action-continuation";[\s\S]*?setFocusActiveCallbackDepthAtStop: 1;[\s\S]*?activeCallbackDepthAtStop: 1;[\s\S]*?setFocus: RuntimeThreadCallSnapshot;[\s\S]*?lastCompletionSequence: number;[\s\S]*?lastCompletionInstructionCount: number;[\s\S]*?timeGetTime: RuntimeThreadCallSnapshot;[\s\S]*?nextArguments: \[number, number, number, number\];/u,
 );
 assert.match(
@@ -183,6 +187,10 @@ assert.match(
   protocol,
   /capability:[\s\S]*?"user32-window-timer-callback-post-waitable-timer-cycle";[\s\S]*?implementationId:[\s\S]*?"runtime\.user32-window-timer-callback-post-waitable-timer-cycle\.v1";[\s\S]*?requiredCompletions: 3;[\s\S]*?requiredDeliveries: 1;[\s\S]*?deliveryCount: 3;[\s\S]*?windowTimerPeek: RuntimeThreadCallSnapshot;[\s\S]*?windowTimerTranslate: RuntimeThreadCallSnapshot;[\s\S]*?windowTimerDispatch: RuntimeThreadCallSnapshot[\s\S]*?callbackArguments: \[number, number, number, number\];[\s\S]*?windowTimerCallbackNestedCalls: \[RuntimeThreadCallSnapshot\];[\s\S]*?windowTimerCallbackNestedCompletionCount: 1;[\s\S]*?windowTimerCallbackActiveDepthAtCompletion: 1;/u,
 );
+assert.match(
+  protocol,
+  /capability:[\s\S]*?"user32-peek-message-a-post-window-timer-callback-continuation";[\s\S]*?implementationId:[\s\S]*?"runtime\.user32-peek-message-a-post-window-timer-callback-continuation\.v1";[\s\S]*?prerequisiteWindowTimerDispatchSequence: number;[\s\S]*?postWindowTimerCallbackQueueDepthBefore: 0;[\s\S]*?postWindowTimerCallbackQueueDepthAfter: 0;[\s\S]*?postWindowTimerCallbackMessageBytesPreserved: true;[\s\S]*?peekMessagePostWindowTimerCallback: RuntimeThreadCallSnapshot;/u,
+);
 assert.match(protocol, /windowTimerDelivery\?: \{/u);
 assert.match(
   protocol,
@@ -217,6 +225,10 @@ assert.match(fullProbe, /winmm-time-get-time-action-continuation/u);
 assert.match(
   fullProbe,
   /user32-window-timer-callback-post-waitable-timer-cycle/u,
+);
+assert.match(
+  fullProbe,
+  /user32-peek-message-a-post-window-timer-callback-continuation/u,
 );
 assert.match(
   fullProbe,
