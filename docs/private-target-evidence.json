@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-07-31T23:14:43.369Z",
+  "recordedAt": "2026-08-01T00:25:06.232Z",
   "repository": {
-    "implementationCommit": "2949b8fa419a6755b6980ce0e219af1f0b7dd7d6",
-    "implementationTree": "b19e4e3468a97eb7cd3b69850464fb0fa78478c5",
-    "headCommit": "2949b8fa419a6755b6980ce0e219af1f0b7dd7d6",
+    "implementationCommit": "127046d727113e37ce27a9a72e791180724c666f",
+    "implementationTree": "59a97c3e629477be7e35aa0b43fee7766cdf4ce3",
+    "headCommit": "127046d727113e37ce27a9a72e791180724c666f",
     "dirty": false,
     "dirtyPaths": [],
     "allowedDirtyPaths": [],
@@ -28,14 +28,14 @@
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
     "runtimeCheckpoint": "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation",
-    "runtimeProfile": "d3d9-test-cooperative-level-post-input-scan-continuation",
+    "runtimeProfile": "d3d9-post-input-scan-waitable-timer-cycle",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-create-directory-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-d3d9-test-cooperative-level-post-input-scan-continuation",
+    "nodeReportSchema": "vine.v86-bgi-d3d9-post-input-scan-waitable-timer-cycle",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v97",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v98",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -70,14 +70,14 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 131,
-      "supportedCalls": 162080,
-      "callSemanticsSha256": "3cd3948ee3c588f736c2af6704e5baedee26271c89069259a086cf2aa6872c15",
-      "instructions": 321468343,
-      "finalGeneration": 296511,
-      "memoryContentSha256": "872be2df28fe82af65fc86d20ee986773ca81f4a1b1439edbed0c34f241117ae",
+      "supportedCalls": 162082,
+      "callSemanticsSha256": "fe95ce2c5bdc1e00da206d46405c7e0df70b91ebdf71ea7417faa957e18c5fe9",
+      "instructions": 321468397,
+      "finalGeneration": 296513,
+      "memoryContentSha256": "7613ec6d006a037d09f4f9465db2995839094f7f9be1bc653449dfdf7b405297",
       "checkpointCompletion": {
-        "capability": "d3d9-test-cooperative-level-post-input-scan-continuation",
-        "implementationId": "runtime.d3d9-test-cooperative-level-post-input-scan-continuation.v1",
+        "capability": "d3d9-post-input-scan-waitable-timer-cycle",
+        "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -524,8 +524,8 @@
           },
           "runtimeThreadId": 8192
         },
-        "lastCompletionSequence": 162080,
-        "lastCompletionInstructionCount": 321468292,
+        "lastCompletionSequence": 162082,
+        "lastCompletionInstructionCount": 321468349,
         "defWindowProcAActiveCallbackDepthAtCompletion": 1,
         "defWindowProcA": {
           "sequence": 161948,
@@ -1103,8 +1103,8 @@
           },
           "runtimeThreadId": 8192
         },
-        "firstCompletionSequence": 162080,
-        "firstCompletionInstructionCount": 321468292,
+        "firstCompletionSequence": 162081,
+        "firstCompletionInstructionCount": 321468343,
         "scanVirtualKeys": [
           14,
           15,
@@ -1222,45 +1222,158 @@
           "runtimeThreadId": 8192
         },
         "cumulativeCompletions": 9,
-        "instructionCount": 321468343,
+        "instructionCount": 321468397,
         "nextEndpoint": {
-          "id": 118,
-          "address": 2130708304,
-          "module": "KERNEL32.dll",
+          "id": 164,
+          "address": 2130709040,
+          "module": "USER32.dll",
           "symbol": {
             "kind": "name",
-            "name": "SetWaitableTimer"
+            "name": "PeekMessageA"
           },
           "disposition": "declared-runtime-export",
-          "iatAddress": 269292160
+          "iatAddress": 269292392
         },
-        "memoryContentSha256": "872be2df28fe82af65fc86d20ee986773ca81f4a1b1439edbed0c34f241117ae",
+        "memoryContentSha256": "7613ec6d006a037d09f4f9465db2995839094f7f9be1bc653449dfdf7b405297",
+        "prerequisiteTestCooperativeLevelSequence": 162080,
+        "prerequisiteTestCooperativeLevelInstructionCount": 321468292,
+        "timerArmActiveCallbackDepthAtCompletion": 0,
+        "timerWaitActiveCallbackDepthAtCompletion": 0,
+        "timerArm": {
+          "sequence": 162081,
+          "module": "KERNEL32.dll",
+          "symbol": "SetWaitableTimer",
+          "occurrence": 11476,
+          "trapInstructionCount": 321468343,
+          "arguments": [
+            1459683329,
+            7338224,
+            0,
+            0,
+            0,
+            0
+          ],
+          "result": {
+            "action": "set",
+            "value": 1
+          },
+          "implementationId": "kernel32.set-waitable-timer.relative-one-shot.v1",
+          "returnAddress": 268764679,
+          "stackPointerBefore": 7338196,
+          "stackPointerAfter": 7338224,
+          "lastError": 0,
+          "guestWrites": [],
+          "waitableTimer": {
+            "handle": 1459683329,
+            "timer": {
+              "id": 1,
+              "manualReset": true,
+              "arm": {
+                "relativeDueTime100ns": 20000,
+                "armedAtTime100ns": 57470000,
+                "deadlineTime100ns": 57490000,
+                "periodMilliseconds": 0,
+                "generation": 9
+              }
+            },
+            "objectRecord": {
+              "id": 20,
+              "key": {
+                "kind": "waitable-timer",
+                "timer_id": 1
+              },
+              "kind": "waitable-timer",
+              "namespace": "vine.runtime-waitable-timer-object.v1",
+              "closePolicy": "close-handle",
+              "waitState": {
+                "state": "nonsignaled"
+              },
+              "openHandles": 1
+            }
+          },
+          "runtimeThreadId": 8192
+        },
+        "timerWait": {
+          "sequence": 162082,
+          "module": "KERNEL32.dll",
+          "symbol": "WaitForSingleObjectEx",
+          "occurrence": 11475,
+          "trapInstructionCount": 321468349,
+          "arguments": [
+            1459683329,
+            10,
+            1
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+          "returnAddress": 268764693,
+          "stackPointerBefore": 7338208,
+          "stackPointerAfter": 7338224,
+          "lastError": 0,
+          "guestWrites": [],
+          "waitableTimer": {
+            "handle": 1459683329,
+            "timer": {
+              "id": 1,
+              "manualReset": true,
+              "lastExpiration": {
+                "armGeneration": 9,
+                "deadlineTime100ns": 57490000
+              }
+            },
+            "objectRecord": {
+              "id": 20,
+              "key": {
+                "kind": "waitable-timer",
+                "timer_id": 1
+              },
+              "kind": "waitable-timer",
+              "namespace": "vine.runtime-waitable-timer-object.v1",
+              "closePolicy": "close-handle",
+              "waitState": {
+                "state": "signaled",
+                "exit_code": 0
+              },
+              "openHandles": 1
+            },
+            "timerClock": {
+              "currentTime100ns": 57490000,
+              "generation": 11474
+            },
+            "nextWaitRegistrationId": 11475
+          },
+          "runtimeThreadId": 8192
+        },
+        "cumulativeTimerArmCompletions": 11476,
+        "cumulativeTimerWaitCompletions": 11475,
         "nextArguments": [
-          1459683329,
-          7338224,
+          7338216,
           0,
           0,
           0,
-          0
+          1
         ],
-        "nextReturnAddress": 268764679,
-        "nextStackPointer": 7338196
+        "nextReturnAddress": 269039499,
+        "nextStackPointer": 7338184
       },
-      "writebackBatches": 165234,
-      "dirtyPages": 244665,
-      "changedBytes": 43072391,
+      "writebackBatches": 165236,
+      "dirtyPages": 244667,
+      "changedBytes": 43072431,
       "hostDeltaBatches": 127995
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 162080,
-      "callSemanticsSha256": "3cd3948ee3c588f736c2af6704e5baedee26271c89069259a086cf2aa6872c15",
-      "instructions": 321468343,
-      "finalGeneration": 315150,
-      "memoryContentSha256": "872be2df28fe82af65fc86d20ee986773ca81f4a1b1439edbed0c34f241117ae",
+      "supportedCalls": 162082,
+      "callSemanticsSha256": "fe95ce2c5bdc1e00da206d46405c7e0df70b91ebdf71ea7417faa957e18c5fe9",
+      "instructions": 321468397,
+      "finalGeneration": 315152,
+      "memoryContentSha256": "7613ec6d006a037d09f4f9465db2995839094f7f9be1bc653449dfdf7b405297",
       "checkpointCompletion": {
-        "capability": "d3d9-test-cooperative-level-post-input-scan-continuation",
-        "implementationId": "runtime.d3d9-test-cooperative-level-post-input-scan-continuation.v1",
+        "capability": "d3d9-post-input-scan-waitable-timer-cycle",
+        "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
         "requiredPointerMessages": 1,
         "pointerMessageDeliveryCount": 1,
         "inputBaseline": {
@@ -1805,8 +1918,8 @@
         "translateMessageReleaseActiveCallbackDepthAtCompletion": 0,
         "queueDepthAtTranslateCompletion": 0,
         "translateMessageReleaseBytesPreserved": true,
-        "lastCompletionSequence": 162080,
-        "lastCompletionInstructionCount": 321468292,
+        "lastCompletionSequence": 162082,
+        "lastCompletionInstructionCount": 321468349,
         "translateMessageRelease": {
           "sequence": 161950,
           "module": "user32.dll",
@@ -2249,8 +2362,8 @@
           "trapInstructionCount": 321463291,
           "occurrence": 223
         },
-        "firstCompletionSequence": 162080,
-        "firstCompletionInstructionCount": 321468292,
+        "firstCompletionSequence": 162081,
+        "firstCompletionInstructionCount": 321468343,
         "scanVirtualKeys": [
           14,
           15,
@@ -2367,35 +2480,148 @@
           "runtimeThreadId": 8192
         },
         "cumulativeCompletions": 9,
-        "instructionCount": 321468343,
+        "instructionCount": 321468397,
         "nextEndpoint": {
-          "address": 2130708304,
+          "address": 2130709040,
           "disposition": "declared-runtime-export",
-          "iatAddress": 269292160,
-          "id": 118,
-          "module": "kernel32.dll",
+          "iatAddress": 269292392,
+          "id": 164,
+          "module": "user32.dll",
           "symbol": {
             "kind": "name",
-            "name": "SetWaitableTimer"
+            "name": "PeekMessageA"
           }
         },
         "nextArguments": [
-          1459683329,
-          7338224,
+          7338216,
           0,
           0,
           0,
-          0
+          1
         ],
-        "nextReturnAddress": 268764679,
-        "nextStackPointer": 7338196,
-        "memoryContentSha256": "872be2df28fe82af65fc86d20ee986773ca81f4a1b1439edbed0c34f241117ae"
+        "nextReturnAddress": 269039499,
+        "nextStackPointer": 7338184,
+        "memoryContentSha256": "7613ec6d006a037d09f4f9465db2995839094f7f9be1bc653449dfdf7b405297",
+        "prerequisiteTestCooperativeLevelSequence": 162080,
+        "prerequisiteTestCooperativeLevelInstructionCount": 321468292,
+        "timerArmActiveCallbackDepthAtCompletion": 0,
+        "timerWaitActiveCallbackDepthAtCompletion": 0,
+        "timerArm": {
+          "sequence": 162081,
+          "module": "kernel32.dll",
+          "symbol": "SetWaitableTimer",
+          "arguments": [
+            1459683329,
+            7338224,
+            0,
+            0,
+            0,
+            0
+          ],
+          "result": {
+            "action": "set",
+            "value": 1
+          },
+          "implementationId": "kernel32.set-waitable-timer.relative-one-shot.v1",
+          "returnAddress": 268764679,
+          "stackPointerBefore": 7338196,
+          "stackPointerAfter": 7338224,
+          "lastError": 0,
+          "guestWrites": [],
+          "waitableTimer": {
+            "handle": 1459683329,
+            "objectRecord": {
+              "closePolicy": "close-handle",
+              "id": 20,
+              "key": {
+                "kind": "waitable-timer",
+                "timer_id": 1
+              },
+              "kind": "waitable-timer",
+              "namespace": "vine.runtime-waitable-timer-object.v1",
+              "openHandles": 1,
+              "waitState": {
+                "state": "nonsignaled"
+              }
+            },
+            "timer": {
+              "arm": {
+                "armedAtTime100ns": 57470000,
+                "deadlineTime100ns": 57490000,
+                "generation": 9,
+                "periodMilliseconds": 0,
+                "relativeDueTime100ns": 20000
+              },
+              "id": 1,
+              "manualReset": true
+            }
+          },
+          "occurrence": 11476,
+          "trapInstructionCount": 321468343,
+          "runtimeThreadId": 8192
+        },
+        "timerWait": {
+          "sequence": 162082,
+          "module": "kernel32.dll",
+          "symbol": "WaitForSingleObjectEx",
+          "arguments": [
+            1459683329,
+            10,
+            1
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+          "returnAddress": 268764693,
+          "stackPointerBefore": 7338208,
+          "stackPointerAfter": 7338224,
+          "lastError": 0,
+          "guestWrites": [],
+          "waitableTimer": {
+            "handle": 1459683329,
+            "nextWaitRegistrationId": 11475,
+            "objectRecord": {
+              "closePolicy": "close-handle",
+              "id": 20,
+              "key": {
+                "kind": "waitable-timer",
+                "timer_id": 1
+              },
+              "kind": "waitable-timer",
+              "namespace": "vine.runtime-waitable-timer-object.v1",
+              "openHandles": 1,
+              "waitState": {
+                "exit_code": 0,
+                "state": "signaled"
+              }
+            },
+            "timer": {
+              "id": 1,
+              "lastExpiration": {
+                "armGeneration": 9,
+                "deadlineTime100ns": 57490000
+              },
+              "manualReset": true
+            },
+            "timerClock": {
+              "currentTime100ns": 57490000,
+              "generation": 11474
+            }
+          },
+          "occurrence": 11475,
+          "trapInstructionCount": 321468349,
+          "runtimeThreadId": 8192
+        },
+        "cumulativeTimerArmCompletions": 11476,
+        "cumulativeTimerWaitCompletions": 11475
       },
-      "wasmBridgeCalls": 489710,
+      "wasmBridgeCalls": 489715,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 589075,
+          "transitionCount": 589084,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -2442,23 +2668,24 @@
     "memoryEquivalent": true,
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
-      "nextCheckpoint": "kernel32-set-waitable-timer-post-test-cooperative-level-continuation",
-      "pausedHistoricalCheckpoint": "d3d9-test-cooperative-level-post-input-scan-continuation",
-      "instructionCount": 321468343,
-      "capabilityCluster": "kernel32-waitable-timer-arm-continuation",
-      "reason": "d3d9-test-cooperative-level-post-input-scan-continuation-checkpoint-complete",
+      "nextCheckpoint": "user32-peek-message-a-post-waitable-timer-cycle-continuation",
+      "pausedHistoricalCheckpoint": "d3d9-post-input-scan-waitable-timer-cycle",
+      "instructionCount": 321468397,
+      "capabilityCluster": "user32-message-poll-continuation",
+      "reason": "d3d9-post-input-scan-waitable-timer-cycle-checkpoint-complete",
       "completion": {
-        "capability": "d3d9-test-cooperative-level-post-input-scan-continuation",
-        "implementationId": "runtime.d3d9-test-cooperative-level-post-input-scan-continuation.v1",
+        "capability": "d3d9-post-input-scan-waitable-timer-cycle",
+        "implementationId": "kernel32.wait-for-single-object-ex.waitable-timer.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "prerequisiteScanCompletionSequence": 162079,
-        "prerequisiteScanCompletionInstructionCount": 321468229,
-        "firstCompletionSequence": 162080,
-        "firstCompletionInstructionCount": 321468292,
-        "lastCompletionSequence": 162080,
-        "lastCompletionInstructionCount": 321468292,
-        "cumulativeCompletions": 9,
+        "prerequisiteTestCooperativeLevelSequence": 162080,
+        "prerequisiteTestCooperativeLevelInstructionCount": 321468292,
+        "firstCompletionSequence": 162081,
+        "firstCompletionInstructionCount": 321468343,
+        "lastCompletionSequence": 162082,
+        "lastCompletionInstructionCount": 321468349,
+        "cumulativeTimerArmCompletions": 11476,
+        "cumulativeTimerWaitCompletions": 11475,
         "maximumRepeatCompletions": 16,
         "requiredEntries": 1,
         "entryCount": 1,
@@ -2467,23 +2694,22 @@
       },
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
-        "endpointId": 118,
-        "api": "KERNEL32.dll!SetWaitableTimer",
-        "endpointAddress": "0x7f000750",
-        "iatAddress": "0x100d1280",
-        "observedModule": "KERNEL32.dll",
-        "observedSymbol": "SetWaitableTimer",
+        "endpointId": 164,
+        "api": "USER32.dll!PeekMessageA",
+        "endpointAddress": "0x7f000a30",
+        "iatAddress": "0x100d1368",
+        "observedModule": "USER32.dll",
+        "observedSymbol": "PeekMessageA",
         "disposition": "declared-runtime-export",
         "arguments": [
-          "0x57010001",
-          "0x006ff8f0",
+          "0x006ff8e8",
           "0x00000000",
           "0x00000000",
           "0x00000000",
-          "0x00000000"
+          "0x00000001"
         ],
-        "returnAddress": "0x10050607",
-        "stackPointer": "0x006ff8d4"
+        "returnAddress": "0x1009378b",
+        "stackPointer": "0x006ff8c8"
       }
     },
     "cleanup": {
@@ -2499,14 +2725,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-d3d9-test-cooperative-level-post-input-scan-continuation/report.json",
-      "bytes": 3054964,
-      "sha256": "d42bbc7edee3b6db4860fbaa442c418fb5972cdda9e763fedb6b351ecf03754b"
+      "path": ".work/v86-bgi-d3d9-post-input-scan-waitable-timer-cycle/report.json",
+      "bytes": 3057993,
+      "sha256": "7fb62321d954f3fe3f8fe9aa56f37825bd0e86296c788ae0073b74be0f34597e"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2756628,
-      "sha256": "7e04f2779ec73146526ae916bf6c066d2cd72d7975a7dca817d50183d8ce37ca"
+      "bytes": 2760129,
+      "sha256": "5fddd1219eb1177f04a1de6bb3b9cda9bc1b9f386914a2f1874f5cde218de5c4"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -2521,7 +2747,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3766,
-      "sha256": "5a3c6cde4af0f1d10531096f3714e8d72dcc49d772724b9db4847844f0cdfc5e"
+      "sha256": "58b04d9d52d46b5efe58123cd5bf9c5ab855f7ca81d40eba3201b518f6949536"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -2558,5 +2784,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "97f729eca99202032decc00a4b3a4de74949c0dd8d4f395d0d1f0e44b1848d52"
+  "payloadSha256": "dba28bc58ffca1ee7fa146448a5b8ae959f53c2f59172eec5faa963a0b0b3846"
 }
