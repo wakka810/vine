@@ -27,9 +27,10 @@ use crate::runtime::{
     RuntimeApiBoundaryDisposition, RuntimeAudioDevice, RuntimeAudioDeviceCreateRequest,
     RuntimeBeginPaintRequest, RuntimeCallbackFrameId, RuntimeCallbackScratch,
     RuntimeCreateDibSectionResult, RuntimeCreateThreadRequest, RuntimeCreateThreadResult,
-    RuntimeDynamicEndpoint, RuntimeEndPaintRequest, RuntimeGdiDibSectionDescriptor,
-    RuntimeGdiObject, RuntimeGdiTextRasterResult, RuntimeGdiTextRasterTarget,
-    RuntimeGdiplusSession, RuntimeGdiplusStartupRequest, RuntimeGetDcResult, RuntimeGuestImport,
+    RuntimeDynamicEndpoint, RuntimeEndPaintRequest, RuntimeFileSearchEntry,
+    RuntimeFindFirstFileResult, RuntimeGdiDibSectionDescriptor, RuntimeGdiObject,
+    RuntimeGdiTextRasterResult, RuntimeGdiTextRasterTarget, RuntimeGdiplusSession,
+    RuntimeGdiplusStartupRequest, RuntimeGetDcResult, RuntimeGuestImport,
     RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation,
     RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeMessagePeekDisposition,
     RuntimePaintSession, RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
@@ -1156,6 +1157,46 @@ impl<'a> ExecutionSession<'a> {
     ) -> Result<(RuntimeWritableWriteResult, GuestWriteResult), RuntimeStateError> {
         self.runtime
             .write_writable_file(self.memory, handle, bytes_written, bytes)
+    }
+
+    pub fn find_first_file_a<F>(
+        &mut self,
+        requested_pattern: &[u8],
+        output: GuestAddress,
+        maximum_matches: usize,
+        expected_output_bytes: usize,
+        encode_entry: F,
+    ) -> Result<Option<(RuntimeFindFirstFileResult, Vec<u8>, GuestWriteResult)>, RuntimeStateError>
+    where
+        F: FnOnce(&RuntimeFileSearchEntry) -> Result<Vec<u8>, RuntimeStateError>,
+    {
+        self.runtime.find_first_file_a(
+            self.memory,
+            requested_pattern,
+            output,
+            maximum_matches,
+            expected_output_bytes,
+            encode_entry,
+        )
+    }
+
+    pub fn find_next_file_a<F>(
+        &mut self,
+        handle: RuntimeHandle,
+        output: GuestAddress,
+        expected_output_bytes: usize,
+        encode_entry: F,
+    ) -> Result<Option<(RuntimeFileSearchEntry, Vec<u8>, GuestWriteResult)>, RuntimeStateError>
+    where
+        F: FnOnce(&RuntimeFileSearchEntry) -> Result<Vec<u8>, RuntimeStateError>,
+    {
+        self.runtime.find_next_file_a(
+            self.memory,
+            handle,
+            output,
+            expected_output_bytes,
+            encode_entry,
+        )
     }
 
     pub fn create_gdi_dib_section(

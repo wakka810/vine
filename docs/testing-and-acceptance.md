@@ -1625,7 +1625,7 @@ API count だけを coverage としない。status ごとに implementation vari
 - same-origin localhost serverが登録済みsource rootとtitle-local profileだけを公開し、raw host path／wrong title／wrong snapshotを拒否する
 - source manifest登録時に全objectのbyte length／SHA-256を検証し、HTTP request／responseのtitle fingerprint、snapshot、source、object、offset、requested／transferred lengthを照合する
 - drive、absolute／relative、`.`／`..`、separator、case、trailing dot／space の policy
-- case collision、enumeration、wildcard、rename、replace
+- case collision、Windows-932-aware wildcard、deterministic open-view enumeration、rename、replace
 - read-only source と writable overlay の通常 file shadowing、および executable／DLL shadowing の拒否
 - sharing mode、delete-on-close、locking、mapped view の採用範囲
 - CP932／Unicode filename、invalid sequence、long path の採用範囲
@@ -1634,7 +1634,7 @@ API count だけを coverage としない。status ごとに implementation vari
 - runtime schema upgrade／downgrade refusal、backup／restore
 - import 後／delay-load 前の host source replacement と、managed module snapshot の restart 後 hash
 
-最初のvertical sliceはimmutable sourceに加えてbounded writable profileまで成立している。Rust model／integrationはmount escape、Windows-932-aware case identity、source／profile path overlap、share conflict、create／truncate、sparse write、quota、cursor、guest-memory failure atomicity、durable close、failed-close retry、wrong／duplicate completion、process-exit discard、metadata-only profileのhash-bound atomic hydrationを検証する。Version 3 profileではfileと別namespaceのallowlisted directory identity／generationを持ち、host-first durable `CreateDirectoryA`、duplicate、missing parent、file conflict、stale／malformed completion、cancelのfailure atomicityも検証する。SQLite modelはnew profile、restart、base generation CAS、idempotent duplicate、request-key conflict、quota、transaction rollback、commit後response loss、epoch lease revoke／replacement、late commit拒否、SQLite lock、4 MiB profileのbounded binary range、same-origin profile-v3 range／commit／directory createを検証する。Recoverable storage failureはRustへWin32 failure completionを返し、dirty handle／staged bytesまたはuncommitted directory planをcontractに従って保持または破棄する。Public PE32 fixtureはimmutable `CreateFileA -> GetFileSize -> ReadFile -> SetFilePointer -> ReadFile -> CloseHandle`を自己検証し、clean-profile Chromeはsame-origin success、pending cancellation、watchdog cleanupを通す。Private targetはBGI.gdbをprofile objectとしてSQLiteから読み、run-local SQLiteへ`UserData` directoryを作成し、Node／Chromeのordered semantics、terminal commit barrier／lease revoke、配布fileとshared profile不変を比較する。
+最初のvertical sliceはimmutable sourceに加えてbounded writable profileまで成立している。Rust model／integrationはmount escape、Windows-932-aware case identity、source／profile path overlap、share conflict、create／truncate、sparse write、quota、cursor、guest-memory failure atomicity、durable close、failed-close retry、wrong／duplicate completion、process-exit discard、metadata-only profileのhash-bound atomic hydrationを検証する。Version 3 profileではfileと別namespaceのallowlisted directory identity／generationを持ち、host-first durable `CreateDirectoryA`、duplicate、missing parent、file conflict、stale／malformed completion、cancelのfailure atomicityも検証する。File search modelは別identity／typed handleでWindows-932 pairを壊さないASCII case-insensitive `*`／`?` matching、lexical order、immutable open snapshot、320-byte `WIN32_FIND_DATAA`、terminal `ERROR_NO_MORE_FILES`、`FindClose`、capacity／guest-write failure atomicityを検証する。SQLite modelはnew profile、restart、base generation CAS、idempotent duplicate、request-key conflict、quota、transaction rollback、commit後response loss、epoch lease revoke／replacement、late commit拒否、SQLite lock、4 MiB profileのbounded binary range、same-origin profile-v3 range／commit／directory createを検証する。Recoverable storage failureはRustへWin32 failure completionを返し、dirty handle／staged bytesまたはuncommitted directory planをcontractに従って保持または破棄する。Public PE32 fixtureはimmutable `CreateFileA -> GetFileSize -> ReadFile -> SetFilePointer -> ReadFile -> CloseHandle`を自己検証し、clean-profile Chromeはsame-origin success、pending cancellation、watchdog cleanupを通す。Private targetはBGI.gdbをprofile objectとしてSQLiteから読み、run-local SQLiteへ`UserData` directoryを作成し、48-object source snapshotからnativeと同じ45 archiveを列挙してNode／Chromeのordered semantics、terminal commit barrier／lease revoke、配布fileとshared profile不変を比較する。
 
 Controlled guestによるChrome上のWrite／durable Close、browser／Worker／server停止後の再load、各commit段階のkill injection、permission revokeは未完了である。Primary titleのsave UI、複数slot、registry、general mapped fileもこのstorage foundationからclaimしない。詳細は[runtime-vfs.md](runtime-vfs.md)を正とする。
 
@@ -2074,8 +2074,21 @@ classification、mutation-free plan、host-first SQLite publication、stale／du
 cancel、process exitでのfailure atomicityを要求する。SQLite／Worker testsはprofile schema version 3、epoch lease、CAS、
 idempotency ledger、transaction rollback、terminal drainを検査する。Node／Chromeは一completionのrequest／directory／
 generation identity、BOOL／LastError、zero guest writes、Rust／SQLite authority、semantic／memory digestを一致させる。
-その後の`SetWindowPos` repeat-activation leafは別contractとして完了済みである。General directory create／enumeration／delete／rename、ACL、
+その後の`SetWindowPos` repeat-activation leafは別contractとして完了済みである。General directory create／recursive enumeration／delete／rename、ACL、
 host filesystem mutation、primary save/loadは実装済みとしない。
+
+Reached archive enumeration gatewayは`FindFirstFileA("data0????.arc")`、44回のsuccessful
+`FindNextFileA`、一回のFALSE／`ERROR_NO_MORE_FILES`、successful `FindClose`を固定する。Native
+oracleとprivate Node／Chromeは45 file name／sizeのlexical sequence、regular-file attribute
+`0x20`、zero timestamp／alternate name、320-byte output、terminal output不変、success LastError
+preserve、search-handle lifetimeを一致させる。Rust modelはsourceとexisting writable entryの
+immutable open-view、case-insensitive wildcard、invalid output／capacity／stale／wrong-kind handleの
+failure atomicityを検査する。Source preparationは48 object／約5.9 GiBを全buffer化せずstreaming
+SHA-256と前後host identityで固定し、runtimeはverified object IDのbounded rangeだけを読む。
+Node／Chrome directory enumerationはauthorityへimportしない。両private gateは255,410 supported
+calls、328,088,002 instructions、36 TIMERPROC callbacks、2 Present、同一semantic digestで次の
+`DeleteFileA` stopへ到達する。この完了後もthird Presentは未到達なので、timer deliveryとarchive
+enumeration stopは現在の描画停滞の近因ではない。
 
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 

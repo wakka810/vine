@@ -1,12 +1,14 @@
 use vine_core::{
     ApiBehavior, ApiDeferredCall, ApiDispatcher, ApiEndpointIdentity, ApiFaultClass,
     ApiReturnSchema, CREATE_DIRECTORY_A_IMPLEMENTATION, DispatchOutcome, ExecutionSession,
+    FIND_CLOSE_IMPLEMENTATION, FIND_FIRST_FILE_A_IMPLEMENTATION, FIND_NEXT_FILE_A_IMPLEMENTATION,
     GET_FILE_ATTRIBUTES_A_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestRange,
-    Kernel32CompatibilityPolicy, LastErrorPolicy, MemoryLimits, MemoryOwnerKind, MemoryRegionKind,
-    PageProtection, ProcessAddressSpaceLayout, RUNTIME_WRITABLE_PROFILE_SCHEMA,
-    RUNTIME_WRITABLE_PROFILE_VERSION, RegisterUpdate, RuntimeBootstrap, RuntimeClockState,
-    RuntimeDynamicEndpoint, RuntimeHandle, RuntimeObjectKind, RuntimeProcessId,
-    RuntimeProcessLifecycleState, RuntimeSchedulerEvent, RuntimeSourceReadHostResponse,
+    Kernel32CompatibilityPolicy, Kernel32FindFileAPolicy, Kernel32GetFileAttributesAPolicy,
+    LastErrorPolicy, MemoryLimits, MemoryOwnerKind, MemoryRegionKind, PageProtection,
+    ProcessAddressSpaceLayout, RUNTIME_WRITABLE_PROFILE_SCHEMA, RUNTIME_WRITABLE_PROFILE_VERSION,
+    RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHandle,
+    RuntimeObjectKind, RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeSchedulerEvent,
+    RuntimeSourceFileManifest, RuntimeSourceMountManifest, RuntimeSourceReadHostResponse,
     RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
     RuntimeWritableCommitHostResponse, RuntimeWritableDirectoryCreateHostResponse,
     RuntimeWritableDirectoryManifest, RuntimeWritableFileManifest, RuntimeWritableProfileManifest,
@@ -117,6 +119,236 @@ fn get_file_attributes_a_projects_only_registered_vfs_paths() {
                 && fault.code == "get-file-attributes-a-policy-disabled"
     ));
     assert_eq!(runtime, before);
+}
+
+#[test]
+fn find_file_a_enumerates_one_deterministic_search_handle_atomically() {
+    let mut policy = source_policy();
+    let source_files = policy.source_files.as_mut().expect("source file policy");
+    source_files.get_file_attributes_a = Some(Kernel32GetFileAttributesAPolicy {
+        regular_file_attributes: 0x20,
+        directory_attributes: 0x30,
+    });
+    source_files.find_file_a = Some(Kernel32FindFileAPolicy {
+        maximum_matches: 64,
+    });
+    policy.validate().expect("valid FindFile policy");
+
+    let endpoints = [
+        endpoint(40, "FindFirstFileA"),
+        endpoint(41, "FindNextFileA"),
+        endpoint(42, "FindClose"),
+        endpoint(43, "CloseHandle"),
+    ];
+    let contracts = endpoints
+        .iter()
+        .cloned()
+        .map(|endpoint| {
+            kernel32_contract_for_endpoint(endpoint)
+                .expect("valid FindFile contract")
+                .expect("implemented FindFile contract")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        contracts[0].implementation_id,
+        FIND_FIRST_FILE_A_IMPLEMENTATION
+    );
+    assert_eq!(
+        contracts[1].implementation_id,
+        FIND_NEXT_FILE_A_IMPLEMENTATION
+    );
+    assert_eq!(contracts[2].implementation_id, FIND_CLOSE_IMPLEMENTATION);
+    assert_eq!(
+        contracts[0].behavior,
+        ApiBehavior::ImmediateWithCommittedIndirectGuestWrites
+    );
+    assert_eq!(
+        contracts[1].behavior,
+        ApiBehavior::ImmediateWithCommittedIndirectGuestWrites
+    );
+    let dispatcher = ApiDispatcher::new(endpoints.clone(), contracts).expect("FindFile dispatcher");
+
+    let (mut memory, owner) = initialized_memory();
+    write_initialization(
+        &mut memory,
+        owner,
+        GuestAddress(PATH_ADDRESS),
+        b"data0????.arc\0",
+    );
+    let invalid_output = MEMORY_BASE.0 + 0x2f80;
+    let search_handle = 0x5301_0001;
+    let frames = [
+        (
+            MEMORY_BASE.0,
+            vec![0x1000_1000, PATH_ADDRESS, invalid_output],
+        ),
+        (
+            MEMORY_BASE.0 + 0x20,
+            vec![0x1000_1010, PATH_ADDRESS, BUFFER_ADDRESS],
+        ),
+        (
+            MEMORY_BASE.0 + 0x40,
+            vec![0x1000_1020, search_handle, BUFFER_ADDRESS + 0x200],
+        ),
+        (
+            MEMORY_BASE.0 + 0x60,
+            vec![0x1000_1030, search_handle, BUFFER_ADDRESS + 0x400],
+        ),
+        (
+            MEMORY_BASE.0 + 0x80,
+            vec![0x1000_1040, search_handle, BUFFER_ADDRESS + 0x600],
+        ),
+        (
+            MEMORY_BASE.0 + 0xa0,
+            vec![0x1000_1050, search_handle, BUFFER_ADDRESS + 0x800],
+        ),
+        (MEMORY_BASE.0 + 0xc0, vec![0x1000_1060, search_handle]),
+        (MEMORY_BASE.0 + 0xe0, vec![0x1000_1070, search_handle]),
+        (
+            MEMORY_BASE.0 + 0x100,
+            vec![0x1000_1080, search_handle, BUFFER_ADDRESS + 0xa00],
+        ),
+    ];
+    for (stack, words) in &frames {
+        write_initialization(
+            &mut memory,
+            owner,
+            GuestAddress(*stack),
+            &words
+                .iter()
+                .copied()
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>(),
+        );
+    }
+    memory.seal_owner(owner).expect("seal FindFile memory");
+    acknowledge_initial_reflection(&mut memory);
+
+    let mut runtime = controlled_runtime();
+    runtime
+        .register_source_snapshot(find_file_manifest())
+        .expect("register FindFile snapshot");
+    let runtime_before_invalid_output = runtime.clone();
+    let invalid_output_result = dispatch(
+        &dispatcher,
+        &endpoints[0],
+        frames[0].0,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    );
+    assert!(matches!(
+        invalid_output_result,
+        DispatchOutcome::Fault(ref fault) if fault.class == ApiFaultClass::InvalidCall
+    ));
+    assert_eq!(runtime, runtime_before_invalid_output);
+
+    runtime.set_current_last_error(0x7654).unwrap();
+    let first = expect_immediate(dispatch(
+        &dispatcher,
+        &endpoints[0],
+        frames[1].0,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    assert_eq!(first.eax, RegisterUpdate::Set(search_handle));
+    assert_eq!(first.last_error, 0x7654);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        runtime
+            .object_for_handle(RuntimeHandle(search_handle), RuntimeObjectKind::FileSearch)
+            .expect("live search object")
+            .namespace,
+        "vine.runtime-file-search.v1"
+    );
+    assert_find_data(&memory, BUFFER_ADDRESS, 0x20, 10, b"data01099.arc");
+
+    for (frame_index, expected_name, expected_size) in [
+        (2, b"DATA01100.ARC".as_slice(), 20_u64),
+        (3, b"data01999.arc".as_slice(), 30_u64),
+    ] {
+        let next = expect_immediate(dispatch(
+            &dispatcher,
+            &endpoints[1],
+            frames[frame_index].0,
+            &policy,
+            &mut memory,
+            &mut runtime,
+        ));
+        assert_eq!(next.eax, RegisterUpdate::Set(1));
+        assert_eq!(next.last_error, 0x7654);
+        acknowledge_pending_delta(&mut memory);
+        assert_find_data(
+            &memory,
+            BUFFER_ADDRESS + u32::try_from(frame_index - 1).unwrap() * 0x200,
+            0x20,
+            expected_size,
+            expected_name,
+        );
+    }
+
+    let terminal_output = BUFFER_ADDRESS + 0x600;
+    let terminal_before = memory
+        .read(GuestAddress(terminal_output), 320)
+        .unwrap()
+        .to_vec();
+    let terminal = expect_immediate(dispatch(
+        &dispatcher,
+        &endpoints[1],
+        frames[4].0,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    assert_eq!(terminal.eax, RegisterUpdate::Set(0));
+    assert_eq!(terminal.last_error, 18);
+    assert_eq!(
+        memory.read(GuestAddress(terminal_output), 320).unwrap(),
+        terminal_before
+    );
+
+    let close_handle = expect_immediate(dispatch(
+        &dispatcher,
+        &endpoints[3],
+        frames[6].0,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    assert_eq!(close_handle.eax, RegisterUpdate::Set(0));
+    assert_eq!(close_handle.last_error, 6);
+    assert!(
+        runtime
+            .file_search_for_handle(RuntimeHandle(search_handle))
+            .is_ok()
+    );
+
+    let closed = expect_immediate(dispatch(
+        &dispatcher,
+        &endpoints[2],
+        frames[7].0,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    assert_eq!(closed.eax, RegisterUpdate::Set(1));
+    assert_eq!(closed.last_error, 6);
+    assert!(
+        runtime
+            .file_search_for_handle(RuntimeHandle(search_handle))
+            .is_err()
+    );
+    let stale = expect_immediate(dispatch(
+        &dispatcher,
+        &endpoints[1],
+        frames[8].0,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    assert_eq!(stale.eax, RegisterUpdate::Set(0));
+    assert_eq!(stale.last_error, 6);
 }
 
 #[test]
@@ -1161,6 +1393,62 @@ fn controlled_runtime() -> RuntimeState {
         .start_initial_thread()
         .expect("start initial thread");
     runtime
+}
+
+fn assert_find_data(
+    memory: &GuestMemory,
+    address: u32,
+    expected_attributes: u32,
+    expected_size: u64,
+    expected_name: &[u8],
+) {
+    let bytes = memory
+        .read(GuestAddress(address), 320)
+        .expect("WIN32_FIND_DATAA");
+    assert_eq!(
+        u32::from_le_bytes(bytes[0..4].try_into().unwrap()),
+        expected_attributes
+    );
+    assert_eq!(bytes[4..28], [0; 24]);
+    let size_high = u32::from_le_bytes(bytes[28..32].try_into().unwrap());
+    let size_low = u32::from_le_bytes(bytes[32..36].try_into().unwrap());
+    assert_eq!(
+        u64::from(size_low) | (u64::from(size_high) << 32),
+        expected_size
+    );
+    assert_eq!(&bytes[44..44 + expected_name.len()], expected_name);
+    assert_eq!(bytes[44 + expected_name.len()], 0);
+    assert_eq!(bytes[304..320], [0; 16]);
+}
+
+fn find_file_manifest() -> RuntimeSourceSnapshotManifest {
+    RuntimeSourceSnapshotManifest {
+        schema: vine_core::RUNTIME_SOURCE_SNAPSHOT_SCHEMA.to_owned(),
+        schema_version: vine_core::RUNTIME_SOURCE_SNAPSHOT_VERSION,
+        title_fingerprint: "sha256:find-file-test".to_owned(),
+        snapshot_id: "find-file-test-v1".to_owned(),
+        mount: RuntimeSourceMountManifest {
+            source_id: 1,
+            root_path_a: b"C:\\Vine\0".to_vec(),
+        },
+        files: [
+            (1, b"data01099.arc".as_slice(), 10_u64, '1'),
+            (2, b"DATA01100.ARC".as_slice(), 20_u64, '2'),
+            (3, b"data01999.arc".as_slice(), 30_u64, '3'),
+            (4, b"notes.txt".as_slice(), 40_u64, '4'),
+            (5, b"assets\\nested.bin".as_slice(), 50_u64, '5'),
+        ]
+        .into_iter()
+        .map(
+            |(object_id, path, byte_length, hash_digit)| RuntimeSourceFileManifest {
+                object_id,
+                relative_path_a: path.to_vec(),
+                byte_length,
+                sha256: std::iter::repeat_n(hash_digit, 64).collect(),
+            },
+        )
+        .collect(),
+    }
 }
 
 fn source_policy() -> Kernel32CompatibilityPolicy {

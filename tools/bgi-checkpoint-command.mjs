@@ -95,7 +95,9 @@ export function planBgiCheckpointCommand(arguments_, manifest, root) {
     };
   }
 
-  const activeProfile = manifest.activeRuntimeCheckpoint.profile;
+  const activeProfile =
+    manifest.activeRuntimeCheckpoint.capabilityProfile ??
+    manifest.activeRuntimeCheckpoint.profile;
   const capability = selectedProfile === "active" ? activeProfile : selectedProfile;
   const runnerArguments = [
     "--checkpoint",

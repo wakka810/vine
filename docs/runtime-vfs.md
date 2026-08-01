@@ -22,23 +22,27 @@ class: registration rejects overlap between the source and profile path indexes.
 When both mounts exist they must have the same title fingerprint and normalized
 Windows root.
 
-`RuntimeFiles` privately owns normalized Windows-932 path identity, monotonic file
-and directory IDs, open-file access/share/cursor state, profile file／directory
-generations, committed and staged bytes, dirty revisions, and pending
-read/commit/create records. `RuntimeObjectTable` owns
-typed handle generation and staleness. The Worker and local server never own a
-Win32 handle, cursor, guest pointer, LastError, or dirty-file decision.
+`RuntimeFiles` privately owns normalized Windows-932 path identity, monotonic file,
+directory, and search IDs, open-file access/share/cursor state, immutable search
+snapshots and cursors, profile file／directory generations, committed and staged
+bytes, dirty revisions, and pending read/commit/create records. `RuntimeObjectTable`
+owns typed handle generation and staleness, including the distinct file-search
+handle kind. The Worker and local server never own a Win32 handle, search cursor,
+guest pointer, LastError, or dirty-file decision.
 
 An immutable `vine.source-snapshot-manifest` version 1 binds a title and snapshot
 to source/object IDs, paths, byte lengths, and SHA-256 values. The source server
 validates and caches the configured host bytes and accepts no guest-supplied host
 path. The primary title registers the versioned
-`fixtures/source-snapshots/primary-boot-archives-v1.json` snapshot — exactly the
-three natively-opened boot archives `system.arc`, `sysprg.arc`, and `sysgrp.arc`
-under mount root `C:\Vine` — beside the `BGI.gdb` writable profile; the two
-mounts share one title fingerprint and root, and writable paths may not shadow
-immutable objects. Unregistered paths, including the engine's loose-file member
-probes, resolve to not-found exactly as on the native disk.
+`fixtures/source-snapshots/primary-game-archives-v2.json` snapshot — the three boot
+archives `system.arc`, `sysprg.arc`, and `sysgrp.arc` plus the 45 reached
+`data0????.arc` archives — under mount root `C:\Vine` beside the `BGI.gdb`
+writable profile. The two mounts share one title fingerprint and root, and writable
+paths may not shadow immutable objects. Registration streams and hashes each large
+source object while checking stable host identity before and after the read; runtime
+range service then addresses only verified source/object IDs. Unregistered paths,
+including the engine's loose-file member probes, resolve to not-found exactly as on
+the native disk.
 
 A `vine.writable-profile-snapshot` version 3 binds a title fingerprint, profile ID,
 root, quota, and disjoint file／directory allowlists to per-object existence and
@@ -76,6 +80,11 @@ The versioned Kernel32 policy supports these bounded variants:
 - `CreateDirectoryA`: one allowlisted absent writable-profile directory with NULL
   security attributes, durable SQLite publication, and exact duplicate／missing
   parent／file-conflict errors;
+- `FindFirstFileA`／`FindNextFileA`: a bounded `*`／`?` wildcard over one resolved
+  directory, ASCII-case-insensitive matching without splitting Windows-932 pairs,
+  deterministic lexical order, and exact 320-byte PE32 `WIN32_FIND_DATAA` output;
+- `FindClose`: retire only a live file-search handle; ordinary `CloseHandle` rejects
+  that handle kind;
 - immutable open: `GENERIC_READ`, share-read, `OPEN_EXISTING`;
 - writable open: `GENERIC_WRITE`, share none, `CREATE_ALWAYS` or
   `OPEN_ALWAYS`;
@@ -99,9 +108,19 @@ escape returns `ERROR_PATH_NOT_FOUND`. Success preserves LastError. It never pro
 the Node／browser host filesystem, and an absent writable object does not become an
 existing file or directory merely because its path is allowlisted.
 Sparse writes zero-fill the gap. Immutable writes and source/profile shadowing are
-denied before mutation. Directory enumeration, rename/delete, mapped files, locks,
-directory mutation outside the explicit create allowlist, volume resolution, arbitrary DOS attributes,
-access/share/disposition combinations, and registry projection are not claimed.
+denied before mutation. Recursive enumeration, short-name generation, broad DOS
+wildcards and attributes, rename/delete, mapped files, locks, directory mutation
+outside the explicit create allowlist, volume resolution, access/share/disposition
+combinations, and registry projection are not claimed.
+
+An enumeration captures matching registered source and existing writable entries at
+successful `FindFirstFileA` commit. Later catalog changes cannot alter that open
+search. The owner preflights the complete first result, search capacity, typed object
+capacity, and guest output before publishing either search or handle; failures do not
+consume either allocator. `FindNextFileA` commits the cursor only with its complete
+guest write. Exhaustion returns FALSE／`ERROR_NO_MORE_FILES` without touching the
+output, and successful `FindClose` preserves LastError. No enumeration asks Node,
+Chrome, or the source server to list a host directory.
 
 ## Read, write, and commit transactions
 
@@ -171,6 +190,9 @@ semantics, sharing, sparse writes, quota, guest-memory atomicity, successful dur
 close, malformed completion, failed-close retry, stale/duplicate completion,
 metadata-only atomic hydration, process-exit discard, and read-only file／derived
 directory attribute classification without host filesystem import. They also cover
+case-insensitive wildcard enumeration, lexical ordering, exact find-data layout,
+immutable open-search snapshots, terminal error/output preservation, distinct
+`FindClose` lifetime, stale/wrong-kind handles, capacity, and failure atomicity. They also cover
 allowlisted directory identity, host-first durable creation, duplicate／missing-parent／
 file-conflict classification, stale plans, malformed completion, failure retry, and
 cancellation. The SQLite tests cover
@@ -182,9 +204,11 @@ The public immutable fixture continues to cover open/size/read/seek/close and br
 read cancellation/watchdog cleanup.
 
 The private Node and Chrome checks import `BGI.gdb` through the writable profile,
-serve it from SQLite, create the run-local allowlisted `UserData` directory, and
-verify that the distribution file and shared profile are unchanged. This checkpoint
-establishes the storage authority and durable file／directory commit paths. It does not
+serve it from SQLite, create the run-local allowlisted `UserData` directory, enumerate
+the same 45 immutable `data0????.arc` entries as the native oracle, and verify that
+the distribution files and shared profile are unchanged. This checkpoint establishes
+the storage authority, durable file／directory commit paths, and host-independent
+primary archive enumeration. It does not
 yet claim that a controlled guest fixture has performed a browser commit and loaded
 it after a browser restart, nor that the primary title's full save/load UI,
 multi-slot lifecycle, registry settings, migration UI, crash recovery matrix, or

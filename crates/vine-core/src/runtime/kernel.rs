@@ -57,9 +57,11 @@ use super::com::{
 use super::displays::{RuntimeDisplayProfile, RuntimeDisplays, RuntimeLogicalMonitor};
 use super::files::{
     RUNTIME_SOURCE_READ_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE,
-    RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, RUNTIME_WRITABLE_READ_SERVICE, RuntimeFiles,
-    RuntimeSourceFile, RuntimeSourceFileRetirementPlan, RuntimeSourceReadBeginPlan,
-    RuntimeSourceReadCancellationPlan, RuntimeSourceReadCompletion,
+    RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, RUNTIME_WRITABLE_READ_SERVICE, RuntimeFileSearch,
+    RuntimeFileSearchAdvancePlan, RuntimeFileSearchEntry, RuntimeFileSearchId,
+    RuntimeFileSearchOpenPlan, RuntimeFileSearchRetirementPlan, RuntimeFiles,
+    RuntimeFindFirstFileResult, RuntimeSourceFile, RuntimeSourceFileRetirementPlan,
+    RuntimeSourceReadBeginPlan, RuntimeSourceReadCancellationPlan, RuntimeSourceReadCompletion,
     RuntimeSourceReadCompletionPlan, RuntimeSourceReadHostResponse, RuntimeSourceReadRequest,
     RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest, RuntimeWritableCommitBeginPlan,
     RuntimeWritableCommitCancellationPlan, RuntimeWritableCommitCompletion,
@@ -300,6 +302,7 @@ struct RuntimePayloadObjectTeardownPlan {
     mutex_plans: Vec<RuntimeMutexRetirementPlan>,
     waitable_timer_plans: Vec<RuntimeWaitableTimerRetirementPlan>,
     source_file_plans: Vec<RuntimeSourceFileRetirementPlan>,
+    file_search_plans: Vec<RuntimeFileSearchRetirementPlan>,
     retired_handles: usize,
 }
 
@@ -1479,6 +1482,154 @@ impl RuntimeKernel {
             handle,
             existed,
         }))
+    }
+
+    pub fn find_first_file_a<F>(
+        &mut self,
+        memory: &mut GuestMemory,
+        requested_pattern: &[u8],
+        output: GuestAddress,
+        maximum_matches: usize,
+        expected_output_bytes: usize,
+        encode_entry: F,
+    ) -> Result<Option<(RuntimeFindFirstFileResult, Vec<u8>, GuestWriteResult)>, RuntimeStateError>
+    where
+        F: FnOnce(&RuntimeFileSearchEntry) -> Result<Vec<u8>, RuntimeStateError>,
+    {
+        self.require_source_file_operation_state()?;
+        let Some(search_plan): Option<RuntimeFileSearchOpenPlan> = self.files.plan_find_first(
+            requested_pattern,
+            &self.process.current_directory_a().bytes_with_nul,
+            maximum_matches,
+        )?
+        else {
+            return Ok(None);
+        };
+        let entry = search_plan.first_entry().clone();
+        let bytes = encode_entry(&entry)?;
+        if bytes.len() != expected_output_bytes {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-vfs",
+                "file-search-output-size-invalid",
+                "file search entry encoder returned an unexpected ABI byte length",
+            ));
+        }
+        memory
+            .validate_access(output, bytes.len(), MemoryAccess::Write)
+            .map_err(RuntimeStateError::from_memory)?;
+        let key = RuntimeObjectKey::FileSearch {
+            search_id: search_plan.search_id().0,
+        };
+        let object_plan = self.objects.plan_object_and_handle_registration(key)?;
+        self.files.preflight_find_first(&search_plan)?;
+        self.objects
+            .preflight_object_registration_commit(&object_plan)?;
+        let handle = object_plan.handle();
+        let mut transaction = memory.begin_transaction();
+        let write = transaction
+            .write(output, &bytes)
+            .map_err(RuntimeStateError::from_memory)?;
+        let (_, committed_handle) = self.objects.commit_object_registration(object_plan);
+        debug_assert_eq!(committed_handle, handle);
+        let search = self.files.commit_find_first(search_plan);
+        transaction.commit_transaction();
+        Ok(Some((
+            RuntimeFindFirstFileResult {
+                search,
+                handle,
+                entry,
+            },
+            bytes,
+            write,
+        )))
+    }
+
+    pub fn find_next_file_a<F>(
+        &mut self,
+        memory: &mut GuestMemory,
+        handle: RuntimeHandle,
+        output: GuestAddress,
+        expected_output_bytes: usize,
+        encode_entry: F,
+    ) -> Result<Option<(RuntimeFileSearchEntry, Vec<u8>, GuestWriteResult)>, RuntimeStateError>
+    where
+        F: FnOnce(&RuntimeFileSearchEntry) -> Result<Vec<u8>, RuntimeStateError>,
+    {
+        self.require_source_file_operation_state()?;
+        let search_id = self.file_search_for_handle(handle)?.id;
+        let Some(plan): Option<RuntimeFileSearchAdvancePlan> =
+            self.files.plan_find_next(search_id)?
+        else {
+            return Ok(None);
+        };
+        let entry = plan.entry().clone();
+        let bytes = encode_entry(&entry)?;
+        if bytes.len() != expected_output_bytes {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-vfs",
+                "file-search-output-size-invalid",
+                "file search entry encoder returned an unexpected ABI byte length",
+            ));
+        }
+        memory
+            .validate_access(output, bytes.len(), MemoryAccess::Write)
+            .map_err(RuntimeStateError::from_memory)?;
+        self.files.preflight_find_next(&plan)?;
+        let mut transaction = memory.begin_transaction();
+        let write = transaction
+            .write(output, &bytes)
+            .map_err(RuntimeStateError::from_memory)?;
+        let committed = self.files.commit_find_next(plan);
+        debug_assert_eq!(committed, entry);
+        transaction.commit_transaction();
+        Ok(Some((entry, bytes, write)))
+    }
+
+    pub fn file_search_for_handle(
+        &self,
+        handle: RuntimeHandle,
+    ) -> Result<&RuntimeFileSearch, RuntimeStateError> {
+        let record = self
+            .objects
+            .object_for_handle(handle, RuntimeObjectKind::FileSearch)?;
+        let RuntimeObjectKey::FileSearch { search_id } = record.key else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-vfs",
+                "file-search-object-key-invalid",
+                "file search handle resolved to a different object identity",
+            ));
+        };
+        self.files.file_search(RuntimeFileSearchId(search_id))
+    }
+
+    pub fn find_close(
+        &mut self,
+        handle: RuntimeHandle,
+    ) -> Result<RuntimeHandleEntry, RuntimeStateError> {
+        self.require_source_file_operation_state()?;
+        let record = self
+            .objects
+            .object_for_handle(handle, RuntimeObjectKind::FileSearch)?
+            .clone();
+        let RuntimeObjectKey::FileSearch { search_id } = record.key.clone() else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-vfs",
+                "file-search-object-key-invalid",
+                "file search handle resolved to a different object identity",
+            ));
+        };
+        let retirement = self
+            .files
+            .plan_file_search_retirement(RuntimeFileSearchId(search_id))?;
+        let object_plan = self
+            .objects
+            .plan_find_close_object_close(handle, &record.key)?;
+        self.files.preflight_file_search_retirement(&retirement)?;
+        let removed = object_plan.closed_entry();
+        self.objects
+            .commit_close_handle_object_mutation(object_plan)?;
+        self.files.commit_file_search_retirement(retirement);
+        Ok(removed)
     }
 
     pub fn source_file_for_handle(
@@ -2897,6 +3048,7 @@ impl RuntimeKernel {
             }
             RuntimeObjectKind::Process
             | RuntimeObjectKind::Thread
+            | RuntimeObjectKind::FileSearch
             | RuntimeObjectKind::PrivateHeap
             | RuntimeObjectKind::Module => self.objects.close_handle(handle),
         }
@@ -8319,6 +8471,7 @@ impl RuntimeKernel {
         let mutex_ids = self.synchronization.mutex_ids();
         let waitable_timer_ids = self.timers.waitable_timer_ids();
         let source_file_ids = self.files.open_file_ids().collect::<Vec<_>>();
+        let file_search_ids = self.files.file_search_ids().collect::<Vec<_>>();
         let mut keys = mutex_ids
             .iter()
             .map(|id| RuntimeObjectKey::Mutex { mutex_id: id.0 })
@@ -8333,6 +8486,10 @@ impl RuntimeKernel {
                 .iter()
                 .map(|id| RuntimeObjectKey::File { file_id: id.0 }),
         );
+        let file_search_keys = file_search_ids
+            .iter()
+            .map(|id| RuntimeObjectKey::FileSearch { search_id: id.0 })
+            .collect::<Vec<_>>();
         let mutex_plans = mutex_ids
             .iter()
             .map(|id| self.synchronization.plan_mutex_retirement(*id))
@@ -8351,8 +8508,18 @@ impl RuntimeKernel {
         for plan in &source_file_plans {
             self.files.preflight_retirement(plan)?;
         }
-        let object_plan = (!keys.is_empty())
-            .then(|| self.objects.plan_close_handle_object_teardown(&keys))
+        let file_search_plans = file_search_ids
+            .iter()
+            .map(|id| self.files.plan_file_search_retirement(*id))
+            .collect::<Result<Vec<_>, _>>()?;
+        for plan in &file_search_plans {
+            self.files.preflight_file_search_retirement(plan)?;
+        }
+        let object_plan = (!keys.is_empty() || !file_search_keys.is_empty())
+            .then(|| {
+                self.objects
+                    .plan_payload_object_teardown(&keys, &file_search_keys)
+            })
             .transpose()?;
         let retired_handles = object_plan
             .as_ref()
@@ -8362,6 +8529,7 @@ impl RuntimeKernel {
             mutex_plans,
             waitable_timer_plans,
             source_file_plans,
+            file_search_plans,
             retired_handles,
         })
     }
@@ -8382,6 +8550,9 @@ impl RuntimeKernel {
         }
         for plan in plan.source_file_plans {
             self.files.commit_retirement(plan);
+        }
+        for plan in plan.file_search_plans {
+            self.files.commit_file_search_retirement(plan);
         }
         Ok(plan.retired_handles)
     }

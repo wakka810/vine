@@ -1155,7 +1155,10 @@ function assertExecutionStateReport(report, scenario) {
 }
 
 function isScheduledSharedClockNodeReport(report) {
-  return report?.schema === "vine.v86-bgi-scheduled-shared-clock-primary";
+  return (
+    report?.schema === "vine.v86-bgi-scheduled-shared-clock-primary" ||
+    report?.schema === "vine.v86-bgi-find-file-a-primary"
+  );
 }
 
 function projectScheduledSharedClockCheckpointCompletion(
@@ -1163,6 +1166,47 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (nodeReport.schema === "vine.v86-bgi-find-file-a-primary") {
+    const find = execution.findFileA;
+    const nextEndpoint = nodeReport.stop.fault.endpoint.endpoint;
+    const reachedNextEndpointAfterEnumeration =
+      execution.clockSamples.count > 0 &&
+      execution.windowTimerCallbacks.count > 0 &&
+      find.entryCount === 45 &&
+      find.terminalNext.lastError === 18 &&
+      find.close.result.value === 1 &&
+      nodeReport.stop.fault.fault.code === "endpoint-contract-missing";
+    return {
+      capability: "kernel32-find-file-a-post-set-window-text",
+      implementationId:
+        "runtime.kernel32-find-file-a-post-set-window-text.v1",
+      requiredCompletions: 1,
+      completionCount: 1,
+      lastCompletionSequence: find.close.sequence,
+      lastCompletionInstructionCount: find.close.trapInstructionCount,
+      firstCompletionSequence: find.first.sequence,
+      firstCompletionInstructionCount: find.first.trapInstructionCount,
+      entryCount: find.entryCount,
+      lastSuccessfulNextSequence: find.lastSuccessfulNext.sequence,
+      terminalNextSequence: find.terminalNext.sequence,
+      terminalWin32Error: find.terminalWin32Error,
+      searchHandle: `0x${find.first.result.value.toString(16).padStart(8, "0")}`,
+      clockProfileId: nodeReport.contract.clockProfile.id,
+      clockSampleCount: execution.clockSamples.count,
+      windowTimerCallbackCount: execution.windowTimerCallbacks.count,
+      presentCount: execution.presentations.count,
+      pointerInputEventCount: execution.pointerInput.count,
+      inputTimerCycleCount: expectedNext.completion.inputTimerCycleCount,
+      inputQuerySequence: execution.pointerInput.last.committedAfterSequence,
+      thirdPresentReached: execution.presentations.thirdPresentReached,
+      clockFreezeWasProximateCause: !reachedNextEndpointAfterEnumeration,
+      archiveEnumerationWasProximateCause:
+        !reachedNextEndpointAfterEnumeration,
+      instructionCount: nodeReport.stop.terminal.instructionCount,
+      nextEndpoint,
+      memoryContentSha256: nodeReport.stop.fault.memoryContentSha256,
+    };
+  }
   const setWindowText = execution.setWindowTextA;
   const call = setWindowText.call;
   const nextEndpoint = nodeReport.stop.fault.endpoint.endpoint;
@@ -1359,6 +1403,23 @@ function assertScheduledSharedClockReportSemantics({
     setWindowText.callbackEvents.map(({ action }) => action),
     ["enter", "return"],
   );
+  if (nodeReport.schema === "vine.v86-bgi-find-file-a-primary") {
+    const find = nodeExecution.findFileA;
+    assert.equal(find.pattern, "data0????.arc");
+    assert.equal(find.entryCount, 45);
+    assert.equal(find.entries[0].fileName, "data01099.arc");
+    assert.equal(find.entries.at(-1).fileName, "data05010.arc");
+    assert.equal(find.first.sequence, 251_694);
+    assert.equal(find.lastSuccessfulNext.sequence, 251_738);
+    assert.equal(find.terminalNext.sequence, 251_739);
+    assert.equal(find.terminalNext.lastError, 18);
+    assert.deepEqual(find.terminalNext.guestWrites, []);
+    assert.equal(find.close.sequence, 251_740);
+    assert.equal(find.close.result.value, 1);
+    assert.equal(find.close.lastError, 18);
+    assert.equal(find.searchHandleNamespace, "vine.runtime-file-search.v1");
+    assert.equal(nodeReport.contract.hostDirectoryEnumerationImported, false);
+  }
 
   const nodeEndpoint = nodeStop.fault.endpoint.endpoint;
   const expectedEndpoint = expectedNext.nextEndpoint;

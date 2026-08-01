@@ -254,6 +254,7 @@ enum GenericRuntimeCapability {
     GlobalMemoryStatus,
     GetFileAttributesA,
     CreateDirectoryA,
+    FindFirstFileA,
     D3d9RecreatedTextures,
     D3d9Clear,
     SetRect,
@@ -2927,6 +2928,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::GlobalMemoryStatus
                     | GenericRuntimeCapability::GetFileAttributesA
                     | GenericRuntimeCapability::CreateDirectoryA
+                    | GenericRuntimeCapability::FindFirstFileA
                     | GenericRuntimeCapability::D3d9RecreatedTextures
                     | GenericRuntimeCapability::D3d9Clear
                     | GenericRuntimeCapability::SetRect
@@ -3616,102 +3618,115 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let window_timer_delivery_enabled = matches!(
+    let find_first_file_a_enabled = matches!(
         enabled_capability,
-        Some(
-            GenericRuntimeCapability::User32WindowTimerCallbackDelivery
-                | GenericRuntimeCapability::User32PointerButtonMessages
-                | GenericRuntimeCapability::User32SetFocusSameWindow
-                | GenericRuntimeCapability::User32DefWindowProcPointerDown
-                | GenericRuntimeCapability::User32DefWindowProcPointerRelease
-        )
+        Some(GenericRuntimeCapability::FindFirstFileA)
     );
-    let pointer_button_messages_enabled = matches!(
-        enabled_capability,
-        Some(
-            GenericRuntimeCapability::User32PointerButtonMessages
-                | GenericRuntimeCapability::User32SetFocusSameWindow
-                | GenericRuntimeCapability::User32DefWindowProcPointerDown
-                | GenericRuntimeCapability::User32DefWindowProcPointerRelease
-        )
-    );
-    let set_focus_same_window_enabled = matches!(
-        enabled_capability,
-        Some(
-            GenericRuntimeCapability::User32SetFocusSameWindow
-                | GenericRuntimeCapability::User32DefWindowProcPointerDown
-                | GenericRuntimeCapability::User32DefWindowProcPointerRelease
-        )
-    );
-    let def_window_proc_pointer_down_enabled = matches!(
-        enabled_capability,
-        Some(
-            GenericRuntimeCapability::User32DefWindowProcPointerDown
-                | GenericRuntimeCapability::User32DefWindowProcPointerRelease
-        )
-    );
-    let def_window_proc_pointer_release_enabled = matches!(
-        enabled_capability,
-        Some(GenericRuntimeCapability::User32DefWindowProcPointerRelease)
-    );
-    let d3d9_present_enabled = matches!(
-        enabled_capability,
-        Some(
-            GenericRuntimeCapability::D3d9Present
-                | GenericRuntimeCapability::D3d9PostPresentContinuation
-                | GenericRuntimeCapability::User32AsyncKeyStateInput
-                | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
-                | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
-                | GenericRuntimeCapability::User32PointerButtonMessages
-                | GenericRuntimeCapability::User32SetFocusSameWindow
-                | GenericRuntimeCapability::User32DefWindowProcPointerDown
-                | GenericRuntimeCapability::User32DefWindowProcPointerRelease
-        )
-    );
-    let get_async_key_state_enabled = matches!(
-        enabled_capability,
-        Some(
-            GenericRuntimeCapability::User32AsyncKeyStateInput
-                | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
-                | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
-                | GenericRuntimeCapability::User32PointerButtonMessages
-                | GenericRuntimeCapability::User32SetFocusSameWindow
-                | GenericRuntimeCapability::User32DefWindowProcPointerDown
-                | GenericRuntimeCapability::User32DefWindowProcPointerRelease
-        )
-    );
+    let window_timer_delivery_enabled = find_first_file_a_enabled
+        || matches!(
+            enabled_capability,
+            Some(
+                GenericRuntimeCapability::User32WindowTimerCallbackDelivery
+                    | GenericRuntimeCapability::User32PointerButtonMessages
+                    | GenericRuntimeCapability::User32SetFocusSameWindow
+                    | GenericRuntimeCapability::User32DefWindowProcPointerDown
+                    | GenericRuntimeCapability::User32DefWindowProcPointerRelease
+            )
+        );
+    let pointer_button_messages_enabled = find_first_file_a_enabled
+        || matches!(
+            enabled_capability,
+            Some(
+                GenericRuntimeCapability::User32PointerButtonMessages
+                    | GenericRuntimeCapability::User32SetFocusSameWindow
+                    | GenericRuntimeCapability::User32DefWindowProcPointerDown
+                    | GenericRuntimeCapability::User32DefWindowProcPointerRelease
+            )
+        );
+    let set_focus_same_window_enabled = find_first_file_a_enabled
+        || matches!(
+            enabled_capability,
+            Some(
+                GenericRuntimeCapability::User32SetFocusSameWindow
+                    | GenericRuntimeCapability::User32DefWindowProcPointerDown
+                    | GenericRuntimeCapability::User32DefWindowProcPointerRelease
+            )
+        );
+    let def_window_proc_pointer_down_enabled = find_first_file_a_enabled
+        || matches!(
+            enabled_capability,
+            Some(
+                GenericRuntimeCapability::User32DefWindowProcPointerDown
+                    | GenericRuntimeCapability::User32DefWindowProcPointerRelease
+            )
+        );
+    let def_window_proc_pointer_release_enabled = find_first_file_a_enabled
+        || matches!(
+            enabled_capability,
+            Some(GenericRuntimeCapability::User32DefWindowProcPointerRelease)
+        );
+    let d3d9_present_enabled = find_first_file_a_enabled
+        || matches!(
+            enabled_capability,
+            Some(
+                GenericRuntimeCapability::D3d9Present
+                    | GenericRuntimeCapability::D3d9PostPresentContinuation
+                    | GenericRuntimeCapability::User32AsyncKeyStateInput
+                    | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
+                    | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
+                    | GenericRuntimeCapability::User32PointerButtonMessages
+                    | GenericRuntimeCapability::User32SetFocusSameWindow
+                    | GenericRuntimeCapability::User32DefWindowProcPointerDown
+                    | GenericRuntimeCapability::User32DefWindowProcPointerRelease
+            )
+        );
+    let get_async_key_state_enabled = find_first_file_a_enabled
+        || matches!(
+            enabled_capability,
+            Some(
+                GenericRuntimeCapability::User32AsyncKeyStateInput
+                    | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
+                    | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
+                    | GenericRuntimeCapability::User32PointerButtonMessages
+                    | GenericRuntimeCapability::User32SetFocusSameWindow
+                    | GenericRuntimeCapability::User32DefWindowProcPointerDown
+                    | GenericRuntimeCapability::User32DefWindowProcPointerRelease
+            )
+        );
     let get_async_key_state_input_enabled = matches!(
         enabled_capability,
         Some(GenericRuntimeCapability::User32AsyncKeyStateInput)
     );
-    let get_window_rect_enabled = matches!(
-        enabled_capability,
-        Some(
-            GenericRuntimeCapability::User32AsyncKeyStateInitialScan
-                | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
-                | GenericRuntimeCapability::User32PointerButtonMessages
-                | GenericRuntimeCapability::User32SetFocusSameWindow
-                | GenericRuntimeCapability::User32DefWindowProcPointerDown
-                | GenericRuntimeCapability::User32DefWindowProcPointerRelease
-        )
-    );
-    let d3d9_post_end_scene_raster_status_enabled = matches!(
-        enabled_capability,
-        Some(
-            GenericRuntimeCapability::D3d9PostEndSceneRasterStatus
-                | GenericRuntimeCapability::D3d9PostRasterStatusWaitableTimer
-                | GenericRuntimeCapability::D3d9PostScenePresentGateway
-                | GenericRuntimeCapability::D3d9Present
-                | GenericRuntimeCapability::D3d9PostPresentContinuation
-                | GenericRuntimeCapability::User32AsyncKeyStateInput
-                | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
-                | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
-                | GenericRuntimeCapability::User32PointerButtonMessages
-                | GenericRuntimeCapability::User32SetFocusSameWindow
-                | GenericRuntimeCapability::User32DefWindowProcPointerDown
-                | GenericRuntimeCapability::User32DefWindowProcPointerRelease
-        )
-    );
+    let get_window_rect_enabled = find_first_file_a_enabled
+        || matches!(
+            enabled_capability,
+            Some(
+                GenericRuntimeCapability::User32AsyncKeyStateInitialScan
+                    | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
+                    | GenericRuntimeCapability::User32PointerButtonMessages
+                    | GenericRuntimeCapability::User32SetFocusSameWindow
+                    | GenericRuntimeCapability::User32DefWindowProcPointerDown
+                    | GenericRuntimeCapability::User32DefWindowProcPointerRelease
+            )
+        );
+    let d3d9_post_end_scene_raster_status_enabled = find_first_file_a_enabled
+        || matches!(
+            enabled_capability,
+            Some(
+                GenericRuntimeCapability::D3d9PostEndSceneRasterStatus
+                    | GenericRuntimeCapability::D3d9PostRasterStatusWaitableTimer
+                    | GenericRuntimeCapability::D3d9PostScenePresentGateway
+                    | GenericRuntimeCapability::D3d9Present
+                    | GenericRuntimeCapability::D3d9PostPresentContinuation
+                    | GenericRuntimeCapability::User32AsyncKeyStateInput
+                    | GenericRuntimeCapability::User32AsyncKeyStateInitialScan
+                    | GenericRuntimeCapability::User32WindowTimerCallbackDelivery
+                    | GenericRuntimeCapability::User32PointerButtonMessages
+                    | GenericRuntimeCapability::User32SetFocusSameWindow
+                    | GenericRuntimeCapability::User32DefWindowProcPointerDown
+                    | GenericRuntimeCapability::User32DefWindowProcPointerRelease
+            )
+        );
     let d3d9_end_scene_enabled = d3d9_post_end_scene_raster_status_enabled
         || matches!(
             enabled_capability,
@@ -3774,7 +3789,8 @@ fn run_v86_generic_runtime_session(
             enabled_capability,
             Some(GenericRuntimeCapability::D3d9RecreatedTextures)
         );
-    let create_directory_a_enabled = d3d9_recreated_textures_enabled
+    let create_directory_a_enabled = find_first_file_a_enabled
+        || d3d9_recreated_textures_enabled
         || matches!(
             enabled_capability,
             Some(GenericRuntimeCapability::CreateDirectoryA)
@@ -4772,6 +4788,17 @@ fn run_v86_generic_runtime_session(
             },
         ) {
             create_directory_a_enabled
+        } else if endpoint.module.eq_ignore_ascii_case("kernel32.dll")
+            && matches!(
+                endpoint.symbol,
+                ApiSymbol::Name { ref name }
+                    if matches!(
+                        name.as_str(),
+                        "FindFirstFileA" | "FindNextFileA" | "FindClose"
+                    )
+            )
+        {
+            find_first_file_a_enabled
         } else if endpoint.module.eq_ignore_ascii_case("user32.dll")
             && matches!(
                 endpoint.symbol,
@@ -15034,6 +15061,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-global-memory-status" => GenericRuntimeCapability::GlobalMemoryStatus,
                 "kernel32-get-file-attributes-a" => GenericRuntimeCapability::GetFileAttributesA,
                 "kernel32-create-directory-a" => GenericRuntimeCapability::CreateDirectoryA,
+                "kernel32-find-first-file-a" => GenericRuntimeCapability::FindFirstFileA,
                 "d3d9-recreated-textures" => GenericRuntimeCapability::D3d9RecreatedTextures,
                 "user32-set-window-pos-frame-change-move" => {
                     GenericRuntimeCapability::D3d9RecreatedTextures

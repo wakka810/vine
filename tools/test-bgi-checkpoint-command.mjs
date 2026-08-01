@@ -86,14 +86,17 @@ for (const flag of [
   assert(browserRunner.includes(`"${flag}"`), `BGI performance runner omitted ${flag}`);
 }
 
+const activeProfile =
+  manifest.activeRuntimeCheckpoint.capabilityProfile ??
+  manifest.activeRuntimeCheckpoint.profile;
 const active = planBgiCheckpointCommand([], manifest, root);
 assert.deepEqual(active.selection, {
   kind: "active-profile",
-  profile: manifest.activeRuntimeCheckpoint.profile,
+  profile: activeProfile,
 });
 assert.equal(
   active.outputDirectory,
-  bgiProfileOutputDirectory(manifest.activeRuntimeCheckpoint.profile),
+  bgiProfileOutputDirectory(activeProfile),
 );
 assert.deepEqual(
   active.runnerArguments.slice(0, 8),
@@ -104,7 +107,7 @@ assert.deepEqual(
     "--evidence-level",
     "summary",
     "--runtime-capability",
-    manifest.activeRuntimeCheckpoint.profile,
+    activeProfile,
     "--runtime-policy",
   ],
 );
@@ -112,8 +115,14 @@ assert.equal(
   active.runnerArguments[8],
   path.join(root, manifest.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.source),
 );
-assert.deepEqual(active.runnerArguments.slice(9), []);
-assert.equal(manifest.activeRuntimeCheckpoint.sourceSnapshot, undefined);
+assert.deepEqual(active.runnerArguments.slice(9), [
+  "--source-manifest",
+  path.join(root, manifest.activeRuntimeCheckpoint.sourceSnapshot.source),
+]);
+assert.equal(
+  manifest.activeRuntimeCheckpoint.sourceSnapshot.snapshotId,
+  "primary-game-archives-v2",
+);
 assert.equal(manifest.activeRuntimeCheckpoint.writableProfile.profileId, "default");
 assert.deepEqual(planBgiCheckpointCommand(["--profile", "active"], manifest, root), active);
 
@@ -125,7 +134,7 @@ const fullEvidence = planBgiCheckpointCommand(
 assert.equal(fullEvidence.runnerArguments[4], "full");
 
 const explicitActive = planBgiCheckpointCommand(
-  ["--profile", manifest.activeRuntimeCheckpoint.profile],
+  ["--profile", activeProfile],
   manifest,
   root,
 );
@@ -174,6 +183,10 @@ for (const arguments_ of [
   assert.throws(() => planBgiCheckpointCommand(arguments_, manifest, root));
 }
 assert.equal(bgiProfileOutputDirectory("user32-message"), "v86-bgi-message");
+assert.equal(
+  bgiProfileOutputDirectory("kernel32-find-first-file-a"),
+  "v86-bgi-find-first-file-a",
+);
 assert.equal(
   bgiProfileOutputDirectory("shell32-drag-accept-files"),
   "v86-bgi-drag-accept-files",

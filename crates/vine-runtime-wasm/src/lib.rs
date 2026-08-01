@@ -3379,6 +3379,9 @@ fn build_bgi_dispatcher(
                 "LoadLibraryA" => kernel32_policy.load_library_a().is_some(),
                 "Sleep" => kernel32_policy.allows_sleep_zero(),
                 "GlobalMemoryStatus" => kernel32_policy.memory_status().is_some(),
+                "FindFirstFileA" | "FindNextFileA" | "FindClose" => {
+                    kernel32_policy.find_file_a().is_some()
+                }
                 "SetRect" => set_rect_enabled,
                 "GetWindowRect" | "GetCursorPos" => user32_async_key_state_initial_scan_enabled,
                 "TranslateMessage" | "DispatchMessageA" => user32_message_dispatch_enabled,

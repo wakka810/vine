@@ -43,7 +43,8 @@ const evidenceLevel =
 const capabilityProfile = parseCapabilityProfile(searchParams.get("profile"));
 const scheduledSharedClockSetWindowText =
   capabilityProfile ===
-  "user32-set-window-text-a-post-scheduled-shared-clock";
+    "user32-set-window-text-a-post-scheduled-shared-clock" ||
+  capabilityProfile === "kernel32-find-first-file-a";
 const d3d9Canvas =
   scheduledSharedClockSetWindowText ||
   capabilityProfile === "d3d9-first-present" ||
@@ -522,8 +523,7 @@ if (
     "user32-window-timer-callback-post-waitable-timer-cycle" ||
   capabilityProfile ===
     "user32-peek-message-a-post-window-timer-callback-continuation" ||
-  capabilityProfile ===
-    "user32-set-window-text-a-post-scheduled-shared-clock"
+  scheduledSharedClockSetWindowText
 ) {
   const pointerMessageInput =
     capabilityProfile === "primary-main-loop-pointer-message-action-progress-gateway" ||
@@ -565,8 +565,7 @@ if (
       "user32-window-timer-callback-post-waitable-timer-cycle" ||
     capabilityProfile ===
       "user32-peek-message-a-post-window-timer-callback-continuation" ||
-    capabilityProfile ===
-      "user32-set-window-text-a-post-scheduled-shared-clock";
+    scheduledSharedClockSetWindowText;
   const actionInput =
     capabilityProfile === "primary-main-loop-action-input-progress-gateway" ||
     capabilityProfile ===
@@ -684,6 +683,7 @@ function parseCapabilityProfile(
 ): BgiCapabilityProfile | undefined {
   return value ===
     "user32-set-window-text-a-post-scheduled-shared-clock" ||
+    value === "kernel32-find-first-file-a" ||
     value === "kernel32-wait-for-single-object-ex" ||
     value === "kernel32-enter-critical-section" ||
     value === "primary-main-loop-progression" ||

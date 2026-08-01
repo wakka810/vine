@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 
 use super::{
-    LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE, RUNTIME_SOURCE_FILE_NAMESPACE,
-    RuntimeStateError,
+    LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE, RUNTIME_FILE_SEARCH_NAMESPACE,
+    RUNTIME_SOURCE_FILE_NAMESPACE, RuntimeStateError,
 };
 
 pub const RUNTIME_PROCESS_OBJECT_NAMESPACE: &str = "vine.runtime-process-object.v1";
@@ -20,6 +20,7 @@ pub enum RuntimeObjectKind {
     Mutex,
     WaitableTimer,
     File,
+    FileSearch,
     PrivateHeap,
     Module,
 }
@@ -32,6 +33,7 @@ impl RuntimeObjectKind {
             Self::Mutex => 0x58,
             Self::WaitableTimer => 0x57,
             Self::File => 0x46,
+            Self::FileSearch => 0x53,
             Self::PrivateHeap => 0x68,
             Self::Module => 0x4d,
         }
@@ -44,6 +46,7 @@ impl RuntimeObjectKind {
             0x58 => Some(Self::Mutex),
             0x57 => Some(Self::WaitableTimer),
             0x46 => Some(Self::File),
+            0x53 => Some(Self::FileSearch),
             0x68 => Some(Self::PrivateHeap),
             0x4d => Some(Self::Module),
             _ => None,
@@ -104,6 +107,7 @@ pub enum RuntimeObjectKey {
     Mutex { mutex_id: u64 },
     WaitableTimer { timer_id: u64 },
     File { file_id: u64 },
+    FileSearch { search_id: u64 },
     PrivateHeap { handle: u32 },
     Module { handle: u32 },
 }
@@ -116,6 +120,7 @@ impl RuntimeObjectKey {
             Self::Mutex { .. } => RuntimeObjectKind::Mutex,
             Self::WaitableTimer { .. } => RuntimeObjectKind::WaitableTimer,
             Self::File { .. } => RuntimeObjectKind::File,
+            Self::FileSearch { .. } => RuntimeObjectKind::FileSearch,
             Self::PrivateHeap { .. } => RuntimeObjectKind::PrivateHeap,
             Self::Module { .. } => RuntimeObjectKind::Module,
         }
@@ -130,6 +135,7 @@ pub struct RuntimeObjectId(pub u64);
 #[serde(rename_all = "kebab-case")]
 pub enum RuntimeHandleClosePolicy {
     CloseHandle,
+    FindClose,
     SubsystemOwned,
 }
 
@@ -394,12 +400,83 @@ impl RuntimeObjectTable {
         })
     }
 
-    pub(super) fn plan_close_handle_object_teardown(
+    pub(super) fn plan_find_close_object_close(
         &self,
-        keys: &[RuntimeObjectKey],
+        handle: RuntimeHandle,
+        key: &RuntimeObjectKey,
     ) -> Result<RuntimeCloseHandleObjectMutationPlan, RuntimeStateError> {
+        if key.kind() != RuntimeObjectKind::FileSearch
+            || handle.kind()? != RuntimeObjectKind::FileSearch
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-object",
+                "runtime-find-close-object-kind-invalid",
+                "FindClose planning requires a matching file-search identity",
+            ));
+        }
+        let record = self.object_for_handle(handle, RuntimeObjectKind::FileSearch)?;
+        if &record.key != key || record.open_handles != 1 {
+            return Err(RuntimeStateError::conflict(
+                "runtime-object",
+                "runtime-find-close-object-identity-mismatch",
+                "FindClose requires the sole handle for its file-search identity",
+            ));
+        }
         let mut next = self.clone();
-        let retired_handles = next.retire_close_handle_objects(keys)?;
+        let mut retired = next.retire_objects_with_policy(
+            std::slice::from_ref(key),
+            RuntimeHandleClosePolicy::FindClose,
+        )?;
+        let closed = retired.pop().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-object",
+                "runtime-find-close-object-handle-missing",
+                "preflighted file-search retirement produced no handle",
+            )
+        })?;
+        if !retired.is_empty() || closed.handle != handle {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-object",
+                "runtime-find-close-object-handle-mismatch",
+                "file-search retirement produced an unexpected handle set",
+            ));
+        }
+        Ok(RuntimeCloseHandleObjectMutationPlan {
+            previous: self.clone(),
+            next,
+            outcome: RuntimeCloseHandleObjectMutationOutcome::Closed(closed),
+        })
+    }
+
+    pub(super) fn plan_payload_object_teardown(
+        &self,
+        close_handle_keys: &[RuntimeObjectKey],
+        find_close_keys: &[RuntimeObjectKey],
+    ) -> Result<RuntimeCloseHandleObjectMutationPlan, RuntimeStateError> {
+        if find_close_keys
+            .iter()
+            .any(|key| key.kind() != RuntimeObjectKind::FileSearch)
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-object",
+                "runtime-payload-object-teardown-kind-invalid",
+                "payload FindClose teardown received a non-search identity",
+            ));
+        }
+        let mut next = self.clone();
+        let close_handle_count = next.retire_close_handle_objects(close_handle_keys)?;
+        let find_close_count = next
+            .retire_objects_with_policy(find_close_keys, RuntimeHandleClosePolicy::FindClose)?
+            .len();
+        let retired_handles = close_handle_count
+            .checked_add(find_close_count)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-object",
+                    "runtime-payload-retired-handle-count-overflow",
+                    "payload retired handle count overflowed host accounting",
+                )
+            })?;
         Ok(RuntimeCloseHandleObjectMutationPlan {
             previous: self.clone(),
             next,
@@ -680,6 +757,14 @@ impl RuntimeObjectTable {
         &mut self,
         keys: &[RuntimeObjectKey],
     ) -> Result<Vec<RuntimeHandleEntry>, RuntimeStateError> {
+        self.retire_objects_with_policy(keys, RuntimeHandleClosePolicy::SubsystemOwned)
+    }
+
+    fn retire_objects_with_policy(
+        &mut self,
+        keys: &[RuntimeObjectKey],
+        expected_policy: RuntimeHandleClosePolicy,
+    ) -> Result<Vec<RuntimeHandleEntry>, RuntimeStateError> {
         let mut unique_keys = BTreeSet::new();
         let mut plans = Vec::with_capacity(keys.len());
         for key in keys {
@@ -704,11 +789,11 @@ impl RuntimeObjectTable {
                     "runtime object identity index references a missing object",
                 )
             })?;
-            if record.close_policy != RuntimeHandleClosePolicy::SubsystemOwned {
+            if record.close_policy != expected_policy {
                 return Err(RuntimeStateError::conflict(
                     "runtime-object",
                     "runtime-object-retirement-policy",
-                    "only the owning subsystem can retire this runtime object",
+                    "runtime object must be retired through its declared close policy",
                 ));
             }
             let handles: Vec<_> = self
@@ -1053,7 +1138,9 @@ fn runtime_object_record(
                 RuntimeObjectKind::Mutex => RUNTIME_MUTEX_OBJECT_NAMESPACE,
                 RuntimeObjectKind::WaitableTimer => RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
                 RuntimeObjectKind::File => RUNTIME_SOURCE_FILE_NAMESPACE,
-                RuntimeObjectKind::PrivateHeap | RuntimeObjectKind::Module => unreachable!(),
+                RuntimeObjectKind::FileSearch
+                | RuntimeObjectKind::PrivateHeap
+                | RuntimeObjectKind::Module => unreachable!(),
             },
             RuntimeHandleClosePolicy::CloseHandle,
             matches!(
@@ -1063,6 +1150,11 @@ fn runtime_object_record(
                     | RuntimeObjectKind::WaitableTimer
             )
             .then_some(RuntimeWaitState::Nonsignaled),
+        ),
+        RuntimeObjectKind::FileSearch => (
+            RUNTIME_FILE_SEARCH_NAMESPACE,
+            RuntimeHandleClosePolicy::FindClose,
+            None,
         ),
         RuntimeObjectKind::PrivateHeap | RuntimeObjectKind::Module => (
             if kind == RuntimeObjectKind::PrivateHeap {
@@ -1238,7 +1330,7 @@ mod tests {
             .expect("commit waitable timer handle");
         let before_teardown = objects.clone();
         let teardown = objects
-            .plan_close_handle_object_teardown(&[key, timer_key])
+            .plan_payload_object_teardown(&[key, timer_key], &[])
             .expect("payload teardown plan");
         assert_eq!(teardown.retired_handles(), 3);
         assert_eq!(objects, before_teardown, "teardown planning must be pure");

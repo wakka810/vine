@@ -30,12 +30,12 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "completed the reached Windows-932 SetWindowTextA and synchronous WM_SETTEXT default-processing callback",
+    "Runtime VFS search enumerates all 45 data0????.arc entries before DeleteFileA",
   ),
 );
 assert.ok(
   rendered.includes(
-    "the shared clock had already completed 100,508 samples and 36 TIMERPROC callbacks, while Present remained at 2",
+    "Node primary recorded 100,509 samples / 36 TIMERPROC callbacks",
   ),
 );
 assert.ok(rendered.includes("| Shared clock |"));

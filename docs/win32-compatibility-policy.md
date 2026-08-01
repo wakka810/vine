@@ -562,6 +562,26 @@ callsite, occurrence, browser resource, host directory, or next-stop identity.
 Detailed evidence is in
 [bgi-create-directory-a.md](bgi-create-directory-a.md).
 
+`FindFirstFileA`, `FindNextFileA`, and `FindClose` use the existing
+`RuntimeFiles` path/catalog authority and a distinct typed file-search handle. The
+optional `sourceFiles.findFileA.maximumMatches` field supplies only a nonzero search
+capacity bound. Pattern bytes, paths, entries, sizes, ordering, search IDs, handles,
+callsite, and next-stop identity are not policy data. The reached support band accepts
+one resolved directory and `*`／`?` matching with ASCII case folding outside valid
+Windows-932 pairs. It snapshots matching registered source and existing writable
+entries in deterministic lexical order and emits an exact 320-byte PE32
+`WIN32_FIND_DATAA`; timestamps and alternate names are zero because those semantics
+are not imported from the host.
+
+`FindFirstFileA` preflights path, result, search capacity, typed object capacity, and
+the complete guest output before committing handle and search state. `FindNextFileA`
+advances only with a successful complete output write; exhaustion returns FALSE with
+`ERROR_NO_MORE_FILES` and preserves the previous output. `FindClose` retires only a
+live search handle and preserves LastError on success, while ordinary `CloseHandle`
+rejects that kind. Disabled policy, malformed patterns, invalid memory, capacity,
+stale/wrong-kind handles, and output faults are mutation-free. No handler enumerates
+the Node／browser host filesystem or asks the source service for directory state.
+
 `GetVersionExA` uses one BOOL one-argument semantic handler with a dynamic
 in/out contract bounded from the four-byte size field through the 156-byte
 extended layout. Exact sizes 148 and 156 read the full caller span, merge the

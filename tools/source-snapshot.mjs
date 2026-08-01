@@ -1,5 +1,13 @@
 import crypto from "node:crypto";
-import { readFile } from "node:fs/promises";
+import path from "node:path";
+import {
+  closeSync,
+  createReadStream,
+  fstatSync,
+  openSync,
+  readSync,
+} from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 
 export const sourceSnapshotSchema = "vine.source-snapshot-manifest";
 export const sourceSnapshotVersion = 1;
@@ -8,13 +16,19 @@ export const profileReadService = "storage.profile-read.v1";
 export const sourceReadTransportVersion = 1;
 export const sourceReadMaximumBytes = 1024 * 1024;
 
-export async function registerSourceSnapshot({ manifestPath, objectFiles }) {
+export async function registerSourceSnapshot({ manifestPath, objectFiles, sourceRoot }) {
   const manifestBytes = await readFile(manifestPath);
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
   validateManifest(manifest);
-  const configured = new Map(
-    Object.entries(objectFiles).map(([objectId, file]) => [Number(objectId), file]),
-  );
+  if ((objectFiles === undefined) === (sourceRoot === undefined)) {
+    throw new Error("source snapshot registration requires objectFiles or one ASCII sourceRoot");
+  }
+  const configured =
+    sourceRoot === undefined
+      ? new Map(
+          Object.entries(objectFiles).map(([objectId, file]) => [Number(objectId), file]),
+        )
+      : sourceFilesFromAsciiRoot(manifest, sourceRoot);
   if (configured.size !== manifest.files.length) {
     throw new Error("source snapshot object file count does not match the manifest");
   }
@@ -24,17 +38,20 @@ export async function registerSourceSnapshot({ manifestPath, objectFiles }) {
     if (typeof file !== "string" || file.length === 0) {
       throw new Error(`source object ${descriptor.objectId} has no registered host file`);
     }
-    const bytes = await readFile(file);
-    const sha256 = hash(bytes);
-    if (bytes.byteLength !== descriptor.byteLength || sha256 !== descriptor.sha256) {
+    const identity = await sourceFileIdentity(file);
+    if (
+      identity.byteLength !== descriptor.byteLength ||
+      identity.sha256 !== descriptor.sha256
+    ) {
       throw new Error(
         `source object ${descriptor.objectId} identity mismatch: ` +
-          `${bytes.byteLength} bytes/${sha256}`,
+          `${identity.byteLength} bytes/${identity.sha256}`,
       );
     }
     objects.set(descriptor.objectId, {
       descriptor: structuredClone(descriptor),
-      bytes: Buffer.from(bytes),
+      file,
+      identity,
     });
   }
   return Object.freeze({
@@ -86,7 +103,7 @@ export function readSourceSnapshot(registration, request) {
   if (object === undefined) {
     throw sourceIdentityError("source-read-object-unknown", "source object identity is not registered");
   }
-  if (request.offset > BigInt(object.bytes.byteLength)) {
+  if (request.offset > BigInt(object.descriptor.byteLength)) {
     throw sourceIdentityError("source-read-range-invalid", "source read offset exceeds the object");
   }
   if (
@@ -99,8 +116,9 @@ export function readSourceSnapshot(registration, request) {
   const offset = Number(request.offset);
   const transferredBytes = Math.min(
     request.requestedBytes,
-    object.bytes.byteLength - offset,
+    object.descriptor.byteLength - offset,
   );
+  const bytes = readStableSourceRange(object, offset, transferredBytes);
   return {
     snapshotId: manifest.snapshotId,
     sourceId: request.sourceId,
@@ -108,7 +126,7 @@ export function readSourceSnapshot(registration, request) {
     offset: request.offset,
     requestedBytes: request.requestedBytes,
     transferredBytes,
-    bytes: Buffer.from(object.bytes.subarray(offset, offset + transferredBytes)),
+    bytes,
   };
 }
 
@@ -280,6 +298,38 @@ function validateManifest(manifest) {
   }
 }
 
+function sourceFilesFromAsciiRoot(manifest, sourceRoot) {
+  const root = path.resolve(sourceRoot);
+  return new Map(
+    manifest.files.map((descriptor) => {
+      if (
+        descriptor.relativePathA.some((byte) => byte >= 0x80) ||
+        descriptor.relativePathA.includes(0)
+      ) {
+        throw new Error(
+          `source object ${descriptor.objectId} requires an explicit non-ASCII host path`,
+        );
+      }
+      const relative = Buffer.from(descriptor.relativePathA)
+        .toString("ascii")
+        .replaceAll("\\", "/");
+      const segments = relative.split("/");
+      if (
+        segments.some(
+          (segment) => segment.length === 0 || segment === "." || segment === "..",
+        )
+      ) {
+        throw new Error(`source object ${descriptor.objectId} has an unsafe host path`);
+      }
+      const file = path.resolve(root, ...segments);
+      if (file !== root && !file.startsWith(`${root}${path.sep}`)) {
+        throw new Error(`source object ${descriptor.objectId} escapes its host root`);
+      }
+      return [descriptor.objectId, file];
+    }),
+  );
+}
+
 function validByteArray(bytes, trailingNul) {
   return (
     Array.isArray(bytes) &&
@@ -321,8 +371,82 @@ function isWindows932TrailByte(byte) {
     byte !== 0x7f;
 }
 
-function hash(bytes) {
-  return crypto.createHash("sha256").update(bytes).digest("hex");
+async function sourceFileIdentity(file) {
+  const before = await stat(file, { bigint: true });
+  const digest = crypto.createHash("sha256");
+  for await (const chunk of createReadStream(file)) {
+    digest.update(chunk);
+  }
+  const after = await stat(file, { bigint: true });
+  const beforeIdentity = sourceStatIdentity(before);
+  const afterIdentity = sourceStatIdentity(after);
+  if (!sameSourceStatIdentity(beforeIdentity, afterIdentity)) {
+    throw new Error(`source object changed while its identity was verified: ${file}`);
+  }
+  return Object.freeze({
+    ...beforeIdentity,
+    sha256: digest.digest("hex"),
+  });
+}
+
+function readStableSourceRange(object, offset, byteLength) {
+  const fileDescriptor = openSync(object.file, "r");
+  try {
+    const before = sourceStatIdentity(fstatSync(fileDescriptor, { bigint: true }));
+    assertSourceStatIdentity(object, before);
+    const bytes = Buffer.alloc(byteLength);
+    let transferred = 0;
+    while (transferred < byteLength) {
+      const count = readSync(
+        fileDescriptor,
+        bytes,
+        transferred,
+        byteLength - transferred,
+        offset + transferred,
+      );
+      if (count === 0) {
+        throw sourceIdentityError(
+          "source-read-object-changed",
+          "registered source object ended before its immutable descriptor",
+        );
+      }
+      transferred += count;
+    }
+    const after = sourceStatIdentity(fstatSync(fileDescriptor, { bigint: true }));
+    assertSourceStatIdentity(object, after);
+    return bytes;
+  } finally {
+    closeSync(fileDescriptor);
+  }
+}
+
+function sourceStatIdentity(stats) {
+  return Object.freeze({
+    byteLength: Number(stats.size),
+    device: stats.dev.toString(),
+    inode: stats.ino.toString(),
+    modifiedNanoseconds: stats.mtimeNs.toString(),
+    changedNanoseconds: stats.ctimeNs.toString(),
+  });
+}
+
+function sameSourceStatIdentity(left, right) {
+  return (
+    left.byteLength === right.byteLength &&
+    left.device === right.device &&
+    left.inode === right.inode &&
+    left.modifiedNanoseconds === right.modifiedNanoseconds &&
+    left.changedNanoseconds === right.changedNanoseconds
+  );
+}
+
+function assertSourceStatIdentity(object, actual) {
+  if (!sameSourceStatIdentity(object.identity, actual)) {
+    throw sourceIdentityError(
+      "source-read-object-changed",
+      "registered source object identity changed after snapshot registration",
+    );
+  }
 }
 
 function sourceIdentityError(code, message) {

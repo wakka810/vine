@@ -26,6 +26,7 @@ import {
 } from "./browser-bgi-report-contract.mjs";
 import {
   handleSourceSnapshotHttp,
+  readSourceSnapshot,
   registerSourceSnapshot,
 } from "./source-snapshot.mjs";
 import {
@@ -82,7 +83,12 @@ const bgiProfile =
   bgiProfileOverride ??
   (scheduledSharedClockSetWindowTextProfile
     ? "user32-set-window-text-a-post-scheduled-shared-clock"
-    : checkpoint.activeRuntimeCheckpoint.profile);
+    : checkpoint.activeRuntimeCheckpoint.capabilityProfile ??
+      checkpoint.activeRuntimeCheckpoint.profile);
+const findFirstFileAProfile =
+  bgiProfile === "kernel32-find-first-file-a";
+const scheduledSharedClockProfile =
+  scheduledSharedClockSetWindowTextProfile || findFirstFileAProfile;
 const d3d9PostRasterStatusWaitableTimerProfile =
   bgiProfile === "d3d9-post-raster-status-waitable-timer";
 const d3d9PostScenePresentGatewayProfile =
@@ -120,7 +126,8 @@ const d3d9PostInputScanWaitableTimerCycleProfile =
   bgiProfile === "d3d9-post-input-scan-waitable-timer-cycle";
 const peekMessageAPostWindowTimerCallbackContinuationProfile =
   bgiProfile ===
-    "user32-peek-message-a-post-window-timer-callback-continuation";
+    "user32-peek-message-a-post-window-timer-callback-continuation" ||
+  findFirstFileAProfile;
 const windowTimerCallbackPostWaitableTimerCycleProfile =
   bgiProfile ===
       "user32-window-timer-callback-post-waitable-timer-cycle" ||
@@ -333,6 +340,7 @@ const setWindowPosRepeatActivationProfile =
   d3d9RecreatedTexturesProfile ||
   bgiProfile === "user32-set-window-pos-repeat-activation";
 const createDirectoryAProfile =
+  findFirstFileAProfile ||
   scheduledSharedClockSetWindowTextProfile ||
   setWindowPosRepeatActivationProfile ||
   bgiProfile === "kernel32-create-directory-a";
@@ -345,7 +353,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v101";
+const runtimeProtocol = "vine.browser-runtime-worker.v102";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -1014,6 +1022,68 @@ function validateScheduledSharedClockBgiProbe(evidence, scenario) {
   });
 }
 
+function validateFindFileABgiProbe(evidence, scenario) {
+  if (scenario !== "success") {
+    validateScheduledSharedClockBgiProbe(evidence, scenario);
+    return;
+  }
+  const report = evidence.report;
+  const completion = report.checkpointCompletion;
+  assert.equal(report.outcome, "checkpoint-complete");
+  assert.equal(report.error, null);
+  assert.equal(report.supportedCallCount, 255_410);
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    "009e8aad3a75ddc158474c6cf150eda7e8c92d72615acd5a51fe457063c6f52c",
+  );
+  assert.equal(report.instructions, 328_088_002);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert.equal(report.sourceReads.length, 124);
+  assert.equal(report.writableDirectoryCreates.length, 1);
+  assert.equal((report.heapPageMaterializations ?? []).length, 3_108);
+  assert.equal(report.firstUnsupported.capabilityCluster, "kernel32-api-contract");
+  assert.equal(report.firstUnsupported.endpoint.id, 38);
+  assert.equal(report.firstUnsupported.endpoint.address, 0x7f00_0250);
+  assert.equal(
+    report.firstUnsupported.endpoint.module.toLowerCase(),
+    "kernel32.dll",
+  );
+  assert.deepEqual(report.firstUnsupported.endpoint.symbol, {
+    kind: "name",
+    name: "DeleteFileA",
+  });
+  assert.equal(
+    report.firstUnsupported.memoryContentSha256,
+    "fb4f9ce7f37975be923a7656e0608186c68f9bff76301c206ee7d29a7fc29764",
+  );
+  assert.equal(
+    completion.capability,
+    "kernel32-find-file-a-post-set-window-text",
+  );
+  assert.equal(
+    completion.implementationId,
+    "runtime.kernel32-find-file-a-post-set-window-text.v1",
+  );
+  assert.equal(completion.lastCompletionSequence, 251_740);
+  assert.equal(completion.lastCompletionInstructionCount, 323_869_665);
+  assert.equal(completion.firstCompletionSequence, 251_694);
+  assert.equal(completion.firstCompletionInstructionCount, 323_860_141);
+  assert.equal(completion.entryCount, 45);
+  assert.equal(completion.lastSuccessfulNextSequence, 251_738);
+  assert.equal(completion.terminalNextSequence, 251_739);
+  assert.equal(completion.terminalWin32Error, 18);
+  assert.equal(completion.searchHandle, "0x53010001");
+  assert.equal(completion.presentCount, 2);
+  assert.equal(completion.thirdPresentReached, false);
+  assert.equal(completion.archiveEnumerationWasProximateCause, false);
+  assert.equal(completion.instructionCount, report.instructions);
+  assert.equal(completion.nextEndpoint.id, 38);
+  assert.deepEqual(completion.nextEndpoint.symbol, {
+    kind: "name",
+    name: "DeleteFileA",
+  });
+}
+
 async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
   const target = await createDebugTarget(
     browserWebSocketUrl,
@@ -1026,7 +1096,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     const evidence = await waitForBgiCheckpoint(
       client,
       scenario === "success" &&
-        (scheduledSharedClockSetWindowTextProfile ||
+        (scheduledSharedClockProfile ||
           user32AsyncKeyStateInitialScanProfile)
         ? 600_000
         : scenario === "success" && sleepZeroProfile
@@ -1042,6 +1112,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.report.pendingCallbacks, 0);
     assertExecutionStateMachine(evidence.report, scenario);
     assertExecutionEngine(evidence.report);
+    if (findFirstFileAProfile) {
+      validateFindFileABgiProbe(evidence, scenario);
+      return evidence;
+    }
     if (scheduledSharedClockSetWindowTextProfile) {
       validateScheduledSharedClockBgiProbe(evidence, scenario);
       return evidence;
@@ -4991,6 +5065,17 @@ function normalizeCreateDirectoryA(snapshot) {
   };
 }
 
+function normalizeWritableDirectoryCreate(create) {
+  const request = create.request ?? create;
+  return {
+    requestId: String(request.requestId),
+    directoryId: request.directoryId,
+    relativePathA: request.relativePathA,
+    baseGeneration: request.baseGeneration,
+    committedGeneration: create.committedGeneration,
+  };
+}
+
 function normalizeSetWindowPosRepeatActivation(snapshot) {
   if (snapshot === null || snapshot === undefined) {
     return null;
@@ -5848,7 +5933,119 @@ function validateScheduledSharedClockBgiEquivalence(browser, oracle) {
   assert.equal(report.timerPacing.pending, 0);
 }
 
+function validateFindFileABgiEquivalence(browser, oracle) {
+  const report = browser.report;
+  assert.equal(oracle.schema, "vine.v86-bgi-find-file-a-primary");
+  assert.equal(report.evidenceLevel, fullEvidence ? "full" : "summary");
+  assert.equal(
+    report.supportedCallCount,
+    oracle.execution.completedSupportedCalls,
+  );
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    oracle.execution.supportedCallSemanticsSha256,
+  );
+  assert.equal(report.instructions, oracle.stop.terminal.instructionCount);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert(
+    oracle.synchronization.finalGeneration >= oracle.process.memory.generation,
+  );
+  assert.deepEqual(
+    report.sourceReads.map(normalizeBrowserSourceRead),
+    oracle.synchronization.sourceReads.map(normalizeNodeSourceRead),
+  );
+  assert.deepEqual(
+    (report.heapPageMaterializations ?? []).map(
+      normalizeHeapPageMaterialization,
+    ),
+    oracle.synchronization.heapPageMaterializations.map(
+      normalizeHeapPageMaterialization,
+    ),
+  );
+  assert.deepEqual(
+    report.writableDirectoryCreates.map(normalizeWritableDirectoryCreate),
+    oracle.synchronization.writableDirectoryCreates.map(
+      normalizeWritableDirectoryCreate,
+    ),
+  );
+  assert.deepEqual(
+    report.firstUnsupported.endpoint,
+    oracle.stop.fault.endpoint.endpoint,
+  );
+  assert.deepEqual(report.firstUnsupported.fault, oracle.stop.fault.fault);
+  assert.equal(
+    report.firstUnsupported.memoryContentSha256,
+    oracle.stop.fault.memoryContentSha256,
+  );
+  assert.equal(oracle.execution.findFileA.entryCount, 45);
+  assert.equal(oracle.execution.findFileA.entries[0].fileName, "data01099.arc");
+  assert.equal(
+    oracle.execution.findFileA.entries.at(-1).fileName,
+    "data05010.arc",
+  );
+  assert.equal(oracle.execution.findFileA.terminalNext.lastError, 18);
+  assert.deepEqual(oracle.execution.findFileA.terminalNext.guestWrites, []);
+  assert.equal(oracle.execution.findFileA.close.lastError, 18);
+  assert.equal(
+    report.checkpointCompletion.lastCompletionSequence,
+    oracle.execution.findFileA.close.sequence,
+  );
+  assert.equal(
+    report.checkpointCompletion.lastCompletionInstructionCount,
+    oracle.execution.findFileA.close.trapInstructionCount,
+  );
+  assert.equal(
+    report.checkpointCompletion.firstCompletionSequence,
+    oracle.execution.findFileA.first.sequence,
+  );
+  assert.equal(
+    report.checkpointCompletion.firstCompletionInstructionCount,
+    oracle.execution.findFileA.first.trapInstructionCount,
+  );
+  assert.equal(report.checkpointCompletion.entryCount, 45);
+  assert.equal(
+    report.checkpointCompletion.lastSuccessfulNextSequence,
+    oracle.execution.findFileA.lastSuccessfulNext.sequence,
+  );
+  assert.equal(
+    report.checkpointCompletion.terminalNextSequence,
+    oracle.execution.findFileA.terminalNext.sequence,
+  );
+  assert.equal(report.checkpointCompletion.terminalWin32Error, 18);
+  assert.equal(report.checkpointCompletion.searchHandle, "0x53010001");
+  assert.equal(
+    report.checkpointCompletion.clockSampleCount,
+    oracle.execution.clockSamples.count,
+  );
+  assert.equal(
+    report.checkpointCompletion.windowTimerCallbackCount,
+    oracle.execution.windowTimerCallbacks.count,
+  );
+  assert.equal(report.checkpointCompletion.presentCount, 2);
+  assert.equal(report.checkpointCompletion.thirdPresentReached, false);
+  assert.equal(
+    report.checkpointCompletion.archiveEnumerationWasProximateCause,
+    false,
+  );
+  assert.equal(report.pointerInput.receipts.length, 2);
+  assert.deepEqual(
+    report.pointerInput.receipts[0],
+    oracle.execution.pointerInput.first.receipt,
+  );
+  assert.deepEqual(
+    report.pointerInput.receipts[1],
+    oracle.execution.pointerInput.last.receipt,
+  );
+  assert.equal(report.timerPacing.requests, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.completions, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.pending, 0);
+}
+
 function validateBgiEquivalence(browser, oracle) {
+  if (findFirstFileAProfile) {
+    validateFindFileABgiEquivalence(browser, oracle);
+    return;
+  }
   if (scheduledSharedClockSetWindowTextProfile) {
     validateScheduledSharedClockBgiEquivalence(browser, oracle);
     return;
@@ -10091,7 +10288,12 @@ async function checkSourceApi(baseUrl, registration) {
   assert.equal(rangeResponse.headers.get("x-vine-transferred-bytes"), "7");
   assert.deepEqual(
     Buffer.from(await rangeResponse.arrayBuffer()),
-    registration.objects.get(file.objectId).bytes.subarray(0, 7),
+    readSourceSnapshot(registration, {
+      sourceId: registration.manifest.mount.sourceId,
+      objectId: file.objectId,
+      offset: 0n,
+      requestedBytes: 7,
+    }).bytes,
     "source API returned different registered bytes",
   );
   const wrongSnapshot = await fetch(
@@ -10381,13 +10583,11 @@ const sourceRegistration = bgiMode
           root,
           "fixtures",
           "source-snapshots",
-          "primary-boot-archives-v1.json",
+          findFirstFileAProfile
+            ? "primary-game-archives-v2.json"
+            : "primary-boot-archives-v1.json",
         ),
-        objectFiles: {
-          1: path.join(path.dirname(bgiPath), "system.arc"),
-          2: path.join(path.dirname(bgiPath), "sysprg.arc"),
-          3: path.join(path.dirname(bgiPath), "sysgrp.arc"),
-        },
+        sourceRoot: path.dirname(bgiPath),
       })
     : null
   : await registerSourceSnapshot({

@@ -4,7 +4,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::{
-    RUNTIME_GUEST_THREAD_LIMIT, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
+    RUNTIME_FILE_SEARCH_LIMIT, RUNTIME_GUEST_THREAD_LIMIT, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
     RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE, RUNTIME_SOURCE_READ_MAX_BYTES,
     RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_SELECTOR,
     RUNTIME_STANDARD_OUTPUT_SELECTOR, RuntimeClockProfile, RuntimeClockProgression,
@@ -167,6 +167,8 @@ pub struct Kernel32SourceFilePolicy {
     pub maximum_write_bytes: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub get_file_attributes_a: Option<Kernel32GetFileAttributesAPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub find_file_a: Option<Kernel32FindFileAPolicy>,
     #[serde(default)]
     pub create_directory_a: bool,
 }
@@ -176,6 +178,12 @@ pub struct Kernel32SourceFilePolicy {
 pub struct Kernel32GetFileAttributesAPolicy {
     pub regular_file_attributes: u32,
     pub directory_attributes: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32FindFileAPolicy {
+    pub maximum_matches: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -617,6 +625,10 @@ impl Kernel32CompatibilityPolicy {
                 || files.get_file_attributes_a.is_some_and(|attributes| {
                     attributes.regular_file_attributes != 0x20
                         || attributes.directory_attributes != 0x30
+                })
+                || files.find_file_a.is_some_and(|find| {
+                    files.get_file_attributes_a.is_none()
+                        || !(1..=RUNTIME_FILE_SEARCH_LIMIT as u32).contains(&find.maximum_matches)
                 })
                 || (files.create_directory_a && !writable)
                 || (writable
@@ -1062,6 +1074,10 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn get_file_attributes_a(&self) -> Option<Kernel32GetFileAttributesAPolicy> {
         self.source_files.as_ref()?.get_file_attributes_a
+    }
+
+    pub fn find_file_a(&self) -> Option<Kernel32FindFileAPolicy> {
+        self.source_files.as_ref()?.find_file_a
     }
 
     pub fn create_directory_a_enabled(&self) -> bool {

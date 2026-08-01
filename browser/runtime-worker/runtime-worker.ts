@@ -361,7 +361,8 @@ function isScheduledSharedClockSetWindowText(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
-    profile === "user32-set-window-text-a-post-scheduled-shared-clock"
+    profile === "user32-set-window-text-a-post-scheduled-shared-clock" ||
+    profile === "kernel32-find-first-file-a"
   );
 }
 
@@ -3180,6 +3181,12 @@ function invariant(condition: unknown, message: string): asserts condition {
   }
 }
 
+function runtimeGuestWriteByteLength(
+  write: RuntimeSupportedCallSnapshot["guestWrites"][number],
+): number {
+  return "bytes" in write ? write.bytes.length : write.byteLength;
+}
+
 function failInvariant(message: string): never {
   throw new Error(message);
 }
@@ -3347,6 +3354,11 @@ class BrowserRuntimeSession {
   #scheduledSharedClockDefaultProcessingSequence: number | null = null;
   #scheduledSharedClockInputTimerCycleOpen = false;
   #scheduledSharedClockInputTimerCycleCount = 0;
+  #findFileFirstSequence: number | null = null;
+  #findFileFirstInstructionCount: number | null = null;
+  #findFileSuccessfulNextCount = 0;
+  #findFileLastSuccessfulNextSequence: number | null = null;
+  #findFileTerminalNextSequence: number | null = null;
   readonly #bgiCallbackCallSequences = new Map<number, number>();
   #windowTimerCallbackEntry: {
     sequence: number;
@@ -8216,6 +8228,112 @@ class BrowserRuntimeSession {
         "scheduled SetWindowTextA default processing changed",
       );
       this.#scheduledSharedClockDefaultProcessingSequence = call.sequence;
+    }
+    if (
+      this.#configuration.capabilityProfile === "kernel32-find-first-file-a" &&
+      call.module.toLowerCase() === "kernel32.dll"
+    ) {
+      if (call.symbol === "FindFirstFileA") {
+        invariant(
+          this.#findFileFirstSequence === null &&
+            this.#report.checkpointCompletion?.capability ===
+              "user32-set-window-text-a-post-scheduled-shared-clock" &&
+            "action" in call.result &&
+            call.result.action === "set" &&
+            call.result.value === 0x5301_0001 &&
+            call.implementationId ===
+              "kernel32.find-first-file-a.runtime-vfs-windows-932-lexical.v1" &&
+            call.lastError === 0 &&
+            call.guestWrites.length === 1 &&
+            runtimeGuestWriteByteLength(call.guestWrites[0]!) === 320,
+          "scheduled FindFirstFileA completion changed",
+        );
+        this.#findFileFirstSequence = call.sequence;
+        this.#findFileFirstInstructionCount = this.#report.instructions;
+      } else if (call.symbol === "FindNextFileA") {
+        invariant(
+          this.#findFileFirstSequence !== null &&
+            "action" in call.result &&
+            call.result.action === "set" &&
+            call.implementationId ===
+              "kernel32.find-next-file-a.runtime-vfs-windows-932-lexical.v1",
+          "scheduled FindNextFileA completion changed",
+        );
+        if (call.result.value === 1) {
+          invariant(
+              this.#findFileTerminalNextSequence === null &&
+              call.lastError === 0 &&
+              call.guestWrites.length === 1 &&
+              runtimeGuestWriteByteLength(call.guestWrites[0]!) === 320,
+            "scheduled successful FindNextFileA output changed",
+          );
+          this.#findFileSuccessfulNextCount += 1;
+          this.#findFileLastSuccessfulNextSequence = call.sequence;
+        } else {
+          invariant(
+            call.result.value === 0 &&
+              this.#findFileSuccessfulNextCount === 44 &&
+              this.#findFileTerminalNextSequence === null &&
+              call.lastError === 18 &&
+              call.guestWrites.length === 0,
+            "scheduled terminal FindNextFileA result changed",
+          );
+          this.#findFileTerminalNextSequence = call.sequence;
+        }
+      } else if (call.symbol === "FindClose") {
+        const previous = this.#report.checkpointCompletion;
+        const firstSequence = this.#findFileFirstSequence;
+        const firstInstructionCount = this.#findFileFirstInstructionCount;
+        const lastSuccessfulNextSequence =
+          this.#findFileLastSuccessfulNextSequence;
+        const terminalNextSequence = this.#findFileTerminalNextSequence;
+        invariant(
+          previous?.capability ===
+            "user32-set-window-text-a-post-scheduled-shared-clock" &&
+            firstSequence !== null &&
+            firstInstructionCount !== null &&
+            this.#findFileSuccessfulNextCount === 44 &&
+            lastSuccessfulNextSequence !== null &&
+            terminalNextSequence !== null &&
+            "action" in call.result &&
+            call.result.action === "set" &&
+            call.result.value === 1 &&
+            call.implementationId === "kernel32.find-close.runtime-vfs.v1" &&
+            call.lastError === 18 &&
+            call.guestWrites.length === 0,
+          "scheduled FindClose completion changed",
+        );
+        this.#report.checkpointCompletion = {
+          capability: "kernel32-find-file-a-post-set-window-text",
+          implementationId:
+            "runtime.kernel32-find-file-a-post-set-window-text.v1",
+          requiredCompletions: 1,
+          completionCount: 1,
+          lastCompletionSequence: call.sequence,
+          lastCompletionInstructionCount: this.#report.instructions,
+          firstCompletionSequence: firstSequence,
+          firstCompletionInstructionCount: firstInstructionCount,
+          entryCount: 1 + this.#findFileSuccessfulNextCount,
+          lastSuccessfulNextSequence,
+          terminalNextSequence,
+          terminalWin32Error: 18,
+          searchHandle: "0x53010001",
+          clockProfileId: previous.clockProfileId,
+          clockSampleCount: this.#scheduledSharedClockSampleCount,
+          windowTimerCallbackCount:
+            this.#scheduledSharedClockWindowTimerCallbackCount,
+          presentCount: this.#scheduledSharedClockPresentCount,
+          pointerInputEventCount: previous.pointerInputEventCount,
+          inputTimerCycleCount: previous.inputTimerCycleCount,
+          inputQuerySequence: previous.inputQuerySequence,
+          thirdPresentReached: false,
+          clockFreezeWasProximateCause: false,
+          archiveEnumerationWasProximateCause: false,
+          instructionCount: 0,
+          nextEndpoint: { id: 0, address: 0 },
+          memoryContentSha256: "",
+        };
+      }
     }
     if (
       call.module.toLowerCase() !== "user32.dll" ||
@@ -17685,18 +17803,38 @@ class BrowserRuntimeSession {
       )
     ) {
       const checkpoint = this.#report.checkpointCompletion;
+      const findFileProfile =
+        this.#configuration.capabilityProfile ===
+        "kernel32-find-first-file-a";
       invariant(
         metadata.kind === "api-fault" &&
-          checkpoint?.capability ===
-          "user32-set-window-text-a-post-scheduled-shared-clock" &&
+          (findFileProfile
+            ? checkpoint?.capability ===
+              "kernel32-find-file-a-post-set-window-text"
+            : checkpoint?.capability ===
+              "user32-set-window-text-a-post-scheduled-shared-clock") &&
           metadata.capabilityCluster === "kernel32-api-contract" &&
-          metadata.endpoint.id === 26 &&
-          metadata.endpoint.address === 0x7f00_0190 &&
           metadata.endpoint.module.toLowerCase() === "kernel32.dll" &&
           metadata.endpoint.symbol.kind === "name" &&
-          metadata.endpoint.symbol.name === "FindFirstFileA" &&
+          (findFileProfile
+            ? this.#requirePrepared().runtime.kernel32Policy ===
+                "kernel32-find-file-a-v1" &&
+              metadata.endpoint.id === 38 &&
+              metadata.endpoint.address === 0x7f00_0250 &&
+              metadata.endpoint.symbol.name === "DeleteFileA"
+            : metadata.endpoint.id === 26 &&
+              metadata.endpoint.address === 0x7f00_0190 &&
+              metadata.endpoint.symbol.name === "FindFirstFileA") &&
           this.#bgiCallbackCallSequences.size === 0,
-        "scheduled SetWindowTextA checkpoint reached a different structured stop",
+        "scheduled shared-clock checkpoint reached a different structured stop",
+      );
+      invariant(
+        checkpoint !== null,
+        "scheduled shared-clock checkpoint completion is missing",
+      );
+      invariant(
+        "clockSampleCount" in checkpoint,
+        "scheduled shared-clock completion omitted its clock sample count",
       );
       this.#report.firstUnsupported = {
         capabilityCluster: metadata.capabilityCluster,
@@ -17705,12 +17843,15 @@ class BrowserRuntimeSession {
         instructionCount: this.#report.instructions,
         memoryContentSha256: metadata.memoryContentSha256,
       };
+      checkpoint.clockSampleCount = this.#scheduledSharedClockSampleCount;
       checkpoint.instructionCount = this.#report.instructions;
       checkpoint.nextEndpoint = metadata.endpoint;
       checkpoint.memoryContentSha256 = metadata.memoryContentSha256;
       this.#cancelAndFinish(
         "checkpoint-complete",
-        "Scheduled shared-clock SetWindowTextA checkpoint completed",
+        findFileProfile
+          ? "Scheduled shared-clock FindFileA checkpoint completed"
+          : "Scheduled shared-clock SetWindowTextA checkpoint completed",
         null,
       );
       return;

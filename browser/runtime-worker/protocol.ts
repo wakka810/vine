@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 101 as const;
+export const protocolVersion = 102 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -18,6 +18,7 @@ export type BgiCapabilityProfile =
   | "kernel32-global-memory-status"
   | "kernel32-get-file-attributes-a"
   | "kernel32-create-directory-a"
+  | "kernel32-find-first-file-a"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1828,6 +1829,41 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "kernel32-find-file-a-post-set-window-text";
+        implementationId: "runtime.kernel32-find-file-a-post-set-window-text.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        entryCount: number;
+        lastSuccessfulNextSequence: number;
+        terminalNextSequence: number;
+        terminalWin32Error: 18;
+        searchHandle: "0x53010001";
+        clockProfileId: "scheduled-shared-logical-deadline-v1";
+        clockSampleCount: number;
+        windowTimerCallbackCount: number;
+        presentCount: number;
+        pointerInputEventCount: number;
+        inputTimerCycleCount: number;
+        inputQuerySequence: number;
+        thirdPresentReached: false;
+        clockFreezeWasProximateCause: false;
+        archiveEnumerationWasProximateCause: false;
+        instructionCount: number;
+        nextEndpoint: {
+          id: number;
+          address: number;
+          module?: string;
+          symbol?:
+            | { kind: "name"; name: string }
+            | { kind: "ordinal"; ordinal: number };
+        };
+        memoryContentSha256: string;
+      }
     | {
         capability: "user32-set-window-text-a-post-scheduled-shared-clock";
         implementationId: "runtime.user32-set-window-text-a-post-scheduled-shared-clock.v1";

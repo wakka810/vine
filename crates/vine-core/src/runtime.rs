@@ -72,7 +72,8 @@ pub use displays::{
     RuntimeLogicalMonitor, RuntimeRect,
 };
 pub use files::{
-    RUNTIME_SOURCE_FILE_LIMIT, RUNTIME_SOURCE_FILE_NAMESPACE, RUNTIME_SOURCE_READ_MAX_BYTES,
+    RUNTIME_FILE_SEARCH_LIMIT, RUNTIME_FILE_SEARCH_NAMESPACE, RUNTIME_SOURCE_FILE_LIMIT,
+    RUNTIME_SOURCE_FILE_NAMESPACE, RUNTIME_SOURCE_READ_MAX_BYTES,
     RUNTIME_SOURCE_READ_REQUEST_BYTES, RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES,
     RUNTIME_SOURCE_READ_SERVICE, RUNTIME_SOURCE_READ_TRANSPORT_VERSION,
     RUNTIME_SOURCE_SNAPSHOT_SCHEMA, RUNTIME_SOURCE_SNAPSHOT_VERSION,
@@ -84,8 +85,9 @@ pub use files::{
     RUNTIME_WRITABLE_PROFILE_DIRECTORY_LIMIT, RUNTIME_WRITABLE_PROFILE_FILE_LIMIT,
     RUNTIME_WRITABLE_PROFILE_MAX_BYTES, RUNTIME_WRITABLE_PROFILE_SCHEMA,
     RUNTIME_WRITABLE_PROFILE_VERSION, RUNTIME_WRITABLE_READ_SERVICE, RuntimeFileBacking,
-    RuntimeOpenSourceFileResult, RuntimePathResolution, RuntimeSourceFile,
-    RuntimeSourceFileDescriptor, RuntimeSourceFileId, RuntimeSourceFileManifest,
+    RuntimeFileSearch, RuntimeFileSearchEntry, RuntimeFileSearchEntryKind, RuntimeFileSearchId,
+    RuntimeFindFirstFileResult, RuntimeOpenSourceFileResult, RuntimePathResolution,
+    RuntimeSourceFile, RuntimeSourceFileDescriptor, RuntimeSourceFileId, RuntimeSourceFileManifest,
     RuntimeSourceMountManifest, RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse,
     RuntimeSourceReadRequest, RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest,
     RuntimeWritableCommitCompletion, RuntimeWritableCommitHostResponse,

@@ -1,0 +1,972 @@
+{
+  "schema": "vine.source-snapshot-manifest",
+  "schemaVersion": 1,
+  "titleFingerprint": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
+  "snapshotId": "primary-game-archives-v2",
+  "mount": {
+    "sourceId": 1,
+    "rootPathA": [
+      67,
+      58,
+      92,
+      86,
+      105,
+      110,
+      101,
+      0
+    ]
+  },
+  "files": [
+    {
+      "objectId": 1,
+      "relativePathA": [
+        115,
+        121,
+        115,
+        116,
+        101,
+        109,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 21464,
+      "sha256": "650556db25925148b0f91e5d157aa5a03a085d9b9e48e095baa9c73e0f9adcb0"
+    },
+    {
+      "objectId": 2,
+      "relativePathA": [
+        115,
+        121,
+        115,
+        112,
+        114,
+        103,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 195670,
+      "sha256": "cd2a0f67b2277511674c73faac2bc1d902ca2d6972a55f36d77dcc3305ec73e9"
+    },
+    {
+      "objectId": 3,
+      "relativePathA": [
+        115,
+        121,
+        115,
+        103,
+        114,
+        112,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 11665375,
+      "sha256": "8ddbe7e93172f50b0189b91d132982a450f05516f9206954288fde68326ca475"
+    },
+    {
+      "objectId": 4,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        49,
+        48,
+        57,
+        57,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 992915,
+      "sha256": "b1a3faf57e4c706d70847f78cdbd7aab945fb5cf9b0a13868104440e3b2be947"
+    },
+    {
+      "objectId": 5,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        49,
+        49,
+        48,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 117295,
+      "sha256": "82ef288b2ffffb131358a223fc4bc2b0e5922f57d0f0c627ad36a6251a73e7c5"
+    },
+    {
+      "objectId": 6,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        49,
+        49,
+        48,
+        49,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 287269,
+      "sha256": "c561d041b186aa2c7126ae062988bd66bd1ce7c709b08660158b795bafde952e"
+    },
+    {
+      "objectId": 7,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        49,
+        49,
+        48,
+        50,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 541385,
+      "sha256": "b01d804b69f0b719be89490d437152ede5c1f190bc4e371afb29b340afa645b3"
+    },
+    {
+      "objectId": 8,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        49,
+        49,
+        48,
+        51,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 367579,
+      "sha256": "4f93c9e5e099b2484816bf83eb5bcf280366508bd3be8bd2a240ae3b70096069"
+    },
+    {
+      "objectId": 9,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        49,
+        49,
+        48,
+        52,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 341896,
+      "sha256": "2421b8463de3d599191e120de69e7dcb49797547700a116bcd16ac1f5c45c221"
+    },
+    {
+      "objectId": 10,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        49,
+        49,
+        48,
+        53,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 392763,
+      "sha256": "aec039b0238952a499d1285e04c0d9b08e804d5743c54b1e133ab0896d91747c"
+    },
+    {
+      "objectId": 11,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        49,
+        49,
+        48,
+        54,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 349030,
+      "sha256": "ae6d2df6320e3870f6bf2c4cd520120c346cc6de5307e47e75def07766dba17a"
+    },
+    {
+      "objectId": 12,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        49,
+        49,
+        48,
+        55,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 91045,
+      "sha256": "2a31c428789370b9988c7e319db142b5beaa56de3c42d294dc4d50b96297c58e"
+    },
+    {
+      "objectId": 13,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        49,
+        49,
+        48,
+        56,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 235429,
+      "sha256": "23dabcd152216324e5ca6bcd4313324e184ab35390388c59dfd3310125d74fb6"
+    },
+    {
+      "objectId": 14,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        49,
+        49,
+        48,
+        57,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 197711,
+      "sha256": "ea98564524fc74b9bcf8b93b02a14794b9b2e0dffa7506d4e15ed9af40142343"
+    },
+    {
+      "objectId": 15,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        49,
+        57,
+        57,
+        57,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 330823,
+      "sha256": "99c86ea523b1c30e4b4188fb55f30f12aa5b42c0eb4636effc82dc25ccf268c0"
+    },
+    {
+      "objectId": 16,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        50,
+        48,
+        57,
+        57,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 21900265,
+      "sha256": "a54d938fbe3afb27fa3ba0db57de44d65c9cb9e7190fc3643b79739a23ff10e2"
+    },
+    {
+      "objectId": 17,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        50,
+        49,
+        48,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 74953858,
+      "sha256": "8e9c177aa5ec21e8d2f84462fd86e85ca8687d3f798e5e3b3db033f84b135176"
+    },
+    {
+      "objectId": 18,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        50,
+        51,
+        48,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 517876773,
+      "sha256": "74dd4737e5e69d964dbad68811a1a65a2a78a3eb4a03bda826178517f3689700"
+    },
+    {
+      "objectId": 19,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        50,
+        51,
+        48,
+        49,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 509092614,
+      "sha256": "84034e474ec756a885633209c0a13efa9e33c9a15a1afa6513f18acddfd70b40"
+    },
+    {
+      "objectId": 20,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        50,
+        51,
+        48,
+        50,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 362880193,
+      "sha256": "fdc103c00a647364eb3a9479adb18eaaa89dbf66a0a7438ea4d8510cef2b7cdf"
+    },
+    {
+      "objectId": 21,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        50,
+        51,
+        48,
+        51,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 413423956,
+      "sha256": "bd93551386b56d3b465c560423e60e06d639d57024c544e08220feb6df9a9484"
+    },
+    {
+      "objectId": 22,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        50,
+        51,
+        48,
+        52,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 324728185,
+      "sha256": "c93bb3bfc21859d5059deed25f93087ba027da076c33f989a675bc66dd686e66"
+    },
+    {
+      "objectId": 23,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        50,
+        51,
+        48,
+        53,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 383945250,
+      "sha256": "a17d35f08d05ec57a67a97b251ce4d6df3fee7651b270cf1b78f1c0d5f18191b"
+    },
+    {
+      "objectId": 24,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        50,
+        51,
+        48,
+        54,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 621904707,
+      "sha256": "4756d54ab7dd64422a8a31afe81808a9389684e10369dce97bccaf49884a1a16"
+    },
+    {
+      "objectId": 25,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        50,
+        53,
+        48,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 281107138,
+      "sha256": "a70698ec3aa36c2044f434bd9d8b62722baaae5545bb6bb44b2880a046ee9e7f"
+    },
+    {
+      "objectId": 26,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        50,
+        53,
+        48,
+        49,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 33992831,
+      "sha256": "fb21a6dfa612a75db7687d7eb409551587d74f3bab907a9382316cdab9f27258"
+    },
+    {
+      "objectId": 27,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        50,
+        53,
+        48,
+        50,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 8913647,
+      "sha256": "eb6e50d8da130fadf00b2e75625f3cc36168d4237b8004dd72266e7407896189"
+    },
+    {
+      "objectId": 28,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        50,
+        53,
+        48,
+        51,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 59089528,
+      "sha256": "6506c54a0fa0628bd5d5c28cbb2039999c03da7f311684b10b5bd421bdaef4e9"
+    },
+    {
+      "objectId": 29,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        50,
+        53,
+        48,
+        52,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 660748,
+      "sha256": "2f3d1b9dac74aee594636eee053675998bf31451080cd20b885e0cf19ff2f3bc"
+    },
+    {
+      "objectId": 30,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        50,
+        57,
+        57,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 13711164,
+      "sha256": "b633a9fd9fabd2f17417d0de065e2af9ac8042ca97dafb663df09980780feb59"
+    },
+    {
+      "objectId": 31,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        50,
+        57,
+        57,
+        57,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 166502548,
+      "sha256": "b5f644b040ed664329990ef6f236874e182b6603c78fb4bdb22d59f266534e0f"
+    },
+    {
+      "objectId": 32,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        51,
+        56,
+        48,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 14264099,
+      "sha256": "ffbc364e539d5f821b3f91e5fe1db7be2f0edfc34e761012d900005073df2f48"
+    },
+    {
+      "objectId": 33,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        52,
+        49,
+        48,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 297494696,
+      "sha256": "9418eaad8402d98e87da636a64b137bf46c17f2c0bdf9bedd9dcd6854eb1c17e"
+    },
+    {
+      "objectId": 34,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        52,
+        49,
+        49,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 289374870,
+      "sha256": "f4b5dadd1f109355880d6789e90a9de691ccd78a39d996d19d3680523bcec469"
+    },
+    {
+      "objectId": 35,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        52,
+        49,
+        50,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 200980120,
+      "sha256": "661f0ae3fa291b6bfaef3214275ae8c14ebd281f1437f12deee555fd41130cee"
+    },
+    {
+      "objectId": 36,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        52,
+        49,
+        51,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 164996627,
+      "sha256": "2a60cea48afa0e66d7a7bbfa24911a662c707b2a174680603767ed97e915fdf9"
+    },
+    {
+      "objectId": 37,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        52,
+        49,
+        52,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 107279439,
+      "sha256": "04f5f973342db4635147ea55fa955d4515091c41977af1998986180e16ede07b"
+    },
+    {
+      "objectId": 38,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        52,
+        49,
+        53,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 166184386,
+      "sha256": "83db2bc96c7139a83ea4e83c1f26018cfede138feb607494bda3b0c3733d9bbd"
+    },
+    {
+      "objectId": 39,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        52,
+        49,
+        54,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 73603852,
+      "sha256": "ab2ad007459f0ac285de348925e36ee60dabdb7b1ada9d55b20329531d1e9d8b"
+    },
+    {
+      "objectId": 40,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        52,
+        49,
+        55,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 59657902,
+      "sha256": "78ecabde354cd76782f1bb4a299c61afbbdf7f60414f63145df3d3e64e63c77b"
+    },
+    {
+      "objectId": 41,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        52,
+        49,
+        56,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 48974400,
+      "sha256": "1a7aa656a56eaf5a7650c61308e8709cd85f390f0c1c37f50706858523167260"
+    },
+    {
+      "objectId": 42,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        52,
+        49,
+        57,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 58200014,
+      "sha256": "cc54a2422cbe4173b5f1e760475a1c3e5f8bdfda36bac2cf350a458cb1e1cfca"
+    },
+    {
+      "objectId": 43,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        52,
+        50,
+        48,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 78702203,
+      "sha256": "03bd823cdfb4fac0227147ac96eabc86808909e25a0f6c0e4b7e8dd4fddbe28c"
+    },
+    {
+      "objectId": 44,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        52,
+        50,
+        49,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 38558782,
+      "sha256": "0ef3d67f3568245cc39da1a53193a285d145d27b1155378386fa1446cb9026d7"
+    },
+    {
+      "objectId": 45,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        52,
+        50,
+        50,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 27749847,
+      "sha256": "13d443ae59b4261ae977cb67a9faad853d70763f686a614a2c44499b5d22cc28"
+    },
+    {
+      "objectId": 46,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        52,
+        57,
+        57,
+        57,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 200039741,
+      "sha256": "a62f79b2d0b2faf0cfeab6ede6e5985df5968e93be2ea1e2970006e56ddb0c4a"
+    },
+    {
+      "objectId": 47,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        53,
+        48,
+        48,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 254757514,
+      "sha256": "fa6aa0a3d3d066b144efa78720783d1742b83bc11d1aed2056c69cc519f03250"
+    },
+    {
+      "objectId": 48,
+      "relativePathA": [
+        100,
+        97,
+        116,
+        97,
+        48,
+        53,
+        48,
+        49,
+        48,
+        46,
+        97,
+        114,
+        99
+      ],
+      "byteLength": 4967134,
+      "sha256": "df9a511eb1a8957e333d6dad51b93a2eaa0c8779a55b4d6ad6f3e8bb3c59db76"
+    }
+  ]
+}

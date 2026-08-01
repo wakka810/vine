@@ -11,6 +11,8 @@ use super::{RuntimeHandle, RuntimeStateError};
 pub const RUNTIME_SOURCE_SNAPSHOT_SCHEMA: &str = "vine.source-snapshot-manifest";
 pub const RUNTIME_SOURCE_SNAPSHOT_VERSION: u32 = 1;
 pub const RUNTIME_SOURCE_FILE_NAMESPACE: &str = "vine.runtime-source-file.v1";
+pub const RUNTIME_FILE_SEARCH_NAMESPACE: &str = "vine.runtime-file-search.v1";
+pub const RUNTIME_FILE_SEARCH_LIMIT: usize = 4096;
 pub const RUNTIME_SOURCE_READ_SERVICE: &str = "storage.source-read.v1";
 pub const RUNTIME_SOURCE_READ_TRANSPORT_VERSION: u32 = 1;
 pub const RUNTIME_SOURCE_READ_REQUEST_BYTES: usize = 24;
@@ -169,6 +171,42 @@ pub struct RuntimeWritableDirectory {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
 pub struct RuntimeSourceFileId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct RuntimeFileSearchId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeFileSearchEntryKind {
+    RegularFile,
+    Directory,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeFileSearchEntry {
+    pub file_name_a: Vec<u8>,
+    pub kind: RuntimeFileSearchEntryKind,
+    pub byte_length: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeFileSearch {
+    pub id: RuntimeFileSearchId,
+    pub normalized_pattern_a: Vec<u8>,
+    pub entries: Vec<RuntimeFileSearchEntry>,
+    pub next_index: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeFindFirstFileResult {
+    pub search: RuntimeFileSearch,
+    pub handle: RuntimeHandle,
+    pub entry: RuntimeFileSearchEntry,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
@@ -505,7 +543,10 @@ pub(super) struct RuntimeFiles {
     pending_reads: BTreeMap<u64, RuntimePendingSourceRead>,
     pending_commits: BTreeMap<u64, RuntimePendingWritableCommit>,
     pending_directory_creates: BTreeMap<u64, RuntimePendingWritableDirectoryCreate>,
+    searches: BTreeMap<RuntimeFileSearchId, RuntimeFileSearch>,
     next_file_id: u64,
+    next_search_id: u64,
+    catalog_revision: u64,
 }
 
 impl Default for RuntimeFiles {
@@ -517,7 +558,10 @@ impl Default for RuntimeFiles {
             pending_reads: BTreeMap::new(),
             pending_commits: BTreeMap::new(),
             pending_directory_creates: BTreeMap::new(),
+            searches: BTreeMap::new(),
             next_file_id: 1,
+            next_search_id: 1,
+            catalog_revision: 0,
         }
     }
 }
@@ -525,11 +569,15 @@ impl Default for RuntimeFiles {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeSourceSnapshotRegistrationPlan {
     next: RuntimeSourceSnapshot,
+    expected_catalog_revision: u64,
+    next_catalog_revision: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeWritableProfileRegistrationPlan {
     next: RuntimeWritableProfile,
+    expected_catalog_revision: u64,
+    next_catalog_revision: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -546,6 +594,8 @@ pub(super) struct RuntimeSourceFileOpenPlan {
     existed: bool,
     previous_writable: Option<RuntimeWritableFile>,
     next_writable: Option<RuntimeWritableFile>,
+    expected_catalog_revision: u64,
+    next_catalog_revision: u64,
 }
 
 impl RuntimeSourceFileOpenPlan {
@@ -561,6 +611,45 @@ impl RuntimeSourceFileOpenPlan {
     pub(super) fn file(&self) -> &RuntimeSourceFile {
         &self.file
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeFileSearchOpenPlan {
+    expected_next_search_id: u64,
+    next_search_id: u64,
+    expected_catalog_revision: u64,
+    search: RuntimeFileSearch,
+}
+
+impl RuntimeFileSearchOpenPlan {
+    pub(super) const fn search_id(&self) -> RuntimeFileSearchId {
+        self.search.id
+    }
+
+    pub(super) fn first_entry(&self) -> &RuntimeFileSearchEntry {
+        self.search
+            .entries
+            .first()
+            .expect("file search open plans require at least one entry")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeFileSearchAdvancePlan {
+    previous: RuntimeFileSearch,
+    next: RuntimeFileSearch,
+    entry: RuntimeFileSearchEntry,
+}
+
+impl RuntimeFileSearchAdvancePlan {
+    pub(super) fn entry(&self) -> &RuntimeFileSearchEntry {
+        &self.entry
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeFileSearchRetirementPlan {
+    previous: RuntimeFileSearch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -601,6 +690,8 @@ pub(super) struct RuntimeWritableWritePlan {
     previous_writable: RuntimeWritableFile,
     next_writable: RuntimeWritableFile,
     result: RuntimeWritableWriteResult,
+    expected_catalog_revision: u64,
+    next_catalog_revision: u64,
 }
 
 impl RuntimeWritableWritePlan {
@@ -652,6 +743,8 @@ pub(super) struct RuntimeWritableDirectoryCreateCompletionPlan {
     previous_directory: RuntimeWritableDirectory,
     next_directory: RuntimeWritableDirectory,
     completion: RuntimeWritableDirectoryCreateCompletion,
+    expected_catalog_revision: u64,
+    next_catalog_revision: u64,
 }
 
 impl RuntimeWritableDirectoryCreateCompletionPlan {
@@ -746,6 +839,17 @@ impl RuntimeSourceReadCancellationPlan {
 }
 
 impl RuntimeFiles {
+    fn plan_catalog_change(&self) -> Result<(u64, u64), RuntimeStateError> {
+        let next = self.catalog_revision.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-vfs",
+                "file-catalog-revision-exhausted",
+                "runtime file catalog revision space is exhausted",
+            )
+        })?;
+        Ok((self.catalog_revision, next))
+    }
+
     pub(super) fn snapshot(&self) -> Option<&RuntimeSourceSnapshot> {
         self.snapshot.as_ref()
     }
@@ -884,6 +988,107 @@ impl RuntimeFiles {
                                 && (path.as_slice() == relative || is_descendant(path))
                         })
             })
+    }
+
+    fn enumerate_file_search_entries(
+        &self,
+        pattern: &ResolvedFileSearchPattern,
+        maximum_matches: usize,
+    ) -> Result<Vec<RuntimeFileSearchEntry>, RuntimeStateError> {
+        let root_identity = self
+            .writable_profile
+            .as_ref()
+            .map(|profile| profile.root_identity.as_slice())
+            .or_else(|| {
+                self.snapshot
+                    .as_ref()
+                    .map(|snapshot| snapshot.root_identity.as_slice())
+            })
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-vfs",
+                    "file-mount-unregistered",
+                    "file search requires an immutable source or writable profile mount",
+                )
+            })?;
+        let directory_relative = if pattern.directory_identity == root_identity {
+            &[][..]
+        } else {
+            relative_to_mount(&pattern.directory_identity, root_identity)?
+        };
+        if !directory_relative.is_empty() && !self.registered_directory_exists(directory_relative) {
+            return Err(RuntimeStateError::not_found(
+                "runtime-vfs",
+                "file-search-directory-missing",
+                "file search directory is not registered in the runtime VFS",
+            ));
+        }
+
+        let mut candidates = BTreeMap::<Vec<u8>, RuntimeFileSearchEntry>::new();
+        let mut insert_path = |relative_path: &[u8], kind, byte_length| {
+            if let Some((name, immediate_kind)) =
+                immediate_search_child(relative_path, directory_relative, kind)
+            {
+                let identity = windows_932_ascii_fold(&name);
+                candidates
+                    .entry(identity)
+                    .or_insert(RuntimeFileSearchEntry {
+                        file_name_a: name,
+                        kind: immediate_kind,
+                        byte_length: if immediate_kind == RuntimeFileSearchEntryKind::RegularFile {
+                            byte_length
+                        } else {
+                            0
+                        },
+                    });
+            }
+        };
+
+        if let Some(snapshot) = self.snapshot.as_ref() {
+            for descriptor in snapshot.files.values() {
+                insert_path(
+                    &descriptor.relative_path_a,
+                    RuntimeFileSearchEntryKind::RegularFile,
+                    descriptor.byte_length,
+                );
+            }
+        }
+        if let Some(profile) = self.writable_profile.as_ref() {
+            for file in profile.files.values().filter(|file| file.exists) {
+                insert_path(
+                    &file.relative_path_a,
+                    RuntimeFileSearchEntryKind::RegularFile,
+                    file.byte_length,
+                );
+            }
+            for directory in profile
+                .directories
+                .values()
+                .filter(|directory| directory.exists)
+            {
+                insert_path(
+                    &directory.relative_path_a,
+                    RuntimeFileSearchEntryKind::Directory,
+                    0,
+                );
+            }
+        }
+
+        let mut entries = Vec::new();
+        for candidate in candidates.into_values() {
+            if !windows_932_wildcard_matches(&pattern.file_name_pattern, &candidate.file_name_a)? {
+                continue;
+            }
+            if entries.len() == maximum_matches {
+                return Err(RuntimeStateError::resource_limit(
+                    "runtime-vfs",
+                    "file-search-match-limit-exceeded",
+                    "file search result count exceeds the policy bound",
+                ));
+            }
+            entries.push(candidate);
+        }
+        Ok(entries)
     }
 
     pub(super) fn plan_writable_directory_create(
@@ -1094,6 +1299,11 @@ impl RuntimeFiles {
                 )
             })?;
         }
+        let (expected_catalog_revision, next_catalog_revision) = if succeeded {
+            self.plan_catalog_change()?
+        } else {
+            (self.catalog_revision, self.catalog_revision)
+        };
         Ok(RuntimeWritableDirectoryCreateCompletionPlan {
             pending: pending.clone(),
             previous_directory,
@@ -1104,6 +1314,8 @@ impl RuntimeFiles {
                 committed_generation: response.committed_generation,
                 win32_error: response.win32_error,
             },
+            expected_catalog_revision,
+            next_catalog_revision,
         })
     }
 
@@ -1115,6 +1327,7 @@ impl RuntimeFiles {
             .pending_directory_creates
             .get(&plan.pending.request.request_id)
             != Some(&plan.pending)
+            || self.catalog_revision != plan.expected_catalog_revision
             || self.writable_directory(plan.previous_directory.directory_id)?
                 != &plan.previous_directory
         {
@@ -1137,6 +1350,7 @@ impl RuntimeFiles {
         );
         self.pending_directory_creates
             .remove(&plan.pending.request.request_id);
+        self.catalog_revision = plan.next_catalog_revision;
         self.writable_profile
             .as_mut()
             .expect("validated writable directory profile")
@@ -1162,6 +1376,176 @@ impl RuntimeFiles {
         self.open_files.keys().copied()
     }
 
+    pub(super) fn file_search(
+        &self,
+        id: RuntimeFileSearchId,
+    ) -> Result<&RuntimeFileSearch, RuntimeStateError> {
+        self.searches.get(&id).ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-vfs",
+                "file-search-id-unknown",
+                "logical file search identity is not open",
+            )
+        })
+    }
+
+    pub(super) fn file_search_ids(&self) -> impl Iterator<Item = RuntimeFileSearchId> + '_ {
+        self.searches.keys().copied()
+    }
+
+    pub(super) fn plan_find_first(
+        &self,
+        requested_pattern: &[u8],
+        current_directory: &[u8],
+        maximum_matches: usize,
+    ) -> Result<Option<RuntimeFileSearchOpenPlan>, RuntimeStateError> {
+        if maximum_matches == 0 || maximum_matches > RUNTIME_FILE_SEARCH_LIMIT {
+            return Err(vfs_invalid(
+                "file-search-match-limit-invalid",
+                "file search requires one bounded nonzero match limit",
+            ));
+        }
+        if self.searches.len() >= RUNTIME_FILE_SEARCH_LIMIT {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-vfs",
+                "file-search-limit-exceeded",
+                "logical file search count exceeds the runtime bound",
+            ));
+        }
+        let pattern = resolve_file_search_pattern(requested_pattern, current_directory)?;
+        let entries = self.enumerate_file_search_entries(&pattern, maximum_matches)?;
+        if entries.is_empty() {
+            return Ok(None);
+        }
+        let id = RuntimeFileSearchId(self.next_search_id);
+        let next_search_id = self.next_search_id.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-vfs",
+                "file-search-id-space-exhausted",
+                "logical file search identifier space is exhausted",
+            )
+        })?;
+        Ok(Some(RuntimeFileSearchOpenPlan {
+            expected_next_search_id: self.next_search_id,
+            next_search_id,
+            expected_catalog_revision: self.catalog_revision,
+            search: RuntimeFileSearch {
+                id,
+                normalized_pattern_a: pattern.normalized_pattern_a,
+                entries,
+                next_index: 1,
+            },
+        }))
+    }
+
+    pub(super) fn preflight_find_first(
+        &self,
+        plan: &RuntimeFileSearchOpenPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.next_search_id != plan.expected_next_search_id
+            || self.catalog_revision != plan.expected_catalog_revision
+            || self.searches.contains_key(&plan.search.id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "file-search-open-plan-stale",
+                "file catalog or search allocator changed after search planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_find_first(
+        &mut self,
+        plan: RuntimeFileSearchOpenPlan,
+    ) -> RuntimeFileSearch {
+        debug_assert!(self.preflight_find_first(&plan).is_ok());
+        self.next_search_id = plan.next_search_id;
+        let search = plan.search;
+        let previous = self.searches.insert(search.id, search.clone());
+        debug_assert!(previous.is_none());
+        search
+    }
+
+    pub(super) fn plan_find_next(
+        &self,
+        id: RuntimeFileSearchId,
+    ) -> Result<Option<RuntimeFileSearchAdvancePlan>, RuntimeStateError> {
+        let previous = self.file_search(id)?.clone();
+        let Some(entry) = previous.entries.get(previous.next_index).cloned() else {
+            return Ok(None);
+        };
+        let mut next = previous.clone();
+        next.next_index = next.next_index.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-vfs",
+                "file-search-cursor-overflow",
+                "logical file search cursor overflowed host accounting",
+            )
+        })?;
+        Ok(Some(RuntimeFileSearchAdvancePlan {
+            previous,
+            next,
+            entry,
+        }))
+    }
+
+    pub(super) fn preflight_find_next(
+        &self,
+        plan: &RuntimeFileSearchAdvancePlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.searches.get(&plan.previous.id) != Some(&plan.previous) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "file-search-advance-plan-stale",
+                "file search state changed after advance planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_find_next(
+        &mut self,
+        plan: RuntimeFileSearchAdvancePlan,
+    ) -> RuntimeFileSearchEntry {
+        debug_assert!(self.preflight_find_next(&plan).is_ok());
+        self.searches.insert(plan.next.id, plan.next);
+        plan.entry
+    }
+
+    pub(super) fn plan_file_search_retirement(
+        &self,
+        id: RuntimeFileSearchId,
+    ) -> Result<RuntimeFileSearchRetirementPlan, RuntimeStateError> {
+        Ok(RuntimeFileSearchRetirementPlan {
+            previous: self.file_search(id)?.clone(),
+        })
+    }
+
+    pub(super) fn preflight_file_search_retirement(
+        &self,
+        plan: &RuntimeFileSearchRetirementPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.searches.get(&plan.previous.id) != Some(&plan.previous) {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "file-search-retirement-plan-stale",
+                "file search state changed after retirement planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_file_search_retirement(
+        &mut self,
+        plan: RuntimeFileSearchRetirementPlan,
+    ) -> RuntimeFileSearch {
+        debug_assert!(self.preflight_file_search_retirement(&plan).is_ok());
+        self.searches
+            .remove(&plan.previous.id)
+            .expect("preflighted file search retirement")
+    }
+
     pub(super) fn plan_snapshot_registration(
         &self,
         manifest: RuntimeSourceSnapshotManifest,
@@ -1171,6 +1555,7 @@ impl RuntimeFiles {
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
             || !self.pending_directory_creates.is_empty()
+            || !self.searches.is_empty()
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-vfs",
@@ -1235,7 +1620,12 @@ impl RuntimeFiles {
             root_identity: root.identity,
         };
         validate_source_profile_separation(&next, self.writable_profile.as_ref())?;
-        Ok(RuntimeSourceSnapshotRegistrationPlan { next })
+        let (expected_catalog_revision, next_catalog_revision) = self.plan_catalog_change()?;
+        Ok(RuntimeSourceSnapshotRegistrationPlan {
+            next,
+            expected_catalog_revision,
+            next_catalog_revision,
+        })
     }
 
     pub(super) fn commit_snapshot_registration(
@@ -1247,6 +1637,8 @@ impl RuntimeFiles {
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
             || !self.pending_directory_creates.is_empty()
+            || !self.searches.is_empty()
+            || self.catalog_revision != plan.expected_catalog_revision
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-vfs",
@@ -1255,6 +1647,7 @@ impl RuntimeFiles {
             ));
         }
         self.snapshot = Some(plan.next);
+        self.catalog_revision = plan.next_catalog_revision;
         Ok(())
     }
 
@@ -1267,6 +1660,7 @@ impl RuntimeFiles {
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
             || !self.pending_directory_creates.is_empty()
+            || !self.searches.is_empty()
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-vfs",
@@ -1399,7 +1793,12 @@ impl RuntimeFiles {
             root_identity: root.identity,
         };
         validate_source_profile_separation_opt(self.snapshot.as_ref(), &next)?;
-        Ok(RuntimeWritableProfileRegistrationPlan { next })
+        let (expected_catalog_revision, next_catalog_revision) = self.plan_catalog_change()?;
+        Ok(RuntimeWritableProfileRegistrationPlan {
+            next,
+            expected_catalog_revision,
+            next_catalog_revision,
+        })
     }
 
     pub(super) fn commit_writable_profile_registration(
@@ -1411,6 +1810,8 @@ impl RuntimeFiles {
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
             || !self.pending_directory_creates.is_empty()
+            || !self.searches.is_empty()
+            || self.catalog_revision != plan.expected_catalog_revision
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-vfs",
@@ -1420,6 +1821,7 @@ impl RuntimeFiles {
         }
         validate_source_profile_separation_opt(self.snapshot.as_ref(), &plan.next)?;
         self.writable_profile = Some(plan.next);
+        self.catalog_revision = plan.next_catalog_revision;
         Ok(())
     }
 
@@ -1433,6 +1835,7 @@ impl RuntimeFiles {
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
             || !self.pending_directory_creates.is_empty()
+            || !self.searches.is_empty()
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-vfs",
@@ -1472,6 +1875,7 @@ impl RuntimeFiles {
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
             || !self.pending_directory_creates.is_empty()
+            || !self.searches.is_empty()
             || self
                 .writable_profile
                 .as_ref()
@@ -1656,6 +2060,12 @@ impl RuntimeFiles {
                 "logical source file identifier space is exhausted",
             )
         })?;
+        let (expected_catalog_revision, next_catalog_revision) =
+            if previous_writable != next_writable {
+                self.plan_catalog_change()?
+            } else {
+                (self.catalog_revision, self.catalog_revision)
+            };
         Ok(Some(RuntimeSourceFileOpenPlan {
             expected_next_file_id: self.next_file_id,
             next_file_id,
@@ -1671,6 +2081,8 @@ impl RuntimeFiles {
             existed,
             previous_writable,
             next_writable,
+            expected_catalog_revision,
+            next_catalog_revision,
         }))
     }
 
@@ -1679,6 +2091,7 @@ impl RuntimeFiles {
         plan: &RuntimeSourceFileOpenPlan,
     ) -> Result<(), RuntimeStateError> {
         if self.next_file_id != plan.expected_next_file_id
+            || self.catalog_revision != plan.expected_catalog_revision
             || self.open_files.contains_key(&plan.file.id)
         {
             return Err(RuntimeStateError::conflict(
@@ -1722,6 +2135,7 @@ impl RuntimeFiles {
     pub(super) fn commit_open(&mut self, plan: RuntimeSourceFileOpenPlan) -> RuntimeSourceFile {
         debug_assert!(self.preflight_open(&plan).is_ok());
         self.next_file_id = plan.next_file_id;
+        self.catalog_revision = plan.next_catalog_revision;
         if let (Some(_), Some(next)) = (plan.previous_writable, plan.next_writable) {
             let profile = self
                 .writable_profile
@@ -2153,6 +2567,7 @@ impl RuntimeFiles {
         mark_writable_dirty(&mut next_writable)?;
         let mut next_file = previous_file.clone();
         next_file.cursor = write_end;
+        let (expected_catalog_revision, next_catalog_revision) = self.plan_catalog_change()?;
         Ok(RuntimeWritableWritePlan {
             previous_file,
             next_file,
@@ -2167,6 +2582,8 @@ impl RuntimeFiles {
                 byte_length: next_writable.byte_length,
                 revision: next_writable.revision,
             },
+            expected_catalog_revision,
+            next_catalog_revision,
         })
     }
 
@@ -2175,6 +2592,7 @@ impl RuntimeFiles {
         plan: &RuntimeWritableWritePlan,
     ) -> Result<(), RuntimeStateError> {
         if self.open_files.get(&plan.previous_file.id) != Some(&plan.previous_file)
+            || self.catalog_revision != plan.expected_catalog_revision
             || self
                 .writable_profile
                 .as_ref()
@@ -2198,6 +2616,7 @@ impl RuntimeFiles {
         plan: RuntimeWritableWritePlan,
     ) -> RuntimeWritableWriteResult {
         debug_assert!(self.preflight_writable_write(&plan).is_ok());
+        self.catalog_revision = plan.next_catalog_revision;
         self.open_files.insert(plan.next_file.id, plan.next_file);
         self.writable_profile
             .as_mut()
@@ -2960,6 +3379,252 @@ fn copy_writable_content(bytes: &[u8]) -> Result<Vec<u8>, RuntimeStateError> {
 struct NormalizedPath {
     bytes_with_nul: Vec<u8>,
     identity: Vec<u8>,
+}
+
+#[derive(Debug)]
+struct ResolvedFileSearchPattern {
+    directory_identity: Vec<u8>,
+    file_name_pattern: Vec<u8>,
+    normalized_pattern_a: Vec<u8>,
+}
+
+fn resolve_file_search_pattern(
+    requested: &[u8],
+    current_directory: &[u8],
+) -> Result<ResolvedFileSearchPattern, RuntimeStateError> {
+    let body = nul_terminated_body(requested, "file-search-pattern-shape-invalid")?;
+    let separators = windows_932_separator_offsets(body)?;
+    let (directory, file_name_pattern) = if let Some(separator) = separators.last().copied() {
+        let directory_end = if separator == 2 && is_absolute(body) {
+            separator + 1
+        } else {
+            separator
+        };
+        if directory_end == 0 || separator + 1 == body.len() {
+            return Err(vfs_invalid(
+                "file-search-pattern-shape-invalid",
+                "file search requires a directory and nonempty final pattern component",
+            ));
+        }
+        let mut directory = body[..directory_end].to_vec();
+        directory.push(0);
+        (
+            resolve_path(&directory, current_directory)?,
+            body[separator + 1..].to_vec(),
+        )
+    } else {
+        (normalize_absolute_path(current_directory)?, body.to_vec())
+    };
+    validate_file_search_component(&file_name_pattern)?;
+    if !file_name_pattern
+        .iter()
+        .any(|byte| matches!(byte, b'*' | b'?'))
+    {
+        validate_component(&file_name_pattern)?;
+    }
+    let mut normalized_pattern_a =
+        directory.bytes_with_nul[..directory.bytes_with_nul.len() - 1].to_vec();
+    if normalized_pattern_a.last() != Some(&b'\\') {
+        normalized_pattern_a.push(b'\\');
+    }
+    normalized_pattern_a.extend_from_slice(&file_name_pattern);
+    normalized_pattern_a.push(0);
+    Ok(ResolvedFileSearchPattern {
+        directory_identity: directory.identity,
+        file_name_pattern,
+        normalized_pattern_a,
+    })
+}
+
+fn validate_file_search_component(component: &[u8]) -> Result<(), RuntimeStateError> {
+    if component.is_empty() || component.len() > 260 {
+        return Err(vfs_invalid(
+            "file-search-pattern-component-invalid",
+            "file search final component must be nonempty and at most 260 bytes",
+        ));
+    }
+    let mut index = 0;
+    while index < component.len() {
+        let byte = component[index];
+        if is_windows_932_lead_byte(byte) {
+            let Some(&trail) = component.get(index + 1) else {
+                return Err(vfs_invalid(
+                    "file-search-pattern-windows-932-invalid",
+                    "file search pattern ends in a Windows-932 lead byte",
+                ));
+            };
+            if !is_windows_932_trail_byte(trail) {
+                return Err(vfs_invalid(
+                    "file-search-pattern-windows-932-invalid",
+                    "file search pattern contains an invalid Windows-932 trail byte",
+                ));
+            }
+            index += 2;
+            continue;
+        }
+        if byte < 0x20
+            || byte == 0x7f
+            || matches!(byte, b'"' | b'<' | b'>' | b'|' | b':' | b'\\' | b'/')
+        {
+            return Err(vfs_invalid(
+                "file-search-pattern-character-invalid",
+                "file search pattern contains a disallowed DOS path character",
+            ));
+        }
+        index += 1;
+    }
+    Ok(())
+}
+
+fn windows_932_separator_offsets(bytes: &[u8]) -> Result<Vec<usize>, RuntimeStateError> {
+    let mut separators = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if is_windows_932_lead_byte(byte) {
+            let Some(&trail) = bytes.get(index + 1) else {
+                return Err(vfs_invalid(
+                    "file-search-pattern-windows-932-invalid",
+                    "file search path ends in a Windows-932 lead byte",
+                ));
+            };
+            if !is_windows_932_trail_byte(trail) {
+                return Err(vfs_invalid(
+                    "file-search-pattern-windows-932-invalid",
+                    "file search path contains an invalid Windows-932 trail byte",
+                ));
+            }
+            index += 2;
+        } else {
+            if is_separator(byte) {
+                separators.push(index);
+            }
+            index += 1;
+        }
+    }
+    Ok(separators)
+}
+
+fn immediate_search_child(
+    relative_path: &[u8],
+    directory_relative: &[u8],
+    terminal_kind: RuntimeFileSearchEntryKind,
+) -> Option<(Vec<u8>, RuntimeFileSearchEntryKind)> {
+    let identity = windows_932_ascii_fold(relative_path);
+    let remainder = if directory_relative.is_empty() {
+        relative_path
+    } else {
+        if identity.len() <= directory_relative.len()
+            || !identity.starts_with(directory_relative)
+            || identity.get(directory_relative.len()) != Some(&b'\\')
+        {
+            return None;
+        }
+        &relative_path[directory_relative.len() + 1..]
+    };
+    if remainder.is_empty() {
+        return None;
+    }
+    let separator = windows_932_separator_offsets(remainder)
+        .ok()?
+        .first()
+        .copied();
+    match separator {
+        Some(index) => Some((
+            remainder[..index].to_vec(),
+            RuntimeFileSearchEntryKind::Directory,
+        )),
+        None => Some((remainder.to_vec(), terminal_kind)),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Windows932WildcardToken<'a> {
+    Literal(&'a [u8]),
+    AnyOne,
+    AnyMany,
+}
+
+fn windows_932_wildcard_matches(
+    pattern: &[u8],
+    candidate: &[u8],
+) -> Result<bool, RuntimeStateError> {
+    let pattern_tokens = windows_932_wildcard_tokens(pattern, true)?;
+    let candidate_tokens = windows_932_wildcard_tokens(candidate, false)?;
+    let mut reachable = vec![false; candidate_tokens.len() + 1];
+    reachable[0] = true;
+    for token in pattern_tokens {
+        let mut next = vec![false; candidate_tokens.len() + 1];
+        match token {
+            Windows932WildcardToken::AnyMany => {
+                let mut seen = false;
+                for index in 0..=candidate_tokens.len() {
+                    seen |= reachable[index];
+                    next[index] = seen;
+                }
+            }
+            Windows932WildcardToken::AnyOne => {
+                for index in 0..candidate_tokens.len() {
+                    next[index + 1] |= reachable[index];
+                }
+            }
+            Windows932WildcardToken::Literal(expected) => {
+                for (index, actual) in candidate_tokens.iter().enumerate() {
+                    let Windows932WildcardToken::Literal(actual) = actual else {
+                        unreachable!("candidate wildcard tokenizer emits literals only")
+                    };
+                    next[index + 1] |= reachable[index]
+                        && windows_932_token_eq_ignore_ascii_case(expected, actual);
+                }
+            }
+        }
+        reachable = next;
+    }
+    Ok(reachable[candidate_tokens.len()])
+}
+
+fn windows_932_wildcard_tokens(
+    bytes: &[u8],
+    allow_wildcards: bool,
+) -> Result<Vec<Windows932WildcardToken<'_>>, RuntimeStateError> {
+    let mut tokens = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if is_windows_932_lead_byte(byte) {
+            let Some(&trail) = bytes.get(index + 1) else {
+                return Err(vfs_invalid(
+                    "file-search-windows-932-invalid",
+                    "file search text ends in a Windows-932 lead byte",
+                ));
+            };
+            if !is_windows_932_trail_byte(trail) {
+                return Err(vfs_invalid(
+                    "file-search-windows-932-invalid",
+                    "file search text contains an invalid Windows-932 trail byte",
+                ));
+            }
+            tokens.push(Windows932WildcardToken::Literal(&bytes[index..index + 2]));
+            index += 2;
+        } else {
+            tokens.push(if allow_wildcards && byte == b'*' {
+                Windows932WildcardToken::AnyMany
+            } else if allow_wildcards && byte == b'?' {
+                Windows932WildcardToken::AnyOne
+            } else {
+                Windows932WildcardToken::Literal(&bytes[index..index + 1])
+            });
+            index += 1;
+        }
+    }
+    Ok(tokens)
+}
+
+fn windows_932_token_eq_ignore_ascii_case(left: &[u8], right: &[u8]) -> bool {
+    match (left, right) {
+        ([left], [right]) => left.eq_ignore_ascii_case(right),
+        _ => left == right,
+    }
 }
 
 fn resolve_path(

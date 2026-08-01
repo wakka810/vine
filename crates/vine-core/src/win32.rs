@@ -15,20 +15,20 @@ use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
     LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE,
-    RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
-    RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RUNTIME_SOURCE_FILE_NAMESPACE,
-    RUNTIME_SOURCE_READ_MAX_BYTES, RUNTIME_SOURCE_READ_SERVICE, RUNTIME_THREAD_OBJECT_NAMESPACE,
-    RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RUNTIME_WAITABLE_TIMER_PACING_SERVICE,
-    RUNTIME_WRITABLE_COMMIT_SERVICE, RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE,
-    RUNTIME_WRITABLE_FILE_MAX_IO_BYTES, RUNTIME_WRITABLE_READ_SERVICE,
-    RuntimeApiBoundaryDisposition, RuntimeCreateThreadRequest, RuntimeCriticalSection,
-    RuntimeFileBacking, RuntimeHandle, RuntimeHeapInitialization, RuntimeMutexNameA,
-    RuntimeObjectKind, RuntimePathResolution, RuntimeSourceReadHostResponse,
-    RuntimeStateErrorClass, RuntimeThreadPriority, RuntimeVirtualMemoryReserveRequest,
-    RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
-    RuntimeWaitForSingleObjectExResult, RuntimeWritableCommitHostResponse,
-    RuntimeWritableDirectoryCreateHostResponse, X86_CRITICAL_SECTION_BYTE_LENGTH,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_FILE_SEARCH_NAMESPACE,
+    RUNTIME_PRIVATE_HEAP_ALIGNMENT, RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING,
+    RUNTIME_SOURCE_FILE_NAMESPACE, RUNTIME_SOURCE_READ_MAX_BYTES, RUNTIME_SOURCE_READ_SERVICE,
+    RUNTIME_THREAD_OBJECT_NAMESPACE, RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
+    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE,
+    RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, RUNTIME_WRITABLE_FILE_MAX_IO_BYTES,
+    RUNTIME_WRITABLE_READ_SERVICE, RuntimeApiBoundaryDisposition, RuntimeCreateThreadRequest,
+    RuntimeCriticalSection, RuntimeFileBacking, RuntimeFileSearchEntry, RuntimeFileSearchEntryKind,
+    RuntimeHandle, RuntimeHeapInitialization, RuntimeMutexNameA, RuntimeObjectKind,
+    RuntimePathResolution, RuntimeSourceReadHostResponse, RuntimeStateErrorClass,
+    RuntimeThreadPriority, RuntimeVirtualMemoryReserveRequest, RuntimeWaitForSingleObjectExBegin,
+    RuntimeWaitForSingleObjectExOutcome, RuntimeWaitForSingleObjectExResult,
+    RuntimeWritableCommitHostResponse, RuntimeWritableDirectoryCreateHostResponse,
+    X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 mod policy;
@@ -37,7 +37,7 @@ pub use policy::{
     KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
     Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
     Kernel32CreateMutexAPolicy, Kernel32CreateThreadPolicy, Kernel32CreateWaitableTimerAPolicy,
-    Kernel32GetDriveTypeAPolicy, Kernel32GetFileAttributesAPolicy,
+    Kernel32FindFileAPolicy, Kernel32GetDriveTypeAPolicy, Kernel32GetFileAttributesAPolicy,
     Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
     Kernel32HeapAllocatorPolicy, Kernel32InitializeCriticalSectionPolicy,
     Kernel32LcMapStringWPolicy, Kernel32LoadLibraryAPolicy, Kernel32MemoryStatusPolicy,
@@ -89,6 +89,11 @@ pub const MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION: &str = "kernel32.multi-byte-to
 pub const SET_CURRENT_DIRECTORY_A_IMPLEMENTATION: &str = "kernel32.set-current-directory-a.v1";
 pub const GET_FILE_ATTRIBUTES_A_IMPLEMENTATION: &str =
     "kernel32.get-file-attributes-a.runtime-vfs.v1";
+pub const FIND_FIRST_FILE_A_IMPLEMENTATION: &str =
+    "kernel32.find-first-file-a.runtime-vfs-windows-932-lexical.v1";
+pub const FIND_NEXT_FILE_A_IMPLEMENTATION: &str =
+    "kernel32.find-next-file-a.runtime-vfs-windows-932-lexical.v1";
+pub const FIND_CLOSE_IMPLEMENTATION: &str = "kernel32.find-close.runtime-vfs.v1";
 pub const CREATE_DIRECTORY_A_IMPLEMENTATION: &str = "kernel32.create-directory-a.runtime-vfs.v1";
 pub const CREATE_FILE_A_IMPLEMENTATION: &str = "kernel32.create-file-a.source.v1";
 pub const GET_FILE_SIZE_IMPLEMENTATION: &str = "kernel32.get-file-size.source.v1";
@@ -147,6 +152,7 @@ const ERROR_FILE_NOT_FOUND: u32 = 2;
 const ERROR_PATH_NOT_FOUND: u32 = 3;
 const ERROR_ACCESS_DENIED: u32 = 5;
 const ERROR_INVALID_HANDLE: u32 = 6;
+const ERROR_NO_MORE_FILES: u32 = 18;
 const ERROR_NOT_ENOUGH_MEMORY: u32 = 8;
 const ERROR_SHARING_VIOLATION: u32 = 32;
 const ERROR_DISK_FULL: u32 = 112;
@@ -162,6 +168,9 @@ const WAIT_TIMEOUT: u32 = 258;
 const WAIT_FAILED: u32 = u32::MAX;
 const X86_OS_VERSION_INFO_A_BASE_BYTES: u32 = 148;
 const X86_OS_VERSION_INFO_EX_A_BYTES: u32 = 156;
+const X86_WIN32_FIND_DATA_A_BYTES: usize = 320;
+const X86_WIN32_FIND_DATA_A_FILE_NAME_OFFSET: usize = 44;
+const X86_WIN32_FIND_DATA_A_FILE_NAME_CAPACITY: usize = 260;
 pub const MEM_RESERVE: u32 = 0x0000_2000;
 pub const MEM_TOP_DOWN: u32 = 0x0010_0000;
 pub const PAGE_READWRITE: u32 = 0x0000_0004;
@@ -277,6 +286,13 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
         GET_FILE_ATTRIBUTES_A_IMPLEMENTATION => {
             handle_get_file_attributes_a(policy, contract, frame, session)
         }
+        FIND_FIRST_FILE_A_IMPLEMENTATION => {
+            handle_find_first_file_a(policy, contract, frame, session)
+        }
+        FIND_NEXT_FILE_A_IMPLEMENTATION => {
+            handle_find_next_file_a(policy, contract, frame, session)
+        }
+        FIND_CLOSE_IMPLEMENTATION => handle_find_close(policy, contract, frame, session),
         CREATE_FILE_A_IMPLEMENTATION => handle_create_file_a(policy, contract, frame, session),
         GET_FILE_SIZE_IMPLEMENTATION => handle_get_file_size(policy, contract, frame, session),
         WRITE_FILE_IMPLEMENTATION => handle_write_file(policy, contract, frame, session),
@@ -392,6 +408,9 @@ pub fn kernel32_contract_for_endpoint(
         "MultiByteToWideChar" => multi_byte_to_wide_char_contract(endpoint)?,
         "SetCurrentDirectoryA" => set_current_directory_a_contract(endpoint)?,
         "GetFileAttributesA" => get_file_attributes_a_contract(endpoint)?,
+        "FindFirstFileA" => find_first_file_a_contract(endpoint)?,
+        "FindNextFileA" => find_next_file_a_contract(endpoint)?,
+        "FindClose" => find_close_contract(endpoint)?,
         "CreateDirectoryA" => create_directory_a_contract(endpoint)?,
         "CreateFileA" => create_file_a_contract(endpoint)?,
         "GetFileSize" => get_file_size_contract(endpoint)?,
@@ -2031,6 +2050,210 @@ fn handle_get_file_attributes_a(
     Ok(ApiImmediate::new(ApiReturnValue::U32(attributes)).with_last_error(last_error))
 }
 
+fn handle_find_first_file_a(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let file_policy = require_source_file_policy(policy)?;
+    let find_policy = require_find_file_a_policy(policy)?;
+    let attributes = policy.get_file_attributes_a().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "win32-vfs",
+            "find-file-a-attributes-policy-missing",
+            "validated FindFile policy lost its VFS attribute projection",
+        )
+    })?;
+    let pattern_address = required_argument(contract, frame, 0, "ANSI search pattern")?;
+    let output = GuestAddress(required_argument(contract, frame, 1, "find data output")?);
+    let pattern = read_nul_terminated_source_path(
+        contract,
+        session,
+        GuestAddress(pattern_address),
+        file_policy.maximum_path_bytes,
+    )?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let maximum_matches = usize::try_from(find_policy.maximum_matches).map_err(|_| {
+        ApiFault::runtime_defect(
+            "win32-vfs",
+            "find-file-a-match-limit-not-representable",
+            "validated FindFile match limit does not fit host accounting",
+        )
+    })?;
+    let result = session.find_first_file_a(
+        &pattern,
+        output,
+        maximum_matches,
+        X86_WIN32_FIND_DATA_A_BYTES,
+        |entry| x86_win32_find_data_a(entry, attributes),
+    );
+    match result {
+        Ok(Some((result, bytes, write))) => Ok(file_search_handle_result(result.handle.0)
+            .with_committed_guest_write(ApiGuestWriteReceipt {
+                write: ApiGuestWrite {
+                    address: output,
+                    bytes,
+                },
+                result: write,
+            })
+            .with_last_error(preserved_last_error)),
+        Ok(None) => {
+            Ok(file_search_handle_result(INVALID_HANDLE_VALUE)
+                .with_last_error(ERROR_FILE_NOT_FOUND))
+        }
+        Err(error)
+            if matches!(
+                error.code,
+                "file-search-directory-missing" | "source-path-outside-mount"
+            ) =>
+        {
+            Ok(file_search_handle_result(INVALID_HANDLE_VALUE)
+                .with_last_error(ERROR_PATH_NOT_FOUND))
+        }
+        Err(error)
+            if matches!(
+                error.code,
+                "file-search-pattern-shape-invalid"
+                    | "file-search-pattern-component-invalid"
+                    | "file-search-pattern-windows-932-invalid"
+                    | "file-search-pattern-character-invalid"
+                    | "source-file-path-not-absolute"
+                    | "source-path-parent-escape"
+                    | "source-path-character-invalid"
+            ) =>
+        {
+            Err(ApiFault::unsupported(
+                "win32-vfs",
+                "find-first-file-a-pattern-unsupported",
+                error.message,
+            ))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+}
+
+fn handle_find_next_file_a(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    require_find_file_a_policy(policy)?;
+    let attributes = policy.get_file_attributes_a().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "win32-vfs",
+            "find-file-a-attributes-policy-missing",
+            "validated FindFile policy lost its VFS attribute projection",
+        )
+    })?;
+    let handle = RuntimeHandle(required_argument(contract, frame, 0, "file search handle")?);
+    let output = GuestAddress(required_argument(contract, frame, 1, "find data output")?);
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match session.find_next_file_a(handle, output, X86_WIN32_FIND_DATA_A_BYTES, |entry| {
+        x86_win32_find_data_a(entry, attributes)
+    }) {
+        Ok(Some((_entry, bytes, write))) => Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+            .with_committed_guest_write(ApiGuestWriteReceipt {
+                write: ApiGuestWrite {
+                    address: output,
+                    bytes,
+                },
+                result: write,
+            })
+            .with_last_error(preserved_last_error)),
+        Ok(None) => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(ERROR_NO_MORE_FILES))
+        }
+        Err(error)
+            if matches!(
+                error.code,
+                "runtime-handle-type-unknown"
+                    | "runtime-handle-type-mismatch"
+                    | "runtime-handle-unknown"
+                    | "runtime-handle-stale"
+                    | "file-search-id-unknown"
+            ) =>
+        {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(ERROR_INVALID_HANDLE))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+}
+
+fn handle_find_close(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    require_find_file_a_policy(policy)?;
+    let handle = RuntimeHandle(required_argument(contract, frame, 0, "file search handle")?);
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match session.runtime_mut().find_close(handle) {
+        Ok(_) => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+                .with_last_error(preserved_last_error))
+        }
+        Err(error)
+            if matches!(
+                error.code,
+                "runtime-handle-type-unknown"
+                    | "runtime-handle-type-mismatch"
+                    | "runtime-handle-unknown"
+                    | "runtime-handle-stale"
+                    | "file-search-id-unknown"
+            ) =>
+        {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(ERROR_INVALID_HANDLE))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+}
+
+fn file_search_handle_result(value: u32) -> ApiImmediate {
+    ApiImmediate::new(ApiReturnValue::LogicalHandle {
+        namespace: RUNTIME_FILE_SEARCH_NAMESPACE.to_owned(),
+        value,
+    })
+}
+
+fn x86_win32_find_data_a(
+    entry: &RuntimeFileSearchEntry,
+    attributes: Kernel32GetFileAttributesAPolicy,
+) -> Result<Vec<u8>, crate::runtime::RuntimeStateError> {
+    if entry.file_name_a.is_empty()
+        || entry.file_name_a.len() >= X86_WIN32_FIND_DATA_A_FILE_NAME_CAPACITY
+        || entry.file_name_a.contains(&0)
+    {
+        return Err(crate::runtime::RuntimeStateError::invalid_input(
+            "runtime-vfs",
+            "file-search-name-not-representable",
+            "file search result name does not fit WIN32_FIND_DATAA.cFileName",
+        ));
+    }
+    let mut bytes = vec![0; X86_WIN32_FIND_DATA_A_BYTES];
+    let projected_attributes = match entry.kind {
+        RuntimeFileSearchEntryKind::RegularFile => attributes.regular_file_attributes,
+        RuntimeFileSearchEntryKind::Directory => attributes.directory_attributes,
+    };
+    bytes[0..4].copy_from_slice(&projected_attributes.to_le_bytes());
+    bytes[28..32].copy_from_slice(&((entry.byte_length >> 32) as u32).to_le_bytes());
+    bytes[32..36].copy_from_slice(&(entry.byte_length as u32).to_le_bytes());
+    let name_end = X86_WIN32_FIND_DATA_A_FILE_NAME_OFFSET + entry.file_name_a.len();
+    bytes[X86_WIN32_FIND_DATA_A_FILE_NAME_OFFSET..name_end].copy_from_slice(&entry.file_name_a);
+    Ok(bytes)
+}
+
 fn handle_create_directory_a(
     policy: &Kernel32CompatibilityPolicy,
     contract: &ApiContract,
@@ -2887,6 +3110,21 @@ fn require_source_file_policy(
             "source-file-policy-disabled",
             format!(
                 "compatibility policy {} does not enable immutable source files",
+                policy.id
+            ),
+        )
+    })
+}
+
+fn require_find_file_a_policy(
+    policy: &Kernel32CompatibilityPolicy,
+) -> Result<Kernel32FindFileAPolicy, ApiFault> {
+    policy.find_file_a().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-vfs",
+            "find-file-a-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable deterministic VFS enumeration",
                 policy.id
             ),
         )
@@ -5066,6 +5304,65 @@ pub fn get_file_attributes_a_contract(
     Ok(contract)
 }
 
+pub fn find_first_file_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "FindFirstFileA",
+        vec![
+            dynamic_in_bytes("fileName", false, 1, 1, 32_768),
+            fallible_out_struct(
+                "findFileData",
+                "WIN32_FIND_DATAA",
+                X86_WIN32_FIND_DATA_A_BYTES as u32,
+            ),
+        ],
+        ApiReturnSchema::LogicalHandle {
+            namespace: RUNTIME_FILE_SEARCH_NAMESPACE.to_owned(),
+            nullable: false,
+        },
+        FIND_FIRST_FILE_A_IMPLEMENTATION,
+    )?;
+    contract.behavior = ApiBehavior::ImmediateWithCommittedIndirectGuestWrites;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn find_next_file_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "FindNextFileA",
+        vec![
+            logical_handle("fileSearch", RUNTIME_FILE_SEARCH_NAMESPACE, false),
+            fallible_out_struct(
+                "findFileData",
+                "WIN32_FIND_DATAA",
+                X86_WIN32_FIND_DATA_A_BYTES as u32,
+            ),
+        ],
+        ApiReturnSchema::Bool32,
+        FIND_NEXT_FILE_A_IMPLEMENTATION,
+    )?;
+    contract.behavior = ApiBehavior::ImmediateWithCommittedIndirectGuestWrites;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn find_close_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "FindClose",
+        vec![logical_handle(
+            "fileSearch",
+            RUNTIME_FILE_SEARCH_NAMESPACE,
+            false,
+        )],
+        ApiReturnSchema::Bool32,
+        FIND_CLOSE_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
 pub fn create_directory_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
     let mut contract = kernel32_contract(
         endpoint,
@@ -5826,6 +6123,15 @@ fn out_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumentSchema 
             },
         },
     }
+}
+
+fn fallible_out_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumentSchema {
+    let mut argument = out_struct(name, type_id, byte_length);
+    let ApiValueSchema::Pointer { constraint } = &mut argument.value else {
+        unreachable!("output struct helper did not create a pointer schema");
+    };
+    constraint.write_requirement = ApiWriteRequirement::Optional;
+    argument
 }
 
 fn in_struct(name: &str, type_id: &str, byte_length: u32, alignment: u32) -> ApiArgumentSchema {

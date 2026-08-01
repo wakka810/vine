@@ -246,6 +246,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-global-memory-status",
         "kernel32-get-file-attributes-a",
         "kernel32-create-directory-a",
+        "kernel32-find-first-file-a",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
@@ -451,6 +452,7 @@ assert(
       "kernel32-global-memory-status",
       "kernel32-get-file-attributes-a",
       "kernel32-create-directory-a",
+      "kernel32-find-first-file-a",
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
       "user32-set-window-pos-frame-change-move",
@@ -496,7 +498,9 @@ assert(
 );
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-create-directory-a" ||
+    genericRuntimeCapability === "kernel32-find-first-file-a"
+      ? "kernel32-find-file-a-v1.json"
+      : genericRuntimeCapability === "kernel32-create-directory-a" ||
     genericRuntimeCapability === "user32-set-window-pos-repeat-activation" ||
     genericRuntimeCapability === "d3d9-recreated-textures" ||
     genericRuntimeCapability === "user32-set-window-pos-frame-change-move" ||
@@ -610,7 +614,7 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
       "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
     genericRuntimeCapability ===
       "kernel32-wait-for-single-object-ex-post-critical-section"
-      ? "kernel32-create-directory-a-v1.json"
+        ? "kernel32-create-directory-a-v1.json"
       : genericRuntimeCapability === "kernel32-get-file-attributes-a"
         ? "kernel32-get-file-attributes-a-v1.json"
         : genericRuntimeCapability === "kernel32-global-memory-status"
@@ -1007,9 +1011,12 @@ const d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled =
 const d3d9PostInputScanWaitableTimerCycleCheckpointEnabled =
   genericRuntimeCapability ===
     "d3d9-post-input-scan-waitable-timer-cycle";
+const findFirstFileACheckpointEnabled =
+  genericRuntimeCapability === "kernel32-find-first-file-a";
 const peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled =
   genericRuntimeCapability ===
-    "user32-peek-message-a-post-window-timer-callback-continuation";
+    "user32-peek-message-a-post-window-timer-callback-continuation" ||
+  findFirstFileACheckpointEnabled;
 const windowTimerCallbackPostWaitableTimerCycleCheckpointEnabled =
   genericRuntimeCapability ===
       "user32-window-timer-callback-post-waitable-timer-cycle" ||
@@ -1545,6 +1552,7 @@ const setWindowPosRepeatActivationCheckpointEnabled =
   d3d9RecreatedTexturesCheckpointEnabled ||
   genericRuntimeCapability === "user32-set-window-pos-repeat-activation";
 const createDirectoryACheckpointEnabled =
+  findFirstFileACheckpointEnabled ||
   setWindowPosRepeatActivationCheckpointEnabled ||
   genericRuntimeCapability === "kernel32-create-directory-a";
 const getFileAttributesACheckpointEnabled =
@@ -1564,7 +1572,9 @@ const primaryMainLoopContinuationWorkloadEnabled =
   dragAcceptFilesEnabled ||
   archiveSourceReadEnabled;
 const primaryMainLoopContinuationTrapLimit =
-  user32AsyncKeyStateInitialScanEnabled
+  findFirstFileACheckpointEnabled
+    ? 393_216
+    : user32AsyncKeyStateInitialScanEnabled
     ? scheduledSharedClockProfile
       ? 393_216
       : 196_608
@@ -1907,7 +1917,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? runtimeThreadStackGrowthEnabled
+    ? findFirstFileACheckpointEnabled
+      ? "v86-bgi-find-first-file-a"
+      : runtimeThreadStackGrowthEnabled
       ? largeHeapFreeCheckpointEnabled
         ? "v86-bgi-heap-free-large-buffer"
         : heapAlloc24CheckpointEnabled
@@ -6129,30 +6141,32 @@ async function run() {
     ? sourceIdentity(bgiGdbPath)
     : null;
   if (archiveSourceReadEnabled) {
-    assert.equal(
-      sourceManifestPath,
-      null,
-      "kernel32-archive-source-read owns the primary boot-archive manifest",
-    );
-    sourceManifestPath = path.join(
+    const ownedSourceManifestPath = path.join(
       root,
       "fixtures",
       "source-snapshots",
-      "primary-boot-archives-v1.json",
+      findFirstFileACheckpointEnabled
+        ? "primary-game-archives-v2.json"
+        : "primary-boot-archives-v1.json",
     );
+    if (sourceManifestPath === null) {
+      sourceManifestPath = ownedSourceManifestPath;
+    } else {
+      assert.equal(
+        path.resolve(sourceManifestPath),
+        ownedSourceManifestPath,
+        "archive source-read profiles require their owned source manifest",
+      );
+    }
   }
   const bgiDirectory = path.dirname(bgiPath);
   const sourceRegistration =
     sourceManifestPath !== null
       ? await registerSourceSnapshot({
           manifestPath: sourceManifestPath,
-          objectFiles: archiveSourceReadEnabled
-            ? {
-                1: path.join(bgiDirectory, "system.arc"),
-                2: path.join(bgiDirectory, "sysprg.arc"),
-                3: path.join(bgiDirectory, "sysgrp.arc"),
-              }
-            : { 1: bgiGdbPath },
+          ...(archiveSourceReadEnabled
+            ? { sourceRoot: bgiDirectory }
+            : { objectFiles: { 1: bgiGdbPath } }),
         })
       : null;
   const sourceBefore = sourceIdentity(bgiPath);
@@ -6398,7 +6412,9 @@ async function run() {
       sessionCompleted = true;
       const sourceAfter = sourceIdentity(bgiPath);
       assert.deepEqual(sourceAfter, sourceBefore);
-      if (timeGetTimePostPointerReleaseRepeatBatchCheckpointEnabled) {
+      if (findFirstFileACheckpointEnabled) {
+        // The post-SetWindowText FindFile profile is validated once below.
+      } else if (timeGetTimePostPointerReleaseRepeatBatchCheckpointEnabled) {
         if (
           peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled
         ) {
@@ -6490,6 +6506,8 @@ async function run() {
       });
       if (genericRuntimeCapability === null) {
         validateGenericRuntimeReentryResult(genericResult);
+      } else if (findFirstFileACheckpointEnabled) {
+        validateFindFirstFileAResult(genericResult, sourceRegistration);
       } else if (
         genericRuntimeCapability === "kernel32-critical-section-synchronization"
       ) {
@@ -6825,6 +6843,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : findFirstFileACheckpointEnabled
+            ? "bgi KERNEL32 FindFileA archive enumeration"
           : runtimeThreadStackGrowthEnabled
             ? largeHeapFreeCheckpointEnabled
               ? "bgi large-buffer private-heap free batch"
@@ -14063,7 +14083,9 @@ function validateGenericRuntimeReady(ready, offer) {
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
         ? 0
-        : createDirectoryACheckpointEnabled
+        : findFirstFileACheckpointEnabled
+          ? 105
+          : createDirectoryACheckpointEnabled
           ? 102
           : getFileAttributesACheckpointEnabled
             ? 101
@@ -25860,6 +25882,139 @@ function validateCreateDirectoryAResult(result) {
     result.terminal.terminal.stackWords.slice(1, 8),
     [0x4801_0001, 0xffff_fffe, 0, 0, 1_286, 749, 266],
   );
+}
+
+function validateFindFirstFileAResult(result, sourceRegistration) {
+  assert(findFirstFileACheckpointEnabled);
+  assert(scheduledSharedClockProfile);
+  assert(sourceRegistration !== null);
+  assert.equal(
+    sourceRegistration.manifest.snapshotId,
+    "primary-game-archives-v2",
+  );
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 255_410);
+  assert.equal(result.callbackEvents.length, 138);
+  assert.equal(result.stackGrowths.length, 11);
+  assert.equal(result.heapPageMaterializations.length, 3_108);
+  assert.equal(result.sourceReads.length, 124);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+  assert.equal(result.timerPacing.length, 7_390);
+  assert.equal(result.finalGeneration, 288_337);
+  assert.equal(result.fault?.fault?.class, "unsupported");
+  assert.equal(result.fault?.fault?.code, "endpoint-contract-missing");
+
+  const expectedEntries = sourceRegistration.manifest.files
+    .slice(3)
+    .map((descriptor) => ({
+      name: Buffer.from(descriptor.relativePathA).toString("ascii"),
+      byteLength: descriptor.byteLength,
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name, "en"));
+  assert.equal(expectedEntries.length, 45);
+
+  const firstCalls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId ===
+      "kernel32.find-first-file-a.runtime-vfs-windows-932-lexical.v1",
+  );
+  const nextCalls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId ===
+      "kernel32.find-next-file-a.runtime-vfs-windows-932-lexical.v1",
+  );
+  const closeCalls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId === "kernel32.find-close.runtime-vfs.v1",
+  );
+  assert.equal(firstCalls.length, 1);
+  assert.equal(nextCalls.length, expectedEntries.length);
+  assert.equal(closeCalls.length, 1);
+
+  const first = firstCalls[0];
+  const terminalNext = nextCalls.at(-1);
+  const close = closeCalls[0];
+  const searchHandle = first.result.value;
+  assert.equal(first.symbol, "FindFirstFileA");
+  assert.equal(first.sequence, 251_694);
+  assert.equal(first.trapInstructionCount, 323_860_141);
+  assert.equal(first.returnAddress, 0x1006_23e1);
+  assert.equal(first.result.action, "set");
+  assert.equal(searchHandle >>> 24, 0x53);
+  assert.equal(first.stackPointerAfter - first.stackPointerBefore, 12);
+  assert.equal(first.guestWrites.length, 1);
+  assert.equal(first.guestWrites[0].bytes.length, 320);
+
+  const successfulCalls = [first, ...nextCalls.slice(0, -1)];
+  assert.equal(successfulCalls.length, expectedEntries.length);
+  for (const [index, call] of successfulCalls.entries()) {
+    const expectedEntry = expectedEntries[index];
+    const [write] = call.guestWrites;
+    assert(write, `FindFile completion ${index + 1} has no output write`);
+    assert.equal(write.bytes.length, 320);
+    const expectedBytes = Buffer.alloc(320);
+    expectedBytes.writeUInt32LE(32, 0);
+    expectedBytes.writeUInt32LE(
+      Math.floor(expectedEntry.byteLength / 0x1_0000_0000),
+      28,
+    );
+    expectedBytes.writeUInt32LE(expectedEntry.byteLength >>> 0, 32);
+    expectedBytes.write(expectedEntry.name, 44, "ascii");
+    assert.deepEqual(Buffer.from(write.bytes), expectedBytes);
+    if (index > 0) {
+      assert.deepEqual(call.arguments, [searchHandle, first.arguments[1]]);
+      assert.deepEqual(call.result, { action: "set", value: 1 });
+      assert.equal(call.stackPointerAfter - call.stackPointerBefore, 12);
+    }
+  }
+
+  assert.deepEqual(terminalNext.arguments, [searchHandle, first.arguments[1]]);
+  assert.equal(terminalNext.sequence, 251_739);
+  assert.equal(terminalNext.trapInstructionCount, 323_869_659);
+  assert.deepEqual(terminalNext.result, { action: "set", value: 0 });
+  assert.equal(terminalNext.lastError, 18);
+  assert.deepEqual(terminalNext.guestWrites, []);
+  assert.equal(terminalNext.stackPointerAfter - terminalNext.stackPointerBefore, 12);
+  assert.deepEqual(close.arguments, [searchHandle]);
+  assert.equal(close.sequence, 251_740);
+  assert.equal(close.trapInstructionCount, 323_869_665);
+  assert.deepEqual(close.result, { action: "set", value: 1 });
+  assert.equal(close.lastError, terminalNext.lastError);
+  assert.deepEqual(close.guestWrites, []);
+  assert.equal(close.stackPointerAfter - close.stackPointerBefore, 8);
+  assert(terminalNext.sequence < close.sequence);
+  assert.equal(
+    result.supportedCalls.at(-1).sequence >= close.sequence,
+    true,
+  );
+
+  const presents = result.supportedCalls.filter(
+    (call) =>
+      call.interface === "IDirect3DDevice9" && call.vtableSlot === 17,
+  );
+  assert.equal(presents.length, 2);
+  const setWindowText = result.supportedCalls.filter(
+    (call) =>
+      call.module.toLowerCase() === "user32.dll" &&
+      call.symbol === "SetWindowTextA",
+  );
+  assert.equal(setWindowText.length, 1);
+  assert.equal(setWindowText[0].window?.name?.value, "サクラノ詩");
+  assert.deepEqual(result.fault.endpoint.endpoint, {
+    id: 38,
+    address: 0x7f00_0250,
+    module: "kernel32.dll",
+    symbol: { kind: "name", name: "DeleteFileA" },
+    iatAddress: 0x100d_1140,
+    disposition: "declared-runtime-export",
+  });
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "fb4f9ce7f37975be923a7656e0608186c68f9bff76301c206ee7d29a7fc29764",
+  );
+  assert.equal(result.terminal.instructionCount, 328_088_002);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1008_28e2);
+  validateScheduledSharedClockCalls(result.supportedCalls);
 }
 
 function validateSetWindowPosRepeatActivationResult(result) {
@@ -38843,9 +38998,17 @@ function buildGenericRuntimeReentryReport({
         completedSupportedCalls.length,
         genericResult.supportedCalls.length,
       );
-      assert(completedSupportedCalls.length > 162_087);
+      if (findFirstFileACheckpointEnabled) {
+        assert.equal(completedSupportedCalls.length, 255_410);
+        assert.equal(
+          supportedCallSemanticsSha256,
+          "009e8aad3a75ddc158474c6cf150eda7e8c92d72615acd5a51fe457063c6f52c",
+        );
+      } else {
+        assert(completedSupportedCalls.length > 162_087);
+        assert.match(supportedCallSemanticsSha256, /^[0-9a-f]{64}$/u);
+      }
       assert.notEqual(genericResult.supportedCalls.at(-1).pendingCallback, true);
-      assert.match(supportedCallSemanticsSha256, /^[0-9a-f]{64}$/u);
       return buildScheduledSharedClockPrimaryReport({
         completedSupportedCalls,
         execution,
@@ -39257,6 +39420,8 @@ function buildGenericRuntimeReentryReport({
             assert(setWaitableTimerCalls.length > 0);
           } else if (windowTimerCallbackRecurringBatchCheckpointEnabled) {
             assert.equal(setWaitableTimerCalls.length, 11_952);
+          } else if (findFirstFileACheckpointEnabled) {
+            assert(setWaitableTimerCalls.length > 0);
           } else {
             assert.equal(
               setWaitableTimerCalls.length,
@@ -39313,6 +39478,8 @@ function buildGenericRuntimeReentryReport({
             assert(waitForSingleObjectExCalls.length > 0);
           } else if (windowTimerCallbackRecurringBatchCheckpointEnabled) {
             assert.equal(waitForSingleObjectExCalls.length, 11_951);
+          } else if (findFirstFileACheckpointEnabled) {
+            assert(waitForSingleObjectExCalls.length > 0);
           } else {
             assert.equal(
               waitForSingleObjectExCalls.length,
@@ -41977,8 +42144,41 @@ function buildScheduledSharedClockPrimaryReport({
       : genericResult.callbackEvents.filter(
           (event) => event.sequence === setWindowText.sequence,
         );
+  const findFirstCalls = completedSupportedCalls.filter(
+    (call) =>
+      call.implementationId ===
+      "kernel32.find-first-file-a.runtime-vfs-windows-932-lexical.v1",
+  );
+  const findNextCalls = completedSupportedCalls.filter(
+    (call) =>
+      call.implementationId ===
+      "kernel32.find-next-file-a.runtime-vfs-windows-932-lexical.v1",
+  );
+  const findCloseCalls = completedSupportedCalls.filter(
+    (call) =>
+      call.implementationId === "kernel32.find-close.runtime-vfs.v1",
+  );
+  const successfulFindCalls = [
+    ...findFirstCalls,
+    ...findNextCalls.filter((call) => call.result.value === 1),
+  ];
+  const findEntries = successfulFindCalls.map((call) => {
+    const bytes = Buffer.from(call.guestWrites[0].bytes);
+    const nameEnd = bytes.indexOf(0, 44);
+    const sizeHigh = bytes.readUInt32LE(28);
+    const sizeLow = bytes.readUInt32LE(32);
+    return {
+      fileName: bytes.subarray(44, nameEnd).toString("ascii"),
+      attributes: bytes.readUInt32LE(0),
+      sizeHigh,
+      sizeLow,
+      byteLength: sizeHigh * 0x1_0000_0000 + sizeLow,
+    };
+  });
   return {
-    schema: "vine.v86-bgi-scheduled-shared-clock-primary",
+    schema: findFirstFileACheckpointEnabled
+      ? "vine.v86-bgi-find-file-a-primary"
+      : "vine.v86-bgi-scheduled-shared-clock-primary",
     schemaVersion: 1,
     source: offer.source,
     sourceSnapshot: {
@@ -42000,6 +42200,15 @@ function buildScheduledSharedClockPrimaryReport({
       semanticCallDigestAlgorithm: SEMANTIC_CALL_DIGEST_ALGORITHM,
       frozenCheckpoint: selectedCheckpoint.id,
       frozenSupportedCalls: selectedCheckpoint.supportedCallCount,
+      ...(findFirstFileACheckpointEnabled
+        ? {
+            fileEnumerationAuthority: "rust-runtime-vfs",
+            fileEnumerationOrdering:
+              "windows-932-ascii-case-insensitive-lexical",
+            fileEnumerationSnapshot: "immutable-open-view",
+            hostDirectoryEnumerationImported: false,
+          }
+        : {}),
     },
     process: runtimeReady,
     reflection: {
@@ -42053,6 +42262,26 @@ function buildScheduledSharedClockPrimaryReport({
         defaultProcessing: setWindowTextDefault,
         callbackEvents: setWindowTextCallbackEvents,
       },
+      ...(findFirstFileACheckpointEnabled
+        ? {
+            findFileA: {
+              pattern: "data0????.arc",
+              entryCount: findEntries.length,
+              entries: findEntries,
+              first: findFirstCalls[0],
+              lastSuccessfulNext: findNextCalls.at(-2),
+              terminalNext: findNextCalls.at(-1),
+              close: findCloseCalls[0],
+              searchHandleNamespace: "vine.runtime-file-search.v1",
+              terminalWin32Error: 18,
+            },
+            sourceReads: {
+              count: genericResult.sourceReads.length,
+              first: genericResult.sourceReads[0] ?? null,
+              last: genericResult.sourceReads.at(-1) ?? null,
+            },
+          }
+        : {}),
     },
     synchronization: {
       writebackBatches: genericResult.writebacks.length,
@@ -42060,11 +42289,23 @@ function buildScheduledSharedClockPrimaryReport({
       callbackEventCount: genericResult.callbackEvents.length,
       activeCallbackDepth: genericResult.activeCallbackDepth,
       finalGeneration: genericResult.finalGeneration,
+      ...(findFirstFileACheckpointEnabled
+        ? {
+            sourceReads: genericResult.sourceReads,
+            heapPageMaterializations:
+              genericResult.heapPageMaterializations,
+            writableDirectoryCreates:
+              genericResult.writableDirectoryCreates,
+          }
+        : {}),
     },
     stop: {
       fault: genericResult.fault,
       terminal: genericResult.terminal,
-      arguments: genericResult.terminal.terminal.stackWords.slice(1, 3),
+      arguments: genericResult.terminal.terminal.stackWords.slice(
+        1,
+        findFirstFileACheckpointEnabled ? 2 : 3,
+      ),
     },
   };
 }
