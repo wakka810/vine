@@ -582,6 +582,18 @@ rejects that kind. Disabled policy, malformed patterns, invalid memory, capacity
 stale/wrong-kind handles, and output faults are mutation-free. No handler enumerates
 the Node／browser host filesystem or asks the source service for directory state.
 
+`DeleteFileA` uses the same `RuntimeFiles` path authority but deliberately enables
+only the reached missing-object projection. The optional
+`sourceFiles.deleteFileA.missingFileOnly` field must be true and is valid only with a
+writable-profile policy; it contains no path, object identity, callsite, occurrence,
+or host operation. A missing final component returns FALSE with
+`ERROR_FILE_NOT_FOUND`; a missing parent returns FALSE with
+`ERROR_PATH_NOT_FOUND`. Existing source files, existing writable files, and
+directories return a typed unsupported fault before any allocator, VFS, guest-memory,
+SQLite, host, or browser mutation. General existing-object deletion, readonly
+attributes, sharing conflicts, delete-pending handles, and durable delete publication
+remain outside this policy version.
+
 `GetVersionExA` uses one BOOL one-argument semantic handler with a dynamic
 in/out contract bounded from the four-byte size field through the 156-byte
 extended layout. Exact sizes 148 and 156 read the full caller span, merge the

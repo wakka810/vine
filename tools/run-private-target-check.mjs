@@ -1157,7 +1157,8 @@ function assertExecutionStateReport(report, scenario) {
 function isScheduledSharedClockNodeReport(report) {
   return (
     report?.schema === "vine.v86-bgi-scheduled-shared-clock-primary" ||
-    report?.schema === "vine.v86-bgi-find-file-a-primary"
+    report?.schema === "vine.v86-bgi-find-file-a-primary" ||
+    report?.schema === "vine.v86-bgi-delete-file-a-primary"
   );
 }
 
@@ -1166,6 +1167,52 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (nodeReport.schema === "vine.v86-bgi-delete-file-a-primary") {
+    const deletion = execution.deleteFileA;
+    const nextEndpoint = nodeReport.stop.fault.endpoint.endpoint;
+    const reachedNextEndpointAfterMissingDeletes =
+      execution.clockSamples.count > 0 &&
+      execution.windowTimerCallbacks.count > 0 &&
+      deletion.completionCount === 2 &&
+      deletion.first.result.value === 0 &&
+      deletion.last.result.value === 0 &&
+      deletion.win32Error === 2 &&
+      deletion.existingObjectMutation === false &&
+      nodeReport.stop.fault.fault.code === "heap-backing-capacity-exceeded";
+    return {
+      capability: "kernel32-delete-file-a-post-find-file-a",
+      implementationId:
+        "runtime.kernel32-delete-file-a-post-find-file-a.v1",
+      requiredCompletions: 2,
+      completionCount: deletion.completionCount,
+      prerequisiteFindCloseSequence: execution.findFileA.close.sequence,
+      prerequisiteFindCloseInstructionCount:
+        execution.findFileA.close.trapInstructionCount,
+      firstCompletionSequence: deletion.first.sequence,
+      firstCompletionInstructionCount: deletion.first.trapInstructionCount,
+      lastCompletionSequence: deletion.last.sequence,
+      lastCompletionInstructionCount: deletion.last.trapInstructionCount,
+      win32Error: deletion.win32Error,
+      missingFileOnly: true,
+      existingObjectMutation: deletion.existingObjectMutation,
+      clockProfileId: nodeReport.contract.clockProfile.id,
+      clockSampleCount: execution.clockSamples.count,
+      windowTimerCallbackCount: execution.windowTimerCallbacks.count,
+      presentCount: execution.presentations.count,
+      pointerInputEventCount: execution.pointerInput.count,
+      inputTimerCycleCount: expectedNext.completion.inputTimerCycleCount,
+      inputQuerySequence: execution.pointerInput.last.committedAfterSequence,
+      thirdPresentReached: execution.presentations.thirdPresentReached,
+      clockFreezeWasProximateCause: !reachedNextEndpointAfterMissingDeletes,
+      archiveEnumerationWasProximateCause:
+        !reachedNextEndpointAfterMissingDeletes,
+      missingFileDeleteWasProximateCause:
+        !reachedNextEndpointAfterMissingDeletes,
+      instructionCount: nodeReport.stop.terminal.instructionCount,
+      nextEndpoint,
+      memoryContentSha256: nodeReport.stop.fault.memoryContentSha256,
+    };
+  }
   if (nodeReport.schema === "vine.v86-bgi-find-file-a-primary") {
     const find = execution.findFileA;
     const nextEndpoint = nodeReport.stop.fault.endpoint.endpoint;
@@ -1403,7 +1450,10 @@ function assertScheduledSharedClockReportSemantics({
     setWindowText.callbackEvents.map(({ action }) => action),
     ["enter", "return"],
   );
-  if (nodeReport.schema === "vine.v86-bgi-find-file-a-primary") {
+  if (
+    nodeReport.schema === "vine.v86-bgi-find-file-a-primary" ||
+    nodeReport.schema === "vine.v86-bgi-delete-file-a-primary"
+  ) {
     const find = nodeExecution.findFileA;
     assert.equal(find.pattern, "data0????.arc");
     assert.equal(find.entryCount, 45);
@@ -1420,11 +1470,32 @@ function assertScheduledSharedClockReportSemantics({
     assert.equal(find.searchHandleNamespace, "vine.runtime-file-search.v1");
     assert.equal(nodeReport.contract.hostDirectoryEnumerationImported, false);
   }
+  if (nodeReport.schema === "vine.v86-bgi-delete-file-a-primary") {
+    const deletion = nodeExecution.deleteFileA;
+    assert.equal(deletion.completionCount, 2);
+    assert.equal(deletion.first.sequence, 255_411);
+    assert.equal(deletion.first.trapInstructionCount, 328_088_002);
+    assert.deepEqual(deletion.first.arguments, [0x006f_f388]);
+    assert.equal(deletion.first.result.value, 0);
+    assert.equal(deletion.first.lastError, 2);
+    assert.equal(deletion.last.sequence, 255_432);
+    assert.equal(deletion.last.trapInstructionCount, 328_097_369);
+    assert.deepEqual(deletion.last.arguments, [0x006f_f388]);
+    assert.equal(deletion.last.result.value, 0);
+    assert.equal(deletion.last.lastError, 2);
+    assert.equal(deletion.existingObjectMutation, false);
+    assert.equal(nodeReport.contract.fileDeletionAuthority, "rust-runtime-vfs");
+    assert.equal(nodeReport.contract.hostFilesystemMutationImported, false);
+  }
 
   const nodeEndpoint = nodeStop.fault.endpoint.endpoint;
   const expectedEndpoint = expectedNext.nextEndpoint;
   assert.equal(nodeStop.fault.capabilityCluster, expectedNext.capabilityCluster);
-  assert.equal(nodeStop.fault.fault.code, "endpoint-contract-missing");
+  const expectedFaultCode =
+    nodeReport.schema === "vine.v86-bgi-delete-file-a-primary"
+      ? "heap-backing-capacity-exceeded"
+      : "endpoint-contract-missing";
+  assert.equal(nodeStop.fault.fault.code, expectedFaultCode);
   assert.equal(nodeStop.fault.endpoint.kind, expectedEndpoint.endpointKind);
   assert.equal(nodeEndpoint.id, expectedEndpoint.endpointId);
   assert.equal(hex32(nodeEndpoint.address), expectedEndpoint.endpointAddress);
@@ -1478,7 +1549,7 @@ function assertScheduledSharedClockReportSemantics({
 
   const browserUnsupported = browser.firstUnsupported;
   assert.equal(browserUnsupported.capabilityCluster, expectedNext.capabilityCluster);
-  assert.equal(browserUnsupported.fault.code, "endpoint-contract-missing");
+  assert.equal(browserUnsupported.fault.code, expectedFaultCode);
   assert.equal(browserUnsupported.instructionCount, expectedNext.instructionCount);
   assert.equal(browserUnsupported.memoryContentSha256, expected.memoryContentSha256);
   assert.equal(browserUnsupported.endpoint.id, expectedEndpoint.endpointId);

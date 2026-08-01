@@ -158,9 +158,13 @@ function validateExecutionStateMachine(value, label, errors) {
 export function validateCurrentCheckpoint(manifest) {
   const errors = [];
   const root = requireRecord(manifest, "manifest", errors);
-  const findFileAPostSetWindowTextActive =
+  const deleteFileAPostFindFileAActive =
     root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
-    "kernel32-find-file-a-post-set-window-text";
+    "kernel32-delete-file-a-post-find-file-a";
+  const findFileAPostSetWindowTextActive =
+    deleteFileAPostFindFileAActive ||
+    root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
+      "kernel32-find-file-a-post-set-window-text";
   const setWindowTextAPostScheduledSharedClockActive =
     findFileAPostSetWindowTextActive ||
     root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
@@ -176,7 +180,10 @@ export function validateCurrentCheckpoint(manifest) {
           "user32-set-window-text-a-post-scheduled-shared-clock") ||
       (findFileAPostSetWindowTextActive &&
         root.nextStructuredStop?.completion?.capability ===
-          "kernel32-find-file-a-post-set-window-text"));
+          "kernel32-find-file-a-post-set-window-text") ||
+      (deleteFileAPostFindFileAActive &&
+        root.nextStructuredStop?.completion?.capability ===
+          "kernel32-delete-file-a-post-find-file-a"));
   const primaryMainLoopProgressionActive =
     root.activeRuntimeCheckpoint?.profile === "primary-main-loop-progression";
   const leaveCriticalSectionActive =
@@ -545,7 +552,10 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9RecreatedTexturesActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-set-window-pos-repeat-activation";
+  const deleteFileAActive =
+    root.activeRuntimeCheckpoint?.capabilityProfile === "kernel32-delete-file-a";
   const findFileAActive =
+    deleteFileAActive ||
     root.activeRuntimeCheckpoint?.capabilityProfile ===
       "kernel32-find-first-file-a";
   const createDirectoryAActive =
@@ -1354,7 +1364,26 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    findFileAActive
+    deleteFileAActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_997,
+        browserMappingDirtyPages: 150_402,
+        browserSuccessExecutionTransitions: 589_100,
+        browserFinalGeneration: 315_160,
+        browserReportSchemaVersion: 69,
+        latestSchema: "vine.v86-bgi-delete-file-a-primary",
+        latestWritebackBatches: 165_242,
+        latestWritebackDirtyPages: 244_675,
+        latestWritebackChangedBytes: 43_072_557,
+        latestHostDeltaBatches: 127_997,
+        latestFinalMemoryGeneration: 296_088,
+        semanticCallDigestSha256:
+          "3721b7922b0e2fb15f1fd9390faa214b227056a664885a2ee6f3c4ab09c5082d",
+        memoryContentSha256:
+          "ecafc2724de30b5a776dd08323db95e0520e4b5235a766ed7bc1d38311a46d5c",
+      }
+    : findFileAActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_997,
@@ -3394,7 +3423,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    findFileAPostSetWindowTextActive
+    deleteFileAPostFindFileAActive
+      ? "vine.browser-runtime-worker.v103"
+      : findFileAPostSetWindowTextActive
       ? "vine.browser-runtime-worker.v102"
       : scheduledSharedClockActive
       ? "vine.browser-runtime-worker.v101"
@@ -4235,7 +4266,9 @@ export function validateCurrentCheckpoint(manifest) {
           : "summary") ||
     bgiBrowserEvidence.callSemanticsAlgorithm !== "sha256-canonical-json-v1" ||
     bgiBrowserEvidence.browserReportSchemaVersion !==
-      (findFileAActive
+      (deleteFileAActive
+        ? 69
+        : findFileAActive
         ? 68
         : peekMessageAPostWindowTimerCallbackContinuationCheckpointActive
         ? 67
@@ -14290,6 +14323,13 @@ export function validateCurrentCheckpoint(manifest) {
         errors,
       )
     : null;
+  const deleteFileA = deleteFileAActive
+    ? requireRecord(
+        sourceFiles.deleteFileA,
+        "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.sourceFiles.deleteFileA",
+        errors,
+      )
+    : null;
   const loadLibraryA = requireRecord(
     kernel32Policy.loadLibraryA,
     "activeRuntimeCheckpoint.kernel32CompatibilityPolicy.loadLibraryA",
@@ -14309,7 +14349,9 @@ export function validateCurrentCheckpoint(manifest) {
     kernel32Policy.schema !== "vine.kernel32-compatibility-policy" ||
     kernel32Policy.schemaVersion !== 2 ||
     kernel32Policy.id !==
-      (findFileAActive
+      (deleteFileAActive
+        ? "kernel32-delete-file-a-v1"
+        : findFileAActive
         ? "kernel32-find-file-a-v1"
         : createDirectoryAActive
         ? "kernel32-create-directory-a-v1"
@@ -14321,7 +14363,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? "kernel32-sleep-zero-v1"
               : "kernel32-wait-for-single-object-ex-v1") ||
     kernel32Policy.source !==
-      (findFileAActive
+      (deleteFileAActive
+        ? "fixtures/runtime-policies/kernel32-delete-file-a-v1.json"
+        : findFileAActive
         ? "fixtures/runtime-policies/kernel32-find-file-a-v1.json"
         : createDirectoryAActive
         ? "fixtures/runtime-policies/kernel32-create-directory-a-v1.json"
@@ -14394,6 +14438,9 @@ export function validateCurrentCheckpoint(manifest) {
     (findFileAActive
       ? findFileA?.maximumMatches !== 4_096
       : sourceFiles.findFileA !== undefined) ||
+    (deleteFileAActive
+      ? deleteFileA?.missingFileOnly !== true
+      : sourceFiles.deleteFileA !== undefined) ||
     loadLibraryA.maximumModuleNameBytes !== 260 ||
     JSON.stringify(loadLibraryA.runtimeSystemModules) !==
       JSON.stringify([
@@ -23833,7 +23880,42 @@ export function validateCurrentCheckpoint(manifest) {
           errors,
         )
       : {};
-    const expectedNode = findFileAPostSetWindowTextActive
+    const deleteFileA = deleteFileAPostFindFileAActive
+      ? requireRecord(
+          node.deleteFileA,
+          "activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence.deleteFileA",
+          errors,
+        )
+      : {};
+    const expectedNode = deleteFileAPostFindFileAActive
+      ? {
+          schema: "vine.v86-bgi-delete-file-a-primary",
+          runtimeKernelCheckpoint:
+            "kernel32-delete-file-a-post-find-file-a",
+          repeatRuns: 1,
+          reportBytes: 2_399_179,
+          reportSha256:
+            "ba882c9283683c7dd844146f944bcf12fa5a63560af861fa4ec480535110158a",
+          completedSupportedCalls: 260_630,
+          supportedCallSemanticsSha256:
+            "3721b7922b0e2fb15f1fd9390faa214b227056a664885a2ee6f3c4ab09c5082d",
+          clockSampleCount: 100_534,
+          lastClockTick: 3_774_751,
+          lastClockTime100ns: 1_747_515_000,
+          lastClockGeneration: 13_464,
+          lastClockRetiredInstructions: 341_616_859,
+          lastClockPendingRetiredInstructions: 859,
+          windowTimerCallbackCount: 39,
+          timerPacingCompletionCount: 7_697,
+          writebackBatches: 263_822,
+          hostDeltaBatches: 127_963,
+          callbackEventCount: 144,
+          finalMemoryGeneration: 296_088,
+          terminalInstructionCount: 341_618_572,
+          terminalMemoryContentSha256:
+            "ecafc2724de30b5a776dd08323db95e0520e4b5235a766ed7bc1d38311a46d5c",
+        }
+      : findFileAPostSetWindowTextActive
       ? {
           schema: "vine.v86-bgi-find-file-a-primary",
           runtimeKernelCheckpoint:
@@ -23852,6 +23934,10 @@ export function validateCurrentCheckpoint(manifest) {
           lastClockRetiredInstructions: 327_685_427,
           lastClockPendingRetiredInstructions: 1_427,
           timerPacingCompletionCount: 7_390,
+          windowTimerCallbackCount: 36,
+          writebackBatches: 258_599,
+          hostDeltaBatches: 125_449,
+          callbackEventCount: 138,
           finalMemoryGeneration: 288_337,
           terminalInstructionCount: 328_088_002,
           terminalMemoryContentSha256:
@@ -23891,7 +23977,55 @@ export function validateCurrentCheckpoint(manifest) {
         };
     const expectedCompletion = currentStop.completion ?? {};
     const expectedEndpoint = currentStop.nextEndpoint ?? {};
-    const currentStopValid = findFileAPostSetWindowTextActive
+    const currentStopValid = deleteFileAPostFindFileAActive
+      ? currentStop.kind === "capability-checkpoint" &&
+        currentStop.classification === "subsystem-gateway" &&
+        currentStop.nextCheckpoint ===
+          "kernel32-private-heap-ordinary-segment-growth-post-delete-file-a" &&
+        currentStop.instructionCount === 341_618_572 &&
+        currentStop.capabilityCluster === "kernel32-private-heap-allocation" &&
+        currentStop.reason ===
+          "kernel32-delete-file-a-post-find-file-a-checkpoint-complete" &&
+        expectedCompletion.capability ===
+          "kernel32-delete-file-a-post-find-file-a" &&
+        expectedCompletion.implementationId ===
+          "runtime.kernel32-delete-file-a-post-find-file-a.v1" &&
+        expectedCompletion.requiredCompletions === 2 &&
+        expectedCompletion.completionCount === 2 &&
+        expectedCompletion.prerequisiteFindCloseSequence === 251_740 &&
+        expectedCompletion.prerequisiteFindCloseInstructionCount ===
+          323_869_665 &&
+        expectedCompletion.firstCompletionSequence === 255_411 &&
+        expectedCompletion.firstCompletionInstructionCount === 328_088_002 &&
+        expectedCompletion.lastCompletionSequence === 255_432 &&
+        expectedCompletion.lastCompletionInstructionCount === 328_097_369 &&
+        expectedCompletion.win32Error === 2 &&
+        expectedCompletion.missingFileOnly === true &&
+        expectedCompletion.existingObjectMutation === false &&
+        expectedCompletion.clockProfileId === profile.id &&
+        expectedCompletion.clockSampleCount === node.clockSampleCount &&
+        expectedCompletion.windowTimerCallbackCount ===
+          node.windowTimerCallbackCount &&
+        expectedCompletion.presentCount === 2 &&
+        expectedCompletion.pointerInputEventCount === 2 &&
+        expectedCompletion.inputTimerCycleCount === 253 &&
+        expectedCompletion.inputQuerySequence === 222_096 &&
+        expectedCompletion.thirdPresentReached === false &&
+        expectedCompletion.clockFreezeWasProximateCause === false &&
+        expectedCompletion.archiveEnumerationWasProximateCause === false &&
+        expectedCompletion.missingFileDeleteWasProximateCause === false &&
+        currentStop.fault?.class === "resource-limit" &&
+        currentStop.fault?.stage === "runtime-heap-backing" &&
+        currentStop.fault?.code === "heap-backing-capacity-exceeded" &&
+        expectedEndpoint.endpointId === 75 &&
+        expectedEndpoint.api?.toLowerCase() === "kernel32.dll!heapalloc" &&
+        expectedEndpoint.endpointAddress === "0x7f0004a0" &&
+        expectedEndpoint.iatAddress === "0x100d11d4" &&
+        expectedEndpoint.arguments?.join(",") ===
+          "0x68010001,0x00000000,0x00406000" &&
+        expectedEndpoint.returnAddress === "0x100a4a33" &&
+        expectedEndpoint.stackPointer === "0x006ff62c"
+      : findFileAPostSetWindowTextActive
       ? currentStop.kind === "capability-checkpoint" &&
         currentStop.nextCheckpoint ===
           "kernel32-delete-file-a-post-find-file-a" &&
@@ -24085,6 +24219,70 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.findNextFileATerminalLastError === 18 &&
         latestEvidence.findFileAFailureAtomicity === true &&
         latestEvidence.findFileANodeChromeOrderedSemanticsMatched === true);
+    const deleteFileAEvidenceValid =
+      !deleteFileAPostFindFileAActive ||
+      (deleteFileA.completionCount === 2 &&
+        deleteFileA.firstSequence === 255_411 &&
+        deleteFileA.firstInstructionCount === 328_088_002 &&
+        deleteFileA.lastSequence === 255_432 &&
+        deleteFileA.lastInstructionCount === 328_097_369 &&
+        deleteFileA.arguments?.join(",") === "0x006ff388" &&
+        deleteFileA.returnAddress === "0x100828e2" &&
+        deleteFileA.stackPointers?.join(",") ===
+          "0x006ff378,0x006ff380" &&
+        deleteFileA.result === 0 &&
+        deleteFileA.win32Error === 2 &&
+        deleteFileA.guestWriteBytes === 0 &&
+        deleteFileA.implementationId ===
+          "kernel32.delete-file-a.missing-runtime-vfs.v1" &&
+        deleteFileA.pathAuthority === "rust-runtime-vfs" &&
+        deleteFileA.variant === "missing-final-component-only" &&
+        deleteFileA.existingObjectMutation === false &&
+        deleteFileA.hostFilesystemMutationImported === false &&
+        deleteFileA.sourceReadCountAtStop === 138 &&
+        deleteFileA.nativeOracleScriptBytes === 6_791 &&
+        deleteFileA.nativeOracleScriptSha256 ===
+          "2b3236ebb475020635b843508794c9f9db63dbdde443d8631bbbf5823a97b0a9" &&
+        deleteFileA.nativeOracleReportBytes === 3_949 &&
+        deleteFileA.nativeOracleReportSha256 ===
+          "23eaadad5161c13cb7cf01ad419f66272638e38bfbbb8df124d1296cc9e36bd4" &&
+        deleteFileA.nativeOracleFridaVersion === "17.11.0" &&
+        deleteFileA.nativeOracleCallCount === 2 &&
+        deleteFileA.nativeOracleResults?.join(",") === "0,0" &&
+        deleteFileA.nativeOracleLastErrors?.join(",") === "2,2" &&
+        deleteFileA.nativeOracleTargetsAbsentBeforeAndAfter === true &&
+        deleteFileA.nativeOracleExecutableHashUnchanged === true &&
+        latestEvidence.deleteFileAImplemented === true &&
+        latestEvidence.deleteFileAPolicyId === "kernel32-delete-file-a-v1" &&
+        latestEvidence.deleteFileACallCount === 2 &&
+        latestEvidence.deleteFileAWin32Error === 2 &&
+        latestEvidence.deleteFileAExistingObjectMutation === false &&
+        latestEvidence.deleteFileAFailureAtomicity === true &&
+        latestEvidence.deleteFileANodeChromeOrderedSemanticsMatched === true &&
+        latestEvidence.nativeHeapAfterDeleteOracleProfile ===
+          "bgi-private-heap-after-missing-delete-v1" &&
+        latestEvidence.nativeHeapAfterDeleteOracleScriptBytes === 5_584 &&
+        latestEvidence.nativeHeapAfterDeleteOracleScriptSha256 ===
+          "7c4edcd16670f958af3d0952e2dbecced5092564657a8f32b33f57362fa621ee" &&
+        latestEvidence.nativeHeapAfterDeleteOracleReportBytes === 17_947_524 &&
+        latestEvidence.nativeHeapAfterDeleteOracleReportSha256 ===
+          "712940b0d3779ac7f3f34849d3f90b7da78d5632b39c5cd5f097e16065af73da" &&
+        latestEvidence.nativeHeapAfterDeleteOracleFridaVersion === "17.11.0" &&
+        latestEvidence.nativeHeapAfterDeleteOracleAllocationCount === 72_385 &&
+        latestEvidence.nativeHeapAfterDeleteOracleEightByteAllocationCount ===
+          70_386 &&
+        latestEvidence.nativeHeapAfterDeleteOracleReachedRequestBytes ===
+          4_218_880 &&
+        latestEvidence.nativeHeapAfterDeleteOracleReachedCallerRva ===
+          "0x000a4a33" &&
+        latestEvidence.nativeHeapAfterDeleteOracleReachedRequestSucceeded ===
+          true &&
+        latestEvidence.nativeHeapAfterDeleteOracleLargeRequestBytes ===
+          67_108_864 &&
+        latestEvidence.nativeHeapAfterDeleteOracleLargeRequestSuccessCount ===
+          5 &&
+        latestEvidence.nativeHeapAfterDeleteOracleExecutableHashUnchanged ===
+          true);
     if (
       scheduled.schema !== "vine.scheduled-shared-clock-checkpoint" ||
       scheduled.schemaVersion !== 1 ||
@@ -24133,7 +24331,8 @@ export function validateCurrentCheckpoint(manifest) {
       node.lastClockPendingRetiredInstructions !==
         (expectedNode.lastClockPendingRetiredInstructions ?? 1_971) ||
       node.apiReadIncrement !== 0 ||
-      node.windowTimerCallbackCount !== 36 ||
+      node.windowTimerCallbackCount !==
+        (expectedNode.windowTimerCallbackCount ?? 36) ||
       node.timerPacingCompletionCount !==
         (expectedNode.timerPacingCompletionCount ?? 7_174) ||
       node.presentCount !== 2 ||
@@ -24141,13 +24340,21 @@ export function validateCurrentCheckpoint(manifest) {
       node.pointerInputEventCount !== 2 ||
       node.pointerInputDownCommittedAfterSequence !== 222_004 ||
       node.pointerInputUpCommittedAfterSequence !== 222_096 ||
+      (expectedNode.writebackBatches !== undefined &&
+        node.writebackBatches !== expectedNode.writebackBatches) ||
+      (expectedNode.hostDeltaBatches !== undefined &&
+        node.hostDeltaBatches !== expectedNode.hostDeltaBatches) ||
+      (expectedNode.callbackEventCount !== undefined &&
+        node.callbackEventCount !== expectedNode.callbackEventCount) ||
       node.finalMemoryGeneration !== expectedNode.finalMemoryGeneration ||
       node.terminalInstructionCount !==
         expectedNode.terminalInstructionCount ||
       node.terminalMemoryContentSha256 !==
         expectedNode.terminalMemoryContentSha256 ||
       browserBoundary.runtimeProtocol !==
-        (findFileAPostSetWindowTextActive
+        (deleteFileAPostFindFileAActive
+          ? "vine.browser-runtime-worker.v103"
+          : findFileAPostSetWindowTextActive
           ? "vine.browser-runtime-worker.v102"
           : "vine.browser-runtime-worker.v101") ||
       browserBoundary.retiredInstructionCursorTransport !==
@@ -24157,22 +24364,34 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.controlledChromeCommand !==
         "npm run check:runtime:browser-worker" ||
       browserBoundary.chromeVersion !== "150.0.7871.187" ||
-      browserBoundary.reportBytes !== 35_951 ||
+      browserBoundary.reportBytes !==
+        (deleteFileAPostFindFileAActive ? 35_961 : 35_951) ||
       browserBoundary.reportSha256 !==
-        "ecd982f21410c69c4d844a114041e301fd140fedbb520cf5773f4d13d2846aa1" ||
-      browserBoundary.runtimeWorkerBytes !== 1_049_048 ||
+        (deleteFileAPostFindFileAActive
+          ? "bd77deb28553190382622adb663ac87b99e4c9f9df719bbba2282f5bae5bca94"
+          : "ecd982f21410c69c4d844a114041e301fd140fedbb520cf5773f4d13d2846aa1") ||
+      browserBoundary.runtimeWorkerBytes !==
+        (deleteFileAPostFindFileAActive ? 1_053_379 : 1_049_048) ||
       browserBoundary.runtimeWorkerSha256 !==
-        "dbb154a48ed3db86b915396bb549add364443e050b6d68f52f0c811c8b46b1c4" ||
-      browserBoundary.runtimeCoreWasmBytes !== 5_354_885 ||
+        (deleteFileAPostFindFileAActive
+          ? "1f2812982a31f8b94c994ba531c7d58285122b9299da1b51169b49631790f420"
+          : "dbb154a48ed3db86b915396bb549add364443e050b6d68f52f0c811c8b46b1c4") ||
+      browserBoundary.runtimeCoreWasmBytes !==
+        (deleteFileAPostFindFileAActive ? 5_361_144 : 5_354_885) ||
       browserBoundary.runtimeCoreWasmSha256 !==
-        "14ebc235916489a3e4b892eb85d1afc4d3d600a9029cd26af28ab047f0991f7e" ||
+        (deleteFileAPostFindFileAActive
+          ? "c7fd9b0ceb900ebff6a7e2d92e7e726c3b9486c95c87291fe1eb19635c65808c"
+          : "14ebc235916489a3e4b892eb85d1afc4d3d600a9029cd26af28ab047f0991f7e") ||
       browserBoundary.privatePrimaryReplay !==
         "passed-node-equivalent-scheduled-shared-clock" ||
       browserBoundary.privatePrimaryCommand !==
         "node tools/run-browser-runtime-check.mjs --bgi" ||
-      browserBoundary.privatePrimaryReportBytes !== 2_592_093 ||
+      browserBoundary.privatePrimaryReportBytes !==
+        (deleteFileAPostFindFileAActive ? 2_598_978 : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
-        "fe50788a2734f8dad6aeba2985eb713a4c0c790d3bb8707aa5eeb8c8fa8350ae" ||
+        (deleteFileAPostFindFileAActive
+          ? "deeb6cf84d0c0bdc44a1101f99786d66cb906e1ebcf513351c4d722a85582f7f"
+          : "fe50788a2734f8dad6aeba2985eb713a4c0c790d3bb8707aa5eeb8c8fa8350ae") ||
       browserBoundary.privatePrimaryChromeVersion !==
         browserBoundary.chromeVersion ||
       browserBoundary.privatePrimarySupportedCalls !==
@@ -24206,9 +24425,12 @@ export function validateCurrentCheckpoint(manifest) {
       !currentStopValid ||
       !setWindowTextAEvidenceValid ||
       !findFileAEvidenceValid ||
+      !deleteFileAEvidenceValid ||
       conclusion.clockFreezeWasProximateCause !== false ||
       conclusion.nextEndpoint !==
-        (findFileAPostSetWindowTextActive
+        (deleteFileAPostFindFileAActive
+          ? "KERNEL32.dll!HeapAlloc"
+          : findFileAPostSetWindowTextActive
           ? "KERNEL32.dll!DeleteFileA"
           : setWindowTextAPostScheduledSharedClockActive
           ? "KERNEL32.dll!FindFirstFileA"
@@ -33704,7 +33926,9 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.nativeSleepZeroExecutableHashUnchanged !== true ||
       latestEvidence.sleepZeroImplemented !== true ||
       latestEvidence.sleepZeroPolicyId !==
-        (findFileAActive
+        (deleteFileAActive
+          ? "kernel32-delete-file-a-v1"
+          : findFileAActive
           ? "kernel32-find-file-a-v1"
           : createDirectoryAActive
           ? "kernel32-create-directory-a-v1"
@@ -33714,7 +33938,9 @@ export function validateCurrentCheckpoint(manifest) {
               ? "kernel32-global-memory-status-v1"
               : "kernel32-sleep-zero-v1") ||
       latestEvidence.sleepZeroPolicySource !==
-        (findFileAActive
+        (deleteFileAActive
+          ? "fixtures/runtime-policies/kernel32-delete-file-a-v1.json"
+          : findFileAActive
           ? "fixtures/runtime-policies/kernel32-find-file-a-v1.json"
           : createDirectoryAActive
           ? "fixtures/runtime-policies/kernel32-create-directory-a-v1.json"
@@ -33819,7 +34045,9 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.nativeGlobalMemoryStatusExecutableHashUnchanged !== true ||
       latestEvidence.globalMemoryStatusImplemented !== true ||
       latestEvidence.globalMemoryStatusPolicyId !==
-        (findFileAActive
+        (deleteFileAActive
+          ? "kernel32-delete-file-a-v1"
+          : findFileAActive
           ? "kernel32-find-file-a-v1"
           : createDirectoryAActive
           ? "kernel32-create-directory-a-v1"
@@ -33827,7 +34055,9 @@ export function validateCurrentCheckpoint(manifest) {
             ? "kernel32-get-file-attributes-a-v1"
             : "kernel32-global-memory-status-v1") ||
       latestEvidence.globalMemoryStatusPolicySource !==
-        (findFileAActive
+        (deleteFileAActive
+          ? "fixtures/runtime-policies/kernel32-delete-file-a-v1.json"
+          : findFileAActive
           ? "fixtures/runtime-policies/kernel32-find-file-a-v1.json"
           : createDirectoryAActive
           ? "fixtures/runtime-policies/kernel32-create-directory-a-v1.json"
@@ -33936,13 +34166,17 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.nativeGetFileAttributesAExecutableHashUnchanged !== true ||
       latestEvidence.getFileAttributesAImplemented !== true ||
       latestEvidence.getFileAttributesAPolicyId !==
-        (findFileAActive
+        (deleteFileAActive
+          ? "kernel32-delete-file-a-v1"
+          : findFileAActive
           ? "kernel32-find-file-a-v1"
           : createDirectoryAActive
           ? "kernel32-create-directory-a-v1"
           : "kernel32-get-file-attributes-a-v1") ||
       latestEvidence.getFileAttributesAPolicySource !==
-        (findFileAActive
+        (deleteFileAActive
+          ? "fixtures/runtime-policies/kernel32-delete-file-a-v1.json"
+          : findFileAActive
           ? "fixtures/runtime-policies/kernel32-find-file-a-v1.json"
           : createDirectoryAActive
           ? "fixtures/runtime-policies/kernel32-create-directory-a-v1.json"
@@ -34057,11 +34291,15 @@ export function validateCurrentCheckpoint(manifest) {
       latestEvidence.nativeCreateDirectoryAExecutableHashUnchanged !== true ||
       latestEvidence.createDirectoryAImplemented !== true ||
       latestEvidence.createDirectoryAPolicyId !==
-        (findFileAActive
+        (deleteFileAActive
+          ? "kernel32-delete-file-a-v1"
+          : findFileAActive
           ? "kernel32-find-file-a-v1"
           : "kernel32-create-directory-a-v1") ||
       latestEvidence.createDirectoryAPolicySource !==
-        (findFileAActive
+        (deleteFileAActive
+          ? "fixtures/runtime-policies/kernel32-delete-file-a-v1.json"
+          : findFileAActive
           ? "fixtures/runtime-policies/kernel32-find-file-a-v1.json"
           : "fixtures/runtime-policies/kernel32-create-directory-a-v1.json") ||
       latestEvidence.createDirectoryACallCount !== 1 ||

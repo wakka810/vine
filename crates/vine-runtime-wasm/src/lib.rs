@@ -3382,6 +3382,7 @@ fn build_bgi_dispatcher(
                 "FindFirstFileA" | "FindNextFileA" | "FindClose" => {
                     kernel32_policy.find_file_a().is_some()
                 }
+                "DeleteFileA" => kernel32_policy.delete_file_a().is_some(),
                 "SetRect" => set_rect_enabled,
                 "GetWindowRect" | "GetCursorPos" => user32_async_key_state_initial_scan_enabled,
                 "TranslateMessage" | "DispatchMessageA" => user32_message_dispatch_enabled,

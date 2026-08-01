@@ -188,6 +188,10 @@ assert.equal(
   "v86-bgi-find-first-file-a",
 );
 assert.equal(
+  bgiProfileOutputDirectory("kernel32-delete-file-a"),
+  "v86-bgi-delete-file-a",
+);
+assert.equal(
   bgiProfileOutputDirectory("shell32-drag-accept-files"),
   "v86-bgi-drag-accept-files",
 );

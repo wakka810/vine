@@ -30,12 +30,12 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "Runtime VFS search enumerates all 45 data0????.arc entries before DeleteFileA",
+    "Runtime VFS search enumerates all 45 data0????.arc entries, and both missing-file DeleteFileA calls complete before the next private-heap allocation",
   ),
 );
 assert.ok(
   rendered.includes(
-    "Node primary recorded 100,509 samples / 36 TIMERPROC callbacks",
+    "Node primary recorded 100,534 samples / 39 TIMERPROC callbacks",
   ),
 );
 assert.ok(rendered.includes("| Shared clock |"));

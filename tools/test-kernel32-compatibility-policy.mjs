@@ -54,6 +54,7 @@ const policyFiles = [
   "fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json",
   "fixtures/runtime-policies/kernel32-create-directory-a-v1.json",
   "fixtures/runtime-policies/kernel32-find-file-a-v1.json",
+  "fixtures/runtime-policies/kernel32-delete-file-a-v1.json",
   "fixtures/runtime-policies/kernel32-scheduled-shared-clock-v1.json",
 ];
 
@@ -250,6 +251,10 @@ for (const relative of policyFiles) {
       assert.deepEqual(findFileA, { maximumMatches: 4096 });
       assert(fileAttributes !== null);
     }
+    const deleteFileA = sourceFiles.deleteFileA ?? null;
+    if (deleteFileA !== null) {
+      assert.deepEqual(deleteFileA, { missingFileOnly: true });
+    }
   }
   const driveType = policy.getDriveTypeA ?? null;
   if (driveType !== null) {
@@ -300,7 +305,8 @@ for (const relative of policyFiles) {
         policy.id === "kernel32-global-memory-status-v1" ||
         policy.id === "kernel32-get-file-attributes-a-v1" ||
         policy.id === "kernel32-create-directory-a-v1" ||
-        policy.id === "kernel32-find-file-a-v1",
+        policy.id === "kernel32-find-file-a-v1" ||
+        policy.id === "kernel32-delete-file-a-v1",
     );
   }
   const loadLibraryA = policy.loadLibraryA ?? null;

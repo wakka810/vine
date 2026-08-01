@@ -169,6 +169,8 @@ pub struct Kernel32SourceFilePolicy {
     pub get_file_attributes_a: Option<Kernel32GetFileAttributesAPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub find_file_a: Option<Kernel32FindFileAPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delete_file_a: Option<Kernel32DeleteFileAPolicy>,
     #[serde(default)]
     pub create_directory_a: bool,
 }
@@ -184,6 +186,12 @@ pub struct Kernel32GetFileAttributesAPolicy {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Kernel32FindFileAPolicy {
     pub maximum_matches: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Kernel32DeleteFileAPolicy {
+    pub missing_file_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -630,6 +638,9 @@ impl Kernel32CompatibilityPolicy {
                     files.get_file_attributes_a.is_none()
                         || !(1..=RUNTIME_FILE_SEARCH_LIMIT as u32).contains(&find.maximum_matches)
                 })
+                || files
+                    .delete_file_a
+                    .is_some_and(|delete| !writable || !delete.missing_file_only)
                 || (files.create_directory_a && !writable)
                 || (writable
                     && (!share_modes.contains(&0)
@@ -1078,6 +1089,10 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn find_file_a(&self) -> Option<Kernel32FindFileAPolicy> {
         self.source_files.as_ref()?.find_file_a
+    }
+
+    pub fn delete_file_a(&self) -> Option<Kernel32DeleteFileAPolicy> {
+        self.source_files.as_ref()?.delete_file_a
     }
 
     pub fn create_directory_a_enabled(&self) -> bool {

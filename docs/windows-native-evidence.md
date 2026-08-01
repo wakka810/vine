@@ -6174,3 +6174,41 @@ at two. Exact current report identity and next-stop fields remain authoritative
 only in [current-checkpoint.json](current-checkpoint.json). This evidence does
 not claim cross-thread delivery, arbitrary WndProc handling, Unicode APIs,
 browser tab-title synchronization, or general title-length behavior.
+
+## 185. BGI missing-file `DeleteFileA` and following heap demand
+
+The ignored Frida 17.11.0 Delete oracle script is 6,791 bytes／SHA-256
+`2b3236ebb475020635b843508794c9f9db63dbdde443d8631bbbf5823a97b0a9`;
+its 3,949-byte JSON report has SHA-256
+`23eaadad5161c13cb7cf01ad419f66272638e38bfbbb8df124d1296cc9e36bd4`.
+It observes two calls from BGI return RVA `0x000828E2`, for
+`UserData\Sakuranouta100.sud` and `UserData\Sakuranouta101.sud`. Both targets
+are absent before and after the call, both calls return FALSE with LastError 2,
+and the 1,193,472-byte source executable retains SHA-256
+`f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`.
+Static decompile at `sub_482880` builds the path, calls `DeleteFileA`, and passes
+the returned BOOL directly to `sub_4435D0`; it does not immediately read
+LastError. Native pointer, module base, thread ID, and absolute path prefix are
+artifact identity.
+
+Vine therefore enables only the reached missing-final-component projection.
+Canonical Node records sequences 255,411／255,432 at instructions
+328,088,002／328,097,369, argument `0x006FF388`, return RVA `0x100828E2`,
+FALSE／2, and zero guest writes. Existing files and directories remain typed
+unsupported variants, and no source, writable overlay, SQLite, host, or browser
+filesystem mutation is imported.
+
+A second ignored Frida 17.11.0 script is 5,584 bytes／SHA-256
+`7c4edcd16670f958af3d0952e2dbecced5092564657a8f32b33f57362fa621ee`;
+its 17,947,524-byte report has SHA-256
+`712940b0d3779ac7f3f34849d3f90b7da78d5632b39c5cd5f097e16065af73da`.
+After the same absent Delete pair it records 72,385 native `HeapAlloc`
+completions. The request matching Vine's next stop is flags 0, 4,218,880 bytes
+(`0x00406000`) from caller RVA `0x000A4A33`; native Windows returns non-NULL.
+The same trace contains 70,386 eight-byte allocations and five successful exact
+64 MiB requests from that caller. These occurrence and pointer values are
+workload evidence, not allocator semantics. They establish that Vine's current
+`heap-backing-capacity-exceeded` at the 4,218,880-byte request is a runtime
+capacity gateway rather than native application failure. Exact current Node／
+Chrome counts and the next stop remain authoritative only in
+[current-checkpoint.json](current-checkpoint.json).

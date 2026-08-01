@@ -37,12 +37,12 @@ pub use policy::{
     KERNEL32_COMPATIBILITY_POLICY_SCHEMA, KERNEL32_COMPATIBILITY_POLICY_VERSION,
     Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy, Kernel32CompatibilityPolicyError,
     Kernel32CreateMutexAPolicy, Kernel32CreateThreadPolicy, Kernel32CreateWaitableTimerAPolicy,
-    Kernel32FindFileAPolicy, Kernel32GetDriveTypeAPolicy, Kernel32GetFileAttributesAPolicy,
-    Kernel32GetModuleFileNameAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
-    Kernel32HeapAllocatorPolicy, Kernel32InitializeCriticalSectionPolicy,
-    Kernel32LcMapStringWPolicy, Kernel32LoadLibraryAPolicy, Kernel32MemoryStatusPolicy,
-    Kernel32MultiByteToWideCharPolicy, Kernel32OsVersionInfoAPolicy,
-    Kernel32PerformanceCounterPolicy, Kernel32ProcessorFeaturePolicy,
+    Kernel32DeleteFileAPolicy, Kernel32FindFileAPolicy, Kernel32GetDriveTypeAPolicy,
+    Kernel32GetFileAttributesAPolicy, Kernel32GetModuleFileNameAPolicy,
+    Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy, Kernel32HeapAllocatorPolicy,
+    Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
+    Kernel32LoadLibraryAPolicy, Kernel32MemoryStatusPolicy, Kernel32MultiByteToWideCharPolicy,
+    Kernel32OsVersionInfoAPolicy, Kernel32PerformanceCounterPolicy, Kernel32ProcessorFeaturePolicy,
     Kernel32RuntimeSystemModulePolicy, Kernel32SetCurrentDirectoryAPolicy,
     Kernel32SetWaitableTimerPolicy, Kernel32SourceFilePolicy, Kernel32StandardHandleFileType,
     Kernel32SystemInfoPolicy, Kernel32ThreadAffinityPolicy, Kernel32ThreadPriorityPolicy,
@@ -94,6 +94,7 @@ pub const FIND_FIRST_FILE_A_IMPLEMENTATION: &str =
 pub const FIND_NEXT_FILE_A_IMPLEMENTATION: &str =
     "kernel32.find-next-file-a.runtime-vfs-windows-932-lexical.v1";
 pub const FIND_CLOSE_IMPLEMENTATION: &str = "kernel32.find-close.runtime-vfs.v1";
+pub const DELETE_FILE_A_IMPLEMENTATION: &str = "kernel32.delete-file-a.missing-runtime-vfs.v1";
 pub const CREATE_DIRECTORY_A_IMPLEMENTATION: &str = "kernel32.create-directory-a.runtime-vfs.v1";
 pub const CREATE_FILE_A_IMPLEMENTATION: &str = "kernel32.create-file-a.source.v1";
 pub const GET_FILE_SIZE_IMPLEMENTATION: &str = "kernel32.get-file-size.source.v1";
@@ -293,6 +294,7 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
             handle_find_next_file_a(policy, contract, frame, session)
         }
         FIND_CLOSE_IMPLEMENTATION => handle_find_close(policy, contract, frame, session),
+        DELETE_FILE_A_IMPLEMENTATION => handle_delete_file_a(policy, contract, frame, session),
         CREATE_FILE_A_IMPLEMENTATION => handle_create_file_a(policy, contract, frame, session),
         GET_FILE_SIZE_IMPLEMENTATION => handle_get_file_size(policy, contract, frame, session),
         WRITE_FILE_IMPLEMENTATION => handle_write_file(policy, contract, frame, session),
@@ -411,6 +413,7 @@ pub fn kernel32_contract_for_endpoint(
         "FindFirstFileA" => find_first_file_a_contract(endpoint)?,
         "FindNextFileA" => find_next_file_a_contract(endpoint)?,
         "FindClose" => find_close_contract(endpoint)?,
+        "DeleteFileA" => delete_file_a_contract(endpoint)?,
         "CreateDirectoryA" => create_directory_a_contract(endpoint)?,
         "CreateFileA" => create_file_a_contract(endpoint)?,
         "GetFileSize" => get_file_size_contract(endpoint)?,
@@ -2135,6 +2138,49 @@ fn handle_find_first_file_a(
     }
 }
 
+fn handle_delete_file_a(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let file_policy = require_source_file_policy(policy)?;
+    require_delete_file_a_policy(policy)?;
+    let path_address = required_argument(contract, frame, 0, "ANSI file path")?;
+    let path = read_nul_terminated_source_path(
+        contract,
+        session,
+        GuestAddress(path_address),
+        file_policy.maximum_path_bytes,
+    )?;
+    let resolution = session
+        .runtime()
+        .resolve_file_system_path_a(&path)
+        .map_err(|error| {
+            ApiFault::unsupported("win32-vfs", "delete-file-a-path-unsupported", error.message)
+        })?;
+    match resolution {
+        RuntimePathResolution::MissingFile => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(ERROR_FILE_NOT_FOUND))
+        }
+        RuntimePathResolution::MissingPath => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(ERROR_PATH_NOT_FOUND))
+        }
+        RuntimePathResolution::RegularFile => Err(ApiFault::unsupported(
+            "win32-vfs",
+            "delete-file-a-existing-file-unsupported",
+            "DeleteFileA is enabled only for a missing final VFS component",
+        )),
+        RuntimePathResolution::Directory => Err(ApiFault::unsupported(
+            "win32-vfs",
+            "delete-file-a-directory-unsupported",
+            "DeleteFileA directory and existing-object mutation are outside the enabled variant",
+        )),
+    }
+}
+
 fn handle_find_next_file_a(
     policy: &Kernel32CompatibilityPolicy,
     contract: &ApiContract,
@@ -3125,6 +3171,21 @@ fn require_find_file_a_policy(
             "find-file-a-policy-disabled",
             format!(
                 "compatibility policy {} does not enable deterministic VFS enumeration",
+                policy.id
+            ),
+        )
+    })
+}
+
+fn require_delete_file_a_policy(
+    policy: &Kernel32CompatibilityPolicy,
+) -> Result<Kernel32DeleteFileAPolicy, ApiFault> {
+    policy.delete_file_a().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-vfs",
+            "delete-file-a-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable bounded missing-file deletion probes",
                 policy.id
             ),
         )
@@ -5358,6 +5419,18 @@ pub fn find_close_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract,
         )],
         ApiReturnSchema::Bool32,
         FIND_CLOSE_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn delete_file_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "DeleteFileA",
+        vec![dynamic_in_bytes("fileName", false, 1, 1, 32_768)],
+        ApiReturnSchema::Bool32,
+        DELETE_FILE_A_IMPLEMENTATION,
     )?;
     contract.last_error_policy = LastErrorPolicy::FromHandler;
     Ok(contract)

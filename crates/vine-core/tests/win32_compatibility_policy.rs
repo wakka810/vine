@@ -84,6 +84,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         include_str!("../../../fixtures/runtime-policies/kernel32-get-file-attributes-a-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-create-directory-a-v1.json"),
         include_str!("../../../fixtures/runtime-policies/kernel32-find-file-a-v1.json"),
+        include_str!("../../../fixtures/runtime-policies/kernel32-delete-file-a-v1.json"),
     ];
     for source in policies {
         let policy: Kernel32CompatibilityPolicy = serde_json::from_str(source).unwrap();

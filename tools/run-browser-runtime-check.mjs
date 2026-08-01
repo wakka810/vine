@@ -85,8 +85,9 @@ const bgiProfile =
     ? "user32-set-window-text-a-post-scheduled-shared-clock"
     : checkpoint.activeRuntimeCheckpoint.capabilityProfile ??
       checkpoint.activeRuntimeCheckpoint.profile);
+const deleteFileAProfile = bgiProfile === "kernel32-delete-file-a";
 const findFirstFileAProfile =
-  bgiProfile === "kernel32-find-first-file-a";
+  deleteFileAProfile || bgiProfile === "kernel32-find-first-file-a";
 const scheduledSharedClockProfile =
   scheduledSharedClockSetWindowTextProfile || findFirstFileAProfile;
 const d3d9PostRasterStatusWaitableTimerProfile =
@@ -353,7 +354,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v102";
+const runtimeProtocol = "vine.browser-runtime-worker.v103";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -1084,6 +1085,91 @@ function validateFindFileABgiProbe(evidence, scenario) {
   });
 }
 
+function validateDeleteFileABgiProbe(evidence, scenario) {
+  if (scenario !== "success") {
+    validateScheduledSharedClockBgiProbe(evidence, scenario);
+    return;
+  }
+  const report = evidence.report;
+  const completion = report.checkpointCompletion;
+  assert.equal(report.outcome, "checkpoint-complete");
+  assert.equal(report.error, null);
+  assert.equal(report.supportedCallCount, 260_630);
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    "3721b7922b0e2fb15f1fd9390faa214b227056a664885a2ee6f3c4ab09c5082d",
+  );
+  assert.equal(report.instructions, 341_618_572);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert.equal(report.sourceReads.length, 138);
+  assert.equal(report.writableDirectoryCreates.length, 1);
+  assert.equal((report.heapPageMaterializations ?? []).length, 3_108);
+  assert.equal(
+    report.firstUnsupported.capabilityCluster,
+    "kernel32-private-heap-allocation",
+  );
+  assert.equal(report.firstUnsupported.endpoint.id, 75);
+  assert.equal(report.firstUnsupported.endpoint.address, 0x7f00_04a0);
+  assert.equal(
+    report.firstUnsupported.endpoint.module.toLowerCase(),
+    "kernel32.dll",
+  );
+  assert.deepEqual(report.firstUnsupported.endpoint.symbol, {
+    kind: "name",
+    name: "HeapAlloc",
+  });
+  assert.equal(report.firstUnsupported.fault.class, "resource-limit");
+  assert.equal(report.firstUnsupported.fault.stage, "runtime-heap-backing");
+  assert.equal(
+    report.firstUnsupported.fault.code,
+    "heap-backing-capacity-exceeded",
+  );
+  assert.equal(
+    report.firstUnsupported.memoryContentSha256,
+    "ecafc2724de30b5a776dd08323db95e0520e4b5235a766ed7bc1d38311a46d5c",
+  );
+  assert.equal(
+    completion.capability,
+    "kernel32-delete-file-a-post-find-file-a",
+  );
+  assert.equal(
+    completion.implementationId,
+    "runtime.kernel32-delete-file-a-post-find-file-a.v1",
+  );
+  assert.equal(completion.requiredCompletions, 2);
+  assert.equal(completion.completionCount, 2);
+  assert.equal(completion.prerequisiteFindCloseSequence, 251_740);
+  assert.equal(completion.prerequisiteFindCloseInstructionCount, 323_869_665);
+  assert.equal(completion.firstCompletionSequence, 255_411);
+  assert.equal(completion.firstCompletionInstructionCount, 328_088_002);
+  assert.equal(completion.lastCompletionSequence, 255_432);
+  assert.equal(completion.lastCompletionInstructionCount, 328_097_369);
+  assert.equal(completion.win32Error, 2);
+  assert.equal(completion.missingFileOnly, true);
+  assert.equal(completion.existingObjectMutation, false);
+  assert.equal(completion.clockSampleCount, 100_534);
+  assert.equal(completion.windowTimerCallbackCount, 39);
+  assert.equal(completion.presentCount, 2);
+  assert.equal(completion.pointerInputEventCount, 2);
+  assert.equal(completion.inputTimerCycleCount, 253);
+  assert.equal(completion.inputQuerySequence, 222_096);
+  assert.equal(completion.thirdPresentReached, false);
+  assert.equal(completion.clockFreezeWasProximateCause, false);
+  assert.equal(completion.archiveEnumerationWasProximateCause, false);
+  assert.equal(completion.missingFileDeleteWasProximateCause, false);
+  assert.equal(completion.instructionCount, report.instructions);
+  assert.equal(completion.nextEndpoint.id, 75);
+  assert.equal(completion.nextEndpoint.address, 0x7f00_04a0);
+  assert.deepEqual(completion.nextEndpoint.symbol, {
+    kind: "name",
+    name: "HeapAlloc",
+  });
+  assert.equal(
+    completion.memoryContentSha256,
+    report.firstUnsupported.memoryContentSha256,
+  );
+}
+
 async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
   const target = await createDebugTarget(
     browserWebSocketUrl,
@@ -1112,6 +1198,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.report.pendingCallbacks, 0);
     assertExecutionStateMachine(evidence.report, scenario);
     assertExecutionEngine(evidence.report);
+    if (deleteFileAProfile) {
+      validateDeleteFileABgiProbe(evidence, scenario);
+      return evidence;
+    }
     if (findFirstFileAProfile) {
       validateFindFileABgiProbe(evidence, scenario);
       return evidence;
@@ -6041,7 +6131,121 @@ function validateFindFileABgiEquivalence(browser, oracle) {
   assert.equal(report.timerPacing.pending, 0);
 }
 
+function validateDeleteFileABgiEquivalence(browser, oracle) {
+  const report = browser.report;
+  const completion = report.checkpointCompletion;
+  assert.equal(oracle.schema, "vine.v86-bgi-delete-file-a-primary");
+  assert.equal(report.evidenceLevel, fullEvidence ? "full" : "summary");
+  assert.equal(
+    report.supportedCallCount,
+    oracle.execution.completedSupportedCalls,
+  );
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    oracle.execution.supportedCallSemanticsSha256,
+  );
+  assert.equal(report.instructions, oracle.stop.terminal.instructionCount);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert(
+    oracle.synchronization.finalGeneration >= oracle.process.memory.generation,
+  );
+  assert.deepEqual(
+    report.sourceReads.map(normalizeBrowserSourceRead),
+    oracle.synchronization.sourceReads.map(normalizeNodeSourceRead),
+  );
+  assert.deepEqual(
+    (report.heapPageMaterializations ?? []).map(
+      normalizeHeapPageMaterialization,
+    ),
+    oracle.synchronization.heapPageMaterializations.map(
+      normalizeHeapPageMaterialization,
+    ),
+  );
+  assert.deepEqual(
+    report.writableDirectoryCreates.map(normalizeWritableDirectoryCreate),
+    oracle.synchronization.writableDirectoryCreates.map(
+      normalizeWritableDirectoryCreate,
+    ),
+  );
+  assert.deepEqual(
+    report.firstUnsupported.endpoint,
+    oracle.stop.fault.endpoint.endpoint,
+  );
+  assert.deepEqual(report.firstUnsupported.fault, oracle.stop.fault.fault);
+  assert.equal(
+    report.firstUnsupported.memoryContentSha256,
+    oracle.stop.fault.memoryContentSha256,
+  );
+  assert.equal(oracle.execution.deleteFileA.completionCount, 2);
+  assert.equal(oracle.execution.deleteFileA.win32Error, 2);
+  assert.equal(oracle.execution.deleteFileA.existingObjectMutation, false);
+  assert.equal(
+    completion.prerequisiteFindCloseSequence,
+    oracle.execution.findFileA.close.sequence,
+  );
+  assert.equal(
+    completion.prerequisiteFindCloseInstructionCount,
+    oracle.execution.findFileA.close.trapInstructionCount,
+  );
+  assert.equal(
+    completion.firstCompletionSequence,
+    oracle.execution.deleteFileA.first.sequence,
+  );
+  assert.equal(
+    completion.firstCompletionInstructionCount,
+    oracle.execution.deleteFileA.first.trapInstructionCount,
+  );
+  assert.equal(
+    completion.lastCompletionSequence,
+    oracle.execution.deleteFileA.last.sequence,
+  );
+  assert.equal(
+    completion.lastCompletionInstructionCount,
+    oracle.execution.deleteFileA.last.trapInstructionCount,
+  );
+  assert.equal(completion.requiredCompletions, 2);
+  assert.equal(completion.completionCount, 2);
+  assert.equal(completion.win32Error, 2);
+  assert.equal(completion.missingFileOnly, true);
+  assert.equal(completion.existingObjectMutation, false);
+  assert.equal(
+    completion.clockSampleCount,
+    oracle.execution.clockSamples.count,
+  );
+  assert.equal(
+    completion.windowTimerCallbackCount,
+    oracle.execution.windowTimerCallbacks.count,
+  );
+  assert.equal(completion.presentCount, oracle.execution.presentations.count);
+  assert.equal(completion.thirdPresentReached, false);
+  assert.equal(completion.clockFreezeWasProximateCause, false);
+  assert.equal(completion.archiveEnumerationWasProximateCause, false);
+  assert.equal(completion.missingFileDeleteWasProximateCause, false);
+  assert.equal(completion.instructionCount, oracle.stop.terminal.instructionCount);
+  assert.deepEqual(completion.nextEndpoint, oracle.stop.fault.endpoint.endpoint);
+  assert.equal(
+    completion.memoryContentSha256,
+    oracle.stop.fault.memoryContentSha256,
+  );
+  assert.equal(report.pointerInput.receipts.length, 2);
+  assert.deepEqual(
+    report.pointerInput.receipts[0],
+    oracle.execution.pointerInput.first.receipt,
+  );
+  assert.deepEqual(
+    report.pointerInput.receipts[1],
+    oracle.execution.pointerInput.last.receipt,
+  );
+  assert.equal(report.timerPacing.requests, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.completions, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.pending, 0);
+}
+
 function validateBgiEquivalence(browser, oracle) {
+  if (deleteFileAProfile) {
+    validateDeleteFileABgiEquivalence(browser, oracle);
+    return;
+  }
   if (findFirstFileAProfile) {
     validateFindFileABgiEquivalence(browser, oracle);
     return;

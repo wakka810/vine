@@ -85,6 +85,9 @@ The versioned Kernel32 policy supports these bounded variants:
   deterministic lexical order, and exact 320-byte PE32 `WIN32_FIND_DATAA` output;
 - `FindClose`: retire only a live file-search handle; ordinary `CloseHandle` rejects
   that handle kind;
+- `DeleteFileA`: project only the reached missing-final-component and
+  missing-parent failures from the Rust VFS; existing files and directories stop
+  before mutation;
 - immutable open: `GENERIC_READ`, share-read, `OPEN_EXISTING`;
 - writable open: `GENERIC_WRITE`, share none, `CREATE_ALWAYS` or
   `OPEN_ALWAYS`;
@@ -107,9 +110,16 @@ missing final component returns `ERROR_FILE_NOT_FOUND`; a missing parent or moun
 escape returns `ERROR_PATH_NOT_FOUND`. Success preserves LastError. It never probes
 the Node／browser host filesystem, and an absent writable object does not become an
 existing file or directory merely because its path is allowlisted.
+The bounded `DeleteFileA` contract reuses exactly this classification. It returns
+FALSE／`ERROR_FILE_NOT_FOUND` for a missing final component and
+FALSE／`ERROR_PATH_NOT_FOUND` for a missing parent, with no guest write, VFS
+generation change, source mutation, writable-profile mutation, or host／browser
+filesystem call. Existing regular files and directories are explicit unsupported
+variants rather than silent success or deletion. Consequently this contract is a
+missing-file compatibility projection, not a durable delete transaction.
 Sparse writes zero-fill the gap. Immutable writes and source/profile shadowing are
 denied before mutation. Recursive enumeration, short-name generation, broad DOS
-wildcards and attributes, rename/delete, mapped files, locks, directory mutation
+wildcards and attributes, rename and existing-object deletion, mapped files, locks, directory mutation
 outside the explicit create allowlist, volume resolution, access/share/disposition
 combinations, and registry projection are not claimed.
 
@@ -195,7 +205,9 @@ immutable open-search snapshots, terminal error/output preservation, distinct
 `FindClose` lifetime, stale/wrong-kind handles, capacity, and failure atomicity. They also cover
 allowlisted directory identity, host-first durable creation, duplicate／missing-parent／
 file-conflict classification, stale plans, malformed completion, failure retry, and
-cancellation. The SQLite tests cover
+cancellation. The dispatcher suite also covers missing-file／missing-parent
+`DeleteFileA`, NULL／malformed／disabled policy, existing source／writable file and
+directory rejection, unchanged GuestMemory, and unchanged VFS state. The SQLite tests cover
 first creation, restart, idempotent duplicate, stale generation, identity/hash
 rejection, transaction rollback, post-commit response loss, quota, a held SQLite
 write lock, lease revoke and replacement, rejected late commits, a 4 MiB
@@ -205,7 +217,8 @@ read cancellation/watchdog cleanup.
 
 The private Node and Chrome checks import `BGI.gdb` through the writable profile,
 serve it from SQLite, create the run-local allowlisted `UserData` directory, enumerate
-the same 45 immutable `data0????.arc` entries as the native oracle, and verify that
+the same 45 immutable `data0????.arc` entries as the native oracle, project the two
+reached absent `.sud` deletions without mutation, and verify that
 the distribution files and shared profile are unchanged. This checkpoint establishes
 the storage authority, durable file／directory commit paths, and host-independent
 primary archive enumeration. It does not

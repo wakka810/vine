@@ -255,6 +255,7 @@ enum GenericRuntimeCapability {
     GetFileAttributesA,
     CreateDirectoryA,
     FindFirstFileA,
+    DeleteFileA,
     D3d9RecreatedTextures,
     D3d9Clear,
     SetRect,
@@ -2929,6 +2930,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::GetFileAttributesA
                     | GenericRuntimeCapability::CreateDirectoryA
                     | GenericRuntimeCapability::FindFirstFileA
+                    | GenericRuntimeCapability::DeleteFileA
                     | GenericRuntimeCapability::D3d9RecreatedTextures
                     | GenericRuntimeCapability::D3d9Clear
                     | GenericRuntimeCapability::SetRect
@@ -3618,10 +3620,15 @@ fn run_v86_generic_runtime_session(
     kernel32_policy: Kernel32CompatibilityPolicy,
     callback_return_sentinel: GuestAddress,
 ) -> Result<(), LoaderError> {
-    let find_first_file_a_enabled = matches!(
+    let delete_file_a_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::FindFirstFileA)
+        Some(GenericRuntimeCapability::DeleteFileA)
     );
+    let find_first_file_a_enabled = delete_file_a_enabled
+        || matches!(
+            enabled_capability,
+            Some(GenericRuntimeCapability::FindFirstFileA)
+        );
     let window_timer_delivery_enabled = find_first_file_a_enabled
         || matches!(
             enabled_capability,
@@ -3986,6 +3993,9 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::User32DefWindowProcPointerDown
             | GenericRuntimeCapability::User32DefWindowProcPointerRelease,
         ) => Some(GenericRuntimeCapability::GetMonitorInfoA),
+        Some(GenericRuntimeCapability::DeleteFileA) => {
+            Some(GenericRuntimeCapability::FindFirstFileA)
+        }
         capability => capability,
     };
     let user32_capability = if matches!(
@@ -4799,6 +4809,13 @@ fn run_v86_generic_runtime_session(
             )
         {
             find_first_file_a_enabled
+        } else if endpoint.matches(
+            "kernel32.dll",
+            &ApiSymbol::Name {
+                name: "DeleteFileA".to_owned(),
+            },
+        ) {
+            delete_file_a_enabled
         } else if endpoint.module.eq_ignore_ascii_case("user32.dll")
             && matches!(
                 endpoint.symbol,
@@ -15062,6 +15079,7 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "kernel32-get-file-attributes-a" => GenericRuntimeCapability::GetFileAttributesA,
                 "kernel32-create-directory-a" => GenericRuntimeCapability::CreateDirectoryA,
                 "kernel32-find-first-file-a" => GenericRuntimeCapability::FindFirstFileA,
+                "kernel32-delete-file-a" => GenericRuntimeCapability::DeleteFileA,
                 "d3d9-recreated-textures" => GenericRuntimeCapability::D3d9RecreatedTextures,
                 "user32-set-window-pos-frame-change-move" => {
                     GenericRuntimeCapability::D3d9RecreatedTextures

@@ -247,6 +247,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "kernel32-get-file-attributes-a",
         "kernel32-create-directory-a",
         "kernel32-find-first-file-a",
+        "kernel32-delete-file-a",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
@@ -453,6 +454,7 @@ assert(
       "kernel32-get-file-attributes-a",
       "kernel32-create-directory-a",
       "kernel32-find-first-file-a",
+      "kernel32-delete-file-a",
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
       "user32-set-window-pos-frame-change-move",
@@ -498,7 +500,9 @@ assert(
 );
 if (genericRuntimeReentry && runtimePolicyPath === null) {
   const policyName =
-    genericRuntimeCapability === "kernel32-find-first-file-a"
+    genericRuntimeCapability === "kernel32-delete-file-a"
+      ? "kernel32-delete-file-a-v1.json"
+      : genericRuntimeCapability === "kernel32-find-first-file-a"
       ? "kernel32-find-file-a-v1.json"
       : genericRuntimeCapability === "kernel32-create-directory-a" ||
     genericRuntimeCapability === "user32-set-window-pos-repeat-activation" ||
@@ -1011,7 +1015,10 @@ const d3d9TestCooperativeLevelPostInputScanContinuationCheckpointEnabled =
 const d3d9PostInputScanWaitableTimerCycleCheckpointEnabled =
   genericRuntimeCapability ===
     "d3d9-post-input-scan-waitable-timer-cycle";
+const deleteFileACheckpointEnabled =
+  genericRuntimeCapability === "kernel32-delete-file-a";
 const findFirstFileACheckpointEnabled =
+  deleteFileACheckpointEnabled ||
   genericRuntimeCapability === "kernel32-find-first-file-a";
 const peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled =
   genericRuntimeCapability ===
@@ -1917,7 +1924,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? findFirstFileACheckpointEnabled
+    ? deleteFileACheckpointEnabled
+      ? "v86-bgi-delete-file-a"
+      : findFirstFileACheckpointEnabled
       ? "v86-bgi-find-first-file-a"
       : runtimeThreadStackGrowthEnabled
       ? largeHeapFreeCheckpointEnabled
@@ -6506,6 +6515,8 @@ async function run() {
       });
       if (genericRuntimeCapability === null) {
         validateGenericRuntimeReentryResult(genericResult);
+      } else if (deleteFileACheckpointEnabled) {
+        validateDeleteFileAResult(genericResult, sourceRegistration);
       } else if (findFirstFileACheckpointEnabled) {
         validateFindFirstFileAResult(genericResult, sourceRegistration);
       } else if (
@@ -6843,6 +6854,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : deleteFileACheckpointEnabled
+            ? "bgi KERNEL32 DeleteFileA missing-file probes"
           : findFirstFileACheckpointEnabled
             ? "bgi KERNEL32 FindFileA archive enumeration"
           : runtimeThreadStackGrowthEnabled
@@ -14083,7 +14096,9 @@ function validateGenericRuntimeReady(ready, offer) {
       (sourceFileReadEnabled ? 2 : 0) +
       (genericRuntimeCapability === null
         ? 0
-        : findFirstFileACheckpointEnabled
+        : deleteFileACheckpointEnabled
+          ? 106
+          : findFirstFileACheckpointEnabled
           ? 105
           : createDirectoryACheckpointEnabled
           ? 102
@@ -15176,6 +15191,14 @@ function validateGenericRuntimeFault(fault, endpoint, generation) {
       endpoint.symbol === "SetWindowPos" &&
       fault.fault.class === "invalid-call" &&
       fault.fault.code === "set-window-pos-activation-state-invalid"
+    ) &&
+    !(
+      deleteFileACheckpointEnabled &&
+      endpoint.module.toLowerCase() === "kernel32.dll" &&
+      endpoint.symbol === "HeapAlloc" &&
+      fault.fault.class === "resource-limit" &&
+      fault.fault.stage === "runtime-heap-backing" &&
+      fault.fault.code === "heap-backing-capacity-exceeded"
     )
   ) {
     assert.equal(
@@ -26014,6 +26037,124 @@ function validateFindFirstFileAResult(result, sourceRegistration) {
   );
   assert.equal(result.terminal.instructionCount, 328_088_002);
   assert.equal(result.terminal.terminal.returnAddress, 0x1008_28e2);
+  validateScheduledSharedClockCalls(result.supportedCalls);
+}
+
+function validateDeleteFileAResult(result, sourceRegistration) {
+  assert(deleteFileACheckpointEnabled);
+  assert(findFirstFileACheckpointEnabled);
+  assert(scheduledSharedClockProfile);
+  assert(sourceRegistration !== null);
+  assert.equal(
+    sourceRegistration.manifest.snapshotId,
+    "primary-game-archives-v2",
+  );
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 260_630);
+  assert.equal(result.callbackEvents.length, 144);
+  assert.equal(result.heapPageMaterializations.length, 3_108);
+  assert.equal(result.sourceReads.length, 138);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+  assert.equal(result.timerPacing.length, 7_697);
+  assert.equal(result.writebacks.length, 263_822);
+  assert.equal(result.hostDeltas.length, 127_963);
+  assert.equal(result.finalGeneration, 296_088);
+  assert.deepEqual(result.threadExecution, {
+    registeredThreadIds: [8_192, 8_193],
+    executedThreadIds: [8_192, 8_193],
+    contextSwitches: 1_948,
+    threadExits: [],
+  });
+  assert.equal(result.fault?.fault?.class, "resource-limit");
+  assert.equal(result.fault?.fault?.stage, "runtime-heap-backing");
+  assert.equal(result.fault?.fault?.code, "heap-backing-capacity-exceeded");
+  assert.equal(
+    result.fault?.fault?.message,
+    "allocation requires another ordinary backing after the bounded 2-segment heap capacity",
+  );
+  assert.deepEqual(result.fault?.endpoint?.endpoint, {
+    id: 75,
+    address: 0x7f00_04a0,
+    module: "kernel32.dll",
+    symbol: { kind: "name", name: "HeapAlloc" },
+    iatAddress: 0x100d_11d4,
+    disposition: "declared-runtime-export",
+  });
+  const deleteCalls = result.supportedCalls.filter(
+    (call) =>
+      call.implementationId ===
+      "kernel32.delete-file-a.missing-runtime-vfs.v1",
+  );
+  assert.equal(deleteCalls.length, 2);
+  assert.deepEqual(
+    deleteCalls.map((call) => ({
+      sequence: call.sequence,
+      occurrence: call.occurrence,
+      trapInstructionCount: call.trapInstructionCount,
+      arguments: call.arguments,
+      returnAddress: call.returnAddress,
+      stackPointerBefore: call.stackPointerBefore,
+      stackPointerAfter: call.stackPointerAfter,
+    })),
+    [
+      {
+        sequence: 255_411,
+        occurrence: 1,
+        trapInstructionCount: 328_088_002,
+        arguments: [0x006f_f388],
+        returnAddress: 0x1008_28e2,
+        stackPointerBefore: 0x006f_f378,
+        stackPointerAfter: 0x006f_f380,
+      },
+      {
+        sequence: 255_432,
+        occurrence: 2,
+        trapInstructionCount: 328_097_369,
+        arguments: [0x006f_f388],
+        returnAddress: 0x1008_28e2,
+        stackPointerBefore: 0x006f_f378,
+        stackPointerAfter: 0x006f_f380,
+      },
+    ],
+  );
+  for (const [index, call] of deleteCalls.entries()) {
+    assert.equal(call.symbol, "DeleteFileA");
+    assert.deepEqual(call.result, { action: "set", value: 0 });
+    assert.equal(call.lastError, 2);
+    assert.deepEqual(call.guestWrites, []);
+    assert.equal(call.stackPointerAfter - call.stackPointerBefore, 8);
+    assert.equal(call.arguments.length, 1);
+    assert(index === 0 || deleteCalls[index - 1].sequence < call.sequence);
+  }
+  const presents = result.supportedCalls.filter(
+    (call) => call.interface === "IDirect3DDevice9" && call.vtableSlot === 17,
+  );
+  assert.equal(presents.length, 2);
+  assert.equal(
+    result.supportedCalls.filter((call) => call.tickCount !== undefined).length,
+    100_534,
+  );
+  assert.equal(
+    result.supportedCalls.filter(
+      (call) =>
+        call.module.toLowerCase() === "user32.dll" &&
+        call.symbol === "DispatchMessageA" &&
+        call.windowTimer !== undefined &&
+        call.callback !== undefined,
+    ).length,
+    39,
+  );
+  assert.equal(
+    result.fault.memoryContentSha256,
+    "ecafc2724de30b5a776dd08323db95e0520e4b5235a766ed7bc1d38311a46d5c",
+  );
+  assert.equal(result.terminal.instructionCount, 341_618_572);
+  assert.equal(result.terminal.terminal.returnAddress, 0x100a_4a33);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(1, 4), [
+    0x6801_0001,
+    0,
+    0x0040_6000,
+  ]);
   validateScheduledSharedClockCalls(result.supportedCalls);
 }
 
@@ -38999,11 +39140,19 @@ function buildGenericRuntimeReentryReport({
         genericResult.supportedCalls.length,
       );
       if (findFirstFileACheckpointEnabled) {
-        assert.equal(completedSupportedCalls.length, 255_410);
-        assert.equal(
-          supportedCallSemanticsSha256,
-          "009e8aad3a75ddc158474c6cf150eda7e8c92d72615acd5a51fe457063c6f52c",
-        );
+        if (deleteFileACheckpointEnabled) {
+          assert.equal(completedSupportedCalls.length, 260_630);
+          assert.equal(
+            supportedCallSemanticsSha256,
+            "3721b7922b0e2fb15f1fd9390faa214b227056a664885a2ee6f3c4ab09c5082d",
+          );
+        } else {
+          assert.equal(completedSupportedCalls.length, 255_410);
+          assert.equal(
+            supportedCallSemanticsSha256,
+            "009e8aad3a75ddc158474c6cf150eda7e8c92d72615acd5a51fe457063c6f52c",
+          );
+        }
       } else {
         assert(completedSupportedCalls.length > 162_087);
         assert.match(supportedCallSemanticsSha256, /^[0-9a-f]{64}$/u);
@@ -42158,6 +42307,11 @@ function buildScheduledSharedClockPrimaryReport({
     (call) =>
       call.implementationId === "kernel32.find-close.runtime-vfs.v1",
   );
+  const deleteFileCalls = completedSupportedCalls.filter(
+    (call) =>
+      call.implementationId ===
+      "kernel32.delete-file-a.missing-runtime-vfs.v1",
+  );
   const successfulFindCalls = [
     ...findFirstCalls,
     ...findNextCalls.filter((call) => call.result.value === 1),
@@ -42176,7 +42330,9 @@ function buildScheduledSharedClockPrimaryReport({
     };
   });
   return {
-    schema: findFirstFileACheckpointEnabled
+    schema: deleteFileACheckpointEnabled
+      ? "vine.v86-bgi-delete-file-a-primary"
+      : findFirstFileACheckpointEnabled
       ? "vine.v86-bgi-find-file-a-primary"
       : "vine.v86-bgi-scheduled-shared-clock-primary",
     schemaVersion: 1,
@@ -42207,6 +42363,14 @@ function buildScheduledSharedClockPrimaryReport({
               "windows-932-ascii-case-insensitive-lexical",
             fileEnumerationSnapshot: "immutable-open-view",
             hostDirectoryEnumerationImported: false,
+          }
+        : {}),
+      ...(deleteFileACheckpointEnabled
+        ? {
+            fileDeletionAuthority: "rust-runtime-vfs",
+            fileDeletionVariant: "missing-final-component-only",
+            existingObjectMutationImplemented: false,
+            hostFilesystemMutationImported: false,
           }
         : {}),
     },
@@ -42282,6 +42446,17 @@ function buildScheduledSharedClockPrimaryReport({
             },
           }
         : {}),
+      ...(deleteFileACheckpointEnabled
+        ? {
+            deleteFileA: {
+              completionCount: deleteFileCalls.length,
+              first: deleteFileCalls[0],
+              last: deleteFileCalls.at(-1),
+              win32Error: 2,
+              existingObjectMutation: false,
+            },
+          }
+        : {}),
     },
     synchronization: {
       writebackBatches: genericResult.writebacks.length,
@@ -42304,7 +42479,11 @@ function buildScheduledSharedClockPrimaryReport({
       terminal: genericResult.terminal,
       arguments: genericResult.terminal.terminal.stackWords.slice(
         1,
-        findFirstFileACheckpointEnabled ? 2 : 3,
+        deleteFileACheckpointEnabled
+          ? 4
+          : findFirstFileACheckpointEnabled
+            ? 2
+            : 3,
       ),
     },
   };

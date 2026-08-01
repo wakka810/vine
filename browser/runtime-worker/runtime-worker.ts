@@ -362,7 +362,17 @@ function isScheduledSharedClockSetWindowText(
 ): boolean {
   return (
     profile === "user32-set-window-text-a-post-scheduled-shared-clock" ||
-    profile === "kernel32-find-first-file-a"
+    profile === "kernel32-find-first-file-a" ||
+    profile === "kernel32-delete-file-a"
+  );
+}
+
+function isFindFileAProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile === "kernel32-find-first-file-a" ||
+    profile === "kernel32-delete-file-a"
   );
 }
 
@@ -3359,6 +3369,9 @@ class BrowserRuntimeSession {
   #findFileSuccessfulNextCount = 0;
   #findFileLastSuccessfulNextSequence: number | null = null;
   #findFileTerminalNextSequence: number | null = null;
+  #deleteFileACompletionCount = 0;
+  #deleteFileAFirstSequence: number | null = null;
+  #deleteFileAFirstInstructionCount: number | null = null;
   readonly #bgiCallbackCallSequences = new Map<number, number>();
   #windowTimerCallbackEntry: {
     sequence: number;
@@ -8230,7 +8243,7 @@ class BrowserRuntimeSession {
       this.#scheduledSharedClockDefaultProcessingSequence = call.sequence;
     }
     if (
-      this.#configuration.capabilityProfile === "kernel32-find-first-file-a" &&
+      isFindFileAProfile(this.#configuration.capabilityProfile) &&
       call.module.toLowerCase() === "kernel32.dll"
     ) {
       if (call.symbol === "FindFirstFileA") {
@@ -8333,6 +8346,68 @@ class BrowserRuntimeSession {
           nextEndpoint: { id: 0, address: 0 },
           memoryContentSha256: "",
         };
+      } else if (call.symbol === "DeleteFileA") {
+        const previous = this.#report.checkpointCompletion;
+        invariant(
+          this.#configuration.capabilityProfile === "kernel32-delete-file-a" &&
+            previous?.capability ===
+              "kernel32-find-file-a-post-set-window-text" &&
+            this.#deleteFileACompletionCount < 2 &&
+            call.arguments.length === 1 &&
+            "action" in call.result &&
+            call.result.action === "set" &&
+            call.result.value === 0 &&
+            call.implementationId ===
+              "kernel32.delete-file-a.missing-runtime-vfs.v1" &&
+            call.lastError === 2 &&
+            call.guestWrites.length === 0,
+          "scheduled DeleteFileA completion changed",
+        );
+        if (this.#deleteFileACompletionCount === 0) {
+          this.#deleteFileAFirstSequence = call.sequence;
+          this.#deleteFileAFirstInstructionCount = this.#report.instructions;
+        }
+        this.#deleteFileACompletionCount += 1;
+        if (this.#deleteFileACompletionCount === 2) {
+          const firstSequence = this.#deleteFileAFirstSequence;
+          const firstInstructionCount = this.#deleteFileAFirstInstructionCount;
+          invariant(
+            firstSequence !== null && firstInstructionCount !== null,
+            "scheduled DeleteFileA first completion is missing",
+          );
+          this.#report.checkpointCompletion = {
+            capability: "kernel32-delete-file-a-post-find-file-a",
+            implementationId:
+              "runtime.kernel32-delete-file-a-post-find-file-a.v1",
+            requiredCompletions: 2,
+            completionCount: 2,
+            prerequisiteFindCloseSequence: previous.lastCompletionSequence,
+            prerequisiteFindCloseInstructionCount:
+              previous.lastCompletionInstructionCount,
+            firstCompletionSequence: firstSequence,
+            firstCompletionInstructionCount: firstInstructionCount,
+            lastCompletionSequence: call.sequence,
+            lastCompletionInstructionCount: this.#report.instructions,
+            win32Error: 2,
+            missingFileOnly: true,
+            existingObjectMutation: false,
+            clockProfileId: previous.clockProfileId,
+            clockSampleCount: this.#scheduledSharedClockSampleCount,
+            windowTimerCallbackCount:
+              this.#scheduledSharedClockWindowTimerCallbackCount,
+            presentCount: this.#scheduledSharedClockPresentCount,
+            pointerInputEventCount: previous.pointerInputEventCount,
+            inputTimerCycleCount: previous.inputTimerCycleCount,
+            inputQuerySequence: previous.inputQuerySequence,
+            thirdPresentReached: false,
+            clockFreezeWasProximateCause: false,
+            archiveEnumerationWasProximateCause: false,
+            missingFileDeleteWasProximateCause: false,
+            instructionCount: 0,
+            nextEndpoint: { id: 0, address: 0 },
+            memoryContentSha256: "",
+          };
+        }
       }
     }
     if (
@@ -10487,8 +10562,13 @@ class BrowserRuntimeSession {
     ) {
       this.#recordCompletedCallEvidence(call);
       if (windowTimerCallback !== undefined) {
+        const checkpoint = this.#report.checkpointCompletion;
         invariant(
-          this.#report.checkpointCompletion === null &&
+          (checkpoint === null ||
+            (this.#configuration.capabilityProfile ===
+              "kernel32-delete-file-a" &&
+              checkpoint.capability ===
+                "kernel32-delete-file-a-post-find-file-a")) &&
             this.#windowTimerCallbackEntry !== null &&
             call.windowTimer !== undefined &&
             call.callback !== undefined,
@@ -17803,20 +17883,42 @@ class BrowserRuntimeSession {
       )
     ) {
       const checkpoint = this.#report.checkpointCompletion;
+      const deleteFileProfile =
+        this.#configuration.capabilityProfile === "kernel32-delete-file-a";
       const findFileProfile =
         this.#configuration.capabilityProfile ===
         "kernel32-find-first-file-a";
       invariant(
         metadata.kind === "api-fault" &&
-          (findFileProfile
+          (deleteFileProfile
+            ? checkpoint?.capability ===
+              "kernel32-delete-file-a-post-find-file-a"
+            : findFileProfile
             ? checkpoint?.capability ===
               "kernel32-find-file-a-post-set-window-text"
             : checkpoint?.capability ===
               "user32-set-window-text-a-post-scheduled-shared-clock") &&
-          metadata.capabilityCluster === "kernel32-api-contract" &&
+          metadata.capabilityCluster ===
+            (deleteFileProfile
+              ? "kernel32-private-heap-allocation"
+              : "kernel32-api-contract") &&
           metadata.endpoint.module.toLowerCase() === "kernel32.dll" &&
           metadata.endpoint.symbol.kind === "name" &&
-          (findFileProfile
+          (deleteFileProfile
+            ? this.#requirePrepared().runtime.kernel32Policy ===
+                "kernel32-delete-file-a-v1" &&
+              metadata.endpoint.id === 75 &&
+              metadata.endpoint.address === 0x7f00_04a0 &&
+              metadata.endpoint.symbol.name === "HeapAlloc" &&
+              typeof metadata.fault === "object" &&
+              metadata.fault !== null &&
+              "class" in metadata.fault &&
+              metadata.fault.class === "resource-limit" &&
+              "stage" in metadata.fault &&
+              metadata.fault.stage === "runtime-heap-backing" &&
+              "code" in metadata.fault &&
+              metadata.fault.code === "heap-backing-capacity-exceeded"
+            : findFileProfile
             ? this.#requirePrepared().runtime.kernel32Policy ===
                 "kernel32-find-file-a-v1" &&
               metadata.endpoint.id === 38 &&
@@ -17844,12 +17946,17 @@ class BrowserRuntimeSession {
         memoryContentSha256: metadata.memoryContentSha256,
       };
       checkpoint.clockSampleCount = this.#scheduledSharedClockSampleCount;
+      checkpoint.windowTimerCallbackCount =
+        this.#scheduledSharedClockWindowTimerCallbackCount;
+      checkpoint.presentCount = this.#scheduledSharedClockPresentCount;
       checkpoint.instructionCount = this.#report.instructions;
       checkpoint.nextEndpoint = metadata.endpoint;
       checkpoint.memoryContentSha256 = metadata.memoryContentSha256;
       this.#cancelAndFinish(
         "checkpoint-complete",
-        findFileProfile
+        deleteFileProfile
+          ? "Scheduled shared-clock DeleteFileA checkpoint completed"
+          : findFileProfile
           ? "Scheduled shared-clock FindFileA checkpoint completed"
           : "Scheduled shared-clock SetWindowTextA checkpoint completed",
         null,

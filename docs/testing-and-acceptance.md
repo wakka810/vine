@@ -2090,6 +2090,21 @@ calls、328,088,002 instructions、36 TIMERPROC callbacks、2 Present、同一se
 `DeleteFileA` stopへ到達する。この完了後もthird Presentは未到達なので、timer deliveryとarchive
 enumeration stopは現在の描画停滞の近因ではない。
 
+Reached `DeleteFileA` leafはone-argument x86 stdcallと、既存`RuntimeFiles` path classificationを
+共有するmissing-final-component-only policyを固定する。Focused Frida oracleは二つの不存在
+`UserData\Sakuranouta100.sud`／`101.sud`を同じcaller RVA `0x000828E2`から呼び、どちらも
+FALSE／`ERROR_FILE_NOT_FOUND`、前後不存在、source executable hash不変である。Static decompileは
+`sub_482880`がBOOLをそのままscript resultへ渡すconsumerを示す。Rust testsはmissing parent、
+existing source／writable file、directory、NULL、malformed path、disabled policyのfailure atomicityと
+zero mutationを要求する。Node／Chromeは2 completions、260,630 supported calls、341,618,572
+instructions、100,534 shared-clock samples、39 TIMERPROC callbacks、138 source reads、2 Present、
+semantic／memory digestを一致させる。直後の`HeapAlloc(0x68010001,0,0x00406000)`は
+`runtime-heap-backing`の二segment capacityでstructured stopする一方、別のfocused native traceでは
+同じsize／caller RVA `0x000A4A33`が成功する。したがってclock freeze、timer non-delivery、archive
+enumeration、missing-file deletionはthird Present停滞の近因ではなく、次のacceptance対象は
+private heap ordinary-segment growthである。Existing-object deletion、delete-pending handles、sharing／
+readonly behavior、durable delete transactionは実装済みとしない。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

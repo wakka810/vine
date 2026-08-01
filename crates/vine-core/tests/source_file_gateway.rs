@@ -1,13 +1,14 @@
 use vine_core::{
     ApiBehavior, ApiDeferredCall, ApiDispatcher, ApiEndpointIdentity, ApiFaultClass,
-    ApiReturnSchema, CREATE_DIRECTORY_A_IMPLEMENTATION, DispatchOutcome, ExecutionSession,
-    FIND_CLOSE_IMPLEMENTATION, FIND_FIRST_FILE_A_IMPLEMENTATION, FIND_NEXT_FILE_A_IMPLEMENTATION,
-    GET_FILE_ATTRIBUTES_A_IMPLEMENTATION, GUEST_PAGE_SIZE, GuestAddress, GuestMemory, GuestRange,
-    Kernel32CompatibilityPolicy, Kernel32FindFileAPolicy, Kernel32GetFileAttributesAPolicy,
-    LastErrorPolicy, MemoryLimits, MemoryOwnerKind, MemoryRegionKind, PageProtection,
-    ProcessAddressSpaceLayout, RUNTIME_WRITABLE_PROFILE_SCHEMA, RUNTIME_WRITABLE_PROFILE_VERSION,
-    RegisterUpdate, RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHandle,
-    RuntimeObjectKind, RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeSchedulerEvent,
+    ApiReturnSchema, CREATE_DIRECTORY_A_IMPLEMENTATION, DELETE_FILE_A_IMPLEMENTATION,
+    DispatchOutcome, ExecutionSession, FIND_CLOSE_IMPLEMENTATION, FIND_FIRST_FILE_A_IMPLEMENTATION,
+    FIND_NEXT_FILE_A_IMPLEMENTATION, GET_FILE_ATTRIBUTES_A_IMPLEMENTATION, GUEST_PAGE_SIZE,
+    GuestAddress, GuestMemory, GuestRange, Kernel32CompatibilityPolicy, Kernel32DeleteFileAPolicy,
+    Kernel32FindFileAPolicy, Kernel32GetFileAttributesAPolicy, LastErrorPolicy, MemoryLimits,
+    MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout,
+    RUNTIME_WRITABLE_PROFILE_SCHEMA, RUNTIME_WRITABLE_PROFILE_VERSION, RegisterUpdate,
+    RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHandle, RuntimeObjectKind,
+    RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeSchedulerEvent,
     RuntimeSourceFileManifest, RuntimeSourceMountManifest, RuntimeSourceReadHostResponse,
     RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
     RuntimeWritableCommitHostResponse, RuntimeWritableDirectoryCreateHostResponse,
@@ -114,11 +115,184 @@ fn get_file_attributes_a_projects_only_registered_vfs_paths() {
     );
     assert!(matches!(
         disabled,
-        DispatchOutcome::Fault(ref fault)
+            DispatchOutcome::Fault(fault)
             if fault.class == ApiFaultClass::Unsupported
                 && fault.code == "get-file-attributes-a-policy-disabled"
     ));
     assert_eq!(runtime, before);
+}
+
+#[test]
+fn delete_file_a_projects_only_missing_vfs_failures_without_mutation() {
+    let mut policy = source_policy();
+    policy
+        .source_files
+        .as_mut()
+        .expect("source file policy")
+        .delete_file_a = Some(Kernel32DeleteFileAPolicy {
+        missing_file_only: true,
+    });
+    policy.validate().expect("valid DeleteFileA policy");
+    let endpoint = endpoint(38, "DeleteFileA");
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("valid DeleteFileA contract")
+        .expect("implemented DeleteFileA contract");
+    assert_eq!(contract.implementation_id, DELETE_FILE_A_IMPLEMENTATION);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+
+    let (mut memory, owner) = initialized_memory();
+    let paths = [
+        b"UserData\\Sakuranouta100.sud\0".as_slice(),
+        b"Missing\\Sakuranouta100.sud\0".as_slice(),
+        b"data01099.arc\0".as_slice(),
+        b"BGI.gdb\0".as_slice(),
+        b"UserData\0".as_slice(),
+        b"bad<name.sud\0".as_slice(),
+    ];
+    for (index, path) in paths.iter().enumerate() {
+        let path_address = PATH_ADDRESS + u32::try_from(index).unwrap() * 0x80;
+        let stack = MEMORY_BASE.0 + u32::try_from(index).unwrap() * 0x20;
+        write_initialization(&mut memory, owner, GuestAddress(path_address), path);
+        write_initialization(
+            &mut memory,
+            owner,
+            GuestAddress(stack),
+            &[0x1000_1000 + u32::try_from(index).unwrap(), path_address]
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>(),
+        );
+    }
+    let null_stack = MEMORY_BASE.0 + u32::try_from(paths.len()).unwrap() * 0x20;
+    write_initialization(
+        &mut memory,
+        owner,
+        GuestAddress(null_stack),
+        &[0x1000_1100, 0]
+            .into_iter()
+            .flat_map(u32::to_le_bytes)
+            .collect::<Vec<_>>(),
+    );
+    memory.seal_owner(owner).expect("seal DeleteFileA memory");
+    acknowledge_initial_reflection(&mut memory);
+
+    let mut runtime = controlled_runtime();
+    runtime
+        .register_source_snapshot(find_file_manifest())
+        .expect("register source snapshot");
+    runtime
+        .register_writable_profile(RuntimeWritableProfileManifest {
+            schema: RUNTIME_WRITABLE_PROFILE_SCHEMA.to_owned(),
+            schema_version: RUNTIME_WRITABLE_PROFILE_VERSION,
+            title_fingerprint: "sha256:find-file-test".to_owned(),
+            profile_id: "default".to_owned(),
+            root_path_a: b"C:\\Vine\0".to_vec(),
+            quota_bytes: 1024,
+            files: vec![RuntimeWritableFileManifest {
+                object_id: 21,
+                relative_path_a: b"BGI.gdb".to_vec(),
+                exists: true,
+                generation: 1,
+                byte_length: 3,
+                sha256: Some("0".repeat(64)),
+            }],
+            directories: vec![RuntimeWritableDirectoryManifest {
+                directory_id: 31,
+                relative_path_a: b"UserData".to_vec(),
+                exists: true,
+                generation: 1,
+            }],
+        })
+        .expect("register writable profile");
+
+    for (index, expected_error) in [2_u32, 3].into_iter().enumerate() {
+        runtime.set_current_last_error(0x5566_7788).unwrap();
+        let before = runtime.clone();
+        let result = expect_immediate(dispatch(
+            &dispatcher,
+            &endpoint,
+            MEMORY_BASE.0 + u32::try_from(index).unwrap() * 0x20,
+            &policy,
+            &mut memory,
+            &mut runtime,
+        ));
+        assert_eq!(result.eax, RegisterUpdate::Set(0));
+        assert_eq!(result.last_error, expected_error);
+        let mut expected_runtime = before;
+        expected_runtime
+            .set_current_last_error(expected_error)
+            .unwrap();
+        assert_eq!(runtime, expected_runtime);
+    }
+
+    for (index, expected_code) in [
+        (2_usize, "delete-file-a-existing-file-unsupported"),
+        (3, "delete-file-a-existing-file-unsupported"),
+        (4, "delete-file-a-directory-unsupported"),
+        (5, "delete-file-a-path-unsupported"),
+    ] {
+        let before = runtime.clone();
+        let result = dispatch(
+            &dispatcher,
+            &endpoint,
+            MEMORY_BASE.0 + u32::try_from(index).unwrap() * 0x20,
+            &policy,
+            &mut memory,
+            &mut runtime,
+        );
+        assert!(
+            matches!(
+                &result,
+                DispatchOutcome::Fault(fault)
+                    if fault.class == ApiFaultClass::Unsupported && fault.code == expected_code
+            ),
+            "unexpected DeleteFileA result at case {index}: {result:?}"
+        );
+        assert_eq!(runtime, before);
+    }
+
+    let before_null = runtime.clone();
+    assert!(matches!(
+        dispatch(
+            &dispatcher,
+            &endpoint,
+            null_stack,
+            &policy,
+            &mut memory,
+            &mut runtime,
+        ),
+        DispatchOutcome::Fault(ref fault) if fault.class == ApiFaultClass::InvalidCall
+    ));
+    assert_eq!(runtime, before_null);
+
+    let before_disabled = runtime.clone();
+    assert!(matches!(
+        dispatch(
+            &dispatcher,
+            &endpoint,
+            MEMORY_BASE.0,
+            &source_policy(),
+            &mut memory,
+            &mut runtime,
+        ),
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::Unsupported
+                && fault.code == "delete-file-a-policy-disabled"
+    ));
+    assert_eq!(runtime, before_disabled);
+
+    let mut invalid_policy = policy;
+    invalid_policy
+        .source_files
+        .as_mut()
+        .unwrap()
+        .delete_file_a
+        .as_mut()
+        .unwrap()
+        .missing_file_only = false;
+    assert!(invalid_policy.validate().is_err());
 }
 
 #[test]
