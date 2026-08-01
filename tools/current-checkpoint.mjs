@@ -24559,13 +24559,13 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.chromeVersion !== "150.0.7871.187" ||
       browserBoundary.reportBytes !==
         (privateHeapOrdinarySegmentGrowthActive
-          ? 35_939
+          ? 35_965
           : deleteFileAPostFindFileAActive
           ? 35_961
           : 35_951) ||
       browserBoundary.reportSha256 !==
         (privateHeapOrdinarySegmentGrowthActive
-          ? "a370479cf8c5986412832af3018094c70e0464920cbf1cb8e961220df92bd20d"
+          ? "b701bcec3f0926c687473db2fe40f27ddf63c9eb83fd5b82e3c418a2783c0588"
           : deleteFileAPostFindFileAActive
           ? "bd77deb28553190382622adb663ac87b99e4c9f9df719bbba2282f5bae5bca94"
           : "ecd982f21410c69c4d844a114041e301fd140fedbb520cf5773f4d13d2846aa1") ||
@@ -24589,7 +24589,7 @@ export function validateCurrentCheckpoint(manifest) {
           : 5_354_885) ||
       browserBoundary.runtimeCoreWasmSha256 !==
         (privateHeapOrdinarySegmentGrowthActive
-          ? "98602e4041a3c1cb59f2863c7b473e9c1f798e74f20ee53e907d613eeaf6c048"
+          ? "568b159a4957dc9de7403ed2bcf2639b7e94cd6c6005f238d488f168fd807e83"
           : deleteFileAPostFindFileAActive
           ? "c7fd9b0ceb900ebff6a7e2d92e7e726c3b9486c95c87291fe1eb19635c65808c"
           : "14ebc235916489a3e4b892eb85d1afc4d3d600a9029cd26af28ab047f0991f7e") ||
@@ -24599,13 +24599,13 @@ export function validateCurrentCheckpoint(manifest) {
         "node tools/run-browser-runtime-check.mjs --bgi" ||
       browserBoundary.privatePrimaryReportBytes !==
         (privateHeapOrdinarySegmentGrowthActive
-          ? 2_600_572
+          ? 2_600_596
           : deleteFileAPostFindFileAActive
           ? 2_598_978
           : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
         (privateHeapOrdinarySegmentGrowthActive
-          ? "2fa1df814b382d440629a357eb7e70a0e92855fa3014277582ca70142552b9e5"
+          ? "fbd295af2dd63d76ec8e90bc6e1749e909c1234b97dd46a65c8bcc9a9b16c207"
           : deleteFileAPostFindFileAActive
           ? "deeb6cf84d0c0bdc44a1101f99786d66cb906e1ebcf513351c4d722a85582f7f"
           : "fe50788a2734f8dad6aeba2985eb713a4c0c790d3bb8707aa5eeb8c8fa8350ae") ||

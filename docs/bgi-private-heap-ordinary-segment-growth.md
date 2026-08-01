@@ -59,7 +59,7 @@ Chrome Worker protocol v104／browser report schema 70 reproduces the same call
 count, instruction count, semantic digest, endpoint, and terminal memory digest.
 The successful report records 128,181 mapping deltas, final adapter generation
 316,418, clean cancel／watchdog completion, and report SHA-256
-`2fa1df814b382d440629a357eb7e70a0e92855fa3014277582ca70142552b9e5`.
+`fbd295af2dd63d76ec8e90bc6e1749e909c1234b97dd46a65c8bcc9a9b16c207`.
 Adapter generation and writeback counts are transport evidence, not guest semantics.
 
 ## Acceptance and non-claims
