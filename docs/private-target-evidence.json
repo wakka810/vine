@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-08-02T03:16:44.467Z",
+  "recordedAt": "2026-08-02T03:59:54.845Z",
   "repository": {
-    "implementationCommit": "a364a1a5b454bbbe380de575e0bebac4b58d893d",
-    "implementationTree": "5e9dc1357c6d694a1c1d77437e463c8630a38503",
-    "headCommit": "a364a1a5b454bbbe380de575e0bebac4b58d893d",
+    "implementationCommit": "0ad9f764d6a06ec97a11e8d34bfd6b53a14f2a8d",
+    "implementationTree": "b449721b255741584ce8cf25b91e4936034acb5e",
+    "headCommit": "0ad9f764d6a06ec97a11e8d34bfd6b53a14f2a8d",
     "dirty": true,
     "dirtyPaths": [
       "CON"
@@ -31,15 +31,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "d3d9-set-fvf-post-texture-binding",
+    "runtimeCheckpoint": "d3d9-set-stream-source-post-fvf",
     "runtimeProfile": "user32-peek-message-a-post-window-timer-callback-continuation",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-delete-file-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-delete-file-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-d3d9-set-fvf-post-texture-binding-primary",
+    "nodeReportSchema": "vine.v86-bgi-d3d9-set-stream-source-post-fvf-primary",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v114",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v115",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -74,33 +74,41 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 137,
-      "supportedCalls": 282863,
-      "callSemanticsSha256": "20fc814e8eb2ea9f4e6f7edae295e3f9c92d65c49486fe4e1834b459d7f6bdd5",
-      "instructions": 392354072,
-      "finalGeneration": 333498,
-      "memoryContentSha256": "50a490bd1d6f0db5bd299c9bc3448644232e528102bc359a94fa7f691f77cab5",
+      "supportedCalls": 282864,
+      "callSemanticsSha256": "ef4d1c9b29d88f7d127800267441db75b590a6b4e691ac58135fac72d62aa5c0",
+      "instructions": 392354081,
+      "finalGeneration": 333499,
+      "memoryContentSha256": "c2b2df9f5af263a2445e683b9d991703da29581486dc17d40fffacdc3bf7cf8b",
       "checkpointCompletion": {
-        "capability": "d3d9-set-fvf-post-texture-binding",
-        "implementationId": "runtime.d3d9-set-fvf-post-texture-binding.v1",
+        "capability": "d3d9-set-stream-source-post-fvf",
+        "implementationId": "runtime.d3d9-set-stream-source-post-fvf.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "prerequisiteTextureBindingSequence": 282862,
-        "prerequisiteTextureBindingInstructionCount": 392354048,
-        "firstCompletionSequence": 282863,
-        "firstCompletionInstructionCount": 392354055,
-        "lastCompletionSequence": 282863,
-        "lastCompletionInstructionCount": 392354055,
+        "prerequisiteFvfSequence": 282863,
+        "prerequisiteFvfInstructionCount": 392354055,
+        "firstCompletionSequence": 282864,
+        "firstCompletionInstructionCount": 392354072,
+        "lastCompletionSequence": 282864,
+        "lastCompletionInstructionCount": 392354072,
         "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
-        "flexibleVertexFormatProfileId": "primary-first-frame-transformed-diffuse-textured-fvf-v1",
-        "stateAuthority": "rust-runtime-graphics-logical-device-flexible-vertex-format",
+        "streamSourceProfileId": "primary-first-frame-transformed-diffuse-textured-stream-zero-v1",
+        "stateAuthority": "rust-runtime-graphics-logical-device-stream-sources",
+        "bindingOwnership": "non-owning",
         "mutation": "validate-plan-preflight-targeted-idempotent-commit",
         "sameValueGenerationChange": 0,
+        "supportedStream": 0,
+        "supportedOffsetInBytes": 0,
+        "supportedStride": 28,
+        "nullUnbindImplemented": false,
         "unsupportedVariantResult": "0x8876086a",
         "failureAtomicity": true,
         "logicalGraphicsDeviceId": 3,
         "logicalGraphicsComObjectId": "21",
         "activeSceneSequence": 4,
         "logicalGraphicsDeviceGeneration": 71,
+        "vertexBufferId": 3,
+        "offsetInBytes": 0,
+        "stride": 28,
         "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
         "textureBindingStageZero": 8,
         "backBufferContentGeneration": 10,
@@ -108,40 +116,43 @@
         "presentedFrameSequence": 3,
         "browserRendererResourceCreated": false,
         "activeCallbackDepthAtCompletion": 0,
-        "instructionCount": 392354072,
+        "instructionCount": 392354081,
         "nextEndpoint": {
           "id": 0,
-          "address": 16848496,
+          "address": 16848192,
           "module": "<com>",
           "symbol": {
             "kind": "name",
-            "name": "interface-1-slot-100"
+            "name": "interface-1-slot-81"
           },
           "disposition": "declared-com-method",
           "interfaceIndex": 1,
-          "vtableSlot": 100,
+          "vtableSlot": 81,
           "interface": "IDirect3DDevice9",
-          "method": "SetStreamSource"
+          "method": "DrawPrimitive"
         },
-        "memoryContentSha256": "50a490bd1d6f0db5bd299c9bc3448644232e528102bc359a94fa7f691f77cab5",
-        "nextReturnAddress": 268809196,
-        "nextStackPointer": 7321696,
+        "memoryContentSha256": "c2b2df9f5af263a2445e683b9d991703da29581486dc17d40fffacdc3bf7cf8b",
+        "nextReturnAddress": 268809218,
+        "nextStackPointer": 7321700,
         "call": {
-          "sequence": 282863,
+          "sequence": 282864,
           "module": "<com>",
-          "symbol": "IDirect3DDevice9.SetFVF",
+          "symbol": "IDirect3DDevice9.SetStreamSource",
           "interface": "IDirect3DDevice9",
-          "vtableSlot": 89,
+          "vtableSlot": 100,
           "arguments": [
             16842756,
-            324
+            0,
+            17104900,
+            0,
+            28
           ],
           "result": {
             "kind": "h-result",
             "value": 0
           },
-          "returnAddress": 268808849,
-          "stackPointerBefore": 7321708,
+          "returnAddress": 268809196,
+          "stackPointerBefore": 7321696,
           "stackPointerAfter": 7321720,
           "referenceCount": 5,
           "objectRetired": false,
@@ -424,43 +435,46 @@
           }
         }
       },
-      "writebackBatches": 286061,
+      "writebackBatches": 286062,
       "hostDeltaBatches": 143087
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 282863,
-      "callSemanticsSha256": "20fc814e8eb2ea9f4e6f7edae295e3f9c92d65c49486fe4e1834b459d7f6bdd5",
-      "instructions": 392354072,
-      "finalGeneration": 355953,
-      "memoryContentSha256": "50a490bd1d6f0db5bd299c9bc3448644232e528102bc359a94fa7f691f77cab5",
+      "supportedCalls": 282864,
+      "callSemanticsSha256": "ef4d1c9b29d88f7d127800267441db75b590a6b4e691ac58135fac72d62aa5c0",
+      "instructions": 392354081,
+      "finalGeneration": 355954,
+      "memoryContentSha256": "c2b2df9f5af263a2445e683b9d991703da29581486dc17d40fffacdc3bf7cf8b",
       "checkpointCompletion": {
-        "capability": "d3d9-set-fvf-post-texture-binding",
-        "implementationId": "runtime.d3d9-set-fvf-post-texture-binding.v1",
+        "capability": "d3d9-set-stream-source-post-fvf",
+        "implementationId": "runtime.d3d9-set-stream-source-post-fvf.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "prerequisiteTextureBindingSequence": 282862,
-        "prerequisiteTextureBindingInstructionCount": 392354048,
-        "firstCompletionSequence": 282863,
-        "firstCompletionInstructionCount": 392354055,
-        "lastCompletionSequence": 282863,
-        "lastCompletionInstructionCount": 392354055,
+        "prerequisiteFvfSequence": 282863,
+        "prerequisiteFvfInstructionCount": 392354055,
+        "firstCompletionSequence": 282864,
+        "firstCompletionInstructionCount": 392354072,
+        "lastCompletionSequence": 282864,
+        "lastCompletionInstructionCount": 392354072,
         "call": {
-          "sequence": 282863,
+          "sequence": 282864,
           "module": "<com>",
-          "symbol": "IDirect3DDevice9.SetFVF",
+          "symbol": "IDirect3DDevice9.SetStreamSource",
           "interface": "IDirect3DDevice9",
-          "vtableSlot": 89,
+          "vtableSlot": 100,
           "arguments": [
             16842756,
-            324
+            0,
+            17104900,
+            0,
+            28
           ],
           "result": {
             "kind": "h-result",
             "value": 0
           },
-          "returnAddress": 268808849,
-          "stackPointerBefore": 7321708,
+          "returnAddress": 268809196,
+          "stackPointerBefore": 7321696,
           "stackPointerAfter": 7321720,
           "referenceCount": 5,
           "objectRetired": false,
@@ -743,16 +757,24 @@
           }
         },
         "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
-        "flexibleVertexFormatProfileId": "primary-first-frame-transformed-diffuse-textured-fvf-v1",
-        "stateAuthority": "rust-runtime-graphics-logical-device-flexible-vertex-format",
+        "streamSourceProfileId": "primary-first-frame-transformed-diffuse-textured-stream-zero-v1",
+        "stateAuthority": "rust-runtime-graphics-logical-device-stream-sources",
+        "bindingOwnership": "non-owning",
         "mutation": "validate-plan-preflight-targeted-idempotent-commit",
         "sameValueGenerationChange": 0,
+        "supportedStream": 0,
+        "supportedOffsetInBytes": 0,
+        "supportedStride": 28,
+        "nullUnbindImplemented": false,
         "unsupportedVariantResult": "0x8876086a",
         "failureAtomicity": true,
         "logicalGraphicsDeviceId": 3,
         "logicalGraphicsComObjectId": "21",
         "activeSceneSequence": 4,
         "logicalGraphicsDeviceGeneration": 71,
+        "vertexBufferId": 3,
+        "offsetInBytes": 0,
+        "stride": 28,
         "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
         "textureBindingStageZero": 8,
         "backBufferContentGeneration": 10,
@@ -760,30 +782,30 @@
         "presentedFrameSequence": 3,
         "browserRendererResourceCreated": false,
         "activeCallbackDepthAtCompletion": 0,
-        "instructionCount": 392354072,
+        "instructionCount": 392354081,
         "nextEndpoint": {
           "id": 0,
-          "address": 16848496,
+          "address": 16848192,
           "module": "<com>",
           "symbol": {
             "kind": "name",
-            "name": "interface-1-slot-100"
+            "name": "interface-1-slot-81"
           },
           "disposition": "declared-com-method",
           "interfaceIndex": 1,
-          "vtableSlot": 100,
+          "vtableSlot": 81,
           "interface": "IDirect3DDevice9",
-          "method": "SetStreamSource"
+          "method": "DrawPrimitive"
         },
-        "memoryContentSha256": "50a490bd1d6f0db5bd299c9bc3448644232e528102bc359a94fa7f691f77cab5",
-        "nextReturnAddress": 268809196,
-        "nextStackPointer": 7321696
+        "memoryContentSha256": "c2b2df9f5af263a2445e683b9d991703da29581486dc17d40fffacdc3bf7cf8b",
+        "nextReturnAddress": 268809218,
+        "nextStackPointer": 7321700
       },
-      "wasmBridgeCalls": 756256,
+      "wasmBridgeCalls": 756259,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 955473,
+          "transitionCount": 955476,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -831,11 +853,11 @@
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
       "classification": "semantic-leaf",
-      "nextCheckpoint": "d3d9-set-stream-source-post-fvf",
-      "pausedHistoricalCheckpoint": "d3d9-set-fvf-post-texture-binding",
-      "instructionCount": 392354072,
+      "nextCheckpoint": "d3d9-draw-primitive-post-stream-source",
+      "pausedHistoricalCheckpoint": "d3d9-set-stream-source-post-fvf",
+      "instructionCount": 392354081,
       "capabilityCluster": "d3d9-idirect3ddevice9-method",
-      "reason": "d3d9-set-fvf-post-texture-binding-checkpoint-complete",
+      "reason": "d3d9-set-stream-source-post-fvf-checkpoint-complete",
       "historicalOutlineTextMetricsCheckpoint": {
         "capability": "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
         "implementationId": "runtime.gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336.v1",
@@ -1246,7 +1268,7 @@
         "nextReturnAddress": 268808849,
         "nextStackPointer": 7321708
       },
-      "completion": {
+      "prerequisiteFvfCheckpoint": {
         "capability": "d3d9-set-fvf-post-texture-binding",
         "implementationId": "runtime.d3d9-set-fvf-post-texture-binding.v1",
         "requiredCompletions": 1,
@@ -1280,34 +1302,75 @@
         "nextReturnAddress": 268809196,
         "nextStackPointer": 7321696
       },
+      "completion": {
+        "capability": "d3d9-set-stream-source-post-fvf",
+        "implementationId": "runtime.d3d9-set-stream-source-post-fvf.v1",
+        "requiredCompletions": 1,
+        "completionCount": 1,
+        "prerequisiteFvfSequence": 282863,
+        "prerequisiteFvfInstructionCount": 392354055,
+        "firstCompletionSequence": 282864,
+        "firstCompletionInstructionCount": 392354072,
+        "lastCompletionSequence": 282864,
+        "lastCompletionInstructionCount": 392354072,
+        "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
+        "streamSourceProfileId": "primary-first-frame-transformed-diffuse-textured-stream-zero-v1",
+        "stateAuthority": "rust-runtime-graphics-logical-device-stream-sources",
+        "bindingOwnership": "non-owning",
+        "mutation": "validate-plan-preflight-targeted-idempotent-commit",
+        "sameValueGenerationChange": 0,
+        "supportedStream": 0,
+        "supportedOffsetInBytes": 0,
+        "supportedStride": 28,
+        "nullUnbindImplemented": false,
+        "unsupportedVariantResult": "0x8876086a",
+        "failureAtomicity": true,
+        "logicalGraphicsDeviceId": 3,
+        "logicalGraphicsComObjectId": "21",
+        "activeSceneSequence": 4,
+        "logicalGraphicsDeviceGeneration": 71,
+        "vertexBufferId": 3,
+        "offsetInBytes": 0,
+        "stride": 28,
+        "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
+        "textureBindingStageZero": 8,
+        "backBufferContentGeneration": 10,
+        "backBufferClearSequence": 4,
+        "presentedFrameSequence": 3,
+        "browserRendererResourceCreated": false,
+        "activeCallbackDepthAtCompletion": 0,
+        "instructionCount": 392354081,
+        "memoryContentSha256": "c2b2df9f5af263a2445e683b9d991703da29581486dc17d40fffacdc3bf7cf8b",
+        "nextReturnAddress": 268809218,
+        "nextStackPointer": 7321700
+      },
       "nextEndpoint": {
         "endpointKind": "com-method",
         "endpointId": 0,
-        "api": "IDirect3DDevice9!SetStreamSource",
-        "endpointAddress": "0x01011670",
+        "api": "IDirect3DDevice9!DrawPrimitive",
+        "endpointAddress": "0x01011540",
         "observedModule": "<com>",
-        "observedSymbol": "interface-1-slot-100",
+        "observedSymbol": "interface-1-slot-81",
         "id": 0,
-        "address": 16848496,
+        "address": 16848192,
         "module": "<com>",
         "symbol": {
           "kind": "name",
-          "name": "interface-1-slot-100"
+          "name": "interface-1-slot-81"
         },
         "disposition": "declared-com-method",
         "interfaceIndex": 1,
-        "vtableSlot": 100,
+        "vtableSlot": 81,
         "interface": "IDirect3DDevice9",
-        "method": "SetStreamSource",
+        "method": "DrawPrimitive",
         "thisPointer": "0x01010004",
         "arguments": [
+          "0x00000005",
           "0x00000000",
-          "0x01050004",
-          "0x00000000",
-          "0x0000001c"
+          "0x00000002"
         ],
-        "returnAddress": "0x1005b3ec",
-        "stackPointer": "0x006fb860"
+        "returnAddress": "0x1005b402",
+        "stackPointer": "0x006fb864"
       },
       "historicalFollowingFault": {
         "class": "unsupported",
@@ -1350,14 +1413,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-d3d9-set-fvf-post-texture-binding/report.json",
-      "bytes": 2588833,
-      "sha256": "47449c871dcdac50cedff685f411bce05c58851518db2f55e3bd324bc2cc0f8e"
+      "path": ".work/v86-bgi-d3d9-set-stream-source-post-fvf/report.json",
+      "bytes": 2597926,
+      "sha256": "a0e24c4a6aca57feade52f8f96fbc108a27d68938863f373920ec581aee2df57"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2618200,
-      "sha256": "b2881f5f87a2d86118a2b210fb9b2a6109b359c7f9626d0c34cf936191736bf6"
+      "bytes": 2618479,
+      "sha256": "ae95e1de78baaef268d6b5c400f7a7662304f12670324db3f0b1d96e032b159e"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -1372,7 +1435,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3768,
-      "sha256": "87cd03abc9e92e0c58d31606cf23e19b9996cebf63664b1ac36e3e9fac46dc2d"
+      "sha256": "132668d9994302e8791716f92477edae134614d258df736db40a31bac0dd44c4"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -1409,5 +1472,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "6a87a172d056b01366be3d2679a8d14f1d0442280671429d45046344905037b8"
+  "payloadSha256": "64fc34b69dd8b01441b9646f253ad84a68889bfd912ebe4c8eefad53437bccfe"
 }
