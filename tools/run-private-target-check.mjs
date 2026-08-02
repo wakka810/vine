@@ -5125,7 +5125,12 @@ function assertScheduledSharedClockReportSemantics({
     nodeReport.synchronization.hostDeltaBatches,
     scheduled.nodePrimaryEvidence.hostDeltaBatches,
   );
-  assert.equal(nodeReport.synchronization.activeCallbackDepth, 0);
+  assert.equal(
+    nodeReport.synchronization.activeCallbackDepth,
+    user32DispatchMessageAPostTestCooperativeLevelTimerTranslateReport
+      ? expectedNext.completion.activeCallbackDepthAtEntry
+      : 0,
+  );
 
   assert.equal(browserReport.cancellation.report.pendingHostCalls, 0);
   assert.equal(browserReport.cancellation.report.pendingCallbacks, 0);
