@@ -392,6 +392,19 @@ and terminal memory digest
 Device-loss／not-reset states, `Reset`, and asynchronous recovery remain outside
 this bounded profile.
 
+Protocol version 122／BGI report schema 88 continues through the following
+`KERNEL32.dll!SetWaitableTimer` arm. Node and Chrome agree on sequence 282,871／
+occurrence 9,921 at instruction 392,354,369, handle `0x57010001`, relative due
+magnitude 5,000, manual-reset timer ID 1, object ID 20, arm generation 68,
+deadline `2,007,735,000`, TRUE, LastError 0, and zero guest writes. The Worker
+validates the Rust-owned timer／typed-object snapshot and creates no browser
+timer for the arm. Both stop at instruction 392,354,375 before
+`WaitForSingleObjectEx(0x57010001, 10, TRUE)` with semantic digest
+`640bc23ea65411d491b62e372e78562e5f2646fff44a4adf5738626c39677c80`
+and terminal memory digest
+`f476539a157bd61c93ce31b1569baa78e0e3e50342d618a5256859f45927f174`.
+Expiration, wait result, and browser pacing remain the following wait boundary.
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk

@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 121 as const/u);
+assert.match(protocol, /protocolVersion = 122 as const/u);
 assert.match(protocol, /"d3d9-begin-scene-post-partial-dirty-region"/u);
 assert.match(protocol, /"d3d9-set-sampler-state-post-begin-scene"/u);
 assert.match(
@@ -35,6 +35,10 @@ assert.match(
 assert.match(
   protocol,
   /capability: "d3d9-test-cooperative-level-post-time-get-time";[\s\S]*?implementationId:[\s\S]*?"runtime\.d3d9-test-cooperative-level-post-time-get-time\.v1";[\s\S]*?testCooperativeLevelProfileId: "primary-live-operational-device-query-v1";[\s\S]*?nextArguments: number\[\];/u,
+);
+assert.match(
+  protocol,
+  /capability: "kernel32-set-waitable-timer-post-test-cooperative-level";[\s\S]*?implementationId: "runtime\.kernel32-set-waitable-timer-post-test-cooperative-level\.v1";[\s\S]*?semanticImplementationId: "kernel32\.set-waitable-timer\.relative-one-shot\.v1";[\s\S]*?browserTimerCreated: false;/u,
 );
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);

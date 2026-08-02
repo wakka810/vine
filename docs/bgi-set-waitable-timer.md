@@ -217,6 +217,21 @@ frame. No third `Present` is observed, so the bounded result advances to an
 input-progress gateway rather than claiming long-run timer or presentation
 progress.
 
+## Post-`TestCooperativeLevel` timer-1 recurrence
+
+The `kernel32-set-waitable-timer-post-test-cooperative-level` profile consumes
+the timer-1 arm reached after the fourth Present, the following `timeGetTime`,
+and the live-device `TestCooperativeLevel` query. It reuses the same
+`kernel32.set-waitable-timer.relative-one-shot.v1` transaction: timer ID 1,
+logical handle `0x57010001`, object ID 20, manual-reset mode, due magnitude
+5,000, and the live generation are validated before arm generation 68 and
+deadline `2,007,735,000` are jointly published with `nonsignaled` object state.
+Node and Chrome agree on TRUE, LastError 0, zero guest writes, identity,
+ordered semantics, terminal memory, and the following
+`WaitForSingleObjectEx(0x57010001, 10, TRUE)` frame. The Worker creates no
+browser timer for this arm. Exact counts and artifact identities remain
+manifest-owned.
+
 ## Non-claims
 
 - This arm transaction does not itself expire or signal the timer, choose a

@@ -2345,6 +2345,19 @@ failure atomicityを検証し、browser context lossをimportしない。両adap
 cancel／watchdog cleanupも維持する。`D3DERR_DEVICELOST`、`D3DERR_DEVICENOTRESET`、`Reset`、resize、
 readable title scene、general subsequent framesはacceptanceへ含めない。
 
+Post-`TestCooperativeLevel` `SetWaitableTimer` leafは、直前live-device queryをprerequisiteとして
+既存のrelative one-shot timer transactionを再利用する。Node／Chromeはsequence 282,871、occurrence
+9,921、trap instruction 392,354,369、handle `0x57010001`、due pointer `0x006FF8F0`、
+period／completion routine／context／resume 0、TRUE、LastError 0、zero guest writeを一致させる。
+Rustはtimer ID 1／object ID 20／manual-reset／arm generation 68、arm time `2,007,730,000`、
+deadline `2,007,735,000`、`nonsignaled` stateをplan／preflight／targeted commitでpublishする。
+両adapterは282,871 supported calls、100,557 clock samples、40 TIMERPROC callbacks、4 Present、
+ordered semantic digest `640bc23ea65411d491b62e372e78562e5f2646fff44a4adf5738626c39677c80`、
+terminal memory digest `f476539a157bd61c93ce31b1569baa78e0e3e50342d618a5256859f45927f174`を
+一致させ、6 instructions後の`WaitForSingleObjectEx(0x57010001, 10, TRUE)`で停止する。
+Protocol v122／report schema 88でcancel／watchdog cleanupを維持する。Arm checkpointはexpiration、
+wait result、APC delivery、host／browser timer authority、general timer behaviorをacceptanceへ含めない。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

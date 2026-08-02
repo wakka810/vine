@@ -284,6 +284,12 @@ assert.equal(
   "v86-bgi-d3d9-test-cooperative-level-post-time-get-time",
 );
 assert.equal(
+  bgiProfileOutputDirectory(
+    "kernel32-set-waitable-timer-post-test-cooperative-level",
+  ),
+  "v86-bgi-set-waitable-timer-post-test-cooperative-level",
+);
+assert.equal(
   bgiProfileOutputDirectory("shell32-drag-accept-files"),
   "v86-bgi-drag-accept-files",
 );

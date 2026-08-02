@@ -1191,7 +1191,9 @@ function isScheduledSharedClockNodeReport(report) {
     report?.schema ===
       "vine.v86-bgi-winmm-time-get-time-post-present-primary" ||
     report?.schema ===
-      "vine.v86-bgi-d3d9-test-cooperative-level-post-time-get-time-primary"
+      "vine.v86-bgi-d3d9-test-cooperative-level-post-time-get-time-primary" ||
+    report?.schema ===
+      "vine.v86-bgi-kernel32-set-waitable-timer-post-test-cooperative-level-primary"
   );
 }
 
@@ -1223,7 +1225,9 @@ function isGetCursorInfoOrLaterNodeReport(report) {
     report?.schema ===
       "vine.v86-bgi-winmm-time-get-time-post-present-primary" ||
     report?.schema ===
-      "vine.v86-bgi-d3d9-test-cooperative-level-post-time-get-time-primary"
+      "vine.v86-bgi-d3d9-test-cooperative-level-post-time-get-time-primary" ||
+    report?.schema ===
+      "vine.v86-bgi-kernel32-set-waitable-timer-post-test-cooperative-level-primary"
   );
 }
 
@@ -1232,6 +1236,15 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (
+    nodeReport.schema ===
+    "vine.v86-bgi-kernel32-set-waitable-timer-post-test-cooperative-level-primary"
+  ) {
+    return structuredClone(
+      execution.kernel32SetWaitableTimerPostTestCooperativeLevel
+        .checkpointCompletion,
+    );
+  }
   if (
     nodeReport.schema ===
     "vine.v86-bgi-d3d9-test-cooperative-level-post-time-get-time-primary"
@@ -2692,6 +2705,64 @@ function assertD3d9TestCooperativeLevelPostTimeGetTimeCheckpoint(
   assert.deepEqual(actual.nextEndpoint.symbol, expectedEndpoint.symbol);
 }
 
+function assertKernel32SetWaitableTimerPostTestCooperativeLevelCheckpoint(
+  actual,
+  expectedCompletion,
+  expectedEndpoint,
+) {
+  assert(
+    actual !== null,
+    "post-TestCooperativeLevel SetWaitableTimer checkpoint is missing",
+  );
+  for (const field of [
+    "capability",
+    "implementationId",
+    "semanticImplementationId",
+    "requiredCompletions",
+    "completionCount",
+    "prerequisiteTestCooperativeLevelSequence",
+    "prerequisiteTestCooperativeLevelInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "stateAuthority",
+    "mutation",
+    "failureAtomicity",
+    "logicalTimerHandle",
+    "logicalTimerId",
+    "logicalObjectId",
+    "manualReset",
+    "relativeDueTime100ns",
+    "armedAtTime100ns",
+    "deadlineTime100ns",
+    "periodMilliseconds",
+    "armGeneration",
+    "objectWaitState",
+    "openHandles",
+    "lastErrorPolicy",
+    "guestWriteBytes",
+    "hostTimerImported",
+    "browserTimerCreated",
+    "activeCallbackDepthAtCompletion",
+    "instructionCount",
+    "memoryContentSha256",
+    "nextReturnAddress",
+    "nextStackPointer",
+  ]) {
+    assert.equal(actual[field], expectedCompletion[field], field);
+  }
+  assert.deepEqual(actual.nextArguments, [0x5701_0001, 10, 1]);
+  for (const field of ["id", "address", "disposition", "iatAddress"]) {
+    assert.equal(actual.nextEndpoint[field], expectedEndpoint[field], field);
+  }
+  assert.equal(
+    actual.nextEndpoint.module.toLowerCase(),
+    expectedEndpoint.module.toLowerCase(),
+  );
+  assert.deepEqual(actual.nextEndpoint.symbol, expectedEndpoint.symbol);
+}
+
 function assertD3d9SetTextureStageStatePostSamplerStateCheckpoint(
   actual,
   expectedCompletion,
@@ -2928,6 +2999,9 @@ function assertScheduledSharedClockReportSemantics({
   const d3d9TestCooperativeLevelPostTimeGetTimeReport =
     nodeReport.schema ===
     "vine.v86-bgi-d3d9-test-cooperative-level-post-time-get-time-primary";
+  const kernel32SetWaitableTimerPostTestCooperativeLevelReport =
+    nodeReport.schema ===
+    "vine.v86-bgi-kernel32-set-waitable-timer-post-test-cooperative-level-primary";
 
   assert(
     expectedNext.kind === "capability-checkpoint" ||
@@ -3332,7 +3406,77 @@ function assertScheduledSharedClockReportSemantics({
     expectedNext,
   );
   let expectedFaultCode = null;
-  if (d3d9TestCooperativeLevelPostTimeGetTimeReport) {
+  if (kernel32SetWaitableTimerPostTestCooperativeLevelReport) {
+    const setWaitableTimer =
+      nodeExecution.kernel32SetWaitableTimerPostTestCooperativeLevel;
+    const testCooperativeLevel =
+      nodeExecution.d3d9TestCooperativeLevelPostTimeGetTime;
+    assert.equal(nodeStop.fault, null);
+    assert.equal(
+      nodeStop.terminal.instructionCount,
+      expectedNext.instructionCount,
+    );
+    assert.deepEqual(
+      setWaitableTimer.call,
+      setWaitableTimer.checkpointCompletion.call,
+    );
+    assert.equal(setWaitableTimer.call.sequence, 282_871);
+    assert.equal(setWaitableTimer.call.occurrence, 9_921);
+    assert.equal(setWaitableTimer.call.trapInstructionCount, 392_354_369);
+    assert.equal(setWaitableTimer.call.module.toLowerCase(), "kernel32.dll");
+    assert.equal(setWaitableTimer.call.symbol, "SetWaitableTimer");
+    assert.deepEqual(setWaitableTimer.call.arguments, [
+      0x5701_0001,
+      0x006f_f8f0,
+      0,
+      0,
+      0,
+      0,
+    ]);
+    assert.deepEqual(setWaitableTimer.call.result, {
+      action: "set",
+      value: 1,
+    });
+    assert.equal(
+      setWaitableTimer.call.implementationId,
+      "kernel32.set-waitable-timer.relative-one-shot.v1",
+    );
+    assert.equal(setWaitableTimer.call.returnAddress, 0x1005_0607);
+    assert.equal(setWaitableTimer.call.stackPointerBefore, 0x006f_f8d4);
+    assert.equal(setWaitableTimer.call.stackPointerAfter, 0x006f_f8f0);
+    assert.equal(setWaitableTimer.call.lastError, 0);
+    assert.deepEqual(setWaitableTimer.call.guestWrites, []);
+    assert.deepEqual(setWaitableTimer.call.waitableTimer, {
+      handle: 0x5701_0001,
+      timer: {
+        id: 1,
+        manualReset: true,
+        arm: {
+          relativeDueTime100ns: 5_000,
+          armedAtTime100ns: 2_007_730_000,
+          deadlineTime100ns: 2_007_735_000,
+          periodMilliseconds: 0,
+          generation: 68,
+        },
+      },
+      objectRecord: {
+        id: 20,
+        key: { kind: "waitable-timer", timer_id: 1 },
+        kind: "waitable-timer",
+        namespace: "vine.runtime-waitable-timer-object.v1",
+        closePolicy: "close-handle",
+        waitState: { state: "nonsignaled" },
+        openHandles: 1,
+      },
+    });
+    assert.equal(testCooperativeLevel.call.sequence, 282_870);
+    assert.equal(testCooperativeLevel.call.result.value, 0);
+    assertKernel32SetWaitableTimerPostTestCooperativeLevelCheckpoint(
+      nodeCheckpoint,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+  } else if (d3d9TestCooperativeLevelPostTimeGetTimeReport) {
     const testCooperativeLevel =
       nodeExecution.d3d9TestCooperativeLevelPostTimeGetTime;
     const timeGetTime = nodeExecution.winmmTimeGetTimePostPresent;
@@ -3862,6 +4006,7 @@ function assertScheduledSharedClockReportSemantics({
     );
   }
   if (
+    !kernel32SetWaitableTimerPostTestCooperativeLevelReport &&
     !d3d9TestCooperativeLevelPostTimeGetTimeReport &&
     !winmmTimeGetTimePostPresentReport &&
     !d3d9PresentPostRasterStatusReport &&
@@ -3899,6 +4044,7 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext,
     );
   } else if (
+    !kernel32SetWaitableTimerPostTestCooperativeLevelReport &&
     !d3d9TestCooperativeLevelPostTimeGetTimeReport &&
     !winmmTimeGetTimePostPresentReport &&
     !d3d9PresentPostRasterStatusReport &&
@@ -3964,7 +4110,32 @@ function assertScheduledSharedClockReportSemantics({
   assert.equal(browser.pendingCallbacks, 0);
 
   const browserUnsupported = browser.firstUnsupported;
-  if (d3d9TestCooperativeLevelPostTimeGetTimeReport) {
+  if (kernel32SetWaitableTimerPostTestCooperativeLevelReport) {
+    assert.equal(browserUnsupported, null);
+    assertKernel32SetWaitableTimerPostTestCooperativeLevelCheckpoint(
+      browser.checkpointCompletion,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+    assert.deepEqual(
+      normalizeSemanticCall(browser.checkpointCompletion.call),
+      normalizeSemanticCall(nodeCheckpoint.call),
+    );
+    assert.equal(
+      browser.checkpointCompletion.call.occurrence,
+      nodeCheckpoint.call.occurrence,
+    );
+    assert.equal(
+      browser.checkpointCompletion.call.trapInstructionCount,
+      nodeCheckpoint.call.trapInstructionCount,
+    );
+    assert.equal(browser.d3d9Present.call.sequence, 282_868);
+    assert.equal(
+      browser.d3d9Present.call.browserPresentation.resource.id,
+      "browser-resource:1",
+    );
+    assert.equal(browser.d3d9Present.call.browserPresentation.frameSequence, 4);
+  } else if (d3d9TestCooperativeLevelPostTimeGetTimeReport) {
     assert.equal(browserUnsupported, null);
     assertD3d9TestCooperativeLevelPostTimeGetTimeCheckpoint(
       browser.checkpointCompletion,
@@ -4141,6 +4312,7 @@ function assertScheduledSharedClockReportSemantics({
     );
   }
   if (
+    !kernel32SetWaitableTimerPostTestCooperativeLevelReport &&
     !d3d9TestCooperativeLevelPostTimeGetTimeReport &&
     !winmmTimeGetTimePostPresentReport &&
     !d3d9PresentPostRasterStatusReport &&
@@ -4182,6 +4354,7 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext,
     );
   } else if (
+    !kernel32SetWaitableTimerPostTestCooperativeLevelReport &&
     !d3d9TestCooperativeLevelPostTimeGetTimeReport &&
     !winmmTimeGetTimePostPresentReport &&
     !d3d9PresentPostRasterStatusReport &&
@@ -4788,6 +4961,10 @@ const nodeInstructions = scheduledNodeReport
     : nodeReport.firstUnsupported.instructionCount;
 const nodeMemoryContentSha256 = scheduledNodeReport
   ? nodeReport.schema ===
+    "vine.v86-bgi-kernel32-set-waitable-timer-post-test-cooperative-level-primary"
+    ? nodeReport.execution.kernel32SetWaitableTimerPostTestCooperativeLevel
+        .checkpointCompletion.memoryContentSha256
+    : nodeReport.schema ===
     "vine.v86-bgi-d3d9-test-cooperative-level-post-time-get-time-primary"
     ? nodeReport.execution.d3d9TestCooperativeLevelPostTimeGetTime
         .checkpointCompletion.memoryContentSha256

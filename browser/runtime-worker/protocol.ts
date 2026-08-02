@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 121 as const;
+export const protocolVersion = 122 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -38,6 +38,7 @@ export type BgiCapabilityProfile =
   | "d3d9-present-post-raster-status"
   | "winmm-time-get-time-post-present"
   | "d3d9-test-cooperative-level-post-time-get-time"
+  | "kernel32-set-waitable-timer-post-test-cooperative-level"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1852,6 +1853,45 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "kernel32-set-waitable-timer-post-test-cooperative-level";
+        implementationId: "runtime.kernel32-set-waitable-timer-post-test-cooperative-level.v1";
+        semanticImplementationId: "kernel32.set-waitable-timer.relative-one-shot.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        prerequisiteTestCooperativeLevelSequence: number;
+        prerequisiteTestCooperativeLevelInstructionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        call: RuntimeSupportedCallSnapshot;
+        stateAuthority: "rust-runtime-timers-and-typed-runtime-object-table";
+        mutation: "timer-object-plan-preflight-targeted-commit";
+        failureAtomicity: true;
+        logicalTimerHandle: number;
+        logicalTimerId: number;
+        logicalObjectId: number;
+        manualReset: true;
+        relativeDueTime100ns: number;
+        armedAtTime100ns: number;
+        deadlineTime100ns: number;
+        periodMilliseconds: 0;
+        armGeneration: number;
+        objectWaitState: "nonsignaled";
+        openHandles: number;
+        lastErrorPolicy: "preserve";
+        guestWriteBytes: 0;
+        hostTimerImported: false;
+        browserTimerCreated: false;
+        activeCallbackDepthAtCompletion: 0;
+        instructionCount: number;
+        nextEndpoint: unknown;
+        nextArguments: number[];
+        memoryContentSha256: string;
+        nextReturnAddress: number;
+        nextStackPointer: number;
+      }
     | {
         capability: "d3d9-test-cooperative-level-post-time-get-time";
         implementationId: "runtime.d3d9-test-cooperative-level-post-time-get-time.v1";

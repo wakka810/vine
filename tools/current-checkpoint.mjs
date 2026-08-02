@@ -158,7 +158,11 @@ function validateExecutionStateMachine(value, label, errors) {
 export function validateCurrentCheckpoint(manifest) {
   const errors = [];
   const root = requireRecord(manifest, "manifest", errors);
+  const kernel32SetWaitableTimerPostTestCooperativeLevelActive =
+    root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
+    "kernel32-set-waitable-timer-post-test-cooperative-level";
   const d3d9TestCooperativeLevelPostTimeGetTimeActive =
+    kernel32SetWaitableTimerPostTestCooperativeLevelActive ||
     root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
     "d3d9-test-cooperative-level-post-time-get-time";
   const winmmTimeGetTimePostPresentActive =
@@ -639,7 +643,11 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9RecreatedTexturesActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-set-window-pos-repeat-activation";
+  const kernel32SetWaitableTimerPostTestCooperativeLevelProfileActive =
+    root.activeRuntimeCheckpoint?.capabilityProfile ===
+      "kernel32-set-waitable-timer-post-test-cooperative-level";
   const d3d9TestCooperativeLevelPostTimeGetTimeProfileActive =
+    kernel32SetWaitableTimerPostTestCooperativeLevelProfileActive ||
     root.activeRuntimeCheckpoint?.capabilityProfile ===
       "d3d9-test-cooperative-level-post-time-get-time";
   const winmmTimeGetTimePostPresentProfileActive =
@@ -1521,7 +1529,27 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    d3d9TestCooperativeLevelPostTimeGetTimeActive
+    kernel32SetWaitableTimerPostTestCooperativeLevelActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_997,
+        browserMappingDirtyPages: 150_402,
+        browserSuccessExecutionTransitions: 589_100,
+        browserFinalGeneration: 315_160,
+        browserReportSchemaVersion: 88,
+        latestSchema:
+          "vine.v86-bgi-kernel32-set-waitable-timer-post-test-cooperative-level-primary",
+        latestWritebackBatches: 165_263,
+        latestWritebackDirtyPages: 244_675,
+        latestWritebackChangedBytes: 43_072_557,
+        latestHostDeltaBatches: 127_997,
+        latestFinalMemoryGeneration: 333_507,
+        semanticCallDigestSha256:
+          "640bc23ea65411d491b62e372e78562e5f2646fff44a4adf5738626c39677c80",
+        memoryContentSha256:
+          "f476539a157bd61c93ce31b1569baa78e0e3e50342d618a5256859f45927f174",
+      }
+    : d3d9TestCooperativeLevelPostTimeGetTimeActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_997,
@@ -3936,7 +3964,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    d3d9TestCooperativeLevelPostTimeGetTimeActive
+    kernel32SetWaitableTimerPostTestCooperativeLevelActive
+      ? "vine.browser-runtime-worker.v122"
+      : d3d9TestCooperativeLevelPostTimeGetTimeActive
       ? "vine.browser-runtime-worker.v121"
       : winmmTimeGetTimePostPresentActive
       ? "vine.browser-runtime-worker.v120"
@@ -22231,7 +22261,9 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureBefore !== null ||
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureAfter !== null)) ||
     latestEvidence.implementation !==
-      (d3d9TestCooperativeLevelPostTimeGetTimeActive
+      (kernel32SetWaitableTimerPostTestCooperativeLevelActive
+        ? "Rust-owned waitable-timer and typed-object authorities complete the reached post-TestCooperativeLevel relative one-shot SetWaitableTimer arm through the existing validated plan/preflight/targeted commit, preserve guest memory and LastError, import no host or browser timer authority, and stop at the following finite alertable WaitForSingleObjectEx endpoint"
+        : d3d9TestCooperativeLevelPostTimeGetTimeActive
         ? "Rust-owned D3D9 live-device association completes the reached post-timeGetTime TestCooperativeLevel query with D3D_OK and no guest writes, device mutation, COM reference-count mutation, or browser context-loss import, then stops at the following SetWaitableTimer endpoint without claiming device-loss, device-not-reset, or Reset support"
         : winmmTimeGetTimePostPresentActive
         ? "Rust-owned shared process clock completes the reached post-fourth-Present timeGetTime read without advancing or mutating the clock, returns the scheduled 3,800,773 ms projection identically in Node and Chrome, and stops at the following TestCooperativeLevel slot 3 endpoint without importing host or browser time"
@@ -24714,7 +24746,45 @@ export function validateCurrentCheckpoint(manifest) {
             errors,
           )
         : {};
-    const expectedNode = d3d9TestCooperativeLevelPostTimeGetTimeActive
+    const kernel32SetWaitableTimerPostTestCooperativeLevelNode =
+      kernel32SetWaitableTimerPostTestCooperativeLevelActive
+        ? requireRecord(
+            node.kernel32SetWaitableTimerPostTestCooperativeLevel,
+            "activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence.kernel32SetWaitableTimerPostTestCooperativeLevel",
+            errors,
+          )
+        : {};
+    const expectedNode = kernel32SetWaitableTimerPostTestCooperativeLevelActive
+      ? {
+          schema:
+            "vine.v86-bgi-kernel32-set-waitable-timer-post-test-cooperative-level-primary",
+          runtimeKernelCheckpoint:
+            "kernel32-set-waitable-timer-post-test-cooperative-level",
+          repeatRuns: 1,
+          reportBytes: 2_629_834,
+          reportSha256:
+            "fd53c2894ea5ee952cf46714ff13882a6ae2f84c51529d93563c7d7a46dbdef4",
+          nodeReplayOldSpaceMiB: 8_192,
+          completedSupportedCalls: 282_871,
+          supportedCallSemanticsSha256:
+            "640bc23ea65411d491b62e372e78562e5f2646fff44a4adf5738626c39677c80",
+          clockSampleCount: 100_557,
+          lastClockTick: 3_800_773,
+          lastClockTime100ns: 2_007_730_000,
+          lastClockGeneration: 16_308,
+          lastClockRetiredInstructions: 392_354_190,
+          lastClockPendingRetiredInstructions: 190,
+          windowTimerCallbackCount: 40,
+          timerPacingCompletionCount: 9_002,
+          writebackBatches: 286_069,
+          hostDeltaBatches: 143_088,
+          callbackEventCount: 148,
+          finalMemoryGeneration: 333_507,
+          terminalInstructionCount: 392_354_375,
+          terminalMemoryContentSha256:
+            "f476539a157bd61c93ce31b1569baa78e0e3e50342d618a5256859f45927f174",
+        }
+      : d3d9TestCooperativeLevelPostTimeGetTimeActive
       ? {
           schema:
             "vine.v86-bgi-d3d9-test-cooperative-level-post-time-get-time-primary",
@@ -25359,7 +25429,88 @@ export function validateCurrentCheckpoint(manifest) {
       currentStop.prerequisitePresentCheckpoint ?? {};
     const prerequisiteTimeGetTimeCheckpoint =
       currentStop.prerequisiteTimeGetTimeCheckpoint ?? {};
-    const currentStopValid = d3d9TestCooperativeLevelPostTimeGetTimeActive
+    const prerequisiteTestCooperativeLevelCheckpoint =
+      currentStop.prerequisiteTestCooperativeLevelCheckpoint ?? {};
+    const currentStopValid = kernel32SetWaitableTimerPostTestCooperativeLevelActive
+      ? currentStop.kind === "capability-checkpoint" &&
+        currentStop.classification === "semantic-leaf" &&
+        currentStop.nextCheckpoint ===
+          "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm" &&
+        currentStop.pausedHistoricalCheckpoint ===
+          "kernel32-set-waitable-timer-post-test-cooperative-level" &&
+        currentStop.instructionCount === 392_354_375 &&
+        currentStop.capabilityCluster ===
+          "kernel32-waitable-timer-wait-contract" &&
+        currentStop.reason ===
+          "kernel32-set-waitable-timer-post-test-cooperative-level-checkpoint-complete" &&
+        prerequisiteTestCooperativeLevelCheckpoint.capability ===
+          "d3d9-test-cooperative-level-post-time-get-time" &&
+        prerequisiteTestCooperativeLevelCheckpoint.lastCompletionSequence ===
+          282_870 &&
+        prerequisiteTestCooperativeLevelCheckpoint.lastCompletionInstructionCount ===
+          392_354_323 &&
+        prerequisiteTestCooperativeLevelCheckpoint.result === "0x00000000" &&
+        prerequisiteTestCooperativeLevelCheckpoint.failureAtomicity === true &&
+        expectedCompletion.capability ===
+          "kernel32-set-waitable-timer-post-test-cooperative-level" &&
+        expectedCompletion.implementationId ===
+          "runtime.kernel32-set-waitable-timer-post-test-cooperative-level.v1" &&
+        expectedCompletion.semanticImplementationId ===
+          "kernel32.set-waitable-timer.relative-one-shot.v1" &&
+        expectedCompletion.requiredCompletions === 1 &&
+        expectedCompletion.completionCount === 1 &&
+        expectedCompletion.prerequisiteTestCooperativeLevelSequence ===
+          282_870 &&
+        expectedCompletion.prerequisiteTestCooperativeLevelInstructionCount ===
+          392_354_323 &&
+        expectedCompletion.firstCompletionSequence === 282_871 &&
+        expectedCompletion.firstCompletionInstructionCount === 392_354_369 &&
+        expectedCompletion.lastCompletionSequence === 282_871 &&
+        expectedCompletion.lastCompletionInstructionCount === 392_354_369 &&
+        expectedCompletion.stateAuthority ===
+          "rust-runtime-timers-and-typed-runtime-object-table" &&
+        expectedCompletion.mutation ===
+          "timer-object-plan-preflight-targeted-commit" &&
+        expectedCompletion.failureAtomicity === true &&
+        expectedCompletion.logicalTimerHandle === 0x5701_0001 &&
+        expectedCompletion.logicalTimerId === 1 &&
+        expectedCompletion.logicalObjectId === 20 &&
+        expectedCompletion.manualReset === true &&
+        expectedCompletion.relativeDueTime100ns === 5_000 &&
+        expectedCompletion.armedAtTime100ns === 2_007_730_000 &&
+        expectedCompletion.deadlineTime100ns === 2_007_735_000 &&
+        expectedCompletion.periodMilliseconds === 0 &&
+        expectedCompletion.armGeneration === 68 &&
+        expectedCompletion.objectWaitState === "nonsignaled" &&
+        expectedCompletion.openHandles === 1 &&
+        expectedCompletion.lastErrorPolicy === "preserve" &&
+        expectedCompletion.guestWriteBytes === 0 &&
+        expectedCompletion.hostTimerImported === false &&
+        expectedCompletion.browserTimerCreated === false &&
+        expectedCompletion.activeCallbackDepthAtCompletion === 0 &&
+        expectedCompletion.instructionCount === 392_354_375 &&
+        expectedCompletion.memoryContentSha256 ===
+          "f476539a157bd61c93ce31b1569baa78e0e3e50342d618a5256859f45927f174" &&
+        expectedCompletion.nextReturnAddress === 0x1005_0615 &&
+        expectedCompletion.nextStackPointer === 0x006f_f8e0 &&
+        expectedEndpoint.endpointKind === "runtime-system-export" &&
+        expectedEndpoint.endpointId === 122 &&
+        expectedEndpoint.api === "KERNEL32.dll!WaitForSingleObjectEx" &&
+        expectedEndpoint.endpointAddress === "0x7f000790" &&
+        expectedEndpoint.observedModule === "KERNEL32.dll" &&
+        expectedEndpoint.observedSymbol === "WaitForSingleObjectEx" &&
+        expectedEndpoint.id === 122 &&
+        expectedEndpoint.address === 0x7f00_0790 &&
+        expectedEndpoint.module === "KERNEL32.dll" &&
+        expectedEndpoint.symbol?.kind === "name" &&
+        expectedEndpoint.symbol.name === "WaitForSingleObjectEx" &&
+        expectedEndpoint.disposition === "declared-runtime-export" &&
+        expectedEndpoint.iatAddress === 0x100d_1290 &&
+        expectedEndpoint.arguments?.join(",") ===
+          "0x57010001,0x0000000a,0x00000001" &&
+        expectedEndpoint.returnAddress === "0x10050615" &&
+        expectedEndpoint.stackPointer === "0x006ff8e0"
+      : d3d9TestCooperativeLevelPostTimeGetTimeActive
       ? currentStop.kind === "capability-checkpoint" &&
         currentStop.classification === "semantic-leaf" &&
         currentStop.nextCheckpoint ===
@@ -28345,6 +28496,88 @@ export function validateCurrentCheckpoint(manifest) {
         d3d9TestCooperativeLevelPostTimeGetTimeLatest.chromeCompletions === 1 &&
         d3d9TestCooperativeLevelPostTimeGetTimeLatest.nodeChromeOrderedSemanticsMatched ===
           true);
+    const kernel32SetWaitableTimerPostTestCooperativeLevelLatest =
+      latestEvidence.kernel32SetWaitableTimerPostTestCooperativeLevel ?? {};
+    const kernel32SetWaitableTimerPostTestCooperativeLevelEvidenceValid =
+      !kernel32SetWaitableTimerPostTestCooperativeLevelActive ||
+      (kernel32SetWaitableTimerPostTestCooperativeLevelNode.completionCount ===
+          1 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.sequence ===
+          282_871 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.occurrence ===
+          9_921 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.instructionCount ===
+          392_354_369 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.arguments?.join(",") ===
+          "0x57010001,0x006ff8f0,0x00000000,0x00000000,0x00000000,0x00000000" &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.result ===
+          "0x00000001" &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.returnAddress ===
+          "0x10050607" &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.stackPointers?.join(",") ===
+          "0x006ff8d4,0x006ff8f0" &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.lastError === 0 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.guestWriteBytes ===
+          0 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.implementationId ===
+          "kernel32.set-waitable-timer.relative-one-shot.v1" &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.stateAuthority ===
+          "rust-runtime-timers-and-typed-runtime-object-table" &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.mutation ===
+          "timer-object-plan-preflight-targeted-commit" &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.failureAtomicity ===
+          true &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.logicalTimerHandle ===
+          "0x57010001" &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.logicalTimerId ===
+          1 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.logicalObjectId ===
+          20 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.manualReset ===
+          true &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.relativeDueTime100ns ===
+          5_000 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.armedAtTime100ns ===
+          2_007_730_000 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.deadlineTime100ns ===
+          2_007_735_000 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.periodMilliseconds ===
+          0 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.armGeneration ===
+          68 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.objectWaitState ===
+          "nonsignaled" &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.openHandles === 1 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.hostTimerImported ===
+          false &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.browserTimerCreated ===
+          false &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.nextEndpoint ===
+          "KERNEL32.dll!WaitForSingleObjectEx" &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelNode.nextInstructionCount ===
+          392_354_375 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelLatest.completionCount ===
+          1 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelLatest.sequence ===
+          282_871 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelLatest.occurrence ===
+          9_921 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelLatest.result ===
+          "0x00000001" &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelLatest.logicalTimerId ===
+          1 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelLatest.logicalObjectId ===
+          20 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelLatest.armGeneration ===
+          68 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelLatest.failureAtomicity ===
+          true &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelLatest.nodeCompletions ===
+          1 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelLatest.chromeCompletions ===
+          1 &&
+        kernel32SetWaitableTimerPostTestCooperativeLevelLatest.nodeChromeOrderedSemanticsMatched ===
+          true);
     if (
       scheduled.schema !== "vine.scheduled-shared-clock-checkpoint" ||
       scheduled.schemaVersion !== 1 ||
@@ -28427,7 +28660,9 @@ export function validateCurrentCheckpoint(manifest) {
       node.terminalMemoryContentSha256 !==
         expectedNode.terminalMemoryContentSha256 ||
       browserBoundary.runtimeProtocol !==
-        (d3d9TestCooperativeLevelPostTimeGetTimeActive
+        (kernel32SetWaitableTimerPostTestCooperativeLevelActive
+          ? "vine.browser-runtime-worker.v122"
+          : d3d9TestCooperativeLevelPostTimeGetTimeActive
           ? "vine.browser-runtime-worker.v121"
           : winmmTimeGetTimePostPresentActive
           ? "vine.browser-runtime-worker.v120"
@@ -28471,7 +28706,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.retiredInstructionCursorTransport !==
         "checked-u64-low-high-per-api-and-com-dispatch" ||
       browserBoundary.browserOwnsGuestClockState !== false ||
-      (d3d9TestCooperativeLevelPostTimeGetTimeActive
+      (kernel32SetWaitableTimerPostTestCooperativeLevelActive
+        ? browserBoundary.browserReportSchemaVersion !== 88
+        : d3d9TestCooperativeLevelPostTimeGetTimeActive
         ? browserBoundary.browserReportSchemaVersion !== 87
         : winmmTimeGetTimePostPresentActive
         ? browserBoundary.browserReportSchemaVersion !== 86
@@ -28512,7 +28749,9 @@ export function validateCurrentCheckpoint(manifest) {
         "npm run check:runtime:browser-worker" ||
       browserBoundary.chromeVersion !== "150.0.7871.187" ||
       browserBoundary.reportBytes !==
-        (d3d9TestCooperativeLevelPostTimeGetTimeActive
+        (kernel32SetWaitableTimerPostTestCooperativeLevelActive
+          ? 35_946
+          : d3d9TestCooperativeLevelPostTimeGetTimeActive
           ? 35_961
           : winmmTimeGetTimePostPresentActive
           ? 35_964
@@ -28552,7 +28791,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 35_961
           : 35_951) ||
       browserBoundary.reportSha256 !==
-        (d3d9TestCooperativeLevelPostTimeGetTimeActive
+        (kernel32SetWaitableTimerPostTestCooperativeLevelActive
+          ? "0682a2d458e962fc3610b976a4e62cca1e0d8a9c21096154979949d225d44b72"
+          : d3d9TestCooperativeLevelPostTimeGetTimeActive
           ? "270f634214603c6ce597e07539f0cd6743bf272023b6f0453409876186e681bb"
           : winmmTimeGetTimePostPresentActive
           ? "dc220d9b646ea4c9f0be9b9b9d95031c3393bb655f87b721263a037b35672657"
@@ -28592,7 +28833,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "bd77deb28553190382622adb663ac87b99e4c9f9df719bbba2282f5bae5bca94"
           : "ecd982f21410c69c4d844a114041e301fd140fedbb520cf5773f4d13d2846aa1") ||
       browserBoundary.runtimeWorkerBytes !==
-        (d3d9TestCooperativeLevelPostTimeGetTimeActive
+        (kernel32SetWaitableTimerPostTestCooperativeLevelActive
+          ? 1_187_541
+          : d3d9TestCooperativeLevelPostTimeGetTimeActive
           ? 1_179_750
           : winmmTimeGetTimePostPresentActive
           ? 1_173_350
@@ -28632,7 +28875,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 1_053_379
           : 1_049_048) ||
       browserBoundary.runtimeWorkerSha256 !==
-        (d3d9TestCooperativeLevelPostTimeGetTimeActive
+        (kernel32SetWaitableTimerPostTestCooperativeLevelActive
+          ? "f1411f1ac9deba5d45b3a1c8cc06099e7364380e502808fde3f9d553aac88070"
+          : d3d9TestCooperativeLevelPostTimeGetTimeActive
           ? "d3aedb1292a09490f34d9db05b555c6aea5fb2a805b1dbea3807be18847be57e"
           : winmmTimeGetTimePostPresentActive
           ? "59e842e39de6eeaa58db0d29ed11bf63b1a1ee62dca78bfa18220ecccafba794"
@@ -28720,7 +28965,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.privatePrimaryCommand !==
         "node tools/run-browser-runtime-check.mjs --bgi" ||
       browserBoundary.privatePrimaryReportBytes !==
-        (d3d9TestCooperativeLevelPostTimeGetTimeActive
+        (kernel32SetWaitableTimerPostTestCooperativeLevelActive
+          ? 2_623_041
+          : d3d9TestCooperativeLevelPostTimeGetTimeActive
           ? 2_622_114
           : winmmTimeGetTimePostPresentActive
           ? 2_622_687
@@ -28760,7 +29007,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 2_598_978
           : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
-        (d3d9TestCooperativeLevelPostTimeGetTimeActive
+        (kernel32SetWaitableTimerPostTestCooperativeLevelActive
+          ? "e65a8503632a931ff7d538d57ecd95fae444a63a1750fc997537fe2ba627dcb6"
+          : d3d9TestCooperativeLevelPostTimeGetTimeActive
           ? "764da43c3258486644be449f858c463522c9a8febfcba112fb8eb212c219bf8e"
           : winmmTimeGetTimePostPresentActive
           ? "9100138545d903949f84ba20b505248d99d846eb7022c10e7a803a7650912493"
@@ -28851,6 +29100,7 @@ export function validateCurrentCheckpoint(manifest) {
       !d3d9PresentPostRasterStatusEvidenceValid ||
       !winmmTimeGetTimePostPresentEvidenceValid ||
       !d3d9TestCooperativeLevelPostTimeGetTimeEvidenceValid ||
+      !kernel32SetWaitableTimerPostTestCooperativeLevelEvidenceValid ||
       conclusion.clockFreezeWasProximateCause !== false ||
       (privateHeapOrdinarySegmentGrowthActive &&
         conclusion.ordinaryHeapCapacityWasProximateCause !== false) ||
@@ -28863,7 +29113,9 @@ export function validateCurrentCheckpoint(manifest) {
       (getCursorInfoActive &&
         conclusion.cursorInfoWasProximateCause !== false) ||
       conclusion.nextEndpoint !==
-        (d3d9TestCooperativeLevelPostTimeGetTimeActive
+        (kernel32SetWaitableTimerPostTestCooperativeLevelActive
+          ? "KERNEL32.dll!WaitForSingleObjectEx"
+          : d3d9TestCooperativeLevelPostTimeGetTimeActive
           ? "KERNEL32.dll!SetWaitableTimer"
           : winmmTimeGetTimePostPresentActive
           ? "IDirect3DDevice9!TestCooperativeLevel"
@@ -28931,6 +29183,7 @@ export function validateCurrentCheckpoint(manifest) {
           d3d9PresentPostRasterStatusEvidenceValid,
           winmmTimeGetTimePostPresentEvidenceValid,
           d3d9TestCooperativeLevelPostTimeGetTimeEvidenceValid,
+          kernel32SetWaitableTimerPostTestCooperativeLevelEvidenceValid,
         })})`,
       );
     }
@@ -39363,6 +39616,9 @@ export function renderReadmeStatus(manifest) {
                         : next.completion.capability ===
                             "d3d9-test-cooperative-level-post-time-get-time"
                           ? "post-timeGetTime live-device cooperative-level query"
+                        : next.completion.capability ===
+                            "kernel32-set-waitable-timer-post-test-cooperative-level"
+                          ? "post-TestCooperativeLevel waitable-timer arm"
                         : next.completion.capability ===
                             "d3d9-post-raster-status-waitable-timer"
                           ? "post-scene timer arm/wait cycle"

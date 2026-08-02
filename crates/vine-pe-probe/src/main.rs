@@ -15200,7 +15200,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "d3d9-get-raster-status-post-end-scene"
                 | "d3d9-present-post-raster-status"
                 | "winmm-time-get-time-post-present"
-                | "d3d9-test-cooperative-level-post-time-get-time" => {
+                | "d3d9-test-cooperative-level-post-time-get-time"
+                | "kernel32-set-waitable-timer-post-test-cooperative-level" => {
                     GenericRuntimeCapability::D3d9EndScenePostDrawPrimitive
                 }
                 "d3d9-begin-scene" => GenericRuntimeCapability::D3d9BeginScene,

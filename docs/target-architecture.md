@@ -1032,6 +1032,14 @@ Browser context lossは明示的なversioned recovery transactionを設計する
 したがって`D3DERR_DEVICELOST`／`D3DERR_DEVICENOTRESET`／`Reset`をsilent successで代用せず、到達時に
 Rust device state、browser resource generation、cancel／lifetime orderingを一体で追加する。
 
+直後の`SetWaitableTimer`は既存のRust-owned `RuntimeTimers`／`RuntimeObjectTable`
+cross-subsystem transactionを再利用する。Guest due-time read、bounded relative one-shot policy、
+timer generation、typed-object identity／lifetime、両ownerのcapacityをpreflightしてから、arm payloadと
+`nonsignaled` wait stateだけをtargeted commitする。Workerはcompletion snapshotと次endpointを検証するが、
+Windows timer state、logical deadline、wait stateを複製せず、armのためのbrowser timerを作らない。
+後続finite alertable waitのpacing acknowledgementは別のhost-service boundaryであり、expirationと
+wait resultのauthorityは引き続きRustに置く。
+
 TypeScriptはPresent前のimmutable snapshotを検証し、Present時だけbrowser resourceへmaterializeする。Texture content、
 dirty state、scene state、sampler state、texture-stage state、texture binding、flexible vertex format、stream binding、draw queue、
 presented-frame lifetimeの第二authorityを持たない。他stage／resource binding、他vertex format、他stream binding、他draw、

@@ -6299,3 +6299,23 @@ Exact report and artifact identities remain authoritative only in
 [current-checkpoint.json](current-checkpoint.json). This evidence does not
 establish arbitrary font metrics, 224 x 112 glyph rasterization, host／browser
 font substitution, or readable title-scene output.
+
+## 188. BGI post-`TestCooperativeLevel` waitable-timer arm
+
+The active replay reaches the same primary timer-1 call shape already fixed by
+the independent native evidence in section 144: manual-reset handle relation,
+relative due time -5,000 in 100 ns units, period zero, NULL completion routine
+and context, and `fResume=FALSE`. The caller consumes TRUE with LastError 0 and
+immediately invokes `WaitForSingleObjectEx(handle, 10, TRUE)`. No new native
+trace was needed because this is a later occurrence of the same semantic leaf,
+not a new Win32 variant.
+
+Canonical Node and Chrome complete the reached call at sequence 282,871／
+occurrence 9,921／instruction 392,354,369 through the existing Rust timer／
+typed-object transaction. Both record timer ID 1, object ID 20, arm generation
+68, logical deadline `2,007,735,000`, `nonsignaled` state, TRUE, LastError 0,
+and zero guest writes, then stop six instructions later at the finite alertable
+wait. Native handle values, wall-clock timing, trace positions, and report
+hashes remain evidence identity rather than handler dispatch selectors; exact
+current artifacts remain authoritative only in
+[current-checkpoint.json](current-checkpoint.json).

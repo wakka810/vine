@@ -14,15 +14,15 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `d3d9-test-cooperative-level-post-time-get-time`: 282,870 calls across 137 endpoint contracts / 135 APIs, memory generation 333,506 |
+| Runtime diagnostics | `kernel32-set-waitable-timer-post-test-cooperative-level`: 282,871 calls across 137 endpoint contracts / 135 APIs, memory generation 333,507 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
-| Shared clock | `scheduled-shared-logical-deadline-v1`: cumulative retired guest instructions at 2,000,000/s with 1 ms resolution; API reads do not advance it; Node primary recorded 100,557 samples / 40 TIMERPROC callbacks; Chrome `vine.browser-runtime-worker.v121` boundary passed |
+| Shared clock | `scheduled-shared-logical-deadline-v1`: cumulative retired guest instructions at 2,000,000/s with 1 ms resolution; API reads do not advance it; Node primary recorded 100,557 samples / 40 TIMERPROC callbacks; Chrome `vine.browser-runtime-worker.v122` boundary passed |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `d3d9-test-cooperative-level-post-time-get-time` completed 1 post-timeGetTime live-device cooperative-level query by instruction 392354323; verification stopped at `KERNEL32.dll!SetWaitableTimer` on instruction 392354369 (`d3d9-test-cooperative-level-post-time-get-time-checkpoint-complete`) |
+| Next structured stop | `kernel32-set-waitable-timer-post-test-cooperative-level` completed 1 post-TestCooperativeLevel waitable-timer arm by instruction 392354369; verification stopped at `KERNEL32.dll!WaitForSingleObjectEx` on instruction 392354375 (`kernel32-set-waitable-timer-post-test-cooperative-level-checkpoint-complete`) |
 
-The active semantic report is 2,628,799 bytes with SHA-256
-`8e388e06c4feae7e1b45f427d094cff24062b285abab4dc01be99e3e39e38820`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 2,629,834 bytes with SHA-256
+`fd53c2894ea5ee952cf46714ff13882a6ae2f84c51529d93563c7d7a46dbdef4`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
