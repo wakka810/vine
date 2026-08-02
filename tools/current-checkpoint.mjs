@@ -28017,7 +28017,7 @@ export function validateCurrentCheckpoint(manifest) {
         "node tools/run-browser-runtime-check.mjs --bgi" ||
       browserBoundary.privatePrimaryReportBytes !==
         (d3d9GetRasterStatusPostEndSceneActive
-          ? 2_611_318
+          ? 2_611_330
           : d3d9EndScenePostDrawPrimitiveActive
           ? 2_623_888
           : d3d9DrawPrimitivePostStreamSourceActive
@@ -28051,7 +28051,7 @@ export function validateCurrentCheckpoint(manifest) {
           : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
         (d3d9GetRasterStatusPostEndSceneActive
-          ? "50216111080b8081ba2f1c0837c37b675defbb9d47710f4c9cce1184dafb015e"
+          ? "8115542f22bbdb3767d9bc33c41a9b6118368c0e2f6c605c09fdffc2615240e4"
           : d3d9EndScenePostDrawPrimitiveActive
           ? "cebd4b0d0b077095f3ffd26ed64bfcb0ff3623fc18f573b529524b5b06cfbd07"
           : d3d9DrawPrimitivePostStreamSourceActive
