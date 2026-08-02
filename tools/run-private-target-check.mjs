@@ -2485,9 +2485,14 @@ function assertD3d9PresentPostRasterStatusCheckpoint(
   ]) {
     assert.equal(actual[field], expectedCompletion[field], field);
   }
-  for (const field of ["id", "address", "module", "disposition", "iatAddress"]) {
+  for (const field of ["id", "address", "module", "disposition"]) {
     assert.equal(actual.nextEndpoint[field], expectedEndpoint[field], field);
   }
+  assert.equal(
+    optionalHex32(actual.nextEndpoint.iatAddress),
+    expectedEndpoint.iatAddress,
+    "iatAddress",
+  );
   assert.deepEqual(actual.nextEndpoint.symbol, expectedEndpoint.symbol);
 
   const browserPresentation = actual.call?.browserPresentation;
