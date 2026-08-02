@@ -265,6 +265,7 @@ enum GenericRuntimeCapability {
     D3d9BeginScenePostPartialDirtyRegion,
     D3d9SetSamplerStatePostBeginScene,
     D3d9SetTextureStageStatePostSamplerState,
+    D3d9SetTexturePostTextureStageState,
     D3d9BeginScene,
     D3d9InitialSamplerStates,
     D3d9InitialTextureStageStates,
@@ -2944,6 +2945,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9BeginScenePostPartialDirtyRegion
                     | GenericRuntimeCapability::D3d9SetSamplerStatePostBeginScene
                     | GenericRuntimeCapability::D3d9SetTextureStageStatePostSamplerState
+                    | GenericRuntimeCapability::D3d9SetTexturePostTextureStageState
                     | GenericRuntimeCapability::D3d9BeginScene
                     | GenericRuntimeCapability::D3d9InitialSamplerStates
                     | GenericRuntimeCapability::D3d9InitialTextureStageStates
@@ -3635,6 +3637,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9BeginScenePostPartialDirtyRegion
                 | GenericRuntimeCapability::D3d9SetSamplerStatePostBeginScene
                 | GenericRuntimeCapability::D3d9SetTextureStageStatePostSamplerState
+                | GenericRuntimeCapability::D3d9SetTexturePostTextureStageState
         )
     );
     let delete_file_a_enabled = d3d9_update_texture_partial_dirty_region_enabled
@@ -3775,7 +3778,10 @@ fn run_v86_generic_runtime_session(
     let d3d9_set_texture_enabled = d3d9_set_fvf_enabled
         || matches!(
             enabled_capability,
-            Some(GenericRuntimeCapability::D3d9SetTexture)
+            Some(
+                GenericRuntimeCapability::D3d9SetTexture
+                    | GenericRuntimeCapability::D3d9SetTexturePostTextureStageState
+            )
         );
     let d3d9_initial_texture_stage_states_enabled = d3d9_set_texture_enabled
         || matches!(
@@ -3783,6 +3789,7 @@ fn run_v86_generic_runtime_session(
             Some(
                 GenericRuntimeCapability::D3d9InitialTextureStageStates
                     | GenericRuntimeCapability::D3d9SetTextureStageStatePostSamplerState
+                    | GenericRuntimeCapability::D3d9SetTexturePostTextureStageState
             )
         );
     let d3d9_initial_sampler_states_enabled = d3d9_initial_texture_stage_states_enabled
@@ -4003,6 +4010,7 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9BeginScenePostPartialDirtyRegion
             | GenericRuntimeCapability::D3d9SetSamplerStatePostBeginScene
             | GenericRuntimeCapability::D3d9SetTextureStageStatePostSamplerState
+            | GenericRuntimeCapability::D3d9SetTexturePostTextureStageState
             | GenericRuntimeCapability::D3d9BeginScene
             | GenericRuntimeCapability::D3d9InitialSamplerStates
             | GenericRuntimeCapability::D3d9InitialTextureStageStates
@@ -15137,6 +15145,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "d3d9-set-texture-stage-state-post-sampler-state" => {
                     GenericRuntimeCapability::D3d9SetTextureStageStatePostSamplerState
+                }
+                "d3d9-set-texture-post-texture-stage-state" => {
+                    GenericRuntimeCapability::D3d9SetTexturePostTextureStageState
                 }
                 "d3d9-begin-scene" => GenericRuntimeCapability::D3d9BeginScene,
                 "d3d9-initial-sampler-states" => GenericRuntimeCapability::D3d9InitialSamplerStates,

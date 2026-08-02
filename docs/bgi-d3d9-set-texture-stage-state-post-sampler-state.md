@@ -43,3 +43,5 @@ npm run check:runtime:bgi -- --profile d3d9-set-texture-stage-state-post-sampler
 node tools/run-browser-runtime-check.mjs --bgi --bgi-profile d3d9-set-texture-stage-state-post-sampler-state --bgi-policy fixtures/runtime-policies/kernel32-delete-file-a-v1.json
 npm run check:runtime:browser-worker
 ```
+
+Continuation: [post-texture-stage texture-binding profile](bgi-d3d9-set-texture-post-texture-stage-state.md).

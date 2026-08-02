@@ -246,6 +246,10 @@ assert.equal(
   "v86-bgi-d3d9-set-texture-stage-state-post-sampler-state",
 );
 assert.equal(
+  bgiProfileOutputDirectory("d3d9-set-texture-post-texture-stage-state"),
+  "v86-bgi-d3d9-set-texture-post-texture-stage-state",
+);
+assert.equal(
   bgiProfileOutputDirectory("shell32-drag-accept-files"),
   "v86-bgi-drag-accept-files",
 );

@@ -955,6 +955,8 @@ permissivenessを推測で一般化せず、unsupported sampler／state／value�
 進めずsuccessにする。Reached `SetTexture`はlive device／texture COM relationとsame-device ownershipを解決し、
 `RuntimeGraphicsDevice`にstage 0のnon-owning texture IDだけをplan／preflight／idempotent commitする。NULLはunbind、
 texture final retirementは同じretirement commitで残存bindingをclearし、binding自体はCOM AddRefを所有しない。
+Post-texture-stage 4回目のsceneで再到達したstatic DEFAULT textureもこのownerを通り、既存bindingならdevice
+generationを進めずsuccessにする。
 Reached `SetFVF`はraw DWORDをdevice stateへ複製せず、versioned policyが許可した`0x144`をtyped
 `xyz-rhw-diffuse-texture1`へ変換して同じ`RuntimeGraphicsDevice`へplan／preflight／idempotent commitする。
 Native driverが受理する他FVFはpolicyへ暗黙昇格させない。Reached `SetStreamSource`はlive device／vertex-buffer
