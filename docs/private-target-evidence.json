@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-08-02T04:47:43.757Z",
+  "recordedAt": "2026-08-02T05:44:24.189Z",
   "repository": {
-    "implementationCommit": "c589f6c3c6afe6802f1e7dc6bba6a85a4d047950",
-    "implementationTree": "f6a8dfda01ad63b8983d713e7edf0e4483b1f6ab",
-    "headCommit": "c589f6c3c6afe6802f1e7dc6bba6a85a4d047950",
+    "implementationCommit": "eb5545a9031aa3d2f52e8757f99633ca76e06606",
+    "implementationTree": "cd3d0bbb416f1aa33ace9a088342777175b1aa53",
+    "headCommit": "eb5545a9031aa3d2f52e8757f99633ca76e06606",
     "dirty": true,
     "dirtyPaths": [
       "CON"
@@ -31,15 +31,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "d3d9-draw-primitive-post-stream-source",
+    "runtimeCheckpoint": "d3d9-end-scene-post-draw-primitive",
     "runtimeProfile": "user32-peek-message-a-post-window-timer-callback-continuation",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-delete-file-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-delete-file-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-d3d9-draw-primitive-post-stream-source-primary",
+    "nodeReportSchema": "vine.v86-bgi-d3d9-end-scene-post-draw-primitive-primary",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v116",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v117",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -74,89 +74,78 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 137,
-      "supportedCalls": 282865,
-      "callSemanticsSha256": "c06dd5c964e6b893ae0769763a30d3afcddaf3b196b680f63cd1806bc9301a1b",
-      "instructions": 392354089,
-      "finalGeneration": 333500,
-      "memoryContentSha256": "9b70297684d908d75432ac97d062d8a1f8f7ab595bd563e4915d48d7f9e60abe",
+      "supportedCalls": 282866,
+      "callSemanticsSha256": "b7b087f10c4b670bbbcdeabf9db36d5723d965a344d0f0bc0d78505495d93953",
+      "instructions": 392354146,
+      "finalGeneration": 333501,
+      "memoryContentSha256": "876429740fedd52bf01c21cebd1cc1e912182c4df317d2109fcff631ed49b664",
       "checkpointCompletion": {
-        "capability": "d3d9-draw-primitive-post-stream-source",
-        "implementationId": "runtime.d3d9-draw-primitive-post-stream-source.v1",
+        "capability": "d3d9-end-scene-post-draw-primitive",
+        "implementationId": "runtime.d3d9-end-scene-post-draw-primitive.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "prerequisiteStreamSourceSequence": 282864,
-        "prerequisiteStreamSourceInstructionCount": 392354072,
-        "firstCompletionSequence": 282865,
-        "firstCompletionInstructionCount": 392354081,
-        "lastCompletionSequence": 282865,
-        "lastCompletionInstructionCount": 392354081,
+        "prerequisiteDrawPrimitiveSequence": 282865,
+        "prerequisiteDrawPrimitiveInstructionCount": 392354081,
+        "firstCompletionSequence": 282866,
+        "firstCompletionInstructionCount": 392354089,
+        "lastCompletionSequence": 282866,
+        "lastCompletionInstructionCount": 392354089,
         "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
-        "drawPrimitiveProfileId": "primary-first-frame-triangle-strip-quad-draw-v1",
-        "stateAuthority": "rust-runtime-graphics-logical-device-back-buffer-draw-submissions",
-        "vertexByteAuthority": "rust-guest-memory-synchronous-immutable-snapshot",
-        "mutation": "validate-plan-read-preflight-targeted-commit",
-        "supportedPrimitiveTopology": "triangle-strip",
-        "supportedStartVertex": 0,
-        "supportedPrimitiveCount": 2,
-        "capturedVertexBytes": 112,
-        "vertexDataSha256": "405bea74541d2aece445d0dac693da55fb404e777c91ff81d87d4c6272581362",
-        "pendingSubmissionLimit": 4096,
-        "pendingVertexBytesLimit": 1048576,
-        "clearDiscardsPendingSubmissions": true,
+        "endSceneProfileId": "primary-first-frame-scene-end-v1",
+        "sceneAuthority": "rust-runtime-graphics-logical-device-active-scene",
+        "lifecycle": "active-to-inactive",
+        "mutation": "validate-plan-preflight-targeted-commit",
+        "preservesDrawSubmissions": true,
+        "repeatedEndReturnsInvalidCall": true,
         "failureAtomicity": true,
         "logicalGraphicsDeviceId": 3,
         "logicalGraphicsComObjectId": "21",
-        "activeSceneSequence": 4,
-        "logicalGraphicsDeviceGeneration": 72,
+        "logicalGraphicsDeviceGeneration": 73,
+        "activeSceneCleared": true,
         "backBufferContentGeneration": 11,
         "backBufferClearSequence": 4,
         "drawSubmissionCount": 1,
         "drawSubmissionSequence": 4,
         "drawSubmissionSceneSequence": 4,
-        "vertexBufferId": 3,
-        "vertexBufferContentGeneration": 1,
         "textureId": 8,
         "textureContentGeneration": 4,
         "presentedFrameSequence": 3,
         "browserRendererResourceCreated": false,
         "visiblePixelsProduced": false,
         "activeCallbackDepthAtCompletion": 0,
-        "instructionCount": 392354089,
+        "instructionCount": 392354146,
         "nextEndpoint": {
           "id": 0,
-          "address": 16847568,
+          "address": 16847200,
           "module": "<com>",
           "symbol": {
             "kind": "name",
-            "name": "interface-1-slot-42"
+            "name": "interface-1-slot-19"
           },
           "disposition": "declared-com-method",
           "interfaceIndex": 1,
-          "vtableSlot": 42,
+          "vtableSlot": 19,
           "interface": "IDirect3DDevice9",
-          "method": "EndScene"
+          "method": "GetRasterStatus"
         },
-        "memoryContentSha256": "9b70297684d908d75432ac97d062d8a1f8f7ab595bd563e4915d48d7f9e60abe",
-        "nextReturnAddress": 268809275,
-        "nextStackPointer": 7321712,
+        "memoryContentSha256": "876429740fedd52bf01c21cebd1cc1e912182c4df317d2109fcff631ed49b664",
+        "nextReturnAddress": 268807901,
+        "nextStackPointer": 7321720,
         "call": {
-          "sequence": 282865,
+          "sequence": 282866,
           "module": "<com>",
-          "symbol": "IDirect3DDevice9.DrawPrimitive",
+          "symbol": "IDirect3DDevice9.EndScene",
           "interface": "IDirect3DDevice9",
-          "vtableSlot": 81,
+          "vtableSlot": 42,
           "arguments": [
-            16842756,
-            5,
-            0,
-            2
+            16842756
           ],
           "result": {
             "kind": "h-result",
             "value": 0
           },
-          "returnAddress": 268809218,
-          "stackPointerBefore": 7321700,
+          "returnAddress": 268809275,
+          "stackPointerBefore": 7321712,
           "stackPointerAfter": 7321720,
           "referenceCount": 5,
           "objectRetired": false,
@@ -416,9 +405,6 @@
                 }
               ]
             },
-            "activeScene": {
-              "sequence": 4
-            },
             "presentedFrame": {
               "sequence": 3,
               "backBuffer": {
@@ -627,57 +613,51 @@
                 ]
               }
             },
-            "generation": 72
+            "generation": 73
           }
         }
       },
-      "writebackBatches": 286063,
+      "writebackBatches": 286064,
       "hostDeltaBatches": 143087
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 282865,
-      "callSemanticsSha256": "c06dd5c964e6b893ae0769763a30d3afcddaf3b196b680f63cd1806bc9301a1b",
-      "instructions": 392354089,
-      "finalGeneration": 355955,
-      "memoryContentSha256": "9b70297684d908d75432ac97d062d8a1f8f7ab595bd563e4915d48d7f9e60abe",
+      "supportedCalls": 282866,
+      "callSemanticsSha256": "b7b087f10c4b670bbbcdeabf9db36d5723d965a344d0f0bc0d78505495d93953",
+      "instructions": 392354146,
+      "finalGeneration": 355956,
+      "memoryContentSha256": "876429740fedd52bf01c21cebd1cc1e912182c4df317d2109fcff631ed49b664",
       "checkpointCompletion": {
-        "capability": "d3d9-draw-primitive-post-stream-source",
-        "implementationId": "runtime.d3d9-draw-primitive-post-stream-source.v1",
+        "capability": "d3d9-end-scene-post-draw-primitive",
+        "implementationId": "runtime.d3d9-end-scene-post-draw-primitive.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "prerequisiteStreamSourceSequence": 282864,
-        "prerequisiteStreamSourceInstructionCount": 392354072,
-        "firstCompletionSequence": 282865,
-        "firstCompletionInstructionCount": 392354081,
-        "lastCompletionSequence": 282865,
-        "lastCompletionInstructionCount": 392354081,
+        "prerequisiteDrawPrimitiveSequence": 282865,
+        "prerequisiteDrawPrimitiveInstructionCount": 392354081,
+        "firstCompletionSequence": 282866,
+        "firstCompletionInstructionCount": 392354089,
+        "lastCompletionSequence": 282866,
+        "lastCompletionInstructionCount": 392354089,
         "call": {
-          "sequence": 282865,
+          "sequence": 282866,
           "module": "<com>",
-          "symbol": "IDirect3DDevice9.DrawPrimitive",
+          "symbol": "IDirect3DDevice9.EndScene",
           "interface": "IDirect3DDevice9",
-          "vtableSlot": 81,
+          "vtableSlot": 42,
           "arguments": [
-            16842756,
-            5,
-            0,
-            2
+            16842756
           ],
           "result": {
             "kind": "h-result",
             "value": 0
           },
-          "returnAddress": 268809218,
-          "stackPointerBefore": 7321700,
+          "returnAddress": 268809275,
+          "stackPointerBefore": 7321712,
           "stackPointerAfter": 7321720,
           "referenceCount": 5,
           "objectRetired": false,
           "guestWrites": [],
           "graphicsDevice": {
-            "activeScene": {
-              "sequence": 4
-            },
             "backBuffer": {
               "contentGeneration": 11,
               "drawSubmissions": [
@@ -886,7 +866,7 @@
             "comObjectId": "21",
             "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
             "frontend": "d3d9",
-            "generation": 72,
+            "generation": 73,
             "id": 3,
             "namespace": "vine.logical-graphics-device.v1",
             "ownerThreadId": 8192,
@@ -1144,60 +1124,52 @@
           }
         },
         "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
-        "drawPrimitiveProfileId": "primary-first-frame-triangle-strip-quad-draw-v1",
-        "stateAuthority": "rust-runtime-graphics-logical-device-back-buffer-draw-submissions",
-        "vertexByteAuthority": "rust-guest-memory-synchronous-immutable-snapshot",
-        "mutation": "validate-plan-read-preflight-targeted-commit",
-        "supportedPrimitiveTopology": "triangle-strip",
-        "supportedStartVertex": 0,
-        "supportedPrimitiveCount": 2,
-        "capturedVertexBytes": 112,
-        "vertexDataSha256": "405bea74541d2aece445d0dac693da55fb404e777c91ff81d87d4c6272581362",
-        "pendingSubmissionLimit": 4096,
-        "pendingVertexBytesLimit": 1048576,
-        "clearDiscardsPendingSubmissions": true,
+        "endSceneProfileId": "primary-first-frame-scene-end-v1",
+        "sceneAuthority": "rust-runtime-graphics-logical-device-active-scene",
+        "lifecycle": "active-to-inactive",
+        "mutation": "validate-plan-preflight-targeted-commit",
+        "preservesDrawSubmissions": true,
+        "repeatedEndReturnsInvalidCall": true,
         "failureAtomicity": true,
         "logicalGraphicsDeviceId": 3,
         "logicalGraphicsComObjectId": "21",
-        "activeSceneSequence": 4,
-        "logicalGraphicsDeviceGeneration": 72,
+        "logicalGraphicsDeviceGeneration": 73,
+        "activeSceneCleared": true,
         "backBufferContentGeneration": 11,
         "backBufferClearSequence": 4,
         "drawSubmissionCount": 1,
         "drawSubmissionSequence": 4,
         "drawSubmissionSceneSequence": 4,
-        "vertexBufferId": 3,
-        "vertexBufferContentGeneration": 1,
         "textureId": 8,
         "textureContentGeneration": 4,
         "presentedFrameSequence": 3,
         "browserRendererResourceCreated": false,
         "visiblePixelsProduced": false,
         "activeCallbackDepthAtCompletion": 0,
-        "instructionCount": 392354089,
+        "instructionCount": 392354146,
         "nextEndpoint": {
           "id": 0,
-          "address": 16847568,
+          "address": 16847200,
           "module": "<com>",
           "symbol": {
             "kind": "name",
-            "name": "interface-1-slot-42"
+            "name": "interface-1-slot-19"
           },
           "disposition": "declared-com-method",
           "interfaceIndex": 1,
-          "vtableSlot": 42,
+          "vtableSlot": 19,
           "interface": "IDirect3DDevice9",
-          "method": "EndScene"
+          "method": "GetRasterStatus"
         },
-        "memoryContentSha256": "9b70297684d908d75432ac97d062d8a1f8f7ab595bd563e4915d48d7f9e60abe",
-        "nextReturnAddress": 268809275,
-        "nextStackPointer": 7321712
+        "memoryContentSha256": "876429740fedd52bf01c21cebd1cc1e912182c4df317d2109fcff631ed49b664",
+        "nextReturnAddress": 268807901,
+        "nextStackPointer": 7321720
       },
-      "wasmBridgeCalls": 756262,
+      "wasmBridgeCalls": 756265,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 955479,
+          "transitionCount": 955482,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -1245,11 +1217,11 @@
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
       "classification": "semantic-leaf",
-      "nextCheckpoint": "d3d9-end-scene-post-draw-primitive",
-      "pausedHistoricalCheckpoint": "d3d9-draw-primitive-post-stream-source",
-      "instructionCount": 392354089,
+      "nextCheckpoint": "d3d9-get-raster-status-post-end-scene",
+      "pausedHistoricalCheckpoint": "d3d9-end-scene-post-draw-primitive",
+      "instructionCount": 392354146,
       "capabilityCluster": "d3d9-idirect3ddevice9-method",
-      "reason": "d3d9-draw-primitive-post-stream-source-checkpoint-complete",
+      "reason": "d3d9-end-scene-post-draw-primitive-checkpoint-complete",
       "historicalOutlineTextMetricsCheckpoint": {
         "capability": "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
         "implementationId": "runtime.gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336.v1",
@@ -1736,7 +1708,7 @@
         "nextReturnAddress": 268809218,
         "nextStackPointer": 7321700
       },
-      "completion": {
+      "prerequisiteDrawPrimitiveCheckpoint": {
         "capability": "d3d9-draw-primitive-post-stream-source",
         "implementationId": "runtime.d3d9-draw-primitive-post-stream-source.v1",
         "requiredCompletions": 1,
@@ -1783,29 +1755,71 @@
         "nextReturnAddress": 268809275,
         "nextStackPointer": 7321712
       },
+      "completion": {
+        "capability": "d3d9-end-scene-post-draw-primitive",
+        "implementationId": "runtime.d3d9-end-scene-post-draw-primitive.v1",
+        "requiredCompletions": 1,
+        "completionCount": 1,
+        "prerequisiteDrawPrimitiveSequence": 282865,
+        "prerequisiteDrawPrimitiveInstructionCount": 392354081,
+        "firstCompletionSequence": 282866,
+        "firstCompletionInstructionCount": 392354089,
+        "lastCompletionSequence": 282866,
+        "lastCompletionInstructionCount": 392354089,
+        "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
+        "endSceneProfileId": "primary-first-frame-scene-end-v1",
+        "sceneAuthority": "rust-runtime-graphics-logical-device-active-scene",
+        "lifecycle": "active-to-inactive",
+        "mutation": "validate-plan-preflight-targeted-commit",
+        "preservesDrawSubmissions": true,
+        "repeatedEndReturnsInvalidCall": true,
+        "failureAtomicity": true,
+        "logicalGraphicsDeviceId": 3,
+        "logicalGraphicsComObjectId": "21",
+        "logicalGraphicsDeviceGeneration": 73,
+        "activeSceneCleared": true,
+        "backBufferContentGeneration": 11,
+        "backBufferClearSequence": 4,
+        "drawSubmissionCount": 1,
+        "drawSubmissionSequence": 4,
+        "drawSubmissionSceneSequence": 4,
+        "textureId": 8,
+        "textureContentGeneration": 4,
+        "presentedFrameSequence": 3,
+        "browserRendererResourceCreated": false,
+        "visiblePixelsProduced": false,
+        "activeCallbackDepthAtCompletion": 0,
+        "instructionCount": 392354146,
+        "memoryContentSha256": "876429740fedd52bf01c21cebd1cc1e912182c4df317d2109fcff631ed49b664",
+        "nextReturnAddress": 268807901,
+        "nextStackPointer": 7321720
+      },
       "nextEndpoint": {
         "endpointKind": "com-method",
         "endpointId": 0,
-        "api": "IDirect3DDevice9!EndScene",
-        "endpointAddress": "0x010112d0",
+        "api": "IDirect3DDevice9!GetRasterStatus",
+        "endpointAddress": "0x01011160",
         "observedModule": "<com>",
-        "observedSymbol": "interface-1-slot-42",
+        "observedSymbol": "interface-1-slot-19",
         "id": 0,
-        "address": 16847568,
+        "address": 16847200,
         "module": "<com>",
         "symbol": {
           "kind": "name",
-          "name": "interface-1-slot-42"
+          "name": "interface-1-slot-19"
         },
         "disposition": "declared-com-method",
         "interfaceIndex": 1,
-        "vtableSlot": 42,
+        "vtableSlot": 19,
         "interface": "IDirect3DDevice9",
-        "method": "EndScene",
+        "method": "GetRasterStatus",
         "thisPointer": "0x01010004",
-        "arguments": [],
-        "returnAddress": "0x1005b43b",
-        "stackPointer": "0x006fb870"
+        "arguments": [
+          "0x00000000",
+          "0x006fb890"
+        ],
+        "returnAddress": "0x1005aedd",
+        "stackPointer": "0x006fb878"
       },
       "historicalFollowingFault": {
         "class": "unsupported",
@@ -1848,14 +1862,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-d3d9-draw-primitive-post-stream-source/report.json",
-      "bytes": 2618038,
-      "sha256": "60c4c6aeb964440ddb24b949edc84cbf7e3a44860fc02244d2a7fc1bf917e0e1"
+      "path": ".work/v86-bgi-d3d9-end-scene-post-draw-primitive/report.json",
+      "bytes": 2631400,
+      "sha256": "0937ac9dc8ede092b453d7181c181fde2b46b4f4c0820e0457d5af187371bc2c"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2624470,
-      "sha256": "d5ac7562beff5da8e489c967bd58bc05a56b1481dc177dcaadac5a40019ea1de"
+      "bytes": 2623877,
+      "sha256": "9097c4c0b29dd551e62b0532e62eb59ee1cf299354e94783b0b8c741d4bd01dc"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -1870,7 +1884,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3768,
-      "sha256": "2d86e67d86706f3802f2fe853a0e4672837d652b1aafb93a9d28564285a9aca5"
+      "sha256": "380b2ecb8b7d7eeace682703d515215f4307ebbe1d8d680ecbf5331df2c179c9"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -1907,5 +1921,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "cf71b2f89bc54ddcaf12bb9047c78fa6b59bd39b216bd4de31c01e7ab4435f6f"
+  "payloadSha256": "8f40d19bc300a7280a01c1e3a97d45b68625dbb5c197c79e844fc24baf8e8549"
 }
