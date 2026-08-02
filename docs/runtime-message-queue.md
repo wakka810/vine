@@ -114,6 +114,18 @@ selected threadのstdcall frameへ`(hwnd, WM_TIMER, timerId, time)`を積む。G
 `TIMERPROC` contractどおりouter resultへ伝播させず、callback完了後の`DispatchMessageA`は0を返す。Callback
 frame、timer、queue、window、guest memoryのauthorityはRustにあり、Workerはimmutable snapshotだけを記録する。
 
+Post-`TestCooperativeLevel` timer-wait reachabilityは、この同じtransactionを再利用する。
+Sequence 282,873のunfiltered `PM_REMOVE`はordinary queue depth 0からdelivery 41を
+materializeし、HWND `0x48010001`、`WM_TIMER`、timer ID 1、callback
+`0x10099600`、logical time 3,800,773、point `(960, 540)`を28-byte `MSG32`へ
+publishしてqueue depth 0へ戻す。Scheduled deadline `1,915,270,000`はlogical
+time `2,007,735,000`でcoalesceされ、次deadlineは`2,007,935,000`となる。
+Node／Chromeはexact bytesとordered mutationを一致させ、browser message／timerを
+importせず次の`TranslateMessage`前で停止する。Exact artifact identityはmanifest、
+bounded claimは
+[the reached timer-wait PeekMessageA profile](bgi-user32-peek-message-a-post-test-cooperative-level-timer-wait.md)
+を正とする。
+
 ## Pointer-button message production and WndProc dispatch
 
 Versioned pointer ingressはnormalized coordinate、primary／secondary button、strict source sequenceだけを

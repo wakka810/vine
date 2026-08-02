@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 123 as const;
+export const protocolVersion = 124 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -40,6 +40,7 @@ export type BgiCapabilityProfile =
   | "d3d9-test-cooperative-level-post-time-get-time"
   | "kernel32-set-waitable-timer-post-test-cooperative-level"
   | "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm"
+  | "user32-peek-message-a-post-test-cooperative-level-timer-wait"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1854,6 +1855,57 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "user32-peek-message-a-post-test-cooperative-level-timer-wait";
+        implementationId: "runtime.user32-peek-message-a-post-test-cooperative-level-timer-wait.v1";
+        semanticImplementationId: "user32.peek-message-a.current-thread.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        prerequisiteWaitForSingleObjectExSequence: number;
+        prerequisiteWaitForSingleObjectExInstructionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        call: RuntimeSupportedCallSnapshot;
+        compatibilityPolicyId: "kernel32-delete-file-a-v1";
+        retrievalProfileId: "current-thread-empty-queue-coalesced-window-timer-callback-v1";
+        stateAuthority: "rust-runtime-current-thread-message-queue-window-timer-and-guest-memory";
+        mutation: "window-timer-delivery-plan-queue-peek-plan-memory-preflight-targeted-commit";
+        failureAtomicity: true;
+        currentThreadId: 8192;
+        messageOutputAddress: number;
+        messageOutputByteLength: 28;
+        message: {
+          hwnd: number;
+          message: number;
+          wParam: number;
+          lParam: number;
+          time: number;
+          pointX: number;
+          pointY: number;
+        };
+        windowTimer: RuntimeWindowTimerSnapshot;
+        removeMessage: true;
+        queueDepthBefore: 0;
+        queueDepthAfter: 0;
+        messageSource: "window-timer";
+        timerMaterialization: "lazy-on-empty-current-thread-unfiltered-peek-message-a";
+        missedPeriodPolicy: "coalesce-one-delivery-and-rearm-from-now";
+        peekResult: 1;
+        lastErrorPolicy: "preserve";
+        guestWriteBytes: 28;
+        hostMessageImported: false;
+        browserOwnsMessageQueueState: false;
+        browserTimerCreated: false;
+        activeCallbackDepthAtCompletion: 0;
+        instructionCount: number;
+        nextEndpoint: unknown;
+        nextArguments: number[];
+        memoryContentSha256: string;
+        nextReturnAddress: number;
+        nextStackPointer: number;
+      }
     | {
         capability: "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm";
         implementationId: "runtime.kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm.v1";

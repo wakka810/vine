@@ -15202,7 +15202,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "winmm-time-get-time-post-present"
                 | "d3d9-test-cooperative-level-post-time-get-time"
                 | "kernel32-set-waitable-timer-post-test-cooperative-level"
-                | "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm" => {
+                | "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm"
+                | "user32-peek-message-a-post-test-cooperative-level-timer-wait" => {
                     GenericRuntimeCapability::D3d9EndScenePostDrawPrimitive
                 }
                 "d3d9-begin-scene" => GenericRuntimeCapability::D3d9BeginScene,

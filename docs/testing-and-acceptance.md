@@ -2373,6 +2373,25 @@ cancel／watchdog cleanupを維持する。Message retrieval、APC delivery、ge
 browser ownership of Windows wait stateはacceptanceへ含めない。詳細は
 [post-`TestCooperativeLevel` wait profile](bgi-kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm.md)を正とする。
 
+Post-wait `PeekMessageA` leafは、直前のWAIT_OBJECT_0 completionとwindow timer ID 1／
+registration generation 1をprerequisiteとして既存のcurrent-thread unfiltered
+`PM_REMOVE` transactionを再利用する。Node／Chromeはsequence 282,873、occurrence 110、
+trap instruction 392,354,423、TRUE、LastError 0、28-byte write、HWND
+`0x48010001`、`WM_TIMER`、wParam 1、callback `0x10099600`、time 3,800,773、
+point `(960, 540)`を一致させる。Rustはordinary queue depth 0でdue delivery 41を
+一件だけmaterializeし、scheduled deadline `1,915,270,000`をlogical time
+`2,007,735,000`でcoalesceして次deadline `2,007,935,000`へrearmし、timer／queue／
+guest memoryをpreflight後にjoint commitする。両adapterは282,873 supported calls、
+9,003 pacing completions、ordered semantic digest
+`92e24cd4b779a733e416e122ac6a1948db5ab2bf9744751eeaeb0dc535ee0d49`、terminal
+memory digest
+`7232fd6aa6418165a888720edf97c9f60cf0991ec6fffa704a0b5c808b1fa66e`を一致させ、
+10 instructions後の`USER32.dll!TranslateMessage`で停止する。Protocol v124／report
+schema 90でcancel／watchdog cleanupを維持する。Translation、dispatch、filtered／
+cross-thread retrieval、browser ownership of Windows message stateはacceptanceへ含めない。
+詳細は
+[post-timer-wait `PeekMessageA` profile](bgi-user32-peek-message-a-post-test-cooperative-level-timer-wait.md)を正とする。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

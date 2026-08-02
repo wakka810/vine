@@ -268,6 +268,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-test-cooperative-level-post-time-get-time",
         "kernel32-set-waitable-timer-post-test-cooperative-level",
         "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm",
+        "user32-peek-message-a-post-test-cooperative-level-timer-wait",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
@@ -495,6 +496,7 @@ assert(
       "d3d9-test-cooperative-level-post-time-get-time",
       "kernel32-set-waitable-timer-post-test-cooperative-level",
       "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm",
+      "user32-peek-message-a-post-test-cooperative-level-timer-wait",
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
       "user32-set-window-pos-frame-change-move",
@@ -564,7 +566,9 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability ===
       "kernel32-set-waitable-timer-post-test-cooperative-level" ||
     genericRuntimeCapability ===
-      "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm"
+      "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm" ||
+    genericRuntimeCapability ===
+      "user32-peek-message-a-post-test-cooperative-level-timer-wait"
       ? "kernel32-delete-file-a-v1.json"
       : genericRuntimeCapability === "kernel32-find-first-file-a"
       ? "kernel32-find-file-a-v1.json"
@@ -1116,9 +1120,15 @@ const kernel32SetWaitableTimerPostTestCooperativeLevelCheckpointEnabled =
 const kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCheckpointEnabled =
   genericRuntimeCapability ===
   "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm";
+const user32PeekMessageAPostTestCooperativeLevelTimerWaitCheckpointEnabled =
+  genericRuntimeCapability ===
+  "user32-peek-message-a-post-test-cooperative-level-timer-wait";
+const kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmEvidenceEnabled =
+  kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCheckpointEnabled ||
+  user32PeekMessageAPostTestCooperativeLevelTimerWaitCheckpointEnabled;
 const kernel32SetWaitableTimerPostTestCooperativeLevelEvidenceEnabled =
   kernel32SetWaitableTimerPostTestCooperativeLevelCheckpointEnabled ||
-  kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCheckpointEnabled;
+  kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmEvidenceEnabled;
 const d3d9TestCooperativeLevelPostTimeGetTimeEvidenceEnabled =
   d3d9TestCooperativeLevelPostTimeGetTimeCheckpointEnabled ||
   kernel32SetWaitableTimerPostTestCooperativeLevelEvidenceEnabled;
@@ -2086,7 +2096,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCheckpointEnabled
+    ? user32PeekMessageAPostTestCooperativeLevelTimerWaitCheckpointEnabled
+      ? "v86-bgi-peek-message-a-post-test-cooperative-level-timer-wait"
+      : kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCheckpointEnabled
       ? "v86-bgi-wait-for-single-object-ex-post-test-cooperative-level-timer-arm"
       : kernel32SetWaitableTimerPostTestCooperativeLevelCheckpointEnabled
         ? "v86-bgi-set-waitable-timer-post-test-cooperative-level"
@@ -6718,6 +6730,13 @@ async function run() {
       if (genericRuntimeCapability === null) {
         validateGenericRuntimeReentryResult(genericResult);
       } else if (
+        user32PeekMessageAPostTestCooperativeLevelTimerWaitCheckpointEnabled
+      ) {
+        validateUser32PeekMessageAPostTestCooperativeLevelTimerWaitResult(
+          genericResult,
+          sourceRegistration,
+        );
+      } else if (
         kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCheckpointEnabled
       ) {
         validateKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmResult(
@@ -7151,6 +7170,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : user32PeekMessageAPostTestCooperativeLevelTimerWaitCheckpointEnabled
+            ? "bgi USER32 PeekMessageA after post-TestCooperativeLevel timer wait"
           : kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCheckpointEnabled
             ? "bgi KERNEL32 WaitForSingleObjectEx after post-TestCooperativeLevel timer arm"
             : kernel32SetWaitableTimerPostTestCooperativeLevelCheckpointEnabled
@@ -9368,6 +9389,11 @@ async function runGenericRuntimeReentry({
         kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCheckpointEnabled &&
         checkpointCompletion.capability ===
           "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm"
+      ) &&
+      !(
+        user32PeekMessageAPostTestCooperativeLevelTimerWaitCheckpointEnabled &&
+        checkpointCompletion.capability ===
+          "user32-peek-message-a-post-test-cooperative-level-timer-wait"
       )
     ) {
       checkpointCompletion = null;
@@ -9383,6 +9409,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "user32-peek-message-a-post-test-cooperative-level-timer-wait"
+            ? "user32-peek-message-a-post-test-cooperative-level-timer-wait-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm"
             ? "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -9729,6 +9758,12 @@ async function runGenericRuntimeReentry({
         }
       }
       if (
+        user32PeekMessageAPostTestCooperativeLevelTimerWaitCheckpointEnabled
+      ) {
+        checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 2);
+        checkpointCompletion.nextReturnAddress = terminal.returnAddress;
+        checkpointCompletion.nextStackPointer = continuation.finalState.esp;
+      } else if (
         kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCheckpointEnabled
       ) {
         checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 2);
@@ -12473,7 +12508,7 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
-      kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCheckpointEnabled &&
+      kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmEvidenceEnabled &&
       call.sequence === 282_872 &&
       call.implementationId ===
         "kernel32.wait-for-single-object-ex.waitable-timer.v1"
@@ -12556,6 +12591,106 @@ async function runGenericRuntimeReentry({
         guestWriteBytes: 0,
         hostClockImported: false,
         browserOwnsWaitState: false,
+        activeCallbackDepthAtCompletion: 0,
+        instructionCount: 0,
+        nextEndpoint: null,
+        nextArguments: [],
+        memoryContentSha256: "",
+        nextReturnAddress: 0,
+        nextStackPointer: 0,
+      };
+    }
+    if (
+      user32PeekMessageAPostTestCooperativeLevelTimerWaitCheckpointEnabled &&
+      call.sequence === 282_873 &&
+      call.implementationId === "user32.peek-message-a.current-thread.v1"
+    ) {
+      const prerequisite = supportedCalls.find(
+        (candidate) =>
+          candidate.sequence === 282_872 &&
+          candidate.implementationId ===
+            "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+      );
+      const guestWrite = call.guestWrites[0] ?? null;
+      const messageBytes =
+        guestWrite === null ? null : Buffer.from(guestWrite.bytes);
+      assert(
+        prerequisite,
+        "PeekMessageA omitted its WaitForSingleObjectEx prerequisite",
+      );
+      assert.equal(checkpointCompletion, null);
+      assert.equal(activeCallbacks.length, 0);
+      assert.equal(call.module.toLowerCase(), "user32.dll");
+      assert.equal(call.symbol, "PeekMessageA");
+      assert.deepEqual(call.arguments, [0x006f_f8e8, 0, 0, 0, 1]);
+      assert.equal(call.result.action, "set");
+      assert([0, 1].includes(call.result.value));
+      assert.equal(call.returnAddress, 0x1009_378b);
+      assert.equal(call.stackPointerAfter - call.stackPointerBefore, 24);
+      assert.equal(call.lastError, 0);
+      assert.equal(currentThreadId, 8192);
+      if (messageBytes !== null) {
+        assert.equal(call.result.value, 1);
+        assert.equal(call.guestWrites.length, 1);
+        assert.equal(guestWrite.address, 0x006f_f8e8);
+        assert.equal(messageBytes.length, 28);
+      } else {
+        assert.equal(call.result.value, 0);
+        assert.deepEqual(call.guestWrites, []);
+      }
+      checkpointCompletion = {
+        capability:
+          "user32-peek-message-a-post-test-cooperative-level-timer-wait",
+        implementationId:
+          "runtime.user32-peek-message-a-post-test-cooperative-level-timer-wait.v1",
+        semanticImplementationId: "user32.peek-message-a.current-thread.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        prerequisiteWaitForSingleObjectExSequence: prerequisite.sequence,
+        prerequisiteWaitForSingleObjectExInstructionCount:
+          prerequisite.trapInstructionCount,
+        firstCompletionSequence: call.sequence,
+        firstCompletionInstructionCount: call.trapInstructionCount,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: call.trapInstructionCount,
+        call: structuredClone(call),
+        compatibilityPolicyId: runtimePolicy.id,
+        retrievalProfileId:
+          "current-thread-empty-queue-coalesced-window-timer-callback-v1",
+        stateAuthority:
+          "rust-runtime-current-thread-message-queue-window-timer-and-guest-memory",
+        mutation:
+          "window-timer-delivery-plan-queue-peek-plan-memory-preflight-targeted-commit",
+        failureAtomicity: true,
+        currentThreadId,
+        messageOutputAddress: call.arguments[0],
+        messageOutputByteLength: messageBytes?.length ?? 0,
+        message:
+          messageBytes === null
+            ? null
+            : {
+                hwnd: messageBytes.readUInt32LE(0),
+                message: messageBytes.readUInt32LE(4),
+                wParam: messageBytes.readUInt32LE(8),
+                lParam: messageBytes.readUInt32LE(12),
+                time: messageBytes.readUInt32LE(16),
+                pointX: messageBytes.readInt32LE(20),
+                pointY: messageBytes.readInt32LE(24),
+              },
+        windowTimer: structuredClone(call.windowTimer ?? null),
+        removeMessage: true,
+        queueDepthBefore: 0,
+        queueDepthAfter: 0,
+        messageSource: call.windowTimer === undefined ? null : "window-timer",
+        timerMaterialization:
+          "lazy-on-empty-current-thread-unfiltered-peek-message-a",
+        missedPeriodPolicy: "coalesce-one-delivery-and-rearm-from-now",
+        peekResult: call.result.value,
+        lastErrorPolicy: "preserve",
+        guestWriteBytes: messageBytes?.length ?? 0,
+        hostMessageImported: false,
+        browserOwnsMessageQueueState: false,
+        browserTimerCreated: false,
         activeCallbackDepthAtCompletion: 0,
         instructionCount: 0,
         nextEndpoint: null,
@@ -29325,6 +29460,166 @@ function validateD3d9TestCooperativeLevelPostTimeGetTimeResult(
   assert.equal(result.activeCallbackDepth, 0);
 }
 
+function validateUser32PeekMessageAPostTestCooperativeLevelTimerWaitResult(
+  result,
+  sourceRegistration,
+) {
+  assert(
+    user32PeekMessageAPostTestCooperativeLevelTimerWaitCheckpointEnabled,
+  );
+  assert(sourceRegistration !== null);
+  assert.equal(result.supportedCalls.length, 282_873);
+  assert.equal(result.fault, null);
+  const completion = result.checkpointCompletion;
+  assert(
+    completion,
+    "post-TestCooperativeLevel timer-wait PeekMessageA checkpoint completion is missing",
+  );
+  assert.equal(
+    completion.capability,
+    "user32-peek-message-a-post-test-cooperative-level-timer-wait",
+  );
+  assert.equal(
+    completion.implementationId,
+    "runtime.user32-peek-message-a-post-test-cooperative-level-timer-wait.v1",
+  );
+  assert.equal(
+    completion.semanticImplementationId,
+    "user32.peek-message-a.current-thread.v1",
+  );
+  assert.equal(completion.requiredCompletions, 1);
+  assert.equal(completion.completionCount, 1);
+  assert.equal(completion.prerequisiteWaitForSingleObjectExSequence, 282_872);
+  assert.equal(
+    completion.prerequisiteWaitForSingleObjectExInstructionCount,
+    392_354_375,
+  );
+  assert.equal(completion.firstCompletionSequence, 282_873);
+  assert.equal(completion.firstCompletionInstructionCount, 392_354_423);
+  assert.equal(completion.lastCompletionSequence, 282_873);
+  assert.equal(completion.lastCompletionInstructionCount, 392_354_423);
+  const call = completion.call;
+  assert.equal(call.sequence, 282_873);
+  assert.equal(call.occurrence, 110);
+  assert.equal(call.trapInstructionCount, 392_354_423);
+  assert.equal(call.module.toLowerCase(), "user32.dll");
+  assert.equal(call.symbol, "PeekMessageA");
+  assert.deepEqual(call.arguments, [0x006f_f8e8, 0, 0, 0, 1]);
+  assert.deepEqual(call.result, { action: "set", value: 1 });
+  assert.equal(call.returnAddress, 0x1009_378b);
+  assert.equal(call.stackPointerBefore, 0x006f_f8c8);
+  assert.equal(call.stackPointerAfter, 0x006f_f8e0);
+  assert.equal(call.lastError, 0);
+  assert.equal(call.guestWrites.length, 1);
+  assert.equal(call.guestWrites[0].address, 0x006f_f8e8);
+  assert.equal(call.guestWrites[0].result.bytesWritten, 28);
+  assert.equal(call.guestWrites[0].result.dirtyPages, 1);
+  assert.equal(call.guestWrites[0].result.invalidation.generation, 333_509);
+  assert.equal(
+    Buffer.from(call.guestWrites[0].bytes).toString("hex"),
+    "01000148130100000100000000960910c5fe3900c00300001c020000",
+  );
+  const timer = call.windowTimer;
+  assert.equal(timer.id, 1);
+  assert.equal(timer.windowId, 1);
+  assert.equal(timer.windowHandle, 0x4801_0001);
+  assert.equal(timer.timerId, 1);
+  assert.equal(timer.ownerThreadId, 8192);
+  assert.equal(timer.requestedIntervalMilliseconds, 20);
+  assert.equal(timer.effectiveIntervalMilliseconds, 20);
+  assert.equal(timer.callbackAddress, 0x1009_9600);
+  assert.equal(timer.registrationGeneration, 1);
+  assert.equal(timer.armedAtTime100ns, 2_007_735_000);
+  assert.equal(timer.nextDeadlineTime100ns, 2_007_935_000);
+  assert.equal(timer.deliveryCount, 41);
+  assert.deepEqual(timer.lastDelivery, {
+    registrationGeneration: 1,
+    deliveryCount: 41,
+    scheduledDeadlineTime100ns: 1_915_270_000,
+    deliveredAtTime100ns: 2_007_735_000,
+  });
+  assert.equal(completion.compatibilityPolicyId, "kernel32-delete-file-a-v1");
+  assert.equal(
+    completion.retrievalProfileId,
+    "current-thread-empty-queue-coalesced-window-timer-callback-v1",
+  );
+  assert.equal(
+    completion.stateAuthority,
+    "rust-runtime-current-thread-message-queue-window-timer-and-guest-memory",
+  );
+  assert.equal(
+    completion.mutation,
+    "window-timer-delivery-plan-queue-peek-plan-memory-preflight-targeted-commit",
+  );
+  assert.equal(completion.failureAtomicity, true);
+  assert.equal(completion.currentThreadId, 8192);
+  assert.equal(completion.messageOutputAddress, 0x006f_f8e8);
+  assert.equal(completion.messageOutputByteLength, 28);
+  assert.deepEqual(completion.message, {
+    hwnd: 0x4801_0001,
+    message: 0x0113,
+    wParam: 1,
+    lParam: 0x1009_9600,
+    time: 3_800_773,
+    pointX: 960,
+    pointY: 540,
+  });
+  assert.deepEqual(completion.windowTimer, timer);
+  assert.equal(completion.removeMessage, true);
+  assert.equal(completion.queueDepthBefore, 0);
+  assert.equal(completion.queueDepthAfter, 0);
+  assert.equal(completion.messageSource, "window-timer");
+  assert.equal(
+    completion.timerMaterialization,
+    "lazy-on-empty-current-thread-unfiltered-peek-message-a",
+  );
+  assert.equal(
+    completion.missedPeriodPolicy,
+    "coalesce-one-delivery-and-rearm-from-now",
+  );
+  assert.equal(completion.peekResult, 1);
+  assert.equal(completion.lastErrorPolicy, "preserve");
+  assert.equal(completion.guestWriteBytes, 28);
+  assert.equal(completion.hostMessageImported, false);
+  assert.equal(completion.browserOwnsMessageQueueState, false);
+  assert.equal(completion.browserTimerCreated, false);
+  assert.equal(completion.activeCallbackDepthAtCompletion, 0);
+  assert.equal(completion.instructionCount, 392_354_433);
+  assert.deepEqual(completion.nextEndpoint, {
+    id: 162,
+    address: 0x7f00_0a10,
+    module: "USER32.dll",
+    symbol: { kind: "name", name: "TranslateMessage" },
+    disposition: "declared-runtime-export",
+    iatAddress: 0x100d_1360,
+  });
+  assert.deepEqual(completion.nextArguments, [0x006f_f8e8]);
+  assert.equal(completion.nextReturnAddress, 0x1009_37a2);
+  assert.equal(completion.nextStackPointer, 0x006f_f8d4);
+  assert.equal(
+    completion.memoryContentSha256,
+    "7232fd6aa6418165a888720edf97c9f60cf0991ec6fffa704a0b5c808b1fa66e",
+  );
+  assert.equal(result.terminal.initialInstructionCount, 392_354_423);
+  assert.equal(result.terminal.additionalInstructionCount, 10);
+  assert.equal(result.terminal.instructionCount, 392_354_433);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.name, "TranslateMessage");
+  assert.equal(result.terminal.terminal.returnAddress, 0x1009_37a2);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(1, 2),
+    [0x006f_f8e8],
+  );
+  assert.equal(result.finalGeneration, 333_510);
+  assert.equal(result.writebacks.length, 286_071);
+  assert.equal(result.hostDeltas.length, 143_089);
+  assert.equal(result.timerPacing.length, 9_003);
+  assert.equal(result.sourceReads.length, 154);
+  assert.equal(result.heapPageMaterializations.length, 3_112);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+  assert.equal(result.activeCallbackDepth, 0);
+}
+
 function validateKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmResult(
   result,
   sourceRegistration,
@@ -43429,6 +43724,14 @@ function buildGenericRuntimeReentryReport({
       if (findFirstFileACheckpointEnabled) {
         if (deleteFileACheckpointEnabled) {
           if (
+            user32PeekMessageAPostTestCooperativeLevelTimerWaitCheckpointEnabled
+          ) {
+            assert.equal(completedSupportedCalls.length, 282_873);
+            assert.equal(
+              supportedCallSemanticsSha256,
+              "92e24cd4b779a733e416e122ac6a1948db5ab2bf9744751eeaeb0dc535ee0d49",
+            );
+          } else if (
             kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCheckpointEnabled
           ) {
             assert.equal(completedSupportedCalls.length, 282_872);
@@ -46912,6 +47215,15 @@ function buildScheduledSharedClockPrimaryReport({
               "kernel32.set-waitable-timer.relative-one-shot.v1",
         ) ?? null
       : null;
+  const kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCall =
+    kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmEvidenceEnabled
+      ? completedSupportedCalls.find(
+          (call) =>
+            call.sequence === 282_872 &&
+            call.implementationId ===
+              "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+        ) ?? null
+      : null;
   const successfulFindCalls = [
     ...findFirstCalls,
     ...findNextCalls.filter((call) => call.result.value === 1),
@@ -46930,7 +47242,9 @@ function buildScheduledSharedClockPrimaryReport({
     };
   });
   return {
-    schema: kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCheckpointEnabled
+    schema: user32PeekMessageAPostTestCooperativeLevelTimerWaitCheckpointEnabled
+      ? "vine.v86-bgi-user32-peek-message-a-post-test-cooperative-level-timer-wait-primary"
+      : kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCheckpointEnabled
       ? "vine.v86-bgi-kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm-primary"
       : kernel32SetWaitableTimerPostTestCooperativeLevelCheckpointEnabled
         ? "vine.v86-bgi-kernel32-set-waitable-timer-post-test-cooperative-level-primary"
@@ -47349,6 +47663,26 @@ function buildScheduledSharedClockPrimaryReport({
               call: kernel32SetWaitableTimerPostTestCooperativeLevelCall,
             },
             kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArm: {
+              checkpointCompletion: genericResult.checkpointCompletion,
+            },
+          }
+        : {}),
+      ...(user32PeekMessageAPostTestCooperativeLevelTimerWaitCheckpointEnabled
+        ? {
+            winmmTimeGetTimePostPresent: {
+              call: winmmTimeGetTimePostPresentCall,
+            },
+            d3d9TestCooperativeLevelPostTimeGetTime: {
+              call: d3d9TestCooperativeLevelPostTimeGetTimeCall,
+            },
+            kernel32SetWaitableTimerPostTestCooperativeLevel: {
+              call: kernel32SetWaitableTimerPostTestCooperativeLevelCall,
+            },
+            kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArm: {
+              call:
+                kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCall,
+            },
+            user32PeekMessageAPostTestCooperativeLevelTimerWait: {
               checkpointCompletion: genericResult.checkpointCompletion,
             },
           }

@@ -6341,3 +6341,25 @@ clock, expiration, signal, registration, wait result, and thread resume. Both st
 identities remain authoritative only in
 [current-checkpoint.json](current-checkpoint.json). Details are in
 [the bounded wait profile](bgi-kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm.md).
+
+## 190. BGI post-timer-wait `PeekMessageA` retrieval
+
+The reached call reuses the current-thread unfiltered `PM_REMOVE` contract fixed by
+the focused BGI captures and controlled x86 oracle in section 178, and the timer
+caller relation fixed in section 180. The caller consumes TRUE, checks `WM_QUIT`,
+then passes the same guest `MSG32` to `TranslateMessage` and `DispatchMessageA`.
+No new native trace was needed because the retrieval flags, output layout, timer
+message relation, and consumer branch are already fixed; native HWND／time／point and
+runtime sequence remain evidence identity rather than semantic dispatch selectors.
+
+Canonical Node and Chrome complete the call at sequence 282,873／occurrence 110／
+instruction 392,354,423. Both return TRUE／LastError 0 and publish the same 28-byte
+`MSG32`: logical HWND `0x48010001`, `WM_TIMER`, timer ID 1, TIMERPROC
+`0x10099600`, logical time 3,800,773, and point `(960, 540)`. Rust observes the
+ordinary current-thread queue empty, materializes delivery 41, coalesces the overdue
+deadline `1,915,270,000` at clock `2,007,735,000`, rearms to `2,007,935,000`,
+and jointly commits timer, queue remove, and guest bytes. TypeScript imports no host
+message, browser timer, or Windows queue authority. Both stop 10 instructions later
+at `USER32.dll!TranslateMessage`; exact report and artifact identities remain
+authoritative only in [current-checkpoint.json](current-checkpoint.json). Details are
+in [the bounded PeekMessageA profile](bgi-user32-peek-message-a-post-test-cooperative-level-timer-wait.md).

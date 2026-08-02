@@ -420,6 +420,23 @@ APC delivery, general waits, and message retrieval remain outside this bounded
 profile. Details are in
 [the post-`TestCooperativeLevel` wait profile](bgi-kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm.md).
 
+Protocol version 124／BGI report schema 90 continues through the following
+current-thread unfiltered `PeekMessageA(PM_REMOVE)`. Node and Chrome agree on
+sequence 282,873／occurrence 110 at instruction 392,354,423, TRUE, LastError 0,
+the exact 28-byte `WM_TIMER` message for HWND `0x48010001`／timer ID 1／callback
+`0x10099600`, delivery count 41, and queue depth `0 -> 0`. Rust lazily
+materializes the overdue low-priority timer, coalesces missed periods, advances the
+next deadline to `2,007,935,000`, preflights the full guest write, and commits timer,
+queue, and memory together. The Worker imports no Windows message or timer state.
+Both stop at instruction 392,354,433 before `USER32.dll!TranslateMessage` with
+semantic digest
+`92e24cd4b779a733e416e122ac6a1948db5ab2bf9744751eeaeb0dc535ee0d49`
+and terminal memory digest
+`7232fd6aa6418165a888720edf97c9f60cf0991ec6fffa704a0b5c808b1fa66e`.
+Filtered／cross-thread retrieval and translation remain outside this bounded
+profile. Details are in
+[the post-timer-wait `PeekMessageA` profile](bgi-user32-peek-message-a-post-test-cooperative-level-timer-wait.md).
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk

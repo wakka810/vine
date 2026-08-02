@@ -473,12 +473,31 @@ function isKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
   );
 }
 
+function isUser32PeekMessageAPostTestCooperativeLevelTimerWaitProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile ===
+    "user32-peek-message-a-post-test-cooperative-level-timer-wait"
+  );
+}
+
+function includesKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
+      profile,
+    ) || isUser32PeekMessageAPostTestCooperativeLevelTimerWaitProfile(profile)
+  );
+}
+
 function includesKernel32SetWaitableTimerPostTestCooperativeLevelProfile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isKernel32SetWaitableTimerPostTestCooperativeLevelProfile(profile) ||
-    isKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
+    includesKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
       profile,
     )
   );
@@ -10261,7 +10280,7 @@ class BrowserRuntimeSession {
     occurrence: number,
   ): void {
     if (
-      !isKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
+      !includesKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
         this.#configuration.capabilityProfile,
       ) ||
       call.sequence !== 282_872 ||
@@ -10378,6 +10397,162 @@ class BrowserRuntimeSession {
       guestWriteBytes: 0,
       hostClockImported: false,
       browserOwnsWaitState: false,
+      activeCallbackDepthAtCompletion: 0,
+      instructionCount: 0,
+      nextEndpoint: null,
+      nextArguments: [],
+      memoryContentSha256: "",
+      nextReturnAddress: 0,
+      nextStackPointer: 0,
+    };
+    if (
+      isKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      this.#bgiCheckpointPending = true;
+    }
+  }
+
+  #recordUser32PeekMessageAPostTestCooperativeLevelTimerWaitCall(
+    call: RuntimeSupportedCallSnapshot,
+    occurrence: number,
+  ): void {
+    if (
+      !isUser32PeekMessageAPostTestCooperativeLevelTimerWaitProfile(
+        this.#configuration.capabilityProfile,
+      ) ||
+      call.sequence !== 282_873 ||
+      call.implementationId !== "user32.peek-message-a.current-thread.v1"
+    ) {
+      return;
+    }
+    const previous = this.#report.checkpointCompletion;
+    const guestWrite = call.guestWrites[0];
+    const outputBytes =
+      guestWrite !== undefined && "bytes" in guestWrite
+        ? guestWrite.bytes
+        : undefined;
+    const outputView =
+      outputBytes === undefined
+        ? undefined
+        : new DataView(Uint8Array.from(outputBytes).buffer);
+    const timer = call.windowTimer;
+    invariant(
+      previous?.capability ===
+          "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm" &&
+        previous.lastCompletionSequence === 282_872 &&
+        previous.lastCompletionInstructionCount === 392_354_375 &&
+        this.#report.instructions === 392_354_423 &&
+        this.#currentThreadId === 8_192 &&
+        occurrence === 110 &&
+        call.module.toLowerCase() === "user32.dll" &&
+        call.symbol === "PeekMessageA" &&
+        call.arguments.join(",") === "7338216,0,0,0,1" &&
+        "action" in call.result &&
+        call.result.action === "set" &&
+        call.result.value === 1 &&
+        call.returnAddress === 0x1009_378b &&
+        call.stackPointerBefore === 0x006f_f8c8 &&
+        call.stackPointerAfter === 0x006f_f8e0 &&
+        call.lastError === 0 &&
+        call.guestWrites.length === 1 &&
+        guestWrite?.address === 0x006f_f8e8 &&
+        outputBytes?.join(",") ===
+          "1,0,1,72,19,1,0,0,1,0,0,0,0,150,9,16,197,254,57,0,192,3,0,0,28,2,0,0" &&
+        outputView !== undefined &&
+        timer?.id === 1 &&
+        timer.windowId === 1 &&
+        timer.windowHandle === 0x4801_0001 &&
+        timer.timerId === 1 &&
+        timer.ownerThreadId === 8_192 &&
+        timer.requestedIntervalMilliseconds === 20 &&
+        timer.effectiveIntervalMilliseconds === 20 &&
+        timer.callbackAddress === 0x1009_9600 &&
+        timer.registrationGeneration === 1 &&
+        timer.armedAtTime100ns === 2_007_735_000 &&
+        timer.nextDeadlineTime100ns === 2_007_935_000 &&
+        timer.deliveryCount === 41 &&
+        timer.lastDelivery?.registrationGeneration === 1 &&
+        timer.lastDelivery.deliveryCount === 41 &&
+        timer.lastDelivery.scheduledDeadlineTime100ns === 1_915_270_000 &&
+        timer.lastDelivery.deliveredAtTime100ns === 2_007_735_000 &&
+        this.#requirePrepared().runtime.kernel32Policy ===
+          "kernel32-delete-file-a-v1" &&
+        this.#scheduledSharedClockSampleCount === 100_557 &&
+        this.#scheduledSharedClockWindowTimerCallbackCount === 40 &&
+        this.#scheduledSharedClockPresentCount === 4 &&
+        this.#bgiCallbackCallSequences.size === 0,
+      `post-TestCooperativeLevel timer-wait PeekMessageA evidence changed: ${JSON.stringify(
+        {
+          call,
+          occurrence,
+          currentThreadId: this.#currentThreadId,
+          previous,
+          scheduledSharedClockSampleCount:
+            this.#scheduledSharedClockSampleCount,
+          scheduledSharedClockWindowTimerCallbackCount:
+            this.#scheduledSharedClockWindowTimerCallbackCount,
+          activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+        },
+      )}`,
+    );
+    const checkpointCall = {
+      ...structuredClone(call),
+      occurrence,
+      trapInstructionCount: this.#report.instructions,
+    };
+    this.#report.checkpointCompletion = {
+      capability:
+        "user32-peek-message-a-post-test-cooperative-level-timer-wait",
+      implementationId:
+        "runtime.user32-peek-message-a-post-test-cooperative-level-timer-wait.v1",
+      semanticImplementationId: "user32.peek-message-a.current-thread.v1",
+      requiredCompletions: 1,
+      completionCount: 1,
+      prerequisiteWaitForSingleObjectExSequence:
+        previous.lastCompletionSequence,
+      prerequisiteWaitForSingleObjectExInstructionCount:
+        previous.lastCompletionInstructionCount,
+      firstCompletionSequence: call.sequence,
+      firstCompletionInstructionCount: this.#report.instructions,
+      lastCompletionSequence: call.sequence,
+      lastCompletionInstructionCount: this.#report.instructions,
+      call: checkpointCall,
+      compatibilityPolicyId: "kernel32-delete-file-a-v1",
+      retrievalProfileId:
+        "current-thread-empty-queue-coalesced-window-timer-callback-v1",
+      stateAuthority:
+        "rust-runtime-current-thread-message-queue-window-timer-and-guest-memory",
+      mutation:
+        "window-timer-delivery-plan-queue-peek-plan-memory-preflight-targeted-commit",
+      failureAtomicity: true,
+      currentThreadId: 8_192,
+      messageOutputAddress: 0x006f_f8e8,
+      messageOutputByteLength: 28,
+      message: {
+        hwnd: outputView.getUint32(0, true),
+        message: outputView.getUint32(4, true),
+        wParam: outputView.getUint32(8, true),
+        lParam: outputView.getUint32(12, true),
+        time: outputView.getUint32(16, true),
+        pointX: outputView.getInt32(20, true),
+        pointY: outputView.getInt32(24, true),
+      },
+      windowTimer: structuredClone(timer),
+      removeMessage: true,
+      queueDepthBefore: 0,
+      queueDepthAfter: 0,
+      messageSource: "window-timer",
+      timerMaterialization:
+        "lazy-on-empty-current-thread-unfiltered-peek-message-a",
+      missedPeriodPolicy: "coalesce-one-delivery-and-rearm-from-now",
+      peekResult: 1,
+      lastErrorPolicy: "preserve",
+      guestWriteBytes: 28,
+      hostMessageImported: false,
+      browserOwnsMessageQueueState: false,
+      browserTimerCreated: false,
       activeCallbackDepthAtCompletion: 0,
       instructionCount: 0,
       nextEndpoint: null,
@@ -11490,6 +11665,75 @@ class BrowserRuntimeSession {
     stackPointer: number,
   ): void {
     const checkpoint = this.#report.checkpointCompletion;
+    if (
+      isUser32PeekMessageAPostTestCooperativeLevelTimerWaitProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      const endpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpointAddress,
+      );
+      invariant(
+        checkpoint?.capability ===
+            "user32-peek-message-a-post-test-cooperative-level-timer-wait" &&
+          checkpoint.call.sequence === 282_873 &&
+          checkpoint.call.occurrence === 110 &&
+          checkpoint.call.trapInstructionCount === 392_354_423 &&
+          checkpoint.currentThreadId === 8_192 &&
+          checkpoint.messageOutputAddress === 0x006f_f8e8 &&
+          checkpoint.messageOutputByteLength === 28 &&
+          checkpoint.message.hwnd === 0x4801_0001 &&
+          checkpoint.message.message === 0x0113 &&
+          checkpoint.message.wParam === 1 &&
+          checkpoint.message.lParam === 0x1009_9600 &&
+          checkpoint.message.time === 3_800_773 &&
+          checkpoint.message.pointX === 960 &&
+          checkpoint.message.pointY === 540 &&
+          checkpoint.windowTimer.deliveryCount === 41 &&
+          checkpoint.windowTimer.nextDeadlineTime100ns === 2_007_935_000 &&
+          checkpoint.queueDepthBefore === 0 &&
+          checkpoint.queueDepthAfter === 0 &&
+          this.#requirePrepared().runtime.kernel32Policy ===
+            "kernel32-delete-file-a-v1" &&
+          endpoint?.module?.toLowerCase() === "user32.dll" &&
+          endpoint.symbol?.kind === "name" &&
+          endpoint.symbol.name === "TranslateMessage" &&
+          stackPointer === 0x006f_f8d4 &&
+          this.#requireEngine().readGuestU32(stackPointer) === 0x1009_37a2 &&
+          this.#requireEngine().readGuestU32(stackPointer + 4) ===
+            0x006f_f8e8 &&
+          this.#bgiCallbackCallSequences.size === 0 &&
+          this.#report.supportedCallCount === 282_873 &&
+          this.#scheduledSharedClockSampleCount === 100_557 &&
+          this.#scheduledSharedClockWindowTimerCallbackCount === 40 &&
+          this.#scheduledSharedClockPresentCount === 4 &&
+          this.#report.instructions === 392_354_433,
+        "post-TestCooperativeLevel timer-wait PeekMessageA checkpoint has no matching runtime state",
+      );
+      const reflection =
+        this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-memory-summary" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation) &&
+          reflection.contentSha256 ===
+            "7232fd6aa6418165a888720edf97c9f60cf0991ec6fffa704a0b5c808b1fa66e",
+        "post-TestCooperativeLevel timer-wait PeekMessageA checkpoint memory summary changed",
+      );
+      checkpoint.instructionCount = this.#report.instructions;
+      checkpoint.nextEndpoint = structuredClone(endpoint);
+      checkpoint.nextArguments = [0x006f_f8e8];
+      checkpoint.memoryContentSha256 = reflection.contentSha256;
+      checkpoint.nextReturnAddress = 0x1009_37a2;
+      checkpoint.nextStackPointer = stackPointer;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "USER32 PeekMessageA after post-TestCooperativeLevel timer wait checkpoint completed",
+        null,
+      );
+      return;
+    }
     if (
       isKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
         this.#configuration.capabilityProfile,
@@ -14228,6 +14472,10 @@ class BrowserRuntimeSession {
         implementationOccurrence,
       );
       this.#recordKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCall(
+        call,
+        implementationOccurrence,
+      );
+      this.#recordUser32PeekMessageAPostTestCooperativeLevelTimerWaitCall(
         call,
         implementationOccurrence,
       );
@@ -23114,7 +23362,7 @@ class BrowserRuntimeSession {
         );
         this.#timerPacedCallSequences.add(completionSequence);
         if (
-          isKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
+          includesKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
             this.#configuration.capabilityProfile,
           ) &&
           completionSequence === 282_872
