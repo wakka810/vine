@@ -354,15 +354,17 @@ at `0x500FE000` while the API-created thread reaches its stack guard.
 Generations, report hashes, timing, and exact artifact identities remain
 manifest-owned evidence rather than guest semantics.
 
-Protocol version 118／BGI report schema 84 extends the active primary replay
-through the post-fourth-scene `GetRasterStatus`. Node and Chrome retain the
-sequence 282,866 EndScene prerequisite, then agree on sequence 282,867 at
-instruction 392,354,146, device `0x01010004`, swap-chain 0, `D3D_OK`, reference
-count 5, and one atomic `0000000037040000` write to `0x006FB890`. Rust supplies
-the last-visible-line sample without graphics／COM mutation or host／browser
-scanout import. Both complete at instruction 392,354,183 before
-`IDirect3DDevice9::Present(NULL,NULL,NULL,NULL)` slot 17 at `0x01011140`; the
-following Present and renderer materialization are not claimed by this profile.
+Protocol version 119／BGI report schema 85 extends the active primary replay
+through the fourth-scene `Present`. Node and Chrome retain the sequence 282,867
+post-scene raster prerequisite, then agree on sequence 282,868 at instruction
+392,354,183, device `0x01010004`, `D3D_OK`, reference count 5, logical device
+generation 74, presented frame 4／content generation 11, and discarded empty
+back-buffer generation 12. Chrome reuses `browser-resource:1`, synchronously
+uploads 8,388,608 texture bytes plus 112 vertex bytes, observes WebGL error 0 and
+center pixel `[0,0,0,255]`, and completes publication before guest resume. Both
+complete at instruction 392,354,190 before `WINMM.dll!timeGetTime` at
+`0x7F000070`. The black receipt proves publication, not readable title pixels;
+resize and context／device loss recovery remain unclaimed.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
@@ -424,5 +426,5 @@ fingerprint before and after execution.
   other sampler／state／filter variants, the three rejected render states, other
   texture-stage／binding variants, other vertex formats, other stream bindings,
   NULL stream unbind, other draws, partial／redirected／dirty-region Present,
-  subsequent frames, resize, device／context loss and recovery, and readable
+  additional／unbounded subsequent frames, resize, device／context loss and recovery, and readable
   title output remain unsupported.

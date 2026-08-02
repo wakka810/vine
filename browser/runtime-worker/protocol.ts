@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 118 as const;
+export const protocolVersion = 119 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -35,6 +35,7 @@ export type BgiCapabilityProfile =
   | "d3d9-draw-primitive-post-stream-source"
   | "d3d9-end-scene-post-draw-primitive"
   | "d3d9-get-raster-status-post-end-scene"
+  | "d3d9-present-post-raster-status"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1847,6 +1848,61 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "d3d9-present-post-raster-status";
+        implementationId: "runtime.d3d9-present-post-raster-status.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        prerequisiteRasterStatusSequence: number;
+        prerequisiteRasterStatusInstructionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        call: RuntimeSupportedCallSnapshot;
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33";
+        presentProfileId: "primary-first-frame-full-back-buffer-present-v1";
+        frameAuthority: "rust-runtime-graphics-logical-device-presented-frame";
+        browserResourceAuthority: "typescript-browser-resource-table";
+        mutation: "validate-plan-preflight-targeted-commit";
+        presentMode: "discard";
+        sourceRectImplemented: false;
+        destinationRectImplemented: false;
+        destinationWindowOverrideImplemented: false;
+        dirtyRegionImplemented: false;
+        failureAtomicity: true;
+        logicalGraphicsDeviceId: 3;
+        logicalGraphicsComObjectId: "21";
+        logicalGraphicsDeviceGeneration: 74;
+        presentedFrameSequence: 4;
+        presentedContentGeneration: 11;
+        discardedBackBufferContentGeneration: 12;
+        backBufferClearSequence: 4;
+        drawSubmissionCount: 1;
+        drawSubmissionSequence: 4;
+        drawSubmissionSceneSequence: 4;
+        textureId: 8;
+        textureContentGeneration: 4;
+        browserRendererResourceMaterialized: true;
+        browserRendererResourceId: "browser-resource:1";
+        browserRendererResourceCount: 1;
+        browserRendererResourceReused: true;
+        browserCapacityPreflightBeforeGuestExecution: true;
+        browserBindingPublishedAfterSnapshotValidation: true;
+        uploadedTextureBytes: 8388608;
+        uploadedVertexBytes: 112;
+        centerPixelRgba: [0, 0, 0, 255];
+        webGlError: 0;
+        renderedBeforeGuestResume: true;
+        visiblePixelsProduced: true;
+        asynchronousDeviceLossRecoveryImplemented: false;
+        activeCallbackDepthAtCompletion: 0;
+        instructionCount: number;
+        nextEndpoint: unknown;
+        memoryContentSha256: string;
+        nextReturnAddress: number;
+        nextStackPointer: number;
+      }
     | {
         capability: "d3d9-get-raster-status-post-end-scene";
         implementationId: "runtime.d3d9-get-raster-status-post-end-scene.v1";

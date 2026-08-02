@@ -2306,6 +2306,20 @@ supported calls、392,354,183 instructions、semantic digest
 cancel／watchdog cleanupも維持する。Worker cumulative completion 9,076はNode occurrenceとは別counterとして
 検証する。後続Present、renderer materialization、visible pixel、可読title sceneはclaimしない。
 
+Post-raster-status Present leafは、同じclosed frameを既存のRust-owned discard Present transactionへ渡す。
+Node／Chromeはsequence 282,868、occurrence 4、trap instruction 392,354,183、device `0x01010004`、
+`D3D_OK`、reference count 5、logical device generation 74、presented frame 4／content generation 11、
+discarded back-buffer generation 12を一致させる。Frameはclear 4、submission／scene 4、112-byte vertex
+snapshot、texture 8 generation 4、その8,388,608-byte Rust GuestMemory pixel sourceを保持する。Chromeは
+`browser-resource:1`をnon-owningに再利用し、capacity preflight、snapshot validation、texture／vertex upload、
+binding publicationをguest resume前に完了してWebGL error 0とcenter pixel `[0,0,0,255]`を記録する。
+Capability checkpointは282,868 supported calls、392,354,190 instructions、semantic digest
+`6ea6d734b05727424bd80ce6e7b0604a3a6ede3908552b72f9e1088c291e2afc`、terminal memory digest
+`3ac81c564469a3818fd7e5966703e6d31c75969d8217553ea57979f832d2794c`で完了し、次のowned endpoint
+`WINMM.dll!timeGetTime`を記録する。Protocol v119／report schema 85でcancel／watchdog cleanupも維持する。
+Black center pixelはbrowser publication receiptであり、可読title scene、visible input response、resize、
+partial／redirected Present、context／device loss recovery、general subsequent framesはclaimしない。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

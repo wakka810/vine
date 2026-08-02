@@ -30,7 +30,7 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "Runtime VFS search enumerates all 45 data0????.arc entries, both missing-file DeleteFileA calls complete, the third ordinary private-heap segment succeeds, the 224 x 112 selected-font GetOutlineTextMetricsA pair and two GetCursorInfo projections complete, the later exact partial dirty-region UpdateTexture consumes the Rust-owned source, the following fourth BeginScene activates scene sequence 4, the reached MIN／MAG linear sampler pair remains idempotent through three bounded render-state rejections, six repeated stage-0 texture-state assignments remain idempotent, the following non-owning stage-0 static DEFAULT texture binding remains idempotent, the transformed diffuse textured FVF 0x144 and non-owning stream-zero vertex-buffer binding remain idempotent, the following triangle-strip quad becomes immutable draw submission 4, EndScene closes scene 4 while preserving that submission, and the Rust policy publishes one atomic last-visible-line raster sample before Present slot 17",
+    "Runtime VFS search enumerates all 45 data0????.arc entries, both missing-file DeleteFileA calls complete, the third ordinary private-heap segment succeeds, the 224 x 112 selected-font GetOutlineTextMetricsA pair and two GetCursorInfo projections complete, the later exact partial dirty-region UpdateTexture consumes the Rust-owned source, the following fourth BeginScene activates scene sequence 4, the reached MIN／MAG linear sampler pair remains idempotent through three bounded render-state rejections, six repeated stage-0 texture-state assignments remain idempotent, the following non-owning stage-0 static DEFAULT texture binding remains idempotent, the transformed diffuse textured FVF 0x144 and non-owning stream-zero vertex-buffer binding remain idempotent, the following triangle-strip quad becomes immutable draw submission 4, EndScene closes scene 4 while preserving that submission, the Rust policy publishes one atomic last-visible-line raster sample, and the fourth discard Present publishes frame 4 through the reused Worker WebGL2 resource before the next timeGetTime read",
   ),
 );
 assert.ok(
@@ -1298,7 +1298,12 @@ assert.ok(
 
 const staleScheduledNextEndpoint = structuredClone(manifest);
 if (staleScheduledNextEndpoint.nextStructuredStop.kind === "capability-checkpoint") {
-  staleScheduledNextEndpoint.nextStructuredStop.nextEndpoint.vtableSlot -= 1;
+  const endpoint = staleScheduledNextEndpoint.nextStructuredStop.nextEndpoint;
+  if (Number.isSafeInteger(endpoint.vtableSlot)) {
+    endpoint.vtableSlot -= 1;
+  } else {
+    endpoint.endpointId += 1;
+  }
 } else {
   staleScheduledNextEndpoint.nextStructuredStop.vtableSlot -= 1;
 }

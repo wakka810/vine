@@ -158,7 +158,11 @@ function validateExecutionStateMachine(value, label, errors) {
 export function validateCurrentCheckpoint(manifest) {
   const errors = [];
   const root = requireRecord(manifest, "manifest", errors);
+  const d3d9PresentPostRasterStatusActive =
+    root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
+    "d3d9-present-post-raster-status";
   const d3d9GetRasterStatusPostEndSceneActive =
+    d3d9PresentPostRasterStatusActive ||
     root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
     "d3d9-get-raster-status-post-end-scene";
   const d3d9EndScenePostDrawPrimitiveActive =
@@ -627,7 +631,11 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9RecreatedTexturesActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-set-window-pos-repeat-activation";
+  const d3d9PresentPostRasterStatusProfileActive =
+    root.activeRuntimeCheckpoint?.capabilityProfile ===
+      "d3d9-present-post-raster-status";
   const d3d9EndScenePostDrawPrimitiveProfileActive =
+    d3d9PresentPostRasterStatusProfileActive ||
     root.activeRuntimeCheckpoint?.capabilityProfile ===
       "d3d9-get-raster-status-post-end-scene" ||
     root.activeRuntimeCheckpoint?.capabilityProfile ===
@@ -1497,7 +1505,27 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    d3d9GetRasterStatusPostEndSceneActive
+    d3d9PresentPostRasterStatusActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_997,
+        browserMappingDirtyPages: 150_402,
+        browserSuccessExecutionTransitions: 589_100,
+        browserFinalGeneration: 315_160,
+        browserReportSchemaVersion: 85,
+        latestSchema:
+          "vine.v86-bgi-d3d9-present-post-raster-status-primary",
+        latestWritebackBatches: 165_260,
+        latestWritebackDirtyPages: 244_675,
+        latestWritebackChangedBytes: 43_072_557,
+        latestHostDeltaBatches: 127_997,
+        latestFinalMemoryGeneration: 333_504,
+        semanticCallDigestSha256:
+          "6ea6d734b05727424bd80ce6e7b0604a3a6ede3908552b72f9e1088c291e2afc",
+        memoryContentSha256:
+          "3ac81c564469a3818fd7e5966703e6d31c75969d8217553ea57979f832d2794c",
+      }
+    : d3d9GetRasterStatusPostEndSceneActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_997,
@@ -3852,7 +3880,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    d3d9GetRasterStatusPostEndSceneActive
+    d3d9PresentPostRasterStatusActive
+      ? "vine.browser-runtime-worker.v119"
+      : d3d9GetRasterStatusPostEndSceneActive
       ? "vine.browser-runtime-worker.v118"
       : d3d9EndScenePostDrawPrimitiveActive
       ? "vine.browser-runtime-worker.v117"
@@ -24594,7 +24624,44 @@ export function validateCurrentCheckpoint(manifest) {
             errors,
           )
         : {};
-    const expectedNode = d3d9GetRasterStatusPostEndSceneActive
+    const d3d9PresentPostRasterStatusNode =
+      d3d9PresentPostRasterStatusActive
+        ? requireRecord(
+            node.d3d9PresentPostRasterStatus,
+            "activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence.d3d9PresentPostRasterStatus",
+            errors,
+          )
+        : {};
+    const expectedNode = d3d9PresentPostRasterStatusActive
+      ? {
+          schema:
+            "vine.v86-bgi-d3d9-present-post-raster-status-primary",
+          runtimeKernelCheckpoint: "d3d9-present-post-raster-status",
+          repeatRuns: 1,
+          reportBytes: 2_635_602,
+          reportSha256:
+            "6e9a6c226acb4c79154295ed7193c18ad1ad10359eff252e27d0d6d502addd05",
+          nodeReplayOldSpaceMiB: 8_192,
+          completedSupportedCalls: 282_868,
+          supportedCallSemanticsSha256:
+            "6ea6d734b05727424bd80ce6e7b0604a3a6ede3908552b72f9e1088c291e2afc",
+          clockSampleCount: 100_556,
+          lastClockTick: 3_800_550,
+          lastClockTime100ns: 2_005_500_000,
+          lastClockGeneration: 16_305,
+          lastClockRetiredInstructions: 391_909_858,
+          lastClockPendingRetiredInstructions: 1_858,
+          windowTimerCallbackCount: 40,
+          timerPacingCompletionCount: 9_002,
+          writebackBatches: 286_066,
+          hostDeltaBatches: 143_088,
+          callbackEventCount: 148,
+          finalMemoryGeneration: 333_504,
+          terminalInstructionCount: 392_354_190,
+          terminalMemoryContentSha256:
+            "3ac81c564469a3818fd7e5966703e6d31c75969d8217553ea57979f832d2794c",
+        }
+      : d3d9GetRasterStatusPostEndSceneActive
       ? {
           schema:
             "vine.v86-bgi-d3d9-get-raster-status-post-end-scene-primary",
@@ -25145,7 +25212,108 @@ export function validateCurrentCheckpoint(manifest) {
       currentStop.prerequisiteDrawPrimitiveCheckpoint ?? {};
     const prerequisiteEndSceneCheckpoint =
       currentStop.prerequisiteEndSceneCheckpoint ?? {};
-    const currentStopValid = d3d9GetRasterStatusPostEndSceneActive
+    const prerequisiteRasterStatusCheckpoint =
+      currentStop.prerequisiteRasterStatusCheckpoint ?? {};
+    const currentStopValid = d3d9PresentPostRasterStatusActive
+      ? currentStop.kind === "capability-checkpoint" &&
+        currentStop.classification === "semantic-leaf" &&
+        currentStop.nextCheckpoint === "winmm-time-get-time-post-present" &&
+        currentStop.pausedHistoricalCheckpoint ===
+          "d3d9-present-post-raster-status" &&
+        currentStop.instructionCount === 392_354_190 &&
+        currentStop.capabilityCluster === "winmm-api-contract" &&
+        currentStop.reason ===
+          "d3d9-present-post-raster-status-checkpoint-complete" &&
+        prerequisiteRasterStatusCheckpoint.capability ===
+          "d3d9-get-raster-status-post-end-scene" &&
+        prerequisiteRasterStatusCheckpoint.lastCompletionSequence === 282_867 &&
+        prerequisiteRasterStatusCheckpoint.lastCompletionInstructionCount ===
+          392_354_146 &&
+        prerequisiteRasterStatusCheckpoint.outputHex ===
+          "0000000037040000" &&
+        prerequisiteRasterStatusCheckpoint.scanLine === 1_079 &&
+        expectedCompletion.capability ===
+          "d3d9-present-post-raster-status" &&
+        expectedCompletion.implementationId ===
+          "runtime.d3d9-present-post-raster-status.v1" &&
+        expectedCompletion.requiredCompletions === 1 &&
+        expectedCompletion.completionCount === 1 &&
+        expectedCompletion.prerequisiteRasterStatusSequence === 282_867 &&
+        expectedCompletion.prerequisiteRasterStatusInstructionCount ===
+          392_354_146 &&
+        expectedCompletion.firstCompletionSequence === 282_868 &&
+        expectedCompletion.firstCompletionInstructionCount === 392_354_183 &&
+        expectedCompletion.lastCompletionSequence === 282_868 &&
+        expectedCompletion.lastCompletionInstructionCount === 392_354_183 &&
+        expectedCompletion.compatibilityPolicyId ===
+          "d3d9-primary-virtual-adapter-v33" &&
+        expectedCompletion.presentProfileId ===
+          "primary-first-frame-full-back-buffer-present-v1" &&
+        expectedCompletion.frameAuthority ===
+          "rust-runtime-graphics-logical-device-presented-frame" &&
+        expectedCompletion.browserResourceAuthority ===
+          "typescript-browser-resource-table" &&
+        expectedCompletion.mutation ===
+          "validate-plan-preflight-targeted-commit" &&
+        expectedCompletion.presentMode === "discard" &&
+        expectedCompletion.sourceRectImplemented === false &&
+        expectedCompletion.destinationRectImplemented === false &&
+        expectedCompletion.destinationWindowOverrideImplemented === false &&
+        expectedCompletion.dirtyRegionImplemented === false &&
+        expectedCompletion.failureAtomicity === true &&
+        expectedCompletion.logicalGraphicsDeviceId === 3 &&
+        expectedCompletion.logicalGraphicsComObjectId === "21" &&
+        expectedCompletion.logicalGraphicsDeviceGeneration === 74 &&
+        expectedCompletion.presentedFrameSequence === 4 &&
+        expectedCompletion.presentedContentGeneration === 11 &&
+        expectedCompletion.discardedBackBufferContentGeneration === 12 &&
+        expectedCompletion.backBufferClearSequence === 4 &&
+        expectedCompletion.drawSubmissionCount === 1 &&
+        expectedCompletion.drawSubmissionSequence === 4 &&
+        expectedCompletion.drawSubmissionSceneSequence === 4 &&
+        expectedCompletion.textureId === 8 &&
+        expectedCompletion.textureContentGeneration === 4 &&
+        expectedCompletion.nodeBrowserRendererResourceMaterialized === false &&
+        expectedCompletion.browserRendererResourceMaterialized === true &&
+        expectedCompletion.browserRendererResourceId === "browser-resource:1" &&
+        expectedCompletion.browserRendererResourceCount === 1 &&
+        expectedCompletion.browserRendererResourceReused === true &&
+        expectedCompletion.browserCapacityPreflightBeforeGuestExecution ===
+          true &&
+        expectedCompletion.browserBindingPublishedAfterSnapshotValidation ===
+          true &&
+        expectedCompletion.uploadedTextureBytes === 8_388_608 &&
+        expectedCompletion.uploadedVertexBytes === 112 &&
+        expectedCompletion.centerPixelRgba?.join(",") === "0,0,0,255" &&
+        expectedCompletion.webGlError === 0 &&
+        expectedCompletion.nodeRenderedBeforeGuestResume === false &&
+        expectedCompletion.renderedBeforeGuestResume === true &&
+        expectedCompletion.visiblePixelsProduced === true &&
+        expectedCompletion.readableTitlePixelsProduced === false &&
+        expectedCompletion.asynchronousDeviceLossRecoveryImplemented === false &&
+        expectedCompletion.activeCallbackDepthAtCompletion === 0 &&
+        expectedCompletion.instructionCount === 392_354_190 &&
+        expectedCompletion.memoryContentSha256 ===
+          "3ac81c564469a3818fd7e5966703e6d31c75969d8217553ea57979f832d2794c" &&
+        expectedCompletion.nextReturnAddress === 0x1009_1ebf &&
+        expectedCompletion.nextStackPointer === 0x006f_b8a0 &&
+        expectedEndpoint.endpointKind === "runtime-system-export" &&
+        expectedEndpoint.endpointId === 8 &&
+        expectedEndpoint.api === "WINMM.dll!timeGetTime" &&
+        expectedEndpoint.endpointAddress === "0x7f000070" &&
+        expectedEndpoint.iatAddress === "0x100d14e4" &&
+        expectedEndpoint.observedModule === "WINMM.dll" &&
+        expectedEndpoint.observedSymbol === "timeGetTime" &&
+        expectedEndpoint.id === 8 &&
+        expectedEndpoint.address === 0x7f00_0070 &&
+        expectedEndpoint.module === "WINMM.dll" &&
+        expectedEndpoint.symbol?.kind === "name" &&
+        expectedEndpoint.symbol.name === "timeGetTime" &&
+        expectedEndpoint.disposition === "declared-runtime-export" &&
+        expectedEndpoint.arguments?.length === 0 &&
+        expectedEndpoint.returnAddress === "0x10091ebf" &&
+        expectedEndpoint.stackPointer === "0x006fb8a0"
+      : d3d9GetRasterStatusPostEndSceneActive
       ? currentStop.kind === "capability-checkpoint" &&
         currentStop.classification === "semantic-leaf" &&
         currentStop.nextCheckpoint === "d3d9-present-post-raster-status" &&
@@ -27682,6 +27850,78 @@ export function validateCurrentCheckpoint(manifest) {
         d3d9GetRasterStatusPostEndSceneLatest.chromeCompletions === 1 &&
         d3d9GetRasterStatusPostEndSceneLatest.nodeChromeOrderedSemanticsMatched ===
           true);
+    const d3d9PresentPostRasterStatusLatest =
+      latestEvidence.d3d9PresentPostRasterStatus ?? {};
+    const d3d9PresentPostRasterStatusEvidenceValid =
+      !d3d9PresentPostRasterStatusActive ||
+      (d3d9PresentPostRasterStatusNode.completionCount === 1 &&
+        d3d9PresentPostRasterStatusNode.sequence === 282_868 &&
+        d3d9PresentPostRasterStatusNode.occurrence === 4 &&
+        d3d9PresentPostRasterStatusNode.instructionCount === 392_354_183 &&
+        d3d9PresentPostRasterStatusNode.arguments?.join(",") ===
+          "0x01010004,0x00000000,0x00000000,0x00000000,0x00000000" &&
+        d3d9PresentPostRasterStatusNode.result === "0x00000000" &&
+        d3d9PresentPostRasterStatusNode.returnAddress === "0x1005b7b1" &&
+        d3d9PresentPostRasterStatusNode.stackPointers?.join(",") ===
+          "0x006fb890,0x006fb8a8" &&
+        d3d9PresentPostRasterStatusNode.referenceCount === 5 &&
+        d3d9PresentPostRasterStatusNode.guestWriteBytes === 0 &&
+        d3d9PresentPostRasterStatusNode.compatibilityPolicyId ===
+          "d3d9-primary-virtual-adapter-v33" &&
+        d3d9PresentPostRasterStatusNode.presentProfileId ===
+          "primary-first-frame-full-back-buffer-present-v1" &&
+        d3d9PresentPostRasterStatusNode.frameAuthority ===
+          "rust-runtime-graphics-logical-device-presented-frame" &&
+        d3d9PresentPostRasterStatusNode.browserResourceAuthority ===
+          "typescript-browser-resource-table" &&
+        d3d9PresentPostRasterStatusNode.logicalGraphicsDeviceId === 3 &&
+        d3d9PresentPostRasterStatusNode.logicalGraphicsComObjectId === "21" &&
+        d3d9PresentPostRasterStatusNode.logicalGraphicsDeviceGeneration === 74 &&
+        d3d9PresentPostRasterStatusNode.presentedFrameSequence === 4 &&
+        d3d9PresentPostRasterStatusNode.presentedContentGeneration === 11 &&
+        d3d9PresentPostRasterStatusNode.discardedBackBufferContentGeneration ===
+          12 &&
+        d3d9PresentPostRasterStatusNode.backBufferClearSequence === 4 &&
+        d3d9PresentPostRasterStatusNode.drawSubmissionCount === 1 &&
+        d3d9PresentPostRasterStatusNode.drawSubmissionSequence === 4 &&
+        d3d9PresentPostRasterStatusNode.drawSubmissionSceneSequence === 4 &&
+        d3d9PresentPostRasterStatusNode.textureId === 8 &&
+        d3d9PresentPostRasterStatusNode.textureContentGeneration === 4 &&
+        d3d9PresentPostRasterStatusNode.pixelSourceByteLength === 8_388_608 &&
+        d3d9PresentPostRasterStatusNode.vertexByteLength === 112 &&
+        d3d9PresentPostRasterStatusNode.nodeBrowserRendererResourceMaterialized ===
+          false &&
+        d3d9PresentPostRasterStatusNode.browserRendererResourceMaterialized ===
+          true &&
+        d3d9PresentPostRasterStatusNode.browserRendererResourceId ===
+          "browser-resource:1" &&
+        d3d9PresentPostRasterStatusNode.browserRendererResourceCount === 1 &&
+        d3d9PresentPostRasterStatusNode.browserRendererResourceReused === true &&
+        d3d9PresentPostRasterStatusNode.centerPixelRgba?.join(",") ===
+          "0,0,0,255" &&
+        d3d9PresentPostRasterStatusNode.webGlError === 0 &&
+        d3d9PresentPostRasterStatusNode.renderedBeforeGuestResume === true &&
+        d3d9PresentPostRasterStatusNode.visiblePixelsProduced === true &&
+        d3d9PresentPostRasterStatusNode.readableTitlePixelsProduced === false &&
+        d3d9PresentPostRasterStatusNode.failureAtomicity === true &&
+        d3d9PresentPostRasterStatusNode.nextEndpoint ===
+          "WINMM.dll!timeGetTime" &&
+        d3d9PresentPostRasterStatusNode.nextInstructionCount === 392_354_190 &&
+        d3d9PresentPostRasterStatusLatest.completionCount === 1 &&
+        d3d9PresentPostRasterStatusLatest.sequence === 282_868 &&
+        d3d9PresentPostRasterStatusLatest.occurrence === 4 &&
+        d3d9PresentPostRasterStatusLatest.presentedFrameSequence === 4 &&
+        d3d9PresentPostRasterStatusLatest.presentedContentGeneration === 11 &&
+        d3d9PresentPostRasterStatusLatest.discardedBackBufferContentGeneration ===
+          12 &&
+        d3d9PresentPostRasterStatusLatest.browserRendererResourceReused === true &&
+        d3d9PresentPostRasterStatusLatest.centerPixelRgba?.join(",") ===
+          "0,0,0,255" &&
+        d3d9PresentPostRasterStatusLatest.failureAtomicity === true &&
+        d3d9PresentPostRasterStatusLatest.nodeCompletions === 1 &&
+        d3d9PresentPostRasterStatusLatest.chromeCompletions === 1 &&
+        d3d9PresentPostRasterStatusLatest.nodeChromeOrderedSemanticsMatched ===
+          true);
     if (
       scheduled.schema !== "vine.scheduled-shared-clock-checkpoint" ||
       scheduled.schemaVersion !== 1 ||
@@ -27742,7 +27982,12 @@ export function validateCurrentCheckpoint(manifest) {
         (expectedNode.windowTimerCallbackCount ?? 36) ||
       node.timerPacingCompletionCount !==
         (expectedNode.timerPacingCompletionCount ?? 7_174) ||
-      node.presentCount !== (outlineTextMetrics224x112Active ? 3 : 2) ||
+      node.presentCount !==
+        (d3d9PresentPostRasterStatusActive
+          ? 4
+          : outlineTextMetrics224x112Active
+            ? 3
+            : 2) ||
       node.thirdPresentReached !== outlineTextMetrics224x112Active ||
       node.pointerInputEventCount !== 2 ||
       node.pointerInputDownCommittedAfterSequence !== 222_004 ||
@@ -27759,7 +28004,9 @@ export function validateCurrentCheckpoint(manifest) {
       node.terminalMemoryContentSha256 !==
         expectedNode.terminalMemoryContentSha256 ||
       browserBoundary.runtimeProtocol !==
-        (d3d9GetRasterStatusPostEndSceneActive
+        (d3d9PresentPostRasterStatusActive
+          ? "vine.browser-runtime-worker.v119"
+          : d3d9GetRasterStatusPostEndSceneActive
           ? "vine.browser-runtime-worker.v118"
           : d3d9EndScenePostDrawPrimitiveActive
           ? "vine.browser-runtime-worker.v117"
@@ -27797,7 +28044,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.retiredInstructionCursorTransport !==
         "checked-u64-low-high-per-api-and-com-dispatch" ||
       browserBoundary.browserOwnsGuestClockState !== false ||
-      (d3d9GetRasterStatusPostEndSceneActive
+      (d3d9PresentPostRasterStatusActive
+        ? browserBoundary.browserReportSchemaVersion !== 85
+        : d3d9GetRasterStatusPostEndSceneActive
         ? browserBoundary.browserReportSchemaVersion !== 84
         : d3d9EndScenePostDrawPrimitiveActive
         ? browserBoundary.browserReportSchemaVersion !== 83
@@ -27832,7 +28081,9 @@ export function validateCurrentCheckpoint(manifest) {
         "npm run check:runtime:browser-worker" ||
       browserBoundary.chromeVersion !== "150.0.7871.187" ||
       browserBoundary.reportBytes !==
-        (d3d9GetRasterStatusPostEndSceneActive
+        (d3d9PresentPostRasterStatusActive
+          ? 35_966
+          : d3d9GetRasterStatusPostEndSceneActive
           ? 35_962
           : d3d9EndScenePostDrawPrimitiveActive
           ? 35_951
@@ -27866,7 +28117,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 35_961
           : 35_951) ||
       browserBoundary.reportSha256 !==
-        (d3d9GetRasterStatusPostEndSceneActive
+        (d3d9PresentPostRasterStatusActive
+          ? "03d432e49f1a78c0f7ef1d83f0576386c16b621ffcd7e09764d224dadc822935"
+          : d3d9GetRasterStatusPostEndSceneActive
           ? "29b978f74bd54992ef821fe966fc719e562176ef1f6299b4ab053ce11a947fdd"
           : d3d9EndScenePostDrawPrimitiveActive
           ? "93da4299fb00c268a9c6c1b9fe4e36110b9e0a93582ea80be57d01018fbc2b24"
@@ -27900,7 +28153,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "bd77deb28553190382622adb663ac87b99e4c9f9df719bbba2282f5bae5bca94"
           : "ecd982f21410c69c4d844a114041e301fd140fedbb520cf5773f4d13d2846aa1") ||
       browserBoundary.runtimeWorkerBytes !==
-        (d3d9GetRasterStatusPostEndSceneActive
+        (d3d9PresentPostRasterStatusActive
+          ? 1_166_857
+          : d3d9GetRasterStatusPostEndSceneActive
           ? 1_157_885
           : d3d9EndScenePostDrawPrimitiveActive
           ? 1_151_178
@@ -27934,7 +28189,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 1_053_379
           : 1_049_048) ||
       browserBoundary.runtimeWorkerSha256 !==
-        (d3d9GetRasterStatusPostEndSceneActive
+        (d3d9PresentPostRasterStatusActive
+          ? "c113cb979a53e29bfbc43df75a097dba4f96b63d6b8fb9c1ad34a9288e10cc11"
+          : d3d9GetRasterStatusPostEndSceneActive
           ? "b22a791fc3abd8d7f8d21ec2cbbdde8e48f51bbf174be61bb5f82d30831449c3"
           : d3d9EndScenePostDrawPrimitiveActive
           ? "767a9af24b449857f0ce95a63b399ae4b5d8e5572ce461d9a7a06a8e44030e6f"
@@ -28016,7 +28273,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.privatePrimaryCommand !==
         "node tools/run-browser-runtime-check.mjs --bgi" ||
       browserBoundary.privatePrimaryReportBytes !==
-        (d3d9GetRasterStatusPostEndSceneActive
+        (d3d9PresentPostRasterStatusActive
+          ? 2_632_299
+          : d3d9GetRasterStatusPostEndSceneActive
           ? 2_611_330
           : d3d9EndScenePostDrawPrimitiveActive
           ? 2_623_888
@@ -28050,7 +28309,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 2_598_978
           : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
-        (d3d9GetRasterStatusPostEndSceneActive
+        (d3d9PresentPostRasterStatusActive
+          ? "e81922f5dfa0a332b3da2b3652446ef29195af091aa4e013de1bb67243a01d85"
+          : d3d9GetRasterStatusPostEndSceneActive
           ? "8115542f22bbdb3767d9bc33c41a9b6118368c0e2f6c605c09fdffc2615240e4"
           : d3d9EndScenePostDrawPrimitiveActive
           ? "cebd4b0d0b077095f3ffd26ed64bfcb0ff3623fc18f573b529524b5b06cfbd07"
@@ -28132,6 +28393,7 @@ export function validateCurrentCheckpoint(manifest) {
       !d3d9DrawPrimitivePostStreamSourceEvidenceValid ||
       !d3d9EndScenePostDrawPrimitiveEvidenceValid ||
       !d3d9GetRasterStatusPostEndSceneEvidenceValid ||
+      !d3d9PresentPostRasterStatusEvidenceValid ||
       conclusion.clockFreezeWasProximateCause !== false ||
       (privateHeapOrdinarySegmentGrowthActive &&
         conclusion.ordinaryHeapCapacityWasProximateCause !== false) ||
@@ -28144,7 +28406,9 @@ export function validateCurrentCheckpoint(manifest) {
       (getCursorInfoActive &&
         conclusion.cursorInfoWasProximateCause !== false) ||
       conclusion.nextEndpoint !==
-        (d3d9GetRasterStatusPostEndSceneActive
+        (d3d9PresentPostRasterStatusActive
+          ? "WINMM.dll!timeGetTime"
+          : d3d9GetRasterStatusPostEndSceneActive
           ? "IDirect3DDevice9!Present"
           : d3d9EndScenePostDrawPrimitiveActive
           ? "IDirect3DDevice9!GetRasterStatus"
@@ -28203,6 +28467,7 @@ export function validateCurrentCheckpoint(manifest) {
           d3d9DrawPrimitivePostStreamSourceEvidenceValid,
           d3d9EndScenePostDrawPrimitiveEvidenceValid,
           d3d9GetRasterStatusPostEndSceneEvidenceValid,
+          d3d9PresentPostRasterStatusEvidenceValid,
         })})`,
       );
     }
@@ -38626,6 +38891,9 @@ export function renderReadmeStatus(manifest) {
                           next.completion.capability ===
                             "d3d9-get-raster-status-post-end-scene"
                         ? "post-scene raster-status sample"
+                        : next.completion.capability ===
+                            "d3d9-present-post-raster-status"
+                          ? "later frame presentation"
                         : next.completion.capability ===
                             "d3d9-post-raster-status-waitable-timer"
                           ? "post-scene timer arm/wait cycle"

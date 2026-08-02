@@ -1012,6 +1012,13 @@ IDだけを所有し、Rust logical device／COM identityへのassociationはexp
 再開する前にsession faultへし、Windows device stateの第二authorityや後追いpartial successを作らない。
 Context／device loss、resize、subsequent framesはそれぞれ到達時にgeneration／lifetime／cancel contractを追加する。
 
+4回目のscene後に再到達したPresentも同じtransactionを再利用する。Rustはdevice generation 74、presented
+frame sequence 4／content generation 11、discard後back-buffer generation 12をauthorityとしてcommitし、clear 4、
+submission／scene 4、texture 8 generation 4とそのGuestMemory pixel sourceをimmutable frameに保持する。Workerは
+既存のnon-owning `browser-resource:1` relationをcapacity preflight後に再利用し、8,388,608 texture bytesと
+112 vertex bytesをguest resume前に同期materializeする。Browser receiptの`[0,0,0,255]` center pixelと
+WebGL error 0はpublication orderingを証明するが、可読title contentのauthority／acceptanceには使わない。
+
 TypeScriptはPresent前のimmutable snapshotを検証し、Present時だけbrowser resourceへmaterializeする。Texture content、
 dirty state、scene state、sampler state、texture-stage state、texture binding、flexible vertex format、stream binding、draw queue、
 presented-frame lifetimeの第二authorityを持たない。他stage／resource binding、他vertex format、他stream binding、他draw、

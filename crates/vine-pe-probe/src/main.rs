@@ -15196,7 +15196,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 "d3d9-draw-primitive-post-stream-source" => {
                     GenericRuntimeCapability::D3d9DrawPrimitivePostStreamSource
                 }
-                "d3d9-end-scene-post-draw-primitive" | "d3d9-get-raster-status-post-end-scene" => {
+                "d3d9-end-scene-post-draw-primitive"
+                | "d3d9-get-raster-status-post-end-scene"
+                | "d3d9-present-post-raster-status" => {
                     GenericRuntimeCapability::D3d9EndScenePostDrawPrimitive
                 }
                 "d3d9-begin-scene" => GenericRuntimeCapability::D3d9BeginScene,

@@ -464,6 +464,18 @@ instruction 392,354,183 before `Present(NULL,NULL,NULL,NULL)` slot 17 at
 endpoint `0x01011140`; Present and renderer materialization remain a separate
 transaction.
 
+The `d3d9-present-post-raster-status` profile consumes that same closed frame.
+Node and Chrome complete sequence 282,868 at instruction 392,354,183, publish
+back-buffer content generation 11 as frame 4, advance the logical device to
+generation 74, and replace the discard back buffer with empty content generation
+12. The immutable frame retains clear 4, submission／scene 4, 112 vertex bytes,
+and texture 8 content generation 4 backed by the 8,388,608-byte Rust GuestMemory
+pixel source. Chrome reuses the non-owning WebGL2 resource `browser-resource:1`,
+materializes texture／vertex bytes before guest resume, reports WebGL error 0,
+and reads center pixel `[0,0,0,255]`. The checkpoint stops at instruction
+392,354,190 before `WINMM.dll!timeGetTime`; the black receipt does not establish
+readable title content or general subsequent-frame behavior.
+
 ## Bounded level-zero surface retrieval
 
 Version 19 retains `primary-system-memory-texture-level-zero-surfaces-v2` for the

@@ -48,3 +48,5 @@ npm run check:runtime:bgi -- --profile d3d9-get-raster-status-post-end-scene
 node tools/run-browser-runtime-check.mjs --bgi --bgi-profile d3d9-get-raster-status-post-end-scene --bgi-policy fixtures/runtime-policies/kernel32-delete-file-a-v1.json
 npm run check:runtime:browser-worker
 ```
+
+Continuation: [post-raster-status Present profile](bgi-d3d9-present-post-raster-status.md).

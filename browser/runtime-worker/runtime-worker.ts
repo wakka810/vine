@@ -438,12 +438,27 @@ function isD3d9GetRasterStatusPostEndSceneProfile(
   return profile === "d3d9-get-raster-status-post-end-scene";
 }
 
+function isD3d9PresentPostRasterStatusProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "d3d9-present-post-raster-status";
+}
+
+function includesD3d9GetRasterStatusPostEndSceneProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isD3d9GetRasterStatusPostEndSceneProfile(profile) ||
+    isD3d9PresentPostRasterStatusProfile(profile)
+  );
+}
+
 function includesD3d9EndScenePostDrawPrimitiveProfile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isD3d9EndScenePostDrawPrimitiveProfile(profile) ||
-    isD3d9GetRasterStatusPostEndSceneProfile(profile)
+    includesD3d9GetRasterStatusPostEndSceneProfile(profile)
   );
 }
 
@@ -8410,6 +8425,7 @@ class BrowserRuntimeSession {
       this.#recordD3d9DrawPrimitivePostStreamSourceCall(call);
       this.#recordD3d9EndScenePostDrawPrimitiveCall(call);
       this.#recordD3d9GetRasterStatusPostEndSceneCall(call);
+      this.#recordD3d9PresentPostRasterStatusCall(call);
     } else {
       this.#recordD3d9RecreatedTextureCall(call);
       this.#recordD3d9ClearCall(call);
@@ -9545,7 +9561,7 @@ class BrowserRuntimeSession {
     call: RuntimeSupportedCallSnapshot,
   ): void {
     if (
-      !isD3d9GetRasterStatusPostEndSceneProfile(
+      !includesD3d9GetRasterStatusPostEndSceneProfile(
         this.#configuration.capabilityProfile,
       ) ||
       call.interface !== "IDirect3DDevice9" ||
@@ -9638,6 +9654,173 @@ class BrowserRuntimeSession {
       browserScanoutImported: false,
       browserRendererResourceCreated: false,
       visiblePixelsProduced: false,
+      activeCallbackDepthAtCompletion: 0,
+      instructionCount: 0,
+      nextEndpoint: null,
+      memoryContentSha256: "",
+      nextReturnAddress: 0,
+      nextStackPointer: 0,
+    };
+    if (
+      isD3d9GetRasterStatusPostEndSceneProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      this.#bgiCheckpointPending = true;
+    }
+  }
+
+  #recordD3d9PresentPostRasterStatusCall(
+    call: RuntimeSupportedCallSnapshot,
+  ): void {
+    if (
+      !isD3d9PresentPostRasterStatusProfile(
+        this.#configuration.capabilityProfile,
+      ) ||
+      call.interface !== "IDirect3DDevice9" ||
+      call.vtableSlot !== 17 ||
+      call.sequence !== 282_868
+    ) {
+      return;
+    }
+    const previous = this.#report.checkpointCompletion;
+    const device = call.graphicsDevice;
+    const frame = device?.presentedFrame;
+    const submissions = frame?.backBuffer.drawSubmissions ?? [];
+    const submission = submissions[0];
+    const receipt = call.browserPresentation;
+    invariant(
+      previous?.capability === "d3d9-get-raster-status-post-end-scene" &&
+        previous.lastCompletionSequence === 282_867 &&
+        previous.lastCompletionInstructionCount === 392_354_146 &&
+        this.#report.instructions === 392_354_183 &&
+        this.#scheduledSharedClockPresentCount === 4 &&
+        call.symbol === "IDirect3DDevice9.Present" &&
+        call.arguments.length === 5 &&
+        call.arguments[0] === 0x0101_0004 &&
+        call.arguments.slice(1).every((argument) => argument === 0) &&
+        "kind" in call.result &&
+        call.result.kind === "h-result" &&
+        call.result.value === 0 &&
+        call.returnAddress === 0x1005_b7b1 &&
+        call.stackPointerBefore === 0x006f_b890 &&
+        call.stackPointerAfter === 0x006f_b8a8 &&
+        call.referenceCount === 5 &&
+        call.objectRetired === false &&
+        call.guestWrites.length === 0 &&
+        device?.id === 3 &&
+        device.namespace === "vine.logical-graphics-device.v1" &&
+        device.frontend === "d3d9" &&
+        device.comObjectId === "21" &&
+        device.activeScene === undefined &&
+        device.generation === 74 &&
+        device.backBuffer.contentGeneration === 12 &&
+        frame?.sequence === 4 &&
+        frame.backBuffer.contentGeneration === 11 &&
+        frame.backBuffer.uniformClear?.sequence === 4 &&
+        submissions.length === 1 &&
+        submission?.sequence === 4 &&
+        submission.sceneSequence === 4 &&
+        submission.texture.textureId === 8 &&
+        submission.texture.content.contentGeneration === 4 &&
+        receipt !== undefined &&
+        receipt.backend === "webgl2-offscreen-canvas" &&
+        receipt.resource.id === "browser-resource:1" &&
+        receipt.resource.kind === "d3d9-webgl2-device" &&
+        receipt.resource.binding.objectId === device.comObjectId &&
+        receipt.resource.binding.interfaceName === "IDirect3DDevice9" &&
+        receipt.browserResourceCount === 1 &&
+        receipt.deviceId === device.id &&
+        receipt.deviceGeneration === device.generation &&
+        receipt.frameSequence === frame.sequence &&
+        receipt.presentedContentGeneration ===
+          frame.backBuffer.contentGeneration &&
+        receipt.discardedBackBufferContentGeneration ===
+          device.backBuffer.contentGeneration &&
+        receipt.width === 1_280 &&
+        receipt.height === 720 &&
+        receipt.drawSubmissionCount === 1 &&
+        receipt.uploadedTextureBytes === 2_048 * 1_024 * 4 &&
+        receipt.uploadedVertexBytes === 112 &&
+        receipt.centerPixelRgba.every(
+          (component, index) => component === [0, 0, 0, 255][index],
+        ) &&
+        receipt.webGlError === 0 &&
+        receipt.capacityPreflightBeforeGuestExecution &&
+        receipt.bindingPublishedAfterSnapshotValidation &&
+        receipt.renderedBeforeGuestResume &&
+        this.#report.d3d9Present === null &&
+        this.#bgiCallbackCallSequences.size === 0,
+      `later D3D9 Present ABI, frame snapshot, or browser receipt changed: ${JSON.stringify(call)}`,
+    );
+    this.#report.d3d9Present = {
+      call: structuredClone(call),
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33",
+      presentProfileId: "primary-first-frame-full-back-buffer-present-v1",
+      frameAuthority: "rust-runtime-graphics-logical-device-presented-frame",
+      browserResourceAuthority: "typescript-browser-resource-table",
+      mutation: "validate-plan-preflight-targeted-commit",
+      presentMode: "discard",
+      sourceRectImplemented: false,
+      destinationRectImplemented: false,
+      destinationWindowOverrideImplemented: false,
+      dirtyRegionImplemented: false,
+      browserRendererResourceCreated: true,
+      browserCapacityPreflightBeforeGuestExecution: true,
+      browserBindingPublishedAfterSnapshotValidation: true,
+      visiblePixelsProduced: true,
+      asynchronousDeviceLossRecoveryImplemented: false,
+      failureAtomicity: true,
+    };
+    this.#report.checkpointCompletion = {
+      capability: "d3d9-present-post-raster-status",
+      implementationId: "runtime.d3d9-present-post-raster-status.v1",
+      requiredCompletions: 1,
+      completionCount: 1,
+      prerequisiteRasterStatusSequence: previous.lastCompletionSequence,
+      prerequisiteRasterStatusInstructionCount:
+        previous.lastCompletionInstructionCount,
+      firstCompletionSequence: call.sequence,
+      firstCompletionInstructionCount: this.#report.instructions,
+      lastCompletionSequence: call.sequence,
+      lastCompletionInstructionCount: this.#report.instructions,
+      call: structuredClone(call),
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33",
+      presentProfileId: "primary-first-frame-full-back-buffer-present-v1",
+      frameAuthority: "rust-runtime-graphics-logical-device-presented-frame",
+      browserResourceAuthority: "typescript-browser-resource-table",
+      mutation: "validate-plan-preflight-targeted-commit",
+      presentMode: "discard",
+      sourceRectImplemented: false,
+      destinationRectImplemented: false,
+      destinationWindowOverrideImplemented: false,
+      dirtyRegionImplemented: false,
+      failureAtomicity: true,
+      logicalGraphicsDeviceId: 3,
+      logicalGraphicsComObjectId: "21",
+      logicalGraphicsDeviceGeneration: 74,
+      presentedFrameSequence: 4,
+      presentedContentGeneration: 11,
+      discardedBackBufferContentGeneration: 12,
+      backBufferClearSequence: 4,
+      drawSubmissionCount: 1,
+      drawSubmissionSequence: 4,
+      drawSubmissionSceneSequence: 4,
+      textureId: 8,
+      textureContentGeneration: 4,
+      browserRendererResourceMaterialized: true,
+      browserRendererResourceId: "browser-resource:1",
+      browserRendererResourceCount: 1,
+      browserRendererResourceReused: true,
+      browserCapacityPreflightBeforeGuestExecution: true,
+      browserBindingPublishedAfterSnapshotValidation: true,
+      uploadedTextureBytes: 8_388_608,
+      uploadedVertexBytes: 112,
+      centerPixelRgba: [0, 0, 0, 255],
+      webGlError: 0,
+      renderedBeforeGuestResume: true,
+      visiblePixelsProduced: true,
+      asynchronousDeviceLossRecoveryImplemented: false,
       activeCallbackDepthAtCompletion: 0,
       instructionCount: 0,
       nextEndpoint: null,
@@ -10749,6 +10932,57 @@ class BrowserRuntimeSession {
     stackPointer: number,
   ): void {
     const checkpoint = this.#report.checkpointCompletion;
+    if (
+      isD3d9PresentPostRasterStatusProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      invariant(
+        checkpoint?.capability === "d3d9-present-post-raster-status" &&
+          checkpoint.call.sequence === 282_868 &&
+          this.#requirePrepared().runtime.kernel32Policy ===
+            "kernel32-delete-file-a-v1" &&
+          endpointAddress === 0x7f00_0070 &&
+          stackPointer === 0x006f_b8a0 &&
+          this.#requireEngine().readGuestU32(stackPointer) === 0x1009_1ebf &&
+          this.#bgiCallbackCallSequences.size === 0 &&
+          this.#report.supportedCallCount === 282_868 &&
+          this.#scheduledSharedClockSampleCount === 100_556 &&
+          this.#scheduledSharedClockWindowTimerCallbackCount === 40 &&
+          this.#scheduledSharedClockPresentCount === 4 &&
+          this.#report.instructions === 392_354_190,
+        "post-raster-status Present checkpoint has no matching runtime state",
+      );
+      const reflection =
+        this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-memory-summary" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation) &&
+          reflection.contentSha256 ===
+            "3ac81c564469a3818fd7e5966703e6d31c75969d8217553ea57979f832d2794c",
+        "post-raster-status Present checkpoint memory summary changed",
+      );
+      checkpoint.instructionCount = this.#report.instructions;
+      checkpoint.nextEndpoint = {
+        id: 8,
+        address: endpointAddress,
+        module: "WINMM.dll",
+        symbol: { kind: "name", name: "timeGetTime" },
+        disposition: "declared-runtime-export",
+        iatAddress: 0x100d_14e4,
+      };
+      checkpoint.memoryContentSha256 = reflection.contentSha256;
+      checkpoint.nextReturnAddress = 0x1009_1ebf;
+      checkpoint.nextStackPointer = stackPointer;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "D3D9 Present after later raster status checkpoint completed",
+        null,
+      );
+      return;
+    }
     if (
       isD3d9GetRasterStatusPostEndSceneProfile(
         this.#configuration.capabilityProfile,
@@ -12795,6 +13029,9 @@ class BrowserRuntimeSession {
                                                         : checkpoint.capability ===
                                                             "d3d9-post-scene-present-gateway"
                                                           ? "Post-scene raster gate to Present checkpoint completed"
+                                                          : checkpoint.capability ===
+                                                              "d3d9-present-post-raster-status"
+                                                            ? "Later Present and browser publication checkpoint completed"
                                                           : checkpoint.capability ===
                                                               "d3d9-first-present"
                                                             ? "First Present and browser publication checkpoint completed"

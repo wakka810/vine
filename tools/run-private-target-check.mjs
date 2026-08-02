@@ -1184,7 +1184,9 @@ function isScheduledSharedClockNodeReport(report) {
     report?.schema ===
       "vine.v86-bgi-d3d9-end-scene-post-draw-primitive-primary" ||
     report?.schema ===
-      "vine.v86-bgi-d3d9-get-raster-status-post-end-scene-primary"
+      "vine.v86-bgi-d3d9-get-raster-status-post-end-scene-primary" ||
+    report?.schema ===
+      "vine.v86-bgi-d3d9-present-post-raster-status-primary"
   );
 }
 
@@ -1210,7 +1212,9 @@ function isGetCursorInfoOrLaterNodeReport(report) {
     report?.schema ===
       "vine.v86-bgi-d3d9-end-scene-post-draw-primitive-primary" ||
     report?.schema ===
-      "vine.v86-bgi-d3d9-get-raster-status-post-end-scene-primary"
+      "vine.v86-bgi-d3d9-get-raster-status-post-end-scene-primary" ||
+    report?.schema ===
+      "vine.v86-bgi-d3d9-present-post-raster-status-primary"
   );
 }
 
@@ -1219,6 +1223,22 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (
+    nodeReport.schema ===
+    "vine.v86-bgi-d3d9-present-post-raster-status-primary"
+  ) {
+    const { call, ...completion } =
+      execution.d3d9PresentPostRasterStatus.checkpointCompletion;
+    const {
+      occurrence: _occurrence,
+      trapInstructionCount: _trapInstructionCount,
+      ...projectedCall
+    } = call;
+    return {
+      ...structuredClone(completion),
+      call: structuredClone(projectedCall),
+    };
+  }
   if (
     nodeReport.schema ===
     "vine.v86-bgi-d3d9-get-raster-status-post-end-scene-primary"
@@ -2417,6 +2437,108 @@ function assertD3d9GetRasterStatusPostEndSceneCheckpoint(
   assert.deepEqual(actual.nextEndpoint.symbol, expectedEndpoint.symbol);
 }
 
+function assertD3d9PresentPostRasterStatusCheckpoint(
+  actual,
+  expectedCompletion,
+  expectedEndpoint,
+) {
+  assert(actual !== null, "post-raster-status Present checkpoint is missing");
+  for (const field of [
+    "capability",
+    "implementationId",
+    "requiredCompletions",
+    "completionCount",
+    "prerequisiteRasterStatusSequence",
+    "prerequisiteRasterStatusInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "compatibilityPolicyId",
+    "presentProfileId",
+    "frameAuthority",
+    "browserResourceAuthority",
+    "mutation",
+    "presentMode",
+    "sourceRectImplemented",
+    "destinationRectImplemented",
+    "destinationWindowOverrideImplemented",
+    "dirtyRegionImplemented",
+    "failureAtomicity",
+    "logicalGraphicsDeviceId",
+    "logicalGraphicsComObjectId",
+    "logicalGraphicsDeviceGeneration",
+    "presentedFrameSequence",
+    "presentedContentGeneration",
+    "discardedBackBufferContentGeneration",
+    "backBufferClearSequence",
+    "drawSubmissionCount",
+    "drawSubmissionSequence",
+    "drawSubmissionSceneSequence",
+    "textureId",
+    "textureContentGeneration",
+    "activeCallbackDepthAtCompletion",
+    "instructionCount",
+    "memoryContentSha256",
+    "nextReturnAddress",
+    "nextStackPointer",
+  ]) {
+    assert.equal(actual[field], expectedCompletion[field], field);
+  }
+  for (const field of ["id", "address", "module", "disposition", "iatAddress"]) {
+    assert.equal(actual.nextEndpoint[field], expectedEndpoint[field], field);
+  }
+  assert.deepEqual(actual.nextEndpoint.symbol, expectedEndpoint.symbol);
+
+  const browserPresentation = actual.call?.browserPresentation;
+  if (browserPresentation === undefined) {
+    assert.equal(actual.browserRendererResourceMaterialized, false);
+    assert.equal(actual.renderedBeforeGuestResume, false);
+    return;
+  }
+  for (const field of [
+    "browserRendererResourceMaterialized",
+    "browserRendererResourceId",
+    "browserRendererResourceCount",
+    "browserRendererResourceReused",
+    "browserCapacityPreflightBeforeGuestExecution",
+    "browserBindingPublishedAfterSnapshotValidation",
+    "uploadedTextureBytes",
+    "uploadedVertexBytes",
+    "webGlError",
+    "renderedBeforeGuestResume",
+    "visiblePixelsProduced",
+    "asynchronousDeviceLossRecoveryImplemented",
+  ]) {
+    assert.equal(actual[field], expectedCompletion[field], field);
+  }
+  assert.deepEqual(actual.centerPixelRgba, expectedCompletion.centerPixelRgba);
+  assert.equal(browserPresentation.backend, "webgl2-offscreen-canvas");
+  assert.equal(browserPresentation.resource.id, expectedCompletion.browserRendererResourceId);
+  assert.equal(browserPresentation.resource.kind, "d3d9-webgl2-device");
+  assert.deepEqual(browserPresentation.resource.binding, {
+    objectId: "21",
+    interfaceId: "42",
+    interfaceName: "IDirect3DDevice9",
+  });
+  assert.equal(browserPresentation.browserResourceCount, 1);
+  assert.equal(browserPresentation.deviceId, 3);
+  assert.equal(browserPresentation.deviceGeneration, 74);
+  assert.equal(browserPresentation.frameSequence, 4);
+  assert.equal(browserPresentation.presentedContentGeneration, 11);
+  assert.equal(browserPresentation.discardedBackBufferContentGeneration, 12);
+  assert.equal(browserPresentation.width, 1_280);
+  assert.equal(browserPresentation.height, 720);
+  assert.equal(browserPresentation.drawSubmissionCount, 1);
+  assert.equal(browserPresentation.uploadedTextureBytes, 8_388_608);
+  assert.equal(browserPresentation.uploadedVertexBytes, 112);
+  assert.deepEqual(browserPresentation.centerPixelRgba, [0, 0, 0, 255]);
+  assert.equal(browserPresentation.webGlError, 0);
+  assert.equal(browserPresentation.capacityPreflightBeforeGuestExecution, true);
+  assert.equal(browserPresentation.bindingPublishedAfterSnapshotValidation, true);
+  assert.equal(browserPresentation.renderedBeforeGuestResume, true);
+}
+
 function assertD3d9SetTextureStageStatePostSamplerStateCheckpoint(
   actual,
   expectedCompletion,
@@ -2644,6 +2766,9 @@ function assertScheduledSharedClockReportSemantics({
   const d3d9GetRasterStatusPostEndSceneReport =
     nodeReport.schema ===
     "vine.v86-bgi-d3d9-get-raster-status-post-end-scene-primary";
+  const d3d9PresentPostRasterStatusReport =
+    nodeReport.schema ===
+    "vine.v86-bgi-d3d9-present-post-raster-status-primary";
 
   assert(
     expectedNext.kind === "capability-checkpoint" ||
@@ -3048,7 +3173,43 @@ function assertScheduledSharedClockReportSemantics({
     expectedNext,
   );
   let expectedFaultCode = null;
-  if (d3d9GetRasterStatusPostEndSceneReport) {
+  if (d3d9PresentPostRasterStatusReport) {
+    const present = nodeExecution.d3d9PresentPostRasterStatus;
+    assert.equal(nodeStop.fault, null);
+    assert.equal(
+      nodeStop.terminal.instructionCount,
+      expectedNext.instructionCount,
+    );
+    assert.deepEqual(present.call, present.checkpointCompletion.call);
+    assert.equal(present.call.sequence, 282_868);
+    assert.equal(present.call.occurrence, 4);
+    assert.equal(present.call.symbol, "IDirect3DDevice9.Present");
+    assert.equal(present.call.vtableSlot, 17);
+    assert.deepEqual(present.call.arguments, [0x0101_0004, 0, 0, 0, 0]);
+    assert.deepEqual(present.call.result, { kind: "h-result", value: 0 });
+    assert.equal(present.call.referenceCount, 5);
+    assert.equal(present.call.objectRetired, false);
+    assert.deepEqual(present.call.guestWrites, []);
+    assert.equal(present.call.graphicsDevice.id, 3);
+    assert.equal(present.call.graphicsDevice.comObjectId, "21");
+    assert.equal(present.call.graphicsDevice.generation, 74);
+    assert.equal(present.call.graphicsDevice.presentedFrame.sequence, 4);
+    assert.equal(
+      present.call.graphicsDevice.presentedFrame.backBuffer.contentGeneration,
+      11,
+    );
+    assert.equal(present.call.graphicsDevice.backBuffer.contentGeneration, 12);
+    assert.equal(
+      present.call.graphicsDevice.presentedFrame.backBuffer.drawSubmissions[0]
+        .texture.content.pixelSource.range.byteLength,
+      8_388_608,
+    );
+    assertD3d9PresentPostRasterStatusCheckpoint(
+      nodeCheckpoint,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+  } else if (d3d9GetRasterStatusPostEndSceneReport) {
     const raster = nodeExecution.d3d9GetRasterStatusPostEndScene;
     assert.equal(nodeStop.fault, null);
     assert.equal(
@@ -3451,6 +3612,7 @@ function assertScheduledSharedClockReportSemantics({
     );
   }
   if (
+    !d3d9PresentPostRasterStatusReport &&
     !d3d9GetRasterStatusPostEndSceneReport &&
     !d3d9EndScenePostDrawPrimitiveReport &&
     !d3d9DrawPrimitivePostStreamSourceReport &&
@@ -3485,6 +3647,7 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext,
     );
   } else if (
+    !d3d9PresentPostRasterStatusReport &&
     !d3d9GetRasterStatusPostEndSceneReport &&
     !d3d9EndScenePostDrawPrimitiveReport &&
     !d3d9DrawPrimitivePostStreamSourceReport &&
@@ -3547,7 +3710,19 @@ function assertScheduledSharedClockReportSemantics({
   assert.equal(browser.pendingCallbacks, 0);
 
   const browserUnsupported = browser.firstUnsupported;
-  if (d3d9GetRasterStatusPostEndSceneReport) {
+  if (d3d9PresentPostRasterStatusReport) {
+    assert.equal(browserUnsupported, null);
+    assertD3d9PresentPostRasterStatusCheckpoint(
+      browser.checkpointCompletion,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+    const {
+      browserPresentation: _browserPresentation,
+      ...browserLogicalPresentCall
+    } = browser.checkpointCompletion.call;
+    assert.deepEqual(browserLogicalPresentCall, nodeCheckpoint.call);
+  } else if (d3d9GetRasterStatusPostEndSceneReport) {
     assert.equal(browserUnsupported, null);
     assertD3d9GetRasterStatusPostEndSceneCheckpoint(
       browser.checkpointCompletion,
@@ -3654,6 +3829,7 @@ function assertScheduledSharedClockReportSemantics({
     );
   }
   if (
+    !d3d9PresentPostRasterStatusReport &&
     !d3d9GetRasterStatusPostEndSceneReport &&
     !d3d9EndScenePostDrawPrimitiveReport &&
     !d3d9DrawPrimitivePostStreamSourceReport &&
@@ -3692,6 +3868,7 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext,
     );
   } else if (
+    !d3d9PresentPostRasterStatusReport &&
     !d3d9GetRasterStatusPostEndSceneReport &&
     !d3d9EndScenePostDrawPrimitiveReport &&
     !d3d9DrawPrimitivePostStreamSourceReport &&
@@ -4295,7 +4472,11 @@ const nodeInstructions = scheduledNodeReport
     : nodeReport.firstUnsupported.instructionCount;
 const nodeMemoryContentSha256 = scheduledNodeReport
   ? nodeReport.schema ===
-    "vine.v86-bgi-d3d9-get-raster-status-post-end-scene-primary"
+    "vine.v86-bgi-d3d9-present-post-raster-status-primary"
+    ? nodeReport.execution.d3d9PresentPostRasterStatus.checkpointCompletion
+        .memoryContentSha256
+    : nodeReport.schema ===
+      "vine.v86-bgi-d3d9-get-raster-status-post-end-scene-primary"
     ? nodeReport.execution.d3d9GetRasterStatusPostEndScene
         .checkpointCompletion.memoryContentSha256
     : nodeReport.schema ===
