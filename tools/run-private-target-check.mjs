@@ -1174,7 +1174,9 @@ function isScheduledSharedClockNodeReport(report) {
     report?.schema ===
       "vine.v86-bgi-d3d9-set-texture-stage-state-post-sampler-state-primary" ||
     report?.schema ===
-      "vine.v86-bgi-d3d9-set-texture-post-texture-stage-state-primary"
+      "vine.v86-bgi-d3d9-set-texture-post-texture-stage-state-primary" ||
+    report?.schema ===
+      "vine.v86-bgi-d3d9-set-fvf-post-texture-binding-primary"
   );
 }
 
@@ -1190,7 +1192,9 @@ function isGetCursorInfoOrLaterNodeReport(report) {
     report?.schema ===
       "vine.v86-bgi-d3d9-set-texture-stage-state-post-sampler-state-primary" ||
     report?.schema ===
-      "vine.v86-bgi-d3d9-set-texture-post-texture-stage-state-primary"
+      "vine.v86-bgi-d3d9-set-texture-post-texture-stage-state-primary" ||
+    report?.schema ===
+      "vine.v86-bgi-d3d9-set-fvf-post-texture-binding-primary"
   );
 }
 
@@ -1199,6 +1203,22 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (
+    nodeReport.schema ===
+    "vine.v86-bgi-d3d9-set-fvf-post-texture-binding-primary"
+  ) {
+    const { call, ...completion } =
+      execution.d3d9SetFvfPostTextureBinding.checkpointCompletion;
+    const {
+      occurrence: _occurrence,
+      trapInstructionCount: _trapInstructionCount,
+      ...projectedCall
+    } = call;
+    return {
+      ...structuredClone(completion),
+      call: structuredClone(projectedCall),
+    };
+  }
   if (
     nodeReport.schema ===
     "vine.v86-bgi-d3d9-set-texture-post-texture-stage-state-primary"
@@ -1999,6 +2019,63 @@ function assertD3d9SetTexturePostTextureStageStateCheckpoint(
   assert.deepEqual(actual.nextEndpoint.symbol, expectedEndpoint.symbol);
 }
 
+function assertD3d9SetFvfPostTextureBindingCheckpoint(
+  actual,
+  expectedCompletion,
+  expectedEndpoint,
+) {
+  assert(actual !== null, "post-texture-binding SetFVF checkpoint is missing");
+  for (const field of [
+    "capability",
+    "implementationId",
+    "requiredCompletions",
+    "completionCount",
+    "prerequisiteTextureBindingSequence",
+    "prerequisiteTextureBindingInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "compatibilityPolicyId",
+    "flexibleVertexFormatProfileId",
+    "stateAuthority",
+    "mutation",
+    "sameValueGenerationChange",
+    "unsupportedVariantResult",
+    "failureAtomicity",
+    "logicalGraphicsDeviceId",
+    "logicalGraphicsComObjectId",
+    "activeSceneSequence",
+    "logicalGraphicsDeviceGeneration",
+    "flexibleVertexFormat",
+    "textureBindingStageZero",
+    "backBufferContentGeneration",
+    "backBufferClearSequence",
+    "presentedFrameSequence",
+    "browserRendererResourceCreated",
+    "activeCallbackDepthAtCompletion",
+    "instructionCount",
+    "memoryContentSha256",
+    "nextReturnAddress",
+    "nextStackPointer",
+  ]) {
+    assert.equal(actual[field], expectedCompletion[field], field);
+  }
+  for (const field of [
+    "id",
+    "address",
+    "module",
+    "disposition",
+    "interfaceIndex",
+    "vtableSlot",
+    "interface",
+    "method",
+  ]) {
+    assert.equal(actual.nextEndpoint[field], expectedEndpoint[field], field);
+  }
+  assert.deepEqual(actual.nextEndpoint.symbol, expectedEndpoint.symbol);
+}
+
 function assertD3d9SetTextureStageStatePostSamplerStateCheckpoint(
   actual,
   expectedCompletion,
@@ -2211,6 +2288,9 @@ function assertScheduledSharedClockReportSemantics({
   const d3d9SetTexturePostTextureStageStateReport =
     nodeReport.schema ===
     "vine.v86-bgi-d3d9-set-texture-post-texture-stage-state-primary";
+  const d3d9SetFvfPostTextureBindingReport =
+    nodeReport.schema ===
+    "vine.v86-bgi-d3d9-set-fvf-post-texture-binding-primary";
 
   assert(
     expectedNext.kind === "capability-checkpoint" ||
@@ -2615,7 +2695,41 @@ function assertScheduledSharedClockReportSemantics({
     expectedNext,
   );
   let expectedFaultCode = null;
-  if (d3d9SetTexturePostTextureStageStateReport) {
+  if (d3d9SetFvfPostTextureBindingReport) {
+    const fvf = nodeExecution.d3d9SetFvfPostTextureBinding;
+    assert.equal(nodeStop.fault, null);
+    assert.equal(
+      nodeStop.terminal.instructionCount,
+      expectedNext.instructionCount,
+    );
+    assert.deepEqual(fvf.call, fvf.checkpointCompletion.call);
+    assert.equal(fvf.call.sequence, 282_863);
+    assert.equal(fvf.call.symbol, "IDirect3DDevice9.SetFVF");
+    assert.equal(fvf.call.vtableSlot, 89);
+    assert.deepEqual(fvf.call.arguments, [0x0101_0004, 0x144]);
+    assert.deepEqual(fvf.call.result, { kind: "h-result", value: 0 });
+    assert.deepEqual(fvf.call.guestWrites, []);
+    assert.equal(fvf.call.graphicsDevice.id, 3);
+    assert.equal(fvf.call.graphicsDevice.generation, 71);
+    assert.equal(fvf.call.graphicsDevice.activeScene.sequence, 4);
+    assert.deepEqual(fvf.call.graphicsDevice.textureBindings, {
+      stageZero: 8,
+    });
+    assert.equal(
+      fvf.call.graphicsDevice.flexibleVertexFormat,
+      "xyz-rhw-diffuse-texture1",
+    );
+    assert.deepEqual(fvf.call.graphicsDevice.streamSources.streamZero, {
+      vertexBufferId: 3,
+      offsetInBytes: 0,
+      stride: 28,
+    });
+    assertD3d9SetFvfPostTextureBindingCheckpoint(
+      nodeCheckpoint,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+  } else if (d3d9SetTexturePostTextureStageStateReport) {
     const texture = nodeExecution.d3d9SetTexturePostTextureStageState;
     assert.equal(nodeStop.fault, null);
     assert.equal(
@@ -2847,6 +2961,7 @@ function assertScheduledSharedClockReportSemantics({
     );
   }
   if (
+    !d3d9SetFvfPostTextureBindingReport &&
     !d3d9SetTexturePostTextureStageStateReport &&
     !d3d9SetTextureStageStatePostSamplerStateReport &&
     !d3d9SetSamplerStatePostBeginSceneReport &&
@@ -2876,6 +2991,7 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext,
     );
   } else if (
+    !d3d9SetFvfPostTextureBindingReport &&
     !d3d9SetTexturePostTextureStageStateReport &&
     !d3d9SetTextureStageStatePostSamplerStateReport &&
     !d3d9SetSamplerStatePostBeginSceneReport &&
@@ -2933,7 +3049,15 @@ function assertScheduledSharedClockReportSemantics({
   assert.equal(browser.pendingCallbacks, 0);
 
   const browserUnsupported = browser.firstUnsupported;
-  if (d3d9SetTexturePostTextureStageStateReport) {
+  if (d3d9SetFvfPostTextureBindingReport) {
+    assert.equal(browserUnsupported, null);
+    assertD3d9SetFvfPostTextureBindingCheckpoint(
+      browser.checkpointCompletion,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+    assert.deepEqual(browser.checkpointCompletion.call, nodeCheckpoint.call);
+  } else if (d3d9SetTexturePostTextureStageStateReport) {
     assert.equal(browserUnsupported, null);
     assertD3d9SetTexturePostTextureStageStateCheckpoint(
       browser.checkpointCompletion,
@@ -3000,6 +3124,7 @@ function assertScheduledSharedClockReportSemantics({
     );
   }
   if (
+    !d3d9SetFvfPostTextureBindingReport &&
     !d3d9SetTexturePostTextureStageStateReport &&
     !d3d9SetTextureStageStatePostSamplerStateReport &&
     !d3d9SetSamplerStatePostBeginSceneReport &&
@@ -3033,6 +3158,7 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext,
     );
   } else if (
+    !d3d9SetFvfPostTextureBindingReport &&
     !d3d9SetTexturePostTextureStageStateReport &&
     !d3d9SetTextureStageStatePostSamplerStateReport &&
     !d3d9SetSamplerStatePostBeginSceneReport &&
@@ -3631,6 +3757,10 @@ const nodeInstructions = scheduledNodeReport
     : nodeReport.firstUnsupported.instructionCount;
 const nodeMemoryContentSha256 = scheduledNodeReport
   ? nodeReport.schema ===
+    "vine.v86-bgi-d3d9-set-fvf-post-texture-binding-primary"
+    ? nodeReport.execution.d3d9SetFvfPostTextureBinding.checkpointCompletion
+        .memoryContentSha256
+    : nodeReport.schema ===
     "vine.v86-bgi-d3d9-set-texture-post-texture-stage-state-primary"
     ? nodeReport.execution.d3d9SetTexturePostTextureStageState
         .checkpointCompletion.memoryContentSha256

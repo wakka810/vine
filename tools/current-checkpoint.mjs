@@ -158,7 +158,11 @@ function validateExecutionStateMachine(value, label, errors) {
 export function validateCurrentCheckpoint(manifest) {
   const errors = [];
   const root = requireRecord(manifest, "manifest", errors);
+  const d3d9SetFvfPostTextureBindingActive =
+    root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
+    "d3d9-set-fvf-post-texture-binding";
   const d3d9SetTexturePostTextureStageStateActive =
+    d3d9SetFvfPostTextureBindingActive ||
     root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
     "d3d9-set-texture-post-texture-stage-state";
   const d3d9SetTextureStageStatePostSamplerStateActive =
@@ -607,7 +611,11 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9RecreatedTexturesActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-set-window-pos-repeat-activation";
+  const d3d9SetFvfPostTextureBindingProfileActive =
+    root.activeRuntimeCheckpoint?.capabilityProfile ===
+    "d3d9-set-fvf-post-texture-binding";
   const d3d9SetTexturePostTextureStageStateProfileActive =
+    d3d9SetFvfPostTextureBindingProfileActive ||
     root.activeRuntimeCheckpoint?.capabilityProfile ===
     "d3d9-set-texture-post-texture-stage-state";
   const d3d9SetTextureStageStatePostSamplerStateProfileActive =
@@ -1459,7 +1467,27 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    d3d9SetTexturePostTextureStageStateProfileActive
+    d3d9SetFvfPostTextureBindingProfileActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_997,
+        browserMappingDirtyPages: 150_402,
+        browserSuccessExecutionTransitions: 589_100,
+        browserFinalGeneration: 315_160,
+        browserReportSchemaVersion: 80,
+        latestSchema:
+          "vine.v86-bgi-d3d9-set-fvf-post-texture-binding-primary",
+        latestWritebackBatches: 165_257,
+        latestWritebackDirtyPages: 244_675,
+        latestWritebackChangedBytes: 43_072_557,
+        latestHostDeltaBatches: 127_997,
+        latestFinalMemoryGeneration: 333_498,
+        semanticCallDigestSha256:
+          "20fc814e8eb2ea9f4e6f7edae295e3f9c92d65c49486fe4e1834b459d7f6bdd5",
+        memoryContentSha256:
+          "50a490bd1d6f0db5bd299c9bc3448644232e528102bc359a94fa7f691f77cab5",
+      }
+    : d3d9SetTexturePostTextureStageStateProfileActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_997,
@@ -3714,7 +3742,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    d3d9SetTexturePostTextureStageStateActive
+    d3d9SetFvfPostTextureBindingActive
+      ? "vine.browser-runtime-worker.v114"
+      : d3d9SetTexturePostTextureStageStateActive
       ? "vine.browser-runtime-worker.v113"
       : d3d9SetTextureStageStatePostSamplerStateActive
       ? "vine.browser-runtime-worker.v112"
@@ -21993,7 +22023,9 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureBefore !== null ||
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureAfter !== null)) ||
     latestEvidence.implementation !==
-      (d3d9SetTexturePostTextureStageStateActive
+      (d3d9SetFvfPostTextureBindingActive
+        ? "Rust-owned D3D9 flexible-vertex-format authority accepts the reached fourth-scene transformed diffuse textured FVF 0x144 through the existing validated idempotent plan/commit without advancing logical device generation, and stops at the next SetStreamSource slot 100 endpoint"
+        : d3d9SetTexturePostTextureStageStateActive
         ? "Rust-owned D3D9 texture-binding authority accepts the reached fourth-scene stage-0 static default texture binding through the existing validated non-owning idempotent plan/commit without advancing logical device generation, and stops at the next SetFVF slot 89 endpoint"
         : d3d9SetTextureStageStatePostSamplerStateActive
         ? "Rust-owned D3D9 texture-stage-state authority accepts the reached fourth-scene stage-0 color and alpha operation/argument band through the existing validated idempotent plan/commit without advancing logical device generation, and stops at the next SetTexture slot 65 endpoint"
@@ -24396,7 +24428,44 @@ export function validateCurrentCheckpoint(manifest) {
             errors,
           )
         : {};
-    const expectedNode = d3d9SetTexturePostTextureStageStateActive
+    const d3d9SetFvfPostTextureBindingNode =
+      d3d9SetFvfPostTextureBindingActive
+        ? requireRecord(
+            node.d3d9SetFvfPostTextureBinding,
+            "activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence.d3d9SetFvfPostTextureBinding",
+            errors,
+          )
+        : {};
+    const expectedNode = d3d9SetFvfPostTextureBindingActive
+      ? {
+          schema:
+            "vine.v86-bgi-d3d9-set-fvf-post-texture-binding-primary",
+          runtimeKernelCheckpoint: "d3d9-set-fvf-post-texture-binding",
+          repeatRuns: 1,
+          reportBytes: 2_588_833,
+          reportSha256:
+            "47449c871dcdac50cedff685f411bce05c58851518db2f55e3bd324bc2cc0f8e",
+          nodeReplayOldSpaceMiB: 8_192,
+          completedSupportedCalls: 282_863,
+          supportedCallSemanticsSha256:
+            "20fc814e8eb2ea9f4e6f7edae295e3f9c92d65c49486fe4e1834b459d7f6bdd5",
+          clockSampleCount: 100_556,
+          lastClockTick: 3_800_550,
+          lastClockTime100ns: 2_005_500_000,
+          lastClockGeneration: 16_305,
+          lastClockRetiredInstructions: 391_909_858,
+          lastClockPendingRetiredInstructions: 1_858,
+          windowTimerCallbackCount: 40,
+          timerPacingCompletionCount: 9_002,
+          writebackBatches: 286_061,
+          hostDeltaBatches: 143_087,
+          callbackEventCount: 148,
+          finalMemoryGeneration: 333_498,
+          terminalInstructionCount: 392_354_072,
+          terminalMemoryContentSha256:
+            "50a490bd1d6f0db5bd299c9bc3448644232e528102bc359a94fa7f691f77cab5",
+        }
+      : d3d9SetTexturePostTextureStageStateActive
       ? {
           schema:
             "vine.v86-bgi-d3d9-set-texture-post-texture-stage-state-primary",
@@ -24789,7 +24858,91 @@ export function validateCurrentCheckpoint(manifest) {
       currentStop.prerequisiteSamplerCheckpoint ?? {};
     const prerequisiteTextureStageStateCheckpoint =
       currentStop.prerequisiteTextureStageStateCheckpoint ?? {};
-    const currentStopValid = d3d9SetTexturePostTextureStageStateActive
+    const prerequisiteTextureBindingCheckpoint =
+      currentStop.prerequisiteTextureBindingCheckpoint ?? {};
+    const currentStopValid = d3d9SetFvfPostTextureBindingActive
+      ? currentStop.kind === "capability-checkpoint" &&
+        currentStop.classification === "semantic-leaf" &&
+        currentStop.nextCheckpoint === "d3d9-set-stream-source-post-fvf" &&
+        currentStop.pausedHistoricalCheckpoint ===
+          "d3d9-set-fvf-post-texture-binding" &&
+        currentStop.instructionCount === 392_354_072 &&
+        currentStop.capabilityCluster ===
+          "d3d9-idirect3ddevice9-method" &&
+        currentStop.reason ===
+          "d3d9-set-fvf-post-texture-binding-checkpoint-complete" &&
+        prerequisiteTextureBindingCheckpoint.capability ===
+          "d3d9-set-texture-post-texture-stage-state" &&
+        prerequisiteTextureBindingCheckpoint.lastCompletionSequence ===
+          282_862 &&
+        prerequisiteTextureBindingCheckpoint.lastCompletionInstructionCount ===
+          392_354_048 &&
+        prerequisiteTextureBindingCheckpoint.logicalGraphicsDeviceGeneration ===
+          71 &&
+        prerequisiteTextureBindingCheckpoint.textureBindingStageZero === 8 &&
+        expectedCompletion.capability ===
+          "d3d9-set-fvf-post-texture-binding" &&
+        expectedCompletion.implementationId ===
+          "runtime.d3d9-set-fvf-post-texture-binding.v1" &&
+        expectedCompletion.requiredCompletions === 1 &&
+        expectedCompletion.completionCount === 1 &&
+        expectedCompletion.prerequisiteTextureBindingSequence === 282_862 &&
+        expectedCompletion.prerequisiteTextureBindingInstructionCount ===
+          392_354_048 &&
+        expectedCompletion.firstCompletionSequence === 282_863 &&
+        expectedCompletion.firstCompletionInstructionCount === 392_354_055 &&
+        expectedCompletion.lastCompletionSequence === 282_863 &&
+        expectedCompletion.lastCompletionInstructionCount === 392_354_055 &&
+        expectedCompletion.compatibilityPolicyId ===
+          "d3d9-primary-virtual-adapter-v33" &&
+        expectedCompletion.flexibleVertexFormatProfileId ===
+          "primary-first-frame-transformed-diffuse-textured-fvf-v1" &&
+        expectedCompletion.stateAuthority ===
+          "rust-runtime-graphics-logical-device-flexible-vertex-format" &&
+        expectedCompletion.mutation ===
+          "validate-plan-preflight-targeted-idempotent-commit" &&
+        expectedCompletion.sameValueGenerationChange === 0 &&
+        expectedCompletion.unsupportedVariantResult === "0x8876086a" &&
+        expectedCompletion.failureAtomicity === true &&
+        expectedCompletion.logicalGraphicsDeviceId === 3 &&
+        expectedCompletion.logicalGraphicsComObjectId === "21" &&
+        expectedCompletion.activeSceneSequence === 4 &&
+        expectedCompletion.logicalGraphicsDeviceGeneration === 71 &&
+        expectedCompletion.flexibleVertexFormat ===
+          "xyz-rhw-diffuse-texture1" &&
+        expectedCompletion.textureBindingStageZero === 8 &&
+        expectedCompletion.backBufferContentGeneration === 10 &&
+        expectedCompletion.backBufferClearSequence === 4 &&
+        expectedCompletion.presentedFrameSequence === 3 &&
+        expectedCompletion.browserRendererResourceCreated === false &&
+        expectedCompletion.activeCallbackDepthAtCompletion === 0 &&
+        expectedCompletion.instructionCount === 392_354_072 &&
+        expectedCompletion.memoryContentSha256 ===
+          "50a490bd1d6f0db5bd299c9bc3448644232e528102bc359a94fa7f691f77cab5" &&
+        expectedCompletion.nextReturnAddress === 0x1005_b3ec &&
+        expectedCompletion.nextStackPointer === 0x006f_b860 &&
+        expectedEndpoint.endpointKind === "com-method" &&
+        expectedEndpoint.endpointId === 0 &&
+        expectedEndpoint.api === "IDirect3DDevice9!SetStreamSource" &&
+        expectedEndpoint.endpointAddress === "0x01011670" &&
+        expectedEndpoint.observedModule === "<com>" &&
+        expectedEndpoint.observedSymbol === "interface-1-slot-100" &&
+        expectedEndpoint.id === 0 &&
+        expectedEndpoint.address === 0x0101_1670 &&
+        expectedEndpoint.module === "<com>" &&
+        expectedEndpoint.symbol?.kind === "name" &&
+        expectedEndpoint.symbol.name === "interface-1-slot-100" &&
+        expectedEndpoint.disposition === "declared-com-method" &&
+        expectedEndpoint.interfaceIndex === 1 &&
+        expectedEndpoint.vtableSlot === 100 &&
+        expectedEndpoint.interface === "IDirect3DDevice9" &&
+        expectedEndpoint.method === "SetStreamSource" &&
+        expectedEndpoint.thisPointer === "0x01010004" &&
+        expectedEndpoint.arguments?.join(",") ===
+          "0x00000000,0x01050004,0x00000000,0x0000001c" &&
+        expectedEndpoint.returnAddress === "0x1005b3ec" &&
+        expectedEndpoint.stackPointer === "0x006fb860"
+      : d3d9SetTexturePostTextureStageStateActive
       ? currentStop.kind === "capability-checkpoint" &&
         currentStop.classification === "semantic-leaf" &&
         currentStop.nextCheckpoint === "d3d9-set-fvf-post-texture-binding" &&
@@ -26601,6 +26754,52 @@ export function validateCurrentCheckpoint(manifest) {
         d3d9SetTexturePostTextureStageStateLatest.chromeCompletions === 1 &&
         d3d9SetTexturePostTextureStageStateLatest.nodeChromeOrderedSemanticsMatched ===
           true);
+    const d3d9SetFvfPostTextureBindingLatest =
+      latestEvidence.d3d9SetFvfPostTextureBinding ?? {};
+    const d3d9SetFvfPostTextureBindingEvidenceValid =
+      !d3d9SetFvfPostTextureBindingActive ||
+      (d3d9SetFvfPostTextureBindingNode.completionCount === 1 &&
+        d3d9SetFvfPostTextureBindingNode.sequence === 282_863 &&
+        d3d9SetFvfPostTextureBindingNode.occurrence === 4 &&
+        d3d9SetFvfPostTextureBindingNode.instructionCount === 392_354_055 &&
+        d3d9SetFvfPostTextureBindingNode.arguments?.join(",") ===
+          "0x01010004,0x00000144" &&
+        d3d9SetFvfPostTextureBindingNode.result === "0x00000000" &&
+        d3d9SetFvfPostTextureBindingNode.compatibilityPolicyId ===
+          "d3d9-primary-virtual-adapter-v33" &&
+        d3d9SetFvfPostTextureBindingNode.flexibleVertexFormatProfileId ===
+          "primary-first-frame-transformed-diffuse-textured-fvf-v1" &&
+        d3d9SetFvfPostTextureBindingNode.stateAuthority ===
+          "rust-runtime-graphics-logical-device-flexible-vertex-format" &&
+        d3d9SetFvfPostTextureBindingNode.mutation ===
+          "validate-plan-preflight-targeted-idempotent-commit" &&
+        d3d9SetFvfPostTextureBindingNode.sameValueGenerationChange === 0 &&
+        d3d9SetFvfPostTextureBindingNode.unsupportedVariantResult ===
+          "0x8876086a" &&
+        d3d9SetFvfPostTextureBindingNode.failureAtomicity === true &&
+        d3d9SetFvfPostTextureBindingNode.logicalGraphicsDeviceId === 3 &&
+        d3d9SetFvfPostTextureBindingNode.logicalGraphicsComObjectId === "21" &&
+        d3d9SetFvfPostTextureBindingNode.activeSceneSequence === 4 &&
+        d3d9SetFvfPostTextureBindingNode.logicalGraphicsDeviceGeneration ===
+          71 &&
+        d3d9SetFvfPostTextureBindingNode.flexibleVertexFormat ===
+          "xyz-rhw-diffuse-texture1" &&
+        d3d9SetFvfPostTextureBindingNode.textureBindingStageZero === 8 &&
+        d3d9SetFvfPostTextureBindingNode.streamZeroVertexBufferId === 3 &&
+        d3d9SetFvfPostTextureBindingNode.streamZeroOffsetInBytes === 0 &&
+        d3d9SetFvfPostTextureBindingNode.streamZeroStride === 28 &&
+        d3d9SetFvfPostTextureBindingNode.nextEndpoint ===
+          "IDirect3DDevice9!SetStreamSource" &&
+        d3d9SetFvfPostTextureBindingNode.nextInstructionCount ===
+          392_354_072 &&
+        d3d9SetFvfPostTextureBindingLatest.completionCount === 1 &&
+        d3d9SetFvfPostTextureBindingLatest.sequence === 282_863 &&
+        d3d9SetFvfPostTextureBindingLatest.sameValueGenerationChange === 0 &&
+        d3d9SetFvfPostTextureBindingLatest.failureAtomicity === true &&
+        d3d9SetFvfPostTextureBindingLatest.nodeCompletions === 1 &&
+        d3d9SetFvfPostTextureBindingLatest.chromeCompletions === 1 &&
+        d3d9SetFvfPostTextureBindingLatest.nodeChromeOrderedSemanticsMatched ===
+          true);
     if (
       scheduled.schema !== "vine.scheduled-shared-clock-checkpoint" ||
       scheduled.schemaVersion !== 1 ||
@@ -26678,7 +26877,9 @@ export function validateCurrentCheckpoint(manifest) {
       node.terminalMemoryContentSha256 !==
         expectedNode.terminalMemoryContentSha256 ||
       browserBoundary.runtimeProtocol !==
-        (d3d9SetTexturePostTextureStageStateActive
+        (d3d9SetFvfPostTextureBindingActive
+          ? "vine.browser-runtime-worker.v114"
+          : d3d9SetTexturePostTextureStageStateActive
           ? "vine.browser-runtime-worker.v113"
           : d3d9SetTextureStageStatePostSamplerStateActive
           ? "vine.browser-runtime-worker.v112"
@@ -26706,7 +26907,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.retiredInstructionCursorTransport !==
         "checked-u64-low-high-per-api-and-com-dispatch" ||
       browserBoundary.browserOwnsGuestClockState !== false ||
-      (d3d9SetTexturePostTextureStageStateActive
+      (d3d9SetFvfPostTextureBindingActive
+        ? browserBoundary.browserReportSchemaVersion !== 80
+        : d3d9SetTexturePostTextureStageStateActive
         ? browserBoundary.browserReportSchemaVersion !== 79
         : d3d9SetTextureStageStatePostSamplerStateActive
         ? browserBoundary.browserReportSchemaVersion !== 78
@@ -26731,7 +26934,9 @@ export function validateCurrentCheckpoint(manifest) {
         "npm run check:runtime:browser-worker" ||
       browserBoundary.chromeVersion !== "150.0.7871.187" ||
       browserBoundary.reportBytes !==
-        (d3d9SetTexturePostTextureStageStateActive
+        (d3d9SetFvfPostTextureBindingActive
+          ? 35_942
+          : d3d9SetTexturePostTextureStageStateActive
           ? 35_962
           : d3d9SetTextureStageStatePostSamplerStateActive
           ? 35_951
@@ -26755,7 +26960,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 35_961
           : 35_951) ||
       browserBoundary.reportSha256 !==
-        (d3d9SetTexturePostTextureStageStateActive
+        (d3d9SetFvfPostTextureBindingActive
+          ? "795f03b2acfd1c2c8f86fa5b1685f4ca8ea1568037fa8bcf791c077ccc77671a"
+          : d3d9SetTexturePostTextureStageStateActive
           ? "5a6ca89fef0db74b92bc2465630c897f75cb240651974ea45f609c1b28463fcc"
           : d3d9SetTextureStageStatePostSamplerStateActive
           ? "58abf92600989ffb8f67fd61a9afa8bb1e78f073d067696a57c760f45a372665"
@@ -26779,7 +26986,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "bd77deb28553190382622adb663ac87b99e4c9f9df719bbba2282f5bae5bca94"
           : "ecd982f21410c69c4d844a114041e301fd140fedbb520cf5773f4d13d2846aa1") ||
       browserBoundary.runtimeWorkerBytes !==
-        (d3d9SetTexturePostTextureStageStateActive
+        (d3d9SetFvfPostTextureBindingActive
+          ? 1_130_895
+          : d3d9SetTexturePostTextureStageStateActive
           ? 1_124_876
           : d3d9SetTextureStageStatePostSamplerStateActive
           ? 1_118_209
@@ -26803,7 +27012,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 1_053_379
           : 1_049_048) ||
       browserBoundary.runtimeWorkerSha256 !==
-        (d3d9SetTexturePostTextureStageStateActive
+        (d3d9SetFvfPostTextureBindingActive
+          ? "284a72c599b26f70b0cb29134a40a773c50dc27482fc129defc02cca9b21057c"
+          : d3d9SetTexturePostTextureStageStateActive
           ? "727c508d6d59c91be7df47c3cb88c647d67cf675fa90c17ccd25924410a46b75"
           : d3d9SetTextureStageStatePostSamplerStateActive
           ? "fce9f7ecad456ad7c7c56d4477caf0a9bb16d72c71f91827fa5a33a3f61cd7c0"
@@ -26875,7 +27086,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.privatePrimaryCommand !==
         "node tools/run-browser-runtime-check.mjs --bgi" ||
       browserBoundary.privatePrimaryReportBytes !==
-        (d3d9SetTexturePostTextureStageStateActive
+        (d3d9SetFvfPostTextureBindingActive
+          ? 2_618_200
+          : d3d9SetTexturePostTextureStageStateActive
           ? 2_618_150
           : d3d9SetTextureStageStatePostSamplerStateActive
           ? 2_668_401
@@ -26899,7 +27112,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 2_598_978
           : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
-        (d3d9SetTexturePostTextureStageStateActive
+        (d3d9SetFvfPostTextureBindingActive
+          ? "4a23018d1200cf26eec510203b8d03391edfb92f3ef7b3ac566f858ecb2a5fa9"
+          : d3d9SetTexturePostTextureStageStateActive
           ? "9defed5a54316fabf0028723cd361924263fef0e40158e138bfacbcfdecafda3"
           : d3d9SetTextureStageStatePostSamplerStateActive
           ? "1898ae3da0dfdc96f29ac337c3ef05d83083a9932d61129aec8ce8788e4a47d6"
@@ -26966,6 +27181,7 @@ export function validateCurrentCheckpoint(manifest) {
       !d3d9SetSamplerStatePostBeginSceneEvidenceValid ||
       !d3d9SetTextureStageStatePostSamplerStateEvidenceValid ||
       !d3d9SetTexturePostTextureStageStateEvidenceValid ||
+      !d3d9SetFvfPostTextureBindingEvidenceValid ||
       conclusion.clockFreezeWasProximateCause !== false ||
       (privateHeapOrdinarySegmentGrowthActive &&
         conclusion.ordinaryHeapCapacityWasProximateCause !== false) ||
@@ -26978,7 +27194,9 @@ export function validateCurrentCheckpoint(manifest) {
       (getCursorInfoActive &&
         conclusion.cursorInfoWasProximateCause !== false) ||
       conclusion.nextEndpoint !==
-        (d3d9SetTexturePostTextureStageStateActive
+        (d3d9SetFvfPostTextureBindingActive
+          ? "IDirect3DDevice9!SetStreamSource"
+          : d3d9SetTexturePostTextureStageStateActive
           ? "IDirect3DDevice9!SetFVF"
           : d3d9SetTextureStageStatePostSamplerStateActive
           ? "IDirect3DDevice9!SetTexture"
@@ -27022,6 +27240,7 @@ export function validateCurrentCheckpoint(manifest) {
           d3d9SetSamplerStatePostBeginSceneEvidenceValid,
           d3d9SetTextureStageStatePostSamplerStateEvidenceValid,
           d3d9SetTexturePostTextureStageStateEvidenceValid,
+          d3d9SetFvfPostTextureBindingEvidenceValid,
         })})`,
       );
     }

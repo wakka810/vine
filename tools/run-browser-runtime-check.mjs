@@ -94,9 +94,12 @@ const d3d9SetTextureStageStatePostSamplerStateProfile =
   bgiProfile === "d3d9-set-texture-stage-state-post-sampler-state";
 const d3d9SetTexturePostTextureStageStateProfile =
   bgiProfile === "d3d9-set-texture-post-texture-stage-state";
+const d3d9SetFvfPostTextureBindingProfile =
+  bgiProfile === "d3d9-set-fvf-post-texture-binding";
 const d3d9UpdateTexturePartialDirtyRegionProfile =
   bgiProfile === "d3d9-update-texture-partial-dirty-region";
 const includesD3d9UpdateTexturePartialDirtyRegionProfile =
+  d3d9SetFvfPostTextureBindingProfile ||
   d3d9SetTexturePostTextureStageStateProfile ||
   d3d9SetTextureStageStatePostSamplerStateProfile ||
   d3d9SetSamplerStatePostBeginSceneProfile ||
@@ -389,7 +392,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v113";
+const runtimeProtocol = "vine.browser-runtime-worker.v114";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -1438,6 +1441,127 @@ function validateD3d9SetTexturePostTextureStageStateBgiProbe(
   );
   assert.equal(completion.nextReturnAddress, 0x1005_b291);
   assert.equal(completion.nextStackPointer, 0x006f_b86c);
+  assert.equal(report.timerPacing.requests, 9_002);
+  assert.equal(report.timerPacing.completions, 9_002);
+  assert.equal(report.timerPacing.pending, 0);
+}
+
+function validateD3d9SetFvfPostTextureBindingBgiProbe(evidence, scenario) {
+  if (scenario !== "success") {
+    validateScheduledSharedClockBgiProbe(evidence, scenario);
+    return;
+  }
+  const report = evidence.report;
+  const completion = report.checkpointCompletion;
+  const call = completion.call;
+  assert.equal(report.outcome, "checkpoint-complete");
+  assert.equal(report.error, null);
+  assert.equal(report.supportedCallCount, 282_863);
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    "20fc814e8eb2ea9f4e6f7edae295e3f9c92d65c49486fe4e1834b459d7f6bdd5",
+  );
+  assert.equal(report.instructions, 392_354_072);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert.equal(report.sourceReads.length, 154);
+  assert.equal(report.writableDirectoryCreates.length, 1);
+  assert.equal((report.heapPageMaterializations ?? []).length, 3_112);
+  assert.equal(report.firstUnsupported, null);
+  assert.equal(completion.capability, "d3d9-set-fvf-post-texture-binding");
+  assert.equal(
+    completion.implementationId,
+    "runtime.d3d9-set-fvf-post-texture-binding.v1",
+  );
+  assert.equal(completion.requiredCompletions, 1);
+  assert.equal(completion.completionCount, 1);
+  assert.equal(completion.prerequisiteTextureBindingSequence, 282_862);
+  assert.equal(
+    completion.prerequisiteTextureBindingInstructionCount,
+    392_354_048,
+  );
+  assert.equal(completion.firstCompletionSequence, 282_863);
+  assert.equal(completion.firstCompletionInstructionCount, 392_354_055);
+  assert.equal(completion.lastCompletionSequence, 282_863);
+  assert.equal(completion.lastCompletionInstructionCount, 392_354_055);
+  assert.equal(call.sequence, 282_863);
+  assert.equal(call.module, "<com>");
+  assert.equal(call.symbol, "IDirect3DDevice9.SetFVF");
+  assert.equal(call.interface, "IDirect3DDevice9");
+  assert.equal(call.vtableSlot, 89);
+  assert.deepEqual(call.arguments, [0x0101_0004, 0x144]);
+  assert.deepEqual(call.result, { kind: "h-result", value: 0 });
+  assert.equal(call.returnAddress, 0x1005_b291);
+  assert.equal(call.stackPointerBefore, 0x006f_b86c);
+  assert.equal(call.stackPointerAfter, 0x006f_b878);
+  assert.equal(call.referenceCount, 5);
+  assert.equal(call.objectRetired, false);
+  assert.deepEqual(call.guestWrites, []);
+  const device = call.graphicsDevice;
+  assert.equal(device?.id, 3);
+  assert.equal(device?.namespace, "vine.logical-graphics-device.v1");
+  assert.equal(device?.frontend, "d3d9");
+  assert.equal(device?.comObjectId, "21");
+  assert.deepEqual(device?.activeScene, { sequence: 4 });
+  assert.equal(device?.generation, 71);
+  assert.deepEqual(device?.textureBindings, { stageZero: 8 });
+  assert.equal(device?.flexibleVertexFormat, "xyz-rhw-diffuse-texture1");
+  assert.deepEqual(device?.streamSources?.streamZero, {
+    vertexBufferId: 3,
+    offsetInBytes: 0,
+    stride: 28,
+  });
+  assert.equal(device?.backBuffer.contentGeneration, 10);
+  assert.equal(device?.backBuffer.uniformClear?.sequence, 4);
+  assert.equal(device?.presentedFrame?.sequence, 3);
+  assert.equal(device?.renderer, undefined);
+  assert.equal(
+    completion.compatibilityPolicyId,
+    "d3d9-primary-virtual-adapter-v33",
+  );
+  assert.equal(
+    completion.flexibleVertexFormatProfileId,
+    "primary-first-frame-transformed-diffuse-textured-fvf-v1",
+  );
+  assert.equal(
+    completion.stateAuthority,
+    "rust-runtime-graphics-logical-device-flexible-vertex-format",
+  );
+  assert.equal(
+    completion.mutation,
+    "validate-plan-preflight-targeted-idempotent-commit",
+  );
+  assert.equal(completion.sameValueGenerationChange, 0);
+  assert.equal(completion.unsupportedVariantResult, "0x8876086a");
+  assert.equal(completion.failureAtomicity, true);
+  assert.equal(completion.logicalGraphicsDeviceId, 3);
+  assert.equal(completion.logicalGraphicsComObjectId, "21");
+  assert.equal(completion.activeSceneSequence, 4);
+  assert.equal(completion.logicalGraphicsDeviceGeneration, 71);
+  assert.equal(completion.flexibleVertexFormat, "xyz-rhw-diffuse-texture1");
+  assert.equal(completion.textureBindingStageZero, 8);
+  assert.equal(completion.backBufferContentGeneration, 10);
+  assert.equal(completion.backBufferClearSequence, 4);
+  assert.equal(completion.presentedFrameSequence, 3);
+  assert.equal(completion.browserRendererResourceCreated, false);
+  assert.equal(completion.activeCallbackDepthAtCompletion, 0);
+  assert.equal(completion.instructionCount, report.instructions);
+  assert.deepEqual(completion.nextEndpoint, {
+    id: 0,
+    address: 0x0101_1670,
+    module: "<com>",
+    symbol: { kind: "name", name: "interface-1-slot-100" },
+    disposition: "declared-com-method",
+    interfaceIndex: 1,
+    vtableSlot: 100,
+    interface: "IDirect3DDevice9",
+    method: "SetStreamSource",
+  });
+  assert.equal(
+    completion.memoryContentSha256,
+    "50a490bd1d6f0db5bd299c9bc3448644232e528102bc359a94fa7f691f77cab5",
+  );
+  assert.equal(completion.nextReturnAddress, 0x1005_b3ec);
+  assert.equal(completion.nextStackPointer, 0x006f_b860);
   assert.equal(report.timerPacing.requests, 9_002);
   assert.equal(report.timerPacing.completions, 9_002);
   assert.equal(report.timerPacing.pending, 0);
@@ -2641,6 +2765,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.report.pendingCallbacks, 0);
     assertExecutionStateMachine(evidence.report, scenario);
     assertExecutionEngine(evidence.report);
+    if (d3d9SetFvfPostTextureBindingProfile) {
+      validateD3d9SetFvfPostTextureBindingBgiProbe(evidence, scenario);
+      return evidence;
+    }
     if (d3d9SetTexturePostTextureStageStateProfile) {
       validateD3d9SetTexturePostTextureStageStateBgiProbe(
         evidence,
@@ -7962,6 +8090,131 @@ function validateD3d9SetTexturePostTextureStageStateBgiEquivalence(
   assert.equal(report.timerPacing.pending, 0);
 }
 
+function validateD3d9SetFvfPostTextureBindingBgiEquivalence(
+  browser,
+  oracle,
+) {
+  const report = browser.report;
+  const completion = report.checkpointCompletion;
+  const oracleEvidence = oracle.execution.d3d9SetFvfPostTextureBinding;
+  const oracleCompletion = oracleEvidence.checkpointCompletion;
+  assert.equal(
+    oracle.schema,
+    "vine.v86-bgi-d3d9-set-fvf-post-texture-binding-primary",
+  );
+  assert.equal(report.evidenceLevel, fullEvidence ? "full" : "summary");
+  assert.equal(
+    report.supportedCallCount,
+    oracle.execution.completedSupportedCalls,
+  );
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    oracle.execution.supportedCallSemanticsSha256,
+  );
+  assert.equal(report.instructions, oracle.stop.terminal.instructionCount);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert.deepEqual(
+    report.sourceReads.map(normalizeBrowserSourceRead),
+    oracle.synchronization.sourceReads.map(normalizeNodeSourceRead),
+  );
+  assert.deepEqual(
+    (report.heapPageMaterializations ?? []).map(
+      normalizeHeapPageMaterialization,
+    ),
+    oracle.synchronization.heapPageMaterializations.map(
+      normalizeHeapPageMaterialization,
+    ),
+  );
+  assert.deepEqual(
+    report.writableDirectoryCreates.map(normalizeWritableDirectoryCreate),
+    oracle.synchronization.writableDirectoryCreates.map(
+      normalizeWritableDirectoryCreate,
+    ),
+  );
+  assert.equal(report.firstUnsupported, null);
+  assert.equal(oracle.stop.fault, null);
+  assert.deepEqual(
+    normalizeSemanticCall(completion.call),
+    normalizeSemanticCall(oracleEvidence.call),
+  );
+  assert.deepEqual(
+    completion.call.graphicsDevice,
+    oracleEvidence.call.graphicsDevice,
+  );
+  for (const field of [
+    "capability",
+    "implementationId",
+    "requiredCompletions",
+    "completionCount",
+    "prerequisiteTextureBindingSequence",
+    "prerequisiteTextureBindingInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "compatibilityPolicyId",
+    "flexibleVertexFormatProfileId",
+    "stateAuthority",
+    "mutation",
+    "sameValueGenerationChange",
+    "unsupportedVariantResult",
+    "failureAtomicity",
+    "logicalGraphicsDeviceId",
+    "logicalGraphicsComObjectId",
+    "activeSceneSequence",
+    "logicalGraphicsDeviceGeneration",
+    "flexibleVertexFormat",
+    "textureBindingStageZero",
+    "backBufferContentGeneration",
+    "backBufferClearSequence",
+    "presentedFrameSequence",
+    "browserRendererResourceCreated",
+    "activeCallbackDepthAtCompletion",
+    "nextReturnAddress",
+    "nextStackPointer",
+  ]) {
+    assert.deepEqual(completion[field], oracleCompletion[field]);
+  }
+  assert.equal(
+    completion.instructionCount,
+    oracle.stop.terminal.instructionCount,
+  );
+  const projectEndpoint = (endpoint) => ({
+    id: endpoint.id,
+    address: endpoint.address,
+    module: endpoint.module,
+    symbol: endpoint.symbol,
+    disposition: endpoint.disposition,
+    interfaceIndex: endpoint.interfaceIndex,
+    vtableSlot: endpoint.vtableSlot,
+  });
+  assert.deepEqual(
+    projectEndpoint(completion.nextEndpoint),
+    projectEndpoint(oracleCompletion.nextEndpoint),
+  );
+  assert.equal(completion.nextEndpoint.interface, "IDirect3DDevice9");
+  assert.equal(completion.nextEndpoint.method, "SetStreamSource");
+  assert.equal(
+    completion.memoryContentSha256,
+    oracleCompletion.memoryContentSha256,
+  );
+  assert.equal(report.pointerInput.receipts.length, 2);
+  assert.deepEqual(
+    report.pointerInput.receipts[0],
+    oracle.execution.pointerInput.first.receipt,
+  );
+  assert.deepEqual(
+    report.pointerInput.receipts[1],
+    oracle.execution.pointerInput.last.receipt,
+  );
+  assert.equal(report.timerPacing.requests, oracle.execution.timerPacing.count);
+  assert.equal(
+    report.timerPacing.completions,
+    oracle.execution.timerPacing.count,
+  );
+  assert.equal(report.timerPacing.pending, 0);
+}
+
 function validateD3d9SetTextureStageStatePostSamplerStateBgiEquivalence(
   browser,
   oracle,
@@ -8879,6 +9132,10 @@ function validateCreateFontA224x112BgiEquivalence(browser, oracle) {
 }
 
 function validateBgiEquivalence(browser, oracle) {
+  if (d3d9SetFvfPostTextureBindingProfile) {
+    validateD3d9SetFvfPostTextureBindingBgiEquivalence(browser, oracle);
+    return;
+  }
   if (d3d9SetTexturePostTextureStageStateProfile) {
     validateD3d9SetTexturePostTextureStageStateBgiEquivalence(
       browser,

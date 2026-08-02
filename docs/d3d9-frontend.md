@@ -879,6 +879,14 @@ format, zero guest writes, idempotent generation behavior, and no renderer
 resource. Seventeen instructions later both stop at device slot 100
 `SetStreamSource(0,0x01050004,0,28)`.
 
+The `d3d9-set-fvf-post-texture-binding` profile reuses this owner after the
+fourth-scene stage-0 texture repeat. Node and Chrome complete sequence 282,863
+at instruction 392,354,055, preserve typed FVF `xyz-rhw-diffuse-texture1`,
+device generation 71, texture 8, stream-0 vertex buffer 3／offset 0／stride 28,
+reference count 5, zero guest writes, and no renderer resource. Seventeen
+instructions later both stop at device slot 100
+`SetStreamSource(0,0x01050004,0,28)`.
+
 ## Bounded stream-zero source binding
 
 Version 27 includes `primary-first-frame-transformed-diffuse-textured-stream-zero-v1`
@@ -1189,7 +1197,11 @@ fourth scene, and stops at `IDirect3DDevice9::SetTexture` slot 65. The
 `d3d9-set-texture-post-texture-stage-state` profile then resolves the reached
 stage-0 static DEFAULT texture through the existing non-owning same-device relation,
 proves the repeated binding idempotent at device generation 71, preserves the active
-fourth scene, and stops at `IDirect3DDevice9::SetFVF` slot 89. The historical
+fourth scene, and stops at `IDirect3DDevice9::SetFVF` slot 89. The
+`d3d9-set-fvf-post-texture-binding` profile then maps the repeated `0x144` through
+the existing typed FVF owner, proves the assignment idempotent at device generation
+71, preserves the active fourth scene and prior bindings, and stops at
+`IDirect3DDevice9::SetStreamSource` slot 100. The historical
 `d3d9-initial-sampler-states` profile enables only the exact sampler-0 MIN／MAG
 linear transitions, explicitly rejects the following three unprofiled render
 states, and stops at `IDirect3DDevice9::SetTextureStageState` slot 67. The historical

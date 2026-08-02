@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 113 as const;
+export const protocolVersion = 114 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -30,6 +30,7 @@ export type BgiCapabilityProfile =
   | "d3d9-set-sampler-state-post-begin-scene"
   | "d3d9-set-texture-stage-state-post-sampler-state"
   | "d3d9-set-texture-post-texture-stage-state"
+  | "d3d9-set-fvf-post-texture-binding"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1842,6 +1843,42 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "d3d9-set-fvf-post-texture-binding";
+        implementationId: "runtime.d3d9-set-fvf-post-texture-binding.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        prerequisiteTextureBindingSequence: number;
+        prerequisiteTextureBindingInstructionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        call: RuntimeSupportedCallSnapshot;
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33";
+        flexibleVertexFormatProfileId: "primary-first-frame-transformed-diffuse-textured-fvf-v1";
+        stateAuthority: "rust-runtime-graphics-logical-device-flexible-vertex-format";
+        mutation: "validate-plan-preflight-targeted-idempotent-commit";
+        sameValueGenerationChange: 0;
+        unsupportedVariantResult: "0x8876086a";
+        failureAtomicity: true;
+        logicalGraphicsDeviceId: 3;
+        logicalGraphicsComObjectId: "21";
+        activeSceneSequence: 4;
+        logicalGraphicsDeviceGeneration: 71;
+        flexibleVertexFormat: "xyz-rhw-diffuse-texture1";
+        textureBindingStageZero: 8;
+        backBufferContentGeneration: 10;
+        backBufferClearSequence: 4;
+        presentedFrameSequence: 3;
+        browserRendererResourceCreated: false;
+        activeCallbackDepthAtCompletion: 0;
+        instructionCount: number;
+        nextEndpoint: unknown;
+        memoryContentSha256: string;
+        nextReturnAddress: number;
+        nextStackPointer: number;
+      }
     | {
         capability: "d3d9-set-texture-post-texture-stage-state";
         implementationId: "runtime.d3d9-set-texture-post-texture-stage-state.v1";

@@ -258,6 +258,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-set-sampler-state-post-begin-scene",
         "d3d9-set-texture-stage-state-post-sampler-state",
         "d3d9-set-texture-post-texture-stage-state",
+        "d3d9-set-fvf-post-texture-binding",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
@@ -475,6 +476,7 @@ assert(
       "d3d9-set-sampler-state-post-begin-scene",
       "d3d9-set-texture-stage-state-post-sampler-state",
       "d3d9-set-texture-post-texture-stage-state",
+      "d3d9-set-fvf-post-texture-binding",
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
       "user32-set-window-pos-frame-change-move",
@@ -531,7 +533,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-set-sampler-state-post-begin-scene" ||
     genericRuntimeCapability ===
       "d3d9-set-texture-stage-state-post-sampler-state" ||
-    genericRuntimeCapability === "d3d9-set-texture-post-texture-stage-state"
+    genericRuntimeCapability === "d3d9-set-texture-post-texture-stage-state" ||
+    genericRuntimeCapability === "d3d9-set-fvf-post-texture-binding"
       ? "kernel32-delete-file-a-v1.json"
       : genericRuntimeCapability === "kernel32-find-first-file-a"
       ? "kernel32-find-file-a-v1.json"
@@ -1060,9 +1063,14 @@ const d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled =
   "d3d9-set-texture-stage-state-post-sampler-state";
 const d3d9SetTexturePostTextureStageStateCheckpointEnabled =
   genericRuntimeCapability === "d3d9-set-texture-post-texture-stage-state";
+const d3d9SetFvfPostTextureBindingCheckpointEnabled =
+  genericRuntimeCapability === "d3d9-set-fvf-post-texture-binding";
+const d3d9SetTexturePostTextureStageStateEvidenceEnabled =
+  d3d9SetTexturePostTextureStageStateCheckpointEnabled ||
+  d3d9SetFvfPostTextureBindingCheckpointEnabled;
 const d3d9SetTextureStageStatePostSamplerStateEvidenceEnabled =
   d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled ||
-  d3d9SetTexturePostTextureStageStateCheckpointEnabled;
+  d3d9SetTexturePostTextureStageStateEvidenceEnabled;
 const d3d9SetSamplerStatePostBeginSceneEvidenceEnabled =
   d3d9SetSamplerStatePostBeginSceneCheckpointEnabled ||
   d3d9SetTextureStageStatePostSamplerStateEvidenceEnabled;
@@ -2000,8 +2008,10 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? d3d9SetTexturePostTextureStageStateCheckpointEnabled
-      ? "v86-bgi-d3d9-set-texture-post-texture-stage-state"
+    ? d3d9SetFvfPostTextureBindingCheckpointEnabled
+      ? "v86-bgi-d3d9-set-fvf-post-texture-binding"
+      : d3d9SetTexturePostTextureStageStateCheckpointEnabled
+        ? "v86-bgi-d3d9-set-texture-post-texture-stage-state"
       : d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled
         ? "v86-bgi-d3d9-set-texture-stage-state-post-sampler-state"
       : d3d9SetSamplerStatePostBeginSceneCheckpointEnabled
@@ -6611,6 +6621,11 @@ async function run() {
       });
       if (genericRuntimeCapability === null) {
         validateGenericRuntimeReentryResult(genericResult);
+      } else if (d3d9SetFvfPostTextureBindingCheckpointEnabled) {
+        validateD3d9SetFvfPostTextureBindingResult(
+          genericResult,
+          sourceRegistration,
+        );
       } else if (d3d9SetTexturePostTextureStageStateCheckpointEnabled) {
         validateD3d9SetTexturePostTextureStageStateResult(
           genericResult,
@@ -6991,8 +7006,10 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : d3d9SetTexturePostTextureStageStateCheckpointEnabled
-            ? "bgi D3D9 SetTexture after later texture-stage-state band"
+          : d3d9SetFvfPostTextureBindingCheckpointEnabled
+            ? "bgi D3D9 SetFVF after later texture binding"
+            : d3d9SetTexturePostTextureStageStateCheckpointEnabled
+              ? "bgi D3D9 SetTexture after later texture-stage-state band"
             : d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled
               ? "bgi D3D9 SetTextureStageState band after later sampler pair"
             : d3d9SetSamplerStatePostBeginSceneCheckpointEnabled
@@ -9138,6 +9155,11 @@ async function runGenericRuntimeReentry({
         d3d9SetTexturePostTextureStageStateCheckpointEnabled &&
         checkpointCompletion.capability ===
           "d3d9-set-texture-post-texture-stage-state"
+      ) &&
+      !(
+        d3d9SetFvfPostTextureBindingCheckpointEnabled &&
+        checkpointCompletion.capability ===
+          "d3d9-set-fvf-post-texture-binding"
       )
     ) {
       checkpointCompletion = null;
@@ -9153,6 +9175,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "d3d9-set-fvf-post-texture-binding"
+            ? "d3d9-set-fvf-post-texture-binding-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "d3d9-set-texture-post-texture-stage-state"
             ? "d3d9-set-texture-post-texture-stage-state-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -9360,7 +9385,14 @@ async function runGenericRuntimeReentry({
             checkpointCompletion.nextEndpoint.interfaceIndex =
               terminal.interfaceIndex;
             checkpointCompletion.nextEndpoint.vtableSlot = terminal.vtableSlot;
-            if (d3d9SetTexturePostTextureStageStateCheckpointEnabled) {
+            if (d3d9SetFvfPostTextureBindingCheckpointEnabled) {
+              assert.equal(endpoint.address, 0x0101_1670);
+              assert.equal(terminal.interfaceIndex, 1);
+              assert.equal(terminal.vtableSlot, 100);
+              checkpointCompletion.nextEndpoint.interface =
+                "IDirect3DDevice9";
+              checkpointCompletion.nextEndpoint.method = "SetStreamSource";
+            } else if (d3d9SetTexturePostTextureStageStateCheckpointEnabled) {
               assert.equal(endpoint.address, 0x0101_15c0);
               assert.equal(terminal.interfaceIndex, 1);
               assert.equal(terminal.vtableSlot, 89);
@@ -11351,6 +11383,89 @@ async function runGenericRuntimeReentry({
         logicalGraphicsComObjectId: device.comObjectId,
         activeSceneSequence: device.activeScene.sequence,
         logicalGraphicsDeviceGeneration: device.generation,
+        textureBindingStageZero: device.textureBindings.stageZero,
+        backBufferContentGeneration: device.backBuffer.contentGeneration,
+        backBufferClearSequence:
+          device.backBuffer.uniformClear?.sequence ?? null,
+        presentedFrameSequence: device.presentedFrame?.sequence ?? null,
+        browserRendererResourceCreated: device.renderer !== undefined,
+        activeCallbackDepthAtCompletion: activeCallbacks.length,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
+    if (
+      d3d9SetFvfPostTextureBindingCheckpointEnabled &&
+      call.interface === "IDirect3DDevice9" &&
+      call.vtableSlot === 89 &&
+      call.sequence === 282_863
+    ) {
+      const textureBindingCall = supportedCalls.find(
+        (candidate) =>
+          candidate.sequence === 282_862 &&
+          candidate.interface === "IDirect3DDevice9" &&
+          candidate.vtableSlot === 65,
+      );
+      assert.equal(checkpointCompletion, null);
+      assert(textureBindingCall, "later SetFVF omitted its SetTexture prerequisite");
+      assert.equal(activeCallbacks.length, 0);
+      assert.equal(call.occurrence, 4);
+      assert.equal(call.trapInstructionCount, 392_354_055);
+      assert.deepEqual(call.arguments, [0x0101_0004, 0x144]);
+      assert.deepEqual(call.result, { kind: "h-result", value: 0 });
+      assert.equal(call.returnAddress, 0x1005_b291);
+      assert.equal(call.stackPointerBefore, 0x006f_b86c);
+      assert.equal(call.stackPointerAfter, 0x006f_b878);
+      assert.equal(call.referenceCount, 5);
+      assert.equal(call.objectRetired, false);
+      assert.deepEqual(call.guestWrites, []);
+      const device = call.graphicsDevice;
+      assert(device, "later SetFVF completion omitted its device snapshot");
+      assert.equal(device.id, 3);
+      assert.equal(device.namespace, "vine.logical-graphics-device.v1");
+      assert.equal(device.frontend, "d3d9");
+      assert.equal(device.comObjectId, "21");
+      assert.deepEqual(device.activeScene, { sequence: 4 });
+      assert.deepEqual(device.textureBindings, { stageZero: 8 });
+      assert.equal(device.flexibleVertexFormat, "xyz-rhw-diffuse-texture1");
+      assert.deepEqual(device.streamSources?.streamZero, {
+        vertexBufferId: 3,
+        offsetInBytes: 0,
+        stride: 28,
+      });
+      assert.equal(device.generation, 71);
+      assert.equal(device.backBuffer.contentGeneration, 10);
+      assert.equal(device.backBuffer.uniformClear?.sequence, 4);
+      assert.equal(device.presentedFrame?.sequence, 3);
+      assert.equal(device.renderer, undefined);
+      checkpointCompletion = {
+        capability: "d3d9-set-fvf-post-texture-binding",
+        implementationId: "runtime.d3d9-set-fvf-post-texture-binding.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        prerequisiteTextureBindingSequence: textureBindingCall.sequence,
+        prerequisiteTextureBindingInstructionCount:
+          textureBindingCall.trapInstructionCount,
+        firstCompletionSequence: call.sequence,
+        firstCompletionInstructionCount: call.trapInstructionCount,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: call.trapInstructionCount,
+        call: structuredClone(call),
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33",
+        flexibleVertexFormatProfileId:
+          "primary-first-frame-transformed-diffuse-textured-fvf-v1",
+        stateAuthority:
+          "rust-runtime-graphics-logical-device-flexible-vertex-format",
+        mutation: "validate-plan-preflight-targeted-idempotent-commit",
+        sameValueGenerationChange: 0,
+        unsupportedVariantResult: "0x8876086a",
+        failureAtomicity: true,
+        logicalGraphicsDeviceId: device.id,
+        logicalGraphicsComObjectId: device.comObjectId,
+        activeSceneSequence: device.activeScene.sequence,
+        logicalGraphicsDeviceGeneration: device.generation,
+        flexibleVertexFormat: device.flexibleVertexFormat,
         textureBindingStageZero: device.textureBindings.stageZero,
         backBufferContentGeneration: device.backBuffer.contentGeneration,
         backBufferClearSequence:
@@ -27501,6 +27616,93 @@ function validateD3d9SetTexturePostTextureStageStateResult(
   assert.equal(result.activeCallbackDepth, 0);
 }
 
+function validateD3d9SetFvfPostTextureBindingResult(
+  result,
+  sourceRegistration,
+) {
+  assert(d3d9SetFvfPostTextureBindingCheckpointEnabled);
+  assert(sourceRegistration !== null);
+  assert.equal(result.supportedCalls.length, 282_863);
+  assert.equal(result.fault, null);
+  const completion = result.checkpointCompletion;
+  assert(completion, "later SetFVF checkpoint completion is missing");
+  assert.equal(completion.capability, "d3d9-set-fvf-post-texture-binding");
+  assert.equal(
+    completion.implementationId,
+    "runtime.d3d9-set-fvf-post-texture-binding.v1",
+  );
+  assert.equal(completion.requiredCompletions, 1);
+  assert.equal(completion.completionCount, 1);
+  assert.equal(completion.prerequisiteTextureBindingSequence, 282_862);
+  assert.equal(
+    completion.prerequisiteTextureBindingInstructionCount,
+    392_354_048,
+  );
+  assert.equal(completion.firstCompletionSequence, 282_863);
+  assert.equal(completion.firstCompletionInstructionCount, 392_354_055);
+  assert.equal(completion.lastCompletionSequence, 282_863);
+  assert.equal(completion.lastCompletionInstructionCount, 392_354_055);
+  assert.equal(completion.call.sequence, 282_863);
+  assert.equal(
+    completion.compatibilityPolicyId,
+    "d3d9-primary-virtual-adapter-v33",
+  );
+  assert.equal(
+    completion.flexibleVertexFormatProfileId,
+    "primary-first-frame-transformed-diffuse-textured-fvf-v1",
+  );
+  assert.equal(
+    completion.stateAuthority,
+    "rust-runtime-graphics-logical-device-flexible-vertex-format",
+  );
+  assert.equal(
+    completion.mutation,
+    "validate-plan-preflight-targeted-idempotent-commit",
+  );
+  assert.equal(completion.sameValueGenerationChange, 0);
+  assert.equal(completion.unsupportedVariantResult, "0x8876086a");
+  assert.equal(completion.failureAtomicity, true);
+  assert.equal(completion.logicalGraphicsDeviceId, 3);
+  assert.equal(completion.logicalGraphicsComObjectId, "21");
+  assert.equal(completion.activeSceneSequence, 4);
+  assert.equal(completion.logicalGraphicsDeviceGeneration, 71);
+  assert.equal(completion.flexibleVertexFormat, "xyz-rhw-diffuse-texture1");
+  assert.equal(completion.textureBindingStageZero, 8);
+  assert.equal(completion.backBufferContentGeneration, 10);
+  assert.equal(completion.backBufferClearSequence, 4);
+  assert.equal(completion.presentedFrameSequence, 3);
+  assert.equal(completion.browserRendererResourceCreated, false);
+  assert.equal(completion.activeCallbackDepthAtCompletion, 0);
+  assert.equal(completion.instructionCount, 392_354_072);
+  assert.deepEqual(completion.nextEndpoint, {
+    id: 0,
+    address: 0x0101_1670,
+    module: "<com>",
+    symbol: { kind: "name", name: "interface-1-slot-100" },
+    disposition: "declared-com-method",
+    interfaceIndex: 1,
+    vtableSlot: 100,
+    interface: "IDirect3DDevice9",
+    method: "SetStreamSource",
+  });
+  assert.equal(completion.nextReturnAddress, 0x1005_b3ec);
+  assert.equal(completion.nextStackPointer, 0x006f_b860);
+  assert.equal(
+    completion.memoryContentSha256,
+    "50a490bd1d6f0db5bd299c9bc3448644232e528102bc359a94fa7f691f77cab5",
+  );
+  assert.equal(result.terminal.instructionCount, 392_354_072);
+  assert.equal(result.terminal.terminal.endpointAddress, 0x0101_1670);
+  assert.equal(result.terminal.terminal.interfaceIndex, 1);
+  assert.equal(result.terminal.terminal.vtableSlot, 100);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_b3ec);
+  assert.equal(result.finalGeneration, 333_498);
+  assert.equal(result.sourceReads.length, 154);
+  assert.equal(result.heapPageMaterializations.length, 3_112);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+  assert.equal(result.activeCallbackDepth, 0);
+}
+
 function validateD3d9SetSamplerStatePostBeginSceneResult(
   result,
   sourceRegistration,
@@ -41098,7 +41300,13 @@ function buildGenericRuntimeReentryReport({
       );
       if (findFirstFileACheckpointEnabled) {
         if (deleteFileACheckpointEnabled) {
-          if (d3d9SetTexturePostTextureStageStateCheckpointEnabled) {
+          if (d3d9SetFvfPostTextureBindingCheckpointEnabled) {
+            assert.equal(completedSupportedCalls.length, 282_863);
+            assert.equal(
+              supportedCallSemanticsSha256,
+              "20fc814e8eb2ea9f4e6f7edae295e3f9c92d65c49486fe4e1834b459d7f6bdd5",
+            );
+          } else if (d3d9SetTexturePostTextureStageStateCheckpointEnabled) {
             assert.equal(completedSupportedCalls.length, 282_862);
             assert.equal(
               supportedCallSemanticsSha256,
@@ -44430,12 +44638,21 @@ function buildScheduledSharedClockPrimaryReport({
         )
       : [];
   const d3d9SetTexturePostTextureStageStateCall =
-    d3d9SetTexturePostTextureStageStateCheckpointEnabled
+    d3d9SetTexturePostTextureStageStateEvidenceEnabled
       ? completedSupportedCalls.find(
           (call) =>
             call.sequence === 282_862 &&
             call.interface === "IDirect3DDevice9" &&
             call.vtableSlot === 65,
+        ) ?? null
+      : null;
+  const d3d9SetFvfPostTextureBindingCall =
+    d3d9SetFvfPostTextureBindingCheckpointEnabled
+      ? completedSupportedCalls.find(
+          (call) =>
+            call.sequence === 282_863 &&
+            call.interface === "IDirect3DDevice9" &&
+            call.vtableSlot === 89,
         ) ?? null
       : null;
   const successfulFindCalls = [
@@ -44456,8 +44673,10 @@ function buildScheduledSharedClockPrimaryReport({
     };
   });
   return {
-    schema: d3d9SetTexturePostTextureStageStateCheckpointEnabled
-      ? "vine.v86-bgi-d3d9-set-texture-post-texture-stage-state-primary"
+    schema: d3d9SetFvfPostTextureBindingCheckpointEnabled
+      ? "vine.v86-bgi-d3d9-set-fvf-post-texture-binding-primary"
+      : d3d9SetTexturePostTextureStageStateCheckpointEnabled
+        ? "vine.v86-bgi-d3d9-set-texture-post-texture-stage-state-primary"
       : d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled
         ? "vine.v86-bgi-d3d9-set-texture-stage-state-post-sampler-state-primary"
       : d3d9SetSamplerStatePostBeginSceneCheckpointEnabled
@@ -44741,10 +44960,20 @@ function buildScheduledSharedClockPrimaryReport({
             },
           }
         : {}),
-      ...(d3d9SetTexturePostTextureStageStateCheckpointEnabled
+      ...(d3d9SetTexturePostTextureStageStateEvidenceEnabled
         ? {
             d3d9SetTexturePostTextureStageState: {
               call: d3d9SetTexturePostTextureStageStateCall,
+              ...(d3d9SetTexturePostTextureStageStateCheckpointEnabled
+                ? { checkpointCompletion: genericResult.checkpointCompletion }
+                : {}),
+            },
+          }
+        : {}),
+      ...(d3d9SetFvfPostTextureBindingCheckpointEnabled
+        ? {
+            d3d9SetFvfPostTextureBinding: {
+              call: d3d9SetFvfPostTextureBindingCall,
               checkpointCompletion: genericResult.checkpointCompletion,
             },
           }

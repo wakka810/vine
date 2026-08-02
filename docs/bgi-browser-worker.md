@@ -406,8 +406,8 @@ fingerprint before and after execution.
   owns no Windows texture or lock state. The initial and reached post-partial BeginScene transitions create
   only Rust-owned logical scene state, the initial and fourth-scene sampler pairs add only Rust-owned typed
   sampler state, and the initial plus fourth-scene six-call texture-stage bands add only Rust-owned typed stage-0
-  fixed-function state, and the initial plus fourth-scene SetTexture calls use the same non-owning Rust-owned binding, SetFVF
-  adds the one reached Rust-owned typed vertex format, SetStreamSource adds
+  fixed-function state, the initial plus fourth-scene SetTexture calls use the same non-owning Rust-owned binding, and the
+  initial plus fourth-scene SetFVF calls use the same Rust-owned typed vertex format. SetStreamSource adds
   the exact non-owning stream-0／offset-0／stride-28 relation, and DrawPrimitive
   appends one bounded owning immutable Rust draw submission, and EndScene
   closes the matching Rust-owned scene while preserving that submission. Other scene variants,

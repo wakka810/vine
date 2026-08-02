@@ -959,7 +959,9 @@ Post-texture-stage 4回目のsceneで再到達したstatic DEFAULT textureもこ
 generationを進めずsuccessにする。
 Reached `SetFVF`はraw DWORDをdevice stateへ複製せず、versioned policyが許可した`0x144`をtyped
 `xyz-rhw-diffuse-texture1`へ変換して同じ`RuntimeGraphicsDevice`へplan／preflight／idempotent commitする。
-Native driverが受理する他FVFはpolicyへ暗黙昇格させない。Reached `SetStreamSource`はlive device／vertex-buffer
+Post-texture-binding 4回目のsceneで再到達した`0x144`もこのownerを通り、既存typed valueならdevice
+generationを進めずsuccessにする。Native driverが受理する他FVFはpolicyへ暗黙昇格させない。Reached
+`SetStreamSource`はlive device／vertex-buffer
 COM relationとsame-device ownershipを解決し、`RuntimeGraphicsDevice`へstream 0、logical vertex-buffer ID、offset 0、
 stride 28だけをplan／preflight／idempotent commitする。Bindingはnon-owningでCOM AddRefを保持せず、vertex-buffer
 final retirementは同じretirement commitで残存bindingをclearする。Nativeが受理するoffset 4、stride 0、stream 1、

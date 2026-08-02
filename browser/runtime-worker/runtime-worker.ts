@@ -408,12 +408,27 @@ function isD3d9SetTexturePostTextureStageStateProfile(
   return profile === "d3d9-set-texture-post-texture-stage-state";
 }
 
+function isD3d9SetFvfPostTextureBindingProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "d3d9-set-fvf-post-texture-binding";
+}
+
+function includesD3d9SetTexturePostTextureStageStateProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isD3d9SetTexturePostTextureStageStateProfile(profile) ||
+    isD3d9SetFvfPostTextureBindingProfile(profile)
+  );
+}
+
 function includesD3d9SetTextureStageStatePostSamplerStateProfile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isD3d9SetTextureStageStatePostSamplerStateProfile(profile) ||
-    isD3d9SetTexturePostTextureStageStateProfile(profile)
+    includesD3d9SetTexturePostTextureStageStateProfile(profile)
   );
 }
 
@@ -8330,6 +8345,7 @@ class BrowserRuntimeSession {
       this.#recordD3d9SetSamplerStatePostBeginSceneCall(call);
       this.#recordD3d9SetTextureStageStatePostSamplerStateCall(call);
       this.#recordD3d9SetTexturePostTextureStageStateCall(call);
+      this.#recordD3d9SetFvfPostTextureBindingCall(call);
     } else {
       this.#recordD3d9RecreatedTextureCall(call);
       this.#recordD3d9ClearCall(call);
@@ -8899,7 +8915,7 @@ class BrowserRuntimeSession {
     call: RuntimeSupportedCallSnapshot,
   ): void {
     if (
-      !isD3d9SetTexturePostTextureStageStateProfile(
+      !includesD3d9SetTexturePostTextureStageStateProfile(
         this.#configuration.capabilityProfile,
       ) ||
       call.interface !== "IDirect3DDevice9" ||
@@ -8985,6 +9001,106 @@ class BrowserRuntimeSession {
       logicalGraphicsComObjectId: "21",
       activeSceneSequence: 4,
       logicalGraphicsDeviceGeneration: 71,
+      textureBindingStageZero: 8,
+      backBufferContentGeneration: 10,
+      backBufferClearSequence: 4,
+      presentedFrameSequence: 3,
+      browserRendererResourceCreated: false,
+      activeCallbackDepthAtCompletion: 0,
+      instructionCount: 0,
+      nextEndpoint: null,
+      memoryContentSha256: "",
+      nextReturnAddress: 0,
+      nextStackPointer: 0,
+    };
+    if (
+      isD3d9SetTexturePostTextureStageStateProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      this.#bgiCheckpointPending = true;
+    }
+  }
+
+  #recordD3d9SetFvfPostTextureBindingCall(
+    call: RuntimeSupportedCallSnapshot,
+  ): void {
+    if (
+      !isD3d9SetFvfPostTextureBindingProfile(
+        this.#configuration.capabilityProfile,
+      ) ||
+      call.interface !== "IDirect3DDevice9" ||
+      call.vtableSlot !== 89 ||
+      call.sequence !== 282_863
+    ) {
+      return;
+    }
+    const previous = this.#report.checkpointCompletion;
+    const device = call.graphicsDevice;
+    invariant(
+      previous?.capability ===
+        "d3d9-set-texture-post-texture-stage-state" &&
+        previous.lastCompletionSequence === 282_862 &&
+        previous.lastCompletionInstructionCount === 392_354_048 &&
+        this.#report.instructions === 392_354_055 &&
+        call.symbol === "IDirect3DDevice9.SetFVF" &&
+        call.arguments.length === 2 &&
+        call.arguments[0] === 0x0101_0004 &&
+        call.arguments[1] === 0x144 &&
+        "kind" in call.result &&
+        call.result.kind === "h-result" &&
+        call.result.value === 0 &&
+        call.returnAddress === 0x1005_b291 &&
+        call.stackPointerBefore === 0x006f_b86c &&
+        call.stackPointerAfter === 0x006f_b878 &&
+        call.referenceCount === 5 &&
+        call.objectRetired === false &&
+        call.guestWrites.length === 0 &&
+        device?.id === 3 &&
+        device.namespace === "vine.logical-graphics-device.v1" &&
+        device.frontend === "d3d9" &&
+        device.comObjectId === "21" &&
+        device.activeScene?.sequence === 4 &&
+        device.generation === 71 &&
+        device.textureBindings?.stageZero === 8 &&
+        device.flexibleVertexFormat === "xyz-rhw-diffuse-texture1" &&
+        device.streamSources?.streamZero.vertexBufferId === 3 &&
+        device.streamSources.streamZero.offsetInBytes === 0 &&
+        device.streamSources.streamZero.stride === 28 &&
+        device.backBuffer.contentGeneration === 10 &&
+        device.backBuffer.uniformClear?.sequence === 4 &&
+        device.presentedFrame?.sequence === 3 &&
+        device.renderer === undefined &&
+        this.#bgiCallbackCallSequences.size === 0,
+      `later D3D9 SetFVF ABI or idempotent format changed: ${JSON.stringify(call)}`,
+    );
+    this.#report.checkpointCompletion = {
+      capability: "d3d9-set-fvf-post-texture-binding",
+      implementationId: "runtime.d3d9-set-fvf-post-texture-binding.v1",
+      requiredCompletions: 1,
+      completionCount: 1,
+      prerequisiteTextureBindingSequence: previous.lastCompletionSequence,
+      prerequisiteTextureBindingInstructionCount:
+        previous.lastCompletionInstructionCount,
+      firstCompletionSequence: call.sequence,
+      firstCompletionInstructionCount: this.#report.instructions,
+      lastCompletionSequence: call.sequence,
+      lastCompletionInstructionCount: this.#report.instructions,
+      call: structuredClone(call),
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33",
+      flexibleVertexFormatProfileId:
+        "primary-first-frame-transformed-diffuse-textured-fvf-v1",
+      stateAuthority:
+        "rust-runtime-graphics-logical-device-flexible-vertex-format",
+      mutation: "validate-plan-preflight-targeted-idempotent-commit",
+      sameValueGenerationChange: 0,
+      unsupportedVariantResult: "0x8876086a",
+      failureAtomicity: true,
+      logicalGraphicsDeviceId: 3,
+      logicalGraphicsComObjectId: "21",
+      activeSceneSequence: 4,
+      logicalGraphicsDeviceGeneration: 71,
+      flexibleVertexFormat: "xyz-rhw-diffuse-texture1",
       textureBindingStageZero: 8,
       backBufferContentGeneration: 10,
       backBufferClearSequence: 4,
@@ -10101,6 +10217,60 @@ class BrowserRuntimeSession {
     stackPointer: number,
   ): void {
     const checkpoint = this.#report.checkpointCompletion;
+    if (
+      isD3d9SetFvfPostTextureBindingProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      invariant(
+        checkpoint?.capability === "d3d9-set-fvf-post-texture-binding" &&
+          checkpoint.call.sequence === 282_863 &&
+          this.#requirePrepared().runtime.kernel32Policy ===
+            "kernel32-delete-file-a-v1" &&
+          endpointAddress === 0x0101_1670 &&
+          stackPointer === 0x006f_b860 &&
+          this.#requireEngine().readGuestU32(stackPointer) === 0x1005_b3ec &&
+          this.#bgiCallbackCallSequences.size === 0 &&
+          this.#report.supportedCallCount === 282_863 &&
+          this.#scheduledSharedClockSampleCount === 100_556 &&
+          this.#scheduledSharedClockWindowTimerCallbackCount === 40 &&
+          this.#scheduledSharedClockPresentCount === 3 &&
+          this.#report.instructions === 392_354_072,
+        "post-texture-binding SetFVF checkpoint has no matching runtime state",
+      );
+      const reflection =
+        this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-memory-summary" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation) &&
+          reflection.contentSha256 ===
+            "50a490bd1d6f0db5bd299c9bc3448644232e528102bc359a94fa7f691f77cab5",
+        "post-texture-binding SetFVF checkpoint memory summary changed",
+      );
+      checkpoint.instructionCount = this.#report.instructions;
+      checkpoint.nextEndpoint = {
+        id: 0,
+        address: endpointAddress,
+        module: "<com>",
+        symbol: { kind: "name", name: "interface-1-slot-100" },
+        disposition: "declared-com-method",
+        interfaceIndex: 1,
+        vtableSlot: 100,
+        interface: "IDirect3DDevice9",
+        method: "SetStreamSource",
+      };
+      checkpoint.memoryContentSha256 = reflection.contentSha256;
+      checkpoint.nextReturnAddress = 0x1005_b3ec;
+      checkpoint.nextStackPointer = stackPointer;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "D3D9 SetFVF after later texture binding checkpoint completed",
+        null,
+      );
+      return;
+    }
     if (
       isD3d9SetTexturePostTextureStageStateProfile(
         this.#configuration.capabilityProfile,
