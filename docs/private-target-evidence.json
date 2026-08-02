@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-08-02T13:21:59.700Z",
+  "recordedAt": "2026-08-02T14:35:55.777Z",
   "repository": {
-    "implementationCommit": "51f68721c9dbebb436d5a937b27176860020bda1",
-    "implementationTree": "64321bc1541530567c70fdf7690658b9eef6221b",
-    "headCommit": "51f68721c9dbebb436d5a937b27176860020bda1",
+    "implementationCommit": "5c61e330805c93d9e006bca4766c4b0129f21655",
+    "implementationTree": "57907252259d3fa7bd104c5f5536a49f19417240",
+    "headCommit": "5c61e330805c93d9e006bca4766c4b0129f21655",
     "dirty": true,
     "dirtyPaths": [
       "CON"
@@ -31,15 +31,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "d3d9-test-cooperative-level-post-time-get-time",
+    "runtimeCheckpoint": "kernel32-set-waitable-timer-post-test-cooperative-level",
     "runtimeProfile": "user32-peek-message-a-post-window-timer-callback-continuation",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-delete-file-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-delete-file-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-d3d9-test-cooperative-level-post-time-get-time-primary",
+    "nodeReportSchema": "vine.v86-bgi-kernel32-set-waitable-timer-post-test-cooperative-level-primary",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v121",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v122",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -74,176 +74,236 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 137,
-      "supportedCalls": 282870,
-      "callSemanticsSha256": "2f4a7a85018f0270db87a750ff2a84adede1ffa3fb55cde9868469aef1d8e8fe",
-      "instructions": 392354369,
-      "finalGeneration": 333506,
-      "memoryContentSha256": "dfb7685d08834dc611a85984c679c0f3a8ea64e32a9601e6c6dd4ec2ed8aade7",
+      "supportedCalls": 282871,
+      "callSemanticsSha256": "640bc23ea65411d491b62e372e78562e5f2646fff44a4adf5738626c39677c80",
+      "instructions": 392354375,
+      "finalGeneration": 333507,
+      "memoryContentSha256": "f476539a157bd61c93ce31b1569baa78e0e3e50342d618a5256859f45927f174",
       "checkpointCompletion": {
-        "capability": "d3d9-test-cooperative-level-post-time-get-time",
-        "implementationId": "runtime.d3d9-test-cooperative-level-post-time-get-time.v1",
+        "capability": "kernel32-set-waitable-timer-post-test-cooperative-level",
+        "implementationId": "runtime.kernel32-set-waitable-timer-post-test-cooperative-level.v1",
+        "semanticImplementationId": "kernel32.set-waitable-timer.relative-one-shot.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "prerequisiteTimeGetTimeSequence": 282869,
-        "prerequisiteTimeGetTimeInstructionCount": 392354190,
-        "firstCompletionSequence": 282870,
-        "firstCompletionInstructionCount": 392354323,
-        "lastCompletionSequence": 282870,
-        "lastCompletionInstructionCount": 392354323,
+        "prerequisiteTestCooperativeLevelSequence": 282870,
+        "prerequisiteTestCooperativeLevelInstructionCount": 392354323,
+        "firstCompletionSequence": 282871,
+        "firstCompletionInstructionCount": 392354369,
+        "lastCompletionSequence": 282871,
+        "lastCompletionInstructionCount": 392354369,
         "call": {
-          "sequence": 282870,
-          "module": "<com>",
-          "symbol": "IDirect3DDevice9.TestCooperativeLevel",
-          "occurrence": 70,
-          "trapInstructionCount": 392354323,
-          "interface": "IDirect3DDevice9",
-          "vtableSlot": 3,
+          "sequence": 282871,
+          "module": "KERNEL32.dll",
+          "symbol": "SetWaitableTimer",
+          "occurrence": 9921,
+          "trapInstructionCount": 392354369,
           "arguments": [
-            16842756
+            1459683329,
+            7338224,
+            0,
+            0,
+            0,
+            0
           ],
           "result": {
-            "kind": "h-result",
-            "value": 0
+            "action": "set",
+            "value": 1
           },
-          "returnAddress": 268807629,
-          "stackPointerBefore": 7338228,
-          "stackPointerAfter": 7338236,
-          "referenceCount": 5,
-          "objectRetired": false,
-          "guestWrites": []
+          "implementationId": "kernel32.set-waitable-timer.relative-one-shot.v1",
+          "returnAddress": 268764679,
+          "stackPointerBefore": 7338196,
+          "stackPointerAfter": 7338224,
+          "lastError": 0,
+          "guestWrites": [],
+          "waitableTimer": {
+            "handle": 1459683329,
+            "timer": {
+              "id": 1,
+              "manualReset": true,
+              "arm": {
+                "relativeDueTime100ns": 5000,
+                "armedAtTime100ns": 2007730000,
+                "deadlineTime100ns": 2007735000,
+                "periodMilliseconds": 0,
+                "generation": 68
+              }
+            },
+            "objectRecord": {
+              "id": 20,
+              "key": {
+                "kind": "waitable-timer",
+                "timer_id": 1
+              },
+              "kind": "waitable-timer",
+              "namespace": "vine.runtime-waitable-timer-object.v1",
+              "closePolicy": "close-handle",
+              "waitState": {
+                "state": "nonsignaled"
+              },
+              "openHandles": 1
+            }
+          }
         },
-        "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
-        "testCooperativeLevelProfileId": "primary-live-operational-device-query-v1",
-        "stateAuthority": "rust-runtime-graphics-live-device-association",
-        "mutation": "none",
+        "stateAuthority": "rust-runtime-timers-and-typed-runtime-object-table",
+        "mutation": "timer-object-plan-preflight-targeted-commit",
+        "failureAtomicity": true,
+        "logicalTimerHandle": 1459683329,
+        "logicalTimerId": 1,
+        "logicalObjectId": 20,
+        "manualReset": true,
+        "relativeDueTime100ns": 5000,
+        "armedAtTime100ns": 2007730000,
+        "deadlineTime100ns": 2007735000,
+        "periodMilliseconds": 0,
+        "armGeneration": 68,
+        "objectWaitState": "nonsignaled",
+        "openHandles": 1,
         "lastErrorPolicy": "preserve",
         "guestWriteBytes": 0,
-        "referenceCountMutation": false,
-        "failureAtomicity": true,
-        "deviceLostStateImplemented": false,
-        "deviceNotResetStateImplemented": false,
-        "resetImplemented": false,
-        "browserContextLossImported": false,
-        "logicalGraphicsDeviceId": 3,
-        "logicalGraphicsComObjectId": "21",
-        "logicalGraphicsDeviceGeneration": 74,
-        "deviceReferenceCount": 5,
-        "deviceObjectRetired": false,
+        "hostTimerImported": false,
+        "browserTimerCreated": false,
         "activeCallbackDepthAtCompletion": 0,
-        "instructionCount": 392354369,
+        "instructionCount": 392354375,
         "nextEndpoint": {
-          "id": 118,
-          "address": 2130708304,
+          "id": 122,
+          "address": 2130708368,
           "module": "KERNEL32.dll",
           "symbol": {
             "kind": "name",
-            "name": "SetWaitableTimer"
+            "name": "WaitForSingleObjectEx"
           },
           "disposition": "declared-runtime-export",
-          "iatAddress": 269292160
+          "iatAddress": 269292176
         },
         "nextArguments": [
           1459683329,
-          7338224,
-          0,
-          0,
-          0,
-          0
+          10,
+          1
         ],
-        "memoryContentSha256": "dfb7685d08834dc611a85984c679c0f3a8ea64e32a9601e6c6dd4ec2ed8aade7",
-        "nextReturnAddress": 268764679,
-        "nextStackPointer": 7338196
+        "memoryContentSha256": "f476539a157bd61c93ce31b1569baa78e0e3e50342d618a5256859f45927f174",
+        "nextReturnAddress": 268764693,
+        "nextStackPointer": 7338208
       },
-      "writebackBatches": 286068,
+      "writebackBatches": 286069,
       "hostDeltaBatches": 143088
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 282870,
-      "callSemanticsSha256": "2f4a7a85018f0270db87a750ff2a84adede1ffa3fb55cde9868469aef1d8e8fe",
-      "instructions": 392354369,
-      "finalGeneration": 355961,
-      "memoryContentSha256": "dfb7685d08834dc611a85984c679c0f3a8ea64e32a9601e6c6dd4ec2ed8aade7",
+      "supportedCalls": 282871,
+      "callSemanticsSha256": "640bc23ea65411d491b62e372e78562e5f2646fff44a4adf5738626c39677c80",
+      "instructions": 392354375,
+      "finalGeneration": 355962,
+      "memoryContentSha256": "f476539a157bd61c93ce31b1569baa78e0e3e50342d618a5256859f45927f174",
       "checkpointCompletion": {
-        "capability": "d3d9-test-cooperative-level-post-time-get-time",
-        "implementationId": "runtime.d3d9-test-cooperative-level-post-time-get-time.v1",
+        "capability": "kernel32-set-waitable-timer-post-test-cooperative-level",
+        "implementationId": "runtime.kernel32-set-waitable-timer-post-test-cooperative-level.v1",
+        "semanticImplementationId": "kernel32.set-waitable-timer.relative-one-shot.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "prerequisiteTimeGetTimeSequence": 282869,
-        "prerequisiteTimeGetTimeInstructionCount": 392354190,
-        "firstCompletionSequence": 282870,
-        "firstCompletionInstructionCount": 392354323,
-        "lastCompletionSequence": 282870,
-        "lastCompletionInstructionCount": 392354323,
+        "prerequisiteTestCooperativeLevelSequence": 282870,
+        "prerequisiteTestCooperativeLevelInstructionCount": 392354323,
+        "firstCompletionSequence": 282871,
+        "firstCompletionInstructionCount": 392354369,
+        "lastCompletionSequence": 282871,
+        "lastCompletionInstructionCount": 392354369,
         "call": {
-          "sequence": 282870,
-          "module": "<com>",
-          "symbol": "IDirect3DDevice9.TestCooperativeLevel",
-          "interface": "IDirect3DDevice9",
-          "vtableSlot": 3,
+          "sequence": 282871,
+          "module": "kernel32.dll",
+          "symbol": "SetWaitableTimer",
           "arguments": [
-            16842756
+            1459683329,
+            7338224,
+            0,
+            0,
+            0,
+            0
           ],
           "result": {
-            "kind": "h-result",
-            "value": 0
+            "action": "set",
+            "value": 1
           },
-          "returnAddress": 268807629,
-          "stackPointerBefore": 7338228,
-          "stackPointerAfter": 7338236,
-          "referenceCount": 5,
-          "objectRetired": false,
+          "implementationId": "kernel32.set-waitable-timer.relative-one-shot.v1",
+          "returnAddress": 268764679,
+          "stackPointerBefore": 7338196,
+          "stackPointerAfter": 7338224,
+          "lastError": 0,
           "guestWrites": [],
-          "occurrence": 70,
-          "trapInstructionCount": 392354323
+          "waitableTimer": {
+            "handle": 1459683329,
+            "objectRecord": {
+              "closePolicy": "close-handle",
+              "id": 20,
+              "key": {
+                "kind": "waitable-timer",
+                "timer_id": 1
+              },
+              "kind": "waitable-timer",
+              "namespace": "vine.runtime-waitable-timer-object.v1",
+              "openHandles": 1,
+              "waitState": {
+                "state": "nonsignaled"
+              }
+            },
+            "timer": {
+              "arm": {
+                "armedAtTime100ns": 2007730000,
+                "deadlineTime100ns": 2007735000,
+                "generation": 68,
+                "periodMilliseconds": 0,
+                "relativeDueTime100ns": 5000
+              },
+              "id": 1,
+              "manualReset": true
+            }
+          },
+          "occurrence": 9921,
+          "trapInstructionCount": 392354369
         },
-        "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
-        "testCooperativeLevelProfileId": "primary-live-operational-device-query-v1",
-        "stateAuthority": "rust-runtime-graphics-live-device-association",
-        "mutation": "none",
+        "stateAuthority": "rust-runtime-timers-and-typed-runtime-object-table",
+        "mutation": "timer-object-plan-preflight-targeted-commit",
+        "failureAtomicity": true,
+        "logicalTimerHandle": 1459683329,
+        "logicalTimerId": 1,
+        "logicalObjectId": 20,
+        "manualReset": true,
+        "relativeDueTime100ns": 5000,
+        "armedAtTime100ns": 2007730000,
+        "deadlineTime100ns": 2007735000,
+        "periodMilliseconds": 0,
+        "armGeneration": 68,
+        "objectWaitState": "nonsignaled",
+        "openHandles": 1,
         "lastErrorPolicy": "preserve",
         "guestWriteBytes": 0,
-        "referenceCountMutation": false,
-        "failureAtomicity": true,
-        "deviceLostStateImplemented": false,
-        "deviceNotResetStateImplemented": false,
-        "resetImplemented": false,
-        "browserContextLossImported": false,
-        "logicalGraphicsDeviceId": 3,
-        "logicalGraphicsComObjectId": "21",
-        "logicalGraphicsDeviceGeneration": 74,
-        "deviceReferenceCount": 5,
-        "deviceObjectRetired": false,
+        "hostTimerImported": false,
+        "browserTimerCreated": false,
         "activeCallbackDepthAtCompletion": 0,
-        "instructionCount": 392354369,
+        "instructionCount": 392354375,
         "nextEndpoint": {
-          "address": 2130708304,
+          "address": 2130708368,
           "disposition": "declared-runtime-export",
-          "iatAddress": 269292160,
-          "id": 118,
+          "iatAddress": 269292176,
+          "id": 122,
           "module": "kernel32.dll",
           "symbol": {
             "kind": "name",
-            "name": "SetWaitableTimer"
+            "name": "WaitForSingleObjectEx"
           }
         },
         "nextArguments": [
           1459683329,
-          7338224,
-          0,
-          0,
-          0,
-          0
+          10,
+          1
         ],
-        "memoryContentSha256": "dfb7685d08834dc611a85984c679c0f3a8ea64e32a9601e6c6dd4ec2ed8aade7",
-        "nextReturnAddress": 268764679,
-        "nextStackPointer": 7338196
+        "memoryContentSha256": "f476539a157bd61c93ce31b1569baa78e0e3e50342d618a5256859f45927f174",
+        "nextReturnAddress": 268764693,
+        "nextStackPointer": 7338208
       },
-      "wasmBridgeCalls": 756276,
+      "wasmBridgeCalls": 756278,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 955494,
+          "transitionCount": 955497,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -291,11 +351,11 @@
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
       "classification": "semantic-leaf",
-      "nextCheckpoint": "kernel32-set-waitable-timer-post-test-cooperative-level",
-      "pausedHistoricalCheckpoint": "d3d9-test-cooperative-level-post-time-get-time",
-      "instructionCount": 392354369,
-      "capabilityCluster": "kernel32-waitable-timer-api-contract",
-      "reason": "d3d9-test-cooperative-level-post-time-get-time-checkpoint-complete",
+      "nextCheckpoint": "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm",
+      "pausedHistoricalCheckpoint": "kernel32-set-waitable-timer-post-test-cooperative-level",
+      "instructionCount": 392354375,
+      "capabilityCluster": "kernel32-waitable-timer-wait-contract",
+      "reason": "kernel32-set-waitable-timer-post-test-cooperative-level-checkpoint-complete",
       "historicalOutlineTextMetricsCheckpoint": {
         "capability": "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
         "implementationId": "runtime.gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336.v1",
@@ -973,66 +1033,73 @@
         "returnedTickCount": 3800773,
         "failureAtomicity": true
       },
-      "completion": {
+      "prerequisiteTestCooperativeLevelCheckpoint": {
         "capability": "d3d9-test-cooperative-level-post-time-get-time",
         "implementationId": "runtime.d3d9-test-cooperative-level-post-time-get-time.v1",
-        "requiredCompletions": 1,
-        "completionCount": 1,
-        "prerequisiteTimeGetTimeSequence": 282869,
-        "prerequisiteTimeGetTimeInstructionCount": 392354190,
-        "firstCompletionSequence": 282870,
-        "firstCompletionInstructionCount": 392354323,
         "lastCompletionSequence": 282870,
         "lastCompletionInstructionCount": 392354323,
-        "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
-        "testCooperativeLevelProfileId": "primary-live-operational-device-query-v1",
-        "stateAuthority": "rust-runtime-graphics-live-device-association",
-        "mutation": "none",
+        "result": "0x00000000",
+        "failureAtomicity": true
+      },
+      "completion": {
+        "capability": "kernel32-set-waitable-timer-post-test-cooperative-level",
+        "implementationId": "runtime.kernel32-set-waitable-timer-post-test-cooperative-level.v1",
+        "semanticImplementationId": "kernel32.set-waitable-timer.relative-one-shot.v1",
+        "requiredCompletions": 1,
+        "completionCount": 1,
+        "prerequisiteTestCooperativeLevelSequence": 282870,
+        "prerequisiteTestCooperativeLevelInstructionCount": 392354323,
+        "firstCompletionSequence": 282871,
+        "firstCompletionInstructionCount": 392354369,
+        "lastCompletionSequence": 282871,
+        "lastCompletionInstructionCount": 392354369,
+        "stateAuthority": "rust-runtime-timers-and-typed-runtime-object-table",
+        "mutation": "timer-object-plan-preflight-targeted-commit",
+        "failureAtomicity": true,
+        "logicalTimerHandle": 1459683329,
+        "logicalTimerId": 1,
+        "logicalObjectId": 20,
+        "manualReset": true,
+        "relativeDueTime100ns": 5000,
+        "armedAtTime100ns": 2007730000,
+        "deadlineTime100ns": 2007735000,
+        "periodMilliseconds": 0,
+        "armGeneration": 68,
+        "objectWaitState": "nonsignaled",
+        "openHandles": 1,
         "lastErrorPolicy": "preserve",
         "guestWriteBytes": 0,
-        "referenceCountMutation": false,
-        "failureAtomicity": true,
-        "deviceLostStateImplemented": false,
-        "deviceNotResetStateImplemented": false,
-        "resetImplemented": false,
-        "browserContextLossImported": false,
-        "logicalGraphicsDeviceId": 3,
-        "logicalGraphicsComObjectId": "21",
-        "logicalGraphicsDeviceGeneration": 74,
-        "deviceReferenceCount": 5,
-        "deviceObjectRetired": false,
+        "hostTimerImported": false,
+        "browserTimerCreated": false,
         "activeCallbackDepthAtCompletion": 0,
-        "instructionCount": 392354369,
-        "memoryContentSha256": "dfb7685d08834dc611a85984c679c0f3a8ea64e32a9601e6c6dd4ec2ed8aade7",
-        "nextReturnAddress": 268764679,
-        "nextStackPointer": 7338196
+        "instructionCount": 392354375,
+        "memoryContentSha256": "f476539a157bd61c93ce31b1569baa78e0e3e50342d618a5256859f45927f174",
+        "nextReturnAddress": 268764693,
+        "nextStackPointer": 7338208
       },
       "nextEndpoint": {
         "endpointKind": "runtime-system-export",
-        "endpointId": 118,
-        "api": "KERNEL32.dll!SetWaitableTimer",
-        "endpointAddress": "0x7f000750",
+        "endpointId": 122,
+        "api": "KERNEL32.dll!WaitForSingleObjectEx",
+        "endpointAddress": "0x7f000790",
         "observedModule": "KERNEL32.dll",
-        "observedSymbol": "SetWaitableTimer",
-        "id": 118,
-        "address": 2130708304,
+        "observedSymbol": "WaitForSingleObjectEx",
+        "id": 122,
+        "address": 2130708368,
         "module": "KERNEL32.dll",
         "symbol": {
           "kind": "name",
-          "name": "SetWaitableTimer"
+          "name": "WaitForSingleObjectEx"
         },
         "disposition": "declared-runtime-export",
-        "iatAddress": 269292160,
+        "iatAddress": 269292176,
         "arguments": [
           "0x57010001",
-          "0x006ff8f0",
-          "0x00000000",
-          "0x00000000",
-          "0x00000000",
-          "0x00000000"
+          "0x0000000a",
+          "0x00000001"
         ],
-        "returnAddress": "0x10050607",
-        "stackPointer": "0x006ff8d4"
+        "returnAddress": "0x10050615",
+        "stackPointer": "0x006ff8e0"
       },
       "historicalFollowingFault": {
         "class": "unsupported",
@@ -1075,14 +1142,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-d3d9-test-cooperative-level-post-time-get-time/report.json",
-      "bytes": 2628799,
-      "sha256": "8e388e06c4feae7e1b45f427d094cff24062b285abab4dc01be99e3e39e38820"
+      "path": ".work/v86-bgi-set-waitable-timer-post-test-cooperative-level/report.json",
+      "bytes": 2629834,
+      "sha256": "fd53c2894ea5ee952cf46714ff13882a6ae2f84c51529d93563c7d7a46dbdef4"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2622110,
-      "sha256": "aa1414db185e605a8eab5447cdd6667d070a8377bace96ee8d1c4d97e2eac1eb"
+      "bytes": 2623039,
+      "sha256": "c15cf83b8a534674432831afd73603e527b7dbaaf4bef4ba20c7e4093e001c22"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -1097,7 +1164,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3768,
-      "sha256": "8be3db9933ded53b99f7dfe8d7041dbf88b3f9b0419c89adcbda10bc7a6b0c5a"
+      "sha256": "c577b26e0b518fd8bc6a50769260de8c1a8beaf16f057bd44543024dfe692391"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -1134,5 +1201,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "f5e954311acc9cfb9dadcdfa15cc17052ced0d3908826a0800734e43d28256d7"
+  "payloadSha256": "c7707a2159e35d98350cc163648d99d05dc90823d6dcdf1717ea4a396a462132"
 }
