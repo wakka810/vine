@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-08-02T08:21:57.813Z",
+  "recordedAt": "2026-08-02T09:27:40.469Z",
   "repository": {
-    "implementationCommit": "ea8ecf4416087d82f5ba31934e0b4d7a6b7d915e",
-    "implementationTree": "a4d36be41a448a1f387092db28a28800090c5a1c",
-    "headCommit": "ea8ecf4416087d82f5ba31934e0b4d7a6b7d915e",
+    "implementationCommit": "36da0fae22552ed55c77161d35339a3c1a32e7dd",
+    "implementationTree": "6bdbbdd61d7a3c021dd3199c535f772b14b459e8",
+    "headCommit": "36da0fae22552ed55c77161d35339a3c1a32e7dd",
     "dirty": true,
     "dirtyPaths": [
       "CON"
@@ -31,15 +31,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "d3d9-present-post-raster-status",
+    "runtimeCheckpoint": "winmm-time-get-time-post-present",
     "runtimeProfile": "user32-peek-message-a-post-window-timer-callback-continuation",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-delete-file-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-delete-file-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-d3d9-present-post-raster-status-primary",
+    "nodeReportSchema": "vine.v86-bgi-winmm-time-get-time-post-present-primary",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v119",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v120",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -74,755 +74,206 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 137,
-      "supportedCalls": 282868,
-      "callSemanticsSha256": "6ea6d734b05727424bd80ce6e7b0604a3a6ede3908552b72f9e1088c291e2afc",
-      "instructions": 392354190,
-      "finalGeneration": 333504,
-      "memoryContentSha256": "3ac81c564469a3818fd7e5966703e6d31c75969d8217553ea57979f832d2794c",
+      "supportedCalls": 282869,
+      "callSemanticsSha256": "5f224f94086095c739923b53509fe4e33c65fd11d63ec7c352044c42f7705dc8",
+      "instructions": 392354323,
+      "finalGeneration": 333505,
+      "memoryContentSha256": "cdbfdd820c96f520438bfd9eac89c39da2d7662d41cff9c4656765dc4fbec2b8",
       "checkpointCompletion": {
-        "capability": "d3d9-present-post-raster-status",
-        "implementationId": "runtime.d3d9-present-post-raster-status.v1",
+        "capability": "winmm-time-get-time-post-present",
+        "implementationId": "runtime.winmm-time-get-time-post-present.v1",
+        "semanticImplementationId": "winmm.time-get-time.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "prerequisiteRasterStatusSequence": 282867,
-        "prerequisiteRasterStatusInstructionCount": 392354146,
-        "firstCompletionSequence": 282868,
-        "firstCompletionInstructionCount": 392354183,
-        "lastCompletionSequence": 282868,
-        "lastCompletionInstructionCount": 392354183,
-        "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
-        "presentProfileId": "primary-first-frame-full-back-buffer-present-v1",
-        "frameAuthority": "rust-runtime-graphics-logical-device-presented-frame",
-        "browserResourceAuthority": "typescript-browser-resource-table",
-        "mutation": "validate-plan-preflight-targeted-commit",
-        "presentMode": "discard",
-        "sourceRectImplemented": false,
-        "destinationRectImplemented": false,
-        "destinationWindowOverrideImplemented": false,
-        "dirtyRegionImplemented": false,
-        "failureAtomicity": true,
-        "logicalGraphicsDeviceId": 3,
-        "logicalGraphicsComObjectId": "21",
-        "logicalGraphicsDeviceGeneration": 74,
-        "presentedFrameSequence": 4,
-        "presentedContentGeneration": 11,
-        "discardedBackBufferContentGeneration": 12,
-        "backBufferClearSequence": 4,
-        "drawSubmissionCount": 1,
-        "drawSubmissionSequence": 4,
-        "drawSubmissionSceneSequence": 4,
-        "textureId": 8,
-        "textureContentGeneration": 4,
-        "browserRendererResourceMaterialized": false,
-        "renderedBeforeGuestResume": false,
-        "activeCallbackDepthAtCompletion": 0,
-        "instructionCount": 392354190,
-        "nextEndpoint": {
-          "id": 8,
-          "address": 2130706544,
+        "prerequisitePresentSequence": 282868,
+        "prerequisitePresentInstructionCount": 392354183,
+        "firstCompletionSequence": 282869,
+        "firstCompletionInstructionCount": 392354190,
+        "lastCompletionSequence": 282869,
+        "lastCompletionInstructionCount": 392354190,
+        "call": {
+          "sequence": 282869,
           "module": "WINMM.dll",
+          "symbol": "timeGetTime",
+          "occurrence": 479,
+          "trapInstructionCount": 392354190,
+          "arguments": [],
+          "result": {
+            "action": "set",
+            "value": 3800773
+          },
+          "implementationId": "winmm.time-get-time.v1",
+          "returnAddress": 269033151,
+          "stackPointerBefore": 7321760,
+          "stackPointerAfter": 7321764,
+          "lastError": 0,
+          "guestWrites": [],
+          "tickCount": {
+            "returnedTickCount": 3800773,
+            "nextTickCount": 3800773,
+            "incrementPerRead": 0,
+            "clockProfileId": "scheduled-shared-logical-deadline-v1",
+            "timerClock": {
+              "currentTime100ns": 2007730000,
+              "generation": 16308
+            },
+            "scheduledExecutionClock": {
+              "retiredInstructions": 392354190,
+              "pendingRetiredInstructions": 190,
+              "retiredInstructionsPerSecond": 2000000
+            }
+          }
+        },
+        "clockProfileId": "scheduled-shared-logical-deadline-v1",
+        "clockAuthority": "runtime/process.rs::RuntimeProcessState",
+        "clockRelation": "shared-with-kernel32-get-tick-count",
+        "returnedTickCount": 3800773,
+        "nextTickCount": 3800773,
+        "incrementPerRead": 0,
+        "apiReadsAdvanceClock": false,
+        "timerClock": {
+          "currentTime100ns": 2007730000,
+          "generation": 16308
+        },
+        "scheduledExecutionClock": {
+          "retiredInstructions": 392354190,
+          "pendingRetiredInstructions": 190,
+          "retiredInstructionsPerSecond": 2000000
+        },
+        "timerResolutionAffectsSampledClock": false,
+        "lastErrorPolicy": "preserve",
+        "runtimeStateMutation": false,
+        "failureAtomicity": true,
+        "hostClockImported": false,
+        "browserClockImported": false,
+        "activeCallbackDepthAtCompletion": 0,
+        "instructionCount": 392354323,
+        "nextEndpoint": {
+          "id": 0,
+          "address": 16846944,
+          "module": "<com>",
           "symbol": {
             "kind": "name",
-            "name": "timeGetTime"
+            "name": "interface-1-slot-3"
           },
-          "disposition": "declared-runtime-export",
-          "iatAddress": 269292772
-        },
-        "memoryContentSha256": "3ac81c564469a3818fd7e5966703e6d31c75969d8217553ea57979f832d2794c",
-        "nextReturnAddress": 269033151,
-        "nextStackPointer": 7321760,
-        "call": {
-          "sequence": 282868,
-          "module": "<com>",
-          "symbol": "IDirect3DDevice9.Present",
+          "disposition": "declared-com-method",
+          "interfaceIndex": 1,
+          "vtableSlot": 3,
           "interface": "IDirect3DDevice9",
-          "vtableSlot": 17,
-          "arguments": [
-            16842756,
-            0,
-            0,
-            0,
-            0
-          ],
-          "result": {
-            "kind": "h-result",
-            "value": 0
-          },
-          "returnAddress": 268810161,
-          "stackPointerBefore": 7321744,
-          "stackPointerAfter": 7321768,
-          "referenceCount": 5,
-          "objectRetired": false,
-          "guestWrites": [],
-          "graphicsDevice": {
-            "id": 3,
-            "namespace": "vine.logical-graphics-device.v1",
-            "frontend": "d3d9",
-            "windowId": 1,
-            "windowHandle": 1208025089,
-            "ownerThreadId": 8192,
-            "presentation": {
-              "width": 1280,
-              "height": 720,
-              "colorFormat": "b8g8r8x8-unorm",
-              "backBufferCount": 1,
-              "sampleCount": 1,
-              "presentMode": "discard",
-              "windowed": true
-            },
-            "comObjectId": "21",
-            "renderStates": {
-              "cullMode": "none",
-              "depthTestEnabled": false,
-              "lightingEnabled": false,
-              "alphaBlendEnabled": true
-            },
-            "samplerStates": {
-              "samplerZero": {
-                "minFilter": "linear",
-                "magFilter": "linear"
-              }
-            },
-            "textureStageStates": {
-              "stageZero": {
-                "colorOperation": "modulate",
-                "colorArgumentOne": "texture",
-                "colorArgumentTwo": "diffuse",
-                "alphaOperation": "select-argument-one",
-                "alphaArgumentOne": "texture",
-                "alphaArgumentTwo": "diffuse"
-              }
-            },
-            "textureBindings": {
-              "stageZero": 8
-            },
-            "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
-            "streamSources": {
-              "streamZero": {
-                "vertexBufferId": 3,
-                "offsetInBytes": 0,
-                "stride": 28
-              }
-            },
-            "backBuffer": {
-              "contentGeneration": 12
-            },
-            "presentedFrame": {
-              "sequence": 4,
-              "backBuffer": {
-                "contentGeneration": 11,
-                "uniformClear": {
-                  "sequence": 4,
-                  "rect": {
-                    "left": 0,
-                    "top": 0,
-                    "right": 1280,
-                    "bottom": 720
-                  },
-                  "colorArgb": 4278190080
-                },
-                "drawSubmissions": [
-                  {
-                    "sequence": 4,
-                    "sceneSequence": 4,
-                    "primitiveTopology": "triangle-strip",
-                    "startVertex": 0,
-                    "primitiveCount": 2,
-                    "vertexCount": 4,
-                    "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
-                    "streamSource": {
-                      "vertexBufferId": 3,
-                      "offsetInBytes": 0,
-                      "stride": 28
-                    },
-                    "vertexBufferContentGeneration": 1,
-                    "vertexData": [
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      128,
-                      63,
-                      255,
-                      255,
-                      255,
-                      0,
-                      0,
-                      0,
-                      128,
-                      57,
-                      0,
-                      0,
-                      0,
-                      58,
-                      0,
-                      0,
-                      160,
-                      68,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      128,
-                      63,
-                      255,
-                      255,
-                      255,
-                      0,
-                      0,
-                      16,
-                      32,
-                      63,
-                      0,
-                      0,
-                      0,
-                      58,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      52,
-                      68,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      128,
-                      63,
-                      255,
-                      255,
-                      255,
-                      0,
-                      0,
-                      0,
-                      128,
-                      57,
-                      0,
-                      32,
-                      52,
-                      63,
-                      0,
-                      0,
-                      160,
-                      68,
-                      0,
-                      0,
-                      52,
-                      68,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      128,
-                      63,
-                      255,
-                      255,
-                      255,
-                      0,
-                      0,
-                      16,
-                      32,
-                      63,
-                      0,
-                      32,
-                      52,
-                      63
-                    ],
-                    "renderStates": {
-                      "cullMode": "none",
-                      "depthTestEnabled": false,
-                      "lightingEnabled": false,
-                      "alphaBlendEnabled": true
-                    },
-                    "samplerStates": {
-                      "samplerZero": {
-                        "minFilter": "linear",
-                        "magFilter": "linear"
-                      }
-                    },
-                    "textureStageStates": {
-                      "stageZero": {
-                        "colorOperation": "modulate",
-                        "colorArgumentOne": "texture",
-                        "colorArgumentTwo": "diffuse",
-                        "alphaOperation": "select-argument-one",
-                        "alphaArgumentOne": "texture",
-                        "alphaArgumentTwo": "diffuse"
-                      }
-                    },
-                    "texture": {
-                      "textureId": 8,
-                      "descriptor": {
-                        "width": 2048,
-                        "height": 1024,
-                        "levels": 1,
-                        "usage": "none",
-                        "colorFormat": "b8g8r8x8-unorm",
-                        "pool": "default"
-                      },
-                      "generation": 48,
-                      "content": {
-                        "contentGeneration": 4,
-                        "fills": [],
-                        "pixelSource": {
-                          "sourceTextureId": 7,
-                          "sourceContentGeneration": 4,
-                          "range": {
-                            "start": 1140854784,
-                            "byteLength": 8388608
-                          },
-                          "rowPitch": 8192
-                        },
-                        "lastUpdate": {
-                          "sequence": 4,
-                          "sourceTextureId": 7,
-                          "sourceContentGeneration": 4,
-                          "dirtyRegion": {
-                            "kind": "rect",
-                            "rect": {
-                              "left": 583,
-                              "top": 530,
-                              "right": 1260,
-                              "bottom": 582
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                ]
-              }
-            },
-            "generation": 74
-          }
-        }
+          "method": "TestCooperativeLevel"
+        },
+        "memoryContentSha256": "cdbfdd820c96f520438bfd9eac89c39da2d7662d41cff9c4656765dc4fbec2b8",
+        "nextArguments": [
+          16842756
+        ],
+        "nextReturnAddress": 268807629,
+        "nextStackPointer": 7338228
       },
-      "writebackBatches": 286066,
+      "writebackBatches": 286067,
       "hostDeltaBatches": 143088
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 282868,
-      "callSemanticsSha256": "6ea6d734b05727424bd80ce6e7b0604a3a6ede3908552b72f9e1088c291e2afc",
-      "instructions": 392354190,
-      "finalGeneration": 355959,
-      "memoryContentSha256": "3ac81c564469a3818fd7e5966703e6d31c75969d8217553ea57979f832d2794c",
+      "supportedCalls": 282869,
+      "callSemanticsSha256": "5f224f94086095c739923b53509fe4e33c65fd11d63ec7c352044c42f7705dc8",
+      "instructions": 392354323,
+      "finalGeneration": 355960,
+      "memoryContentSha256": "cdbfdd820c96f520438bfd9eac89c39da2d7662d41cff9c4656765dc4fbec2b8",
       "checkpointCompletion": {
-        "capability": "d3d9-present-post-raster-status",
-        "implementationId": "runtime.d3d9-present-post-raster-status.v1",
+        "capability": "winmm-time-get-time-post-present",
+        "implementationId": "runtime.winmm-time-get-time-post-present.v1",
+        "semanticImplementationId": "winmm.time-get-time.v1",
         "requiredCompletions": 1,
         "completionCount": 1,
-        "prerequisiteRasterStatusSequence": 282867,
-        "prerequisiteRasterStatusInstructionCount": 392354146,
-        "firstCompletionSequence": 282868,
-        "firstCompletionInstructionCount": 392354183,
-        "lastCompletionSequence": 282868,
-        "lastCompletionInstructionCount": 392354183,
+        "prerequisitePresentSequence": 282868,
+        "prerequisitePresentInstructionCount": 392354183,
+        "firstCompletionSequence": 282869,
+        "firstCompletionInstructionCount": 392354190,
+        "lastCompletionSequence": 282869,
+        "lastCompletionInstructionCount": 392354190,
         "call": {
-          "sequence": 282868,
-          "module": "<com>",
-          "symbol": "IDirect3DDevice9.Present",
-          "interface": "IDirect3DDevice9",
-          "vtableSlot": 17,
-          "arguments": [
-            16842756,
-            0,
-            0,
-            0,
-            0
-          ],
+          "sequence": 282869,
+          "module": "winmm.dll",
+          "symbol": "timeGetTime",
+          "arguments": [],
           "result": {
-            "kind": "h-result",
-            "value": 0
+            "action": "set",
+            "value": 3800773
           },
-          "returnAddress": 268810161,
-          "stackPointerBefore": 7321744,
-          "stackPointerAfter": 7321768,
-          "referenceCount": 5,
-          "objectRetired": false,
+          "implementationId": "winmm.time-get-time.v1",
+          "returnAddress": 269033151,
+          "stackPointerBefore": 7321760,
+          "stackPointerAfter": 7321764,
+          "lastError": 0,
           "guestWrites": [],
-          "graphicsDevice": {
-            "backBuffer": {
-              "contentGeneration": 12
+          "tickCount": {
+            "clockProfileId": "scheduled-shared-logical-deadline-v1",
+            "incrementPerRead": 0,
+            "nextTickCount": 3800773,
+            "returnedTickCount": 3800773,
+            "scheduledExecutionClock": {
+              "pendingRetiredInstructions": 190,
+              "retiredInstructions": 392354190,
+              "retiredInstructionsPerSecond": 2000000
             },
-            "comObjectId": "21",
-            "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
-            "frontend": "d3d9",
-            "generation": 74,
-            "id": 3,
-            "namespace": "vine.logical-graphics-device.v1",
-            "ownerThreadId": 8192,
-            "presentation": {
-              "backBufferCount": 1,
-              "colorFormat": "b8g8r8x8-unorm",
-              "height": 720,
-              "presentMode": "discard",
-              "sampleCount": 1,
-              "width": 1280,
-              "windowed": true
-            },
-            "presentedFrame": {
-              "backBuffer": {
-                "contentGeneration": 11,
-                "drawSubmissions": [
-                  {
-                    "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
-                    "primitiveCount": 2,
-                    "primitiveTopology": "triangle-strip",
-                    "renderStates": {
-                      "alphaBlendEnabled": true,
-                      "cullMode": "none",
-                      "depthTestEnabled": false,
-                      "lightingEnabled": false
-                    },
-                    "samplerStates": {
-                      "samplerZero": {
-                        "magFilter": "linear",
-                        "minFilter": "linear"
-                      }
-                    },
-                    "sceneSequence": 4,
-                    "sequence": 4,
-                    "startVertex": 0,
-                    "streamSource": {
-                      "offsetInBytes": 0,
-                      "stride": 28,
-                      "vertexBufferId": 3
-                    },
-                    "texture": {
-                      "content": {
-                        "contentGeneration": 4,
-                        "fills": [],
-                        "lastUpdate": {
-                          "dirtyRegion": {
-                            "kind": "rect",
-                            "rect": {
-                              "bottom": 582,
-                              "left": 583,
-                              "right": 1260,
-                              "top": 530
-                            }
-                          },
-                          "sequence": 4,
-                          "sourceContentGeneration": 4,
-                          "sourceTextureId": 7
-                        },
-                        "pixelSource": {
-                          "range": {
-                            "byteLength": 8388608,
-                            "start": 1140854784
-                          },
-                          "rowPitch": 8192,
-                          "sourceContentGeneration": 4,
-                          "sourceTextureId": 7
-                        }
-                      },
-                      "descriptor": {
-                        "colorFormat": "b8g8r8x8-unorm",
-                        "height": 1024,
-                        "levels": 1,
-                        "pool": "default",
-                        "usage": "none",
-                        "width": 2048
-                      },
-                      "generation": 48,
-                      "textureId": 8
-                    },
-                    "textureStageStates": {
-                      "stageZero": {
-                        "alphaArgumentOne": "texture",
-                        "alphaArgumentTwo": "diffuse",
-                        "alphaOperation": "select-argument-one",
-                        "colorArgumentOne": "texture",
-                        "colorArgumentTwo": "diffuse",
-                        "colorOperation": "modulate"
-                      }
-                    },
-                    "vertexBufferContentGeneration": 1,
-                    "vertexCount": 4,
-                    "vertexData": [
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      128,
-                      63,
-                      255,
-                      255,
-                      255,
-                      0,
-                      0,
-                      0,
-                      128,
-                      57,
-                      0,
-                      0,
-                      0,
-                      58,
-                      0,
-                      0,
-                      160,
-                      68,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      128,
-                      63,
-                      255,
-                      255,
-                      255,
-                      0,
-                      0,
-                      16,
-                      32,
-                      63,
-                      0,
-                      0,
-                      0,
-                      58,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      52,
-                      68,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      128,
-                      63,
-                      255,
-                      255,
-                      255,
-                      0,
-                      0,
-                      0,
-                      128,
-                      57,
-                      0,
-                      32,
-                      52,
-                      63,
-                      0,
-                      0,
-                      160,
-                      68,
-                      0,
-                      0,
-                      52,
-                      68,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      128,
-                      63,
-                      255,
-                      255,
-                      255,
-                      0,
-                      0,
-                      16,
-                      32,
-                      63,
-                      0,
-                      32,
-                      52,
-                      63
-                    ]
-                  }
-                ],
-                "uniformClear": {
-                  "colorArgb": 4278190080,
-                  "rect": {
-                    "bottom": 720,
-                    "left": 0,
-                    "right": 1280,
-                    "top": 0
-                  },
-                  "sequence": 4
-                }
-              },
-              "sequence": 4
-            },
-            "renderStates": {
-              "alphaBlendEnabled": true,
-              "cullMode": "none",
-              "depthTestEnabled": false,
-              "lightingEnabled": false
-            },
-            "samplerStates": {
-              "samplerZero": {
-                "magFilter": "linear",
-                "minFilter": "linear"
-              }
-            },
-            "streamSources": {
-              "streamZero": {
-                "offsetInBytes": 0,
-                "stride": 28,
-                "vertexBufferId": 3
-              }
-            },
-            "textureBindings": {
-              "stageZero": 8
-            },
-            "textureStageStates": {
-              "stageZero": {
-                "alphaArgumentOne": "texture",
-                "alphaArgumentTwo": "diffuse",
-                "alphaOperation": "select-argument-one",
-                "colorArgumentOne": "texture",
-                "colorArgumentTwo": "diffuse",
-                "colorOperation": "modulate"
-              }
-            },
-            "windowHandle": 1208025089,
-            "windowId": 1
+            "timerClock": {
+              "currentTime100ns": 2007730000,
+              "generation": 16308
+            }
           },
-          "browserPresentation": {
-            "backend": "webgl2-offscreen-canvas",
-            "resource": {
-              "id": "browser-resource:1",
-              "kind": "d3d9-webgl2-device",
-              "binding": {
-                "objectId": "21",
-                "interfaceId": "42",
-                "interfaceName": "IDirect3DDevice9"
-              }
-            },
-            "browserResourceCount": 1,
-            "deviceId": 3,
-            "deviceGeneration": 74,
-            "frameSequence": 4,
-            "presentedContentGeneration": 11,
-            "discardedBackBufferContentGeneration": 12,
-            "width": 1280,
-            "height": 720,
-            "drawSubmissionCount": 1,
-            "uploadedTextureBytes": 8388608,
-            "uploadedVertexBytes": 112,
-            "centerPixelRgba": [
-              0,
-              0,
-              0,
-              255
-            ],
-            "webGlError": 0,
-            "capacityPreflightBeforeGuestExecution": true,
-            "bindingPublishedAfterSnapshotValidation": true,
-            "renderedBeforeGuestResume": true
-          }
+          "occurrence": 479,
+          "trapInstructionCount": 392354190
         },
-        "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
-        "presentProfileId": "primary-first-frame-full-back-buffer-present-v1",
-        "frameAuthority": "rust-runtime-graphics-logical-device-presented-frame",
-        "browserResourceAuthority": "typescript-browser-resource-table",
-        "mutation": "validate-plan-preflight-targeted-commit",
-        "presentMode": "discard",
-        "sourceRectImplemented": false,
-        "destinationRectImplemented": false,
-        "destinationWindowOverrideImplemented": false,
-        "dirtyRegionImplemented": false,
+        "clockProfileId": "scheduled-shared-logical-deadline-v1",
+        "clockAuthority": "runtime/process.rs::RuntimeProcessState",
+        "clockRelation": "shared-with-kernel32-get-tick-count",
+        "returnedTickCount": 3800773,
+        "nextTickCount": 3800773,
+        "incrementPerRead": 0,
+        "apiReadsAdvanceClock": false,
+        "timerClock": {
+          "currentTime100ns": 2007730000,
+          "generation": 16308
+        },
+        "scheduledExecutionClock": {
+          "retiredInstructions": 392354190,
+          "pendingRetiredInstructions": 190,
+          "retiredInstructionsPerSecond": 2000000
+        },
+        "timerResolutionAffectsSampledClock": false,
+        "lastErrorPolicy": "preserve",
+        "runtimeStateMutation": false,
         "failureAtomicity": true,
-        "logicalGraphicsDeviceId": 3,
-        "logicalGraphicsComObjectId": "21",
-        "logicalGraphicsDeviceGeneration": 74,
-        "presentedFrameSequence": 4,
-        "presentedContentGeneration": 11,
-        "discardedBackBufferContentGeneration": 12,
-        "backBufferClearSequence": 4,
-        "drawSubmissionCount": 1,
-        "drawSubmissionSequence": 4,
-        "drawSubmissionSceneSequence": 4,
-        "textureId": 8,
-        "textureContentGeneration": 4,
-        "browserRendererResourceMaterialized": true,
-        "browserRendererResourceId": "browser-resource:1",
-        "browserRendererResourceCount": 1,
-        "browserRendererResourceReused": true,
-        "browserCapacityPreflightBeforeGuestExecution": true,
-        "browserBindingPublishedAfterSnapshotValidation": true,
-        "uploadedTextureBytes": 8388608,
-        "uploadedVertexBytes": 112,
-        "centerPixelRgba": [
-          0,
-          0,
-          0,
-          255
-        ],
-        "webGlError": 0,
-        "renderedBeforeGuestResume": true,
-        "visiblePixelsProduced": true,
-        "asynchronousDeviceLossRecoveryImplemented": false,
+        "hostClockImported": false,
+        "browserClockImported": false,
         "activeCallbackDepthAtCompletion": 0,
-        "instructionCount": 392354190,
+        "instructionCount": 392354323,
         "nextEndpoint": {
-          "id": 8,
-          "address": 2130706544,
-          "module": "WINMM.dll",
+          "id": 0,
+          "address": 16846944,
+          "module": "<com>",
           "symbol": {
             "kind": "name",
-            "name": "timeGetTime"
+            "name": "interface-1-slot-3"
           },
-          "disposition": "declared-runtime-export",
-          "iatAddress": 269292772
+          "disposition": "declared-com-method",
+          "interfaceIndex": 1,
+          "vtableSlot": 3,
+          "interface": "IDirect3DDevice9",
+          "method": "TestCooperativeLevel"
         },
-        "memoryContentSha256": "3ac81c564469a3818fd7e5966703e6d31c75969d8217553ea57979f832d2794c",
-        "nextReturnAddress": 269033151,
-        "nextStackPointer": 7321760
+        "nextArguments": [
+          16842756
+        ],
+        "memoryContentSha256": "cdbfdd820c96f520438bfd9eac89c39da2d7662d41cff9c4656765dc4fbec2b8",
+        "nextReturnAddress": 268807629,
+        "nextStackPointer": 7338228
       },
-      "wasmBridgeCalls": 756271,
+      "wasmBridgeCalls": 756274,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 955488,
+          "transitionCount": 955491,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -870,11 +321,11 @@
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
       "classification": "semantic-leaf",
-      "nextCheckpoint": "winmm-time-get-time-post-present",
-      "pausedHistoricalCheckpoint": "d3d9-present-post-raster-status",
-      "instructionCount": 392354190,
-      "capabilityCluster": "winmm-api-contract",
-      "reason": "d3d9-present-post-raster-status-checkpoint-complete",
+      "nextCheckpoint": "d3d9-test-cooperative-level-post-time-get-time",
+      "pausedHistoricalCheckpoint": "winmm-time-get-time-post-present",
+      "instructionCount": 392354323,
+      "capabilityCluster": "d3d9-idirect3ddevice9-method",
+      "reason": "winmm-time-get-time-post-present-checkpoint-complete",
       "historicalOutlineTextMetricsCheckpoint": {
         "capability": "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
         "implementationId": "runtime.gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336.v1",
@@ -1482,7 +933,7 @@
         "nextReturnAddress": 268810161,
         "nextStackPointer": 7321744
       },
-      "completion": {
+      "prerequisitePresentCheckpoint": {
         "capability": "d3d9-present-post-raster-status",
         "implementationId": "runtime.d3d9-present-post-raster-status.v1",
         "requiredCompletions": 1,
@@ -1543,25 +994,69 @@
         "nextReturnAddress": 269033151,
         "nextStackPointer": 7321760
       },
+      "completion": {
+        "capability": "winmm-time-get-time-post-present",
+        "implementationId": "runtime.winmm-time-get-time-post-present.v1",
+        "semanticImplementationId": "winmm.time-get-time.v1",
+        "requiredCompletions": 1,
+        "completionCount": 1,
+        "prerequisitePresentSequence": 282868,
+        "prerequisitePresentInstructionCount": 392354183,
+        "firstCompletionSequence": 282869,
+        "firstCompletionInstructionCount": 392354190,
+        "lastCompletionSequence": 282869,
+        "lastCompletionInstructionCount": 392354190,
+        "clockProfileId": "scheduled-shared-logical-deadline-v1",
+        "clockAuthority": "runtime/process.rs::RuntimeProcessState",
+        "clockRelation": "shared-with-kernel32-get-tick-count",
+        "returnedTickCount": 3800773,
+        "nextTickCount": 3800773,
+        "incrementPerRead": 0,
+        "apiReadsAdvanceClock": false,
+        "timerClock": {
+          "currentTime100ns": 2007730000,
+          "generation": 16308
+        },
+        "scheduledExecutionClock": {
+          "retiredInstructions": 392354190,
+          "pendingRetiredInstructions": 190,
+          "retiredInstructionsPerSecond": 2000000
+        },
+        "timerResolutionAffectsSampledClock": false,
+        "lastErrorPolicy": "preserve",
+        "runtimeStateMutation": false,
+        "failureAtomicity": true,
+        "hostClockImported": false,
+        "browserClockImported": false,
+        "activeCallbackDepthAtCompletion": 0,
+        "instructionCount": 392354323,
+        "memoryContentSha256": "cdbfdd820c96f520438bfd9eac89c39da2d7662d41cff9c4656765dc4fbec2b8",
+        "nextReturnAddress": 268807629,
+        "nextStackPointer": 7338228
+      },
       "nextEndpoint": {
-        "endpointKind": "runtime-system-export",
-        "endpointId": 8,
-        "api": "WINMM.dll!timeGetTime",
-        "endpointAddress": "0x7f000070",
-        "iatAddress": "0x100d14e4",
-        "observedModule": "WINMM.dll",
-        "observedSymbol": "timeGetTime",
-        "id": 8,
-        "address": 2130706544,
-        "module": "WINMM.dll",
+        "endpointKind": "com-method",
+        "endpointId": 0,
+        "api": "IDirect3DDevice9!TestCooperativeLevel",
+        "endpointAddress": "0x01011060",
+        "observedModule": "<com>",
+        "observedSymbol": "interface-1-slot-3",
+        "id": 0,
+        "address": 16846944,
+        "module": "<com>",
         "symbol": {
           "kind": "name",
-          "name": "timeGetTime"
+          "name": "interface-1-slot-3"
         },
-        "disposition": "declared-runtime-export",
+        "disposition": "declared-com-method",
+        "interfaceIndex": 1,
+        "vtableSlot": 3,
+        "interface": "IDirect3DDevice9",
+        "method": "TestCooperativeLevel",
+        "thisPointer": "0x01010004",
         "arguments": [],
-        "returnAddress": "0x10091ebf",
-        "stackPointer": "0x006fb8a0"
+        "returnAddress": "0x1005adcd",
+        "stackPointer": "0x006ff8f4"
       },
       "historicalFollowingFault": {
         "class": "unsupported",
@@ -1604,14 +1099,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-d3d9-present-post-raster-status/report.json",
-      "bytes": 2635602,
-      "sha256": "6e9a6c226acb4c79154295ed7193c18ad1ad10359eff252e27d0d6d502addd05"
+      "path": ".work/v86-bgi-time-get-time-post-present/report.json",
+      "bytes": 2628414,
+      "sha256": "5f948dd0296917638de00a0cab8aad9c0a740c6a1a99efe29b521353f0ddaa15"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2632301,
-      "sha256": "671cbc4ab94e39d237f7ffeb6658398a1ffa214855f1f0e41245f4c0a8cb33d8"
+      "bytes": 2622686,
+      "sha256": "950aef2a722ae5338e709c1735117f2cde17cf8bf811eedc8c8d12c1d3dc35ab"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -1626,7 +1121,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3768,
-      "sha256": "ec5f7b4eadcb2c19cbdfe6dfe24ebad429cb1e90a07aebb93fa0dd3748d33185"
+      "sha256": "4156c9ef4ff66babd0e08ecd27a6ac0607258fdfacb22f2cc5413bcc4f66d5ec"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -1663,5 +1158,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "836f0c5bee278dbf57fb2143904838cd9ec423bb141b9f07fed85e43ac3e2873"
+  "payloadSha256": "3a9ecb6cdfdfcf422f74bd039eb4ac51ddc3fffd81575111e86bfe23e5e90a58"
 }
