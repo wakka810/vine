@@ -3640,7 +3640,7 @@ function assertScheduledSharedClockReportSemantics({
     assert.equal(peekCall.guestWrites[0].result.bytesWritten, 28);
     assert.equal(peekCall.guestWrites[0].result.dirtyPages, 1);
     assert.equal(
-      waitForSingleObjectEx.checkpointCompletion.lastCompletionSequence,
+      waitForSingleObjectEx.call.sequence,
       expectedNext.prerequisiteWaitForSingleObjectExCheckpoint
         .lastCompletionSequence,
     );
