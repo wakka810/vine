@@ -986,6 +986,10 @@ Back-buffer clear／draw content、resource binding、COM refcount、guest memor
 device、stale／duplicate planはmutation前に`D3DERR_INVALIDCALL`またはtyped stale faultとなり、scene allocatorと全generationを
 部分更新しない。これによりscene lifecycleはRust authorityのまま閉じ、後続renderer／Present gatewayは閉じたsceneの
 immutable back-buffer snapshotを明示的に消費できる。
+4回目のsceneで再到達したEndSceneもこのtransactionを再利用し、active scene sequence 4だけをclearして
+device generation 73へ進める。Submission sequence 4、back-buffer content generation 11、texture content
+generation 4、presented frame sequence 3は保持し、後続`GetRasterStatus`へ渡す。Browser renderer resourceや
+visible pixelはこのscene-close commitのauthorityに含めない。
 
 Reached `Present(NULL,NULL,NULL,NULL)`はlive COM-to-device relation、closed scene、clear／draw content、device／content／
 graphics／Present generationをmutation-free planへ固定する。全capacityとgenerationをpreflightした後、旧back bufferを

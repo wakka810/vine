@@ -354,6 +354,14 @@ at `0x500FE000` while the API-created thread reaches its stack guard.
 Generations, report hashes, timing, and exact artifact identities remain
 manifest-owned evidence rather than guest semantics.
 
+Protocol version 117／BGI report schema 83 extends the active primary replay
+through fourth-scene `EndScene`. Node and Chrome agree on sequence 282,866 at
+instruction 392,354,089, active-scene clearance, device generation 73,
+preserved immutable submission 4 and back-buffer content generation 11, zero
+guest writes, and no renderer resource or visible pixel. Both complete at
+instruction 392,354,146 before `IDirect3DDevice9::GetRasterStatus` slot 19 at
+`0x01011160`; the following output semantics are not claimed by this profile.
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk
@@ -409,8 +417,8 @@ fingerprint before and after execution.
   fixed-function state, the initial plus fourth-scene SetTexture calls use the same non-owning Rust-owned binding, and the
   initial plus fourth-scene SetFVF calls use the same Rust-owned typed vertex format. The initial plus fourth-scene
   SetStreamSource calls use the same exact non-owning stream-0／offset-0／stride-28 relation, the initial plus fourth-scene
-  DrawPrimitive calls append bounded owning immutable Rust draw submissions, and EndScene
-  closes the matching Rust-owned scene while preserving that submission. Other scene variants,
+  DrawPrimitive calls append bounded owning immutable Rust draw submissions, and the initial plus fourth-scene
+  EndScene calls close their matching Rust-owned scenes while preserving those submissions. Other scene variants,
   other sampler／state／filter variants, the three rejected render states, other
   texture-stage／binding variants, other vertex formats, other stream bindings,
   NULL stream unbind, other draws, partial／redirected／dirty-region Present,

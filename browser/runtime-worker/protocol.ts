@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 116 as const;
+export const protocolVersion = 117 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -33,6 +33,7 @@ export type BgiCapabilityProfile =
   | "d3d9-set-fvf-post-texture-binding"
   | "d3d9-set-stream-source-post-fvf"
   | "d3d9-draw-primitive-post-stream-source"
+  | "d3d9-end-scene-post-draw-primitive"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1845,6 +1846,47 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "d3d9-end-scene-post-draw-primitive";
+        implementationId: "runtime.d3d9-end-scene-post-draw-primitive.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        prerequisiteDrawPrimitiveSequence: number;
+        prerequisiteDrawPrimitiveInstructionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        call: RuntimeSupportedCallSnapshot;
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33";
+        endSceneProfileId: "primary-first-frame-scene-end-v1";
+        sceneAuthority: "rust-runtime-graphics-logical-device-active-scene";
+        lifecycle: "active-to-inactive";
+        mutation: "validate-plan-preflight-targeted-commit";
+        preservesDrawSubmissions: true;
+        repeatedEndReturnsInvalidCall: true;
+        failureAtomicity: true;
+        logicalGraphicsDeviceId: 3;
+        logicalGraphicsComObjectId: "21";
+        logicalGraphicsDeviceGeneration: 73;
+        activeSceneCleared: true;
+        backBufferContentGeneration: 11;
+        backBufferClearSequence: 4;
+        drawSubmissionCount: 1;
+        drawSubmissionSequence: 4;
+        drawSubmissionSceneSequence: 4;
+        textureId: 8;
+        textureContentGeneration: 4;
+        presentedFrameSequence: 3;
+        browserRendererResourceCreated: false;
+        visiblePixelsProduced: false;
+        activeCallbackDepthAtCompletion: 0;
+        instructionCount: number;
+        nextEndpoint: unknown;
+        memoryContentSha256: string;
+        nextReturnAddress: number;
+        nextStackPointer: number;
+      }
     | {
         capability: "d3d9-draw-primitive-post-stream-source";
         implementationId: "runtime.d3d9-draw-primitive-post-stream-source.v1";

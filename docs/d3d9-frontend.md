@@ -1010,6 +1010,16 @@ endpoint at `0x01011160`, mapped through the stable D3D9 vtable as
 `IDirect3DDevice9::GetRasterStatus` slot 19. The intervening normal wait loop is
 not treated as an unsupported API.
 
+The `d3d9-end-scene-post-draw-primitive` profile reuses this lifecycle
+transaction after fourth-scene submission sequence 4. Node and Chrome complete
+sequence 282,866 at instruction 392,354,089, clear active scene 4, and advance
+device generation from 72 to 73 while preserving back-buffer content generation
+11, Clear sequence 4, draw submission／scene sequence 4, texture 8 content
+generation 4, and presented frame sequence 3. Reference count 5, guest memory,
+renderer resources, and visible pixels remain unchanged. The versioned
+capability completes at instruction 392,354,146 before device slot 19
+`GetRasterStatus(0,0x006FB890)`, endpoint `0x01011160`.
+
 ## Bounded first-frame Present
 
 Version 30 adds `primary-first-frame-full-back-buffer-present-v1` for device
@@ -1227,7 +1237,10 @@ preserves the active fourth scene and prior fixed-function state, and stops at
 `d3d9-draw-primitive-post-stream-source` profile then validates that complete
 fixed-function state, synchronously snapshots 112 authoritative vertex bytes
 plus texture content generation 4, appends immutable submission sequence 4,
-and stops at `IDirect3DDevice9::EndScene` slot 42. The historical
+and stops at `IDirect3DDevice9::EndScene` slot 42. The
+`d3d9-end-scene-post-draw-primitive` profile then closes active scene 4 through
+the same targeted lifecycle commit, preserves submission sequence 4, and stops
+at `IDirect3DDevice9::GetRasterStatus` slot 19. The historical
 `d3d9-initial-sampler-states` profile enables only the exact sampler-0 MIN／MAG
 linear transitions, explicitly rejects the following three unprofiled render
 states, and stops at `IDirect3DDevice9::SetTextureStageState` slot 67. The historical

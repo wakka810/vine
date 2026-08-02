@@ -261,6 +261,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-set-fvf-post-texture-binding",
         "d3d9-set-stream-source-post-fvf",
         "d3d9-draw-primitive-post-stream-source",
+        "d3d9-end-scene-post-draw-primitive",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
@@ -481,6 +482,7 @@ assert(
       "d3d9-set-fvf-post-texture-binding",
       "d3d9-set-stream-source-post-fvf",
       "d3d9-draw-primitive-post-stream-source",
+      "d3d9-end-scene-post-draw-primitive",
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
       "user32-set-window-pos-frame-change-move",
@@ -540,7 +542,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-set-texture-post-texture-stage-state" ||
     genericRuntimeCapability === "d3d9-set-fvf-post-texture-binding" ||
     genericRuntimeCapability === "d3d9-set-stream-source-post-fvf" ||
-    genericRuntimeCapability === "d3d9-draw-primitive-post-stream-source"
+    genericRuntimeCapability === "d3d9-draw-primitive-post-stream-source" ||
+    genericRuntimeCapability === "d3d9-end-scene-post-draw-primitive"
       ? "kernel32-delete-file-a-v1.json"
       : genericRuntimeCapability === "kernel32-find-first-file-a"
       ? "kernel32-find-file-a-v1.json"
@@ -1075,9 +1078,14 @@ const d3d9SetStreamSourcePostFvfCheckpointEnabled =
   genericRuntimeCapability === "d3d9-set-stream-source-post-fvf";
 const d3d9DrawPrimitivePostStreamSourceCheckpointEnabled =
   genericRuntimeCapability === "d3d9-draw-primitive-post-stream-source";
+const d3d9EndScenePostDrawPrimitiveCheckpointEnabled =
+  genericRuntimeCapability === "d3d9-end-scene-post-draw-primitive";
+const d3d9DrawPrimitivePostStreamSourceEvidenceEnabled =
+  d3d9DrawPrimitivePostStreamSourceCheckpointEnabled ||
+  d3d9EndScenePostDrawPrimitiveCheckpointEnabled;
 const d3d9SetStreamSourcePostFvfEvidenceEnabled =
   d3d9SetStreamSourcePostFvfCheckpointEnabled ||
-  d3d9DrawPrimitivePostStreamSourceCheckpointEnabled;
+  d3d9DrawPrimitivePostStreamSourceEvidenceEnabled;
 const d3d9SetFvfPostTextureBindingEvidenceEnabled =
   d3d9SetFvfPostTextureBindingCheckpointEnabled ||
   d3d9SetStreamSourcePostFvfEvidenceEnabled;
@@ -2024,7 +2032,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? d3d9DrawPrimitivePostStreamSourceCheckpointEnabled
+    ? d3d9EndScenePostDrawPrimitiveCheckpointEnabled
+      ? "v86-bgi-d3d9-end-scene-post-draw-primitive"
+      : d3d9DrawPrimitivePostStreamSourceCheckpointEnabled
       ? "v86-bgi-d3d9-draw-primitive-post-stream-source"
       : d3d9SetStreamSourcePostFvfCheckpointEnabled
       ? "v86-bgi-d3d9-set-stream-source-post-fvf"
@@ -6641,6 +6651,11 @@ async function run() {
       });
       if (genericRuntimeCapability === null) {
         validateGenericRuntimeReentryResult(genericResult);
+      } else if (d3d9EndScenePostDrawPrimitiveCheckpointEnabled) {
+        validateD3d9EndScenePostDrawPrimitiveResult(
+          genericResult,
+          sourceRegistration,
+        );
       } else if (d3d9DrawPrimitivePostStreamSourceCheckpointEnabled) {
         validateD3d9DrawPrimitivePostStreamSourceResult(
           genericResult,
@@ -7036,6 +7051,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : d3d9EndScenePostDrawPrimitiveCheckpointEnabled
+            ? "bgi D3D9 EndScene after later DrawPrimitive"
           : d3d9DrawPrimitivePostStreamSourceCheckpointEnabled
             ? "bgi D3D9 DrawPrimitive after later SetStreamSource"
           : d3d9SetStreamSourcePostFvfCheckpointEnabled
@@ -9204,6 +9221,11 @@ async function runGenericRuntimeReentry({
         d3d9DrawPrimitivePostStreamSourceCheckpointEnabled &&
         checkpointCompletion.capability ===
           "d3d9-draw-primitive-post-stream-source"
+      ) &&
+      !(
+        d3d9EndScenePostDrawPrimitiveCheckpointEnabled &&
+        checkpointCompletion.capability ===
+          "d3d9-end-scene-post-draw-primitive"
       )
     ) {
       checkpointCompletion = null;
@@ -9219,6 +9241,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "d3d9-end-scene-post-draw-primitive"
+            ? "d3d9-end-scene-post-draw-primitive-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "d3d9-draw-primitive-post-stream-source"
             ? "d3d9-draw-primitive-post-stream-source-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -9435,7 +9460,14 @@ async function runGenericRuntimeReentry({
             checkpointCompletion.nextEndpoint.interfaceIndex =
               terminal.interfaceIndex;
             checkpointCompletion.nextEndpoint.vtableSlot = terminal.vtableSlot;
-            if (d3d9DrawPrimitivePostStreamSourceCheckpointEnabled) {
+            if (d3d9EndScenePostDrawPrimitiveCheckpointEnabled) {
+              assert.equal(endpoint.address, 0x0101_1160);
+              assert.equal(terminal.interfaceIndex, 1);
+              assert.equal(terminal.vtableSlot, 19);
+              checkpointCompletion.nextEndpoint.interface =
+                "IDirect3DDevice9";
+              checkpointCompletion.nextEndpoint.method = "GetRasterStatus";
+            } else if (d3d9DrawPrimitivePostStreamSourceCheckpointEnabled) {
               assert.equal(endpoint.address, 0x0101_12d0);
               assert.equal(terminal.interfaceIndex, 1);
               assert.equal(terminal.vtableSlot, 42);
@@ -11636,7 +11668,7 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
-      d3d9DrawPrimitivePostStreamSourceCheckpointEnabled &&
+      d3d9DrawPrimitivePostStreamSourceEvidenceEnabled &&
       call.interface === "IDirect3DDevice9" &&
       call.vtableSlot === 81 &&
       call.sequence === 282_865
@@ -11762,6 +11794,104 @@ async function runGenericRuntimeReentry({
         vertexBufferId: submission.streamSource.vertexBufferId,
         vertexBufferContentGeneration:
           submission.vertexBufferContentGeneration,
+        textureId: submission.texture.textureId,
+        textureContentGeneration:
+          submission.texture.content.contentGeneration,
+        presentedFrameSequence: device.presentedFrame?.sequence ?? null,
+        browserRendererResourceCreated: device.renderer !== undefined,
+        visiblePixelsProduced: false,
+        activeCallbackDepthAtCompletion: activeCallbacks.length,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
+    if (
+      d3d9EndScenePostDrawPrimitiveCheckpointEnabled &&
+      call.interface === "IDirect3DDevice9" &&
+      call.vtableSlot === 42 &&
+      call.sequence === 282_866
+    ) {
+      const drawCall = supportedCalls.find(
+        (candidate) =>
+          candidate.sequence === 282_865 &&
+          candidate.interface === "IDirect3DDevice9" &&
+          candidate.vtableSlot === 81,
+      );
+      assert.equal(checkpointCompletion, null);
+      assert(drawCall, "later EndScene omitted its DrawPrimitive prerequisite");
+      assert.equal(activeCallbacks.length, 0);
+      assert.equal(call.occurrence, 4);
+      assert.equal(call.trapInstructionCount, 392_354_089);
+      assert.deepEqual(call.arguments, [0x0101_0004]);
+      assert.deepEqual(call.result, { kind: "h-result", value: 0 });
+      assert.equal(call.returnAddress, 0x1005_b43b);
+      assert.equal(call.stackPointerBefore, 0x006f_b870);
+      assert.equal(call.stackPointerAfter, 0x006f_b878);
+      assert.equal(call.referenceCount, 5);
+      assert.equal(call.objectRetired, false);
+      assert.deepEqual(call.guestWrites, []);
+      const device = call.graphicsDevice;
+      assert(device, "later EndScene omitted its device snapshot");
+      const submissions = device.backBuffer.drawSubmissions ?? [];
+      const submission = submissions[0];
+      assert(submission, "later EndScene discarded its draw submission");
+      assert.equal(device.id, 3);
+      assert.equal(device.namespace, "vine.logical-graphics-device.v1");
+      assert.equal(device.frontend, "d3d9");
+      assert.equal(device.comObjectId, "21");
+      assert.equal(device.activeScene, undefined);
+      assert.deepEqual(device.textureBindings, { stageZero: 8 });
+      assert.equal(device.flexibleVertexFormat, "xyz-rhw-diffuse-texture1");
+      assert.deepEqual(device.streamSources?.streamZero, {
+        vertexBufferId: 3,
+        offsetInBytes: 0,
+        stride: 28,
+      });
+      assert.equal(device.generation, 73);
+      assert.equal(device.backBuffer.contentGeneration, 11);
+      assert.equal(device.backBuffer.uniformClear?.sequence, 4);
+      assert.equal(submissions.length, 1);
+      assert.equal(submission.sequence, 4);
+      assert.equal(submission.sceneSequence, 4);
+      assert.equal(submission.primitiveTopology, "triangle-strip");
+      assert.equal(submission.vertexData.length, 112);
+      assert.equal(submission.texture.textureId, 8);
+      assert.equal(submission.texture.content.contentGeneration, 4);
+      assert.equal(device.presentedFrame?.sequence, 3);
+      assert.equal(device.renderer, undefined);
+      checkpointCompletion = {
+        capability: "d3d9-end-scene-post-draw-primitive",
+        implementationId: "runtime.d3d9-end-scene-post-draw-primitive.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        prerequisiteDrawPrimitiveSequence: drawCall.sequence,
+        prerequisiteDrawPrimitiveInstructionCount:
+          drawCall.trapInstructionCount,
+        firstCompletionSequence: call.sequence,
+        firstCompletionInstructionCount: call.trapInstructionCount,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: call.trapInstructionCount,
+        call: structuredClone(call),
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33",
+        endSceneProfileId: "primary-first-frame-scene-end-v1",
+        sceneAuthority:
+          "rust-runtime-graphics-logical-device-active-scene",
+        lifecycle: "active-to-inactive",
+        mutation: "validate-plan-preflight-targeted-commit",
+        preservesDrawSubmissions: true,
+        repeatedEndReturnsInvalidCall: true,
+        failureAtomicity: true,
+        logicalGraphicsDeviceId: device.id,
+        logicalGraphicsComObjectId: device.comObjectId,
+        logicalGraphicsDeviceGeneration: device.generation,
+        activeSceneCleared: device.activeScene === undefined,
+        backBufferContentGeneration: device.backBuffer.contentGeneration,
+        backBufferClearSequence:
+          device.backBuffer.uniformClear?.sequence ?? null,
+        drawSubmissionCount: submissions.length,
+        drawSubmissionSequence: submission.sequence,
+        drawSubmissionSceneSequence: submission.sceneSequence,
         textureId: submission.texture.textureId,
         textureContentGeneration:
           submission.texture.content.contentGeneration,
@@ -28212,6 +28342,104 @@ function validateD3d9DrawPrimitivePostStreamSourceResult(
   assert.equal(result.activeCallbackDepth, 0);
 }
 
+function validateD3d9EndScenePostDrawPrimitiveResult(
+  result,
+  sourceRegistration,
+) {
+  assert(d3d9EndScenePostDrawPrimitiveCheckpointEnabled);
+  assert(sourceRegistration !== null);
+  assert.equal(result.supportedCalls.length, 282_866);
+  assert.equal(result.fault, null);
+  const completion = result.checkpointCompletion;
+  assert(completion, "later EndScene checkpoint completion is missing");
+  assert.equal(
+    completion.capability,
+    "d3d9-end-scene-post-draw-primitive",
+  );
+  assert.equal(
+    completion.implementationId,
+    "runtime.d3d9-end-scene-post-draw-primitive.v1",
+  );
+  assert.equal(completion.requiredCompletions, 1);
+  assert.equal(completion.completionCount, 1);
+  assert.equal(completion.prerequisiteDrawPrimitiveSequence, 282_865);
+  assert.equal(
+    completion.prerequisiteDrawPrimitiveInstructionCount,
+    392_354_081,
+  );
+  assert.equal(completion.firstCompletionSequence, 282_866);
+  assert.equal(completion.firstCompletionInstructionCount, 392_354_089);
+  assert.equal(completion.lastCompletionSequence, 282_866);
+  assert.equal(completion.lastCompletionInstructionCount, 392_354_089);
+  assert.equal(completion.call.sequence, 282_866);
+  assert.equal(
+    completion.compatibilityPolicyId,
+    "d3d9-primary-virtual-adapter-v33",
+  );
+  assert.equal(completion.endSceneProfileId, "primary-first-frame-scene-end-v1");
+  assert.equal(
+    completion.sceneAuthority,
+    "rust-runtime-graphics-logical-device-active-scene",
+  );
+  assert.equal(completion.lifecycle, "active-to-inactive");
+  assert.equal(
+    completion.mutation,
+    "validate-plan-preflight-targeted-commit",
+  );
+  assert.equal(completion.preservesDrawSubmissions, true);
+  assert.equal(completion.repeatedEndReturnsInvalidCall, true);
+  assert.equal(completion.failureAtomicity, true);
+  assert.equal(completion.logicalGraphicsDeviceId, 3);
+  assert.equal(completion.logicalGraphicsComObjectId, "21");
+  assert.equal(completion.logicalGraphicsDeviceGeneration, 73);
+  assert.equal(completion.activeSceneCleared, true);
+  assert.equal(completion.backBufferContentGeneration, 11);
+  assert.equal(completion.backBufferClearSequence, 4);
+  assert.equal(completion.drawSubmissionCount, 1);
+  assert.equal(completion.drawSubmissionSequence, 4);
+  assert.equal(completion.drawSubmissionSceneSequence, 4);
+  assert.equal(completion.textureId, 8);
+  assert.equal(completion.textureContentGeneration, 4);
+  assert.equal(completion.presentedFrameSequence, 3);
+  assert.equal(completion.browserRendererResourceCreated, false);
+  assert.equal(completion.visiblePixelsProduced, false);
+  assert.equal(completion.activeCallbackDepthAtCompletion, 0);
+  assert.equal(completion.instructionCount, 392_354_146);
+  assert.deepEqual(completion.nextEndpoint, {
+    id: 0,
+    address: 0x0101_1160,
+    module: "<com>",
+    symbol: { kind: "name", name: "interface-1-slot-19" },
+    disposition: "declared-com-method",
+    interfaceIndex: 1,
+    vtableSlot: 19,
+    interface: "IDirect3DDevice9",
+    method: "GetRasterStatus",
+  });
+  assert.equal(completion.nextReturnAddress, 0x1005_aedd);
+  assert.equal(completion.nextStackPointer, 0x006f_b878);
+  assert.equal(
+    completion.memoryContentSha256,
+    "876429740fedd52bf01c21cebd1cc1e912182c4df317d2109fcff631ed49b664",
+  );
+  assert.equal(result.terminal.initialInstructionCount, 392_354_089);
+  assert.equal(result.terminal.additionalInstructionCount, 57);
+  assert.equal(result.terminal.instructionCount, 392_354_146);
+  assert.equal(result.terminal.terminal.endpointAddress, 0x0101_1160);
+  assert.equal(result.terminal.terminal.interfaceIndex, 1);
+  assert.equal(result.terminal.terminal.vtableSlot, 19);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_aedd);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(0, 4),
+    [0x1005_aedd, 0x0101_0004, 0, 0x006f_b890],
+  );
+  assert.equal(result.finalGeneration, 333_501);
+  assert.equal(result.sourceReads.length, 154);
+  assert.equal(result.heapPageMaterializations.length, 3_112);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+  assert.equal(result.activeCallbackDepth, 0);
+}
+
 function validateD3d9SetSamplerStatePostBeginSceneResult(
   result,
   sourceRegistration,
@@ -41809,7 +42037,13 @@ function buildGenericRuntimeReentryReport({
       );
       if (findFirstFileACheckpointEnabled) {
         if (deleteFileACheckpointEnabled) {
-          if (d3d9DrawPrimitivePostStreamSourceCheckpointEnabled) {
+          if (d3d9EndScenePostDrawPrimitiveCheckpointEnabled) {
+            assert.equal(completedSupportedCalls.length, 282_866);
+            assert.equal(
+              supportedCallSemanticsSha256,
+              "b7b087f10c4b670bbbcdeabf9db36d5723d965a344d0f0bc0d78505495d93953",
+            );
+          } else if (d3d9DrawPrimitivePostStreamSourceCheckpointEnabled) {
             assert.equal(completedSupportedCalls.length, 282_865);
             assert.equal(
               supportedCallSemanticsSha256,
@@ -45186,12 +45420,21 @@ function buildScheduledSharedClockPrimaryReport({
         ) ?? null
       : null;
   const d3d9DrawPrimitivePostStreamSourceCall =
-    d3d9DrawPrimitivePostStreamSourceCheckpointEnabled
+    d3d9DrawPrimitivePostStreamSourceEvidenceEnabled
       ? completedSupportedCalls.find(
           (call) =>
             call.sequence === 282_865 &&
             call.interface === "IDirect3DDevice9" &&
             call.vtableSlot === 81,
+        ) ?? null
+      : null;
+  const d3d9EndScenePostDrawPrimitiveCall =
+    d3d9EndScenePostDrawPrimitiveCheckpointEnabled
+      ? completedSupportedCalls.find(
+          (call) =>
+            call.sequence === 282_866 &&
+            call.interface === "IDirect3DDevice9" &&
+            call.vtableSlot === 42,
         ) ?? null
       : null;
   const successfulFindCalls = [
@@ -45212,8 +45455,10 @@ function buildScheduledSharedClockPrimaryReport({
     };
   });
   return {
-    schema: d3d9DrawPrimitivePostStreamSourceCheckpointEnabled
-      ? "vine.v86-bgi-d3d9-draw-primitive-post-stream-source-primary"
+    schema: d3d9EndScenePostDrawPrimitiveCheckpointEnabled
+      ? "vine.v86-bgi-d3d9-end-scene-post-draw-primitive-primary"
+      : d3d9DrawPrimitivePostStreamSourceCheckpointEnabled
+        ? "vine.v86-bgi-d3d9-draw-primitive-post-stream-source-primary"
       : d3d9SetStreamSourcePostFvfCheckpointEnabled
       ? "vine.v86-bgi-d3d9-set-stream-source-post-fvf-primary"
       : d3d9SetFvfPostTextureBindingCheckpointEnabled
@@ -45533,10 +45778,20 @@ function buildScheduledSharedClockPrimaryReport({
             },
           }
         : {}),
-      ...(d3d9DrawPrimitivePostStreamSourceCheckpointEnabled
+      ...(d3d9DrawPrimitivePostStreamSourceEvidenceEnabled
         ? {
             d3d9DrawPrimitivePostStreamSource: {
               call: d3d9DrawPrimitivePostStreamSourceCall,
+              ...(d3d9DrawPrimitivePostStreamSourceCheckpointEnabled
+                ? { checkpointCompletion: genericResult.checkpointCompletion }
+                : {}),
+            },
+          }
+        : {}),
+      ...(d3d9EndScenePostDrawPrimitiveCheckpointEnabled
+        ? {
+            d3d9EndScenePostDrawPrimitive: {
+              call: d3d9EndScenePostDrawPrimitiveCall,
               checkpointCompletion: genericResult.checkpointCompletion,
             },
           }

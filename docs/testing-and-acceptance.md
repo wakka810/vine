@@ -2282,6 +2282,18 @@ digest `c06dd5c964e6b893ae0769763a30d3afcddaf3b196b680f63cd1806bc9301a1b`、term
 `IDirect3DDevice9::EndScene` slot 42を記録する。Protocol v116／report schema 82でcancel／watchdog cleanupも
 維持する。他draw、後続EndScene mutation、renderer materialization、visible pixel、可読title sceneはclaimしない。
 
+Post-draw EndScene leafは既存のRust-owned scene-lifecycle transactionを再利用する。Node／Chromeはsequence
+282,866、occurrence 4、trap instruction 392,354,089、device `0x01010004`、`D3D_OK`、zero guest writes、
+reference count 5を一致させる。Active scene identityとdevice／graphics generationをcommit前に検証し、scene
+sequence 4だけをclearしてdevice generationを72から73へ進める一方、back-buffer content generation 11、Clear
+sequence 4、submission／scene sequence 4、texture content generation 4、presented frame sequence 3を保持する。
+Capability checkpointは282,866 supported calls、392,354,146 instructions、semantic digest
+`b7b087f10c4b670bbbcdeabf9db36d5723d965a344d0f0bc0d78505495d93953`、terminal memory digest
+`876429740fedd52bf01c21cebd1cc1e912182c4df317d2109fcff631ed49b664`で完了し、次のowned endpoint
+`IDirect3DDevice9::GetRasterStatus(0,0x006FB890)` slot 19を記録する。Protocol v117／report schema 83で
+cancel／watchdog cleanupも維持する。他scene variant、後続raster-status output、renderer materialization、
+visible pixel、可読title sceneはclaimしない。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

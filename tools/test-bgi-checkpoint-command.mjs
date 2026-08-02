@@ -262,6 +262,10 @@ assert.equal(
   "v86-bgi-d3d9-draw-primitive-post-stream-source",
 );
 assert.equal(
+  bgiProfileOutputDirectory("d3d9-end-scene-post-draw-primitive"),
+  "v86-bgi-d3d9-end-scene-post-draw-primitive",
+);
+assert.equal(
   bgiProfileOutputDirectory("shell32-drag-accept-files"),
   "v86-bgi-drag-accept-files",
 );

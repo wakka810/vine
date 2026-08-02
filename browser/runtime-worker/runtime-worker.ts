@@ -426,12 +426,27 @@ function isD3d9DrawPrimitivePostStreamSourceProfile(
   return profile === "d3d9-draw-primitive-post-stream-source";
 }
 
+function isD3d9EndScenePostDrawPrimitiveProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "d3d9-end-scene-post-draw-primitive";
+}
+
+function includesD3d9DrawPrimitivePostStreamSourceProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isD3d9DrawPrimitivePostStreamSourceProfile(profile) ||
+    isD3d9EndScenePostDrawPrimitiveProfile(profile)
+  );
+}
+
 function includesD3d9SetStreamSourcePostFvfProfile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isD3d9SetStreamSourcePostFvfProfile(profile) ||
-    isD3d9DrawPrimitivePostStreamSourceProfile(profile)
+    includesD3d9DrawPrimitivePostStreamSourceProfile(profile)
   );
 }
 
@@ -8378,6 +8393,7 @@ class BrowserRuntimeSession {
       this.#recordD3d9SetFvfPostTextureBindingCall(call);
       this.#recordD3d9SetStreamSourcePostFvfCall(call);
       this.#recordD3d9DrawPrimitivePostStreamSourceCall(call);
+      this.#recordD3d9EndScenePostDrawPrimitiveCall(call);
     } else {
       this.#recordD3d9RecreatedTextureCall(call);
       this.#recordD3d9ClearCall(call);
@@ -9266,7 +9282,7 @@ class BrowserRuntimeSession {
     call: RuntimeSupportedCallSnapshot,
   ): void {
     if (
-      !isD3d9DrawPrimitivePostStreamSourceProfile(
+      !includesD3d9DrawPrimitivePostStreamSourceProfile(
         this.#configuration.capabilityProfile,
       ) ||
       call.interface !== "IDirect3DDevice9" ||
@@ -9377,6 +9393,117 @@ class BrowserRuntimeSession {
       drawSubmissionSceneSequence: 4,
       vertexBufferId: 3,
       vertexBufferContentGeneration: 1,
+      textureId: 8,
+      textureContentGeneration: 4,
+      presentedFrameSequence: 3,
+      browserRendererResourceCreated: false,
+      visiblePixelsProduced: false,
+      activeCallbackDepthAtCompletion: 0,
+      instructionCount: 0,
+      nextEndpoint: null,
+      memoryContentSha256: "",
+      nextReturnAddress: 0,
+      nextStackPointer: 0,
+    };
+    if (
+      isD3d9DrawPrimitivePostStreamSourceProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      this.#bgiCheckpointPending = true;
+    }
+  }
+
+  #recordD3d9EndScenePostDrawPrimitiveCall(
+    call: RuntimeSupportedCallSnapshot,
+  ): void {
+    if (
+      !isD3d9EndScenePostDrawPrimitiveProfile(
+        this.#configuration.capabilityProfile,
+      ) ||
+      call.interface !== "IDirect3DDevice9" ||
+      call.vtableSlot !== 42 ||
+      call.sequence !== 282_866
+    ) {
+      return;
+    }
+    const previous = this.#report.checkpointCompletion;
+    const device = call.graphicsDevice;
+    const submissions = device?.backBuffer.drawSubmissions ?? [];
+    const submission = submissions[0];
+    invariant(
+      previous?.capability ===
+        "d3d9-draw-primitive-post-stream-source" &&
+        previous.lastCompletionSequence === 282_865 &&
+        previous.lastCompletionInstructionCount === 392_354_081 &&
+        this.#report.instructions === 392_354_089 &&
+        call.symbol === "IDirect3DDevice9.EndScene" &&
+        call.arguments.length === 1 &&
+        call.arguments[0] === 0x0101_0004 &&
+        "kind" in call.result &&
+        call.result.kind === "h-result" &&
+        call.result.value === 0 &&
+        call.returnAddress === 0x1005_b43b &&
+        call.stackPointerBefore === 0x006f_b870 &&
+        call.stackPointerAfter === 0x006f_b878 &&
+        call.referenceCount === 5 &&
+        call.objectRetired === false &&
+        call.guestWrites.length === 0 &&
+        device?.id === 3 &&
+        device.namespace === "vine.logical-graphics-device.v1" &&
+        device.frontend === "d3d9" &&
+        device.comObjectId === "21" &&
+        device.activeScene === undefined &&
+        device.generation === 73 &&
+        device.textureBindings?.stageZero === 8 &&
+        device.flexibleVertexFormat === "xyz-rhw-diffuse-texture1" &&
+        device.streamSources?.streamZero.vertexBufferId === 3 &&
+        device.streamSources.streamZero.offsetInBytes === 0 &&
+        device.streamSources.streamZero.stride === 28 &&
+        device.backBuffer.contentGeneration === 11 &&
+        device.backBuffer.uniformClear?.sequence === 4 &&
+        submissions.length === 1 &&
+        submission?.sequence === 4 &&
+        submission.sceneSequence === 4 &&
+        submission.primitiveTopology === "triangle-strip" &&
+        submission.vertexData.length === 112 &&
+        submission.texture.textureId === 8 &&
+        submission.texture.content.contentGeneration === 4 &&
+        device.presentedFrame?.sequence === 3 &&
+        device.renderer === undefined &&
+        this.#bgiCallbackCallSequences.size === 0,
+      `later D3D9 EndScene ABI or scene close changed: ${JSON.stringify(call)}`,
+    );
+    this.#report.checkpointCompletion = {
+      capability: "d3d9-end-scene-post-draw-primitive",
+      implementationId: "runtime.d3d9-end-scene-post-draw-primitive.v1",
+      requiredCompletions: 1,
+      completionCount: 1,
+      prerequisiteDrawPrimitiveSequence: previous.lastCompletionSequence,
+      prerequisiteDrawPrimitiveInstructionCount:
+        previous.lastCompletionInstructionCount,
+      firstCompletionSequence: call.sequence,
+      firstCompletionInstructionCount: this.#report.instructions,
+      lastCompletionSequence: call.sequence,
+      lastCompletionInstructionCount: this.#report.instructions,
+      call: structuredClone(call),
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33",
+      endSceneProfileId: "primary-first-frame-scene-end-v1",
+      sceneAuthority: "rust-runtime-graphics-logical-device-active-scene",
+      lifecycle: "active-to-inactive",
+      mutation: "validate-plan-preflight-targeted-commit",
+      preservesDrawSubmissions: true,
+      repeatedEndReturnsInvalidCall: true,
+      failureAtomicity: true,
+      logicalGraphicsDeviceId: 3,
+      logicalGraphicsComObjectId: "21",
+      logicalGraphicsDeviceGeneration: 73,
+      activeSceneCleared: true,
+      backBufferContentGeneration: 11,
+      backBufferClearSequence: 4,
+      drawSubmissionCount: 1,
+      drawSubmissionSequence: 4,
+      drawSubmissionSceneSequence: 4,
       textureId: 8,
       textureContentGeneration: 4,
       presentedFrameSequence: 3,
@@ -10493,6 +10620,66 @@ class BrowserRuntimeSession {
     stackPointer: number,
   ): void {
     const checkpoint = this.#report.checkpointCompletion;
+    if (
+      isD3d9EndScenePostDrawPrimitiveProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      invariant(
+        checkpoint?.capability ===
+          "d3d9-end-scene-post-draw-primitive" &&
+          checkpoint.call.sequence === 282_866 &&
+          this.#requirePrepared().runtime.kernel32Policy ===
+            "kernel32-delete-file-a-v1" &&
+          endpointAddress === 0x0101_1160 &&
+          stackPointer === 0x006f_b878 &&
+          this.#requireEngine().readGuestU32(stackPointer) === 0x1005_aedd &&
+          this.#requireEngine().readGuestU32(stackPointer + 4) ===
+            0x0101_0004 &&
+          this.#requireEngine().readGuestU32(stackPointer + 8) === 0 &&
+          this.#requireEngine().readGuestU32(stackPointer + 12) ===
+            0x006f_b890 &&
+          this.#bgiCallbackCallSequences.size === 0 &&
+          this.#report.supportedCallCount === 282_866 &&
+          this.#scheduledSharedClockSampleCount === 100_556 &&
+          this.#scheduledSharedClockWindowTimerCallbackCount === 40 &&
+          this.#scheduledSharedClockPresentCount === 3 &&
+          this.#report.instructions === 392_354_146,
+        "post-draw EndScene checkpoint has no matching runtime state",
+      );
+      const reflection =
+        this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-memory-summary" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation) &&
+          reflection.contentSha256 ===
+            "876429740fedd52bf01c21cebd1cc1e912182c4df317d2109fcff631ed49b664",
+        "post-draw EndScene checkpoint memory summary changed",
+      );
+      checkpoint.instructionCount = this.#report.instructions;
+      checkpoint.nextEndpoint = {
+        id: 0,
+        address: endpointAddress,
+        module: "<com>",
+        symbol: { kind: "name", name: "interface-1-slot-19" },
+        disposition: "declared-com-method",
+        interfaceIndex: 1,
+        vtableSlot: 19,
+        interface: "IDirect3DDevice9",
+        method: "GetRasterStatus",
+      };
+      checkpoint.memoryContentSha256 = reflection.contentSha256;
+      checkpoint.nextReturnAddress = 0x1005_aedd;
+      checkpoint.nextStackPointer = stackPointer;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "D3D9 EndScene after later DrawPrimitive checkpoint completed",
+        null,
+      );
+      return;
+    }
     if (
       isD3d9DrawPrimitivePostStreamSourceProfile(
         this.#configuration.capabilityProfile,
