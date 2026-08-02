@@ -65,7 +65,9 @@ const scheduledSharedClockSetWindowText =
   capabilityProfile === "winmm-time-get-time-post-present" ||
   capabilityProfile === "d3d9-test-cooperative-level-post-time-get-time" ||
   capabilityProfile ===
-    "kernel32-set-waitable-timer-post-test-cooperative-level";
+    "kernel32-set-waitable-timer-post-test-cooperative-level" ||
+  capabilityProfile ===
+    "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm";
 const d3d9Canvas =
   scheduledSharedClockSetWindowText ||
   capabilityProfile === "d3d9-first-present" ||
@@ -261,7 +263,9 @@ const startMessage = {
             capabilityProfile ===
               "d3d9-test-cooperative-level-post-time-get-time" ||
             capabilityProfile ===
-              "kernel32-set-waitable-timer-post-test-cooperative-level"
+              "kernel32-set-waitable-timer-post-test-cooperative-level" ||
+            capabilityProfile ===
+              "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm"
           ? 405_000_000
         : capabilityProfile === "gdi-outline-text-metrics-224x112"
           ? 385_000_000
@@ -752,6 +756,8 @@ function parseCapabilityProfile(
     value === "winmm-time-get-time-post-present" ||
     value === "d3d9-test-cooperative-level-post-time-get-time" ||
     value === "kernel32-set-waitable-timer-post-test-cooperative-level" ||
+    value ===
+      "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm" ||
     value === "kernel32-wait-for-single-object-ex" ||
     value === "kernel32-enter-critical-section" ||
     value === "primary-main-loop-progression" ||

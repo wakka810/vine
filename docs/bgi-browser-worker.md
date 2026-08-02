@@ -405,6 +405,21 @@ and terminal memory digest
 `f476539a157bd61c93ce31b1569baa78e0e3e50342d618a5256859f45927f174`.
 Expiration, wait result, and browser pacing remain the following wait boundary.
 
+Protocol version 123／BGI report schema 89 continues through that finite alertable
+wait. Node and Chrome agree on sequence 282,872／occurrence 9,920 at instruction
+392,354,375, `WAIT_OBJECT_0`, timer ID 1／object ID 20／arm generation 68,
+deadline and clock `2,007,735,000`, signaled manual-reset state, registration
+retirement, LastError 0, and zero guest writes. The Worker services only one
+cancellable `runtime.timer-delay.v1` resource for this call; Rust revalidates and
+commits the clock, expiration, object, wait result, and scheduler lane. Both stop at
+instruction 392,354,423 before `USER32.dll!PeekMessageA` with semantic digest
+`d720e2d2a9068b6c3041d427cc1a6a1524f20db89e6689fe3681fdafb88e7082`
+and terminal memory digest
+`fc1902ed4967385d6bf77b55a94ad34a0910f45b8d7361b5e027b7f08fb44e89`.
+APC delivery, general waits, and message retrieval remain outside this bounded
+profile. Details are in
+[the post-`TestCooperativeLevel` wait profile](bgi-kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm.md).
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk

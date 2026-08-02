@@ -464,12 +464,32 @@ function isKernel32SetWaitableTimerPostTestCooperativeLevelProfile(
   );
 }
 
+function isKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile ===
+    "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm"
+  );
+}
+
+function includesKernel32SetWaitableTimerPostTestCooperativeLevelProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isKernel32SetWaitableTimerPostTestCooperativeLevelProfile(profile) ||
+    isKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
+      profile,
+    )
+  );
+}
+
 function includesD3d9TestCooperativeLevelPostTimeGetTimeProfile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isD3d9TestCooperativeLevelPostTimeGetTimeProfile(profile) ||
-    isKernel32SetWaitableTimerPostTestCooperativeLevelProfile(profile)
+    includesKernel32SetWaitableTimerPostTestCooperativeLevelProfile(profile)
   );
 }
 
@@ -3890,6 +3910,18 @@ class BrowserRuntimeSession {
     ["IDirect3DDevice9:slot-3", 2],
   ]);
   #waitForSingleObjectExCompletions = 0;
+  #postTestCooperativeLevelTimerArmPacing: {
+    sequence: number;
+    requestId: string;
+    delayMilliseconds: number;
+    registrationId: string;
+    timerId: string;
+    targetTime100ns: string;
+    timerClockGeneration: string;
+    armGeneration: string;
+    outcome: "object-signaled";
+    pacing: "cancellable-browser-logical-deadline-task";
+  } | null = null;
   #d3d9PostRasterStatusTimerArm: {
     sequence: number;
     instructionCount: number;
@@ -10099,7 +10131,7 @@ class BrowserRuntimeSession {
     occurrence: number,
   ): void {
     if (
-      !isKernel32SetWaitableTimerPostTestCooperativeLevelProfile(
+      !includesKernel32SetWaitableTimerPostTestCooperativeLevelProfile(
         this.#configuration.capabilityProfile,
       ) ||
       call.sequence !== 282_871 ||
@@ -10207,6 +10239,145 @@ class BrowserRuntimeSession {
       guestWriteBytes: 0,
       hostTimerImported: false,
       browserTimerCreated: false,
+      activeCallbackDepthAtCompletion: 0,
+      instructionCount: 0,
+      nextEndpoint: null,
+      nextArguments: [],
+      memoryContentSha256: "",
+      nextReturnAddress: 0,
+      nextStackPointer: 0,
+    };
+    if (
+      isKernel32SetWaitableTimerPostTestCooperativeLevelProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      this.#bgiCheckpointPending = true;
+    }
+  }
+
+  #recordKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCall(
+    call: RuntimeSupportedCallSnapshot,
+    occurrence: number,
+  ): void {
+    if (
+      !isKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
+        this.#configuration.capabilityProfile,
+      ) ||
+      call.sequence !== 282_872 ||
+      call.implementationId !==
+        "kernel32.wait-for-single-object-ex.waitable-timer.v1"
+    ) {
+      return;
+    }
+    const previous = this.#report.checkpointCompletion;
+    const timer = call.waitableTimer;
+    const expiration = timer?.timer.lastExpiration;
+    const pacing = this.#postTestCooperativeLevelTimerArmPacing;
+    invariant(
+      previous?.capability ===
+          "kernel32-set-waitable-timer-post-test-cooperative-level" &&
+        previous.lastCompletionSequence === 282_871 &&
+        previous.lastCompletionInstructionCount === 392_354_369 &&
+        this.#report.instructions === 392_354_375 &&
+        this.#currentThreadId === 8_192 &&
+        occurrence === 9_920 &&
+        call.module.toLowerCase() === "kernel32.dll" &&
+        call.symbol === "WaitForSingleObjectEx" &&
+        call.arguments.join(",") === "1459683329,10,1" &&
+        "action" in call.result &&
+        call.result.action === "set" &&
+        call.result.value === 0 &&
+        call.returnAddress === 0x1005_0615 &&
+        call.stackPointerBefore === 0x006f_f8e0 &&
+        call.stackPointerAfter === 0x006f_f8f0 &&
+        call.lastError === 0 &&
+        call.guestWrites.length === 0 &&
+        timer?.handle === 0x5701_0001 &&
+        timer.timer.id === 1 &&
+        timer.timer.manualReset === true &&
+        expiration?.armGeneration === 68 &&
+        expiration.deadlineTime100ns === 2_007_735_000 &&
+        timer.objectRecord.id === 20 &&
+        timer.objectRecord.namespace ===
+          "vine.runtime-waitable-timer-object.v1" &&
+        timer.objectRecord.closePolicy === "close-handle" &&
+        timer.objectRecord.waitState?.state === "signaled" &&
+        timer.objectRecord.waitState.exit_code === 0 &&
+        timer.objectRecord.openHandles === 1 &&
+        timer.timerClock?.currentTime100ns === 2_007_735_000 &&
+        timer.timerClock.generation === 16_309 &&
+        timer.nextWaitRegistrationId === 9_004 &&
+        pacing?.sequence === call.sequence &&
+        pacing.requestId === "9158" &&
+        pacing.registrationId === "9003" &&
+        pacing.timerId === "1" &&
+        pacing.targetTime100ns === "2007735000" &&
+        pacing.timerClockGeneration === "16308" &&
+        pacing.armGeneration === "68" &&
+        this.#scheduledSharedClockSampleCount === 100_557 &&
+        this.#scheduledSharedClockWindowTimerCallbackCount === 40 &&
+        this.#scheduledSharedClockPresentCount === 4 &&
+        this.#bgiCallbackCallSequences.size === 0,
+      `post-TestCooperativeLevel timer-arm WaitForSingleObjectEx evidence changed: ${JSON.stringify(
+        {
+          call,
+          occurrence,
+          currentThreadId: this.#currentThreadId,
+          previous,
+          pacing,
+          scheduledSharedClockSampleCount:
+            this.#scheduledSharedClockSampleCount,
+          activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+        },
+      )}`,
+    );
+    const checkpointCall = {
+      ...structuredClone(call),
+      occurrence,
+      trapInstructionCount: this.#report.instructions,
+    };
+    this.#report.checkpointCompletion = {
+      capability:
+        "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm",
+      implementationId:
+        "runtime.kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm.v1",
+      semanticImplementationId:
+        "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+      requiredCompletions: 1,
+      completionCount: 1,
+      prerequisiteSetWaitableTimerSequence: previous.lastCompletionSequence,
+      prerequisiteSetWaitableTimerInstructionCount:
+        previous.lastCompletionInstructionCount,
+      firstCompletionSequence: call.sequence,
+      firstCompletionInstructionCount: this.#report.instructions,
+      lastCompletionSequence: call.sequence,
+      lastCompletionInstructionCount: this.#report.instructions,
+      call: checkpointCall,
+      pacing: structuredClone(pacing),
+      stateAuthority:
+        "rust-runtime-timers-scheduler-and-typed-runtime-object-table",
+      mutation:
+        "wait-registration-plan-host-pacing-revalidation-targeted-commit",
+      failureAtomicity: true,
+      logicalTimerHandle: timer.handle,
+      logicalTimerId: timer.timer.id,
+      logicalObjectId: timer.objectRecord.id,
+      manualReset: timer.timer.manualReset,
+      armGeneration: expiration.armGeneration,
+      deadlineTime100ns: expiration.deadlineTime100ns,
+      timerClockTime100ns: timer.timerClock.currentTime100ns,
+      timerClockGeneration: timer.timerClock.generation,
+      nextWaitRegistrationId: timer.nextWaitRegistrationId,
+      objectWaitState: timer.objectRecord.waitState.state,
+      openHandles: timer.objectRecord.openHandles,
+      timeoutMilliseconds: 10,
+      alertable: true,
+      waitResult: 0,
+      lastErrorPolicy: "preserve",
+      guestWriteBytes: 0,
+      hostClockImported: false,
+      browserOwnsWaitState: false,
       activeCallbackDepthAtCompletion: 0,
       instructionCount: 0,
       nextEndpoint: null,
@@ -11319,6 +11490,71 @@ class BrowserRuntimeSession {
     stackPointer: number,
   ): void {
     const checkpoint = this.#report.checkpointCompletion;
+    if (
+      isKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      const endpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpointAddress,
+      );
+      invariant(
+        checkpoint?.capability ===
+            "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm" &&
+          checkpoint.call.sequence === 282_872 &&
+          checkpoint.call.occurrence === 9_920 &&
+          checkpoint.logicalTimerHandle === 0x5701_0001 &&
+          checkpoint.logicalTimerId === 1 &&
+          checkpoint.logicalObjectId === 20 &&
+          checkpoint.armGeneration === 68 &&
+          checkpoint.timerClockGeneration === 16_309 &&
+          checkpoint.nextWaitRegistrationId === 9_004 &&
+          checkpoint.pacing.requestId === "9158" &&
+          this.#requirePrepared().runtime.kernel32Policy ===
+            "kernel32-delete-file-a-v1" &&
+          endpoint?.module?.toLowerCase() === "user32.dll" &&
+          endpoint.symbol?.kind === "name" &&
+          endpoint.symbol.name === "PeekMessageA" &&
+          stackPointer === 0x006f_f8c8 &&
+          this.#requireEngine().readGuestU32(stackPointer) === 0x1009_378b &&
+          this.#requireEngine().readGuestU32(stackPointer + 4) ===
+            0x006f_f8e8 &&
+          this.#requireEngine().readGuestU32(stackPointer + 8) === 0 &&
+          this.#requireEngine().readGuestU32(stackPointer + 12) === 0 &&
+          this.#requireEngine().readGuestU32(stackPointer + 16) === 0 &&
+          this.#requireEngine().readGuestU32(stackPointer + 20) === 1 &&
+          this.#bgiCallbackCallSequences.size === 0 &&
+          this.#report.supportedCallCount === 282_872 &&
+          this.#scheduledSharedClockSampleCount === 100_557 &&
+          this.#scheduledSharedClockWindowTimerCallbackCount === 40 &&
+          this.#scheduledSharedClockPresentCount === 4 &&
+          this.#report.instructions === 392_354_423,
+        "post-TestCooperativeLevel timer-arm WaitForSingleObjectEx checkpoint has no matching runtime state",
+      );
+      const reflection =
+        this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-memory-summary" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation) &&
+          reflection.contentSha256 ===
+            "fc1902ed4967385d6bf77b55a94ad34a0910f45b8d7361b5e027b7f08fb44e89",
+        "post-TestCooperativeLevel timer-arm WaitForSingleObjectEx checkpoint memory summary changed",
+      );
+      checkpoint.instructionCount = this.#report.instructions;
+      checkpoint.nextEndpoint = structuredClone(endpoint);
+      checkpoint.nextArguments = [0x006f_f8e8];
+      checkpoint.memoryContentSha256 = reflection.contentSha256;
+      checkpoint.nextReturnAddress = 0x1009_378b;
+      checkpoint.nextStackPointer = stackPointer;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "KERNEL32 WaitForSingleObjectEx after post-TestCooperativeLevel timer arm checkpoint completed",
+        null,
+      );
+      return;
+    }
     if (
       isKernel32SetWaitableTimerPostTestCooperativeLevelProfile(
         this.#configuration.capabilityProfile,
@@ -13988,6 +14224,10 @@ class BrowserRuntimeSession {
         implementationOccurrence,
       );
       this.#recordKernel32SetWaitableTimerPostTestCooperativeLevelCall(
+        call,
+        implementationOccurrence,
+      );
+      this.#recordKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCall(
         call,
         implementationOccurrence,
       );
@@ -22873,6 +23113,51 @@ class BrowserRuntimeSession {
           "timer pacing sequence is already registered",
         );
         this.#timerPacedCallSequences.add(completionSequence);
+        if (
+          isKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
+            this.#configuration.capabilityProfile,
+          ) &&
+          completionSequence === 282_872
+        ) {
+          const registrationId =
+            BigInt(registrationLow ?? 0) |
+            (BigInt(registrationHigh ?? 0) << 32n);
+          const timerId =
+            BigInt(timerLow ?? 0) | (BigInt(timerHigh ?? 0) << 32n);
+          const targetTime100ns =
+            BigInt(targetLow ?? 0) | (BigInt(targetHigh ?? 0) << 32n);
+          const timerClockGeneration =
+            BigInt(clockGenerationLow ?? 0) |
+            (BigInt(clockGenerationHigh ?? 0) << 32n);
+          const armGeneration =
+            BigInt(armGenerationLow ?? 0) |
+            (BigInt(armGenerationHigh ?? 0) << 32n);
+          invariant(
+            this.#postTestCooperativeLevelTimerArmPacing === null &&
+              metadata.requestId === "9158" &&
+              metadata.threadId === 8_192 &&
+              delayMilliseconds === 1 &&
+              registrationId === 9_003n &&
+              timerId === 1n &&
+              targetTime100ns === 2_007_735_000n &&
+              timerClockGeneration === 16_308n &&
+              armGeneration === 68n &&
+              outcome === 0,
+            "post-TestCooperativeLevel timer-arm pacing request changed",
+          );
+          this.#postTestCooperativeLevelTimerArmPacing = {
+            sequence: completionSequence,
+            requestId: metadata.requestId,
+            delayMilliseconds,
+            registrationId: registrationId.toString(),
+            timerId: timerId.toString(),
+            targetTime100ns: targetTime100ns.toString(),
+            timerClockGeneration: timerClockGeneration.toString(),
+            armGeneration: armGeneration.toString(),
+            outcome: "object-signaled",
+            pacing: "cancellable-browser-logical-deadline-task",
+          };
+        }
         const pacingRequest = {
           requestId: metadata.requestId,
           threadId: metadata.threadId,

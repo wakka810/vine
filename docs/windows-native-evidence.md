@@ -6319,3 +6319,25 @@ wait. Native handle values, wall-clock timing, trace positions, and report
 hashes remain evidence identity rather than handler dispatch selectors; exact
 current artifacts remain authoritative only in
 [current-checkpoint.json](current-checkpoint.json).
+
+## 189. BGI post-`TestCooperativeLevel` finite alertable timer wait
+
+The reached call has the same consumer-visible shape already fixed by the two
+balanced native captures and controlled x86 oracle in section 145:
+`WaitForSingleObjectEx(manual_timer, 10, TRUE)` returns `WAIT_OBJECT_0` and preserves
+LastError. It directly consumes the timer-1 relative arm recorded in section 188.
+No new native trace was needed because handle kind, timeout, alertable flag, result,
+and consumer branch are the same reached semantic variant; runtime EIP and occurrence
+remain evidence identity rather than handler dispatch inputs.
+
+Canonical Node and Chrome complete the call at sequence 282,872／occurrence 9,920／
+instruction 392,354,375. Both record arm generation 68 expiring at logical time
+`2,007,735,000`, manual-reset object ID 20 becoming signaled, registration 9,003
+retiring, next registration ID 9,004, `WAIT_OBJECT_0`, LastError 0, and zero guest
+writes. The Node adapter acknowledges request 9,158 deterministically; the Chrome
+Worker owns only its cancellable 1 ms pacing task. Rust remains authoritative for
+clock, expiration, signal, registration, wait result, and thread resume. Both stop
+48 instructions later at `USER32.dll!PeekMessageA`; exact report and artifact
+identities remain authoritative only in
+[current-checkpoint.json](current-checkpoint.json). Details are in
+[the bounded wait profile](bgi-kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm.md).

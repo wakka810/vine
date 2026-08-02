@@ -2358,6 +2358,21 @@ terminal memory digest `f476539a157bd61c93ce31b1569baa78e0e3e50342d618a5256859f4
 Protocol v122／report schema 88でcancel／watchdog cleanupを維持する。Arm checkpointはexpiration、
 wait result、APC delivery、host／browser timer authority、general timer behaviorをacceptanceへ含めない。
 
+Post-arm `WaitForSingleObjectEx` leafは、直前のtimer ID 1／object ID 20／arm generation 68を
+prerequisiteとして既存のfinite alertable wait transactionを再利用する。Node／Chromeはsequence
+282,872、occurrence 9,920、trap instruction 392,354,375、handle `0x57010001`、timeout 10、
+alertable TRUE、`WAIT_OBJECT_0`、LastError 0、zero guest writeを一致させる。Rustはregistration
+9,003、deadline `2,007,735,000`、clock generation 16,309、signaled manual-reset object、next
+registration 9,004をrevalidation後のtargeted commitでpublishする。Nodeはrequest 9,158を
+deterministic ackし、Workerは一件のcancellable logical-deadline taskだけを所有する。両adapterは
+282,872 supported calls、9,003 pacing completions、ordered semantic digest
+`d720e2d2a9068b6c3041d427cc1a6a1524f20db89e6689fe3681fdafb88e7082`、terminal memory digest
+`fc1902ed4967385d6bf77b55a94ad34a0910f45b8d7361b5e027b7f08fb44e89`を一致させ、48
+instructions後の`USER32.dll!PeekMessageA`で停止する。Protocol v123／report schema 89で
+cancel／watchdog cleanupを維持する。Message retrieval、APC delivery、general wait variants、
+browser ownership of Windows wait stateはacceptanceへ含めない。詳細は
+[post-`TestCooperativeLevel` wait profile](bgi-kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm.md)を正とする。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

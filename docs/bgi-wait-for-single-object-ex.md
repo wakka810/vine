@@ -157,6 +157,16 @@ policy-defined sustained external-CPU condition, so neither is accepted
 performance evidence. Exact reports, protected invariants, and the isolated-host
 resume condition are recorded only in the current manifest.
 
+The later post-fourth-Present occurrence reuses this same finite alertable timer
+transaction at sequence 282,872. Rust consumes the preceding timer-1 arm generation
+68 through registration 9,003, advances the shared logical clock to deadline
+`2,007,735,000`, signals manual-reset object 20, returns `WAIT_OBJECT_0`, and retires
+the registration without guest writes or LastError change. Node uses a deterministic
+ack; Chrome owns only the corresponding cancellable delay task. Both reach
+`USER32.dll!PeekMessageA` with identical ordered semantics and terminal memory.
+The bounded occurrence and its acceptance are recorded in
+[the post-`TestCooperativeLevel` wait profile](bgi-kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm.md).
+
 The historical follow-on `kernel32-enter-critical-section` profile consumed
 three balanced `EnterCriticalSection`／`LeaveCriticalSection` pairs in this
 same idle cycle. The active

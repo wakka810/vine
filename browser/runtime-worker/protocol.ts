@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 122 as const;
+export const protocolVersion = 123 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -39,6 +39,7 @@ export type BgiCapabilityProfile =
   | "winmm-time-get-time-post-present"
   | "d3d9-test-cooperative-level-post-time-get-time"
   | "kernel32-set-waitable-timer-post-test-cooperative-level"
+  | "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1853,6 +1854,60 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm";
+        implementationId: "runtime.kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm.v1";
+        semanticImplementationId: "kernel32.wait-for-single-object-ex.waitable-timer.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        prerequisiteSetWaitableTimerSequence: number;
+        prerequisiteSetWaitableTimerInstructionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        call: RuntimeSupportedCallSnapshot;
+        pacing: {
+          sequence: number;
+          requestId: string;
+          delayMilliseconds: number;
+          registrationId: string;
+          timerId: string;
+          targetTime100ns: string;
+          timerClockGeneration: string;
+          armGeneration: string;
+          outcome: "object-signaled";
+          pacing: "cancellable-browser-logical-deadline-task";
+        };
+        stateAuthority: "rust-runtime-timers-scheduler-and-typed-runtime-object-table";
+        mutation: "wait-registration-plan-host-pacing-revalidation-targeted-commit";
+        failureAtomicity: true;
+        logicalTimerHandle: number;
+        logicalTimerId: number;
+        logicalObjectId: number;
+        manualReset: true;
+        armGeneration: number;
+        deadlineTime100ns: number;
+        timerClockTime100ns: number;
+        timerClockGeneration: number;
+        nextWaitRegistrationId: number;
+        objectWaitState: "signaled";
+        openHandles: number;
+        timeoutMilliseconds: 10;
+        alertable: true;
+        waitResult: 0;
+        lastErrorPolicy: "preserve";
+        guestWriteBytes: 0;
+        hostClockImported: false;
+        browserOwnsWaitState: false;
+        activeCallbackDepthAtCompletion: 0;
+        instructionCount: number;
+        nextEndpoint: unknown;
+        nextArguments: number[];
+        memoryContentSha256: string;
+        nextReturnAddress: number;
+        nextStackPointer: number;
+      }
     | {
         capability: "kernel32-set-waitable-timer-post-test-cooperative-level";
         implementationId: "runtime.kernel32-set-waitable-timer-post-test-cooperative-level.v1";
