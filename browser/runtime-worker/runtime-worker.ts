@@ -432,12 +432,27 @@ function isD3d9EndScenePostDrawPrimitiveProfile(
   return profile === "d3d9-end-scene-post-draw-primitive";
 }
 
+function isD3d9GetRasterStatusPostEndSceneProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "d3d9-get-raster-status-post-end-scene";
+}
+
+function includesD3d9EndScenePostDrawPrimitiveProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isD3d9EndScenePostDrawPrimitiveProfile(profile) ||
+    isD3d9GetRasterStatusPostEndSceneProfile(profile)
+  );
+}
+
 function includesD3d9DrawPrimitivePostStreamSourceProfile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isD3d9DrawPrimitivePostStreamSourceProfile(profile) ||
-    isD3d9EndScenePostDrawPrimitiveProfile(profile)
+    includesD3d9EndScenePostDrawPrimitiveProfile(profile)
   );
 }
 
@@ -8394,6 +8409,7 @@ class BrowserRuntimeSession {
       this.#recordD3d9SetStreamSourcePostFvfCall(call);
       this.#recordD3d9DrawPrimitivePostStreamSourceCall(call);
       this.#recordD3d9EndScenePostDrawPrimitiveCall(call);
+      this.#recordD3d9GetRasterStatusPostEndSceneCall(call);
     } else {
       this.#recordD3d9RecreatedTextureCall(call);
       this.#recordD3d9ClearCall(call);
@@ -9418,7 +9434,7 @@ class BrowserRuntimeSession {
     call: RuntimeSupportedCallSnapshot,
   ): void {
     if (
-      !isD3d9EndScenePostDrawPrimitiveProfile(
+      !includesD3d9EndScenePostDrawPrimitiveProfile(
         this.#configuration.capabilityProfile,
       ) ||
       call.interface !== "IDirect3DDevice9" ||
@@ -9507,6 +9523,119 @@ class BrowserRuntimeSession {
       textureId: 8,
       textureContentGeneration: 4,
       presentedFrameSequence: 3,
+      browserRendererResourceCreated: false,
+      visiblePixelsProduced: false,
+      activeCallbackDepthAtCompletion: 0,
+      instructionCount: 0,
+      nextEndpoint: null,
+      memoryContentSha256: "",
+      nextReturnAddress: 0,
+      nextStackPointer: 0,
+    };
+    if (
+      isD3d9EndScenePostDrawPrimitiveProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      this.#bgiCheckpointPending = true;
+    }
+  }
+
+  #recordD3d9GetRasterStatusPostEndSceneCall(
+    call: RuntimeSupportedCallSnapshot,
+  ): void {
+    if (
+      !isD3d9GetRasterStatusPostEndSceneProfile(
+        this.#configuration.capabilityProfile,
+      ) ||
+      call.interface !== "IDirect3DDevice9" ||
+      call.vtableSlot !== 19 ||
+      call.sequence !== 282_867
+    ) {
+      return;
+    }
+    const previous = this.#report.checkpointCompletion;
+    const write = call.guestWrites[0];
+    invariant(
+      previous?.capability === "d3d9-end-scene-post-draw-primitive" &&
+        previous.lastCompletionSequence === 282_866 &&
+        previous.lastCompletionInstructionCount === 392_354_089 &&
+        this.#report.instructions === 392_354_146 &&
+        this.#d3d9RasterStatusCompletionCount === 9_076 &&
+        call.symbol === "IDirect3DDevice9.GetRasterStatus" &&
+        call.arguments.length === 3 &&
+        call.arguments[0] === 0x0101_0004 &&
+        call.arguments[1] === 0 &&
+        call.arguments[2] === 0x006f_b890 &&
+        "kind" in call.result &&
+        call.result.kind === "h-result" &&
+        call.result.value === 0 &&
+        call.returnAddress === 0x1005_aedd &&
+        call.stackPointerBefore === 0x006f_b878 &&
+        call.stackPointerAfter === 0x006f_b888 &&
+        call.referenceCount === 5 &&
+        call.objectRetired === false &&
+        call.guestWrites.length === 1 &&
+        write?.address === call.arguments[2] &&
+        "bytes" in write &&
+        write.bytes.length === 8 &&
+        write.bytes.every(
+          (byte, index) =>
+            byte === [0, 0, 0, 0, 0x37, 0x04, 0, 0][index],
+        ) &&
+        call.graphicsDevice === undefined &&
+        this.#bgiCallbackCallSequences.size === 0,
+      `later D3D9 GetRasterStatus ABI or deterministic sample changed: ${JSON.stringify(call)}`,
+    );
+    this.#report.d3d9PostEndSceneRasterStatus = {
+      call: structuredClone(call),
+      cumulativeCompletions: this.#d3d9RasterStatusCompletionCount,
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33",
+      rasterStatusProfileId: "primary-stable-last-visible-scanline-v2",
+      displayProfileId: "single-monitor-1920x1080-work-1920x1032-v2",
+      stateAuthority: "rust-d3d9-compatibility-policy",
+      outputBytes: 8,
+      inVBlank: false,
+      scanLine: 1_079,
+      runtimeStateMutation: false,
+      referenceCountMutation: false,
+      lastErrorPolicy: "preserve",
+      guestWriteAtomic: true,
+      hostScanoutImported: false,
+      browserScanoutImported: false,
+      browserRendererResourceCreated: false,
+      visiblePixelsProduced: false,
+    };
+    this.#report.checkpointCompletion = {
+      capability: "d3d9-get-raster-status-post-end-scene",
+      implementationId:
+        "runtime.d3d9-get-raster-status-post-end-scene.v1",
+      requiredCompletions: 1,
+      completionCount: 1,
+      prerequisiteEndSceneSequence: previous.lastCompletionSequence,
+      prerequisiteEndSceneInstructionCount:
+        previous.lastCompletionInstructionCount,
+      firstCompletionSequence: call.sequence,
+      firstCompletionInstructionCount: this.#report.instructions,
+      lastCompletionSequence: call.sequence,
+      lastCompletionInstructionCount: this.#report.instructions,
+      call: structuredClone(call),
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33",
+      rasterStatusProfileId: "primary-stable-last-visible-scanline-v2",
+      displayProfileId: "single-monitor-1920x1080-work-1920x1032-v2",
+      stateAuthority: "rust-d3d9-compatibility-policy",
+      outputAddress: call.arguments[2],
+      outputByteLength: 8,
+      outputHex: "0000000037040000",
+      inVBlank: false,
+      scanLine: 1_079,
+      runtimeStateMutation: false,
+      referenceCountMutation: false,
+      lastErrorPolicy: "preserve",
+      guestWriteAtomic: true,
+      failureAtomicity: true,
+      hostScanoutImported: false,
+      browserScanoutImported: false,
       browserRendererResourceCreated: false,
       visiblePixelsProduced: false,
       activeCallbackDepthAtCompletion: 0,
@@ -10620,6 +10749,67 @@ class BrowserRuntimeSession {
     stackPointer: number,
   ): void {
     const checkpoint = this.#report.checkpointCompletion;
+    if (
+      isD3d9GetRasterStatusPostEndSceneProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      invariant(
+        checkpoint?.capability ===
+          "d3d9-get-raster-status-post-end-scene" &&
+          checkpoint.call.sequence === 282_867 &&
+          this.#requirePrepared().runtime.kernel32Policy ===
+            "kernel32-delete-file-a-v1" &&
+          endpointAddress === 0x0101_1140 &&
+          stackPointer === 0x006f_b890 &&
+          this.#requireEngine().readGuestU32(stackPointer) === 0x1005_b7b1 &&
+          this.#requireEngine().readGuestU32(stackPointer + 4) ===
+            0x0101_0004 &&
+          this.#requireEngine().readGuestU32(stackPointer + 8) === 0 &&
+          this.#requireEngine().readGuestU32(stackPointer + 12) === 0 &&
+          this.#requireEngine().readGuestU32(stackPointer + 16) === 0 &&
+          this.#requireEngine().readGuestU32(stackPointer + 20) === 0 &&
+          this.#bgiCallbackCallSequences.size === 0 &&
+          this.#report.supportedCallCount === 282_867 &&
+          this.#scheduledSharedClockSampleCount === 100_556 &&
+          this.#scheduledSharedClockWindowTimerCallbackCount === 40 &&
+          this.#scheduledSharedClockPresentCount === 3 &&
+          this.#report.instructions === 392_354_183,
+        "post-EndScene GetRasterStatus checkpoint has no matching runtime state",
+      );
+      const reflection =
+        this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-memory-summary" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation) &&
+          reflection.contentSha256 ===
+            "3e2ad4caff37cab8e510e3bdeb5bca8a7376236fe3820e50d64411f14bd296cf",
+        "post-EndScene GetRasterStatus checkpoint memory summary changed",
+      );
+      checkpoint.instructionCount = this.#report.instructions;
+      checkpoint.nextEndpoint = {
+        id: 0,
+        address: endpointAddress,
+        module: "<com>",
+        symbol: { kind: "name", name: "interface-1-slot-17" },
+        disposition: "declared-com-method",
+        interfaceIndex: 1,
+        vtableSlot: 17,
+        interface: "IDirect3DDevice9",
+        method: "Present",
+      };
+      checkpoint.memoryContentSha256 = reflection.contentSha256;
+      checkpoint.nextReturnAddress = 0x1005_b7b1;
+      checkpoint.nextStackPointer = stackPointer;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "D3D9 GetRasterStatus after later EndScene checkpoint completed",
+        null,
+      );
+      return;
+    }
     if (
       isD3d9EndScenePostDrawPrimitiveProfile(
         this.#configuration.capabilityProfile,

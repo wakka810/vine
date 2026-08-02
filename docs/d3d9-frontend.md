@@ -455,6 +455,15 @@ sequence 127,376 at instruction 28,761,389 and reach
 `IDirect3DDevice9::Present` slot 17 at instruction 28,761,426, without another
 timer arm, graphics-state mutation, renderer resource, or visible pixels.
 
+The `d3d9-get-raster-status-post-end-scene` profile reuses the same policy after
+fourth-scene EndScene sequence 282,866. Node and Chrome complete sequence
+282,867 at instruction 392,354,146, atomically write
+`0000000037040000` to `0x006FB890`, preserve device generation 73 and reference
+count 5, and import no host／browser scanout state. The checkpoint stops at
+instruction 392,354,183 before `Present(NULL,NULL,NULL,NULL)` slot 17 at
+endpoint `0x01011140`; Present and renderer materialization remain a separate
+transaction.
+
 ## Bounded level-zero surface retrieval
 
 Version 19 retains `primary-system-memory-texture-level-zero-surfaces-v2` for the

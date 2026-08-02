@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 117 as const;
+export const protocolVersion = 118 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -34,6 +34,7 @@ export type BgiCapabilityProfile =
   | "d3d9-set-stream-source-post-fvf"
   | "d3d9-draw-primitive-post-stream-source"
   | "d3d9-end-scene-post-draw-primitive"
+  | "d3d9-get-raster-status-post-end-scene"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1846,6 +1847,43 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "d3d9-get-raster-status-post-end-scene";
+        implementationId: "runtime.d3d9-get-raster-status-post-end-scene.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        prerequisiteEndSceneSequence: number;
+        prerequisiteEndSceneInstructionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        call: RuntimeSupportedCallSnapshot;
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33";
+        rasterStatusProfileId: "primary-stable-last-visible-scanline-v2";
+        displayProfileId: "single-monitor-1920x1080-work-1920x1032-v2";
+        stateAuthority: "rust-d3d9-compatibility-policy";
+        outputAddress: number;
+        outputByteLength: 8;
+        outputHex: "0000000037040000";
+        inVBlank: false;
+        scanLine: 1079;
+        runtimeStateMutation: false;
+        referenceCountMutation: false;
+        lastErrorPolicy: "preserve";
+        guestWriteAtomic: true;
+        failureAtomicity: true;
+        hostScanoutImported: false;
+        browserScanoutImported: false;
+        browserRendererResourceCreated: false;
+        visiblePixelsProduced: false;
+        activeCallbackDepthAtCompletion: 0;
+        instructionCount: number;
+        nextEndpoint: unknown;
+        memoryContentSha256: string;
+        nextReturnAddress: number;
+        nextStackPointer: number;
+      }
     | {
         capability: "d3d9-end-scene-post-draw-primitive";
         implementationId: "runtime.d3d9-end-scene-post-draw-primitive.v1";

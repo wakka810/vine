@@ -354,13 +354,15 @@ at `0x500FE000` while the API-created thread reaches its stack guard.
 Generations, report hashes, timing, and exact artifact identities remain
 manifest-owned evidence rather than guest semantics.
 
-Protocol version 117／BGI report schema 83 extends the active primary replay
-through fourth-scene `EndScene`. Node and Chrome agree on sequence 282,866 at
-instruction 392,354,089, active-scene clearance, device generation 73,
-preserved immutable submission 4 and back-buffer content generation 11, zero
-guest writes, and no renderer resource or visible pixel. Both complete at
-instruction 392,354,146 before `IDirect3DDevice9::GetRasterStatus` slot 19 at
-`0x01011160`; the following output semantics are not claimed by this profile.
+Protocol version 118／BGI report schema 84 extends the active primary replay
+through the post-fourth-scene `GetRasterStatus`. Node and Chrome retain the
+sequence 282,866 EndScene prerequisite, then agree on sequence 282,867 at
+instruction 392,354,146, device `0x01010004`, swap-chain 0, `D3D_OK`, reference
+count 5, and one atomic `0000000037040000` write to `0x006FB890`. Rust supplies
+the last-visible-line sample without graphics／COM mutation or host／browser
+scanout import. Both complete at instruction 392,354,183 before
+`IDirect3DDevice9::Present(NULL,NULL,NULL,NULL)` slot 17 at `0x01011140`; the
+following Present and renderer materialization are not claimed by this profile.
 
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource

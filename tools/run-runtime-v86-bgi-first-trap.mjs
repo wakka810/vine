@@ -262,6 +262,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-set-stream-source-post-fvf",
         "d3d9-draw-primitive-post-stream-source",
         "d3d9-end-scene-post-draw-primitive",
+        "d3d9-get-raster-status-post-end-scene",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
@@ -483,6 +484,7 @@ assert(
       "d3d9-set-stream-source-post-fvf",
       "d3d9-draw-primitive-post-stream-source",
       "d3d9-end-scene-post-draw-primitive",
+      "d3d9-get-raster-status-post-end-scene",
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
       "user32-set-window-pos-frame-change-move",
@@ -543,7 +545,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-set-fvf-post-texture-binding" ||
     genericRuntimeCapability === "d3d9-set-stream-source-post-fvf" ||
     genericRuntimeCapability === "d3d9-draw-primitive-post-stream-source" ||
-    genericRuntimeCapability === "d3d9-end-scene-post-draw-primitive"
+    genericRuntimeCapability === "d3d9-end-scene-post-draw-primitive" ||
+    genericRuntimeCapability === "d3d9-get-raster-status-post-end-scene"
       ? "kernel32-delete-file-a-v1.json"
       : genericRuntimeCapability === "kernel32-find-first-file-a"
       ? "kernel32-find-file-a-v1.json"
@@ -1080,9 +1083,14 @@ const d3d9DrawPrimitivePostStreamSourceCheckpointEnabled =
   genericRuntimeCapability === "d3d9-draw-primitive-post-stream-source";
 const d3d9EndScenePostDrawPrimitiveCheckpointEnabled =
   genericRuntimeCapability === "d3d9-end-scene-post-draw-primitive";
+const d3d9GetRasterStatusPostEndSceneCheckpointEnabled =
+  genericRuntimeCapability === "d3d9-get-raster-status-post-end-scene";
+const d3d9EndScenePostDrawPrimitiveEvidenceEnabled =
+  d3d9EndScenePostDrawPrimitiveCheckpointEnabled ||
+  d3d9GetRasterStatusPostEndSceneCheckpointEnabled;
 const d3d9DrawPrimitivePostStreamSourceEvidenceEnabled =
   d3d9DrawPrimitivePostStreamSourceCheckpointEnabled ||
-  d3d9EndScenePostDrawPrimitiveCheckpointEnabled;
+  d3d9EndScenePostDrawPrimitiveEvidenceEnabled;
 const d3d9SetStreamSourcePostFvfEvidenceEnabled =
   d3d9SetStreamSourcePostFvfCheckpointEnabled ||
   d3d9DrawPrimitivePostStreamSourceEvidenceEnabled;
@@ -2032,7 +2040,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? d3d9EndScenePostDrawPrimitiveCheckpointEnabled
+    ? d3d9GetRasterStatusPostEndSceneCheckpointEnabled
+      ? "v86-bgi-d3d9-get-raster-status-post-end-scene"
+      : d3d9EndScenePostDrawPrimitiveCheckpointEnabled
       ? "v86-bgi-d3d9-end-scene-post-draw-primitive"
       : d3d9DrawPrimitivePostStreamSourceCheckpointEnabled
       ? "v86-bgi-d3d9-draw-primitive-post-stream-source"
@@ -6651,6 +6661,11 @@ async function run() {
       });
       if (genericRuntimeCapability === null) {
         validateGenericRuntimeReentryResult(genericResult);
+      } else if (d3d9GetRasterStatusPostEndSceneCheckpointEnabled) {
+        validateD3d9GetRasterStatusPostEndSceneResult(
+          genericResult,
+          sourceRegistration,
+        );
       } else if (d3d9EndScenePostDrawPrimitiveCheckpointEnabled) {
         validateD3d9EndScenePostDrawPrimitiveResult(
           genericResult,
@@ -7051,6 +7066,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : d3d9GetRasterStatusPostEndSceneCheckpointEnabled
+            ? "bgi D3D9 GetRasterStatus after later EndScene"
           : d3d9EndScenePostDrawPrimitiveCheckpointEnabled
             ? "bgi D3D9 EndScene after later DrawPrimitive"
           : d3d9DrawPrimitivePostStreamSourceCheckpointEnabled
@@ -9226,6 +9243,11 @@ async function runGenericRuntimeReentry({
         d3d9EndScenePostDrawPrimitiveCheckpointEnabled &&
         checkpointCompletion.capability ===
           "d3d9-end-scene-post-draw-primitive"
+      ) &&
+      !(
+        d3d9GetRasterStatusPostEndSceneCheckpointEnabled &&
+        checkpointCompletion.capability ===
+          "d3d9-get-raster-status-post-end-scene"
       )
     ) {
       checkpointCompletion = null;
@@ -9241,6 +9263,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "d3d9-get-raster-status-post-end-scene"
+            ? "d3d9-get-raster-status-post-end-scene-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "d3d9-end-scene-post-draw-primitive"
             ? "d3d9-end-scene-post-draw-primitive-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -9460,7 +9485,14 @@ async function runGenericRuntimeReentry({
             checkpointCompletion.nextEndpoint.interfaceIndex =
               terminal.interfaceIndex;
             checkpointCompletion.nextEndpoint.vtableSlot = terminal.vtableSlot;
-            if (d3d9EndScenePostDrawPrimitiveCheckpointEnabled) {
+            if (d3d9GetRasterStatusPostEndSceneCheckpointEnabled) {
+              assert.equal(endpoint.address, 0x0101_1140);
+              assert.equal(terminal.interfaceIndex, 1);
+              assert.equal(terminal.vtableSlot, 17);
+              checkpointCompletion.nextEndpoint.interface =
+                "IDirect3DDevice9";
+              checkpointCompletion.nextEndpoint.method = "Present";
+            } else if (d3d9EndScenePostDrawPrimitiveCheckpointEnabled) {
               assert.equal(endpoint.address, 0x0101_1160);
               assert.equal(terminal.interfaceIndex, 1);
               assert.equal(terminal.vtableSlot, 19);
@@ -11897,6 +11929,78 @@ async function runGenericRuntimeReentry({
           submission.texture.content.contentGeneration,
         presentedFrameSequence: device.presentedFrame?.sequence ?? null,
         browserRendererResourceCreated: device.renderer !== undefined,
+        visiblePixelsProduced: false,
+        activeCallbackDepthAtCompletion: activeCallbacks.length,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
+    if (
+      d3d9GetRasterStatusPostEndSceneCheckpointEnabled &&
+      call.interface === "IDirect3DDevice9" &&
+      call.vtableSlot === 19 &&
+      call.sequence === 282_867
+    ) {
+      const endSceneCall = supportedCalls.find(
+        (candidate) =>
+          candidate.sequence === 282_866 &&
+          candidate.interface === "IDirect3DDevice9" &&
+          candidate.vtableSlot === 42,
+      );
+      assert.equal(checkpointCompletion, null);
+      assert(
+        endSceneCall,
+        "later GetRasterStatus omitted its EndScene prerequisite",
+      );
+      assert.equal(activeCallbacks.length, 0);
+      assert.deepEqual(call.arguments, [0x0101_0004, 0, 0x006f_b890]);
+      assert.deepEqual(call.result, { kind: "h-result", value: 0 });
+      assert.equal(call.returnAddress, 0x1005_aedd);
+      assert.equal(call.stackPointerBefore, 0x006f_b878);
+      assert.equal(call.stackPointerAfter, 0x006f_b888);
+      assert.equal(call.referenceCount, 5);
+      assert.equal(call.objectRetired, false);
+      assert.equal(call.guestWrites.length, 1);
+      assert.equal(call.guestWrites[0].address, call.arguments[2]);
+      assert.equal(call.guestWrites[0].result.bytesWritten, 8);
+      assert.equal(call.guestWrites[0].result.dirtyPages, 1);
+      assert.equal(call.graphicsDevice, undefined);
+      const outputBytes = Buffer.from(call.guestWrites[0].bytes);
+      assert.equal(outputBytes.length, 8);
+      checkpointCompletion = {
+        capability: "d3d9-get-raster-status-post-end-scene",
+        implementationId:
+          "runtime.d3d9-get-raster-status-post-end-scene.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        prerequisiteEndSceneSequence: endSceneCall.sequence,
+        prerequisiteEndSceneInstructionCount:
+          endSceneCall.trapInstructionCount,
+        firstCompletionSequence: call.sequence,
+        firstCompletionInstructionCount: call.trapInstructionCount,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: call.trapInstructionCount,
+        call: structuredClone(call),
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33",
+        rasterStatusProfileId:
+          "primary-stable-last-visible-scanline-v2",
+        displayProfileId:
+          "single-monitor-1920x1080-work-1920x1032-v2",
+        stateAuthority: "rust-d3d9-compatibility-policy",
+        outputAddress: call.arguments[2],
+        outputByteLength: outputBytes.length,
+        outputHex: outputBytes.toString("hex"),
+        inVBlank: outputBytes.readUInt32LE(0) !== 0,
+        scanLine: outputBytes.readUInt32LE(4),
+        runtimeStateMutation: false,
+        referenceCountMutation: false,
+        lastErrorPolicy: "preserve",
+        guestWriteAtomic: true,
+        failureAtomicity: true,
+        hostScanoutImported: false,
+        browserScanoutImported: false,
+        browserRendererResourceCreated: false,
         visiblePixelsProduced: false,
         activeCallbackDepthAtCompletion: activeCallbacks.length,
         instructionCount: 0,
@@ -28440,6 +28544,114 @@ function validateD3d9EndScenePostDrawPrimitiveResult(
   assert.equal(result.activeCallbackDepth, 0);
 }
 
+function validateD3d9GetRasterStatusPostEndSceneResult(
+  result,
+  sourceRegistration,
+) {
+  assert(d3d9GetRasterStatusPostEndSceneCheckpointEnabled);
+  assert(sourceRegistration !== null);
+  assert.equal(result.supportedCalls.length, 282_867);
+  assert.equal(result.fault, null);
+  const completion = result.checkpointCompletion;
+  assert(
+    completion,
+    "later GetRasterStatus checkpoint completion is missing",
+  );
+  assert.equal(
+    completion.capability,
+    "d3d9-get-raster-status-post-end-scene",
+  );
+  assert.equal(
+    completion.implementationId,
+    "runtime.d3d9-get-raster-status-post-end-scene.v1",
+  );
+  assert.equal(completion.requiredCompletions, 1);
+  assert.equal(completion.completionCount, 1);
+  assert.equal(completion.prerequisiteEndSceneSequence, 282_866);
+  assert.equal(
+    completion.prerequisiteEndSceneInstructionCount,
+    392_354_089,
+  );
+  assert.equal(completion.firstCompletionSequence, 282_867);
+  assert.equal(completion.firstCompletionInstructionCount, 392_354_146);
+  assert.equal(completion.lastCompletionSequence, 282_867);
+  assert.equal(completion.lastCompletionInstructionCount, 392_354_146);
+  assert.equal(completion.call.sequence, 282_867);
+  assert.equal(completion.call.occurrence, 9_080);
+  assert.deepEqual(completion.call.arguments, [0x0101_0004, 0, 0x006f_b890]);
+  assert.deepEqual(completion.call.result, { kind: "h-result", value: 0 });
+  assert.equal(completion.call.returnAddress, 0x1005_aedd);
+  assert.equal(completion.call.stackPointerBefore, 0x006f_b878);
+  assert.equal(completion.call.stackPointerAfter, 0x006f_b888);
+  assert.equal(completion.call.referenceCount, 5);
+  assert.equal(completion.call.objectRetired, false);
+  assert.deepEqual(completion.call.guestWrites[0].bytes, [0, 0, 0, 0, 0x37, 0x04, 0, 0]);
+  assert.equal(
+    completion.compatibilityPolicyId,
+    "d3d9-primary-virtual-adapter-v33",
+  );
+  assert.equal(
+    completion.rasterStatusProfileId,
+    "primary-stable-last-visible-scanline-v2",
+  );
+  assert.equal(
+    completion.displayProfileId,
+    "single-monitor-1920x1080-work-1920x1032-v2",
+  );
+  assert.equal(completion.stateAuthority, "rust-d3d9-compatibility-policy");
+  assert.equal(completion.outputAddress, 0x006f_b890);
+  assert.equal(completion.outputByteLength, 8);
+  assert.equal(completion.outputHex, "0000000037040000");
+  assert.equal(completion.inVBlank, false);
+  assert.equal(completion.scanLine, 1_079);
+  assert.equal(completion.runtimeStateMutation, false);
+  assert.equal(completion.referenceCountMutation, false);
+  assert.equal(completion.lastErrorPolicy, "preserve");
+  assert.equal(completion.guestWriteAtomic, true);
+  assert.equal(completion.failureAtomicity, true);
+  assert.equal(completion.hostScanoutImported, false);
+  assert.equal(completion.browserScanoutImported, false);
+  assert.equal(completion.browserRendererResourceCreated, false);
+  assert.equal(completion.visiblePixelsProduced, false);
+  assert.equal(completion.activeCallbackDepthAtCompletion, 0);
+  assert.equal(completion.instructionCount, 392_354_183);
+  assert.deepEqual(completion.nextEndpoint, {
+    id: 0,
+    address: 0x0101_1140,
+    module: "<com>",
+    symbol: { kind: "name", name: "interface-1-slot-17" },
+    disposition: "declared-com-method",
+    interfaceIndex: 1,
+    vtableSlot: 17,
+    interface: "IDirect3DDevice9",
+    method: "Present",
+  });
+  assert.equal(completion.nextReturnAddress, 0x1005_b7b1);
+  assert.equal(completion.nextStackPointer, 0x006f_b890);
+  assert.equal(
+    completion.memoryContentSha256,
+    "3e2ad4caff37cab8e510e3bdeb5bca8a7376236fe3820e50d64411f14bd296cf",
+  );
+  assert.equal(result.terminal.initialInstructionCount, 392_354_146);
+  assert.equal(result.terminal.additionalInstructionCount, 37);
+  assert.equal(result.terminal.instructionCount, 392_354_183);
+  assert.equal(result.terminal.terminal.endpointAddress, 0x0101_1140);
+  assert.equal(result.terminal.terminal.interfaceIndex, 1);
+  assert.equal(result.terminal.terminal.vtableSlot, 17);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_b7b1);
+  assert.deepEqual(
+    result.terminal.terminal.stackWords.slice(0, 6),
+    [0x1005_b7b1, 0x0101_0004, 0, 0, 0, 0],
+  );
+  assert.equal(result.finalGeneration, 333_503);
+  assert.equal(result.writebacks.length, 286_065);
+  assert.equal(result.hostDeltas.length, 143_088);
+  assert.equal(result.sourceReads.length, 154);
+  assert.equal(result.heapPageMaterializations.length, 3_112);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+  assert.equal(result.activeCallbackDepth, 0);
+}
+
 function validateD3d9SetSamplerStatePostBeginSceneResult(
   result,
   sourceRegistration,
@@ -42037,7 +42249,13 @@ function buildGenericRuntimeReentryReport({
       );
       if (findFirstFileACheckpointEnabled) {
         if (deleteFileACheckpointEnabled) {
-          if (d3d9EndScenePostDrawPrimitiveCheckpointEnabled) {
+          if (d3d9GetRasterStatusPostEndSceneCheckpointEnabled) {
+            assert.equal(completedSupportedCalls.length, 282_867);
+            assert.equal(
+              supportedCallSemanticsSha256,
+              "548a7a119d932b44b360988cdecf53367e292766d0136ebb1b174568808b14d0",
+            );
+          } else if (d3d9EndScenePostDrawPrimitiveCheckpointEnabled) {
             assert.equal(completedSupportedCalls.length, 282_866);
             assert.equal(
               supportedCallSemanticsSha256,
@@ -45429,12 +45647,21 @@ function buildScheduledSharedClockPrimaryReport({
         ) ?? null
       : null;
   const d3d9EndScenePostDrawPrimitiveCall =
-    d3d9EndScenePostDrawPrimitiveCheckpointEnabled
+    d3d9EndScenePostDrawPrimitiveEvidenceEnabled
       ? completedSupportedCalls.find(
           (call) =>
             call.sequence === 282_866 &&
             call.interface === "IDirect3DDevice9" &&
             call.vtableSlot === 42,
+        ) ?? null
+      : null;
+  const d3d9GetRasterStatusPostEndSceneCall =
+    d3d9GetRasterStatusPostEndSceneCheckpointEnabled
+      ? completedSupportedCalls.find(
+          (call) =>
+            call.sequence === 282_867 &&
+            call.interface === "IDirect3DDevice9" &&
+            call.vtableSlot === 19,
         ) ?? null
       : null;
   const successfulFindCalls = [
@@ -45455,8 +45682,10 @@ function buildScheduledSharedClockPrimaryReport({
     };
   });
   return {
-    schema: d3d9EndScenePostDrawPrimitiveCheckpointEnabled
-      ? "vine.v86-bgi-d3d9-end-scene-post-draw-primitive-primary"
+    schema: d3d9GetRasterStatusPostEndSceneCheckpointEnabled
+      ? "vine.v86-bgi-d3d9-get-raster-status-post-end-scene-primary"
+      : d3d9EndScenePostDrawPrimitiveCheckpointEnabled
+        ? "vine.v86-bgi-d3d9-end-scene-post-draw-primitive-primary"
       : d3d9DrawPrimitivePostStreamSourceCheckpointEnabled
         ? "vine.v86-bgi-d3d9-draw-primitive-post-stream-source-primary"
       : d3d9SetStreamSourcePostFvfCheckpointEnabled
@@ -45788,10 +46017,20 @@ function buildScheduledSharedClockPrimaryReport({
             },
           }
         : {}),
-      ...(d3d9EndScenePostDrawPrimitiveCheckpointEnabled
+      ...(d3d9EndScenePostDrawPrimitiveEvidenceEnabled
         ? {
             d3d9EndScenePostDrawPrimitive: {
               call: d3d9EndScenePostDrawPrimitiveCall,
+              ...(d3d9EndScenePostDrawPrimitiveCheckpointEnabled
+                ? { checkpointCompletion: genericResult.checkpointCompletion }
+                : {}),
+            },
+          }
+        : {}),
+      ...(d3d9GetRasterStatusPostEndSceneCheckpointEnabled
+        ? {
+            d3d9GetRasterStatusPostEndScene: {
+              call: d3d9GetRasterStatusPostEndSceneCall,
               checkpointCompletion: genericResult.checkpointCompletion,
             },
           }

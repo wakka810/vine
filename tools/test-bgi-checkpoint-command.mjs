@@ -266,6 +266,10 @@ assert.equal(
   "v86-bgi-d3d9-end-scene-post-draw-primitive",
 );
 assert.equal(
+  bgiProfileOutputDirectory("d3d9-get-raster-status-post-end-scene"),
+  "v86-bgi-d3d9-get-raster-status-post-end-scene",
+);
+assert.equal(
   bgiProfileOutputDirectory("shell32-drag-accept-files"),
   "v86-bgi-drag-accept-files",
 );

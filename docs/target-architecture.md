@@ -991,6 +991,15 @@ device generation 73へ進める。Submission sequence 4、back-buffer content g
 generation 4、presented frame sequence 3は保持し、後続`GetRasterStatus`へ渡す。Browser renderer resourceや
 visible pixelはこのscene-close commitのauthorityに含めない。
 
+Reached `GetRasterStatus(0, output)`はlive COM-to-device relation、primary display profile、swap-chain 0、
+complete 8-byte guest output spanをmutation-freeに検証し、Rust-owned compatibility policyが
+`InVBlank=FALSE`／last-visible `ScanLine=1079`を構成する。GuestMemoryの全spanをpreflightした後に一つの
+atomic writeだけをcommitし、graphics／COM state、reference count、LastError、全generationを変更しない。
+NULL／unwritable output、unsupported swap-chain、stale identity、display authority不整合はguest bytesを含む
+全authorityをmutation前のまま保つ。Host raster counterやbrowser scanoutをimportせず、TypeScriptはordered
+completionを検証するだけでWindows raster stateを所有しない。4回目のscene後の到達もこのtransactionを
+再利用し、次の`Present(NULL,NULL,NULL,NULL)` gatewayへclosed-frame stateを変更せず渡す。
+
 Reached `Present(NULL,NULL,NULL,NULL)`はlive COM-to-device relation、closed scene、clear／draw content、device／content／
 graphics／Present generationをmutation-free planへ固定する。全capacityとgenerationをpreflightした後、旧back bufferを
 immutable `presented_frame`としてpublishし、discard modeの新しいempty back-buffer generationへ一回で進める。
