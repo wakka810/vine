@@ -236,6 +236,10 @@ assert.equal(
   "v86-bgi-d3d9-begin-scene-post-partial-dirty-region",
 );
 assert.equal(
+  bgiProfileOutputDirectory("d3d9-set-sampler-state-post-begin-scene"),
+  "v86-bgi-d3d9-set-sampler-state-post-begin-scene",
+);
+assert.equal(
   bgiProfileOutputDirectory("shell32-drag-accept-files"),
   "v86-bgi-drag-accept-files",
 );

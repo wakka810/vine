@@ -52,3 +52,5 @@ npm run check:runtime:bgi -- --profile d3d9-begin-scene-post-partial-dirty-regio
 node tools/run-browser-runtime-check.mjs --bgi --bgi-profile d3d9-begin-scene-post-partial-dirty-region --bgi-policy fixtures/runtime-policies/kernel32-delete-file-a-v1.json
 npm run check:runtime:browser-worker
 ```
+
+Continuation: [post-`BeginScene` sampler-state profile](bgi-d3d9-set-sampler-state-post-begin-scene.md).

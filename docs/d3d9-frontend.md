@@ -1176,7 +1176,12 @@ additionally enables the exact inactive-to-active scene transition and stops at
 `IDirect3DDevice9::SetSamplerState` slot 69. The
 `d3d9-begin-scene-post-partial-dirty-region` profile reuses that same device-owned
 scene transition after the reached fourth partial upload, records active scene
-sequence 4 without browser graphics ownership, and also stops at slot 69. The historical
+sequence 4 without browser graphics ownership, and also stops at slot 69. The
+`d3d9-set-sampler-state-post-begin-scene` profile then reuses the same typed sampler
+owner for the reached MIN／MAG linear pair, proves both assignments idempotent at
+device generation 71, preserves the active fourth scene, records three mutation-free
+`D3DERR_NOTAVAILABLE` render-state rejections, and stops at
+`IDirect3DDevice9::SetTextureStageState` slot 67. The historical
 `d3d9-initial-sampler-states` profile enables only the exact sampler-0 MIN／MAG
 linear transitions, explicitly rejects the following three unprofiled render
 states, and stops at `IDirect3DDevice9::SetTextureStageState` slot 67. The historical
@@ -1222,8 +1227,8 @@ browser frame, and stops before the already-supported `WINMM.dll!timeGetTime`.
   SYSTEMMEM-to-DEFAULT `UpdateTexture` calls, one exact level-zero
   SYSTEMMEM `LockRect`／`UnlockRect` lifetime, one
   exact initial and reached post-partial inactive-to-active `BeginScene` transitions,
-  the exact two sampler-0 MIN／MAG
-  linear `SetSamplerState` calls, the exact six stage-0
+  the exact initial and reached fourth-scene sampler-0 MIN／MAG
+  linear `SetSamplerState` pairs with bounded post-pair render-state rejections, the exact six stage-0
   `SetTextureStageState` calls, the exact stage-0 static DEFAULT
   `SetTexture` binding, the exact typed FVF `0x144`, the exact stream-0
   source binding at offset 0／stride 28, one exact triangle-strip quad draw

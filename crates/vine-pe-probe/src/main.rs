@@ -262,6 +262,8 @@ enum GenericRuntimeCapability {
     D3d9AddDirtyRect,
     D3d9UpdateTexture,
     D3d9UpdateTexturePartialDirtyRegion,
+    D3d9BeginScenePostPartialDirtyRegion,
+    D3d9SetSamplerStatePostBeginScene,
     D3d9BeginScene,
     D3d9InitialSamplerStates,
     D3d9InitialTextureStageStates,
@@ -2938,6 +2940,8 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9AddDirtyRect
                     | GenericRuntimeCapability::D3d9UpdateTexture
                     | GenericRuntimeCapability::D3d9UpdateTexturePartialDirtyRegion
+                    | GenericRuntimeCapability::D3d9BeginScenePostPartialDirtyRegion
+                    | GenericRuntimeCapability::D3d9SetSamplerStatePostBeginScene
                     | GenericRuntimeCapability::D3d9BeginScene
                     | GenericRuntimeCapability::D3d9InitialSamplerStates
                     | GenericRuntimeCapability::D3d9InitialTextureStageStates
@@ -3624,7 +3628,11 @@ fn run_v86_generic_runtime_session(
 ) -> Result<(), LoaderError> {
     let d3d9_update_texture_partial_dirty_region_enabled = matches!(
         enabled_capability,
-        Some(GenericRuntimeCapability::D3d9UpdateTexturePartialDirtyRegion)
+        Some(
+            GenericRuntimeCapability::D3d9UpdateTexturePartialDirtyRegion
+                | GenericRuntimeCapability::D3d9BeginScenePostPartialDirtyRegion
+                | GenericRuntimeCapability::D3d9SetSamplerStatePostBeginScene
+        )
     );
     let delete_file_a_enabled = d3d9_update_texture_partial_dirty_region_enabled
         || matches!(
@@ -3774,12 +3782,18 @@ fn run_v86_generic_runtime_session(
     let d3d9_initial_sampler_states_enabled = d3d9_initial_texture_stage_states_enabled
         || matches!(
             enabled_capability,
-            Some(GenericRuntimeCapability::D3d9InitialSamplerStates)
+            Some(
+                GenericRuntimeCapability::D3d9InitialSamplerStates
+                    | GenericRuntimeCapability::D3d9SetSamplerStatePostBeginScene
+            )
         );
     let d3d9_begin_scene_enabled = d3d9_initial_sampler_states_enabled
         || matches!(
             enabled_capability,
-            Some(GenericRuntimeCapability::D3d9BeginScene)
+            Some(
+                GenericRuntimeCapability::D3d9BeginScene
+                    | GenericRuntimeCapability::D3d9BeginScenePostPartialDirtyRegion
+            )
         );
     let d3d9_update_texture_enabled = d3d9_begin_scene_enabled
         || matches!(
@@ -3980,6 +3994,8 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9AddDirtyRect
             | GenericRuntimeCapability::D3d9UpdateTexture
             | GenericRuntimeCapability::D3d9UpdateTexturePartialDirtyRegion
+            | GenericRuntimeCapability::D3d9BeginScenePostPartialDirtyRegion
+            | GenericRuntimeCapability::D3d9SetSamplerStatePostBeginScene
             | GenericRuntimeCapability::D3d9BeginScene
             | GenericRuntimeCapability::D3d9InitialSamplerStates
             | GenericRuntimeCapability::D3d9InitialTextureStageStates
@@ -15107,7 +15123,10 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                     GenericRuntimeCapability::D3d9UpdateTexturePartialDirtyRegion
                 }
                 "d3d9-begin-scene-post-partial-dirty-region" => {
-                    GenericRuntimeCapability::D3d9UpdateTexturePartialDirtyRegion
+                    GenericRuntimeCapability::D3d9BeginScenePostPartialDirtyRegion
+                }
+                "d3d9-set-sampler-state-post-begin-scene" => {
+                    GenericRuntimeCapability::D3d9SetSamplerStatePostBeginScene
                 }
                 "d3d9-begin-scene" => GenericRuntimeCapability::D3d9BeginScene,
                 "d3d9-initial-sampler-states" => GenericRuntimeCapability::D3d9InitialSamplerStates,

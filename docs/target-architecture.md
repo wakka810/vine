@@ -946,7 +946,9 @@ copyするだけで、Windows texture bytes、lock、generationの第二authorit
 scene sequenceだけをplan／preflight／commitする。初回とpost-partial 4回目の到達はいずれも
 この同一ownerを通り、TypeScriptにscene stateを複製しない。Reached `SetSamplerState`はdevice-owned sparse typed mapへ
 sampler 0のMIN／MAG linearだけを追加し、同値repeatをgeneration不変のsuccessにする。Native driverのprofile外
-permissivenessを推測で一般化せず、unsupported sampler／state／valueはmutation前にtyped resultへ落とす。Reached
+permissivenessを推測で一般化せず、unsupported sampler／state／valueはmutation前にtyped resultへ落とす。Post-partial
+4回目のsceneで到達したMIN／MAG pairも同じownerを通り、device generation 71を保つidempotent successとなる。
+その直後の未profile render-state三件は`D3DERR_NOTAVAILABLE`でmutation前に拒否する。Reached
 `SetTextureStageState`も同じdevice owner上のstage 0 sparse typed stateへ、到達したcolor／alpha operationとargumentの
 六設定だけをplan／preflight／idempotent commitする。Native driverが受理するprofile外stage／state／valueはpolicyへ
 暗黙昇格させない。Reached `SetTexture`はlive device／texture COM relationとsame-device ownershipを解決し、
