@@ -3409,6 +3409,8 @@ function assertScheduledSharedClockReportSemantics({
   if (kernel32SetWaitableTimerPostTestCooperativeLevelReport) {
     const setWaitableTimer =
       nodeExecution.kernel32SetWaitableTimerPostTestCooperativeLevel;
+    const setWaitableTimerCall =
+      setWaitableTimer.checkpointCompletion.call;
     const testCooperativeLevel =
       nodeExecution.d3d9TestCooperativeLevelPostTimeGetTime;
     assert.equal(nodeStop.fault, null);
@@ -3416,16 +3418,12 @@ function assertScheduledSharedClockReportSemantics({
       nodeStop.terminal.instructionCount,
       expectedNext.instructionCount,
     );
-    assert.deepEqual(
-      setWaitableTimer.call,
-      setWaitableTimer.checkpointCompletion.call,
-    );
-    assert.equal(setWaitableTimer.call.sequence, 282_871);
-    assert.equal(setWaitableTimer.call.occurrence, 9_921);
-    assert.equal(setWaitableTimer.call.trapInstructionCount, 392_354_369);
-    assert.equal(setWaitableTimer.call.module.toLowerCase(), "kernel32.dll");
-    assert.equal(setWaitableTimer.call.symbol, "SetWaitableTimer");
-    assert.deepEqual(setWaitableTimer.call.arguments, [
+    assert.equal(setWaitableTimerCall.sequence, 282_871);
+    assert.equal(setWaitableTimerCall.occurrence, 9_921);
+    assert.equal(setWaitableTimerCall.trapInstructionCount, 392_354_369);
+    assert.equal(setWaitableTimerCall.module.toLowerCase(), "kernel32.dll");
+    assert.equal(setWaitableTimerCall.symbol, "SetWaitableTimer");
+    assert.deepEqual(setWaitableTimerCall.arguments, [
       0x5701_0001,
       0x006f_f8f0,
       0,
@@ -3433,20 +3431,20 @@ function assertScheduledSharedClockReportSemantics({
       0,
       0,
     ]);
-    assert.deepEqual(setWaitableTimer.call.result, {
+    assert.deepEqual(setWaitableTimerCall.result, {
       action: "set",
       value: 1,
     });
     assert.equal(
-      setWaitableTimer.call.implementationId,
+      setWaitableTimerCall.implementationId,
       "kernel32.set-waitable-timer.relative-one-shot.v1",
     );
-    assert.equal(setWaitableTimer.call.returnAddress, 0x1005_0607);
-    assert.equal(setWaitableTimer.call.stackPointerBefore, 0x006f_f8d4);
-    assert.equal(setWaitableTimer.call.stackPointerAfter, 0x006f_f8f0);
-    assert.equal(setWaitableTimer.call.lastError, 0);
-    assert.deepEqual(setWaitableTimer.call.guestWrites, []);
-    assert.deepEqual(setWaitableTimer.call.waitableTimer, {
+    assert.equal(setWaitableTimerCall.returnAddress, 0x1005_0607);
+    assert.equal(setWaitableTimerCall.stackPointerBefore, 0x006f_f8d4);
+    assert.equal(setWaitableTimerCall.stackPointerAfter, 0x006f_f8f0);
+    assert.equal(setWaitableTimerCall.lastError, 0);
+    assert.deepEqual(setWaitableTimerCall.guestWrites, []);
+    assert.deepEqual(setWaitableTimerCall.waitableTimer, {
       handle: 0x5701_0001,
       timer: {
         id: 1,
