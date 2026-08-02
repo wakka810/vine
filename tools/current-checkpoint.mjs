@@ -22171,7 +22171,9 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureBefore !== null ||
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureAfter !== null)) ||
     latestEvidence.implementation !==
-      (d3d9GetRasterStatusPostEndSceneActive
+      (d3d9PresentPostRasterStatusActive
+        ? "Rust-owned D3D9 frame authority completes the reached fourth Present through one validated targeted commit, publishes back-buffer content generation 11 as frame sequence 4 before the discard transition, and lets the Worker reuse its non-owning browser resource to render before guest resume while stopping at timeGetTime without claiming readable title pixels"
+        : d3d9GetRasterStatusPostEndSceneActive
         ? "Rust-owned D3D9 compatibility policy completes the reached post-EndScene GetRasterStatus query with one atomic eight-byte last-visible-scanline sample, preserves runtime graphics and COM state, and stops at the following Present slot 17 endpoint without importing host or browser scanout state"
         : d3d9EndScenePostDrawPrimitiveActive
         ? "Rust-owned D3D9 scene-lifecycle authority closes the reached fourth active scene through the existing validated targeted EndScene commit, advances device generation 73 while preserving immutable draw submission 4 and back-buffer content generation 11 without guest writes or renderer materialization, and stops at the following GetRasterStatus slot 19 endpoint"
