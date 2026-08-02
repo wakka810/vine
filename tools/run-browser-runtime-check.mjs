@@ -106,9 +106,12 @@ const d3d9GetRasterStatusPostEndSceneProfile =
   bgiProfile === "d3d9-get-raster-status-post-end-scene";
 const d3d9PresentPostRasterStatusProfile =
   bgiProfile === "d3d9-present-post-raster-status";
+const winmmTimeGetTimePostPresentProfile =
+  bgiProfile === "winmm-time-get-time-post-present";
 const d3d9UpdateTexturePartialDirtyRegionProfile =
   bgiProfile === "d3d9-update-texture-partial-dirty-region";
 const includesD3d9UpdateTexturePartialDirtyRegionProfile =
+  winmmTimeGetTimePostPresentProfile ||
   d3d9PresentPostRasterStatusProfile ||
   d3d9GetRasterStatusPostEndSceneProfile ||
   d3d9EndScenePostDrawPrimitiveProfile ||
@@ -407,7 +410,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v119";
+const runtimeProtocol = "vine.browser-runtime-worker.v120";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -2079,6 +2082,126 @@ function validateD3d9GetRasterStatusPostEndSceneBgiProbe(
   assert.equal(report.timerPacing.pending, 0);
 }
 
+function validateWinmmTimeGetTimePostPresentBgiProbe(evidence, scenario) {
+  if (scenario !== "success") {
+    validateScheduledSharedClockBgiProbe(evidence, scenario);
+    return;
+  }
+  const report = evidence.report;
+  const completion = report.checkpointCompletion;
+  const call = completion.call;
+  const presentCall = report.d3d9Present?.call;
+  const receipt = presentCall?.browserPresentation;
+  assert.equal(report.outcome, "checkpoint-complete");
+  assert.equal(report.error, null);
+  assert.equal(report.supportedCallCount, 282_869);
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    "5f224f94086095c739923b53509fe4e33c65fd11d63ec7c352044c42f7705dc8",
+  );
+  assert.equal(report.instructions, 392_354_323);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert.equal(report.sourceReads.length, 154);
+  assert.equal(report.writableDirectoryCreates.length, 1);
+  assert.equal((report.heapPageMaterializations ?? []).length, 3_112);
+  assert.equal(report.firstUnsupported, null);
+  assert.equal(completion.capability, "winmm-time-get-time-post-present");
+  assert.equal(
+    completion.implementationId,
+    "runtime.winmm-time-get-time-post-present.v1",
+  );
+  assert.equal(completion.semanticImplementationId, "winmm.time-get-time.v1");
+  assert.equal(completion.requiredCompletions, 1);
+  assert.equal(completion.completionCount, 1);
+  assert.equal(completion.prerequisitePresentSequence, 282_868);
+  assert.equal(completion.prerequisitePresentInstructionCount, 392_354_183);
+  assert.equal(completion.firstCompletionSequence, 282_869);
+  assert.equal(completion.firstCompletionInstructionCount, 392_354_190);
+  assert.equal(completion.lastCompletionSequence, 282_869);
+  assert.equal(completion.lastCompletionInstructionCount, 392_354_190);
+  assert.equal(call.sequence, 282_869);
+  assert.equal(call.occurrence, 479);
+  assert.equal(call.trapInstructionCount, 392_354_190);
+  assert.equal(call.module.toLowerCase(), "winmm.dll");
+  assert.equal(call.symbol, "timeGetTime");
+  assert.equal(call.implementationId, "winmm.time-get-time.v1");
+  assert.deepEqual(call.arguments, []);
+  assert.deepEqual(call.result, { action: "set", value: 3_800_773 });
+  assert.equal(call.returnAddress, 0x1009_1ebf);
+  assert.equal(call.stackPointerBefore, 0x006f_b8a0);
+  assert.equal(call.stackPointerAfter, 0x006f_b8a4);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.deepEqual(call.tickCount, {
+    returnedTickCount: 3_800_773,
+    nextTickCount: 3_800_773,
+    incrementPerRead: 0,
+    clockProfileId: "scheduled-shared-logical-deadline-v1",
+    timerClock: {
+      currentTime100ns: 2_007_730_000,
+      generation: 16_308,
+    },
+    scheduledExecutionClock: {
+      retiredInstructions: 392_354_190,
+      pendingRetiredInstructions: 190,
+      retiredInstructionsPerSecond: 2_000_000,
+    },
+  });
+  for (const [field, expected] of Object.entries({
+    clockProfileId: "scheduled-shared-logical-deadline-v1",
+    clockAuthority: "runtime/process.rs::RuntimeProcessState",
+    clockRelation: "shared-with-kernel32-get-tick-count",
+    returnedTickCount: 3_800_773,
+    nextTickCount: 3_800_773,
+    incrementPerRead: 0,
+    apiReadsAdvanceClock: false,
+    timerResolutionAffectsSampledClock: false,
+    lastErrorPolicy: "preserve",
+    runtimeStateMutation: false,
+    failureAtomicity: true,
+    hostClockImported: false,
+    browserClockImported: false,
+    activeCallbackDepthAtCompletion: 0,
+  })) {
+    assert.deepEqual(completion[field], expected, field);
+  }
+  assert.deepEqual(completion.timerClock, call.tickCount.timerClock);
+  assert.deepEqual(
+    completion.scheduledExecutionClock,
+    call.tickCount.scheduledExecutionClock,
+  );
+  assert.equal(presentCall?.sequence, 282_868);
+  assert.equal(receipt?.backend, "webgl2-offscreen-canvas");
+  assert.equal(receipt?.resource.id, "browser-resource:1");
+  assert.equal(receipt?.browserResourceCount, 1);
+  assert.equal(receipt?.frameSequence, 4);
+  assert.deepEqual(receipt?.centerPixelRgba, [0, 0, 0, 255]);
+  assert.equal(receipt?.webGlError, 0);
+  assert.equal(receipt?.renderedBeforeGuestResume, true);
+  assert.equal(completion.instructionCount, report.instructions);
+  assert.deepEqual(completion.nextEndpoint, {
+    id: 0,
+    address: 0x0101_1060,
+    module: "<com>",
+    symbol: { kind: "name", name: "interface-1-slot-3" },
+    disposition: "declared-com-method",
+    interfaceIndex: 1,
+    vtableSlot: 3,
+    interface: "IDirect3DDevice9",
+    method: "TestCooperativeLevel",
+  });
+  assert.deepEqual(completion.nextArguments, [0x0101_0004]);
+  assert.equal(
+    completion.memoryContentSha256,
+    "cdbfdd820c96f520438bfd9eac89c39da2d7662d41cff9c4656765dc4fbec2b8",
+  );
+  assert.equal(completion.nextReturnAddress, 0x1005_adcd);
+  assert.equal(completion.nextStackPointer, 0x006f_f8f4);
+  assert.equal(report.timerPacing.requests, 9_002);
+  assert.equal(report.timerPacing.completions, 9_002);
+  assert.equal(report.timerPacing.pending, 0);
+}
+
 function validateD3d9PresentPostRasterStatusBgiProbe(evidence, scenario) {
   if (scenario !== "success") {
     validateScheduledSharedClockBgiProbe(evidence, scenario);
@@ -3380,6 +3503,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.report.pendingCallbacks, 0);
     assertExecutionStateMachine(evidence.report, scenario);
     assertExecutionEngine(evidence.report);
+    if (winmmTimeGetTimePostPresentProfile) {
+      validateWinmmTimeGetTimePostPresentBgiProbe(evidence, scenario);
+      return evidence;
+    }
     if (d3d9PresentPostRasterStatusProfile) {
       validateD3d9PresentPostRasterStatusBgiProbe(evidence, scenario);
       return evidence;
@@ -9107,6 +9234,138 @@ function validateD3d9EndScenePostDrawPrimitiveBgiEquivalence(browser, oracle) {
   assert.equal(report.timerPacing.pending, 0);
 }
 
+function validateWinmmTimeGetTimePostPresentBgiEquivalence(browser, oracle) {
+  const report = browser.report;
+  const completion = report.checkpointCompletion;
+  const oracleEvidence = oracle.execution.winmmTimeGetTimePostPresent;
+  const oracleCompletion = oracleEvidence.checkpointCompletion;
+  const browserPresent = report.d3d9Present.call;
+  const oraclePresent = oracle.execution.d3d9PresentPostRasterStatus.call;
+  const receipt = browserPresent.browserPresentation;
+  assert.equal(
+    oracle.schema,
+    "vine.v86-bgi-winmm-time-get-time-post-present-primary",
+  );
+  assert.equal(report.evidenceLevel, fullEvidence ? "full" : "summary");
+  assert.equal(
+    report.supportedCallCount,
+    oracle.execution.completedSupportedCalls,
+  );
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    oracle.execution.supportedCallSemanticsSha256,
+  );
+  assert.equal(report.instructions, oracle.stop.terminal.instructionCount);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert.deepEqual(
+    report.sourceReads.map(normalizeBrowserSourceRead),
+    oracle.synchronization.sourceReads.map(normalizeNodeSourceRead),
+  );
+  assert.deepEqual(
+    (report.heapPageMaterializations ?? []).map(
+      normalizeHeapPageMaterialization,
+    ),
+    oracle.synchronization.heapPageMaterializations.map(
+      normalizeHeapPageMaterialization,
+    ),
+  );
+  assert.deepEqual(
+    report.writableDirectoryCreates.map(normalizeWritableDirectoryCreate),
+    oracle.synchronization.writableDirectoryCreates.map(
+      normalizeWritableDirectoryCreate,
+    ),
+  );
+  assert.equal(report.firstUnsupported, null);
+  assert.equal(oracle.stop.fault, null);
+  assert.deepEqual(
+    normalizeSemanticCall(completion.call),
+    normalizeSemanticCall(oracleEvidence.call),
+  );
+  assert.equal(completion.call.occurrence, oracleEvidence.call.occurrence);
+  assert.equal(
+    completion.call.trapInstructionCount,
+    oracleEvidence.call.trapInstructionCount,
+  );
+  assert.equal(
+    completion.call.implementationId,
+    oracleEvidence.call.implementationId,
+  );
+  assert.deepEqual(completion.call.tickCount, oracleEvidence.call.tickCount);
+  for (const field of [
+    "capability",
+    "implementationId",
+    "semanticImplementationId",
+    "requiredCompletions",
+    "completionCount",
+    "prerequisitePresentSequence",
+    "prerequisitePresentInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "clockProfileId",
+    "clockAuthority",
+    "clockRelation",
+    "returnedTickCount",
+    "nextTickCount",
+    "incrementPerRead",
+    "apiReadsAdvanceClock",
+    "timerResolutionAffectsSampledClock",
+    "lastErrorPolicy",
+    "runtimeStateMutation",
+    "failureAtomicity",
+    "hostClockImported",
+    "browserClockImported",
+    "activeCallbackDepthAtCompletion",
+    "nextReturnAddress",
+    "nextStackPointer",
+  ]) {
+    assert.deepEqual(completion[field], oracleCompletion[field], field);
+  }
+  assert.deepEqual(completion.timerClock, oracleCompletion.timerClock);
+  assert.deepEqual(
+    completion.scheduledExecutionClock,
+    oracleCompletion.scheduledExecutionClock,
+  );
+  assert.equal(
+    completion.instructionCount,
+    oracle.stop.terminal.instructionCount,
+  );
+  assert.deepEqual(completion.nextEndpoint, oracleCompletion.nextEndpoint);
+  assert.deepEqual(completion.nextArguments, oracleCompletion.nextArguments);
+  assert.equal(
+    completion.memoryContentSha256,
+    oracleCompletion.memoryContentSha256,
+  );
+  assert.deepEqual(
+    normalizeSemanticCall(browserPresent),
+    normalizeSemanticCall(oraclePresent),
+  );
+  assert.deepEqual(browserPresent.graphicsDevice, oraclePresent.graphicsDevice);
+  assert.equal(receipt.backend, "webgl2-offscreen-canvas");
+  assert.equal(receipt.resource.id, "browser-resource:1");
+  assert.equal(receipt.browserResourceCount, 1);
+  assert.equal(receipt.frameSequence, 4);
+  assert.deepEqual(receipt.centerPixelRgba, [0, 0, 0, 255]);
+  assert.equal(receipt.webGlError, 0);
+  assert.equal(receipt.renderedBeforeGuestResume, true);
+  assert.equal(report.pointerInput.receipts.length, 2);
+  assert.deepEqual(
+    report.pointerInput.receipts[0],
+    oracle.execution.pointerInput.first.receipt,
+  );
+  assert.deepEqual(
+    report.pointerInput.receipts[1],
+    oracle.execution.pointerInput.last.receipt,
+  );
+  assert.equal(report.timerPacing.requests, oracle.execution.timerPacing.count);
+  assert.equal(
+    report.timerPacing.completions,
+    oracle.execution.timerPacing.count,
+  );
+  assert.equal(report.timerPacing.pending, 0);
+}
+
 function validateD3d9PresentPostRasterStatusBgiEquivalence(browser, oracle) {
   const report = browser.report;
   const completion = report.checkpointCompletion;
@@ -10423,6 +10682,10 @@ function validateCreateFontA224x112BgiEquivalence(browser, oracle) {
 }
 
 function validateBgiEquivalence(browser, oracle) {
+  if (winmmTimeGetTimePostPresentProfile) {
+    validateWinmmTimeGetTimePostPresentBgiEquivalence(browser, oracle);
+    return;
+  }
   if (d3d9PresentPostRasterStatusProfile) {
     validateD3d9PresentPostRasterStatusBgiEquivalence(browser, oracle);
     return;

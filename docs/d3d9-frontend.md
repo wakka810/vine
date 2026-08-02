@@ -476,6 +476,13 @@ and reads center pixel `[0,0,0,255]`. The checkpoint stops at instruction
 392,354,190 before `WINMM.dll!timeGetTime`; the black receipt does not establish
 readable title content or general subsequent-frame behavior.
 
+The following `winmm-time-get-time-post-present` profile completes that scheduled
+clock read without changing the published frame, logical device, COM identity,
+or guest memory. Node and Chrome then continue 133 instructions and stop before
+the next live-device `TestCooperativeLevel` slot 3 call. The Worker preserves the
+frame-4 browser receipt but does not use WebGL／Canvas time as a guest clock; the
+cooperative-level result and device-loss behavior remain a separate checkpoint.
+
 ## Bounded level-zero surface retrieval
 
 Version 19 retains `primary-system-memory-texture-level-zero-surfaces-v2` for the

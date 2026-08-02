@@ -264,6 +264,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-end-scene-post-draw-primitive",
         "d3d9-get-raster-status-post-end-scene",
         "d3d9-present-post-raster-status",
+        "winmm-time-get-time-post-present",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
@@ -487,6 +488,7 @@ assert(
       "d3d9-end-scene-post-draw-primitive",
       "d3d9-get-raster-status-post-end-scene",
       "d3d9-present-post-raster-status",
+      "winmm-time-get-time-post-present",
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
       "user32-set-window-pos-frame-change-move",
@@ -549,7 +551,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "d3d9-draw-primitive-post-stream-source" ||
     genericRuntimeCapability === "d3d9-end-scene-post-draw-primitive" ||
     genericRuntimeCapability === "d3d9-get-raster-status-post-end-scene" ||
-    genericRuntimeCapability === "d3d9-present-post-raster-status"
+    genericRuntimeCapability === "d3d9-present-post-raster-status" ||
+    genericRuntimeCapability === "winmm-time-get-time-post-present"
       ? "kernel32-delete-file-a-v1.json"
       : genericRuntimeCapability === "kernel32-find-first-file-a"
       ? "kernel32-find-file-a-v1.json"
@@ -1090,9 +1093,14 @@ const d3d9GetRasterStatusPostEndSceneCheckpointEnabled =
   genericRuntimeCapability === "d3d9-get-raster-status-post-end-scene";
 const d3d9PresentPostRasterStatusCheckpointEnabled =
   genericRuntimeCapability === "d3d9-present-post-raster-status";
+const winmmTimeGetTimePostPresentCheckpointEnabled =
+  genericRuntimeCapability === "winmm-time-get-time-post-present";
+const d3d9PresentPostRasterStatusEvidenceEnabled =
+  d3d9PresentPostRasterStatusCheckpointEnabled ||
+  winmmTimeGetTimePostPresentCheckpointEnabled;
 const d3d9GetRasterStatusPostEndSceneEvidenceEnabled =
   d3d9GetRasterStatusPostEndSceneCheckpointEnabled ||
-  d3d9PresentPostRasterStatusCheckpointEnabled;
+  d3d9PresentPostRasterStatusEvidenceEnabled;
 const d3d9EndScenePostDrawPrimitiveEvidenceEnabled =
   d3d9EndScenePostDrawPrimitiveCheckpointEnabled ||
   d3d9GetRasterStatusPostEndSceneEvidenceEnabled;
@@ -2048,7 +2056,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? d3d9PresentPostRasterStatusCheckpointEnabled
+    ? winmmTimeGetTimePostPresentCheckpointEnabled
+      ? "v86-bgi-time-get-time-post-present"
+      : d3d9PresentPostRasterStatusCheckpointEnabled
       ? "v86-bgi-d3d9-present-post-raster-status"
       : d3d9GetRasterStatusPostEndSceneCheckpointEnabled
       ? "v86-bgi-d3d9-get-raster-status-post-end-scene"
@@ -6671,6 +6681,11 @@ async function run() {
       });
       if (genericRuntimeCapability === null) {
         validateGenericRuntimeReentryResult(genericResult);
+      } else if (winmmTimeGetTimePostPresentCheckpointEnabled) {
+        validateWinmmTimeGetTimePostPresentResult(
+          genericResult,
+          sourceRegistration,
+        );
       } else if (d3d9PresentPostRasterStatusCheckpointEnabled) {
         validateD3d9PresentPostRasterStatusResult(
           genericResult,
@@ -7081,6 +7096,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : winmmTimeGetTimePostPresentCheckpointEnabled
+            ? "bgi WINMM timeGetTime after later Present"
           : d3d9PresentPostRasterStatusCheckpointEnabled
             ? "bgi D3D9 Present after later raster status"
           : d3d9GetRasterStatusPostEndSceneCheckpointEnabled
@@ -9270,6 +9287,11 @@ async function runGenericRuntimeReentry({
         d3d9PresentPostRasterStatusCheckpointEnabled &&
         checkpointCompletion.capability ===
           "d3d9-present-post-raster-status"
+      ) &&
+      !(
+        winmmTimeGetTimePostPresentCheckpointEnabled &&
+        checkpointCompletion.capability ===
+          "winmm-time-get-time-post-present"
       )
     ) {
       checkpointCompletion = null;
@@ -9285,6 +9307,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "winmm-time-get-time-post-present"
+            ? "winmm-time-get-time-post-present-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "d3d9-present-post-raster-status"
             ? "d3d9-present-post-raster-status-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -9510,7 +9535,15 @@ async function runGenericRuntimeReentry({
             checkpointCompletion.nextEndpoint.interfaceIndex =
               terminal.interfaceIndex;
             checkpointCompletion.nextEndpoint.vtableSlot = terminal.vtableSlot;
-            if (d3d9GetRasterStatusPostEndSceneCheckpointEnabled) {
+            if (winmmTimeGetTimePostPresentCheckpointEnabled) {
+              assert.equal(endpoint.address, 0x0101_1060);
+              assert.equal(terminal.interfaceIndex, 1);
+              assert.equal(terminal.vtableSlot, 3);
+              checkpointCompletion.nextEndpoint.interface =
+                "IDirect3DDevice9";
+              checkpointCompletion.nextEndpoint.method =
+                "TestCooperativeLevel";
+            } else if (d3d9GetRasterStatusPostEndSceneCheckpointEnabled) {
               assert.equal(endpoint.address, 0x0101_1140);
               assert.equal(terminal.interfaceIndex, 1);
               assert.equal(terminal.vtableSlot, 17);
@@ -9610,7 +9643,11 @@ async function runGenericRuntimeReentry({
             terminal.thunk.iatAddress;
         }
       }
-      if (d3d9UpdateTexturePartialDirtyRegionEvidenceEnabled) {
+      if (winmmTimeGetTimePostPresentCheckpointEnabled) {
+        checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 2);
+        checkpointCompletion.nextReturnAddress = terminal.returnAddress;
+        checkpointCompletion.nextStackPointer = continuation.finalState.esp;
+      } else if (d3d9UpdateTexturePartialDirtyRegionEvidenceEnabled) {
         checkpointCompletion.nextReturnAddress = terminal.returnAddress;
         checkpointCompletion.nextStackPointer = continuation.finalState.esp;
       } else if (largeHeapFreeCheckpointEnabled) {
@@ -12105,6 +12142,63 @@ async function runGenericRuntimeReentry({
           submission.texture.content.contentGeneration,
         browserRendererResourceMaterialized: false,
         renderedBeforeGuestResume: false,
+        activeCallbackDepthAtCompletion: activeCallbacks.length,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
+    if (
+      winmmTimeGetTimePostPresentCheckpointEnabled &&
+      call.sequence === 282_869 &&
+      call.implementationId === "winmm.time-get-time.v1"
+    ) {
+      const presentCall = supportedCalls.find(
+        (candidate) =>
+          candidate.sequence === 282_868 &&
+          candidate.interface === "IDirect3DDevice9" &&
+          candidate.vtableSlot === 17,
+      );
+      assert.equal(checkpointCompletion, null);
+      assert(presentCall, "post-Present timeGetTime omitted its Present prerequisite");
+      assert.equal(activeCallbacks.length, 0);
+      assert.equal(call.module.toLowerCase(), "winmm.dll");
+      assert.equal(call.symbol, "timeGetTime");
+      assert.deepEqual(call.arguments, []);
+      assert.equal(call.result.action, "set");
+      assert.equal(call.returnAddress, 0x1009_1ebf);
+      assert.deepEqual(call.guestWrites, []);
+      assertRuntimeTickCountProgression(call);
+      checkpointCompletion = {
+        capability: "winmm-time-get-time-post-present",
+        implementationId: "runtime.winmm-time-get-time-post-present.v1",
+        semanticImplementationId: "winmm.time-get-time.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        prerequisitePresentSequence: presentCall.sequence,
+        prerequisitePresentInstructionCount: presentCall.trapInstructionCount,
+        firstCompletionSequence: call.sequence,
+        firstCompletionInstructionCount: call.trapInstructionCount,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: call.trapInstructionCount,
+        call: structuredClone(call),
+        clockProfileId: call.tickCount.clockProfileId,
+        clockAuthority: "runtime/process.rs::RuntimeProcessState",
+        clockRelation: "shared-with-kernel32-get-tick-count",
+        returnedTickCount: call.tickCount.returnedTickCount,
+        nextTickCount: call.tickCount.nextTickCount,
+        incrementPerRead: call.tickCount.incrementPerRead,
+        apiReadsAdvanceClock: false,
+        timerClock: structuredClone(call.tickCount.timerClock),
+        scheduledExecutionClock: structuredClone(
+          call.tickCount.scheduledExecutionClock,
+        ),
+        timerResolutionAffectsSampledClock: false,
+        lastErrorPolicy: "preserve",
+        runtimeStateMutation: false,
+        failureAtomicity: true,
+        hostClockImported: false,
+        browserClockImported: false,
         activeCallbackDepthAtCompletion: activeCallbacks.length,
         instructionCount: 0,
         nextEndpoint: null,
@@ -28755,6 +28849,120 @@ function validateD3d9GetRasterStatusPostEndSceneResult(
   assert.equal(result.activeCallbackDepth, 0);
 }
 
+function validateWinmmTimeGetTimePostPresentResult(
+  result,
+  sourceRegistration,
+) {
+  assert(winmmTimeGetTimePostPresentCheckpointEnabled);
+  assert(sourceRegistration !== null);
+  assert.equal(result.supportedCalls.length, 282_869);
+  assert.equal(result.fault, null);
+  const completion = result.checkpointCompletion;
+  assert(completion, "post-Present timeGetTime checkpoint completion is missing");
+  assert.equal(completion.capability, "winmm-time-get-time-post-present");
+  assert.equal(
+    completion.implementationId,
+    "runtime.winmm-time-get-time-post-present.v1",
+  );
+  assert.equal(completion.semanticImplementationId, "winmm.time-get-time.v1");
+  assert.equal(completion.requiredCompletions, 1);
+  assert.equal(completion.completionCount, 1);
+  assert.equal(completion.prerequisitePresentSequence, 282_868);
+  assert.equal(completion.prerequisitePresentInstructionCount, 392_354_183);
+  assert.equal(completion.firstCompletionSequence, 282_869);
+  assert.equal(completion.firstCompletionInstructionCount, 392_354_190);
+  assert.equal(completion.lastCompletionSequence, 282_869);
+  assert.equal(completion.lastCompletionInstructionCount, 392_354_190);
+  const call = completion.call;
+  assert.equal(call.sequence, 282_869);
+  assert.equal(call.occurrence, 479);
+  assert.equal(call.trapInstructionCount, 392_354_190);
+  assert.equal(call.module.toLowerCase(), "winmm.dll");
+  assert.equal(call.symbol, "timeGetTime");
+  assert.equal(call.implementationId, "winmm.time-get-time.v1");
+  assert.deepEqual(call.arguments, []);
+  assert.equal(call.result.action, "set");
+  assert.equal(call.result.value, 3_800_773);
+  assert.equal(call.returnAddress, 0x1009_1ebf);
+  assert.equal(call.stackPointerBefore, 0x006f_b8a0);
+  assert.equal(call.stackPointerAfter, 0x006f_b8a4);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.equal(call.tickCount.returnedTickCount, call.result.value);
+  assert.equal(call.tickCount.nextTickCount, call.result.value);
+  assert.equal(call.tickCount.incrementPerRead, 0);
+  assert.equal(
+    call.tickCount.clockProfileId,
+    "scheduled-shared-logical-deadline-v1",
+  );
+  assert.deepEqual(call.tickCount.timerClock, {
+    currentTime100ns: 2_007_730_000,
+    generation: 16_308,
+  });
+  assert.deepEqual(call.tickCount.scheduledExecutionClock, {
+    retiredInstructions: 392_354_190,
+    pendingRetiredInstructions: 190,
+    retiredInstructionsPerSecond: 2_000_000,
+  });
+  assert.equal(completion.returnedTickCount, call.result.value);
+  assert.equal(completion.nextTickCount, call.result.value);
+  assert.equal(completion.incrementPerRead, 0);
+  assert.equal(completion.apiReadsAdvanceClock, false);
+  assert.equal(
+    completion.clockProfileId,
+    "scheduled-shared-logical-deadline-v1",
+  );
+  assert.deepEqual(completion.timerClock, call.tickCount.timerClock);
+  assert.deepEqual(
+    completion.scheduledExecutionClock,
+    call.tickCount.scheduledExecutionClock,
+  );
+  assert.equal(completion.timerResolutionAffectsSampledClock, false);
+  assert.equal(completion.lastErrorPolicy, "preserve");
+  assert.equal(completion.runtimeStateMutation, false);
+  assert.equal(completion.failureAtomicity, true);
+  assert.equal(completion.hostClockImported, false);
+  assert.equal(completion.browserClockImported, false);
+  assert.equal(completion.activeCallbackDepthAtCompletion, 0);
+  assert.equal(completion.instructionCount, 392_354_323);
+  assert.deepEqual(completion.nextEndpoint, {
+    id: 0,
+    address: 0x0101_1060,
+    module: "<com>",
+    symbol: { kind: "name", name: "interface-1-slot-3" },
+    disposition: "declared-com-method",
+    interfaceIndex: 1,
+    vtableSlot: 3,
+    interface: "IDirect3DDevice9",
+    method: "TestCooperativeLevel",
+  });
+  assert.deepEqual(completion.nextArguments, [0x0101_0004]);
+  assert.equal(completion.nextReturnAddress, 0x1005_adcd);
+  assert.equal(completion.nextStackPointer, 0x006f_f8f4);
+  assert.equal(
+    completion.memoryContentSha256,
+    "cdbfdd820c96f520438bfd9eac89c39da2d7662d41cff9c4656765dc4fbec2b8",
+  );
+  assert.equal(result.terminal.instructionCount, completion.instructionCount);
+  assert.equal(result.terminal.initialInstructionCount, 392_354_190);
+  assert.equal(result.terminal.additionalInstructionCount, 133);
+  assert.equal(result.terminal.terminal.endpointAddress, 0x0101_1060);
+  assert.equal(result.terminal.terminal.interfaceIndex, 1);
+  assert.equal(result.terminal.terminal.vtableSlot, 3);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_adcd);
+  assert.deepEqual(result.terminal.terminal.stackWords.slice(0, 2), [
+    0x1005_adcd,
+    0x0101_0004,
+  ]);
+  assert.equal(result.finalGeneration, 333_505);
+  assert.equal(result.writebacks.length, 286_067);
+  assert.equal(result.hostDeltas.length, 143_088);
+  assert.equal(result.sourceReads.length, 154);
+  assert.equal(result.heapPageMaterializations.length, 3_112);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+  assert.equal(result.activeCallbackDepth, 0);
+}
+
 function validateD3d9PresentPostRasterStatusResult(
   result,
   sourceRegistration,
@@ -42493,7 +42701,13 @@ function buildGenericRuntimeReentryReport({
       );
       if (findFirstFileACheckpointEnabled) {
         if (deleteFileACheckpointEnabled) {
-          if (d3d9PresentPostRasterStatusCheckpointEnabled) {
+          if (winmmTimeGetTimePostPresentCheckpointEnabled) {
+            assert.equal(completedSupportedCalls.length, 282_869);
+            assert.equal(
+              supportedCallSemanticsSha256,
+              "5f224f94086095c739923b53509fe4e33c65fd11d63ec7c352044c42f7705dc8",
+            );
+          } else if (d3d9PresentPostRasterStatusCheckpointEnabled) {
             assert.equal(completedSupportedCalls.length, 282_868);
             assert.equal(
               supportedCallSemanticsSha256,
@@ -45915,12 +46129,20 @@ function buildScheduledSharedClockPrimaryReport({
         ) ?? null
       : null;
   const d3d9PresentPostRasterStatusCall =
-    d3d9PresentPostRasterStatusCheckpointEnabled
+    d3d9PresentPostRasterStatusEvidenceEnabled
       ? completedSupportedCalls.find(
           (call) =>
             call.sequence === 282_868 &&
             call.interface === "IDirect3DDevice9" &&
             call.vtableSlot === 17,
+        ) ?? null
+      : null;
+  const winmmTimeGetTimePostPresentCall =
+    winmmTimeGetTimePostPresentCheckpointEnabled
+      ? completedSupportedCalls.find(
+          (call) =>
+            call.sequence === 282_869 &&
+            call.implementationId === "winmm.time-get-time.v1",
         ) ?? null
       : null;
   const successfulFindCalls = [
@@ -45941,7 +46163,9 @@ function buildScheduledSharedClockPrimaryReport({
     };
   });
   return {
-    schema: d3d9PresentPostRasterStatusCheckpointEnabled
+    schema: winmmTimeGetTimePostPresentCheckpointEnabled
+      ? "vine.v86-bgi-winmm-time-get-time-post-present-primary"
+      : d3d9PresentPostRasterStatusCheckpointEnabled
       ? "vine.v86-bgi-d3d9-present-post-raster-status-primary"
       : d3d9GetRasterStatusPostEndSceneCheckpointEnabled
       ? "vine.v86-bgi-d3d9-get-raster-status-post-end-scene-primary"
@@ -46298,10 +46522,20 @@ function buildScheduledSharedClockPrimaryReport({
             },
           }
         : {}),
-      ...(d3d9PresentPostRasterStatusCheckpointEnabled
+      ...(d3d9PresentPostRasterStatusEvidenceEnabled
         ? {
             d3d9PresentPostRasterStatus: {
               call: d3d9PresentPostRasterStatusCall,
+              ...(d3d9PresentPostRasterStatusCheckpointEnabled
+                ? { checkpointCompletion: genericResult.checkpointCompletion }
+                : {}),
+            },
+          }
+        : {}),
+      ...(winmmTimeGetTimePostPresentCheckpointEnabled
+        ? {
+            winmmTimeGetTimePostPresent: {
+              call: winmmTimeGetTimePostPresentCall,
               checkpointCompletion: genericResult.checkpointCompletion,
             },
           }

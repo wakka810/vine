@@ -158,7 +158,11 @@ function validateExecutionStateMachine(value, label, errors) {
 export function validateCurrentCheckpoint(manifest) {
   const errors = [];
   const root = requireRecord(manifest, "manifest", errors);
+  const winmmTimeGetTimePostPresentActive =
+    root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
+    "winmm-time-get-time-post-present";
   const d3d9PresentPostRasterStatusActive =
+    winmmTimeGetTimePostPresentActive ||
     root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
     "d3d9-present-post-raster-status";
   const d3d9GetRasterStatusPostEndSceneActive =
@@ -631,7 +635,11 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9RecreatedTexturesActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-set-window-pos-repeat-activation";
+  const winmmTimeGetTimePostPresentProfileActive =
+    root.activeRuntimeCheckpoint?.capabilityProfile ===
+      "winmm-time-get-time-post-present";
   const d3d9PresentPostRasterStatusProfileActive =
+    winmmTimeGetTimePostPresentProfileActive ||
     root.activeRuntimeCheckpoint?.capabilityProfile ===
       "d3d9-present-post-raster-status";
   const d3d9EndScenePostDrawPrimitiveProfileActive =
@@ -1505,7 +1513,27 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    d3d9PresentPostRasterStatusActive
+    winmmTimeGetTimePostPresentActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_997,
+        browserMappingDirtyPages: 150_402,
+        browserSuccessExecutionTransitions: 589_100,
+        browserFinalGeneration: 315_160,
+        browserReportSchemaVersion: 86,
+        latestSchema:
+          "vine.v86-bgi-winmm-time-get-time-post-present-primary",
+        latestWritebackBatches: 165_261,
+        latestWritebackDirtyPages: 244_675,
+        latestWritebackChangedBytes: 43_072_557,
+        latestHostDeltaBatches: 127_997,
+        latestFinalMemoryGeneration: 333_505,
+        semanticCallDigestSha256:
+          "5f224f94086095c739923b53509fe4e33c65fd11d63ec7c352044c42f7705dc8",
+        memoryContentSha256:
+          "cdbfdd820c96f520438bfd9eac89c39da2d7662d41cff9c4656765dc4fbec2b8",
+      }
+    : d3d9PresentPostRasterStatusActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_997,
@@ -3880,7 +3908,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    d3d9PresentPostRasterStatusActive
+    winmmTimeGetTimePostPresentActive
+      ? "vine.browser-runtime-worker.v120"
+      : d3d9PresentPostRasterStatusActive
       ? "vine.browser-runtime-worker.v119"
       : d3d9GetRasterStatusPostEndSceneActive
       ? "vine.browser-runtime-worker.v118"
@@ -22171,7 +22201,9 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureBefore !== null ||
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureAfter !== null)) ||
     latestEvidence.implementation !==
-      (d3d9PresentPostRasterStatusActive
+      (winmmTimeGetTimePostPresentActive
+        ? "Rust-owned shared process clock completes the reached post-fourth-Present timeGetTime read without advancing or mutating the clock, returns the scheduled 3,800,773 ms projection identically in Node and Chrome, and stops at the following TestCooperativeLevel slot 3 endpoint without importing host or browser time"
+        : d3d9PresentPostRasterStatusActive
         ? "Rust-owned D3D9 frame authority completes the reached fourth Present through one validated targeted commit, publishes back-buffer content generation 11 as frame sequence 4 before the discard transition, and lets the Worker reuse its non-owning browser resource to render before guest resume while stopping at timeGetTime without claiming readable title pixels"
         : d3d9GetRasterStatusPostEndSceneActive
         ? "Rust-owned D3D9 compatibility policy completes the reached post-EndScene GetRasterStatus query with one atomic eight-byte last-visible-scanline sample, preserves runtime graphics and COM state, and stops at the following Present slot 17 endpoint without importing host or browser scanout state"
@@ -24634,7 +24666,44 @@ export function validateCurrentCheckpoint(manifest) {
             errors,
           )
         : {};
-    const expectedNode = d3d9PresentPostRasterStatusActive
+    const winmmTimeGetTimePostPresentNode =
+      winmmTimeGetTimePostPresentActive
+        ? requireRecord(
+            node.winmmTimeGetTimePostPresent,
+            "activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence.winmmTimeGetTimePostPresent",
+            errors,
+          )
+        : {};
+    const expectedNode = winmmTimeGetTimePostPresentActive
+      ? {
+          schema:
+            "vine.v86-bgi-winmm-time-get-time-post-present-primary",
+          runtimeKernelCheckpoint: "winmm-time-get-time-post-present",
+          repeatRuns: 1,
+          reportBytes: 2_628_414,
+          reportSha256:
+            "5f948dd0296917638de00a0cab8aad9c0a740c6a1a99efe29b521353f0ddaa15",
+          nodeReplayOldSpaceMiB: 8_192,
+          completedSupportedCalls: 282_869,
+          supportedCallSemanticsSha256:
+            "5f224f94086095c739923b53509fe4e33c65fd11d63ec7c352044c42f7705dc8",
+          clockSampleCount: 100_557,
+          lastClockTick: 3_800_773,
+          lastClockTime100ns: 2_007_730_000,
+          lastClockGeneration: 16_308,
+          lastClockRetiredInstructions: 392_354_190,
+          lastClockPendingRetiredInstructions: 190,
+          windowTimerCallbackCount: 40,
+          timerPacingCompletionCount: 9_002,
+          writebackBatches: 286_067,
+          hostDeltaBatches: 143_088,
+          callbackEventCount: 148,
+          finalMemoryGeneration: 333_505,
+          terminalInstructionCount: 392_354_323,
+          terminalMemoryContentSha256:
+            "cdbfdd820c96f520438bfd9eac89c39da2d7662d41cff9c4656765dc4fbec2b8",
+        }
+      : d3d9PresentPostRasterStatusActive
       ? {
           schema:
             "vine.v86-bgi-d3d9-present-post-raster-status-primary",
@@ -25216,7 +25285,94 @@ export function validateCurrentCheckpoint(manifest) {
       currentStop.prerequisiteEndSceneCheckpoint ?? {};
     const prerequisiteRasterStatusCheckpoint =
       currentStop.prerequisiteRasterStatusCheckpoint ?? {};
-    const currentStopValid = d3d9PresentPostRasterStatusActive
+    const prerequisitePresentCheckpoint =
+      currentStop.prerequisitePresentCheckpoint ?? {};
+    const currentStopValid = winmmTimeGetTimePostPresentActive
+      ? currentStop.kind === "capability-checkpoint" &&
+        currentStop.classification === "semantic-leaf" &&
+        currentStop.nextCheckpoint ===
+          "d3d9-test-cooperative-level-post-time-get-time" &&
+        currentStop.pausedHistoricalCheckpoint ===
+          "winmm-time-get-time-post-present" &&
+        currentStop.instructionCount === 392_354_323 &&
+        currentStop.capabilityCluster ===
+          "d3d9-idirect3ddevice9-method" &&
+        currentStop.reason ===
+          "winmm-time-get-time-post-present-checkpoint-complete" &&
+        prerequisitePresentCheckpoint.capability ===
+          "d3d9-present-post-raster-status" &&
+        prerequisitePresentCheckpoint.lastCompletionSequence === 282_868 &&
+        prerequisitePresentCheckpoint.lastCompletionInstructionCount ===
+          392_354_183 &&
+        prerequisitePresentCheckpoint.presentedFrameSequence === 4 &&
+        prerequisitePresentCheckpoint.browserRendererResourceReused === true &&
+        expectedCompletion.capability ===
+          "winmm-time-get-time-post-present" &&
+        expectedCompletion.implementationId ===
+          "runtime.winmm-time-get-time-post-present.v1" &&
+        expectedCompletion.semanticImplementationId ===
+          "winmm.time-get-time.v1" &&
+        expectedCompletion.requiredCompletions === 1 &&
+        expectedCompletion.completionCount === 1 &&
+        expectedCompletion.prerequisitePresentSequence === 282_868 &&
+        expectedCompletion.prerequisitePresentInstructionCount ===
+          392_354_183 &&
+        expectedCompletion.firstCompletionSequence === 282_869 &&
+        expectedCompletion.firstCompletionInstructionCount === 392_354_190 &&
+        expectedCompletion.lastCompletionSequence === 282_869 &&
+        expectedCompletion.lastCompletionInstructionCount === 392_354_190 &&
+        expectedCompletion.clockProfileId ===
+          "scheduled-shared-logical-deadline-v1" &&
+        expectedCompletion.clockAuthority ===
+          "runtime/process.rs::RuntimeProcessState" &&
+        expectedCompletion.clockRelation ===
+          "shared-with-kernel32-get-tick-count" &&
+        expectedCompletion.returnedTickCount === 3_800_773 &&
+        expectedCompletion.nextTickCount === 3_800_773 &&
+        expectedCompletion.incrementPerRead === 0 &&
+        expectedCompletion.apiReadsAdvanceClock === false &&
+        expectedCompletion.timerClock?.currentTime100ns === 2_007_730_000 &&
+        expectedCompletion.timerClock?.generation === 16_308 &&
+        expectedCompletion.scheduledExecutionClock?.retiredInstructions ===
+          392_354_190 &&
+        expectedCompletion.scheduledExecutionClock
+          ?.pendingRetiredInstructions === 190 &&
+        expectedCompletion.scheduledExecutionClock
+          ?.retiredInstructionsPerSecond === 2_000_000 &&
+        expectedCompletion.timerResolutionAffectsSampledClock === false &&
+        expectedCompletion.lastErrorPolicy === "preserve" &&
+        expectedCompletion.runtimeStateMutation === false &&
+        expectedCompletion.failureAtomicity === true &&
+        expectedCompletion.hostClockImported === false &&
+        expectedCompletion.browserClockImported === false &&
+        expectedCompletion.activeCallbackDepthAtCompletion === 0 &&
+        expectedCompletion.instructionCount === 392_354_323 &&
+        expectedCompletion.memoryContentSha256 ===
+          "cdbfdd820c96f520438bfd9eac89c39da2d7662d41cff9c4656765dc4fbec2b8" &&
+        expectedCompletion.nextReturnAddress === 0x1005_adcd &&
+        expectedCompletion.nextStackPointer === 0x006f_f8f4 &&
+        expectedEndpoint.endpointKind === "com-method" &&
+        expectedEndpoint.endpointId === 0 &&
+        expectedEndpoint.api ===
+          "IDirect3DDevice9!TestCooperativeLevel" &&
+        expectedEndpoint.endpointAddress === "0x01011060" &&
+        expectedEndpoint.observedModule === "<com>" &&
+        expectedEndpoint.observedSymbol === "interface-1-slot-3" &&
+        expectedEndpoint.id === 0 &&
+        expectedEndpoint.address === 0x0101_1060 &&
+        expectedEndpoint.module === "<com>" &&
+        expectedEndpoint.symbol?.kind === "name" &&
+        expectedEndpoint.symbol.name === "interface-1-slot-3" &&
+        expectedEndpoint.disposition === "declared-com-method" &&
+        expectedEndpoint.interfaceIndex === 1 &&
+        expectedEndpoint.vtableSlot === 3 &&
+        expectedEndpoint.interface === "IDirect3DDevice9" &&
+        expectedEndpoint.method === "TestCooperativeLevel" &&
+        expectedEndpoint.thisPointer === "0x01010004" &&
+        expectedEndpoint.arguments?.length === 0 &&
+        expectedEndpoint.returnAddress === "0x1005adcd" &&
+        expectedEndpoint.stackPointer === "0x006ff8f4"
+      : d3d9PresentPostRasterStatusActive
       ? currentStop.kind === "capability-checkpoint" &&
         currentStop.classification === "semantic-leaf" &&
         currentStop.nextCheckpoint === "winmm-time-get-time-post-present" &&
@@ -27924,6 +28080,63 @@ export function validateCurrentCheckpoint(manifest) {
         d3d9PresentPostRasterStatusLatest.chromeCompletions === 1 &&
         d3d9PresentPostRasterStatusLatest.nodeChromeOrderedSemanticsMatched ===
           true);
+    const winmmTimeGetTimePostPresentLatest =
+      latestEvidence.winmmTimeGetTimePostPresent ?? {};
+    const winmmTimeGetTimePostPresentEvidenceValid =
+      !winmmTimeGetTimePostPresentActive ||
+      (winmmTimeGetTimePostPresentNode.completionCount === 1 &&
+        winmmTimeGetTimePostPresentNode.sequence === 282_869 &&
+        winmmTimeGetTimePostPresentNode.occurrence === 479 &&
+        winmmTimeGetTimePostPresentNode.instructionCount === 392_354_190 &&
+        winmmTimeGetTimePostPresentNode.arguments?.length === 0 &&
+        winmmTimeGetTimePostPresentNode.result === 3_800_773 &&
+        winmmTimeGetTimePostPresentNode.returnAddress === "0x10091ebf" &&
+        winmmTimeGetTimePostPresentNode.stackPointers?.join(",") ===
+          "0x006fb8a0,0x006fb8a4" &&
+        winmmTimeGetTimePostPresentNode.lastError === 0 &&
+        winmmTimeGetTimePostPresentNode.guestWriteBytes === 0 &&
+        winmmTimeGetTimePostPresentNode.implementationId ===
+          "winmm.time-get-time.v1" &&
+        winmmTimeGetTimePostPresentNode.clockProfileId ===
+          "scheduled-shared-logical-deadline-v1" &&
+        winmmTimeGetTimePostPresentNode.clockAuthority ===
+          "runtime/process.rs::RuntimeProcessState" &&
+        winmmTimeGetTimePostPresentNode.clockRelation ===
+          "shared-with-kernel32-get-tick-count" &&
+        winmmTimeGetTimePostPresentNode.returnedTickCount === 3_800_773 &&
+        winmmTimeGetTimePostPresentNode.nextTickCount === 3_800_773 &&
+        winmmTimeGetTimePostPresentNode.incrementPerRead === 0 &&
+        winmmTimeGetTimePostPresentNode.apiReadsAdvanceClock === false &&
+        winmmTimeGetTimePostPresentNode.timerClockTime100ns ===
+          2_007_730_000 &&
+        winmmTimeGetTimePostPresentNode.timerClockGeneration === 16_308 &&
+        winmmTimeGetTimePostPresentNode.retiredInstructions ===
+          392_354_190 &&
+        winmmTimeGetTimePostPresentNode.pendingRetiredInstructions === 190 &&
+        winmmTimeGetTimePostPresentNode.retiredInstructionsPerSecond ===
+          2_000_000 &&
+        winmmTimeGetTimePostPresentNode.timerResolutionAffectsSampledClock ===
+          false &&
+        winmmTimeGetTimePostPresentNode.runtimeStateMutation === false &&
+        winmmTimeGetTimePostPresentNode.failureAtomicity === true &&
+        winmmTimeGetTimePostPresentNode.hostClockImported === false &&
+        winmmTimeGetTimePostPresentNode.browserClockImported === false &&
+        winmmTimeGetTimePostPresentNode.nextEndpoint ===
+          "IDirect3DDevice9!TestCooperativeLevel" &&
+        winmmTimeGetTimePostPresentNode.nextInstructionCount === 392_354_323 &&
+        winmmTimeGetTimePostPresentLatest.completionCount === 1 &&
+        winmmTimeGetTimePostPresentLatest.sequence === 282_869 &&
+        winmmTimeGetTimePostPresentLatest.occurrence === 479 &&
+        winmmTimeGetTimePostPresentLatest.result === 3_800_773 &&
+        winmmTimeGetTimePostPresentLatest.returnedTickCount === 3_800_773 &&
+        winmmTimeGetTimePostPresentLatest.nextTickCount === 3_800_773 &&
+        winmmTimeGetTimePostPresentLatest.incrementPerRead === 0 &&
+        winmmTimeGetTimePostPresentLatest.runtimeStateMutation === false &&
+        winmmTimeGetTimePostPresentLatest.failureAtomicity === true &&
+        winmmTimeGetTimePostPresentLatest.nodeCompletions === 1 &&
+        winmmTimeGetTimePostPresentLatest.chromeCompletions === 1 &&
+        winmmTimeGetTimePostPresentLatest.nodeChromeOrderedSemanticsMatched ===
+          true);
     if (
       scheduled.schema !== "vine.scheduled-shared-clock-checkpoint" ||
       scheduled.schemaVersion !== 1 ||
@@ -28006,7 +28219,9 @@ export function validateCurrentCheckpoint(manifest) {
       node.terminalMemoryContentSha256 !==
         expectedNode.terminalMemoryContentSha256 ||
       browserBoundary.runtimeProtocol !==
-        (d3d9PresentPostRasterStatusActive
+        (winmmTimeGetTimePostPresentActive
+          ? "vine.browser-runtime-worker.v120"
+          : d3d9PresentPostRasterStatusActive
           ? "vine.browser-runtime-worker.v119"
           : d3d9GetRasterStatusPostEndSceneActive
           ? "vine.browser-runtime-worker.v118"
@@ -28046,7 +28261,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.retiredInstructionCursorTransport !==
         "checked-u64-low-high-per-api-and-com-dispatch" ||
       browserBoundary.browserOwnsGuestClockState !== false ||
-      (d3d9PresentPostRasterStatusActive
+      (winmmTimeGetTimePostPresentActive
+        ? browserBoundary.browserReportSchemaVersion !== 86
+        : d3d9PresentPostRasterStatusActive
         ? browserBoundary.browserReportSchemaVersion !== 85
         : d3d9GetRasterStatusPostEndSceneActive
         ? browserBoundary.browserReportSchemaVersion !== 84
@@ -28083,7 +28300,9 @@ export function validateCurrentCheckpoint(manifest) {
         "npm run check:runtime:browser-worker" ||
       browserBoundary.chromeVersion !== "150.0.7871.187" ||
       browserBoundary.reportBytes !==
-        (d3d9PresentPostRasterStatusActive
+        (winmmTimeGetTimePostPresentActive
+          ? 35_964
+          : d3d9PresentPostRasterStatusActive
           ? 35_966
           : d3d9GetRasterStatusPostEndSceneActive
           ? 35_962
@@ -28119,7 +28338,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 35_961
           : 35_951) ||
       browserBoundary.reportSha256 !==
-        (d3d9PresentPostRasterStatusActive
+        (winmmTimeGetTimePostPresentActive
+          ? "dc220d9b646ea4c9f0be9b9b9d95031c3393bb655f87b721263a037b35672657"
+          : d3d9PresentPostRasterStatusActive
           ? "03d432e49f1a78c0f7ef1d83f0576386c16b621ffcd7e09764d224dadc822935"
           : d3d9GetRasterStatusPostEndSceneActive
           ? "29b978f74bd54992ef821fe966fc719e562176ef1f6299b4ab053ce11a947fdd"
@@ -28155,7 +28376,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "bd77deb28553190382622adb663ac87b99e4c9f9df719bbba2282f5bae5bca94"
           : "ecd982f21410c69c4d844a114041e301fd140fedbb520cf5773f4d13d2846aa1") ||
       browserBoundary.runtimeWorkerBytes !==
-        (d3d9PresentPostRasterStatusActive
+        (winmmTimeGetTimePostPresentActive
+          ? 1_173_350
+          : d3d9PresentPostRasterStatusActive
           ? 1_166_857
           : d3d9GetRasterStatusPostEndSceneActive
           ? 1_157_885
@@ -28191,7 +28414,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 1_053_379
           : 1_049_048) ||
       browserBoundary.runtimeWorkerSha256 !==
-        (d3d9PresentPostRasterStatusActive
+        (winmmTimeGetTimePostPresentActive
+          ? "59e842e39de6eeaa58db0d29ed11bf63b1a1ee62dca78bfa18220ecccafba794"
+          : d3d9PresentPostRasterStatusActive
           ? "c113cb979a53e29bfbc43df75a097dba4f96b63d6b8fb9c1ad34a9288e10cc11"
           : d3d9GetRasterStatusPostEndSceneActive
           ? "b22a791fc3abd8d7f8d21ec2cbbdde8e48f51bbf174be61bb5f82d30831449c3"
@@ -28275,7 +28500,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.privatePrimaryCommand !==
         "node tools/run-browser-runtime-check.mjs --bgi" ||
       browserBoundary.privatePrimaryReportBytes !==
-        (d3d9PresentPostRasterStatusActive
+        (winmmTimeGetTimePostPresentActive
+          ? 2_622_687
+          : d3d9PresentPostRasterStatusActive
           ? 2_632_299
           : d3d9GetRasterStatusPostEndSceneActive
           ? 2_611_330
@@ -28311,7 +28538,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 2_598_978
           : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
-        (d3d9PresentPostRasterStatusActive
+        (winmmTimeGetTimePostPresentActive
+          ? "9100138545d903949f84ba20b505248d99d846eb7022c10e7a803a7650912493"
+          : d3d9PresentPostRasterStatusActive
           ? "e81922f5dfa0a332b3da2b3652446ef29195af091aa4e013de1bb67243a01d85"
           : d3d9GetRasterStatusPostEndSceneActive
           ? "8115542f22bbdb3767d9bc33c41a9b6118368c0e2f6c605c09fdffc2615240e4"
@@ -28396,6 +28625,7 @@ export function validateCurrentCheckpoint(manifest) {
       !d3d9EndScenePostDrawPrimitiveEvidenceValid ||
       !d3d9GetRasterStatusPostEndSceneEvidenceValid ||
       !d3d9PresentPostRasterStatusEvidenceValid ||
+      !winmmTimeGetTimePostPresentEvidenceValid ||
       conclusion.clockFreezeWasProximateCause !== false ||
       (privateHeapOrdinarySegmentGrowthActive &&
         conclusion.ordinaryHeapCapacityWasProximateCause !== false) ||
@@ -28408,7 +28638,9 @@ export function validateCurrentCheckpoint(manifest) {
       (getCursorInfoActive &&
         conclusion.cursorInfoWasProximateCause !== false) ||
       conclusion.nextEndpoint !==
-        (d3d9PresentPostRasterStatusActive
+        (winmmTimeGetTimePostPresentActive
+          ? "IDirect3DDevice9!TestCooperativeLevel"
+          : d3d9PresentPostRasterStatusActive
           ? "WINMM.dll!timeGetTime"
           : d3d9GetRasterStatusPostEndSceneActive
           ? "IDirect3DDevice9!Present"
@@ -28470,6 +28702,7 @@ export function validateCurrentCheckpoint(manifest) {
           d3d9EndScenePostDrawPrimitiveEvidenceValid,
           d3d9GetRasterStatusPostEndSceneEvidenceValid,
           d3d9PresentPostRasterStatusEvidenceValid,
+          winmmTimeGetTimePostPresentEvidenceValid,
         })})`,
       );
     }
@@ -38896,6 +39129,9 @@ export function renderReadmeStatus(manifest) {
                         : next.completion.capability ===
                             "d3d9-present-post-raster-status"
                           ? "later frame presentation"
+                        : next.completion.capability ===
+                            "winmm-time-get-time-post-present"
+                          ? "post-Present process-clock read"
                         : next.completion.capability ===
                             "d3d9-post-raster-status-waitable-timer"
                           ? "post-scene timer arm/wait cycle"

@@ -53,3 +53,11 @@ npm run check:runtime:bgi -- --profile d3d9-present-post-raster-status
 node tools/run-browser-runtime-check.mjs --bgi --bgi-profile d3d9-present-post-raster-status --bgi-policy fixtures/runtime-policies/kernel32-delete-file-a-v1.json
 npm run check:runtime:browser-worker
 ```
+
+## Continuation
+
+The following scheduled-clock read is closed separately by
+[bgi-winmm-time-get-time-post-present.md](bgi-winmm-time-get-time-post-present.md).
+That continuation preserves this frame and browser-resource receipt, completes
+the existing `timeGetTime` semantics, and stops before
+`IDirect3DDevice9::TestCooperativeLevel`.

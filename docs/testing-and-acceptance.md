@@ -2320,6 +2320,19 @@ Capability checkpointは282,868 supported calls、392,354,190 instructions、sem
 Black center pixelはbrowser publication receiptであり、可読title scene、visible input response、resize、
 partial／redirected Present、context／device loss recovery、general subsequent framesはclaimしない。
 
+Post-Present `timeGetTime` leafは、直前Presentをprerequisiteとして既存のprocess-clock handlerを再利用する。
+Node／Chromeはsequence 282,869、occurrence 479、trap instruction 392,354,190、zero argument、return
+`3,800,773`、preserved LastError 0、zero guest writeを一致させる。Scheduled profileではreturned／next tickを
+同値、incrementを0とし、timer clock `2,007,730,000` 100 ns units／generation 16,308、scheduled execution
+392,354,190 retired／190 pending／2,000,000 instructions per secondを検証する。API readはruntime stateを
+変更せず、timer resolution、host clock、browser clock、renderer frame clockをimportしない。両adapterは
+282,869 supported calls、100,557 clock samples、40 TIMERPROC callbacks、4 Present、ordered semantic digest
+`5f224f94086095c739923b53509fe4e33c65fd11d63ec7c352044c42f7705dc8`、terminal memory digest
+`cdbfdd820c96f520438bfd9eac89c39da2d7662d41cff9c4656765dc4fbec2b8`を一致させ、133 instructions後の
+`IDirect3DDevice9::TestCooperativeLevel` slot 3／this `0x01010004`で停止する。Protocol v120／report schema 86で
+前段Present receiptとcancel／watchdog cleanupも維持する。後続COM call、device loss／recovery、readable title scene、
+general frame cadenceはacceptanceへ含めない。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

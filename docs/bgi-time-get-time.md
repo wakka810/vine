@@ -119,6 +119,19 @@ Current occurrence counts, instruction counts, report identities, and the next
 structured stop are maintained only in
 [`current-checkpoint.json`](current-checkpoint.json).
 
+## Post-Present continuation
+
+The later `winmm-time-get-time-post-present` profile reuses the same semantic
+handler after the fourth discard Present. Under the scheduled clock, the read
+samples the process-owned projection without advancing it, preserves LastError,
+writes no guest bytes, and then continues to the next owned
+`IDirect3DDevice9::TestCooperativeLevel` boundary. Node and Chrome must agree on
+the exact call, clock／timer projection, ordered semantics, terminal memory, and
+next COM identity; TypeScript also preserves the already-published frame receipt
+without becoming a clock or Windows graphics authority. See
+[bgi-winmm-time-get-time-post-present.md](bgi-winmm-time-get-time-post-present.md)
+for the bounded acceptance and non-claims.
+
 ## Non-claims
 
 - One deterministic increment per API read is not elapsed host time and does

@@ -429,6 +429,12 @@ WinMM policyはclockを所有せず、resolution requestはsample値を変更し
 deterministic incrementはcompatibility policyであり、host経過時間やbrowser millisecond精度のclaimではない。
 Scheduled profileでは両APIを何度読んでも同じscheduler timeの値を返す。
 
+Browser renderer publicationの直後に到達したreadもこの規則を変えない。Workerは
+Present receiptをguest resume前に閉じた後、Rustが返した`timeGetTime` completionをtransportするだけで、
+WebGL／Canvas frame timestamp、`performance.now()`、host uptimeをprocess clockへfeedbackしない。
+Cross-adapter acceptanceはreturned／next tick、timer／scheduled-execution projection、ordered semantic digest、
+terminal guest memoryを比較し、renderer resource identityやwriteback cadenceをclock semanticsへ昇格させない。
+
 Reached `QueryPerformanceFrequency`／`QueryPerformanceCounter`も同じprocess clock ownerを使う。
 Frequencyはkernel bootstrapでnonzeroを、frequency／counter双方はsigned `LARGE_INTEGER`範囲を検証する
 immutable process valueであり、counter progressionはrunning lifecycle、previous counter、nonzero policy increment、signed `LARGE_INTEGER`上限を含む

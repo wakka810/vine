@@ -27,6 +27,7 @@ import {
   formatManifestRuntimeEndpointIdentity,
   formatRuntimeEndpointSymbol,
 } from "./runtime-endpoint-symbol.mjs";
+import { normalizeSemanticCall } from "../browser/runtime-worker/semantic-call.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultOutput = path.join(root, "docs", "private-target-evidence.json");
@@ -1186,7 +1187,9 @@ function isScheduledSharedClockNodeReport(report) {
     report?.schema ===
       "vine.v86-bgi-d3d9-get-raster-status-post-end-scene-primary" ||
     report?.schema ===
-      "vine.v86-bgi-d3d9-present-post-raster-status-primary"
+      "vine.v86-bgi-d3d9-present-post-raster-status-primary" ||
+    report?.schema ===
+      "vine.v86-bgi-winmm-time-get-time-post-present-primary"
   );
 }
 
@@ -1214,7 +1217,9 @@ function isGetCursorInfoOrLaterNodeReport(report) {
     report?.schema ===
       "vine.v86-bgi-d3d9-get-raster-status-post-end-scene-primary" ||
     report?.schema ===
-      "vine.v86-bgi-d3d9-present-post-raster-status-primary"
+      "vine.v86-bgi-d3d9-present-post-raster-status-primary" ||
+    report?.schema ===
+      "vine.v86-bgi-winmm-time-get-time-post-present-primary"
   );
 }
 
@@ -1223,6 +1228,14 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (
+    nodeReport.schema ===
+    "vine.v86-bgi-winmm-time-get-time-post-present-primary"
+  ) {
+    return structuredClone(
+      execution.winmmTimeGetTimePostPresent.checkpointCompletion,
+    );
+  }
   if (
     nodeReport.schema ===
     "vine.v86-bgi-d3d9-present-post-raster-status-primary"
@@ -2544,6 +2557,66 @@ function assertD3d9PresentPostRasterStatusCheckpoint(
   assert.equal(browserPresentation.renderedBeforeGuestResume, true);
 }
 
+function assertWinmmTimeGetTimePostPresentCheckpoint(
+  actual,
+  expectedCompletion,
+  expectedEndpoint,
+) {
+  assert(actual !== null, "post-Present timeGetTime checkpoint is missing");
+  for (const field of [
+    "capability",
+    "implementationId",
+    "semanticImplementationId",
+    "requiredCompletions",
+    "completionCount",
+    "prerequisitePresentSequence",
+    "prerequisitePresentInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "clockProfileId",
+    "clockAuthority",
+    "clockRelation",
+    "returnedTickCount",
+    "nextTickCount",
+    "incrementPerRead",
+    "apiReadsAdvanceClock",
+    "timerResolutionAffectsSampledClock",
+    "lastErrorPolicy",
+    "runtimeStateMutation",
+    "failureAtomicity",
+    "hostClockImported",
+    "browserClockImported",
+    "activeCallbackDepthAtCompletion",
+    "instructionCount",
+    "memoryContentSha256",
+    "nextReturnAddress",
+    "nextStackPointer",
+  ]) {
+    assert.equal(actual[field], expectedCompletion[field], field);
+  }
+  assert.deepEqual(actual.timerClock, expectedCompletion.timerClock);
+  assert.deepEqual(
+    actual.scheduledExecutionClock,
+    expectedCompletion.scheduledExecutionClock,
+  );
+  assert.deepEqual(actual.nextArguments, [0x0101_0004]);
+  for (const field of [
+    "id",
+    "address",
+    "module",
+    "disposition",
+    "interfaceIndex",
+    "vtableSlot",
+    "interface",
+    "method",
+  ]) {
+    assert.equal(actual.nextEndpoint[field], expectedEndpoint[field], field);
+  }
+  assert.deepEqual(actual.nextEndpoint.symbol, expectedEndpoint.symbol);
+}
+
 function assertD3d9SetTextureStageStatePostSamplerStateCheckpoint(
   actual,
   expectedCompletion,
@@ -2774,6 +2847,9 @@ function assertScheduledSharedClockReportSemantics({
   const d3d9PresentPostRasterStatusReport =
     nodeReport.schema ===
     "vine.v86-bgi-d3d9-present-post-raster-status-primary";
+  const winmmTimeGetTimePostPresentReport =
+    nodeReport.schema ===
+    "vine.v86-bgi-winmm-time-get-time-post-present-primary";
 
   assert(
     expectedNext.kind === "capability-checkpoint" ||
@@ -3178,7 +3254,54 @@ function assertScheduledSharedClockReportSemantics({
     expectedNext,
   );
   let expectedFaultCode = null;
-  if (d3d9PresentPostRasterStatusReport) {
+  if (winmmTimeGetTimePostPresentReport) {
+    const timeGetTime = nodeExecution.winmmTimeGetTimePostPresent;
+    const present = nodeExecution.d3d9PresentPostRasterStatus;
+    assert.equal(nodeStop.fault, null);
+    assert.equal(
+      nodeStop.terminal.instructionCount,
+      expectedNext.instructionCount,
+    );
+    assert.deepEqual(timeGetTime.call, timeGetTime.checkpointCompletion.call);
+    assert.equal(timeGetTime.call.sequence, 282_869);
+    assert.equal(timeGetTime.call.occurrence, 479);
+    assert.equal(timeGetTime.call.trapInstructionCount, 392_354_190);
+    assert.equal(timeGetTime.call.module.toLowerCase(), "winmm.dll");
+    assert.equal(timeGetTime.call.symbol, "timeGetTime");
+    assert.deepEqual(timeGetTime.call.arguments, []);
+    assert.deepEqual(timeGetTime.call.result, {
+      action: "set",
+      value: 3_800_773,
+    });
+    assert.equal(timeGetTime.call.implementationId, "winmm.time-get-time.v1");
+    assert.equal(timeGetTime.call.returnAddress, 0x1009_1ebf);
+    assert.equal(timeGetTime.call.stackPointerBefore, 0x006f_b8a0);
+    assert.equal(timeGetTime.call.stackPointerAfter, 0x006f_b8a4);
+    assert.equal(timeGetTime.call.lastError, 0);
+    assert.deepEqual(timeGetTime.call.guestWrites, []);
+    assert.deepEqual(timeGetTime.call.tickCount, {
+      returnedTickCount: 3_800_773,
+      nextTickCount: 3_800_773,
+      incrementPerRead: 0,
+      clockProfileId: "scheduled-shared-logical-deadline-v1",
+      timerClock: {
+        currentTime100ns: 2_007_730_000,
+        generation: 16_308,
+      },
+      scheduledExecutionClock: {
+        retiredInstructions: 392_354_190,
+        pendingRetiredInstructions: 190,
+        retiredInstructionsPerSecond: 2_000_000,
+      },
+    });
+    assert.equal(present.call.sequence, 282_868);
+    assert.equal(present.call.graphicsDevice.presentedFrame.sequence, 4);
+    assertWinmmTimeGetTimePostPresentCheckpoint(
+      nodeCheckpoint,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+  } else if (d3d9PresentPostRasterStatusReport) {
     const present = nodeExecution.d3d9PresentPostRasterStatus;
     assert.equal(nodeStop.fault, null);
     assert.equal(
@@ -3617,6 +3740,7 @@ function assertScheduledSharedClockReportSemantics({
     );
   }
   if (
+    !winmmTimeGetTimePostPresentReport &&
     !d3d9PresentPostRasterStatusReport &&
     !d3d9GetRasterStatusPostEndSceneReport &&
     !d3d9EndScenePostDrawPrimitiveReport &&
@@ -3652,6 +3776,7 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext,
     );
   } else if (
+    !winmmTimeGetTimePostPresentReport &&
     !d3d9PresentPostRasterStatusReport &&
     !d3d9GetRasterStatusPostEndSceneReport &&
     !d3d9EndScenePostDrawPrimitiveReport &&
@@ -3715,7 +3840,40 @@ function assertScheduledSharedClockReportSemantics({
   assert.equal(browser.pendingCallbacks, 0);
 
   const browserUnsupported = browser.firstUnsupported;
-  if (d3d9PresentPostRasterStatusReport) {
+  if (winmmTimeGetTimePostPresentReport) {
+    assert.equal(browserUnsupported, null);
+    assertWinmmTimeGetTimePostPresentCheckpoint(
+      browser.checkpointCompletion,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+    assert.deepEqual(
+      normalizeSemanticCall(browser.checkpointCompletion.call),
+      normalizeSemanticCall(nodeCheckpoint.call),
+    );
+    assert.equal(
+      browser.checkpointCompletion.call.occurrence,
+      nodeCheckpoint.call.occurrence,
+    );
+    assert.equal(
+      browser.checkpointCompletion.call.trapInstructionCount,
+      nodeCheckpoint.call.trapInstructionCount,
+    );
+    assert.equal(
+      browser.checkpointCompletion.call.implementationId,
+      nodeCheckpoint.call.implementationId,
+    );
+    assert.deepEqual(
+      browser.checkpointCompletion.call.tickCount,
+      nodeCheckpoint.call.tickCount,
+    );
+    assert.equal(browser.d3d9Present.call.sequence, 282_868);
+    assert.equal(
+      browser.d3d9Present.call.browserPresentation.resource.id,
+      "browser-resource:1",
+    );
+    assert.equal(browser.d3d9Present.call.browserPresentation.frameSequence, 4);
+  } else if (d3d9PresentPostRasterStatusReport) {
     assert.equal(browserUnsupported, null);
     assertD3d9PresentPostRasterStatusCheckpoint(
       browser.checkpointCompletion,
@@ -3834,6 +3992,7 @@ function assertScheduledSharedClockReportSemantics({
     );
   }
   if (
+    !winmmTimeGetTimePostPresentReport &&
     !d3d9PresentPostRasterStatusReport &&
     !d3d9GetRasterStatusPostEndSceneReport &&
     !d3d9EndScenePostDrawPrimitiveReport &&
@@ -3873,6 +4032,7 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext,
     );
   } else if (
+    !winmmTimeGetTimePostPresentReport &&
     !d3d9PresentPostRasterStatusReport &&
     !d3d9GetRasterStatusPostEndSceneReport &&
     !d3d9EndScenePostDrawPrimitiveReport &&
@@ -4477,7 +4637,11 @@ const nodeInstructions = scheduledNodeReport
     : nodeReport.firstUnsupported.instructionCount;
 const nodeMemoryContentSha256 = scheduledNodeReport
   ? nodeReport.schema ===
-    "vine.v86-bgi-d3d9-present-post-raster-status-primary"
+    "vine.v86-bgi-winmm-time-get-time-post-present-primary"
+    ? nodeReport.execution.winmmTimeGetTimePostPresent.checkpointCompletion
+        .memoryContentSha256
+    : nodeReport.schema ===
+      "vine.v86-bgi-d3d9-present-post-raster-status-primary"
     ? nodeReport.execution.d3d9PresentPostRasterStatus.checkpointCompletion
         .memoryContentSha256
     : nodeReport.schema ===

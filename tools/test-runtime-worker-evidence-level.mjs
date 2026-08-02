@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 119 as const/u);
+assert.match(protocol, /protocolVersion = 120 as const/u);
 assert.match(protocol, /"d3d9-begin-scene-post-partial-dirty-region"/u);
 assert.match(protocol, /"d3d9-set-sampler-state-post-begin-scene"/u);
 assert.match(
@@ -27,6 +27,11 @@ assert.match(protocol, /"d3d9-draw-primitive-post-stream-source"/u);
 assert.match(protocol, /"d3d9-end-scene-post-draw-primitive"/u);
 assert.match(protocol, /"d3d9-get-raster-status-post-end-scene"/u);
 assert.match(protocol, /"d3d9-present-post-raster-status"/u);
+assert.match(protocol, /"winmm-time-get-time-post-present"/u);
+assert.match(
+  protocol,
+  /capability: "winmm-time-get-time-post-present";[\s\S]*?implementationId: "runtime\.winmm-time-get-time-post-present\.v1";[\s\S]*?semanticImplementationId: "winmm\.time-get-time\.v1";[\s\S]*?nextArguments: number\[\];/u,
+);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
 assert.match(protocol, /supportedCallCount: number/u);

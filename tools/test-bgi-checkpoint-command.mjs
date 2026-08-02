@@ -274,6 +274,10 @@ assert.equal(
   "v86-bgi-d3d9-present-post-raster-status",
 );
 assert.equal(
+  bgiProfileOutputDirectory("winmm-time-get-time-post-present"),
+  "v86-bgi-time-get-time-post-present",
+);
+assert.equal(
   bgiProfileOutputDirectory("shell32-drag-accept-files"),
   "v86-bgi-drag-accept-files",
 );

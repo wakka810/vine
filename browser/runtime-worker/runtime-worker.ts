@@ -444,12 +444,27 @@ function isD3d9PresentPostRasterStatusProfile(
   return profile === "d3d9-present-post-raster-status";
 }
 
+function isWinmmTimeGetTimePostPresentProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "winmm-time-get-time-post-present";
+}
+
+function includesD3d9PresentPostRasterStatusProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isD3d9PresentPostRasterStatusProfile(profile) ||
+    isWinmmTimeGetTimePostPresentProfile(profile)
+  );
+}
+
 function includesD3d9GetRasterStatusPostEndSceneProfile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isD3d9GetRasterStatusPostEndSceneProfile(profile) ||
-    isD3d9PresentPostRasterStatusProfile(profile)
+    includesD3d9PresentPostRasterStatusProfile(profile)
   );
 }
 
@@ -9674,7 +9689,7 @@ class BrowserRuntimeSession {
     call: RuntimeSupportedCallSnapshot,
   ): void {
     if (
-      !isD3d9PresentPostRasterStatusProfile(
+      !includesD3d9PresentPostRasterStatusProfile(
         this.#configuration.capabilityProfile,
       ) ||
       call.interface !== "IDirect3DDevice9" ||
@@ -9824,6 +9839,114 @@ class BrowserRuntimeSession {
       activeCallbackDepthAtCompletion: 0,
       instructionCount: 0,
       nextEndpoint: null,
+      memoryContentSha256: "",
+      nextReturnAddress: 0,
+      nextStackPointer: 0,
+    };
+    if (
+      isD3d9PresentPostRasterStatusProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      this.#bgiCheckpointPending = true;
+    }
+  }
+
+  #recordWinmmTimeGetTimePostPresentCall(
+    call: RuntimeSupportedCallSnapshot,
+    occurrence: number,
+  ): void {
+    if (
+      !isWinmmTimeGetTimePostPresentProfile(
+        this.#configuration.capabilityProfile,
+      ) ||
+      call.sequence !== 282_869 ||
+      call.implementationId !== "winmm.time-get-time.v1"
+    ) {
+      return;
+    }
+    const previous = this.#report.checkpointCompletion;
+    const tickCount = call.tickCount;
+    invariant(
+      previous?.capability === "d3d9-present-post-raster-status" &&
+        previous.lastCompletionSequence === 282_868 &&
+        previous.lastCompletionInstructionCount === 392_354_183 &&
+        this.#report.instructions === 392_354_190 &&
+        this.#currentThreadId === 8_192 &&
+        occurrence === 479 &&
+        call.module.toLowerCase() === "winmm.dll" &&
+        call.symbol === "timeGetTime" &&
+        call.arguments.length === 0 &&
+        "action" in call.result &&
+        call.result.action === "set" &&
+        call.result.value === 3_800_773 &&
+        call.returnAddress === 0x1009_1ebf &&
+        call.stackPointerBefore === 0x006f_b8a0 &&
+        call.stackPointerAfter === 0x006f_b8a4 &&
+        call.lastError === 0 &&
+        call.guestWrites.length === 0 &&
+        tickCount?.returnedTickCount === 3_800_773 &&
+        tickCount.nextTickCount === 3_800_773 &&
+        tickCount.incrementPerRead === 0 &&
+        tickCount.clockProfileId ===
+          "scheduled-shared-logical-deadline-v1" &&
+        tickCount.timerClock?.currentTime100ns === 2_007_730_000 &&
+        tickCount.timerClock.generation === 16_308 &&
+        tickCount.scheduledExecutionClock?.retiredInstructions ===
+          392_354_190 &&
+        tickCount.scheduledExecutionClock.pendingRetiredInstructions === 190 &&
+        tickCount.scheduledExecutionClock.retiredInstructionsPerSecond ===
+          2_000_000 &&
+        this.#scheduledSharedClockSampleCount === 100_557 &&
+        this.#scheduledSharedClockWindowTimerCallbackCount === 40 &&
+        this.#scheduledSharedClockPresentCount === 4 &&
+        this.#bgiCallbackCallSequences.size === 0,
+      `post-Present timeGetTime process-clock evidence changed: ${JSON.stringify(call)}`,
+    );
+    const checkpointCall = {
+      ...structuredClone(call),
+      occurrence,
+      trapInstructionCount: this.#report.instructions,
+    };
+    this.#report.checkpointCompletion = {
+      capability: "winmm-time-get-time-post-present",
+      implementationId: "runtime.winmm-time-get-time-post-present.v1",
+      semanticImplementationId: "winmm.time-get-time.v1",
+      requiredCompletions: 1,
+      completionCount: 1,
+      prerequisitePresentSequence: previous.lastCompletionSequence,
+      prerequisitePresentInstructionCount:
+        previous.lastCompletionInstructionCount,
+      firstCompletionSequence: call.sequence,
+      firstCompletionInstructionCount: this.#report.instructions,
+      lastCompletionSequence: call.sequence,
+      lastCompletionInstructionCount: this.#report.instructions,
+      call: checkpointCall,
+      clockProfileId: "scheduled-shared-logical-deadline-v1",
+      clockAuthority: "runtime/process.rs::RuntimeProcessState",
+      clockRelation: "shared-with-kernel32-get-tick-count",
+      returnedTickCount: tickCount.returnedTickCount,
+      nextTickCount: tickCount.nextTickCount,
+      incrementPerRead: 0,
+      apiReadsAdvanceClock: false,
+      timerClock: structuredClone(tickCount.timerClock),
+      scheduledExecutionClock: {
+        retiredInstructions:
+          tickCount.scheduledExecutionClock.retiredInstructions,
+        pendingRetiredInstructions:
+          tickCount.scheduledExecutionClock.pendingRetiredInstructions,
+        retiredInstructionsPerSecond: 2_000_000,
+      },
+      timerResolutionAffectsSampledClock: false,
+      lastErrorPolicy: "preserve",
+      runtimeStateMutation: false,
+      failureAtomicity: true,
+      hostClockImported: false,
+      browserClockImported: false,
+      activeCallbackDepthAtCompletion: 0,
+      instructionCount: 0,
+      nextEndpoint: null,
+      nextArguments: [],
       memoryContentSha256: "",
       nextReturnAddress: 0,
       nextStackPointer: 0,
@@ -10932,6 +11055,64 @@ class BrowserRuntimeSession {
     stackPointer: number,
   ): void {
     const checkpoint = this.#report.checkpointCompletion;
+    if (
+      isWinmmTimeGetTimePostPresentProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      invariant(
+        checkpoint?.capability === "winmm-time-get-time-post-present" &&
+          checkpoint.call.sequence === 282_869 &&
+          checkpoint.call.tickCount?.returnedTickCount === 3_800_773 &&
+          this.#requirePrepared().runtime.kernel32Policy ===
+            "kernel32-delete-file-a-v1" &&
+          endpointAddress === 0x0101_1060 &&
+          stackPointer === 0x006f_f8f4 &&
+          this.#requireEngine().readGuestU32(stackPointer) === 0x1005_adcd &&
+          this.#requireEngine().readGuestU32(stackPointer + 4) ===
+            0x0101_0004 &&
+          this.#bgiCallbackCallSequences.size === 0 &&
+          this.#report.supportedCallCount === 282_869 &&
+          this.#scheduledSharedClockSampleCount === 100_557 &&
+          this.#scheduledSharedClockWindowTimerCallbackCount === 40 &&
+          this.#scheduledSharedClockPresentCount === 4 &&
+          this.#report.instructions === 392_354_323,
+        "post-Present timeGetTime checkpoint has no matching runtime state",
+      );
+      const reflection =
+        this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-memory-summary" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation) &&
+          reflection.contentSha256 ===
+            "cdbfdd820c96f520438bfd9eac89c39da2d7662d41cff9c4656765dc4fbec2b8",
+        "post-Present timeGetTime checkpoint memory summary changed",
+      );
+      checkpoint.instructionCount = this.#report.instructions;
+      checkpoint.nextEndpoint = {
+        id: 0,
+        address: endpointAddress,
+        module: "<com>",
+        symbol: { kind: "name", name: "interface-1-slot-3" },
+        disposition: "declared-com-method",
+        interfaceIndex: 1,
+        vtableSlot: 3,
+        interface: "IDirect3DDevice9",
+        method: "TestCooperativeLevel",
+      };
+      checkpoint.nextArguments = [0x0101_0004];
+      checkpoint.memoryContentSha256 = reflection.contentSha256;
+      checkpoint.nextReturnAddress = 0x1005_adcd;
+      checkpoint.nextStackPointer = stackPointer;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "WinMM timeGetTime after later Present checkpoint completed",
+        null,
+      );
+      return;
+    }
     if (
       isD3d9PresentPostRasterStatusProfile(
         this.#configuration.capabilityProfile,
@@ -13417,6 +13598,10 @@ class BrowserRuntimeSession {
         this.#configuration.capabilityProfile,
       )
     ) {
+      this.#recordWinmmTimeGetTimePostPresentCall(
+        call,
+        implementationOccurrence,
+      );
       this.#recordCompletedCallEvidence(call);
       if (windowTimerCallback !== undefined) {
         const checkpoint = this.#report.checkpointCompletion;

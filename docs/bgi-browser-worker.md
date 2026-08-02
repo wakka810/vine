@@ -366,6 +366,18 @@ complete at instruction 392,354,190 before `WINMM.dll!timeGetTime` at
 `0x7F000070`. The black receipt proves publication, not readable title pixels;
 resize and context／device loss recovery remain unclaimed.
 
+Protocol version 120／BGI report schema 86 continues that replay through the
+following scheduled `WINMM.dll!timeGetTime`. Node and Chrome complete sequence
+282,869／occurrence 479 at instruction 392,354,190, return `3,800,773`, preserve
+LastError 0, write no guest bytes, and retain returned／next tick equality with
+zero per-read increment. The timer projection is `2,007,730,000` 100 ns units at
+generation 16,308 and the scheduled execution projection is 392,354,190 retired
+instructions plus 190 pending. Both then stop at instruction 392,354,323 before
+`IDirect3DDevice9::TestCooperativeLevel` slot 3 with identical terminal memory
+and ordered semantics. Chrome keeps the preceding frame-4
+`browser-resource:1` receipt; it does not derive the tick from the browser
+renderer or clock. Exact current artifact identities remain manifest-owned.
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk

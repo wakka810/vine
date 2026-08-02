@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 119 as const;
+export const protocolVersion = 120 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -36,6 +36,7 @@ export type BgiCapabilityProfile =
   | "d3d9-end-scene-post-draw-primitive"
   | "d3d9-get-raster-status-post-end-scene"
   | "d3d9-present-post-raster-status"
+  | "winmm-time-get-time-post-present"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -974,6 +975,8 @@ export interface HostRequestMessage {
 
 export interface RuntimeSupportedCallSnapshot {
   sequence: number;
+  occurrence?: number;
+  trapInstructionCount?: number;
   module: string;
   symbol: string;
   arguments: number[];
@@ -1848,6 +1851,49 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "winmm-time-get-time-post-present";
+        implementationId: "runtime.winmm-time-get-time-post-present.v1";
+        semanticImplementationId: "winmm.time-get-time.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        prerequisitePresentSequence: number;
+        prerequisitePresentInstructionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        call: RuntimeSupportedCallSnapshot;
+        clockProfileId: "scheduled-shared-logical-deadline-v1";
+        clockAuthority: "runtime/process.rs::RuntimeProcessState";
+        clockRelation: "shared-with-kernel32-get-tick-count";
+        returnedTickCount: number;
+        nextTickCount: number;
+        incrementPerRead: 0;
+        apiReadsAdvanceClock: false;
+        timerClock: {
+          currentTime100ns: number;
+          generation: number;
+        };
+        scheduledExecutionClock: {
+          retiredInstructions: number;
+          pendingRetiredInstructions: number;
+          retiredInstructionsPerSecond: 2000000;
+        };
+        timerResolutionAffectsSampledClock: false;
+        lastErrorPolicy: "preserve";
+        runtimeStateMutation: false;
+        failureAtomicity: true;
+        hostClockImported: false;
+        browserClockImported: false;
+        activeCallbackDepthAtCompletion: 0;
+        instructionCount: number;
+        nextEndpoint: unknown;
+        nextArguments: number[];
+        memoryContentSha256: string;
+        nextReturnAddress: number;
+        nextStackPointer: number;
+      }
     | {
         capability: "d3d9-present-post-raster-status";
         implementationId: "runtime.d3d9-present-post-raster-status.v1";
