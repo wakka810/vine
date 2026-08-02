@@ -347,6 +347,14 @@ fn guest_import_graph_drives_atomic_dll_process_lifecycle() {
     );
     assert_eq!(attached.callback_order, [codec_id, engine_id]);
 
+    let outer_callback = runtime
+        .push_callback_frame(GuestAddress(0x1000_1000), CALLBACK_RETURN_ARENA_BASE)
+        .expect("enter ordinary callback before process detach");
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::InCallback { depth: 1 }
+    );
+
     let engine_detach = expect_callback(
         runtime
             .begin_dll_process_detach(CALLBACK_RETURN_ARENA_BASE)
@@ -354,12 +362,16 @@ fn guest_import_graph_drives_atomic_dll_process_lifecycle() {
     );
     assert_callback(
         &engine_detach,
-        RuntimeCallbackFrameId(6),
+        RuntimeCallbackFrameId(7),
         engine_id,
         ENGINE_HANDLE,
         ENGINE_BASE,
         ENGINE_BASE + 0x1020,
         RuntimeDllCallbackReason::ProcessDetach,
+    );
+    assert_eq!(
+        runtime.current_thread_state().unwrap().callback_frames,
+        [outer_callback.clone(), engine_detach.frame.clone()]
     );
     let codec_detach = expect_callback(
         runtime
@@ -368,12 +380,16 @@ fn guest_import_graph_drives_atomic_dll_process_lifecycle() {
     );
     assert_callback(
         &codec_detach,
-        RuntimeCallbackFrameId(7),
+        RuntimeCallbackFrameId(8),
         codec_id,
         CODEC_HANDLE,
         CODEC_BASE,
         CODEC_BASE + 0x1030,
         RuntimeDllCallbackReason::ProcessDetach,
+    );
+    assert_eq!(
+        runtime.current_thread_state().unwrap().callback_frames,
+        [outer_callback.clone(), codec_detach.frame.clone()]
     );
     let detached = expect_completion(
         runtime
@@ -388,14 +404,18 @@ fn guest_import_graph_drives_atomic_dll_process_lifecycle() {
     assert_eq!(detached.callback_order, [engine_id, codec_id]);
     assert_eq!(
         runtime.scheduler_state().unwrap(),
-        SchedulerThreadState::Runnable
+        SchedulerThreadState::InCallback { depth: 1 }
     );
-    assert!(
-        runtime
-            .current_thread_state()
-            .unwrap()
-            .callback_frames
-            .is_empty()
+    assert_eq!(
+        runtime.current_thread_state().unwrap().callback_frames,
+        [outer_callback.clone()]
+    );
+    runtime
+        .pop_callback_frame(outer_callback.id)
+        .expect("ordinary callback resumes after process detach");
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::Runnable
     );
 }
 

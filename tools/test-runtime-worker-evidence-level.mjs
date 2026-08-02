@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 125 as const/u);
+assert.match(protocol, /protocolVersion = 126 as const/u);
 assert.match(protocol, /"d3d9-begin-scene-post-partial-dirty-region"/u);
 assert.match(protocol, /"d3d9-set-sampler-state-post-begin-scene"/u);
 assert.match(
@@ -43,6 +43,10 @@ assert.match(
 assert.match(
   protocol,
   /capability: "user32-translate-message-post-test-cooperative-level-timer-peek";[\s\S]*?implementationId: "runtime\.user32-translate-message-post-test-cooperative-level-timer-peek\.v1";[\s\S]*?semanticImplementationId: "user32\.translate-message\.window-timer-pointer-noop\.v2";[\s\S]*?generalKeyboardTranslationImplemented: false;/u,
+);
+assert.match(
+  protocol,
+  /capability: "user32-dispatch-message-a-post-test-cooperative-level-timer-translate";[\s\S]*?implementationId: "runtime\.user32-dispatch-message-a-post-test-cooperative-level-timer-translate\.v1";[\s\S]*?semanticImplementationId: "user32\.dispatch-message-a\.window-timer-pointer-callback\.v2";[\s\S]*?dispatchProfileId: "published-current-thread-window-timer-callback-entry-v1";[\s\S]*?outerDispatchPending: true;[\s\S]*?callbackCompleted: false;/u,
 );
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
@@ -551,6 +555,14 @@ assert.match(fullProbe, /primary-main-loop-action-input-progress-gateway/u);
 assert.match(
   fullProbe,
   /user32-translate-message-post-test-cooperative-level-timer-peek/u,
+);
+assert.match(
+  fullProbe,
+  /user32-dispatch-message-a-post-test-cooperative-level-timer-translate/u,
+);
+assert.match(
+  worker,
+  /isUser32DispatchMessageAPostTestCooperativeLevelTimerTranslateProfile/u,
 );
 assert.match(worker, /terminal\.outcome === "structured-stop"/u);
 assert.match(

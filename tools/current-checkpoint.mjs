@@ -158,7 +158,11 @@ function validateExecutionStateMachine(value, label, errors) {
 export function validateCurrentCheckpoint(manifest) {
   const errors = [];
   const root = requireRecord(manifest, "manifest", errors);
+  const user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive =
+    root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
+    "user32-dispatch-message-a-post-test-cooperative-level-timer-translate";
   const user32TranslateMessagePostTestCooperativeLevelTimerPeekActive =
+    user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive ||
     root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
     "user32-translate-message-post-test-cooperative-level-timer-peek";
   const user32PeekMessageAPostTestCooperativeLevelTimerWaitActive =
@@ -655,7 +659,11 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9RecreatedTexturesActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-set-window-pos-repeat-activation";
+  const user32DispatchMessageAPostTestCooperativeLevelTimerTranslateProfileActive =
+    root.activeRuntimeCheckpoint?.capabilityProfile ===
+      "user32-dispatch-message-a-post-test-cooperative-level-timer-translate";
   const user32TranslateMessagePostTestCooperativeLevelTimerPeekProfileActive =
+    user32DispatchMessageAPostTestCooperativeLevelTimerTranslateProfileActive ||
     root.activeRuntimeCheckpoint?.capabilityProfile ===
       "user32-translate-message-post-test-cooperative-level-timer-peek";
   const user32PeekMessageAPostTestCooperativeLevelTimerWaitProfileActive =
@@ -1553,7 +1561,27 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
+    user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_997,
+        browserMappingDirtyPages: 150_402,
+        browserSuccessExecutionTransitions: 589_100,
+        browserFinalGeneration: 315_160,
+        browserReportSchemaVersion: 92,
+        latestSchema:
+          "vine.v86-bgi-user32-dispatch-message-a-post-test-cooperative-level-timer-translate-primary",
+        latestWritebackBatches: 165_267,
+        latestWritebackDirtyPages: 244_676,
+        latestWritebackChangedBytes: 43_072_561,
+        latestHostDeltaBatches: 127_999,
+        latestFinalMemoryGeneration: 333_513,
+        semanticCallDigestSha256:
+          "b13bfc18d983ebe62496144c5a49c95b1a3aeb153cc26b650e531003b352da1e",
+        memoryContentSha256:
+          "6a0bd75c14fb1f79e3b6b4428ae6cfa2d9d804bff08222f68f34c0d0e60a6b76",
+      }
+    : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_997,
@@ -4048,7 +4076,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
+    user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
+      ? "vine.browser-runtime-worker.v126"
+      : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
       ? "vine.browser-runtime-worker.v125"
       : user32PeekMessageAPostTestCooperativeLevelTimerWaitActive
       ? "vine.browser-runtime-worker.v124"
@@ -22351,7 +22381,9 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureBefore !== null ||
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureAfter !== null)) ||
     latestEvidence.implementation !==
-      (user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
+      (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
+        ? "Rust-owned current-thread message queue, window-timer, callback-frame, and guest-memory authorities validate the reached published WM_TIMER MSG32 and live timer registration, preflight and enter exactly one 20-byte TIMERPROC callback frame with DispatchMessageA pending, preserve MSG bytes, LastError, and the empty queue, and stop at the callback's nested GetTickCount without importing browser callback or timer authority or claiming callback return completion"
+        : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
         ? "Rust-owned current-thread message queue, window-timer, and guest-memory authorities validate the reached published WM_TIMER MSG32 through the existing read-only TranslateMessage contract, return FALSE without guest writes, LastError, queue, timer, callback, or browser-state mutation, and stop at the following DispatchMessageA endpoint without claiming general keyboard translation"
         : user32PeekMessageAPostTestCooperativeLevelTimerWaitActive
         ? "Rust-owned current-thread message queue, window-timer, and guest-memory authorities complete the reached unfiltered PM_REMOVE PeekMessageA through lazy due-timer materialization, one coalesced WM_TIMER publication, memory preflight, and targeted commit; TypeScript imports no Windows message or timer state, and execution stops at the following TranslateMessage endpoint"
@@ -24874,8 +24906,46 @@ export function validateCurrentCheckpoint(manifest) {
             errors,
           )
         : {};
+    const user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode =
+      user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
+        ? requireRecord(
+            node.user32DispatchMessageAPostTestCooperativeLevelTimerTranslate,
+            "activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence.user32DispatchMessageAPostTestCooperativeLevelTimerTranslate",
+            errors,
+          )
+        : {};
     const expectedNode =
-      user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
+      user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
+      ? {
+          schema:
+            "vine.v86-bgi-user32-dispatch-message-a-post-test-cooperative-level-timer-translate-primary",
+          runtimeKernelCheckpoint:
+            "user32-dispatch-message-a-post-test-cooperative-level-timer-translate",
+          repeatRuns: 1,
+          reportBytes: 2_635_704,
+          reportSha256:
+            "8831bc999c7d03e668ec3467a471610572603d8d26d26349756b1ca8b4ac6ae8",
+          nodeReplayOldSpaceMiB: 8_192,
+          completedSupportedCalls: 282_874,
+          supportedCallSemanticsSha256:
+            "b13bfc18d983ebe62496144c5a49c95b1a3aeb153cc26b650e531003b352da1e",
+          clockSampleCount: 100_557,
+          lastClockTick: 3_800_773,
+          lastClockTime100ns: 2_007_730_000,
+          lastClockGeneration: 16_308,
+          lastClockRetiredInstructions: 392_354_190,
+          lastClockPendingRetiredInstructions: 190,
+          windowTimerCallbackCount: 40,
+          timerPacingCompletionCount: 9_003,
+          writebackBatches: 286_073,
+          hostDeltaBatches: 143_090,
+          callbackEventCount: 149,
+          finalMemoryGeneration: 333_513,
+          terminalInstructionCount: 392_354_458,
+          terminalMemoryContentSha256:
+            "6a0bd75c14fb1f79e3b6b4428ae6cfa2d9d804bff08222f68f34c0d0e60a6b76",
+        }
+      : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
       ? {
           schema:
             "vine.v86-bgi-user32-translate-message-post-test-cooperative-level-timer-peek-primary",
@@ -25648,8 +25718,138 @@ export function validateCurrentCheckpoint(manifest) {
       currentStop.prerequisiteWaitForSingleObjectExCheckpoint ?? {};
     const prerequisitePeekMessageACheckpoint =
       currentStop.prerequisitePeekMessageACheckpoint ?? {};
+    const prerequisiteTranslateMessageCheckpoint =
+      currentStop.prerequisiteTranslateMessageCheckpoint ?? {};
     const currentStopValid =
-      user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
+      user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
+      ? currentStop.kind === "capability-checkpoint" &&
+        currentStop.classification === "semantic-leaf" &&
+        currentStop.nextCheckpoint ===
+          "kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch" &&
+        currentStop.pausedHistoricalCheckpoint ===
+          "user32-dispatch-message-a-post-test-cooperative-level-timer-translate" &&
+        currentStop.instructionCount === 392_354_458 &&
+        currentStop.capabilityCluster === "kernel32-process-clock-contract" &&
+        currentStop.reason ===
+          "user32-dispatch-message-a-post-test-cooperative-level-timer-translate-checkpoint-complete" &&
+        prerequisiteTranslateMessageCheckpoint.capability ===
+          "user32-translate-message-post-test-cooperative-level-timer-peek" &&
+        prerequisiteTranslateMessageCheckpoint.implementationId ===
+          "runtime.user32-translate-message-post-test-cooperative-level-timer-peek.v1" &&
+        prerequisiteTranslateMessageCheckpoint.lastCompletionSequence === 282_874 &&
+        prerequisiteTranslateMessageCheckpoint.lastCompletionInstructionCount ===
+          392_354_433 &&
+        prerequisiteTranslateMessageCheckpoint.messageContentSha256 ===
+          "e6521e2aa3109cd80f56da82d2662d3e526b5a40981927410a2d9061f5ad6135" &&
+        prerequisiteTranslateMessageCheckpoint.windowTimerDeliveryCount === 41 &&
+        prerequisiteTranslateMessageCheckpoint.failureAtomicity === true &&
+        expectedCompletion.capability ===
+          "user32-dispatch-message-a-post-test-cooperative-level-timer-translate" &&
+        expectedCompletion.implementationId ===
+          "runtime.user32-dispatch-message-a-post-test-cooperative-level-timer-translate.v1" &&
+        expectedCompletion.semanticImplementationId ===
+          "user32.dispatch-message-a.window-timer-pointer-callback.v2" &&
+        expectedCompletion.requiredEntries === 1 &&
+        expectedCompletion.entryCount === 1 &&
+        expectedCompletion.prerequisiteTranslateMessageSequence === 282_874 &&
+        expectedCompletion.prerequisiteTranslateMessageInstructionCount ===
+          392_354_433 &&
+        expectedCompletion.firstEntrySequence === 282_875 &&
+        expectedCompletion.firstEntryInstructionCount === 392_354_437 &&
+        expectedCompletion.lastEntrySequence === 282_875 &&
+        expectedCompletion.lastEntryInstructionCount === 392_354_437 &&
+        expectedCompletion.compatibilityPolicyId === "kernel32-delete-file-a-v1" &&
+        expectedCompletion.dispatchProfileId ===
+          "published-current-thread-window-timer-callback-entry-v1" &&
+        expectedCompletion.stateAuthority ===
+          "rust-runtime-current-thread-window-timer-callback-frame-and-guest-memory" &&
+        expectedCompletion.mutation === "callback-frame-preflight-targeted-enter" &&
+        expectedCompletion.failureAtomicity === true &&
+        expectedCompletion.currentThreadId === 8_192 &&
+        expectedCompletion.messageAddress === 0x006f_f8e8 &&
+        expectedCompletion.messageByteLength === 28 &&
+        expectedCompletion.message?.hwnd === 0x4801_0001 &&
+        expectedCompletion.message.message === 0x0113 &&
+        expectedCompletion.message.wParam === 1 &&
+        expectedCompletion.message.lParam === 0x1009_9600 &&
+        expectedCompletion.message.time === 3_800_773 &&
+        expectedCompletion.message.pointX === 960 &&
+        expectedCompletion.message.pointY === 540 &&
+        expectedCompletion.messageContentSha256 ===
+          "e6521e2aa3109cd80f56da82d2662d3e526b5a40981927410a2d9061f5ad6135" &&
+        expectedCompletion.windowTimer?.id === 1 &&
+        expectedCompletion.windowTimer.windowId === 1 &&
+        expectedCompletion.windowTimer.windowHandle === 0x4801_0001 &&
+        expectedCompletion.windowTimer.timerId === 1 &&
+        expectedCompletion.windowTimer.ownerThreadId === 8_192 &&
+        expectedCompletion.windowTimer.callbackAddress === 0x1009_9600 &&
+        expectedCompletion.windowTimer.registrationGeneration === 1 &&
+        expectedCompletion.windowTimer.deliveryCount === 41 &&
+        expectedCompletion.windowTimer.lastDelivery?.scheduledDeadlineTime100ns ===
+          1_915_270_000 &&
+        expectedCompletion.windowTimer.lastDelivery.deliveredAtTime100ns ===
+          2_007_735_000 &&
+        expectedCompletion.windowTimer.nextDeadlineTime100ns === 2_007_935_000 &&
+        expectedCompletion.dispatchEntry?.sequence === 282_875 &&
+        expectedCompletion.dispatchEntry.module?.toLowerCase() === "user32.dll" &&
+        expectedCompletion.dispatchEntry.symbol === "DispatchMessageA" &&
+        expectedCompletion.dispatchEntry.occurrence === 43 &&
+        expectedCompletion.dispatchEntry.trapInstructionCount === 392_354_437 &&
+        expectedCompletion.dispatchEntry.arguments?.join(",") === "7338216" &&
+        expectedCompletion.dispatchEntry.pendingCallback === true &&
+        expectedCompletion.dispatchEntry.implementationId ===
+          "user32.dispatch-message-a.window-timer-pointer-callback.v2" &&
+        expectedCompletion.dispatchEntry.runtimeThreadId === 8_192 &&
+        expectedCompletion.callbackEntry?.action === "enter" &&
+        expectedCompletion.callbackEntry.sequence === 282_875 &&
+        expectedCompletion.callbackEntry.runtimeThreadId === 8_192 &&
+        expectedCompletion.callbackEntry.depth === 1 &&
+        expectedCompletion.callbackEntry.frameId === 75 &&
+        expectedCompletion.callbackEntry.instructionCount === 392_354_437 &&
+        expectedCompletion.callbackEntry.target === 0x1009_9600 &&
+        expectedCompletion.callbackEntry.allocationStart === 0x006f_f8c0 &&
+        expectedCompletion.callbackEntry.stackPointer === 0x006f_f8c0 &&
+        expectedCompletion.callbackEntry.scratchAddress === 0 &&
+        expectedCompletion.callbackEntry.scratchBytes === 0 &&
+        expectedCompletion.callbackEntry.frameBytes === 20 &&
+        expectedCompletion.callbackEntry.returnSentinel === 0x7f01_0000 &&
+        expectedCompletion.callbackEntry.arguments?.join(",") ===
+          "1208025089,275,1,3800773" &&
+        expectedCompletion.callbackResultPolicy === "ignore-and-return-zero" &&
+        expectedCompletion.outerDispatchPending === true &&
+        expectedCompletion.lastErrorPolicy === "preserve" &&
+        expectedCompletion.guestWriteBytes === 0 &&
+        expectedCompletion.queueDepthAtEntry === 0 &&
+        expectedCompletion.messageBytesPreserved === true &&
+        expectedCompletion.hostMessageImported === false &&
+        expectedCompletion.browserOwnsMessageQueueState === false &&
+        expectedCompletion.browserOwnsCallbackState === false &&
+        expectedCompletion.browserTimerCreated === false &&
+        expectedCompletion.activeCallbackDepthAtEntry === 1 &&
+        expectedCompletion.callbackCompleted === false &&
+        expectedCompletion.instructionCount === 392_354_458 &&
+        expectedCompletion.memoryContentSha256 ===
+          profileExpectations.memoryContentSha256 &&
+        expectedCompletion.nextReturnAddress === 0x1009_9537 &&
+        expectedCompletion.nextStackPointer === 0x006f_f890 &&
+        expectedCompletion.nextArguments?.length === 0 &&
+        expectedEndpoint.endpointKind === "runtime-system-export" &&
+        expectedEndpoint.endpointId === 13 &&
+        expectedEndpoint.api === "KERNEL32.dll!GetTickCount" &&
+        expectedEndpoint.endpointAddress === "0x7f0000c0" &&
+        expectedEndpoint.observedModule === "KERNEL32.dll" &&
+        expectedEndpoint.observedSymbol === "GetTickCount" &&
+        expectedEndpoint.id === 13 &&
+        expectedEndpoint.address === 0x7f00_00c0 &&
+        expectedEndpoint.module === "KERNEL32.dll" &&
+        expectedEndpoint.symbol?.kind === "name" &&
+        expectedEndpoint.symbol.name === "GetTickCount" &&
+        expectedEndpoint.disposition === "declared-runtime-export" &&
+        expectedEndpoint.iatAddress === 0x100d_10dc &&
+        expectedEndpoint.arguments?.length === 0 &&
+        expectedEndpoint.returnAddress === "0x10099537" &&
+        expectedEndpoint.stackPointer === "0x006ff890"
+      : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
       ? currentStop.kind === "capability-checkpoint" &&
         currentStop.classification === "semantic-leaf" &&
         currentStop.nextCheckpoint ===
@@ -29393,6 +29593,77 @@ export function validateCurrentCheckpoint(manifest) {
           1 &&
         user32TranslateMessagePostTestCooperativeLevelTimerPeekLatest.nodeChromeOrderedSemanticsMatched ===
           true);
+    const user32DispatchMessageAPostTestCooperativeLevelTimerTranslateLatest =
+      latestEvidence
+        .user32DispatchMessageAPostTestCooperativeLevelTimerTranslate ?? {};
+    const user32DispatchMessageAPostTestCooperativeLevelTimerTranslateEvidenceValid =
+      !user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive ||
+      (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.entryCount ===
+          1 &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.sequence ===
+          282_875 &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.occurrence ===
+          43 &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.instructionCount ===
+          392_354_437 &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.arguments?.join(",") ===
+          "0x006ff8e8" &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.implementationId ===
+          "user32.dispatch-message-a.window-timer-pointer-callback.v2" &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.compatibilityPolicyId ===
+          "kernel32-delete-file-a-v1" &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.dispatchProfileId ===
+          "published-current-thread-window-timer-callback-entry-v1" &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.stateAuthority ===
+          "rust-runtime-current-thread-window-timer-callback-frame-and-guest-memory" &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.mutation ===
+          "callback-frame-preflight-targeted-enter" &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.failureAtomicity ===
+          true &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.currentThreadId ===
+          8_192 &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.messageContentSha256 ===
+          "e6521e2aa3109cd80f56da82d2662d3e526b5a40981927410a2d9061f5ad6135" &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.windowTimerDeliveryCount ===
+          41 &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.callbackFrameId ===
+          75 &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.callbackTarget ===
+          "0x10099600" &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.callbackStackPointer ===
+          "0x006ff8c0" &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.callbackArguments?.join(",") ===
+          "0x48010001,0x00000113,0x00000001,0x0039fec5" &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.outerDispatchPending ===
+          true &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.callbackCompleted ===
+          false &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.queueDepthAtEntry ===
+          0 &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.messageBytesPreserved ===
+          true &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.nextEndpoint ===
+          "KERNEL32.dll!GetTickCount" &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateNode.nextInstructionCount ===
+          392_354_458 &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateLatest.entryCount ===
+          1 &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateLatest.sequence ===
+          282_875 &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateLatest.occurrence ===
+          43 &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateLatest.callbackFrameId ===
+          75 &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateLatest.windowTimerDeliveryCount ===
+          41 &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateLatest.failureAtomicity ===
+          true &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateLatest.nodeEntries ===
+          1 &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateLatest.chromeEntries ===
+          1 &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateLatest.nodeChromeOrderedSemanticsMatched ===
+          true);
     if (
       scheduled.schema !== "vine.scheduled-shared-clock-checkpoint" ||
       scheduled.schemaVersion !== 1 ||
@@ -29475,7 +29746,9 @@ export function validateCurrentCheckpoint(manifest) {
       node.terminalMemoryContentSha256 !==
         expectedNode.terminalMemoryContentSha256 ||
       browserBoundary.runtimeProtocol !==
-        (user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
+        (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
+          ? "vine.browser-runtime-worker.v126"
+          : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
           ? "vine.browser-runtime-worker.v125"
           : user32PeekMessageAPostTestCooperativeLevelTimerWaitActive
           ? "vine.browser-runtime-worker.v124"
@@ -29527,7 +29800,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.retiredInstructionCursorTransport !==
         "checked-u64-low-high-per-api-and-com-dispatch" ||
       browserBoundary.browserOwnsGuestClockState !== false ||
-      (user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
+      (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
+        ? browserBoundary.browserReportSchemaVersion !== 92
+        : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
         ? browserBoundary.browserReportSchemaVersion !== 91
         : user32PeekMessageAPostTestCooperativeLevelTimerWaitActive
         ? browserBoundary.browserReportSchemaVersion !== 90
@@ -29576,7 +29851,9 @@ export function validateCurrentCheckpoint(manifest) {
         "npm run check:runtime:browser-worker" ||
       browserBoundary.chromeVersion !== "150.0.7871.187" ||
       browserBoundary.reportBytes !==
-        (user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
+        (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
+          ? 35_937
+          : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
           ? 35_939
           : user32PeekMessageAPostTestCooperativeLevelTimerWaitActive
           ? 35_961
@@ -29624,7 +29901,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 35_961
           : 35_951) ||
       browserBoundary.reportSha256 !==
-        (user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
+        (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
+          ? "23ba71a4a15ed26532bcc1b110a89516de4feb728c2c1d36bbcd8fa18989dbb4"
+          : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
           ? "adfd4afffa86941fc109f32986a5fbc66c4e028d3ccd0e86b7c44cf2d3425ac6"
           : user32PeekMessageAPostTestCooperativeLevelTimerWaitActive
           ? "582ec5587185770c224f8b2ee00fd4996010e22ce84a48c4f70f079b5c30cd38"
@@ -29672,7 +29951,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "bd77deb28553190382622adb663ac87b99e4c9f9df719bbba2282f5bae5bca94"
           : "ecd982f21410c69c4d844a114041e301fd140fedbb520cf5773f4d13d2846aa1") ||
       browserBoundary.runtimeWorkerBytes !==
-        (user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
+        (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
+          ? 1_226_348
+          : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
           ? 1_215_178
           : user32PeekMessageAPostTestCooperativeLevelTimerWaitActive
           ? 1_206_861
@@ -29720,7 +30001,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 1_053_379
           : 1_049_048) ||
       browserBoundary.runtimeWorkerSha256 !==
-        (user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
+        (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
+          ? "b6ee93502abf652d29e3854c7c49ab494aabe37012af40512f2e118cf74a9a23"
+          : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
           ? "52b483c5e5a7466ad695c8b2f5086e207b0916f261a0f5bb22b056d5eb18b541"
           : user32PeekMessageAPostTestCooperativeLevelTimerWaitActive
           ? "28ba69ef7062d42e983d1ed11c2ac1c84c32916d2105fb7f2964e3f9f466ff4c"
@@ -29768,7 +30051,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "1f2812982a31f8b94c994ba531c7d58285122b9299da1b51169b49631790f420"
           : "dbb154a48ed3db86b915396bb549add364443e050b6d68f52f0c811c8b46b1c4") ||
       browserBoundary.runtimeCoreWasmBytes !==
-        (d3d9SetTextureStageStatePostSamplerStateActive
+        (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
+          ? 5_408_396
+          : d3d9SetTextureStageStatePostSamplerStateActive
           ? 5_407_751
           : d3d9SetSamplerStatePostBeginSceneActive
           ? 5_407_751
@@ -29790,7 +30075,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 5_361_144
           : 5_354_885) ||
       browserBoundary.runtimeCoreWasmSha256 !==
-        (d3d9SetTextureStageStatePostSamplerStateActive
+        (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
+          ? "cab48fe0cddd1b5846b6929c13da50004b257f76f8946790e325c4ad1fc30da6"
+          : d3d9SetTextureStageStatePostSamplerStateActive
           ? "60674a1917bdd4641cf8f3884cc73dc177817d45e480f4587cc4627a1f71798e"
           : d3d9SetSamplerStatePostBeginSceneActive
           ? "60674a1917bdd4641cf8f3884cc73dc177817d45e480f4587cc4627a1f71798e"
@@ -29816,7 +30103,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.privatePrimaryCommand !==
         "node tools/run-browser-runtime-check.mjs --bgi" ||
       browserBoundary.privatePrimaryReportBytes !==
-        (user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
+        (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
+          ? 2_623_575
+          : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
           ? 2_623_115
           : user32PeekMessageAPostTestCooperativeLevelTimerWaitActive
           ? 2_624_681
@@ -29864,7 +30153,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 2_598_978
           : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
-        (user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
+        (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
+          ? "4ffa8a4f3a0115fb6251563af82512cea9bd953ff9f6ba76c75e69e4568e18cd"
+          : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
           ? "174254d7ff2ad014b6ba3dbefdb64d8211f17577b2ee446764e62fa7ca783427"
           : user32PeekMessageAPostTestCooperativeLevelTimerWaitActive
           ? "b3ae03ca00f9ddd01c2b1110bec02db0e38123059a72b866e8c04004d522453a"
@@ -29967,6 +30258,7 @@ export function validateCurrentCheckpoint(manifest) {
       !kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmEvidenceValid ||
       !user32PeekMessageAPostTestCooperativeLevelTimerWaitEvidenceValid ||
       !user32TranslateMessagePostTestCooperativeLevelTimerPeekEvidenceValid ||
+      !user32DispatchMessageAPostTestCooperativeLevelTimerTranslateEvidenceValid ||
       conclusion.clockFreezeWasProximateCause !== false ||
       (privateHeapOrdinarySegmentGrowthActive &&
         conclusion.ordinaryHeapCapacityWasProximateCause !== false) ||
@@ -29979,7 +30271,9 @@ export function validateCurrentCheckpoint(manifest) {
       (getCursorInfoActive &&
         conclusion.cursorInfoWasProximateCause !== false) ||
       conclusion.nextEndpoint !==
-        (user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
+        (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
+          ? "KERNEL32.dll!GetTickCount"
+          : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
           ? "USER32.dll!DispatchMessageA"
           : user32PeekMessageAPostTestCooperativeLevelTimerWaitActive
           ? "USER32.dll!TranslateMessage"
@@ -40350,6 +40644,12 @@ export function renderReadmeStatus(manifest) {
   const nextSummary =
     next.kind === "capability-checkpoint"
       ? next.completion.capability ===
+        "user32-dispatch-message-a-post-test-cooperative-level-timer-translate"
+        ? `\`${next.completion.capability}\` validated the exact published WM_TIMER MSG32 and live timer registration, then entered TIMERPROC frame ${next.completion.callbackEntry.frameId} with the outer DispatchMessageA pending at ` +
+          `sequence ${next.completion.lastEntrySequence} / instruction ${next.completion.lastEntryInstructionCount}; ` +
+          `verification stopped at the callback's nested \`${next.nextEndpoint.api}\` on instruction ${next.instructionCount} ` +
+          `(\`${next.reason}\`)`
+        : next.completion.capability ===
         "user32-translate-message-post-test-cooperative-level-timer-peek"
         ? `\`${next.completion.capability}\` validated the exact published WM_TIMER MSG32 and returned FALSE without mutation at ` +
           `sequence ${next.completion.lastCompletionSequence} / instruction ${next.completion.lastCompletionInstructionCount}; ` +

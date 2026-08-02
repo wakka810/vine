@@ -6386,3 +6386,25 @@ Windows translation authority. Both stop four instructions later at
 `USER32.dll!DispatchMessageA`; exact report and artifact identities remain
 authoritative only in [current-checkpoint.json](current-checkpoint.json). Details
 are in [the bounded TranslateMessage profile](bgi-user32-translate-message-post-test-cooperative-level-timer-peek.md).
+
+## 192. BGI post-TranslateMessage timer `DispatchMessageA` callback entry
+
+The reached call reuses the timer dispatch and TIMERPROC relation fixed by the
+focused BGI caller captures and controlled x86 oracle in sections 178 and 180. The
+caller passes the same published `MSG32` pointer to `DispatchMessageA`; the live
+`WM_TIMER` relation selects `(HWND, WM_TIMER, timer ID, message time)`, and the
+callback result is ignored before the outer function returns zero. No new native
+trace was needed because message layout, timer identity, stdcall arguments, result
+policy, and caller flow are already fixed. Primary sequence, frame ID, and guest
+addresses remain evidence identity rather than semantic dispatch selectors.
+
+Canonical Node and Chrome enter the callback at pending sequence 282,875／occurrence
+43／instruction 392,354,437. Both validate HWND `0x48010001`, timer ID 1,
+TIMERPROC `0x10099600`, delivery count 41, and the immutable message digest, then
+publish frame ID 75 at stack `0x006FF8C0` with 20 bytes and arguments
+`(0x48010001, 0x0113, 1, 3,800,773)`. Queue depth remains zero and TypeScript imports
+no Windows callback, message, or timer authority. Both stop 21 instructions later at
+the callback's nested `KERNEL32.dll!GetTickCount`; callback return and outer result
+are not claimed at this stop. Exact report and artifact identities remain authoritative
+only in [current-checkpoint.json](current-checkpoint.json). Details are in
+[the bounded timer DispatchMessageA profile](bgi-user32-dispatch-message-a-post-test-cooperative-level-timer-translate.md).

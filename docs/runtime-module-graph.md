@@ -83,6 +83,11 @@ detach: game.exe -> engine.dll -> kernel32.dll -> codec.dll
 `process-attached`／`process-detached`はordered lifecycle metadataであり、guest callbackを
 実行済みという意味ではない。
 
+Process detachは、終了要求が通常のguest callback内から開始された場合も、そのcallbackを
+authorityとして保持したまま開始できる。guest DLL callbackが必要ならstrict LIFOでその上へ
+nested frameを積み、detach完了後は元のcallbackへ戻る。Process attachの開始条件は従来どおり
+runnable selected threadに限定する。
+
 ## RuntimeState integration
 
 `RuntimeState::load_module`はruntime system／guest DLL classを選び、

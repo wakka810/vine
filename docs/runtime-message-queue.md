@@ -137,6 +137,17 @@ General keyboard translationとdispatchはclaimしない。Bounded claimは
 [the reached timer-wait TranslateMessage profile](bgi-user32-translate-message-post-test-cooperative-level-timer-peek.md)
 を正とする。
 
+Sequence 282,875の続く`DispatchMessageA(0x006FF8E8)`は、同じpublished
+`WM_TIMER MSG32`とlive timer registrationを再検証し、current thread 8192へ
+TIMERPROC frame 75を一件だけenterする。Semantic planを返す時点ではruntime、MSG、
+LastError、queue、memory generationを変更せず、callback beginだけがpreflight済みの
+20-byte stdcall frameを`0x006FF8C0`へatomicに書く。Outer dispatchはpending、queueは
+depth 0、message bytesは不変で、Node／Chromeは21 instructions後のnested
+`KERNEL32.dll!GetTickCount`で停止する。TypeScriptはcallback、message、timer authorityを
+所有しない。Bounded claimは
+[the reached timer DispatchMessageA profile](bgi-user32-dispatch-message-a-post-test-cooperative-level-timer-translate.md)
+を正とする。
+
 ## Pointer-button message production and WndProc dispatch
 
 Versioned pointer ingressはnormalized coordinate、primary／secondary button、strict source sequenceだけを

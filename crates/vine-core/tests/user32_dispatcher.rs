@@ -5629,10 +5629,33 @@ fn due_window_timer_materializes_once_and_dispatches_timerproc_on_the_owner_thre
     assert!(translated.guest_writes.is_empty());
 
     fixture.configure_dispatch_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS);
+    let runtime_before_dispatch_entry = fixture.runtime.clone();
+    let memory_before_dispatch_entry = fixture.memory.stats();
+    let message_before_dispatch_entry = fixture
+        .memory
+        .read(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 28)
+        .expect("read TIMERPROC MSG before DispatchMessageA entry");
     let call = match fixture.dispatch_dispatch_message_a() {
         DispatchOutcome::GuestCallback(call) => call,
         other => panic!("expected TIMERPROC callback, got {other:?}"),
     };
+    assert_eq!(fixture.runtime, runtime_before_dispatch_entry);
+    assert_eq!(fixture.memory.stats(), memory_before_dispatch_entry);
+    assert_eq!(
+        fixture
+            .memory
+            .read(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 28)
+            .expect("read TIMERPROC MSG after DispatchMessageA entry"),
+        message_before_dispatch_entry
+    );
+    assert_eq!(fixture.runtime.current_last_error().unwrap(), sentinel);
+    assert!(
+        fixture
+            .runtime
+            .queued_thread_messages(RuntimeThreadId(THREAD_ID))
+            .expect("inspect timer queue at DispatchMessageA entry")
+            .is_empty()
+    );
     assert_eq!(call.request.target, callback);
     assert_eq!(
         call.request.arguments,

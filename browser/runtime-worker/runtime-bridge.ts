@@ -140,6 +140,7 @@ export interface PreparedMetadata {
     address: number;
     module?: string;
     symbol?: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+    iatAddress?: number;
   }>;
   additionalThreads?: Array<{
     threadId: number;

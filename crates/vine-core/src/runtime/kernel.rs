@@ -4679,7 +4679,7 @@ impl RuntimeKernel {
         return_sentinel: GuestAddress,
     ) -> Result<RuntimeDllLifecycleAction, RuntimeStateError> {
         self.modules.require_process_detach_start()?;
-        self.require_dll_callback_thread_state()?;
+        self.require_dll_process_detach_thread_state()?;
         let plan = self.modules.plan_process_detach(return_sentinel)?;
         self.commit_dll_lifecycle_plan(None, plan)
     }
@@ -4702,6 +4702,23 @@ impl RuntimeKernel {
                 "runtime-dll-lifecycle",
                 "dll-callback-thread-state-invalid",
                 "DLL process callbacks require a running process and runnable selected thread",
+            ));
+        }
+        Ok(())
+    }
+
+    fn require_dll_process_detach_thread_state(&self) -> Result<(), RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-dll-lifecycle",
+                "dll-callback-thread-state-invalid",
+                "DLL process detach requires a running process and active selected thread",
             ));
         }
         Ok(())

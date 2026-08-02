@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 125 as const;
+export const protocolVersion = 126 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -42,6 +42,7 @@ export type BgiCapabilityProfile =
   | "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm"
   | "user32-peek-message-a-post-test-cooperative-level-timer-wait"
   | "user32-translate-message-post-test-cooperative-level-timer-peek"
+  | "user32-dispatch-message-a-post-test-cooperative-level-timer-translate"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1856,6 +1857,90 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "user32-dispatch-message-a-post-test-cooperative-level-timer-translate";
+        implementationId: "runtime.user32-dispatch-message-a-post-test-cooperative-level-timer-translate.v1";
+        semanticImplementationId: "user32.dispatch-message-a.window-timer-pointer-callback.v2";
+        requiredEntries: 1;
+        entryCount: 1;
+        prerequisiteTranslateMessageSequence: number;
+        prerequisiteTranslateMessageInstructionCount: number;
+        firstEntrySequence: number;
+        firstEntryInstructionCount: number;
+        lastEntrySequence: number;
+        lastEntryInstructionCount: number;
+        compatibilityPolicyId: "kernel32-delete-file-a-v1";
+        dispatchProfileId: "published-current-thread-window-timer-callback-entry-v1";
+        stateAuthority: "rust-runtime-current-thread-window-timer-callback-frame-and-guest-memory";
+        mutation: "callback-frame-preflight-targeted-enter";
+        failureAtomicity: true;
+        currentThreadId: 8192;
+        messageAddress: number;
+        messageByteLength: 28;
+        message: {
+          hwnd: number;
+          message: number;
+          wParam: number;
+          lParam: number;
+          time: number;
+          pointX: number;
+          pointY: number;
+        };
+        messageContentSha256: string;
+        windowTimer: RuntimeWindowTimerSnapshot;
+        dispatchEntry: {
+          sequence: number;
+          module: string;
+          symbol: "DispatchMessageA";
+          occurrence: number;
+          trapInstructionCount: number;
+          arguments: [number];
+          pendingCallback: true;
+          implementationId: "user32.dispatch-message-a.window-timer-pointer-callback.v2";
+          runtimeThreadId: 8192;
+        };
+        callbackEntry: {
+          action: "enter";
+          sequence: number;
+          runtimeThreadId: 8192;
+          depth: 1;
+          frameId: number;
+          instructionCount: number;
+          target: number;
+          allocationStart: number;
+          stackPointer: number;
+          scratchAddress: number;
+          scratchBytes: number;
+          frameBytes: number;
+          returnSentinel: number;
+          arguments: [number, number, number, number];
+        };
+        callbackResultPolicy: "ignore-and-return-zero";
+        outerDispatchPending: true;
+        lastErrorPolicy: "preserve";
+        guestWriteBytes: 0;
+        queueDepthAtEntry: 0;
+        messageBytesPreserved: true;
+        hostMessageImported: false;
+        browserOwnsMessageQueueState: false;
+        browserOwnsCallbackState: false;
+        browserTimerCreated: false;
+        activeCallbackDepthAtEntry: 1;
+        callbackCompleted: false;
+        instructionCount: number;
+        nextEndpoint: {
+          id: 13;
+          address: number;
+          module: string;
+          symbol: { kind: "name"; name: "GetTickCount" };
+          disposition: "declared-runtime-export";
+          iatAddress: number;
+        } | null;
+        nextArguments: number[];
+        memoryContentSha256: string;
+        nextReturnAddress: number;
+        nextStackPointer: number;
+      }
     | {
         capability: "user32-translate-message-post-test-cooperative-level-timer-peek";
         implementationId: "runtime.user32-translate-message-post-test-cooperative-level-timer-peek.v1";

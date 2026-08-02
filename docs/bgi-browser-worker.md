@@ -453,6 +453,21 @@ General keyboard translation and dispatch remain outside this bounded profile.
 Details are in
 [the post-timer-wait `TranslateMessage` profile](bgi-user32-translate-message-post-test-cooperative-level-timer-peek.md).
 
+Protocol version 126／BGI report schema 92 continues through the immediately
+following timer `DispatchMessageA` callback entry. Node and Chrome agree on pending
+sequence 282,875／occurrence 43 at instruction 392,354,437, exact frame ID 75,
+TIMERPROC `0x10099600`, stack `0x006FF8C0`, and arguments
+`(0x48010001, WM_TIMER, 1, 3,800,773)`. Rust validates the immutable message and
+live timer relation before publishing the callback frame; the Worker owns neither
+Windows callback state nor queue／timer state. Completed-call count and semantic digest
+remain 282,874 and
+`b13bfc18d983ebe62496144c5a49c95b1a3aeb153cc26b650e531003b352da1e`
+because the outer dispatch is still pending. Both stop at instruction 392,354,458
+before nested `KERNEL32.dll!GetTickCount`, with terminal memory digest
+`6a0bd75c14fb1f79e3b6b4428ae6cfa2d9d804bff08222f68f34c0d0e60a6b76`.
+Callback return and outer result remain outside this bounded profile. Details are in
+[the post-TranslateMessage timer `DispatchMessageA` profile](bgi-user32-dispatch-message-a-post-test-cooperative-level-timer-translate.md).
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk
