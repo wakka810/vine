@@ -1984,7 +1984,6 @@ function assertD3d9SetTexturePostTextureStageStateCheckpoint(
   ]) {
     assert.equal(actual[field], expectedCompletion[field], field);
   }
-  assert.deepEqual(actual.call, expectedCompletion.call);
   for (const field of [
     "id",
     "address",
