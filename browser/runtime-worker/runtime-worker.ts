@@ -450,12 +450,27 @@ function isWinmmTimeGetTimePostPresentProfile(
   return profile === "winmm-time-get-time-post-present";
 }
 
+function isD3d9TestCooperativeLevelPostTimeGetTimeProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "d3d9-test-cooperative-level-post-time-get-time";
+}
+
+function includesWinmmTimeGetTimePostPresentProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isWinmmTimeGetTimePostPresentProfile(profile) ||
+    isD3d9TestCooperativeLevelPostTimeGetTimeProfile(profile)
+  );
+}
+
 function includesD3d9PresentPostRasterStatusProfile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isD3d9PresentPostRasterStatusProfile(profile) ||
-    isWinmmTimeGetTimePostPresentProfile(profile)
+    includesWinmmTimeGetTimePostPresentProfile(profile)
   );
 }
 
@@ -8441,6 +8456,10 @@ class BrowserRuntimeSession {
       this.#recordD3d9EndScenePostDrawPrimitiveCall(call);
       this.#recordD3d9GetRasterStatusPostEndSceneCall(call);
       this.#recordD3d9PresentPostRasterStatusCall(call);
+      this.#recordD3d9TestCooperativeLevelPostTimeGetTimeCall(
+        call,
+        comOccurrence,
+      );
     } else {
       this.#recordD3d9RecreatedTextureCall(call);
       this.#recordD3d9ClearCall(call);
@@ -9857,7 +9876,7 @@ class BrowserRuntimeSession {
     occurrence: number,
   ): void {
     if (
-      !isWinmmTimeGetTimePostPresentProfile(
+      !includesWinmmTimeGetTimePostPresentProfile(
         this.#configuration.capabilityProfile,
       ) ||
       call.sequence !== 282_869 ||
@@ -9943,6 +9962,104 @@ class BrowserRuntimeSession {
       failureAtomicity: true,
       hostClockImported: false,
       browserClockImported: false,
+      activeCallbackDepthAtCompletion: 0,
+      instructionCount: 0,
+      nextEndpoint: null,
+      nextArguments: [],
+      memoryContentSha256: "",
+      nextReturnAddress: 0,
+      nextStackPointer: 0,
+    };
+    if (
+      isWinmmTimeGetTimePostPresentProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      this.#bgiCheckpointPending = true;
+    }
+  }
+
+  #recordD3d9TestCooperativeLevelPostTimeGetTimeCall(
+    call: RuntimeSupportedCallSnapshot,
+    occurrence: number,
+  ): void {
+    if (
+      !isD3d9TestCooperativeLevelPostTimeGetTimeProfile(
+        this.#configuration.capabilityProfile,
+      ) ||
+      call.interface !== "IDirect3DDevice9" ||
+      call.vtableSlot !== 3 ||
+      call.sequence !== 282_870
+    ) {
+      return;
+    }
+    const previous = this.#report.checkpointCompletion;
+    const device = this.#report.d3d9Present?.call.graphicsDevice;
+    invariant(
+      previous?.capability === "winmm-time-get-time-post-present" &&
+        previous.lastCompletionSequence === 282_869 &&
+        previous.lastCompletionInstructionCount === 392_354_190 &&
+        this.#report.instructions === 392_354_323 &&
+        occurrence === 70 &&
+        call.symbol === "IDirect3DDevice9.TestCooperativeLevel" &&
+        call.arguments.join(",") === "16842756" &&
+        "kind" in call.result &&
+        call.result.kind === "h-result" &&
+        call.result.value === 0 &&
+        call.returnAddress === 0x1005_adcd &&
+        call.stackPointerBefore === 0x006f_f8f4 &&
+        call.stackPointerAfter === 0x006f_f8fc &&
+        call.referenceCount === 5 &&
+        call.objectRetired === false &&
+        call.guestWrites.length === 0 &&
+        device?.id === 3 &&
+        device.comObjectId === "21" &&
+        device.generation === 74 &&
+        this.#scheduledSharedClockSampleCount === 100_557 &&
+        this.#scheduledSharedClockWindowTimerCallbackCount === 40 &&
+        this.#scheduledSharedClockPresentCount === 4 &&
+        this.#bgiCallbackCallSequences.size === 0,
+      `post-timeGetTime D3D9 TestCooperativeLevel evidence changed: ${JSON.stringify(
+        { call, occurrence, device },
+      )}`,
+    );
+    const checkpointCall = {
+      ...structuredClone(call),
+      occurrence,
+      trapInstructionCount: this.#report.instructions,
+    };
+    this.#report.checkpointCompletion = {
+      capability: "d3d9-test-cooperative-level-post-time-get-time",
+      implementationId:
+        "runtime.d3d9-test-cooperative-level-post-time-get-time.v1",
+      requiredCompletions: 1,
+      completionCount: 1,
+      prerequisiteTimeGetTimeSequence: previous.lastCompletionSequence,
+      prerequisiteTimeGetTimeInstructionCount:
+        previous.lastCompletionInstructionCount,
+      firstCompletionSequence: call.sequence,
+      firstCompletionInstructionCount: this.#report.instructions,
+      lastCompletionSequence: call.sequence,
+      lastCompletionInstructionCount: this.#report.instructions,
+      call: checkpointCall,
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33",
+      testCooperativeLevelProfileId:
+        "primary-live-operational-device-query-v1",
+      stateAuthority: "rust-runtime-graphics-live-device-association",
+      mutation: "none",
+      lastErrorPolicy: "preserve",
+      guestWriteBytes: 0,
+      referenceCountMutation: false,
+      failureAtomicity: true,
+      deviceLostStateImplemented: false,
+      deviceNotResetStateImplemented: false,
+      resetImplemented: false,
+      browserContextLossImported: false,
+      logicalGraphicsDeviceId: device.id,
+      logicalGraphicsComObjectId: device.comObjectId,
+      logicalGraphicsDeviceGeneration: device.generation,
+      deviceReferenceCount: call.referenceCount,
+      deviceObjectRetired: false,
       activeCallbackDepthAtCompletion: 0,
       instructionCount: 0,
       nextEndpoint: null,
@@ -11055,6 +11172,66 @@ class BrowserRuntimeSession {
     stackPointer: number,
   ): void {
     const checkpoint = this.#report.checkpointCompletion;
+    if (
+      isD3d9TestCooperativeLevelPostTimeGetTimeProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      const endpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpointAddress,
+      );
+      invariant(
+        checkpoint?.capability ===
+            "d3d9-test-cooperative-level-post-time-get-time" &&
+          checkpoint.call.sequence === 282_870 &&
+          checkpoint.call.occurrence === 70 &&
+          this.#requirePrepared().runtime.kernel32Policy ===
+            "kernel32-delete-file-a-v1" &&
+          endpoint?.module?.toLowerCase() === "kernel32.dll" &&
+          endpoint.symbol?.kind === "name" &&
+          endpoint.symbol.name === "SetWaitableTimer" &&
+          stackPointer === 0x006f_f8d4 &&
+          this.#requireEngine().readGuestU32(stackPointer) === 0x1005_0607 &&
+          this.#requireEngine().readGuestU32(stackPointer + 4) ===
+            0x5701_0001 &&
+          this.#requireEngine().readGuestU32(stackPointer + 8) ===
+            0x006f_f8f0 &&
+          this.#requireEngine().readGuestU32(stackPointer + 12) === 0 &&
+          this.#requireEngine().readGuestU32(stackPointer + 16) === 0 &&
+          this.#requireEngine().readGuestU32(stackPointer + 20) === 0 &&
+          this.#requireEngine().readGuestU32(stackPointer + 24) === 0 &&
+          this.#bgiCallbackCallSequences.size === 0 &&
+          this.#report.supportedCallCount === 282_870 &&
+          this.#scheduledSharedClockSampleCount === 100_557 &&
+          this.#scheduledSharedClockWindowTimerCallbackCount === 40 &&
+          this.#scheduledSharedClockPresentCount === 4 &&
+          this.#report.instructions === 392_354_369,
+        "post-timeGetTime TestCooperativeLevel checkpoint has no matching runtime state",
+      );
+      const reflection =
+        this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-memory-summary" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation) &&
+          reflection.contentSha256 ===
+            "dfb7685d08834dc611a85984c679c0f3a8ea64e32a9601e6c6dd4ec2ed8aade7",
+        "post-timeGetTime TestCooperativeLevel checkpoint memory summary changed",
+      );
+      checkpoint.instructionCount = this.#report.instructions;
+      checkpoint.nextEndpoint = structuredClone(endpoint);
+      checkpoint.nextArguments = [0x5701_0001, 0x006f_f8f0, 0, 0, 0, 0];
+      checkpoint.memoryContentSha256 = reflection.contentSha256;
+      checkpoint.nextReturnAddress = 0x1005_0607;
+      checkpoint.nextStackPointer = stackPointer;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "D3D9 TestCooperativeLevel after post-Present timeGetTime checkpoint completed",
+        null,
+      );
+      return;
+    }
     if (
       isWinmmTimeGetTimePostPresentProfile(
         this.#configuration.capabilityProfile,

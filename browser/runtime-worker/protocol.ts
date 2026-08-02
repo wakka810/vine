@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 120 as const;
+export const protocolVersion = 121 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -37,6 +37,7 @@ export type BgiCapabilityProfile =
   | "d3d9-get-raster-status-post-end-scene"
   | "d3d9-present-post-raster-status"
   | "winmm-time-get-time-post-present"
+  | "d3d9-test-cooperative-level-post-time-get-time"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1851,6 +1852,43 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "d3d9-test-cooperative-level-post-time-get-time";
+        implementationId: "runtime.d3d9-test-cooperative-level-post-time-get-time.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        prerequisiteTimeGetTimeSequence: number;
+        prerequisiteTimeGetTimeInstructionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        call: RuntimeSupportedCallSnapshot;
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33";
+        testCooperativeLevelProfileId: "primary-live-operational-device-query-v1";
+        stateAuthority: "rust-runtime-graphics-live-device-association";
+        mutation: "none";
+        lastErrorPolicy: "preserve";
+        guestWriteBytes: 0;
+        referenceCountMutation: false;
+        failureAtomicity: true;
+        deviceLostStateImplemented: false;
+        deviceNotResetStateImplemented: false;
+        resetImplemented: false;
+        browserContextLossImported: false;
+        logicalGraphicsDeviceId: number;
+        logicalGraphicsComObjectId: string;
+        logicalGraphicsDeviceGeneration: number;
+        deviceReferenceCount: number;
+        deviceObjectRetired: false;
+        activeCallbackDepthAtCompletion: 0;
+        instructionCount: number;
+        nextEndpoint: unknown;
+        nextArguments: number[];
+        memoryContentSha256: string;
+        nextReturnAddress: number;
+        nextStackPointer: number;
+      }
     | {
         capability: "winmm-time-get-time-post-present";
         implementationId: "runtime.winmm-time-get-time-post-present.v1";

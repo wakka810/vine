@@ -5966,6 +5966,14 @@ zero guest writes. They then complete one `SetWaitableTimer`／
 `USER32.dll!PeekMessageA`. This establishes only the reached live operational
 state, not device loss, reset, browser context-loss mapping, or recovery.
 
+The later post-fourth-Present profile reuses the same contract at sequence
+282,870／occurrence 70／instruction 392,354,323. Node and Chrome again observe
+device `0x01010004`, `D3D_OK`, return `0x1005ADCD`, stack movement
+`0x006FF8F4 -> 0x006FF8FC`, reference count 5, and zero guest writes while
+preserving logical device generation 74. They stop 46 instructions later before
+`KERNEL32.dll!SetWaitableTimer`; this repeated reached case strengthens the
+operational-state leaf without expanding the device-loss／reset support band.
+
 ## 178. BGI first `PeekMessageA` and current-thread queue contract
 
 The focused primary trace is 804,513 bytes／2,476 lines／SHA-256

@@ -158,7 +158,11 @@ function validateExecutionStateMachine(value, label, errors) {
 export function validateCurrentCheckpoint(manifest) {
   const errors = [];
   const root = requireRecord(manifest, "manifest", errors);
+  const d3d9TestCooperativeLevelPostTimeGetTimeActive =
+    root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
+    "d3d9-test-cooperative-level-post-time-get-time";
   const winmmTimeGetTimePostPresentActive =
+    d3d9TestCooperativeLevelPostTimeGetTimeActive ||
     root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
     "winmm-time-get-time-post-present";
   const d3d9PresentPostRasterStatusActive =
@@ -635,7 +639,11 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9RecreatedTexturesActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-set-window-pos-repeat-activation";
+  const d3d9TestCooperativeLevelPostTimeGetTimeProfileActive =
+    root.activeRuntimeCheckpoint?.capabilityProfile ===
+      "d3d9-test-cooperative-level-post-time-get-time";
   const winmmTimeGetTimePostPresentProfileActive =
+    d3d9TestCooperativeLevelPostTimeGetTimeProfileActive ||
     root.activeRuntimeCheckpoint?.capabilityProfile ===
       "winmm-time-get-time-post-present";
   const d3d9PresentPostRasterStatusProfileActive =
@@ -1513,7 +1521,27 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    winmmTimeGetTimePostPresentActive
+    d3d9TestCooperativeLevelPostTimeGetTimeActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_997,
+        browserMappingDirtyPages: 150_402,
+        browserSuccessExecutionTransitions: 589_100,
+        browserFinalGeneration: 315_160,
+        browserReportSchemaVersion: 87,
+        latestSchema:
+          "vine.v86-bgi-d3d9-test-cooperative-level-post-time-get-time-primary",
+        latestWritebackBatches: 165_262,
+        latestWritebackDirtyPages: 244_675,
+        latestWritebackChangedBytes: 43_072_557,
+        latestHostDeltaBatches: 127_997,
+        latestFinalMemoryGeneration: 333_506,
+        semanticCallDigestSha256:
+          "2f4a7a85018f0270db87a750ff2a84adede1ffa3fb55cde9868469aef1d8e8fe",
+        memoryContentSha256:
+          "dfb7685d08834dc611a85984c679c0f3a8ea64e32a9601e6c6dd4ec2ed8aade7",
+      }
+    : winmmTimeGetTimePostPresentActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_997,
@@ -3908,7 +3936,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    winmmTimeGetTimePostPresentActive
+    d3d9TestCooperativeLevelPostTimeGetTimeActive
+      ? "vine.browser-runtime-worker.v121"
+      : winmmTimeGetTimePostPresentActive
       ? "vine.browser-runtime-worker.v120"
       : d3d9PresentPostRasterStatusActive
       ? "vine.browser-runtime-worker.v119"
@@ -22201,7 +22231,9 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureBefore !== null ||
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureAfter !== null)) ||
     latestEvidence.implementation !==
-      (winmmTimeGetTimePostPresentActive
+      (d3d9TestCooperativeLevelPostTimeGetTimeActive
+        ? "Rust-owned D3D9 live-device association completes the reached post-timeGetTime TestCooperativeLevel query with D3D_OK and no guest writes, device mutation, COM reference-count mutation, or browser context-loss import, then stops at the following SetWaitableTimer endpoint without claiming device-loss, device-not-reset, or Reset support"
+        : winmmTimeGetTimePostPresentActive
         ? "Rust-owned shared process clock completes the reached post-fourth-Present timeGetTime read without advancing or mutating the clock, returns the scheduled 3,800,773 ms projection identically in Node and Chrome, and stops at the following TestCooperativeLevel slot 3 endpoint without importing host or browser time"
         : d3d9PresentPostRasterStatusActive
         ? "Rust-owned D3D9 frame authority completes the reached fourth Present through one validated targeted commit, publishes back-buffer content generation 11 as frame sequence 4 before the discard transition, and lets the Worker reuse its non-owning browser resource to render before guest resume while stopping at timeGetTime without claiming readable title pixels"
@@ -24674,7 +24706,45 @@ export function validateCurrentCheckpoint(manifest) {
             errors,
           )
         : {};
-    const expectedNode = winmmTimeGetTimePostPresentActive
+    const d3d9TestCooperativeLevelPostTimeGetTimeNode =
+      d3d9TestCooperativeLevelPostTimeGetTimeActive
+        ? requireRecord(
+            node.d3d9TestCooperativeLevelPostTimeGetTime,
+            "activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence.d3d9TestCooperativeLevelPostTimeGetTime",
+            errors,
+          )
+        : {};
+    const expectedNode = d3d9TestCooperativeLevelPostTimeGetTimeActive
+      ? {
+          schema:
+            "vine.v86-bgi-d3d9-test-cooperative-level-post-time-get-time-primary",
+          runtimeKernelCheckpoint:
+            "d3d9-test-cooperative-level-post-time-get-time",
+          repeatRuns: 1,
+          reportBytes: 2_628_799,
+          reportSha256:
+            "8e388e06c4feae7e1b45f427d094cff24062b285abab4dc01be99e3e39e38820",
+          nodeReplayOldSpaceMiB: 8_192,
+          completedSupportedCalls: 282_870,
+          supportedCallSemanticsSha256:
+            "2f4a7a85018f0270db87a750ff2a84adede1ffa3fb55cde9868469aef1d8e8fe",
+          clockSampleCount: 100_557,
+          lastClockTick: 3_800_773,
+          lastClockTime100ns: 2_007_730_000,
+          lastClockGeneration: 16_308,
+          lastClockRetiredInstructions: 392_354_190,
+          lastClockPendingRetiredInstructions: 190,
+          windowTimerCallbackCount: 40,
+          timerPacingCompletionCount: 9_002,
+          writebackBatches: 286_068,
+          hostDeltaBatches: 143_088,
+          callbackEventCount: 148,
+          finalMemoryGeneration: 333_506,
+          terminalInstructionCount: 392_354_369,
+          terminalMemoryContentSha256:
+            "dfb7685d08834dc611a85984c679c0f3a8ea64e32a9601e6c6dd4ec2ed8aade7",
+        }
+      : winmmTimeGetTimePostPresentActive
       ? {
           schema:
             "vine.v86-bgi-winmm-time-get-time-post-present-primary",
@@ -25287,7 +25357,83 @@ export function validateCurrentCheckpoint(manifest) {
       currentStop.prerequisiteRasterStatusCheckpoint ?? {};
     const prerequisitePresentCheckpoint =
       currentStop.prerequisitePresentCheckpoint ?? {};
-    const currentStopValid = winmmTimeGetTimePostPresentActive
+    const prerequisiteTimeGetTimeCheckpoint =
+      currentStop.prerequisiteTimeGetTimeCheckpoint ?? {};
+    const currentStopValid = d3d9TestCooperativeLevelPostTimeGetTimeActive
+      ? currentStop.kind === "capability-checkpoint" &&
+        currentStop.classification === "semantic-leaf" &&
+        currentStop.nextCheckpoint ===
+          "kernel32-set-waitable-timer-post-test-cooperative-level" &&
+        currentStop.pausedHistoricalCheckpoint ===
+          "d3d9-test-cooperative-level-post-time-get-time" &&
+        currentStop.instructionCount === 392_354_369 &&
+        currentStop.capabilityCluster === "kernel32-waitable-timer-api-contract" &&
+        currentStop.reason ===
+          "d3d9-test-cooperative-level-post-time-get-time-checkpoint-complete" &&
+        prerequisiteTimeGetTimeCheckpoint.capability ===
+          "winmm-time-get-time-post-present" &&
+        prerequisiteTimeGetTimeCheckpoint.lastCompletionSequence === 282_869 &&
+        prerequisiteTimeGetTimeCheckpoint.lastCompletionInstructionCount ===
+          392_354_190 &&
+        prerequisiteTimeGetTimeCheckpoint.returnedTickCount === 3_800_773 &&
+        prerequisiteTimeGetTimeCheckpoint.failureAtomicity === true &&
+        expectedCompletion.capability ===
+          "d3d9-test-cooperative-level-post-time-get-time" &&
+        expectedCompletion.implementationId ===
+          "runtime.d3d9-test-cooperative-level-post-time-get-time.v1" &&
+        expectedCompletion.requiredCompletions === 1 &&
+        expectedCompletion.completionCount === 1 &&
+        expectedCompletion.prerequisiteTimeGetTimeSequence === 282_869 &&
+        expectedCompletion.prerequisiteTimeGetTimeInstructionCount ===
+          392_354_190 &&
+        expectedCompletion.firstCompletionSequence === 282_870 &&
+        expectedCompletion.firstCompletionInstructionCount === 392_354_323 &&
+        expectedCompletion.lastCompletionSequence === 282_870 &&
+        expectedCompletion.lastCompletionInstructionCount === 392_354_323 &&
+        expectedCompletion.compatibilityPolicyId ===
+          "d3d9-primary-virtual-adapter-v33" &&
+        expectedCompletion.testCooperativeLevelProfileId ===
+          "primary-live-operational-device-query-v1" &&
+        expectedCompletion.stateAuthority ===
+          "rust-runtime-graphics-live-device-association" &&
+        expectedCompletion.mutation === "none" &&
+        expectedCompletion.lastErrorPolicy === "preserve" &&
+        expectedCompletion.guestWriteBytes === 0 &&
+        expectedCompletion.referenceCountMutation === false &&
+        expectedCompletion.failureAtomicity === true &&
+        expectedCompletion.deviceLostStateImplemented === false &&
+        expectedCompletion.deviceNotResetStateImplemented === false &&
+        expectedCompletion.resetImplemented === false &&
+        expectedCompletion.browserContextLossImported === false &&
+        expectedCompletion.logicalGraphicsDeviceId === 3 &&
+        expectedCompletion.logicalGraphicsComObjectId === "21" &&
+        expectedCompletion.logicalGraphicsDeviceGeneration === 74 &&
+        expectedCompletion.deviceReferenceCount === 5 &&
+        expectedCompletion.deviceObjectRetired === false &&
+        expectedCompletion.activeCallbackDepthAtCompletion === 0 &&
+        expectedCompletion.instructionCount === 392_354_369 &&
+        expectedCompletion.memoryContentSha256 ===
+          "dfb7685d08834dc611a85984c679c0f3a8ea64e32a9601e6c6dd4ec2ed8aade7" &&
+        expectedCompletion.nextReturnAddress === 0x1005_0607 &&
+        expectedCompletion.nextStackPointer === 0x006f_f8d4 &&
+        expectedEndpoint.endpointKind === "runtime-system-export" &&
+        expectedEndpoint.endpointId === 118 &&
+        expectedEndpoint.api === "KERNEL32.dll!SetWaitableTimer" &&
+        expectedEndpoint.endpointAddress === "0x7f000750" &&
+        expectedEndpoint.observedModule === "KERNEL32.dll" &&
+        expectedEndpoint.observedSymbol === "SetWaitableTimer" &&
+        expectedEndpoint.id === 118 &&
+        expectedEndpoint.address === 0x7f00_0750 &&
+        expectedEndpoint.module === "KERNEL32.dll" &&
+        expectedEndpoint.symbol?.kind === "name" &&
+        expectedEndpoint.symbol.name === "SetWaitableTimer" &&
+        expectedEndpoint.disposition === "declared-runtime-export" &&
+        expectedEndpoint.iatAddress === 0x100d_1280 &&
+        expectedEndpoint.arguments?.join(",") ===
+          "0x57010001,0x006ff8f0,0x00000000,0x00000000,0x00000000,0x00000000" &&
+        expectedEndpoint.returnAddress === "0x10050607" &&
+        expectedEndpoint.stackPointer === "0x006ff8d4"
+      : winmmTimeGetTimePostPresentActive
       ? currentStop.kind === "capability-checkpoint" &&
         currentStop.classification === "semantic-leaf" &&
         currentStop.nextCheckpoint ===
@@ -28137,6 +28283,68 @@ export function validateCurrentCheckpoint(manifest) {
         winmmTimeGetTimePostPresentLatest.chromeCompletions === 1 &&
         winmmTimeGetTimePostPresentLatest.nodeChromeOrderedSemanticsMatched ===
           true);
+    const d3d9TestCooperativeLevelPostTimeGetTimeLatest =
+      latestEvidence.d3d9TestCooperativeLevelPostTimeGetTime ?? {};
+    const d3d9TestCooperativeLevelPostTimeGetTimeEvidenceValid =
+      !d3d9TestCooperativeLevelPostTimeGetTimeActive ||
+      (d3d9TestCooperativeLevelPostTimeGetTimeNode.completionCount === 1 &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.sequence === 282_870 &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.occurrence === 70 &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.instructionCount ===
+          392_354_323 &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.arguments?.join(",") ===
+          "0x01010004" &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.result === "0x00000000" &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.returnAddress ===
+          "0x1005adcd" &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.stackPointers?.join(",") ===
+          "0x006ff8f4,0x006ff8fc" &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.referenceCount === 5 &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.guestWriteBytes === 0 &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.compatibilityPolicyId ===
+          "d3d9-primary-virtual-adapter-v33" &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.testCooperativeLevelProfileId ===
+          "primary-live-operational-device-query-v1" &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.stateAuthority ===
+          "rust-runtime-graphics-live-device-association" &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.mutation === "none" &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.lastErrorPolicy ===
+          "preserve" &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.referenceCountMutation ===
+          false &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.failureAtomicity === true &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.deviceLostStateImplemented ===
+          false &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.deviceNotResetStateImplemented ===
+          false &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.resetImplemented === false &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.browserContextLossImported ===
+          false &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.logicalGraphicsDeviceId ===
+          3 &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.logicalGraphicsComObjectId ===
+          "21" &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.logicalGraphicsDeviceGeneration ===
+          74 &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.deviceObjectRetired === false &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.nextEndpoint ===
+          "KERNEL32.dll!SetWaitableTimer" &&
+        d3d9TestCooperativeLevelPostTimeGetTimeNode.nextInstructionCount ===
+          392_354_369 &&
+        d3d9TestCooperativeLevelPostTimeGetTimeLatest.completionCount === 1 &&
+        d3d9TestCooperativeLevelPostTimeGetTimeLatest.sequence === 282_870 &&
+        d3d9TestCooperativeLevelPostTimeGetTimeLatest.occurrence === 70 &&
+        d3d9TestCooperativeLevelPostTimeGetTimeLatest.result ===
+          "0x00000000" &&
+        d3d9TestCooperativeLevelPostTimeGetTimeLatest.logicalGraphicsDeviceId ===
+          3 &&
+        d3d9TestCooperativeLevelPostTimeGetTimeLatest.logicalGraphicsDeviceGeneration ===
+          74 &&
+        d3d9TestCooperativeLevelPostTimeGetTimeLatest.failureAtomicity === true &&
+        d3d9TestCooperativeLevelPostTimeGetTimeLatest.nodeCompletions === 1 &&
+        d3d9TestCooperativeLevelPostTimeGetTimeLatest.chromeCompletions === 1 &&
+        d3d9TestCooperativeLevelPostTimeGetTimeLatest.nodeChromeOrderedSemanticsMatched ===
+          true);
     if (
       scheduled.schema !== "vine.scheduled-shared-clock-checkpoint" ||
       scheduled.schemaVersion !== 1 ||
@@ -28219,7 +28427,9 @@ export function validateCurrentCheckpoint(manifest) {
       node.terminalMemoryContentSha256 !==
         expectedNode.terminalMemoryContentSha256 ||
       browserBoundary.runtimeProtocol !==
-        (winmmTimeGetTimePostPresentActive
+        (d3d9TestCooperativeLevelPostTimeGetTimeActive
+          ? "vine.browser-runtime-worker.v121"
+          : winmmTimeGetTimePostPresentActive
           ? "vine.browser-runtime-worker.v120"
           : d3d9PresentPostRasterStatusActive
           ? "vine.browser-runtime-worker.v119"
@@ -28261,7 +28471,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.retiredInstructionCursorTransport !==
         "checked-u64-low-high-per-api-and-com-dispatch" ||
       browserBoundary.browserOwnsGuestClockState !== false ||
-      (winmmTimeGetTimePostPresentActive
+      (d3d9TestCooperativeLevelPostTimeGetTimeActive
+        ? browserBoundary.browserReportSchemaVersion !== 87
+        : winmmTimeGetTimePostPresentActive
         ? browserBoundary.browserReportSchemaVersion !== 86
         : d3d9PresentPostRasterStatusActive
         ? browserBoundary.browserReportSchemaVersion !== 85
@@ -28300,7 +28512,9 @@ export function validateCurrentCheckpoint(manifest) {
         "npm run check:runtime:browser-worker" ||
       browserBoundary.chromeVersion !== "150.0.7871.187" ||
       browserBoundary.reportBytes !==
-        (winmmTimeGetTimePostPresentActive
+        (d3d9TestCooperativeLevelPostTimeGetTimeActive
+          ? 35_961
+          : winmmTimeGetTimePostPresentActive
           ? 35_964
           : d3d9PresentPostRasterStatusActive
           ? 35_966
@@ -28338,7 +28552,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 35_961
           : 35_951) ||
       browserBoundary.reportSha256 !==
-        (winmmTimeGetTimePostPresentActive
+        (d3d9TestCooperativeLevelPostTimeGetTimeActive
+          ? "270f634214603c6ce597e07539f0cd6743bf272023b6f0453409876186e681bb"
+          : winmmTimeGetTimePostPresentActive
           ? "dc220d9b646ea4c9f0be9b9b9d95031c3393bb655f87b721263a037b35672657"
           : d3d9PresentPostRasterStatusActive
           ? "03d432e49f1a78c0f7ef1d83f0576386c16b621ffcd7e09764d224dadc822935"
@@ -28376,7 +28592,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "bd77deb28553190382622adb663ac87b99e4c9f9df719bbba2282f5bae5bca94"
           : "ecd982f21410c69c4d844a114041e301fd140fedbb520cf5773f4d13d2846aa1") ||
       browserBoundary.runtimeWorkerBytes !==
-        (winmmTimeGetTimePostPresentActive
+        (d3d9TestCooperativeLevelPostTimeGetTimeActive
+          ? 1_179_750
+          : winmmTimeGetTimePostPresentActive
           ? 1_173_350
           : d3d9PresentPostRasterStatusActive
           ? 1_166_857
@@ -28414,7 +28632,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 1_053_379
           : 1_049_048) ||
       browserBoundary.runtimeWorkerSha256 !==
-        (winmmTimeGetTimePostPresentActive
+        (d3d9TestCooperativeLevelPostTimeGetTimeActive
+          ? "d3aedb1292a09490f34d9db05b555c6aea5fb2a805b1dbea3807be18847be57e"
+          : winmmTimeGetTimePostPresentActive
           ? "59e842e39de6eeaa58db0d29ed11bf63b1a1ee62dca78bfa18220ecccafba794"
           : d3d9PresentPostRasterStatusActive
           ? "c113cb979a53e29bfbc43df75a097dba4f96b63d6b8fb9c1ad34a9288e10cc11"
@@ -28500,7 +28720,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.privatePrimaryCommand !==
         "node tools/run-browser-runtime-check.mjs --bgi" ||
       browserBoundary.privatePrimaryReportBytes !==
-        (winmmTimeGetTimePostPresentActive
+        (d3d9TestCooperativeLevelPostTimeGetTimeActive
+          ? 2_622_114
+          : winmmTimeGetTimePostPresentActive
           ? 2_622_687
           : d3d9PresentPostRasterStatusActive
           ? 2_632_299
@@ -28538,7 +28760,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 2_598_978
           : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
-        (winmmTimeGetTimePostPresentActive
+        (d3d9TestCooperativeLevelPostTimeGetTimeActive
+          ? "764da43c3258486644be449f858c463522c9a8febfcba112fb8eb212c219bf8e"
+          : winmmTimeGetTimePostPresentActive
           ? "9100138545d903949f84ba20b505248d99d846eb7022c10e7a803a7650912493"
           : d3d9PresentPostRasterStatusActive
           ? "e81922f5dfa0a332b3da2b3652446ef29195af091aa4e013de1bb67243a01d85"
@@ -28626,6 +28850,7 @@ export function validateCurrentCheckpoint(manifest) {
       !d3d9GetRasterStatusPostEndSceneEvidenceValid ||
       !d3d9PresentPostRasterStatusEvidenceValid ||
       !winmmTimeGetTimePostPresentEvidenceValid ||
+      !d3d9TestCooperativeLevelPostTimeGetTimeEvidenceValid ||
       conclusion.clockFreezeWasProximateCause !== false ||
       (privateHeapOrdinarySegmentGrowthActive &&
         conclusion.ordinaryHeapCapacityWasProximateCause !== false) ||
@@ -28638,7 +28863,9 @@ export function validateCurrentCheckpoint(manifest) {
       (getCursorInfoActive &&
         conclusion.cursorInfoWasProximateCause !== false) ||
       conclusion.nextEndpoint !==
-        (winmmTimeGetTimePostPresentActive
+        (d3d9TestCooperativeLevelPostTimeGetTimeActive
+          ? "KERNEL32.dll!SetWaitableTimer"
+          : winmmTimeGetTimePostPresentActive
           ? "IDirect3DDevice9!TestCooperativeLevel"
           : d3d9PresentPostRasterStatusActive
           ? "WINMM.dll!timeGetTime"
@@ -28703,6 +28930,7 @@ export function validateCurrentCheckpoint(manifest) {
           d3d9GetRasterStatusPostEndSceneEvidenceValid,
           d3d9PresentPostRasterStatusEvidenceValid,
           winmmTimeGetTimePostPresentEvidenceValid,
+          d3d9TestCooperativeLevelPostTimeGetTimeEvidenceValid,
         })})`,
       );
     }
@@ -39132,6 +39360,9 @@ export function renderReadmeStatus(manifest) {
                         : next.completion.capability ===
                             "winmm-time-get-time-post-present"
                           ? "post-Present process-clock read"
+                        : next.completion.capability ===
+                            "d3d9-test-cooperative-level-post-time-get-time"
+                          ? "post-timeGetTime live-device cooperative-level query"
                         : next.completion.capability ===
                             "d3d9-post-raster-status-waitable-timer"
                           ? "post-scene timer arm/wait cycle"

@@ -1025,6 +1025,13 @@ submission／scene 4、texture 8 generation 4とそのGuestMemory pixel source�
 112 vertex bytesをguest resume前に同期materializeする。Browser receiptの`[0,0,0,255]` center pixelと
 WebGL error 0はpublication orderingを証明するが、可読title contentのauthority／acceptanceには使わない。
 
+直後の`TestCooperativeLevel`はbrowser renderer healthのreadではなく、Rust-owned live logical device
+associationに対するguest-visible queryとして処理する。Operational support bandではdevice／COM relationと
+lifetimeを検証して`D3D_OK`を返し、graphics generation、guest memory、COM refcount、LastErrorを変更しない。
+Browser context lossは明示的なversioned recovery transactionを設計するまでguest device-loss stateへimportしない。
+したがって`D3DERR_DEVICELOST`／`D3DERR_DEVICENOTRESET`／`Reset`をsilent successで代用せず、到達時に
+Rust device state、browser resource generation、cancel／lifetime orderingを一体で追加する。
+
 TypeScriptはPresent前のimmutable snapshotを検証し、Present時だけbrowser resourceへmaterializeする。Texture content、
 dirty state、scene state、sampler state、texture-stage state、texture binding、flexible vertex format、stream binding、draw queue、
 presented-frame lifetimeの第二authorityを持たない。他stage／resource binding、他vertex format、他stream binding、他draw、

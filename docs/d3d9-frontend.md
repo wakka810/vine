@@ -483,6 +483,15 @@ the next live-device `TestCooperativeLevel` slot 3 call. The Worker preserves th
 frame-4 browser receipt but does not use WebGL／Canvas time as a guest clock; the
 cooperative-level result and device-loss behavior remain a separate checkpoint.
 
+The `d3d9-test-cooperative-level-post-time-get-time` profile completes that
+live-device query at sequence 282,870／instruction 392,354,323. The existing
+policy validates logical device 3／COM object `21` at generation 74, preserves
+reference count 5 and LastError, writes no guest bytes, and returns `D3D_OK`
+without a graphics mutation. Node and Chrome stop 46 instructions later before
+`KERNEL32.dll!SetWaitableTimer` with identical ordered semantics and terminal
+memory. Browser context loss is not imported; `D3DERR_DEVICELOST`,
+`D3DERR_DEVICENOTRESET`, and `Reset` remain unimplemented bands.
+
 ## Bounded level-zero surface retrieval
 
 Version 19 retains `primary-system-memory-texture-level-zero-surfaces-v2` for the

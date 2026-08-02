@@ -378,6 +378,20 @@ and ordered semantics. Chrome keeps the preceding frame-4
 `browser-resource:1` receipt; it does not derive the tick from the browser
 renderer or clock. Exact current artifact identities remain manifest-owned.
 
+Protocol version 121／BGI report schema 87 continues through the reached
+`IDirect3DDevice9::TestCooperativeLevel` slot 3 call. Node and Chrome agree on
+sequence 282,870／occurrence 70 at instruction 392,354,323, device pointer
+`0x01010004`, `D3D_OK`, reference count 5, zero guest writes, and unchanged
+logical device generation 74. The Worker transports the Rust-owned live-device
+result and preserves the preceding frame-4 receipt; it does not translate
+browser context loss into guest device state. Both stop at instruction
+392,354,369 before `KERNEL32.dll!SetWaitableTimer`, with semantic digest
+`2f4a7a85018f0270db87a750ff2a84adede1ffa3fb55cde9868469aef1d8e8fe`
+and terminal memory digest
+`dfb7685d08834dc611a85984c679c0f3a8ea64e32a9601e6c6dd4ec2ed8aade7`.
+Device-loss／not-reset states, `Reset`, and asynchronous recovery remain outside
+this bounded profile.
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk

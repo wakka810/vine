@@ -62,7 +62,8 @@ const scheduledSharedClockSetWindowText =
   capabilityProfile === "d3d9-end-scene-post-draw-primitive" ||
   capabilityProfile === "d3d9-get-raster-status-post-end-scene" ||
   capabilityProfile === "d3d9-present-post-raster-status" ||
-  capabilityProfile === "winmm-time-get-time-post-present";
+  capabilityProfile === "winmm-time-get-time-post-present" ||
+  capabilityProfile === "d3d9-test-cooperative-level-post-time-get-time";
 const d3d9Canvas =
   scheduledSharedClockSetWindowText ||
   capabilityProfile === "d3d9-first-present" ||
@@ -254,7 +255,9 @@ const startMessage = {
             capabilityProfile === "d3d9-end-scene-post-draw-primitive" ||
             capabilityProfile === "d3d9-get-raster-status-post-end-scene" ||
             capabilityProfile === "d3d9-present-post-raster-status" ||
-            capabilityProfile === "winmm-time-get-time-post-present"
+            capabilityProfile === "winmm-time-get-time-post-present" ||
+            capabilityProfile ===
+              "d3d9-test-cooperative-level-post-time-get-time"
           ? 405_000_000
         : capabilityProfile === "gdi-outline-text-metrics-224x112"
           ? 385_000_000
@@ -743,6 +746,7 @@ function parseCapabilityProfile(
     value === "d3d9-get-raster-status-post-end-scene" ||
     value === "d3d9-present-post-raster-status" ||
     value === "winmm-time-get-time-post-present" ||
+    value === "d3d9-test-cooperative-level-post-time-get-time" ||
     value === "kernel32-wait-for-single-object-ex" ||
     value === "kernel32-enter-critical-section" ||
     value === "primary-main-loop-progression" ||

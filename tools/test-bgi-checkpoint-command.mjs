@@ -278,6 +278,12 @@ assert.equal(
   "v86-bgi-time-get-time-post-present",
 );
 assert.equal(
+  bgiProfileOutputDirectory(
+    "d3d9-test-cooperative-level-post-time-get-time",
+  ),
+  "v86-bgi-d3d9-test-cooperative-level-post-time-get-time",
+);
+assert.equal(
   bgiProfileOutputDirectory("shell32-drag-accept-files"),
   "v86-bgi-drag-accept-files",
 );

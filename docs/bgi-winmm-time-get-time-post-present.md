@@ -56,5 +56,8 @@ npm run check:runtime:browser-worker
 - この一読はhost／browserのmillisecond精度、frame cadence、audio clock、background-tab
   catch-upをclaimしない。
 - `timeBeginPeriod`はsample値、scheduler、browser timer、Web Audioを変更しない。
-- 後続`TestCooperativeLevel`、device loss／recovery、resize、general subsequent frames、
-  readable title scene、visible input responseはこのleafのacceptanceに含めない。
+- このhistorical leaf単体は後続`TestCooperativeLevel`をclaimしない。そのcallの現在の
+  acceptanceは
+  [bgi-d3d9-test-cooperative-level-post-time-get-time.md](bgi-d3d9-test-cooperative-level-post-time-get-time.md)
+  を参照する。Device loss／recovery、resize、general subsequent frames、readable title
+  scene、visible input responseは引き続き含めない。
