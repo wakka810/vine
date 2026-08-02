@@ -1230,9 +1230,15 @@ function projectScheduledSharedClockCheckpointCompletion(
       trapInstructionCount: _trapInstructionCount,
       ...projectedCall
     } = call;
+    const guestWrites = projectedCall.guestWrites.map(
+      ({ result: _writeReceipt, ...write }) => structuredClone(write),
+    );
     return {
       ...structuredClone(completion),
-      call: structuredClone(projectedCall),
+      call: {
+        ...structuredClone(projectedCall),
+        guestWrites,
+      },
     };
   }
   if (
