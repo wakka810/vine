@@ -56,7 +56,8 @@ const scheduledSharedClockSetWindowText =
   capabilityProfile === "d3d9-set-sampler-state-post-begin-scene" ||
   capabilityProfile === "d3d9-set-texture-stage-state-post-sampler-state" ||
   capabilityProfile === "d3d9-set-texture-post-texture-stage-state" ||
-  capabilityProfile === "d3d9-set-fvf-post-texture-binding";
+  capabilityProfile === "d3d9-set-fvf-post-texture-binding" ||
+  capabilityProfile === "d3d9-set-stream-source-post-fvf";
 const d3d9Canvas =
   scheduledSharedClockSetWindowText ||
   capabilityProfile === "d3d9-first-present" ||
@@ -242,7 +243,8 @@ const startMessage = {
             capabilityProfile ===
               "d3d9-set-texture-stage-state-post-sampler-state" ||
             capabilityProfile === "d3d9-set-texture-post-texture-stage-state" ||
-            capabilityProfile === "d3d9-set-fvf-post-texture-binding"
+            capabilityProfile === "d3d9-set-fvf-post-texture-binding" ||
+            capabilityProfile === "d3d9-set-stream-source-post-fvf"
           ? 405_000_000
         : capabilityProfile === "gdi-outline-text-metrics-224x112"
           ? 385_000_000
@@ -725,6 +727,7 @@ function parseCapabilityProfile(
     value === "d3d9-set-texture-stage-state-post-sampler-state" ||
     value === "d3d9-set-texture-post-texture-stage-state" ||
     value === "d3d9-set-fvf-post-texture-binding" ||
+    value === "d3d9-set-stream-source-post-fvf" ||
     value === "kernel32-wait-for-single-object-ex" ||
     value === "kernel32-enter-critical-section" ||
     value === "primary-main-loop-progression" ||

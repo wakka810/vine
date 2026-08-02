@@ -254,6 +254,10 @@ assert.equal(
   "v86-bgi-d3d9-set-fvf-post-texture-binding",
 );
 assert.equal(
+  bgiProfileOutputDirectory("d3d9-set-stream-source-post-fvf"),
+  "v86-bgi-d3d9-set-stream-source-post-fvf",
+);
+assert.equal(
   bgiProfileOutputDirectory("shell32-drag-accept-files"),
   "v86-bgi-drag-accept-files",
 );

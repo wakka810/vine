@@ -923,6 +923,13 @@ device generation 56, reference count 5, zero guest writes, non-owning lifetime,
 idempotent generation behavior, and no renderer resource. Nine instructions
 later both stop at device slot 81 `DrawPrimitive(5,0,2)`.
 
+The `d3d9-set-stream-source-post-fvf` profile reuses this owner after the
+fourth-scene FVF repeat. Node and Chrome complete sequence 282,864 at
+instruction 392,354,072, preserve logical vertex buffer 3／offset 0／stride 28,
+device generation 71, texture 8, typed FVF `xyz-rhw-diffuse-texture1`, reference
+count 5, zero guest writes, and no renderer resource. Nine instructions later
+both stop at device slot 81 `DrawPrimitive(5,0,2)`.
+
 ## Bounded immutable draw submission
 
 Version 27 adds `primary-first-frame-triangle-strip-quad-draw-v1` for device
@@ -1201,7 +1208,12 @@ fourth scene, and stops at `IDirect3DDevice9::SetFVF` slot 89. The
 `d3d9-set-fvf-post-texture-binding` profile then maps the repeated `0x144` through
 the existing typed FVF owner, proves the assignment idempotent at device generation
 71, preserves the active fourth scene and prior bindings, and stops at
-`IDirect3DDevice9::SetStreamSource` slot 100. The historical
+`IDirect3DDevice9::SetStreamSource` slot 100. The
+`d3d9-set-stream-source-post-fvf` profile then resolves the repeated stream-0／
+vertex-buffer-3／offset-0／stride-28 tuple through the existing non-owning
+same-device relation, proves the assignment idempotent at device generation 71,
+preserves the active fourth scene and prior fixed-function state, and stops at
+`IDirect3DDevice9::DrawPrimitive` slot 81. The historical
 `d3d9-initial-sampler-states` profile enables only the exact sampler-0 MIN／MAG
 linear transitions, explicitly rejects the following three unprofiled render
 states, and stops at `IDirect3DDevice9::SetTextureStageState` slot 67. The historical

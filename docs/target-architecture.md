@@ -964,8 +964,9 @@ generationを進めずsuccessにする。Native driverが受理する他FVFはpo
 `SetStreamSource`はlive device／vertex-buffer
 COM relationとsame-device ownershipを解決し、`RuntimeGraphicsDevice`へstream 0、logical vertex-buffer ID、offset 0、
 stride 28だけをplan／preflight／idempotent commitする。Bindingはnon-owningでCOM AddRefを保持せず、vertex-buffer
-final retirementは同じretirement commitで残存bindingをclearする。Nativeが受理するoffset 4、stride 0、stream 1、
-NULL unbindは到達policyへ暗黙昇格させない。
+final retirementは同じretirement commitで残存bindingをclearする。Post-FVF 4回目のsceneで再到達した同じ
+stream-0／vertex-buffer-3／offset-0／stride-28 relationもこのownerを通り、既存bindingならdevice generationを
+進めずsuccessにする。Nativeが受理するoffset 4、stride 0、stream 1、NULL unbindは到達policyへ暗黙昇格させない。
 
 Reached `DrawPrimitive(D3DPT_TRIANGLESTRIP,0,2)`はactive scene、typed fixed-function state、stage-0 texture、FVF、
 stream-0 binding、live resource ownershipをmutation-free planで固定し、checked guest rangeを返す。Aggregateはそのrangeを

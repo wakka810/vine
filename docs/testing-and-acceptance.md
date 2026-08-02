@@ -2256,6 +2256,19 @@ buffer 3／offset 0／stride 28のままである。Capability checkpointは282,
 schema 80でcancel／watchdog cleanupも維持する。他FVF／vertex declaration、後続stream-source
 mutation、可読title sceneはclaimしない。
 
+Post-FVF stream-source leafは同じdevice-owned non-owning stream-zero relationを再利用する。Node／Chromeは
+sequence 282,864、occurrence 4、trap instruction 392,354,072、stream 0、vertex buffer `0x01050004`、
+offset 0、stride 28、`D3D_OK`、zero guest writes、reference count 5を一致させる。Live device／vertex-buffer
+identity、same-device ownership、resource generationはcommit前に検証し、既存bindingのrepeatなのでdevice
+generationは71、active scene sequenceは4、texture bindingはlogical texture 8、FVFは
+`xyz-rhw-diffuse-texture1`のままである。Capability checkpointは282,864 supported calls、392,354,081
+instructions、semantic digest
+`ef4d1c9b29d88f7d127800267441db75b590a6b4e691ac58135fac72d62aa5c0`、terminal memory digest
+`c2b2df9f5af263a2445e683b9d991703da29581486dc17d40fffacdc3bf7cf8b`で完了し、次のowned endpoint
+`IDirect3DDevice9::DrawPrimitive(5,0,2)` slot 81を記録する。Protocol v115／report schema 81で
+cancel／watchdog cleanupも維持する。他stream／offset／stride、NULL unbind、後続draw mutation、可読title
+sceneはclaimしない。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、
