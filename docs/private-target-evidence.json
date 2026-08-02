@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-08-02T00:32:51.360Z",
+  "recordedAt": "2026-08-02T01:19:17.109Z",
   "repository": {
-    "implementationCommit": "dc09d130f7ee56f181953a79406dbe573039c10b",
-    "implementationTree": "85a46b174ba49c6fedcb046122669da4e59896c6",
-    "headCommit": "dc09d130f7ee56f181953a79406dbe573039c10b",
+    "implementationCommit": "1ef010599379e95134ea49f69be315395bf8a970",
+    "implementationTree": "7c2e58b8dc12bd6fd6ac1fa771047c9ef676da47",
+    "headCommit": "1ef010599379e95134ea49f69be315395bf8a970",
     "dirty": true,
     "dirtyPaths": [
       "CON"
@@ -31,15 +31,15 @@
   "profile": {
     "currentCheckpointSchema": "vine.current-checkpoint",
     "currentCheckpointSchemaVersion": 4,
-    "runtimeCheckpoint": "d3d9-set-sampler-state-post-begin-scene",
+    "runtimeCheckpoint": "d3d9-set-texture-stage-state-post-sampler-state",
     "runtimeProfile": "user32-peek-message-a-post-window-timer-callback-continuation",
     "policySchema": "vine.kernel32-compatibility-policy",
     "policySchemaVersion": 2,
     "policyId": "kernel32-delete-file-a-v1",
     "policySource": "fixtures/runtime-policies/kernel32-delete-file-a-v1.json",
-    "nodeReportSchema": "vine.v86-bgi-d3d9-set-sampler-state-post-begin-scene-primary",
+    "nodeReportSchema": "vine.v86-bgi-d3d9-set-texture-stage-state-post-sampler-state-primary",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v111",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v112",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -74,26 +74,25 @@
     "node": {
       "outcome": "checkpoint-complete",
       "implementedApiContracts": 137,
-      "supportedCalls": 282855,
-      "callSemanticsSha256": "1e4e938bf53b87deee21506c39e3d510ad53971a71a23f5133c327ba6e0e4a3d",
-      "instructions": 392353994,
-      "finalGeneration": 333490,
-      "memoryContentSha256": "f6b4db633a16a90781587cf86ae16d4ad72cc6718230ca5f0c2a9076381261af",
+      "supportedCalls": 282861,
+      "callSemanticsSha256": "c7b07ed41957516d5bb95814070ba858eee5a95e069a8bda53665867222cbb12",
+      "instructions": 392354048,
+      "finalGeneration": 333496,
+      "memoryContentSha256": "48b7fe34c489b126994490d0819a7a02bb3bfb82da13bcdd8d3d1b0af9697a4c",
       "checkpointCompletion": {
-        "capability": "d3d9-set-sampler-state-post-begin-scene",
-        "implementationId": "runtime.d3d9-set-sampler-state-post-begin-scene.v1",
-        "requiredCompletions": 2,
-        "completionCount": 2,
-        "prerequisiteBeginSceneSequence": 282850,
-        "prerequisiteBeginSceneInstructionCount": 392353938,
-        "firstCompletionSequence": 282851,
-        "firstCompletionInstructionCount": 392353952,
-        "lastCompletionSequence": 282852,
-        "lastCompletionInstructionCount": 392353961,
-        "postSamplerRenderStateRejectionCount": 3,
+        "capability": "d3d9-set-texture-stage-state-post-sampler-state",
+        "implementationId": "runtime.d3d9-set-texture-stage-state-post-sampler-state.v1",
+        "requiredCompletions": 6,
+        "completionCount": 6,
+        "prerequisiteSamplerStateSequence": 282852,
+        "prerequisiteSamplerStateInstructionCount": 392353961,
+        "firstCompletionSequence": 282856,
+        "firstCompletionInstructionCount": 392353994,
+        "lastCompletionSequence": 282861,
+        "lastCompletionInstructionCount": 392354039,
         "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
-        "samplerStateProfileId": "primary-first-frame-linear-sampler-states-v1",
-        "stateAuthority": "rust-runtime-graphics-logical-device-sampler-states",
+        "textureStageStateProfileId": "primary-first-frame-fixed-function-texture-stage-zero-v1",
+        "stateAuthority": "rust-runtime-graphics-logical-device-texture-stage-states",
         "mutation": "validate-plan-preflight-targeted-idempotent-commit",
         "sameValueGenerationChange": 0,
         "failureAtomicity": true,
@@ -101,49 +100,55 @@
         "logicalGraphicsComObjectId": "21",
         "activeSceneSequence": 4,
         "logicalGraphicsDeviceGeneration": 71,
-        "samplerZeroMinFilter": "linear",
-        "samplerZeroMagFilter": "linear",
+        "textureStageState": {
+          "colorOperation": "modulate",
+          "colorArgumentOne": "texture",
+          "colorArgumentTwo": "diffuse",
+          "alphaOperation": "select-argument-one",
+          "alphaArgumentOne": "texture",
+          "alphaArgumentTwo": "diffuse"
+        },
         "backBufferContentGeneration": 10,
         "backBufferClearSequence": 4,
         "presentedFrameSequence": 3,
         "browserRendererResourceCreated": false,
         "activeCallbackDepthAtCompletion": 0,
-        "instructionCount": 392353994,
+        "instructionCount": 392354048,
         "nextEndpoint": {
           "id": 0,
-          "address": 16847968,
+          "address": 16847936,
           "module": "<com>",
           "symbol": {
             "kind": "name",
-            "name": "interface-1-slot-67"
+            "name": "interface-1-slot-65"
           },
           "disposition": "declared-com-method",
           "interfaceIndex": 1,
-          "vtableSlot": 67,
+          "vtableSlot": 65,
           "interface": "IDirect3DDevice9",
-          "method": "SetTextureStageState"
+          "method": "SetTexture"
         },
-        "memoryContentSha256": "f6b4db633a16a90781587cf86ae16d4ad72cc6718230ca5f0c2a9076381261af",
-        "nextReturnAddress": 268808693,
-        "nextStackPointer": 7321700,
+        "memoryContentSha256": "48b7fe34c489b126994490d0819a7a02bb3bfb82da13bcdd8d3d1b0af9697a4c",
+        "nextReturnAddress": 268808828,
+        "nextStackPointer": 7321704,
         "calls": [
           {
-            "sequence": 282851,
+            "sequence": 282856,
             "module": "<com>",
-            "symbol": "IDirect3DDevice9.SetSamplerState",
+            "symbol": "IDirect3DDevice9.SetTextureStageState",
             "interface": "IDirect3DDevice9",
-            "vtableSlot": 69,
+            "vtableSlot": 67,
             "arguments": [
               16842756,
               0,
-              6,
-              2
+              1,
+              4
             ],
             "result": {
               "kind": "h-result",
               "value": 0
             },
-            "returnAddress": 268808586,
+            "returnAddress": 268808693,
             "stackPointerBefore": 7321700,
             "stackPointerAfter": 7321720,
             "referenceCount": 5,
@@ -427,11 +432,908 @@
             }
           },
           {
-            "sequence": 282852,
+            "sequence": 282857,
             "module": "<com>",
-            "symbol": "IDirect3DDevice9.SetSamplerState",
+            "symbol": "IDirect3DDevice9.SetTextureStageState",
             "interface": "IDirect3DDevice9",
-            "vtableSlot": 69,
+            "vtableSlot": 67,
+            "arguments": [
+              16842756,
+              0,
+              2,
+              2
+            ],
+            "result": {
+              "kind": "h-result",
+              "value": 0
+            },
+            "returnAddress": 268808715,
+            "stackPointerBefore": 7321700,
+            "stackPointerAfter": 7321720,
+            "referenceCount": 5,
+            "objectRetired": false,
+            "guestWrites": [],
+            "graphicsDevice": {
+              "id": 3,
+              "namespace": "vine.logical-graphics-device.v1",
+              "frontend": "d3d9",
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "ownerThreadId": 8192,
+              "presentation": {
+                "width": 1280,
+                "height": 720,
+                "colorFormat": "b8g8r8x8-unorm",
+                "backBufferCount": 1,
+                "sampleCount": 1,
+                "presentMode": "discard",
+                "windowed": true
+              },
+              "comObjectId": "21",
+              "renderStates": {
+                "cullMode": "none",
+                "depthTestEnabled": false,
+                "lightingEnabled": false,
+                "alphaBlendEnabled": true
+              },
+              "samplerStates": {
+                "samplerZero": {
+                  "minFilter": "linear",
+                  "magFilter": "linear"
+                }
+              },
+              "textureStageStates": {
+                "stageZero": {
+                  "colorOperation": "modulate",
+                  "colorArgumentOne": "texture",
+                  "colorArgumentTwo": "diffuse",
+                  "alphaOperation": "select-argument-one",
+                  "alphaArgumentOne": "texture",
+                  "alphaArgumentTwo": "diffuse"
+                }
+              },
+              "textureBindings": {
+                "stageZero": 8
+              },
+              "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
+              "streamSources": {
+                "streamZero": {
+                  "vertexBufferId": 3,
+                  "offsetInBytes": 0,
+                  "stride": 28
+                }
+              },
+              "backBuffer": {
+                "contentGeneration": 10,
+                "uniformClear": {
+                  "sequence": 4,
+                  "rect": {
+                    "left": 0,
+                    "top": 0,
+                    "right": 1280,
+                    "bottom": 720
+                  },
+                  "colorArgb": 4278190080
+                }
+              },
+              "activeScene": {
+                "sequence": 4
+              },
+              "presentedFrame": {
+                "sequence": 3,
+                "backBuffer": {
+                  "contentGeneration": 8,
+                  "uniformClear": {
+                    "sequence": 3,
+                    "rect": {
+                      "left": 0,
+                      "top": 0,
+                      "right": 1280,
+                      "bottom": 720
+                    },
+                    "colorArgb": 4278190080
+                  },
+                  "drawSubmissions": [
+                    {
+                      "sequence": 3,
+                      "sceneSequence": 3,
+                      "primitiveTopology": "triangle-strip",
+                      "startVertex": 0,
+                      "primitiveCount": 2,
+                      "vertexCount": 4,
+                      "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
+                      "streamSource": {
+                        "vertexBufferId": 3,
+                        "offsetInBytes": 0,
+                        "stride": 28
+                      },
+                      "vertexBufferContentGeneration": 1,
+                      "vertexData": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        0,
+                        128,
+                        57,
+                        0,
+                        0,
+                        0,
+                        58,
+                        0,
+                        0,
+                        160,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        16,
+                        32,
+                        63,
+                        0,
+                        0,
+                        0,
+                        58,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        52,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        0,
+                        128,
+                        57,
+                        0,
+                        32,
+                        52,
+                        63,
+                        0,
+                        0,
+                        160,
+                        68,
+                        0,
+                        0,
+                        52,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        16,
+                        32,
+                        63,
+                        0,
+                        32,
+                        52,
+                        63
+                      ],
+                      "renderStates": {
+                        "cullMode": "none",
+                        "depthTestEnabled": false,
+                        "lightingEnabled": false,
+                        "alphaBlendEnabled": true
+                      },
+                      "samplerStates": {
+                        "samplerZero": {
+                          "minFilter": "linear",
+                          "magFilter": "linear"
+                        }
+                      },
+                      "textureStageStates": {
+                        "stageZero": {
+                          "colorOperation": "modulate",
+                          "colorArgumentOne": "texture",
+                          "colorArgumentTwo": "diffuse",
+                          "alphaOperation": "select-argument-one",
+                          "alphaArgumentOne": "texture",
+                          "alphaArgumentTwo": "diffuse"
+                        }
+                      },
+                      "texture": {
+                        "textureId": 8,
+                        "descriptor": {
+                          "width": 2048,
+                          "height": 1024,
+                          "levels": 1,
+                          "usage": "none",
+                          "colorFormat": "b8g8r8x8-unorm",
+                          "pool": "default"
+                        },
+                        "generation": 47,
+                        "content": {
+                          "contentGeneration": 3,
+                          "fills": [],
+                          "pixelSource": {
+                            "sourceTextureId": 7,
+                            "sourceContentGeneration": 3,
+                            "range": {
+                              "start": 1140854784,
+                              "byteLength": 8388608
+                            },
+                            "rowPitch": 8192
+                          },
+                          "lastUpdate": {
+                            "sequence": 3,
+                            "sourceTextureId": 7,
+                            "sourceContentGeneration": 3,
+                            "dirtyRegion": {
+                              "kind": "rect",
+                              "rect": {
+                                "left": 0,
+                                "top": 0,
+                                "right": 1280,
+                                "bottom": 720
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "generation": 71
+            }
+          },
+          {
+            "sequence": 282858,
+            "module": "<com>",
+            "symbol": "IDirect3DDevice9.SetTextureStageState",
+            "interface": "IDirect3DDevice9",
+            "vtableSlot": 67,
+            "arguments": [
+              16842756,
+              0,
+              3,
+              0
+            ],
+            "result": {
+              "kind": "h-result",
+              "value": 0
+            },
+            "returnAddress": 268808737,
+            "stackPointerBefore": 7321700,
+            "stackPointerAfter": 7321720,
+            "referenceCount": 5,
+            "objectRetired": false,
+            "guestWrites": [],
+            "graphicsDevice": {
+              "id": 3,
+              "namespace": "vine.logical-graphics-device.v1",
+              "frontend": "d3d9",
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "ownerThreadId": 8192,
+              "presentation": {
+                "width": 1280,
+                "height": 720,
+                "colorFormat": "b8g8r8x8-unorm",
+                "backBufferCount": 1,
+                "sampleCount": 1,
+                "presentMode": "discard",
+                "windowed": true
+              },
+              "comObjectId": "21",
+              "renderStates": {
+                "cullMode": "none",
+                "depthTestEnabled": false,
+                "lightingEnabled": false,
+                "alphaBlendEnabled": true
+              },
+              "samplerStates": {
+                "samplerZero": {
+                  "minFilter": "linear",
+                  "magFilter": "linear"
+                }
+              },
+              "textureStageStates": {
+                "stageZero": {
+                  "colorOperation": "modulate",
+                  "colorArgumentOne": "texture",
+                  "colorArgumentTwo": "diffuse",
+                  "alphaOperation": "select-argument-one",
+                  "alphaArgumentOne": "texture",
+                  "alphaArgumentTwo": "diffuse"
+                }
+              },
+              "textureBindings": {
+                "stageZero": 8
+              },
+              "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
+              "streamSources": {
+                "streamZero": {
+                  "vertexBufferId": 3,
+                  "offsetInBytes": 0,
+                  "stride": 28
+                }
+              },
+              "backBuffer": {
+                "contentGeneration": 10,
+                "uniformClear": {
+                  "sequence": 4,
+                  "rect": {
+                    "left": 0,
+                    "top": 0,
+                    "right": 1280,
+                    "bottom": 720
+                  },
+                  "colorArgb": 4278190080
+                }
+              },
+              "activeScene": {
+                "sequence": 4
+              },
+              "presentedFrame": {
+                "sequence": 3,
+                "backBuffer": {
+                  "contentGeneration": 8,
+                  "uniformClear": {
+                    "sequence": 3,
+                    "rect": {
+                      "left": 0,
+                      "top": 0,
+                      "right": 1280,
+                      "bottom": 720
+                    },
+                    "colorArgb": 4278190080
+                  },
+                  "drawSubmissions": [
+                    {
+                      "sequence": 3,
+                      "sceneSequence": 3,
+                      "primitiveTopology": "triangle-strip",
+                      "startVertex": 0,
+                      "primitiveCount": 2,
+                      "vertexCount": 4,
+                      "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
+                      "streamSource": {
+                        "vertexBufferId": 3,
+                        "offsetInBytes": 0,
+                        "stride": 28
+                      },
+                      "vertexBufferContentGeneration": 1,
+                      "vertexData": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        0,
+                        128,
+                        57,
+                        0,
+                        0,
+                        0,
+                        58,
+                        0,
+                        0,
+                        160,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        16,
+                        32,
+                        63,
+                        0,
+                        0,
+                        0,
+                        58,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        52,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        0,
+                        128,
+                        57,
+                        0,
+                        32,
+                        52,
+                        63,
+                        0,
+                        0,
+                        160,
+                        68,
+                        0,
+                        0,
+                        52,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        16,
+                        32,
+                        63,
+                        0,
+                        32,
+                        52,
+                        63
+                      ],
+                      "renderStates": {
+                        "cullMode": "none",
+                        "depthTestEnabled": false,
+                        "lightingEnabled": false,
+                        "alphaBlendEnabled": true
+                      },
+                      "samplerStates": {
+                        "samplerZero": {
+                          "minFilter": "linear",
+                          "magFilter": "linear"
+                        }
+                      },
+                      "textureStageStates": {
+                        "stageZero": {
+                          "colorOperation": "modulate",
+                          "colorArgumentOne": "texture",
+                          "colorArgumentTwo": "diffuse",
+                          "alphaOperation": "select-argument-one",
+                          "alphaArgumentOne": "texture",
+                          "alphaArgumentTwo": "diffuse"
+                        }
+                      },
+                      "texture": {
+                        "textureId": 8,
+                        "descriptor": {
+                          "width": 2048,
+                          "height": 1024,
+                          "levels": 1,
+                          "usage": "none",
+                          "colorFormat": "b8g8r8x8-unorm",
+                          "pool": "default"
+                        },
+                        "generation": 47,
+                        "content": {
+                          "contentGeneration": 3,
+                          "fills": [],
+                          "pixelSource": {
+                            "sourceTextureId": 7,
+                            "sourceContentGeneration": 3,
+                            "range": {
+                              "start": 1140854784,
+                              "byteLength": 8388608
+                            },
+                            "rowPitch": 8192
+                          },
+                          "lastUpdate": {
+                            "sequence": 3,
+                            "sourceTextureId": 7,
+                            "sourceContentGeneration": 3,
+                            "dirtyRegion": {
+                              "kind": "rect",
+                              "rect": {
+                                "left": 0,
+                                "top": 0,
+                                "right": 1280,
+                                "bottom": 720
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "generation": 71
+            }
+          },
+          {
+            "sequence": 282859,
+            "module": "<com>",
+            "symbol": "IDirect3DDevice9.SetTextureStageState",
+            "interface": "IDirect3DDevice9",
+            "vtableSlot": 67,
+            "arguments": [
+              16842756,
+              0,
+              4,
+              2
+            ],
+            "result": {
+              "kind": "h-result",
+              "value": 0
+            },
+            "returnAddress": 268808759,
+            "stackPointerBefore": 7321700,
+            "stackPointerAfter": 7321720,
+            "referenceCount": 5,
+            "objectRetired": false,
+            "guestWrites": [],
+            "graphicsDevice": {
+              "id": 3,
+              "namespace": "vine.logical-graphics-device.v1",
+              "frontend": "d3d9",
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "ownerThreadId": 8192,
+              "presentation": {
+                "width": 1280,
+                "height": 720,
+                "colorFormat": "b8g8r8x8-unorm",
+                "backBufferCount": 1,
+                "sampleCount": 1,
+                "presentMode": "discard",
+                "windowed": true
+              },
+              "comObjectId": "21",
+              "renderStates": {
+                "cullMode": "none",
+                "depthTestEnabled": false,
+                "lightingEnabled": false,
+                "alphaBlendEnabled": true
+              },
+              "samplerStates": {
+                "samplerZero": {
+                  "minFilter": "linear",
+                  "magFilter": "linear"
+                }
+              },
+              "textureStageStates": {
+                "stageZero": {
+                  "colorOperation": "modulate",
+                  "colorArgumentOne": "texture",
+                  "colorArgumentTwo": "diffuse",
+                  "alphaOperation": "select-argument-one",
+                  "alphaArgumentOne": "texture",
+                  "alphaArgumentTwo": "diffuse"
+                }
+              },
+              "textureBindings": {
+                "stageZero": 8
+              },
+              "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
+              "streamSources": {
+                "streamZero": {
+                  "vertexBufferId": 3,
+                  "offsetInBytes": 0,
+                  "stride": 28
+                }
+              },
+              "backBuffer": {
+                "contentGeneration": 10,
+                "uniformClear": {
+                  "sequence": 4,
+                  "rect": {
+                    "left": 0,
+                    "top": 0,
+                    "right": 1280,
+                    "bottom": 720
+                  },
+                  "colorArgb": 4278190080
+                }
+              },
+              "activeScene": {
+                "sequence": 4
+              },
+              "presentedFrame": {
+                "sequence": 3,
+                "backBuffer": {
+                  "contentGeneration": 8,
+                  "uniformClear": {
+                    "sequence": 3,
+                    "rect": {
+                      "left": 0,
+                      "top": 0,
+                      "right": 1280,
+                      "bottom": 720
+                    },
+                    "colorArgb": 4278190080
+                  },
+                  "drawSubmissions": [
+                    {
+                      "sequence": 3,
+                      "sceneSequence": 3,
+                      "primitiveTopology": "triangle-strip",
+                      "startVertex": 0,
+                      "primitiveCount": 2,
+                      "vertexCount": 4,
+                      "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
+                      "streamSource": {
+                        "vertexBufferId": 3,
+                        "offsetInBytes": 0,
+                        "stride": 28
+                      },
+                      "vertexBufferContentGeneration": 1,
+                      "vertexData": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        0,
+                        128,
+                        57,
+                        0,
+                        0,
+                        0,
+                        58,
+                        0,
+                        0,
+                        160,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        16,
+                        32,
+                        63,
+                        0,
+                        0,
+                        0,
+                        58,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        52,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        0,
+                        128,
+                        57,
+                        0,
+                        32,
+                        52,
+                        63,
+                        0,
+                        0,
+                        160,
+                        68,
+                        0,
+                        0,
+                        52,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        16,
+                        32,
+                        63,
+                        0,
+                        32,
+                        52,
+                        63
+                      ],
+                      "renderStates": {
+                        "cullMode": "none",
+                        "depthTestEnabled": false,
+                        "lightingEnabled": false,
+                        "alphaBlendEnabled": true
+                      },
+                      "samplerStates": {
+                        "samplerZero": {
+                          "minFilter": "linear",
+                          "magFilter": "linear"
+                        }
+                      },
+                      "textureStageStates": {
+                        "stageZero": {
+                          "colorOperation": "modulate",
+                          "colorArgumentOne": "texture",
+                          "colorArgumentTwo": "diffuse",
+                          "alphaOperation": "select-argument-one",
+                          "alphaArgumentOne": "texture",
+                          "alphaArgumentTwo": "diffuse"
+                        }
+                      },
+                      "texture": {
+                        "textureId": 8,
+                        "descriptor": {
+                          "width": 2048,
+                          "height": 1024,
+                          "levels": 1,
+                          "usage": "none",
+                          "colorFormat": "b8g8r8x8-unorm",
+                          "pool": "default"
+                        },
+                        "generation": 47,
+                        "content": {
+                          "contentGeneration": 3,
+                          "fills": [],
+                          "pixelSource": {
+                            "sourceTextureId": 7,
+                            "sourceContentGeneration": 3,
+                            "range": {
+                              "start": 1140854784,
+                              "byteLength": 8388608
+                            },
+                            "rowPitch": 8192
+                          },
+                          "lastUpdate": {
+                            "sequence": 3,
+                            "sourceTextureId": 7,
+                            "sourceContentGeneration": 3,
+                            "dirtyRegion": {
+                              "kind": "rect",
+                              "rect": {
+                                "left": 0,
+                                "top": 0,
+                                "right": 1280,
+                                "bottom": 720
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "generation": 71
+            }
+          },
+          {
+            "sequence": 282860,
+            "module": "<com>",
+            "symbol": "IDirect3DDevice9.SetTextureStageState",
+            "interface": "IDirect3DDevice9",
+            "vtableSlot": 67,
             "arguments": [
               16842756,
               0,
@@ -442,7 +1344,306 @@
               "kind": "h-result",
               "value": 0
             },
-            "returnAddress": 268808608,
+            "returnAddress": 268808781,
+            "stackPointerBefore": 7321700,
+            "stackPointerAfter": 7321720,
+            "referenceCount": 5,
+            "objectRetired": false,
+            "guestWrites": [],
+            "graphicsDevice": {
+              "id": 3,
+              "namespace": "vine.logical-graphics-device.v1",
+              "frontend": "d3d9",
+              "windowId": 1,
+              "windowHandle": 1208025089,
+              "ownerThreadId": 8192,
+              "presentation": {
+                "width": 1280,
+                "height": 720,
+                "colorFormat": "b8g8r8x8-unorm",
+                "backBufferCount": 1,
+                "sampleCount": 1,
+                "presentMode": "discard",
+                "windowed": true
+              },
+              "comObjectId": "21",
+              "renderStates": {
+                "cullMode": "none",
+                "depthTestEnabled": false,
+                "lightingEnabled": false,
+                "alphaBlendEnabled": true
+              },
+              "samplerStates": {
+                "samplerZero": {
+                  "minFilter": "linear",
+                  "magFilter": "linear"
+                }
+              },
+              "textureStageStates": {
+                "stageZero": {
+                  "colorOperation": "modulate",
+                  "colorArgumentOne": "texture",
+                  "colorArgumentTwo": "diffuse",
+                  "alphaOperation": "select-argument-one",
+                  "alphaArgumentOne": "texture",
+                  "alphaArgumentTwo": "diffuse"
+                }
+              },
+              "textureBindings": {
+                "stageZero": 8
+              },
+              "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
+              "streamSources": {
+                "streamZero": {
+                  "vertexBufferId": 3,
+                  "offsetInBytes": 0,
+                  "stride": 28
+                }
+              },
+              "backBuffer": {
+                "contentGeneration": 10,
+                "uniformClear": {
+                  "sequence": 4,
+                  "rect": {
+                    "left": 0,
+                    "top": 0,
+                    "right": 1280,
+                    "bottom": 720
+                  },
+                  "colorArgb": 4278190080
+                }
+              },
+              "activeScene": {
+                "sequence": 4
+              },
+              "presentedFrame": {
+                "sequence": 3,
+                "backBuffer": {
+                  "contentGeneration": 8,
+                  "uniformClear": {
+                    "sequence": 3,
+                    "rect": {
+                      "left": 0,
+                      "top": 0,
+                      "right": 1280,
+                      "bottom": 720
+                    },
+                    "colorArgb": 4278190080
+                  },
+                  "drawSubmissions": [
+                    {
+                      "sequence": 3,
+                      "sceneSequence": 3,
+                      "primitiveTopology": "triangle-strip",
+                      "startVertex": 0,
+                      "primitiveCount": 2,
+                      "vertexCount": 4,
+                      "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
+                      "streamSource": {
+                        "vertexBufferId": 3,
+                        "offsetInBytes": 0,
+                        "stride": 28
+                      },
+                      "vertexBufferContentGeneration": 1,
+                      "vertexData": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        0,
+                        128,
+                        57,
+                        0,
+                        0,
+                        0,
+                        58,
+                        0,
+                        0,
+                        160,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        16,
+                        32,
+                        63,
+                        0,
+                        0,
+                        0,
+                        58,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        52,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        0,
+                        128,
+                        57,
+                        0,
+                        32,
+                        52,
+                        63,
+                        0,
+                        0,
+                        160,
+                        68,
+                        0,
+                        0,
+                        52,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        16,
+                        32,
+                        63,
+                        0,
+                        32,
+                        52,
+                        63
+                      ],
+                      "renderStates": {
+                        "cullMode": "none",
+                        "depthTestEnabled": false,
+                        "lightingEnabled": false,
+                        "alphaBlendEnabled": true
+                      },
+                      "samplerStates": {
+                        "samplerZero": {
+                          "minFilter": "linear",
+                          "magFilter": "linear"
+                        }
+                      },
+                      "textureStageStates": {
+                        "stageZero": {
+                          "colorOperation": "modulate",
+                          "colorArgumentOne": "texture",
+                          "colorArgumentTwo": "diffuse",
+                          "alphaOperation": "select-argument-one",
+                          "alphaArgumentOne": "texture",
+                          "alphaArgumentTwo": "diffuse"
+                        }
+                      },
+                      "texture": {
+                        "textureId": 8,
+                        "descriptor": {
+                          "width": 2048,
+                          "height": 1024,
+                          "levels": 1,
+                          "usage": "none",
+                          "colorFormat": "b8g8r8x8-unorm",
+                          "pool": "default"
+                        },
+                        "generation": 47,
+                        "content": {
+                          "contentGeneration": 3,
+                          "fills": [],
+                          "pixelSource": {
+                            "sourceTextureId": 7,
+                            "sourceContentGeneration": 3,
+                            "range": {
+                              "start": 1140854784,
+                              "byteLength": 8388608
+                            },
+                            "rowPitch": 8192
+                          },
+                          "lastUpdate": {
+                            "sequence": 3,
+                            "sourceTextureId": 7,
+                            "sourceContentGeneration": 3,
+                            "dirtyRegion": {
+                              "kind": "rect",
+                              "rect": {
+                                "left": 0,
+                                "top": 0,
+                                "right": 1280,
+                                "bottom": 720
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "generation": 71
+            }
+          },
+          {
+            "sequence": 282861,
+            "module": "<com>",
+            "symbol": "IDirect3DDevice9.SetTextureStageState",
+            "interface": "IDirect3DDevice9",
+            "vtableSlot": 67,
+            "arguments": [
+              16842756,
+              0,
+              6,
+              0
+            ],
+            "result": {
+              "kind": "h-result",
+              "value": 0
+            },
+            "returnAddress": 268808803,
             "stackPointerBefore": 7321700,
             "stackPointerAfter": 7321720,
             "referenceCount": 5,
@@ -725,115 +1926,47 @@
               "generation": 71
             }
           }
-        ],
-        "postSamplerRenderStateRejections": [
-          {
-            "sequence": 282853,
-            "module": "<com>",
-            "symbol": "IDirect3DDevice9.SetRenderState",
-            "interface": "IDirect3DDevice9",
-            "vtableSlot": 57,
-            "arguments": [
-              16842756,
-              171,
-              1
-            ],
-            "result": {
-              "kind": "h-result",
-              "value": -2005530518
-            },
-            "returnAddress": 268808631,
-            "stackPointerBefore": 7321704,
-            "stackPointerAfter": 7321720,
-            "referenceCount": 5,
-            "objectRetired": false,
-            "guestWrites": []
-          },
-          {
-            "sequence": 282854,
-            "module": "<com>",
-            "symbol": "IDirect3DDevice9.SetRenderState",
-            "interface": "IDirect3DDevice9",
-            "vtableSlot": 57,
-            "arguments": [
-              16842756,
-              20,
-              6
-            ],
-            "result": {
-              "kind": "h-result",
-              "value": -2005530518
-            },
-            "returnAddress": 268808651,
-            "stackPointerBefore": 7321704,
-            "stackPointerAfter": 7321720,
-            "referenceCount": 5,
-            "objectRetired": false,
-            "guestWrites": []
-          },
-          {
-            "sequence": 282855,
-            "module": "<com>",
-            "symbol": "IDirect3DDevice9.SetRenderState",
-            "interface": "IDirect3DDevice9",
-            "vtableSlot": 57,
-            "arguments": [
-              16842756,
-              19,
-              5
-            ],
-            "result": {
-              "kind": "h-result",
-              "value": -2005530518
-            },
-            "returnAddress": 268808671,
-            "stackPointerBefore": 7321704,
-            "stackPointerAfter": 7321720,
-            "referenceCount": 5,
-            "objectRetired": false,
-            "guestWrites": []
-          }
         ]
       },
-      "writebackBatches": 286053,
+      "writebackBatches": 286059,
       "hostDeltaBatches": 143087
     },
     "browser": {
       "outcome": "checkpoint-complete",
-      "supportedCalls": 282855,
-      "callSemanticsSha256": "1e4e938bf53b87deee21506c39e3d510ad53971a71a23f5133c327ba6e0e4a3d",
-      "instructions": 392353994,
-      "finalGeneration": 355945,
-      "memoryContentSha256": "f6b4db633a16a90781587cf86ae16d4ad72cc6718230ca5f0c2a9076381261af",
+      "supportedCalls": 282861,
+      "callSemanticsSha256": "c7b07ed41957516d5bb95814070ba858eee5a95e069a8bda53665867222cbb12",
+      "instructions": 392354048,
+      "finalGeneration": 355951,
+      "memoryContentSha256": "48b7fe34c489b126994490d0819a7a02bb3bfb82da13bcdd8d3d1b0af9697a4c",
       "checkpointCompletion": {
-        "capability": "d3d9-set-sampler-state-post-begin-scene",
-        "implementationId": "runtime.d3d9-set-sampler-state-post-begin-scene.v1",
-        "requiredCompletions": 2,
-        "completionCount": 2,
-        "prerequisiteBeginSceneSequence": 282850,
-        "prerequisiteBeginSceneInstructionCount": 392353938,
-        "firstCompletionSequence": 282851,
-        "firstCompletionInstructionCount": 392353952,
-        "lastCompletionSequence": 282852,
-        "lastCompletionInstructionCount": 392353961,
+        "capability": "d3d9-set-texture-stage-state-post-sampler-state",
+        "implementationId": "runtime.d3d9-set-texture-stage-state-post-sampler-state.v1",
+        "requiredCompletions": 6,
+        "completionCount": 6,
+        "prerequisiteSamplerStateSequence": 282852,
+        "prerequisiteSamplerStateInstructionCount": 392353961,
+        "firstCompletionSequence": 282856,
+        "firstCompletionInstructionCount": 392353994,
+        "lastCompletionSequence": 282861,
+        "lastCompletionInstructionCount": 392354039,
         "calls": [
           {
-            "sequence": 282851,
+            "sequence": 282856,
             "module": "<com>",
-            "symbol": "IDirect3DDevice9.SetSamplerState",
+            "symbol": "IDirect3DDevice9.SetTextureStageState",
             "interface": "IDirect3DDevice9",
-            "vtableSlot": 69,
+            "vtableSlot": 67,
             "arguments": [
               16842756,
               0,
-              6,
-              2
+              1,
+              4
             ],
             "result": {
               "kind": "h-result",
               "value": 0
             },
-            "returnAddress": 268808586,
+            "returnAddress": 268808693,
             "stackPointerBefore": 7321700,
             "stackPointerAfter": 7321720,
             "referenceCount": 5,
@@ -1117,11 +2250,908 @@
             }
           },
           {
-            "sequence": 282852,
+            "sequence": 282857,
             "module": "<com>",
-            "symbol": "IDirect3DDevice9.SetSamplerState",
+            "symbol": "IDirect3DDevice9.SetTextureStageState",
             "interface": "IDirect3DDevice9",
-            "vtableSlot": 69,
+            "vtableSlot": 67,
+            "arguments": [
+              16842756,
+              0,
+              2,
+              2
+            ],
+            "result": {
+              "kind": "h-result",
+              "value": 0
+            },
+            "returnAddress": 268808715,
+            "stackPointerBefore": 7321700,
+            "stackPointerAfter": 7321720,
+            "referenceCount": 5,
+            "objectRetired": false,
+            "guestWrites": [],
+            "graphicsDevice": {
+              "activeScene": {
+                "sequence": 4
+              },
+              "backBuffer": {
+                "contentGeneration": 10,
+                "uniformClear": {
+                  "colorArgb": 4278190080,
+                  "rect": {
+                    "bottom": 720,
+                    "left": 0,
+                    "right": 1280,
+                    "top": 0
+                  },
+                  "sequence": 4
+                }
+              },
+              "comObjectId": "21",
+              "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
+              "frontend": "d3d9",
+              "generation": 71,
+              "id": 3,
+              "namespace": "vine.logical-graphics-device.v1",
+              "ownerThreadId": 8192,
+              "presentation": {
+                "backBufferCount": 1,
+                "colorFormat": "b8g8r8x8-unorm",
+                "height": 720,
+                "presentMode": "discard",
+                "sampleCount": 1,
+                "width": 1280,
+                "windowed": true
+              },
+              "presentedFrame": {
+                "backBuffer": {
+                  "contentGeneration": 8,
+                  "drawSubmissions": [
+                    {
+                      "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
+                      "primitiveCount": 2,
+                      "primitiveTopology": "triangle-strip",
+                      "renderStates": {
+                        "alphaBlendEnabled": true,
+                        "cullMode": "none",
+                        "depthTestEnabled": false,
+                        "lightingEnabled": false
+                      },
+                      "samplerStates": {
+                        "samplerZero": {
+                          "magFilter": "linear",
+                          "minFilter": "linear"
+                        }
+                      },
+                      "sceneSequence": 3,
+                      "sequence": 3,
+                      "startVertex": 0,
+                      "streamSource": {
+                        "offsetInBytes": 0,
+                        "stride": 28,
+                        "vertexBufferId": 3
+                      },
+                      "texture": {
+                        "content": {
+                          "contentGeneration": 3,
+                          "fills": [],
+                          "lastUpdate": {
+                            "dirtyRegion": {
+                              "kind": "rect",
+                              "rect": {
+                                "bottom": 720,
+                                "left": 0,
+                                "right": 1280,
+                                "top": 0
+                              }
+                            },
+                            "sequence": 3,
+                            "sourceContentGeneration": 3,
+                            "sourceTextureId": 7
+                          },
+                          "pixelSource": {
+                            "range": {
+                              "byteLength": 8388608,
+                              "start": 1140854784
+                            },
+                            "rowPitch": 8192,
+                            "sourceContentGeneration": 3,
+                            "sourceTextureId": 7
+                          }
+                        },
+                        "descriptor": {
+                          "colorFormat": "b8g8r8x8-unorm",
+                          "height": 1024,
+                          "levels": 1,
+                          "pool": "default",
+                          "usage": "none",
+                          "width": 2048
+                        },
+                        "generation": 47,
+                        "textureId": 8
+                      },
+                      "textureStageStates": {
+                        "stageZero": {
+                          "alphaArgumentOne": "texture",
+                          "alphaArgumentTwo": "diffuse",
+                          "alphaOperation": "select-argument-one",
+                          "colorArgumentOne": "texture",
+                          "colorArgumentTwo": "diffuse",
+                          "colorOperation": "modulate"
+                        }
+                      },
+                      "vertexBufferContentGeneration": 1,
+                      "vertexCount": 4,
+                      "vertexData": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        0,
+                        128,
+                        57,
+                        0,
+                        0,
+                        0,
+                        58,
+                        0,
+                        0,
+                        160,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        16,
+                        32,
+                        63,
+                        0,
+                        0,
+                        0,
+                        58,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        52,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        0,
+                        128,
+                        57,
+                        0,
+                        32,
+                        52,
+                        63,
+                        0,
+                        0,
+                        160,
+                        68,
+                        0,
+                        0,
+                        52,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        16,
+                        32,
+                        63,
+                        0,
+                        32,
+                        52,
+                        63
+                      ]
+                    }
+                  ],
+                  "uniformClear": {
+                    "colorArgb": 4278190080,
+                    "rect": {
+                      "bottom": 720,
+                      "left": 0,
+                      "right": 1280,
+                      "top": 0
+                    },
+                    "sequence": 3
+                  }
+                },
+                "sequence": 3
+              },
+              "renderStates": {
+                "alphaBlendEnabled": true,
+                "cullMode": "none",
+                "depthTestEnabled": false,
+                "lightingEnabled": false
+              },
+              "samplerStates": {
+                "samplerZero": {
+                  "magFilter": "linear",
+                  "minFilter": "linear"
+                }
+              },
+              "streamSources": {
+                "streamZero": {
+                  "offsetInBytes": 0,
+                  "stride": 28,
+                  "vertexBufferId": 3
+                }
+              },
+              "textureBindings": {
+                "stageZero": 8
+              },
+              "textureStageStates": {
+                "stageZero": {
+                  "alphaArgumentOne": "texture",
+                  "alphaArgumentTwo": "diffuse",
+                  "alphaOperation": "select-argument-one",
+                  "colorArgumentOne": "texture",
+                  "colorArgumentTwo": "diffuse",
+                  "colorOperation": "modulate"
+                }
+              },
+              "windowHandle": 1208025089,
+              "windowId": 1
+            }
+          },
+          {
+            "sequence": 282858,
+            "module": "<com>",
+            "symbol": "IDirect3DDevice9.SetTextureStageState",
+            "interface": "IDirect3DDevice9",
+            "vtableSlot": 67,
+            "arguments": [
+              16842756,
+              0,
+              3,
+              0
+            ],
+            "result": {
+              "kind": "h-result",
+              "value": 0
+            },
+            "returnAddress": 268808737,
+            "stackPointerBefore": 7321700,
+            "stackPointerAfter": 7321720,
+            "referenceCount": 5,
+            "objectRetired": false,
+            "guestWrites": [],
+            "graphicsDevice": {
+              "activeScene": {
+                "sequence": 4
+              },
+              "backBuffer": {
+                "contentGeneration": 10,
+                "uniformClear": {
+                  "colorArgb": 4278190080,
+                  "rect": {
+                    "bottom": 720,
+                    "left": 0,
+                    "right": 1280,
+                    "top": 0
+                  },
+                  "sequence": 4
+                }
+              },
+              "comObjectId": "21",
+              "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
+              "frontend": "d3d9",
+              "generation": 71,
+              "id": 3,
+              "namespace": "vine.logical-graphics-device.v1",
+              "ownerThreadId": 8192,
+              "presentation": {
+                "backBufferCount": 1,
+                "colorFormat": "b8g8r8x8-unorm",
+                "height": 720,
+                "presentMode": "discard",
+                "sampleCount": 1,
+                "width": 1280,
+                "windowed": true
+              },
+              "presentedFrame": {
+                "backBuffer": {
+                  "contentGeneration": 8,
+                  "drawSubmissions": [
+                    {
+                      "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
+                      "primitiveCount": 2,
+                      "primitiveTopology": "triangle-strip",
+                      "renderStates": {
+                        "alphaBlendEnabled": true,
+                        "cullMode": "none",
+                        "depthTestEnabled": false,
+                        "lightingEnabled": false
+                      },
+                      "samplerStates": {
+                        "samplerZero": {
+                          "magFilter": "linear",
+                          "minFilter": "linear"
+                        }
+                      },
+                      "sceneSequence": 3,
+                      "sequence": 3,
+                      "startVertex": 0,
+                      "streamSource": {
+                        "offsetInBytes": 0,
+                        "stride": 28,
+                        "vertexBufferId": 3
+                      },
+                      "texture": {
+                        "content": {
+                          "contentGeneration": 3,
+                          "fills": [],
+                          "lastUpdate": {
+                            "dirtyRegion": {
+                              "kind": "rect",
+                              "rect": {
+                                "bottom": 720,
+                                "left": 0,
+                                "right": 1280,
+                                "top": 0
+                              }
+                            },
+                            "sequence": 3,
+                            "sourceContentGeneration": 3,
+                            "sourceTextureId": 7
+                          },
+                          "pixelSource": {
+                            "range": {
+                              "byteLength": 8388608,
+                              "start": 1140854784
+                            },
+                            "rowPitch": 8192,
+                            "sourceContentGeneration": 3,
+                            "sourceTextureId": 7
+                          }
+                        },
+                        "descriptor": {
+                          "colorFormat": "b8g8r8x8-unorm",
+                          "height": 1024,
+                          "levels": 1,
+                          "pool": "default",
+                          "usage": "none",
+                          "width": 2048
+                        },
+                        "generation": 47,
+                        "textureId": 8
+                      },
+                      "textureStageStates": {
+                        "stageZero": {
+                          "alphaArgumentOne": "texture",
+                          "alphaArgumentTwo": "diffuse",
+                          "alphaOperation": "select-argument-one",
+                          "colorArgumentOne": "texture",
+                          "colorArgumentTwo": "diffuse",
+                          "colorOperation": "modulate"
+                        }
+                      },
+                      "vertexBufferContentGeneration": 1,
+                      "vertexCount": 4,
+                      "vertexData": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        0,
+                        128,
+                        57,
+                        0,
+                        0,
+                        0,
+                        58,
+                        0,
+                        0,
+                        160,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        16,
+                        32,
+                        63,
+                        0,
+                        0,
+                        0,
+                        58,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        52,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        0,
+                        128,
+                        57,
+                        0,
+                        32,
+                        52,
+                        63,
+                        0,
+                        0,
+                        160,
+                        68,
+                        0,
+                        0,
+                        52,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        16,
+                        32,
+                        63,
+                        0,
+                        32,
+                        52,
+                        63
+                      ]
+                    }
+                  ],
+                  "uniformClear": {
+                    "colorArgb": 4278190080,
+                    "rect": {
+                      "bottom": 720,
+                      "left": 0,
+                      "right": 1280,
+                      "top": 0
+                    },
+                    "sequence": 3
+                  }
+                },
+                "sequence": 3
+              },
+              "renderStates": {
+                "alphaBlendEnabled": true,
+                "cullMode": "none",
+                "depthTestEnabled": false,
+                "lightingEnabled": false
+              },
+              "samplerStates": {
+                "samplerZero": {
+                  "magFilter": "linear",
+                  "minFilter": "linear"
+                }
+              },
+              "streamSources": {
+                "streamZero": {
+                  "offsetInBytes": 0,
+                  "stride": 28,
+                  "vertexBufferId": 3
+                }
+              },
+              "textureBindings": {
+                "stageZero": 8
+              },
+              "textureStageStates": {
+                "stageZero": {
+                  "alphaArgumentOne": "texture",
+                  "alphaArgumentTwo": "diffuse",
+                  "alphaOperation": "select-argument-one",
+                  "colorArgumentOne": "texture",
+                  "colorArgumentTwo": "diffuse",
+                  "colorOperation": "modulate"
+                }
+              },
+              "windowHandle": 1208025089,
+              "windowId": 1
+            }
+          },
+          {
+            "sequence": 282859,
+            "module": "<com>",
+            "symbol": "IDirect3DDevice9.SetTextureStageState",
+            "interface": "IDirect3DDevice9",
+            "vtableSlot": 67,
+            "arguments": [
+              16842756,
+              0,
+              4,
+              2
+            ],
+            "result": {
+              "kind": "h-result",
+              "value": 0
+            },
+            "returnAddress": 268808759,
+            "stackPointerBefore": 7321700,
+            "stackPointerAfter": 7321720,
+            "referenceCount": 5,
+            "objectRetired": false,
+            "guestWrites": [],
+            "graphicsDevice": {
+              "activeScene": {
+                "sequence": 4
+              },
+              "backBuffer": {
+                "contentGeneration": 10,
+                "uniformClear": {
+                  "colorArgb": 4278190080,
+                  "rect": {
+                    "bottom": 720,
+                    "left": 0,
+                    "right": 1280,
+                    "top": 0
+                  },
+                  "sequence": 4
+                }
+              },
+              "comObjectId": "21",
+              "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
+              "frontend": "d3d9",
+              "generation": 71,
+              "id": 3,
+              "namespace": "vine.logical-graphics-device.v1",
+              "ownerThreadId": 8192,
+              "presentation": {
+                "backBufferCount": 1,
+                "colorFormat": "b8g8r8x8-unorm",
+                "height": 720,
+                "presentMode": "discard",
+                "sampleCount": 1,
+                "width": 1280,
+                "windowed": true
+              },
+              "presentedFrame": {
+                "backBuffer": {
+                  "contentGeneration": 8,
+                  "drawSubmissions": [
+                    {
+                      "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
+                      "primitiveCount": 2,
+                      "primitiveTopology": "triangle-strip",
+                      "renderStates": {
+                        "alphaBlendEnabled": true,
+                        "cullMode": "none",
+                        "depthTestEnabled": false,
+                        "lightingEnabled": false
+                      },
+                      "samplerStates": {
+                        "samplerZero": {
+                          "magFilter": "linear",
+                          "minFilter": "linear"
+                        }
+                      },
+                      "sceneSequence": 3,
+                      "sequence": 3,
+                      "startVertex": 0,
+                      "streamSource": {
+                        "offsetInBytes": 0,
+                        "stride": 28,
+                        "vertexBufferId": 3
+                      },
+                      "texture": {
+                        "content": {
+                          "contentGeneration": 3,
+                          "fills": [],
+                          "lastUpdate": {
+                            "dirtyRegion": {
+                              "kind": "rect",
+                              "rect": {
+                                "bottom": 720,
+                                "left": 0,
+                                "right": 1280,
+                                "top": 0
+                              }
+                            },
+                            "sequence": 3,
+                            "sourceContentGeneration": 3,
+                            "sourceTextureId": 7
+                          },
+                          "pixelSource": {
+                            "range": {
+                              "byteLength": 8388608,
+                              "start": 1140854784
+                            },
+                            "rowPitch": 8192,
+                            "sourceContentGeneration": 3,
+                            "sourceTextureId": 7
+                          }
+                        },
+                        "descriptor": {
+                          "colorFormat": "b8g8r8x8-unorm",
+                          "height": 1024,
+                          "levels": 1,
+                          "pool": "default",
+                          "usage": "none",
+                          "width": 2048
+                        },
+                        "generation": 47,
+                        "textureId": 8
+                      },
+                      "textureStageStates": {
+                        "stageZero": {
+                          "alphaArgumentOne": "texture",
+                          "alphaArgumentTwo": "diffuse",
+                          "alphaOperation": "select-argument-one",
+                          "colorArgumentOne": "texture",
+                          "colorArgumentTwo": "diffuse",
+                          "colorOperation": "modulate"
+                        }
+                      },
+                      "vertexBufferContentGeneration": 1,
+                      "vertexCount": 4,
+                      "vertexData": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        0,
+                        128,
+                        57,
+                        0,
+                        0,
+                        0,
+                        58,
+                        0,
+                        0,
+                        160,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        16,
+                        32,
+                        63,
+                        0,
+                        0,
+                        0,
+                        58,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        52,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        0,
+                        128,
+                        57,
+                        0,
+                        32,
+                        52,
+                        63,
+                        0,
+                        0,
+                        160,
+                        68,
+                        0,
+                        0,
+                        52,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        16,
+                        32,
+                        63,
+                        0,
+                        32,
+                        52,
+                        63
+                      ]
+                    }
+                  ],
+                  "uniformClear": {
+                    "colorArgb": 4278190080,
+                    "rect": {
+                      "bottom": 720,
+                      "left": 0,
+                      "right": 1280,
+                      "top": 0
+                    },
+                    "sequence": 3
+                  }
+                },
+                "sequence": 3
+              },
+              "renderStates": {
+                "alphaBlendEnabled": true,
+                "cullMode": "none",
+                "depthTestEnabled": false,
+                "lightingEnabled": false
+              },
+              "samplerStates": {
+                "samplerZero": {
+                  "magFilter": "linear",
+                  "minFilter": "linear"
+                }
+              },
+              "streamSources": {
+                "streamZero": {
+                  "offsetInBytes": 0,
+                  "stride": 28,
+                  "vertexBufferId": 3
+                }
+              },
+              "textureBindings": {
+                "stageZero": 8
+              },
+              "textureStageStates": {
+                "stageZero": {
+                  "alphaArgumentOne": "texture",
+                  "alphaArgumentTwo": "diffuse",
+                  "alphaOperation": "select-argument-one",
+                  "colorArgumentOne": "texture",
+                  "colorArgumentTwo": "diffuse",
+                  "colorOperation": "modulate"
+                }
+              },
+              "windowHandle": 1208025089,
+              "windowId": 1
+            }
+          },
+          {
+            "sequence": 282860,
+            "module": "<com>",
+            "symbol": "IDirect3DDevice9.SetTextureStageState",
+            "interface": "IDirect3DDevice9",
+            "vtableSlot": 67,
             "arguments": [
               16842756,
               0,
@@ -1132,7 +3162,306 @@
               "kind": "h-result",
               "value": 0
             },
-            "returnAddress": 268808608,
+            "returnAddress": 268808781,
+            "stackPointerBefore": 7321700,
+            "stackPointerAfter": 7321720,
+            "referenceCount": 5,
+            "objectRetired": false,
+            "guestWrites": [],
+            "graphicsDevice": {
+              "activeScene": {
+                "sequence": 4
+              },
+              "backBuffer": {
+                "contentGeneration": 10,
+                "uniformClear": {
+                  "colorArgb": 4278190080,
+                  "rect": {
+                    "bottom": 720,
+                    "left": 0,
+                    "right": 1280,
+                    "top": 0
+                  },
+                  "sequence": 4
+                }
+              },
+              "comObjectId": "21",
+              "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
+              "frontend": "d3d9",
+              "generation": 71,
+              "id": 3,
+              "namespace": "vine.logical-graphics-device.v1",
+              "ownerThreadId": 8192,
+              "presentation": {
+                "backBufferCount": 1,
+                "colorFormat": "b8g8r8x8-unorm",
+                "height": 720,
+                "presentMode": "discard",
+                "sampleCount": 1,
+                "width": 1280,
+                "windowed": true
+              },
+              "presentedFrame": {
+                "backBuffer": {
+                  "contentGeneration": 8,
+                  "drawSubmissions": [
+                    {
+                      "flexibleVertexFormat": "xyz-rhw-diffuse-texture1",
+                      "primitiveCount": 2,
+                      "primitiveTopology": "triangle-strip",
+                      "renderStates": {
+                        "alphaBlendEnabled": true,
+                        "cullMode": "none",
+                        "depthTestEnabled": false,
+                        "lightingEnabled": false
+                      },
+                      "samplerStates": {
+                        "samplerZero": {
+                          "magFilter": "linear",
+                          "minFilter": "linear"
+                        }
+                      },
+                      "sceneSequence": 3,
+                      "sequence": 3,
+                      "startVertex": 0,
+                      "streamSource": {
+                        "offsetInBytes": 0,
+                        "stride": 28,
+                        "vertexBufferId": 3
+                      },
+                      "texture": {
+                        "content": {
+                          "contentGeneration": 3,
+                          "fills": [],
+                          "lastUpdate": {
+                            "dirtyRegion": {
+                              "kind": "rect",
+                              "rect": {
+                                "bottom": 720,
+                                "left": 0,
+                                "right": 1280,
+                                "top": 0
+                              }
+                            },
+                            "sequence": 3,
+                            "sourceContentGeneration": 3,
+                            "sourceTextureId": 7
+                          },
+                          "pixelSource": {
+                            "range": {
+                              "byteLength": 8388608,
+                              "start": 1140854784
+                            },
+                            "rowPitch": 8192,
+                            "sourceContentGeneration": 3,
+                            "sourceTextureId": 7
+                          }
+                        },
+                        "descriptor": {
+                          "colorFormat": "b8g8r8x8-unorm",
+                          "height": 1024,
+                          "levels": 1,
+                          "pool": "default",
+                          "usage": "none",
+                          "width": 2048
+                        },
+                        "generation": 47,
+                        "textureId": 8
+                      },
+                      "textureStageStates": {
+                        "stageZero": {
+                          "alphaArgumentOne": "texture",
+                          "alphaArgumentTwo": "diffuse",
+                          "alphaOperation": "select-argument-one",
+                          "colorArgumentOne": "texture",
+                          "colorArgumentTwo": "diffuse",
+                          "colorOperation": "modulate"
+                        }
+                      },
+                      "vertexBufferContentGeneration": 1,
+                      "vertexCount": 4,
+                      "vertexData": [
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        0,
+                        128,
+                        57,
+                        0,
+                        0,
+                        0,
+                        58,
+                        0,
+                        0,
+                        160,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        16,
+                        32,
+                        63,
+                        0,
+                        0,
+                        0,
+                        58,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        52,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        0,
+                        128,
+                        57,
+                        0,
+                        32,
+                        52,
+                        63,
+                        0,
+                        0,
+                        160,
+                        68,
+                        0,
+                        0,
+                        52,
+                        68,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63,
+                        255,
+                        255,
+                        255,
+                        0,
+                        0,
+                        16,
+                        32,
+                        63,
+                        0,
+                        32,
+                        52,
+                        63
+                      ]
+                    }
+                  ],
+                  "uniformClear": {
+                    "colorArgb": 4278190080,
+                    "rect": {
+                      "bottom": 720,
+                      "left": 0,
+                      "right": 1280,
+                      "top": 0
+                    },
+                    "sequence": 3
+                  }
+                },
+                "sequence": 3
+              },
+              "renderStates": {
+                "alphaBlendEnabled": true,
+                "cullMode": "none",
+                "depthTestEnabled": false,
+                "lightingEnabled": false
+              },
+              "samplerStates": {
+                "samplerZero": {
+                  "magFilter": "linear",
+                  "minFilter": "linear"
+                }
+              },
+              "streamSources": {
+                "streamZero": {
+                  "offsetInBytes": 0,
+                  "stride": 28,
+                  "vertexBufferId": 3
+                }
+              },
+              "textureBindings": {
+                "stageZero": 8
+              },
+              "textureStageStates": {
+                "stageZero": {
+                  "alphaArgumentOne": "texture",
+                  "alphaArgumentTwo": "diffuse",
+                  "alphaOperation": "select-argument-one",
+                  "colorArgumentOne": "texture",
+                  "colorArgumentTwo": "diffuse",
+                  "colorOperation": "modulate"
+                }
+              },
+              "windowHandle": 1208025089,
+              "windowId": 1
+            }
+          },
+          {
+            "sequence": 282861,
+            "module": "<com>",
+            "symbol": "IDirect3DDevice9.SetTextureStageState",
+            "interface": "IDirect3DDevice9",
+            "vtableSlot": 67,
+            "arguments": [
+              16842756,
+              0,
+              6,
+              0
+            ],
+            "result": {
+              "kind": "h-result",
+              "value": 0
+            },
+            "returnAddress": 268808803,
             "stackPointerBefore": 7321700,
             "stackPointerAfter": 7321720,
             "referenceCount": 5,
@@ -1416,78 +3745,9 @@
             }
           }
         ],
-        "postSamplerRenderStateRejections": [
-          {
-            "sequence": 282853,
-            "module": "<com>",
-            "symbol": "IDirect3DDevice9.SetRenderState",
-            "interface": "IDirect3DDevice9",
-            "vtableSlot": 57,
-            "arguments": [
-              16842756,
-              171,
-              1
-            ],
-            "result": {
-              "kind": "h-result",
-              "value": -2005530518
-            },
-            "returnAddress": 268808631,
-            "stackPointerBefore": 7321704,
-            "stackPointerAfter": 7321720,
-            "referenceCount": 5,
-            "objectRetired": false,
-            "guestWrites": []
-          },
-          {
-            "sequence": 282854,
-            "module": "<com>",
-            "symbol": "IDirect3DDevice9.SetRenderState",
-            "interface": "IDirect3DDevice9",
-            "vtableSlot": 57,
-            "arguments": [
-              16842756,
-              20,
-              6
-            ],
-            "result": {
-              "kind": "h-result",
-              "value": -2005530518
-            },
-            "returnAddress": 268808651,
-            "stackPointerBefore": 7321704,
-            "stackPointerAfter": 7321720,
-            "referenceCount": 5,
-            "objectRetired": false,
-            "guestWrites": []
-          },
-          {
-            "sequence": 282855,
-            "module": "<com>",
-            "symbol": "IDirect3DDevice9.SetRenderState",
-            "interface": "IDirect3DDevice9",
-            "vtableSlot": 57,
-            "arguments": [
-              16842756,
-              19,
-              5
-            ],
-            "result": {
-              "kind": "h-result",
-              "value": -2005530518
-            },
-            "returnAddress": 268808671,
-            "stackPointerBefore": 7321704,
-            "stackPointerAfter": 7321720,
-            "referenceCount": 5,
-            "objectRetired": false,
-            "guestWrites": []
-          }
-        ],
-        "postSamplerRenderStateRejectionCount": 3,
         "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
-        "samplerStateProfileId": "primary-first-frame-linear-sampler-states-v1",
-        "stateAuthority": "rust-runtime-graphics-logical-device-sampler-states",
+        "textureStageStateProfileId": "primary-first-frame-fixed-function-texture-stage-zero-v1",
+        "stateAuthority": "rust-runtime-graphics-logical-device-texture-stage-states",
         "mutation": "validate-plan-preflight-targeted-idempotent-commit",
         "sameValueGenerationChange": 0,
         "failureAtomicity": true,
@@ -1495,37 +3755,43 @@
         "logicalGraphicsComObjectId": "21",
         "activeSceneSequence": 4,
         "logicalGraphicsDeviceGeneration": 71,
-        "samplerZeroMinFilter": "linear",
-        "samplerZeroMagFilter": "linear",
+        "textureStageState": {
+          "colorOperation": "modulate",
+          "colorArgumentOne": "texture",
+          "colorArgumentTwo": "diffuse",
+          "alphaOperation": "select-argument-one",
+          "alphaArgumentOne": "texture",
+          "alphaArgumentTwo": "diffuse"
+        },
         "backBufferContentGeneration": 10,
         "backBufferClearSequence": 4,
         "presentedFrameSequence": 3,
         "browserRendererResourceCreated": false,
         "activeCallbackDepthAtCompletion": 0,
-        "instructionCount": 392353994,
+        "instructionCount": 392354048,
         "nextEndpoint": {
           "id": 0,
-          "address": 16847968,
+          "address": 16847936,
           "module": "<com>",
           "symbol": {
             "kind": "name",
-            "name": "interface-1-slot-67"
+            "name": "interface-1-slot-65"
           },
           "disposition": "declared-com-method",
           "interfaceIndex": 1,
-          "vtableSlot": 67,
+          "vtableSlot": 65,
           "interface": "IDirect3DDevice9",
-          "method": "SetTextureStageState"
+          "method": "SetTexture"
         },
-        "memoryContentSha256": "f6b4db633a16a90781587cf86ae16d4ad72cc6718230ca5f0c2a9076381261af",
-        "nextReturnAddress": 268808693,
-        "nextStackPointer": 7321700
+        "memoryContentSha256": "48b7fe34c489b126994490d0819a7a02bb3bfb82da13bcdd8d3d1b0af9697a4c",
+        "nextReturnAddress": 268808828,
+        "nextStackPointer": 7321704
       },
-      "wasmBridgeCalls": 756232,
+      "wasmBridgeCalls": 756250,
       "executionStateMachine": {
         "success": {
           "finalState": "stopped",
-          "transitionCount": 955449,
+          "transitionCount": 955467,
           "lastTransitionTo": "stopped",
           "pendingHostRequestRecords": 0,
           "watchdogContext": null
@@ -1573,11 +3839,11 @@
     "nextStructuredStop": {
       "kind": "capability-checkpoint",
       "classification": "semantic-leaf",
-      "nextCheckpoint": "d3d9-set-texture-stage-state-post-sampler-state",
-      "pausedHistoricalCheckpoint": "d3d9-set-sampler-state-post-begin-scene",
-      "instructionCount": 392353994,
+      "nextCheckpoint": "d3d9-set-texture-post-texture-stage-state",
+      "pausedHistoricalCheckpoint": "d3d9-set-texture-stage-state-post-sampler-state",
+      "instructionCount": 392354048,
       "capabilityCluster": "d3d9-idirect3ddevice9-method",
-      "reason": "d3d9-set-sampler-state-post-begin-scene-checkpoint-complete",
+      "reason": "d3d9-set-texture-stage-state-post-sampler-state-checkpoint-complete",
       "historicalOutlineTextMetricsCheckpoint": {
         "capability": "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
         "implementationId": "runtime.gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336.v1",
@@ -1882,7 +4148,7 @@
         "instructionCount": 392353952,
         "memoryContentSha256": "ec00efea1a7f56c0ef8af45da4c614673c6374265c0cd9ee4b79b884626a14db"
       },
-      "completion": {
+      "prerequisiteSamplerCheckpoint": {
         "capability": "d3d9-set-sampler-state-post-begin-scene",
         "implementationId": "runtime.d3d9-set-sampler-state-post-begin-scene.v1",
         "requiredCompletions": 2,
@@ -1916,33 +4182,71 @@
         "nextReturnAddress": 268808693,
         "nextStackPointer": 7321700
       },
+      "completion": {
+        "capability": "d3d9-set-texture-stage-state-post-sampler-state",
+        "implementationId": "runtime.d3d9-set-texture-stage-state-post-sampler-state.v1",
+        "requiredCompletions": 6,
+        "completionCount": 6,
+        "prerequisiteSamplerStateSequence": 282852,
+        "prerequisiteSamplerStateInstructionCount": 392353961,
+        "firstCompletionSequence": 282856,
+        "firstCompletionInstructionCount": 392353994,
+        "lastCompletionSequence": 282861,
+        "lastCompletionInstructionCount": 392354039,
+        "compatibilityPolicyId": "d3d9-primary-virtual-adapter-v33",
+        "textureStageStateProfileId": "primary-first-frame-fixed-function-texture-stage-zero-v1",
+        "stateAuthority": "rust-runtime-graphics-logical-device-texture-stage-states",
+        "mutation": "validate-plan-preflight-targeted-idempotent-commit",
+        "sameValueGenerationChange": 0,
+        "failureAtomicity": true,
+        "logicalGraphicsDeviceId": 3,
+        "logicalGraphicsComObjectId": "21",
+        "activeSceneSequence": 4,
+        "logicalGraphicsDeviceGeneration": 71,
+        "textureStageState": {
+          "colorOperation": "modulate",
+          "colorArgumentOne": "texture",
+          "colorArgumentTwo": "diffuse",
+          "alphaOperation": "select-argument-one",
+          "alphaArgumentOne": "texture",
+          "alphaArgumentTwo": "diffuse"
+        },
+        "backBufferContentGeneration": 10,
+        "backBufferClearSequence": 4,
+        "presentedFrameSequence": 3,
+        "browserRendererResourceCreated": false,
+        "activeCallbackDepthAtCompletion": 0,
+        "instructionCount": 392354048,
+        "memoryContentSha256": "48b7fe34c489b126994490d0819a7a02bb3bfb82da13bcdd8d3d1b0af9697a4c",
+        "nextReturnAddress": 268808828,
+        "nextStackPointer": 7321704
+      },
       "nextEndpoint": {
         "endpointKind": "com-method",
         "endpointId": 0,
-        "api": "IDirect3DDevice9!SetTextureStageState",
-        "endpointAddress": "0x01011460",
+        "api": "IDirect3DDevice9!SetTexture",
+        "endpointAddress": "0x01011440",
         "observedModule": "<com>",
-        "observedSymbol": "interface-1-slot-67",
+        "observedSymbol": "interface-1-slot-65",
         "id": 0,
-        "address": 16847968,
+        "address": 16847936,
         "module": "<com>",
         "symbol": {
           "kind": "name",
-          "name": "interface-1-slot-67"
+          "name": "interface-1-slot-65"
         },
         "disposition": "declared-com-method",
         "interfaceIndex": 1,
-        "vtableSlot": 67,
+        "vtableSlot": 65,
         "interface": "IDirect3DDevice9",
-        "method": "SetTextureStageState",
+        "method": "SetTexture",
         "thisPointer": "0x01010004",
         "arguments": [
           "0x00000000",
-          "0x00000001",
-          "0x00000004"
+          "0x01030004"
         ],
-        "returnAddress": "0x1005b1f5",
-        "stackPointer": "0x006fb864"
+        "returnAddress": "0x1005b27c",
+        "stackPointer": "0x006fb868"
       },
       "historicalFollowingFault": {
         "class": "unsupported",
@@ -1985,14 +4289,14 @@
   },
   "artifacts": {
     "nodeReport": {
-      "path": ".work/v86-bgi-d3d9-set-sampler-state-post-begin-scene/report.json",
-      "bytes": 2527915,
-      "sha256": "3c85a82e5d50ab7228eb73b35f7a90400587b0f2436dffd077487aa71baa2d84"
+      "path": ".work/v86-bgi-d3d9-set-texture-stage-state-post-sampler-state/report.json",
+      "bytes": 2621914,
+      "sha256": "31c646a3c4083ec02b6bf315314a6983654835022bda801cda2d22cebad7eaf6"
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2630713,
-      "sha256": "ba24dc0c7a1a59d139d728a679f414056b6785c247456df404a678647c2fa3bd"
+      "bytes": 2668415,
+      "sha256": "60539817c954371567e705da96e8f50ed192205d7b8cb6aea37a63f8db7324da"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -2007,7 +4311,7 @@
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
       "bytes": 3768,
-      "sha256": "9e78de67c46069fdf0b857425018c2ae94c259eaf27ccf0e229c66a171b63d8f"
+      "sha256": "3439fad80c941639a16b1caaf12216d59de562fda404abf24b0df6e4bfcbc6ad"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -2044,5 +4348,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "88fbd765ad5cf95ffcec904b9b5b964be5b5dcbb9aec484e963f4a29c705e894"
+  "payloadSha256": "0ce22b05d385c89438a95aa14bdb02b99a7274d1a8f7721312df8176673334b2"
 }
