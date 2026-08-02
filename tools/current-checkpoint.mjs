@@ -158,7 +158,11 @@ function validateExecutionStateMachine(value, label, errors) {
 export function validateCurrentCheckpoint(manifest) {
   const errors = [];
   const root = requireRecord(manifest, "manifest", errors);
+  const d3d9DrawPrimitivePostStreamSourceActive =
+    root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
+    "d3d9-draw-primitive-post-stream-source";
   const d3d9SetStreamSourcePostFvfActive =
+    d3d9DrawPrimitivePostStreamSourceActive ||
     root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
     "d3d9-set-stream-source-post-fvf";
   const d3d9SetFvfPostTextureBindingActive =
@@ -615,7 +619,11 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9RecreatedTexturesActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-set-window-pos-repeat-activation";
+  const d3d9DrawPrimitivePostStreamSourceProfileActive =
+    root.activeRuntimeCheckpoint?.capabilityProfile ===
+    "d3d9-draw-primitive-post-stream-source";
   const d3d9SetStreamSourcePostFvfProfileActive =
+    d3d9DrawPrimitivePostStreamSourceProfileActive ||
     root.activeRuntimeCheckpoint?.capabilityProfile ===
     "d3d9-set-stream-source-post-fvf";
   const d3d9SetFvfPostTextureBindingProfileActive =
@@ -1475,7 +1483,27 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    d3d9SetStreamSourcePostFvfProfileActive
+    d3d9DrawPrimitivePostStreamSourceProfileActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_997,
+        browserMappingDirtyPages: 150_402,
+        browserSuccessExecutionTransitions: 589_100,
+        browserFinalGeneration: 315_160,
+        browserReportSchemaVersion: 82,
+        latestSchema:
+          "vine.v86-bgi-d3d9-draw-primitive-post-stream-source-primary",
+        latestWritebackBatches: 165_259,
+        latestWritebackDirtyPages: 244_675,
+        latestWritebackChangedBytes: 43_072_557,
+        latestHostDeltaBatches: 127_997,
+        latestFinalMemoryGeneration: 333_500,
+        semanticCallDigestSha256:
+          "c06dd5c964e6b893ae0769763a30d3afcddaf3b196b680f63cd1806bc9301a1b",
+        memoryContentSha256:
+          "9b70297684d908d75432ac97d062d8a1f8f7ab595bd563e4915d48d7f9e60abe",
+      }
+    : d3d9SetStreamSourcePostFvfProfileActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_997,
@@ -3770,7 +3798,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    d3d9SetStreamSourcePostFvfActive
+    d3d9DrawPrimitivePostStreamSourceActive
+      ? "vine.browser-runtime-worker.v116"
+      : d3d9SetStreamSourcePostFvfActive
       ? "vine.browser-runtime-worker.v115"
       : d3d9SetFvfPostTextureBindingActive
       ? "vine.browser-runtime-worker.v114"
@@ -22053,7 +22083,9 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureBefore !== null ||
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureAfter !== null)) ||
     latestEvidence.implementation !==
-      (d3d9SetStreamSourcePostFvfActive
+      (d3d9DrawPrimitivePostStreamSourceActive
+        ? "Rust-owned D3D9 draw-submission authority accepts the reached fourth-scene triangle-strip quad, snapshots the validated vertex range and fixed-function texture state into one immutable bounded back-buffer submission, advances device generation 72 and back-buffer content generation 11 without guest writes or renderer materialization, and stops at the next EndScene slot 42 endpoint"
+        : d3d9SetStreamSourcePostFvfActive
         ? "Rust-owned D3D9 stream-source authority accepts the reached fourth-scene stream-zero vertex-buffer binding through the existing validated non-owning idempotent plan/commit without advancing logical device generation, and stops at the next DrawPrimitive slot 81 endpoint"
         : d3d9SetFvfPostTextureBindingActive
         ? "Rust-owned D3D9 flexible-vertex-format authority accepts the reached fourth-scene transformed diffuse textured FVF 0x144 through the existing validated idempotent plan/commit without advancing logical device generation, and stops at the next SetStreamSource slot 100 endpoint"
@@ -24476,7 +24508,45 @@ export function validateCurrentCheckpoint(manifest) {
             errors,
           )
         : {};
-    const expectedNode = d3d9SetStreamSourcePostFvfActive
+    const d3d9DrawPrimitivePostStreamSourceNode =
+      d3d9DrawPrimitivePostStreamSourceActive
+        ? requireRecord(
+            node.d3d9DrawPrimitivePostStreamSource,
+            "activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence.d3d9DrawPrimitivePostStreamSource",
+            errors,
+          )
+        : {};
+    const expectedNode = d3d9DrawPrimitivePostStreamSourceActive
+      ? {
+          schema:
+            "vine.v86-bgi-d3d9-draw-primitive-post-stream-source-primary",
+          runtimeKernelCheckpoint:
+            "d3d9-draw-primitive-post-stream-source",
+          repeatRuns: 1,
+          reportBytes: 2_618_038,
+          reportSha256:
+            "60c4c6aeb964440ddb24b949edc84cbf7e3a44860fc02244d2a7fc1bf917e0e1",
+          nodeReplayOldSpaceMiB: 8_192,
+          completedSupportedCalls: 282_865,
+          supportedCallSemanticsSha256:
+            "c06dd5c964e6b893ae0769763a30d3afcddaf3b196b680f63cd1806bc9301a1b",
+          clockSampleCount: 100_556,
+          lastClockTick: 3_800_550,
+          lastClockTime100ns: 2_005_500_000,
+          lastClockGeneration: 16_305,
+          lastClockRetiredInstructions: 391_909_858,
+          lastClockPendingRetiredInstructions: 1_858,
+          windowTimerCallbackCount: 40,
+          timerPacingCompletionCount: 9_002,
+          writebackBatches: 286_063,
+          hostDeltaBatches: 143_087,
+          callbackEventCount: 148,
+          finalMemoryGeneration: 333_500,
+          terminalInstructionCount: 392_354_089,
+          terminalMemoryContentSha256:
+            "9b70297684d908d75432ac97d062d8a1f8f7ab595bd563e4915d48d7f9e60abe",
+        }
+      : d3d9SetStreamSourcePostFvfActive
       ? {
           schema:
             "vine.v86-bgi-d3d9-set-stream-source-post-fvf-primary",
@@ -24931,7 +25001,104 @@ export function validateCurrentCheckpoint(manifest) {
       currentStop.prerequisiteTextureBindingCheckpoint ?? {};
     const prerequisiteFvfCheckpoint =
       currentStop.prerequisiteFvfCheckpoint ?? {};
-    const currentStopValid = d3d9SetStreamSourcePostFvfActive
+    const prerequisiteStreamSourceCheckpoint =
+      currentStop.prerequisiteStreamSourceCheckpoint ?? {};
+    const currentStopValid = d3d9DrawPrimitivePostStreamSourceActive
+      ? currentStop.kind === "capability-checkpoint" &&
+        currentStop.classification === "semantic-leaf" &&
+        currentStop.nextCheckpoint === "d3d9-end-scene-post-draw-primitive" &&
+        currentStop.pausedHistoricalCheckpoint ===
+          "d3d9-draw-primitive-post-stream-source" &&
+        currentStop.instructionCount === 392_354_089 &&
+        currentStop.capabilityCluster ===
+          "d3d9-idirect3ddevice9-method" &&
+        currentStop.reason ===
+          "d3d9-draw-primitive-post-stream-source-checkpoint-complete" &&
+        prerequisiteStreamSourceCheckpoint.capability ===
+          "d3d9-set-stream-source-post-fvf" &&
+        prerequisiteStreamSourceCheckpoint.lastCompletionSequence ===
+          282_864 &&
+        prerequisiteStreamSourceCheckpoint.lastCompletionInstructionCount ===
+          392_354_072 &&
+        prerequisiteStreamSourceCheckpoint.logicalGraphicsDeviceGeneration ===
+          71 &&
+        prerequisiteStreamSourceCheckpoint.vertexBufferId === 3 &&
+        expectedCompletion.capability ===
+          "d3d9-draw-primitive-post-stream-source" &&
+        expectedCompletion.implementationId ===
+          "runtime.d3d9-draw-primitive-post-stream-source.v1" &&
+        expectedCompletion.requiredCompletions === 1 &&
+        expectedCompletion.completionCount === 1 &&
+        expectedCompletion.prerequisiteStreamSourceSequence === 282_864 &&
+        expectedCompletion.prerequisiteStreamSourceInstructionCount ===
+          392_354_072 &&
+        expectedCompletion.firstCompletionSequence === 282_865 &&
+        expectedCompletion.firstCompletionInstructionCount === 392_354_081 &&
+        expectedCompletion.lastCompletionSequence === 282_865 &&
+        expectedCompletion.lastCompletionInstructionCount === 392_354_081 &&
+        expectedCompletion.compatibilityPolicyId ===
+          "d3d9-primary-virtual-adapter-v33" &&
+        expectedCompletion.drawPrimitiveProfileId ===
+          "primary-first-frame-triangle-strip-quad-draw-v1" &&
+        expectedCompletion.stateAuthority ===
+          "rust-runtime-graphics-logical-device-back-buffer-draw-submissions" &&
+        expectedCompletion.vertexByteAuthority ===
+          "rust-guest-memory-synchronous-immutable-snapshot" &&
+        expectedCompletion.mutation ===
+          "validate-plan-read-preflight-targeted-commit" &&
+        expectedCompletion.supportedPrimitiveTopology === "triangle-strip" &&
+        expectedCompletion.supportedStartVertex === 0 &&
+        expectedCompletion.supportedPrimitiveCount === 2 &&
+        expectedCompletion.capturedVertexBytes === 112 &&
+        expectedCompletion.vertexDataSha256 ===
+          "405bea74541d2aece445d0dac693da55fb404e777c91ff81d87d4c6272581362" &&
+        expectedCompletion.pendingSubmissionLimit === 4096 &&
+        expectedCompletion.pendingVertexBytesLimit === 1_048_576 &&
+        expectedCompletion.clearDiscardsPendingSubmissions === true &&
+        expectedCompletion.failureAtomicity === true &&
+        expectedCompletion.logicalGraphicsDeviceId === 3 &&
+        expectedCompletion.logicalGraphicsComObjectId === "21" &&
+        expectedCompletion.activeSceneSequence === 4 &&
+        expectedCompletion.logicalGraphicsDeviceGeneration === 72 &&
+        expectedCompletion.backBufferContentGeneration === 11 &&
+        expectedCompletion.backBufferClearSequence === 4 &&
+        expectedCompletion.drawSubmissionCount === 1 &&
+        expectedCompletion.drawSubmissionSequence === 4 &&
+        expectedCompletion.drawSubmissionSceneSequence === 4 &&
+        expectedCompletion.vertexBufferId === 3 &&
+        expectedCompletion.vertexBufferContentGeneration === 1 &&
+        expectedCompletion.textureId === 8 &&
+        expectedCompletion.textureContentGeneration === 4 &&
+        expectedCompletion.presentedFrameSequence === 3 &&
+        expectedCompletion.browserRendererResourceCreated === false &&
+        expectedCompletion.visiblePixelsProduced === false &&
+        expectedCompletion.activeCallbackDepthAtCompletion === 0 &&
+        expectedCompletion.instructionCount === 392_354_089 &&
+        expectedCompletion.memoryContentSha256 ===
+          "9b70297684d908d75432ac97d062d8a1f8f7ab595bd563e4915d48d7f9e60abe" &&
+        expectedCompletion.nextReturnAddress === 0x1005_b43b &&
+        expectedCompletion.nextStackPointer === 0x006f_b870 &&
+        expectedEndpoint.endpointKind === "com-method" &&
+        expectedEndpoint.endpointId === 0 &&
+        expectedEndpoint.api === "IDirect3DDevice9!EndScene" &&
+        expectedEndpoint.endpointAddress === "0x010112d0" &&
+        expectedEndpoint.observedModule === "<com>" &&
+        expectedEndpoint.observedSymbol === "interface-1-slot-42" &&
+        expectedEndpoint.id === 0 &&
+        expectedEndpoint.address === 0x0101_12d0 &&
+        expectedEndpoint.module === "<com>" &&
+        expectedEndpoint.symbol?.kind === "name" &&
+        expectedEndpoint.symbol.name === "interface-1-slot-42" &&
+        expectedEndpoint.disposition === "declared-com-method" &&
+        expectedEndpoint.interfaceIndex === 1 &&
+        expectedEndpoint.vtableSlot === 42 &&
+        expectedEndpoint.interface === "IDirect3DDevice9" &&
+        expectedEndpoint.method === "EndScene" &&
+        expectedEndpoint.thisPointer === "0x01010004" &&
+        expectedEndpoint.arguments?.length === 0 &&
+        expectedEndpoint.returnAddress === "0x1005b43b" &&
+        expectedEndpoint.stackPointer === "0x006fb870"
+      : d3d9SetStreamSourcePostFvfActive
       ? currentStop.kind === "capability-checkpoint" &&
         currentStop.classification === "semantic-leaf" &&
         currentStop.nextCheckpoint ===
@@ -27011,6 +27178,83 @@ export function validateCurrentCheckpoint(manifest) {
         d3d9SetStreamSourcePostFvfLatest.chromeCompletions === 1 &&
         d3d9SetStreamSourcePostFvfLatest.nodeChromeOrderedSemanticsMatched ===
           true);
+    const d3d9DrawPrimitivePostStreamSourceLatest =
+      latestEvidence.d3d9DrawPrimitivePostStreamSource ?? {};
+    const d3d9DrawPrimitivePostStreamSourceEvidenceValid =
+      !d3d9DrawPrimitivePostStreamSourceActive ||
+      (d3d9DrawPrimitivePostStreamSourceNode.completionCount === 1 &&
+        d3d9DrawPrimitivePostStreamSourceNode.sequence === 282_865 &&
+        d3d9DrawPrimitivePostStreamSourceNode.occurrence === 4 &&
+        d3d9DrawPrimitivePostStreamSourceNode.instructionCount ===
+          392_354_081 &&
+        d3d9DrawPrimitivePostStreamSourceNode.arguments?.join(",") ===
+          "0x01010004,0x00000005,0x00000000,0x00000002" &&
+        d3d9DrawPrimitivePostStreamSourceNode.result === "0x00000000" &&
+        d3d9DrawPrimitivePostStreamSourceNode.returnAddress === "0x1005b402" &&
+        d3d9DrawPrimitivePostStreamSourceNode.stackPointers?.join(",") ===
+          "0x006fb864,0x006fb878" &&
+        d3d9DrawPrimitivePostStreamSourceNode.referenceCount === 5 &&
+        d3d9DrawPrimitivePostStreamSourceNode.guestWriteBytes === 0 &&
+        d3d9DrawPrimitivePostStreamSourceNode.compatibilityPolicyId ===
+          "d3d9-primary-virtual-adapter-v33" &&
+        d3d9DrawPrimitivePostStreamSourceNode.drawPrimitiveProfileId ===
+          "primary-first-frame-triangle-strip-quad-draw-v1" &&
+        d3d9DrawPrimitivePostStreamSourceNode.stateAuthority ===
+          "rust-runtime-graphics-logical-device-back-buffer-draw-submissions" &&
+        d3d9DrawPrimitivePostStreamSourceNode.vertexByteAuthority ===
+          "rust-guest-memory-synchronous-immutable-snapshot" &&
+        d3d9DrawPrimitivePostStreamSourceNode.mutation ===
+          "validate-plan-read-preflight-targeted-commit" &&
+        d3d9DrawPrimitivePostStreamSourceNode.supportedPrimitiveTopology ===
+          "triangle-strip" &&
+        d3d9DrawPrimitivePostStreamSourceNode.supportedStartVertex === 0 &&
+        d3d9DrawPrimitivePostStreamSourceNode.supportedPrimitiveCount === 2 &&
+        d3d9DrawPrimitivePostStreamSourceNode.capturedVertexBytes === 112 &&
+        d3d9DrawPrimitivePostStreamSourceNode.vertexDataSha256 ===
+          "405bea74541d2aece445d0dac693da55fb404e777c91ff81d87d4c6272581362" &&
+        d3d9DrawPrimitivePostStreamSourceNode.pendingSubmissionLimit === 4096 &&
+        d3d9DrawPrimitivePostStreamSourceNode.pendingVertexBytesLimit ===
+          1_048_576 &&
+        d3d9DrawPrimitivePostStreamSourceNode.clearDiscardsPendingSubmissions ===
+          true &&
+        d3d9DrawPrimitivePostStreamSourceNode.failureAtomicity === true &&
+        d3d9DrawPrimitivePostStreamSourceNode.logicalGraphicsDeviceId === 3 &&
+        d3d9DrawPrimitivePostStreamSourceNode.logicalGraphicsComObjectId ===
+          "21" &&
+        d3d9DrawPrimitivePostStreamSourceNode.activeSceneSequence === 4 &&
+        d3d9DrawPrimitivePostStreamSourceNode.logicalGraphicsDeviceGeneration ===
+          72 &&
+        d3d9DrawPrimitivePostStreamSourceNode.backBufferContentGeneration ===
+          11 &&
+        d3d9DrawPrimitivePostStreamSourceNode.backBufferClearSequence === 4 &&
+        d3d9DrawPrimitivePostStreamSourceNode.drawSubmissionCount === 1 &&
+        d3d9DrawPrimitivePostStreamSourceNode.drawSubmissionSequence === 4 &&
+        d3d9DrawPrimitivePostStreamSourceNode.drawSubmissionSceneSequence ===
+          4 &&
+        d3d9DrawPrimitivePostStreamSourceNode.vertexBufferId === 3 &&
+        d3d9DrawPrimitivePostStreamSourceNode.vertexBufferContentGeneration ===
+          1 &&
+        d3d9DrawPrimitivePostStreamSourceNode.textureId === 8 &&
+        d3d9DrawPrimitivePostStreamSourceNode.textureGeneration === 48 &&
+        d3d9DrawPrimitivePostStreamSourceNode.textureContentGeneration === 4 &&
+        d3d9DrawPrimitivePostStreamSourceNode.presentedFrameSequence === 3 &&
+        d3d9DrawPrimitivePostStreamSourceNode.browserRendererResourceCreated ===
+          false &&
+        d3d9DrawPrimitivePostStreamSourceNode.visiblePixelsProduced === false &&
+        d3d9DrawPrimitivePostStreamSourceNode.nextEndpoint ===
+          "IDirect3DDevice9!EndScene" &&
+        d3d9DrawPrimitivePostStreamSourceNode.nextInstructionCount ===
+          392_354_089 &&
+        d3d9DrawPrimitivePostStreamSourceLatest.completionCount === 1 &&
+        d3d9DrawPrimitivePostStreamSourceLatest.sequence === 282_865 &&
+        d3d9DrawPrimitivePostStreamSourceLatest.drawSubmissionSequence === 4 &&
+        d3d9DrawPrimitivePostStreamSourceLatest.vertexDataSha256 ===
+          "405bea74541d2aece445d0dac693da55fb404e777c91ff81d87d4c6272581362" &&
+        d3d9DrawPrimitivePostStreamSourceLatest.failureAtomicity === true &&
+        d3d9DrawPrimitivePostStreamSourceLatest.nodeCompletions === 1 &&
+        d3d9DrawPrimitivePostStreamSourceLatest.chromeCompletions === 1 &&
+        d3d9DrawPrimitivePostStreamSourceLatest.nodeChromeOrderedSemanticsMatched ===
+          true);
     if (
       scheduled.schema !== "vine.scheduled-shared-clock-checkpoint" ||
       scheduled.schemaVersion !== 1 ||
@@ -27088,7 +27332,9 @@ export function validateCurrentCheckpoint(manifest) {
       node.terminalMemoryContentSha256 !==
         expectedNode.terminalMemoryContentSha256 ||
       browserBoundary.runtimeProtocol !==
-        (d3d9SetStreamSourcePostFvfActive
+        (d3d9DrawPrimitivePostStreamSourceActive
+          ? "vine.browser-runtime-worker.v116"
+          : d3d9SetStreamSourcePostFvfActive
           ? "vine.browser-runtime-worker.v115"
           : d3d9SetFvfPostTextureBindingActive
           ? "vine.browser-runtime-worker.v114"
@@ -27120,7 +27366,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.retiredInstructionCursorTransport !==
         "checked-u64-low-high-per-api-and-com-dispatch" ||
       browserBoundary.browserOwnsGuestClockState !== false ||
-      (d3d9SetStreamSourcePostFvfActive
+      (d3d9DrawPrimitivePostStreamSourceActive
+        ? browserBoundary.browserReportSchemaVersion !== 82
+        : d3d9SetStreamSourcePostFvfActive
         ? browserBoundary.browserReportSchemaVersion !== 81
         : d3d9SetFvfPostTextureBindingActive
         ? browserBoundary.browserReportSchemaVersion !== 80
@@ -27149,7 +27397,9 @@ export function validateCurrentCheckpoint(manifest) {
         "npm run check:runtime:browser-worker" ||
       browserBoundary.chromeVersion !== "150.0.7871.187" ||
       browserBoundary.reportBytes !==
-        (d3d9SetStreamSourcePostFvfActive
+        (d3d9DrawPrimitivePostStreamSourceActive
+          ? 35_946
+          : d3d9SetStreamSourcePostFvfActive
           ? 35_950
           : d3d9SetFvfPostTextureBindingActive
           ? 35_942
@@ -27177,7 +27427,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 35_961
           : 35_951) ||
       browserBoundary.reportSha256 !==
-        (d3d9SetStreamSourcePostFvfActive
+        (d3d9DrawPrimitivePostStreamSourceActive
+          ? "23502a4849f3e38e8f0824f9e7cc437d2b7392867a5ff288bb81d7d23414801b"
+          : d3d9SetStreamSourcePostFvfActive
           ? "fefc8786801c7c4d0831a5c4e213aa01aa4044ae83feb598f3a4ed22bf378a64"
           : d3d9SetFvfPostTextureBindingActive
           ? "795f03b2acfd1c2c8f86fa5b1685f4ca8ea1568037fa8bcf791c077ccc77671a"
@@ -27205,7 +27457,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "bd77deb28553190382622adb663ac87b99e4c9f9df719bbba2282f5bae5bca94"
           : "ecd982f21410c69c4d844a114041e301fd140fedbb520cf5773f4d13d2846aa1") ||
       browserBoundary.runtimeWorkerBytes !==
-        (d3d9SetStreamSourcePostFvfActive
+        (d3d9DrawPrimitivePostStreamSourceActive
+          ? 1_144_548
+          : d3d9SetStreamSourcePostFvfActive
           ? 1_137_159
           : d3d9SetFvfPostTextureBindingActive
           ? 1_130_895
@@ -27233,7 +27487,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 1_053_379
           : 1_049_048) ||
       browserBoundary.runtimeWorkerSha256 !==
-        (d3d9SetStreamSourcePostFvfActive
+        (d3d9DrawPrimitivePostStreamSourceActive
+          ? "d5c12e5de9e16f4dbdcd84a95f2f23dcda7a860162381ae1a27ee27b0d4a0c04"
+          : d3d9SetStreamSourcePostFvfActive
           ? "97ff989c99d4ac044f769164ca5f17c72d3d029741397f99cd82e4a20c85ca3d"
           : d3d9SetFvfPostTextureBindingActive
           ? "284a72c599b26f70b0cb29134a40a773c50dc27482fc129defc02cca9b21057c"
@@ -27309,7 +27565,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.privatePrimaryCommand !==
         "node tools/run-browser-runtime-check.mjs --bgi" ||
       browserBoundary.privatePrimaryReportBytes !==
-        (d3d9SetStreamSourcePostFvfActive
+        (d3d9DrawPrimitivePostStreamSourceActive
+          ? 2_624_462
+          : d3d9SetStreamSourcePostFvfActive
           ? 2_618_476
           : d3d9SetFvfPostTextureBindingActive
           ? 2_618_200
@@ -27337,7 +27595,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 2_598_978
           : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
-        (d3d9SetStreamSourcePostFvfActive
+        (d3d9DrawPrimitivePostStreamSourceActive
+          ? "0ff4838e7874bd8b17fae18c35013a194645ecae290a11969c7b85d80e6f5cdc"
+          : d3d9SetStreamSourcePostFvfActive
           ? "db19b62710a71dfe47bd1657f7712ee4a58676a8de0f65f2d140bd25b0b58fd4"
           : d3d9SetFvfPostTextureBindingActive
           ? "4a23018d1200cf26eec510203b8d03391edfb92f3ef7b3ac566f858ecb2a5fa9"
@@ -27410,6 +27670,7 @@ export function validateCurrentCheckpoint(manifest) {
       !d3d9SetTexturePostTextureStageStateEvidenceValid ||
       !d3d9SetFvfPostTextureBindingEvidenceValid ||
       !d3d9SetStreamSourcePostFvfEvidenceValid ||
+      !d3d9DrawPrimitivePostStreamSourceEvidenceValid ||
       conclusion.clockFreezeWasProximateCause !== false ||
       (privateHeapOrdinarySegmentGrowthActive &&
         conclusion.ordinaryHeapCapacityWasProximateCause !== false) ||
@@ -27422,7 +27683,9 @@ export function validateCurrentCheckpoint(manifest) {
       (getCursorInfoActive &&
         conclusion.cursorInfoWasProximateCause !== false) ||
       conclusion.nextEndpoint !==
-        (d3d9SetStreamSourcePostFvfActive
+        (d3d9DrawPrimitivePostStreamSourceActive
+          ? "IDirect3DDevice9!EndScene"
+          : d3d9SetStreamSourcePostFvfActive
           ? "IDirect3DDevice9!DrawPrimitive"
           : d3d9SetFvfPostTextureBindingActive
           ? "IDirect3DDevice9!SetStreamSource"
@@ -27472,6 +27735,7 @@ export function validateCurrentCheckpoint(manifest) {
           d3d9SetTexturePostTextureStageStateEvidenceValid,
           d3d9SetFvfPostTextureBindingEvidenceValid,
           d3d9SetStreamSourcePostFvfEvidenceValid,
+          d3d9DrawPrimitivePostStreamSourceEvidenceValid,
         })})`,
       );
     }

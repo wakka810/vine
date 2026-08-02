@@ -45,3 +45,5 @@ npm run check:runtime:bgi -- --profile d3d9-set-stream-source-post-fvf
 node tools/run-browser-runtime-check.mjs --bgi --bgi-profile d3d9-set-stream-source-post-fvf --bgi-policy fixtures/runtime-policies/kernel32-delete-file-a-v1.json
 npm run check:runtime:browser-worker
 ```
+
+Continuation: [post-stream-source DrawPrimitive profile](bgi-d3d9-draw-primitive-post-stream-source.md).

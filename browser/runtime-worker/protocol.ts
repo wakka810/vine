@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 115 as const;
+export const protocolVersion = 116 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -32,6 +32,7 @@ export type BgiCapabilityProfile =
   | "d3d9-set-texture-post-texture-stage-state"
   | "d3d9-set-fvf-post-texture-binding"
   | "d3d9-set-stream-source-post-fvf"
+  | "d3d9-draw-primitive-post-stream-source"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1844,6 +1845,55 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "d3d9-draw-primitive-post-stream-source";
+        implementationId: "runtime.d3d9-draw-primitive-post-stream-source.v1";
+        requiredCompletions: 1;
+        completionCount: 1;
+        prerequisiteStreamSourceSequence: number;
+        prerequisiteStreamSourceInstructionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        call: RuntimeSupportedCallSnapshot;
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33";
+        drawPrimitiveProfileId: "primary-first-frame-triangle-strip-quad-draw-v1";
+        stateAuthority: "rust-runtime-graphics-logical-device-back-buffer-draw-submissions";
+        vertexByteAuthority: "rust-guest-memory-synchronous-immutable-snapshot";
+        mutation: "validate-plan-read-preflight-targeted-commit";
+        supportedPrimitiveTopology: "triangle-strip";
+        supportedStartVertex: 0;
+        supportedPrimitiveCount: 2;
+        capturedVertexBytes: 112;
+        vertexDataSha256: string;
+        pendingSubmissionLimit: 4096;
+        pendingVertexBytesLimit: 1048576;
+        clearDiscardsPendingSubmissions: true;
+        failureAtomicity: true;
+        logicalGraphicsDeviceId: 3;
+        logicalGraphicsComObjectId: "21";
+        activeSceneSequence: 4;
+        logicalGraphicsDeviceGeneration: 72;
+        backBufferContentGeneration: 11;
+        backBufferClearSequence: 4;
+        drawSubmissionCount: 1;
+        drawSubmissionSequence: 4;
+        drawSubmissionSceneSequence: 4;
+        vertexBufferId: 3;
+        vertexBufferContentGeneration: 1;
+        textureId: 8;
+        textureContentGeneration: 4;
+        presentedFrameSequence: 3;
+        browserRendererResourceCreated: false;
+        visiblePixelsProduced: false;
+        activeCallbackDepthAtCompletion: 0;
+        instructionCount: number;
+        nextEndpoint: unknown;
+        memoryContentSha256: string;
+        nextReturnAddress: number;
+        nextStackPointer: number;
+      }
     | {
         capability: "d3d9-set-stream-source-post-fvf";
         implementationId: "runtime.d3d9-set-stream-source-post-fvf.v1";

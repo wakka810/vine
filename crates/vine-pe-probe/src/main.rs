@@ -268,6 +268,7 @@ enum GenericRuntimeCapability {
     D3d9SetTexturePostTextureStageState,
     D3d9SetFvfPostTextureBinding,
     D3d9SetStreamSourcePostFvf,
+    D3d9DrawPrimitivePostStreamSource,
     D3d9BeginScene,
     D3d9InitialSamplerStates,
     D3d9InitialTextureStageStates,
@@ -2950,6 +2951,7 @@ fn run_v86_reflection_session(
                     | GenericRuntimeCapability::D3d9SetTexturePostTextureStageState
                     | GenericRuntimeCapability::D3d9SetFvfPostTextureBinding
                     | GenericRuntimeCapability::D3d9SetStreamSourcePostFvf
+                    | GenericRuntimeCapability::D3d9DrawPrimitivePostStreamSource
                     | GenericRuntimeCapability::D3d9BeginScene
                     | GenericRuntimeCapability::D3d9InitialSamplerStates
                     | GenericRuntimeCapability::D3d9InitialTextureStageStates
@@ -3644,6 +3646,7 @@ fn run_v86_generic_runtime_session(
                 | GenericRuntimeCapability::D3d9SetTexturePostTextureStageState
                 | GenericRuntimeCapability::D3d9SetFvfPostTextureBinding
                 | GenericRuntimeCapability::D3d9SetStreamSourcePostFvf
+                | GenericRuntimeCapability::D3d9DrawPrimitivePostStreamSource
         )
     );
     let delete_file_a_enabled = d3d9_update_texture_partial_dirty_region_enabled
@@ -3769,7 +3772,10 @@ fn run_v86_generic_runtime_session(
     let d3d9_draw_primitive_enabled = d3d9_end_scene_enabled
         || matches!(
             enabled_capability,
-            Some(GenericRuntimeCapability::D3d9DrawPrimitive)
+            Some(
+                GenericRuntimeCapability::D3d9DrawPrimitive
+                    | GenericRuntimeCapability::D3d9DrawPrimitivePostStreamSource
+            )
         );
     let d3d9_set_stream_source_enabled = d3d9_draw_primitive_enabled
         || matches!(
@@ -3777,6 +3783,7 @@ fn run_v86_generic_runtime_session(
             Some(
                 GenericRuntimeCapability::D3d9SetStreamSource
                     | GenericRuntimeCapability::D3d9SetStreamSourcePostFvf
+                    | GenericRuntimeCapability::D3d9DrawPrimitivePostStreamSource
             )
         );
     let d3d9_set_fvf_enabled = d3d9_set_stream_source_enabled
@@ -3786,6 +3793,7 @@ fn run_v86_generic_runtime_session(
                 GenericRuntimeCapability::D3d9SetFvf
                     | GenericRuntimeCapability::D3d9SetFvfPostTextureBinding
                     | GenericRuntimeCapability::D3d9SetStreamSourcePostFvf
+                    | GenericRuntimeCapability::D3d9DrawPrimitivePostStreamSource
             )
         );
     let d3d9_set_texture_enabled = d3d9_set_fvf_enabled
@@ -3796,6 +3804,7 @@ fn run_v86_generic_runtime_session(
                     | GenericRuntimeCapability::D3d9SetTexturePostTextureStageState
                     | GenericRuntimeCapability::D3d9SetFvfPostTextureBinding
                     | GenericRuntimeCapability::D3d9SetStreamSourcePostFvf
+                    | GenericRuntimeCapability::D3d9DrawPrimitivePostStreamSource
             )
         );
     let d3d9_initial_texture_stage_states_enabled = d3d9_set_texture_enabled
@@ -4028,6 +4037,7 @@ fn run_v86_generic_runtime_session(
             | GenericRuntimeCapability::D3d9SetTexturePostTextureStageState
             | GenericRuntimeCapability::D3d9SetFvfPostTextureBinding
             | GenericRuntimeCapability::D3d9SetStreamSourcePostFvf
+            | GenericRuntimeCapability::D3d9DrawPrimitivePostStreamSource
             | GenericRuntimeCapability::D3d9BeginScene
             | GenericRuntimeCapability::D3d9InitialSamplerStates
             | GenericRuntimeCapability::D3d9InitialTextureStageStates
@@ -15171,6 +15181,9 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 }
                 "d3d9-set-stream-source-post-fvf" => {
                     GenericRuntimeCapability::D3d9SetStreamSourcePostFvf
+                }
+                "d3d9-draw-primitive-post-stream-source" => {
+                    GenericRuntimeCapability::D3d9DrawPrimitivePostStreamSource
                 }
                 "d3d9-begin-scene" => GenericRuntimeCapability::D3d9BeginScene,
                 "d3d9-initial-sampler-states" => GenericRuntimeCapability::D3d9InitialSamplerStates,

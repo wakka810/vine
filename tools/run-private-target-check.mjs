@@ -1178,7 +1178,9 @@ function isScheduledSharedClockNodeReport(report) {
     report?.schema ===
       "vine.v86-bgi-d3d9-set-fvf-post-texture-binding-primary" ||
     report?.schema ===
-      "vine.v86-bgi-d3d9-set-stream-source-post-fvf-primary"
+      "vine.v86-bgi-d3d9-set-stream-source-post-fvf-primary" ||
+    report?.schema ===
+      "vine.v86-bgi-d3d9-draw-primitive-post-stream-source-primary"
   );
 }
 
@@ -1198,7 +1200,9 @@ function isGetCursorInfoOrLaterNodeReport(report) {
     report?.schema ===
       "vine.v86-bgi-d3d9-set-fvf-post-texture-binding-primary" ||
     report?.schema ===
-      "vine.v86-bgi-d3d9-set-stream-source-post-fvf-primary"
+      "vine.v86-bgi-d3d9-set-stream-source-post-fvf-primary" ||
+    report?.schema ===
+      "vine.v86-bgi-d3d9-draw-primitive-post-stream-source-primary"
   );
 }
 
@@ -1207,6 +1211,22 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (
+    nodeReport.schema ===
+    "vine.v86-bgi-d3d9-draw-primitive-post-stream-source-primary"
+  ) {
+    const { call, ...completion } =
+      execution.d3d9DrawPrimitivePostStreamSource.checkpointCompletion;
+    const {
+      occurrence: _occurrence,
+      trapInstructionCount: _trapInstructionCount,
+      ...projectedCall
+    } = call;
+    return {
+      ...structuredClone(completion),
+      call: structuredClone(projectedCall),
+    };
+  }
   if (
     nodeReport.schema ===
     "vine.v86-bgi-d3d9-set-stream-source-post-fvf-primary"
@@ -2161,6 +2181,76 @@ function assertD3d9SetStreamSourcePostFvfCheckpoint(
   assert.deepEqual(actual.nextEndpoint.symbol, expectedEndpoint.symbol);
 }
 
+function assertD3d9DrawPrimitivePostStreamSourceCheckpoint(
+  actual,
+  expectedCompletion,
+  expectedEndpoint,
+) {
+  assert(actual !== null, "post-stream-source DrawPrimitive checkpoint is missing");
+  for (const field of [
+    "capability",
+    "implementationId",
+    "requiredCompletions",
+    "completionCount",
+    "prerequisiteStreamSourceSequence",
+    "prerequisiteStreamSourceInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "compatibilityPolicyId",
+    "drawPrimitiveProfileId",
+    "stateAuthority",
+    "vertexByteAuthority",
+    "mutation",
+    "supportedPrimitiveTopology",
+    "supportedStartVertex",
+    "supportedPrimitiveCount",
+    "capturedVertexBytes",
+    "vertexDataSha256",
+    "pendingSubmissionLimit",
+    "pendingVertexBytesLimit",
+    "clearDiscardsPendingSubmissions",
+    "failureAtomicity",
+    "logicalGraphicsDeviceId",
+    "logicalGraphicsComObjectId",
+    "activeSceneSequence",
+    "logicalGraphicsDeviceGeneration",
+    "backBufferContentGeneration",
+    "backBufferClearSequence",
+    "drawSubmissionCount",
+    "drawSubmissionSequence",
+    "drawSubmissionSceneSequence",
+    "vertexBufferId",
+    "vertexBufferContentGeneration",
+    "textureId",
+    "textureContentGeneration",
+    "presentedFrameSequence",
+    "browserRendererResourceCreated",
+    "visiblePixelsProduced",
+    "activeCallbackDepthAtCompletion",
+    "instructionCount",
+    "memoryContentSha256",
+    "nextReturnAddress",
+    "nextStackPointer",
+  ]) {
+    assert.equal(actual[field], expectedCompletion[field], field);
+  }
+  for (const field of [
+    "id",
+    "address",
+    "module",
+    "disposition",
+    "interfaceIndex",
+    "vtableSlot",
+    "interface",
+    "method",
+  ]) {
+    assert.equal(actual.nextEndpoint[field], expectedEndpoint[field], field);
+  }
+  assert.deepEqual(actual.nextEndpoint.symbol, expectedEndpoint.symbol);
+}
+
 function assertD3d9SetTextureStageStatePostSamplerStateCheckpoint(
   actual,
   expectedCompletion,
@@ -2379,6 +2469,9 @@ function assertScheduledSharedClockReportSemantics({
   const d3d9SetStreamSourcePostFvfReport =
     nodeReport.schema ===
     "vine.v86-bgi-d3d9-set-stream-source-post-fvf-primary";
+  const d3d9DrawPrimitivePostStreamSourceReport =
+    nodeReport.schema ===
+    "vine.v86-bgi-d3d9-draw-primitive-post-stream-source-primary";
 
   assert(
     expectedNext.kind === "capability-checkpoint" ||
@@ -2783,7 +2876,45 @@ function assertScheduledSharedClockReportSemantics({
     expectedNext,
   );
   let expectedFaultCode = null;
-  if (d3d9SetStreamSourcePostFvfReport) {
+  if (d3d9DrawPrimitivePostStreamSourceReport) {
+    const draw = nodeExecution.d3d9DrawPrimitivePostStreamSource;
+    assert.equal(nodeStop.fault, null);
+    assert.equal(
+      nodeStop.terminal.instructionCount,
+      expectedNext.instructionCount,
+    );
+    assert.deepEqual(draw.call, draw.checkpointCompletion.call);
+    assert.equal(draw.call.sequence, 282_865);
+    assert.equal(draw.call.symbol, "IDirect3DDevice9.DrawPrimitive");
+    assert.equal(draw.call.vtableSlot, 81);
+    assert.deepEqual(draw.call.arguments, [0x0101_0004, 5, 0, 2]);
+    assert.deepEqual(draw.call.result, { kind: "h-result", value: 0 });
+    assert.deepEqual(draw.call.guestWrites, []);
+    assert.equal(draw.call.graphicsDevice.id, 3);
+    assert.equal(draw.call.graphicsDevice.generation, 72);
+    assert.equal(draw.call.graphicsDevice.activeScene.sequence, 4);
+    assert.equal(draw.call.graphicsDevice.backBuffer.contentGeneration, 11);
+    assert.equal(
+      draw.call.graphicsDevice.backBuffer.drawSubmissions.length,
+      1,
+    );
+    const submission =
+      draw.call.graphicsDevice.backBuffer.drawSubmissions[0];
+    assert.equal(submission.sequence, 4);
+    assert.equal(submission.sceneSequence, 4);
+    assert.equal(submission.vertexData.length, 112);
+    assert.equal(
+      sha256(Buffer.from(submission.vertexData)),
+      "405bea74541d2aece445d0dac693da55fb404e777c91ff81d87d4c6272581362",
+    );
+    assert.equal(submission.texture.textureId, 8);
+    assert.equal(submission.texture.content.contentGeneration, 4);
+    assertD3d9DrawPrimitivePostStreamSourceCheckpoint(
+      nodeCheckpoint,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+  } else if (d3d9SetStreamSourcePostFvfReport) {
     const streamSource = nodeExecution.d3d9SetStreamSourcePostFvf;
     assert.equal(nodeStop.fault, null);
     assert.equal(
@@ -3088,6 +3219,7 @@ function assertScheduledSharedClockReportSemantics({
     );
   }
   if (
+    !d3d9DrawPrimitivePostStreamSourceReport &&
     !d3d9SetStreamSourcePostFvfReport &&
     !d3d9SetFvfPostTextureBindingReport &&
     !d3d9SetTexturePostTextureStageStateReport &&
@@ -3119,6 +3251,7 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext,
     );
   } else if (
+    !d3d9DrawPrimitivePostStreamSourceReport &&
     !d3d9SetStreamSourcePostFvfReport &&
     !d3d9SetFvfPostTextureBindingReport &&
     !d3d9SetTexturePostTextureStageStateReport &&
@@ -3178,7 +3311,15 @@ function assertScheduledSharedClockReportSemantics({
   assert.equal(browser.pendingCallbacks, 0);
 
   const browserUnsupported = browser.firstUnsupported;
-  if (d3d9SetStreamSourcePostFvfReport) {
+  if (d3d9DrawPrimitivePostStreamSourceReport) {
+    assert.equal(browserUnsupported, null);
+    assertD3d9DrawPrimitivePostStreamSourceCheckpoint(
+      browser.checkpointCompletion,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+    assert.deepEqual(browser.checkpointCompletion.call, nodeCheckpoint.call);
+  } else if (d3d9SetStreamSourcePostFvfReport) {
     assert.equal(browserUnsupported, null);
     assertD3d9SetStreamSourcePostFvfCheckpoint(
       browser.checkpointCompletion,
@@ -3261,6 +3402,7 @@ function assertScheduledSharedClockReportSemantics({
     );
   }
   if (
+    !d3d9DrawPrimitivePostStreamSourceReport &&
     !d3d9SetStreamSourcePostFvfReport &&
     !d3d9SetFvfPostTextureBindingReport &&
     !d3d9SetTexturePostTextureStageStateReport &&
@@ -3296,6 +3438,7 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext,
     );
   } else if (
+    !d3d9DrawPrimitivePostStreamSourceReport &&
     !d3d9SetStreamSourcePostFvfReport &&
     !d3d9SetFvfPostTextureBindingReport &&
     !d3d9SetTexturePostTextureStageStateReport &&
@@ -3896,7 +4039,11 @@ const nodeInstructions = scheduledNodeReport
     : nodeReport.firstUnsupported.instructionCount;
 const nodeMemoryContentSha256 = scheduledNodeReport
   ? nodeReport.schema ===
-    "vine.v86-bgi-d3d9-set-stream-source-post-fvf-primary"
+    "vine.v86-bgi-d3d9-draw-primitive-post-stream-source-primary"
+    ? nodeReport.execution.d3d9DrawPrimitivePostStreamSource
+        .checkpointCompletion.memoryContentSha256
+    : nodeReport.schema ===
+      "vine.v86-bgi-d3d9-set-stream-source-post-fvf-primary"
     ? nodeReport.execution.d3d9SetStreamSourcePostFvf.checkpointCompletion
         .memoryContentSha256
     : nodeReport.schema ===

@@ -971,6 +971,16 @@ No guest bytes, COM references, browser renderer resources, or visible pixels
 are produced. Eight instructions later both stop at device slot 42 `EndScene`,
 endpoint `0x010112D0`, return address `0x1005B43B`.
 
+The `d3d9-draw-primitive-post-stream-source` profile reuses this transaction in
+the fourth scene. Node and Chrome complete sequence 282,865 at instruction
+392,354,081, snapshot logical vertex buffer 3 content generation 1 and texture
+8 content generation 4, and append submission／scene sequence 4. Device
+generation advances from 71 to 72 and back-buffer content generation from 10
+to 11. The authoritative 112-byte vertex snapshot retains SHA-256
+`405bea74541d2aece445d0dac693da55fb404e777c91ff81d87d4c6272581362`;
+no guest writes, renderer resources, or visible pixels are produced. Eight
+instructions later both stop at device slot 42 `EndScene`.
+
 ## Bounded first-frame scene close
 
 Version 28 adds `primary-first-frame-scene-end-v1` for device slot 42. The
@@ -1213,7 +1223,11 @@ the existing typed FVF owner, proves the assignment idempotent at device generat
 vertex-buffer-3／offset-0／stride-28 tuple through the existing non-owning
 same-device relation, proves the assignment idempotent at device generation 71,
 preserves the active fourth scene and prior fixed-function state, and stops at
-`IDirect3DDevice9::DrawPrimitive` slot 81. The historical
+`IDirect3DDevice9::DrawPrimitive` slot 81. The
+`d3d9-draw-primitive-post-stream-source` profile then validates that complete
+fixed-function state, synchronously snapshots 112 authoritative vertex bytes
+plus texture content generation 4, appends immutable submission sequence 4,
+and stops at `IDirect3DDevice9::EndScene` slot 42. The historical
 `d3d9-initial-sampler-states` profile enables only the exact sampler-0 MIN／MAG
 linear transitions, explicitly rejects the following three unprofiled render
 states, and stops at `IDirect3DDevice9::SetTextureStageState` slot 67. The historical

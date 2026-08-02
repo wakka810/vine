@@ -976,6 +976,9 @@ capacityをpreflightしてからback-bufferへtargeted commitし、失敗時はg
 変更しない。Submissionはsource resource retirement後も成立し、live non-owning bindingのretirement clearとは独立する。
 Full-target Clearは同じchecked commitでpending submissionを破棄する。これによりguest bytesの後続変更やresource retirementで
 既に発行したcommandの意味が変わらず、renderer adapterはRust snapshotだけを消費できる。
+4回目のsceneで再到達した同じtriangle-strip quadもこのtransactionを再利用し、vertex buffer content generation 1と
+texture content generation 4をsubmission sequence 4へ固定してからdevice generation 72／back-buffer content generation 11を
+commitする。Browser renderer materializationやvisible pixelはこのlogical draw commitのauthorityに含めない。
 
 Reached `EndScene`は同じ`RuntimeGraphicsDevice`が所有するactive-scene identityとdevice／graphics generationを
 mutation-free planへ固定し、全generationとlifecycleをpreflightした後、active sceneだけをtargeted commitでclearする。
