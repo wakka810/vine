@@ -482,13 +482,32 @@ function isUser32PeekMessageAPostTestCooperativeLevelTimerWaitProfile(
   );
 }
 
+function isUser32TranslateMessagePostTestCooperativeLevelTimerPeekProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile ===
+    "user32-translate-message-post-test-cooperative-level-timer-peek"
+  );
+}
+
+function includesUser32PeekMessageAPostTestCooperativeLevelTimerWaitProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isUser32PeekMessageAPostTestCooperativeLevelTimerWaitProfile(profile) ||
+    isUser32TranslateMessagePostTestCooperativeLevelTimerPeekProfile(profile)
+  );
+}
+
 function includesKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
       profile,
-    ) || isUser32PeekMessageAPostTestCooperativeLevelTimerWaitProfile(profile)
+    ) ||
+    includesUser32PeekMessageAPostTestCooperativeLevelTimerWaitProfile(profile)
   );
 }
 
@@ -10419,7 +10438,7 @@ class BrowserRuntimeSession {
     occurrence: number,
   ): void {
     if (
-      !isUser32PeekMessageAPostTestCooperativeLevelTimerWaitProfile(
+      !includesUser32PeekMessageAPostTestCooperativeLevelTimerWaitProfile(
         this.#configuration.capabilityProfile,
       ) ||
       call.sequence !== 282_873 ||
@@ -10554,6 +10573,138 @@ class BrowserRuntimeSession {
       browserOwnsMessageQueueState: false,
       browserTimerCreated: false,
       activeCallbackDepthAtCompletion: 0,
+      instructionCount: 0,
+      nextEndpoint: null,
+      nextArguments: [],
+      memoryContentSha256: "",
+      nextReturnAddress: 0,
+      nextStackPointer: 0,
+    };
+    if (
+      isUser32PeekMessageAPostTestCooperativeLevelTimerWaitProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      this.#bgiCheckpointPending = true;
+    }
+  }
+
+  #recordUser32TranslateMessagePostTestCooperativeLevelTimerPeekCall(
+    call: RuntimeSupportedCallSnapshot,
+    occurrence: number,
+  ): void {
+    if (
+      !isUser32TranslateMessagePostTestCooperativeLevelTimerPeekProfile(
+        this.#configuration.capabilityProfile,
+      ) ||
+      call.sequence !== 282_874 ||
+      call.implementationId !==
+        "user32.translate-message.window-timer-pointer-noop.v2"
+    ) {
+      return;
+    }
+    const previous = this.#report.checkpointCompletion;
+    const messageBytes =
+      this.#requireEngine().readGuestBytes(0x006f_f8e8, 28);
+    invariant(
+      previous?.capability ===
+          "user32-peek-message-a-post-test-cooperative-level-timer-wait" &&
+        previous.lastCompletionSequence === 282_873 &&
+        previous.lastCompletionInstructionCount === 392_354_423 &&
+        previous.message.hwnd === 0x4801_0001 &&
+        previous.message.message === 0x0113 &&
+        previous.message.wParam === 1 &&
+        previous.message.lParam === 0x1009_9600 &&
+        previous.message.time === 3_800_773 &&
+        previous.message.pointX === 960 &&
+        previous.message.pointY === 540 &&
+        previous.windowTimer.deliveryCount === 41 &&
+        previous.windowTimer.registrationGeneration === 1 &&
+        previous.windowTimer.nextDeadlineTime100ns === 2_007_935_000 &&
+        previous.queueDepthAfter === 0 &&
+        this.#report.instructions === 392_354_433 &&
+        this.#currentThreadId === 8_192 &&
+        occurrence === 43 &&
+        call.module.toLowerCase() === "user32.dll" &&
+        call.symbol === "TranslateMessage" &&
+        call.arguments.join(",") === "7338216" &&
+        "action" in call.result &&
+        call.result.action === "set" &&
+        call.result.value === 0 &&
+        call.returnAddress === 0x1009_37a2 &&
+        call.stackPointerBefore === 0x006f_f8d4 &&
+        call.stackPointerAfter === 0x006f_f8dc &&
+        call.lastError === 0 &&
+        call.guestWrites.length === 0 &&
+        call.windowTimer === undefined &&
+        messageBytes.join(",") ===
+          "1,0,1,72,19,1,0,0,1,0,0,0,0,150,9,16,197,254,57,0,192,3,0,0,28,2,0,0" &&
+        this.#requirePrepared().runtime.kernel32Policy ===
+          "kernel32-delete-file-a-v1" &&
+        this.#scheduledSharedClockSampleCount === 100_557 &&
+        this.#scheduledSharedClockWindowTimerCallbackCount === 40 &&
+        this.#scheduledSharedClockPresentCount === 4 &&
+        this.#bgiCallbackCallSequences.size === 0,
+      `post-TestCooperativeLevel timer-peek TranslateMessage evidence changed: ${JSON.stringify(
+        {
+          call,
+          occurrence,
+          currentThreadId: this.#currentThreadId,
+          previous,
+          messageBytes: [...messageBytes],
+          scheduledSharedClockSampleCount:
+            this.#scheduledSharedClockSampleCount,
+          scheduledSharedClockWindowTimerCallbackCount:
+            this.#scheduledSharedClockWindowTimerCallbackCount,
+          activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+        },
+      )}`,
+    );
+    this.#report.checkpointCompletion = {
+      capability:
+        "user32-translate-message-post-test-cooperative-level-timer-peek",
+      implementationId:
+        "runtime.user32-translate-message-post-test-cooperative-level-timer-peek.v1",
+      semanticImplementationId:
+        "user32.translate-message.window-timer-pointer-noop.v2",
+      requiredCompletions: 1,
+      completionCount: 1,
+      prerequisitePeekMessageASequence: previous.lastCompletionSequence,
+      prerequisitePeekMessageAInstructionCount:
+        previous.lastCompletionInstructionCount,
+      firstCompletionSequence: call.sequence,
+      firstCompletionInstructionCount: this.#report.instructions,
+      lastCompletionSequence: call.sequence,
+      lastCompletionInstructionCount: this.#report.instructions,
+      call: {
+        ...structuredClone(call),
+        occurrence,
+        trapInstructionCount: this.#report.instructions,
+      },
+      compatibilityPolicyId: "kernel32-delete-file-a-v1",
+      translationProfileId:
+        "published-current-thread-window-timer-noop-v1",
+      stateAuthority:
+        "rust-runtime-current-thread-message-queue-window-timer-and-guest-memory",
+      mutation: "none-validation-only",
+      failureAtomicity: true,
+      currentThreadId: 8_192,
+      messageAddress: 0x006f_f8e8,
+      messageByteLength: 28,
+      message: structuredClone(previous.message),
+      messageContentSha256:
+        "e6521e2aa3109cd80f56da82d2662d3e526b5a40981927410a2d9061f5ad6135",
+      windowTimer: structuredClone(previous.windowTimer),
+      translateResult: 0,
+      lastErrorPolicy: "preserve",
+      guestWriteBytes: 0,
+      queueDepthAtCompletion: 0,
+      messageBytesPreserved: true,
+      hostMessageImported: false,
+      browserOwnsMessageQueueState: false,
+      browserTimerCreated: false,
+      activeCallbackDepthAtCompletion: 0,
+      generalKeyboardTranslationImplemented: false,
       instructionCount: 0,
       nextEndpoint: null,
       nextArguments: [],
@@ -11665,6 +11816,77 @@ class BrowserRuntimeSession {
     stackPointer: number,
   ): void {
     const checkpoint = this.#report.checkpointCompletion;
+    if (
+      isUser32TranslateMessagePostTestCooperativeLevelTimerPeekProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      const endpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpointAddress,
+      );
+      invariant(
+        checkpoint?.capability ===
+            "user32-translate-message-post-test-cooperative-level-timer-peek" &&
+          checkpoint.call.sequence === 282_874 &&
+          checkpoint.call.occurrence === 43 &&
+          checkpoint.call.trapInstructionCount === 392_354_433 &&
+          checkpoint.currentThreadId === 8_192 &&
+          checkpoint.messageAddress === 0x006f_f8e8 &&
+          checkpoint.messageByteLength === 28 &&
+          checkpoint.message.hwnd === 0x4801_0001 &&
+          checkpoint.message.message === 0x0113 &&
+          checkpoint.message.wParam === 1 &&
+          checkpoint.message.lParam === 0x1009_9600 &&
+          checkpoint.message.time === 3_800_773 &&
+          checkpoint.message.pointX === 960 &&
+          checkpoint.message.pointY === 540 &&
+          checkpoint.windowTimer.deliveryCount === 41 &&
+          checkpoint.windowTimer.nextDeadlineTime100ns === 2_007_935_000 &&
+          checkpoint.queueDepthAtCompletion === 0 &&
+          checkpoint.messageBytesPreserved === true &&
+          this.#requirePrepared().runtime.kernel32Policy ===
+            "kernel32-delete-file-a-v1" &&
+          endpoint?.id === 182 &&
+          endpoint.address === 0x7f00_0b50 &&
+          endpoint.module?.toLowerCase() === "user32.dll" &&
+          endpoint.symbol?.kind === "name" &&
+          endpoint.symbol.name === "DispatchMessageA" &&
+          stackPointer === 0x006f_f8d4 &&
+          this.#requireEngine().readGuestU32(stackPointer) === 0x1009_37ac &&
+          this.#requireEngine().readGuestU32(stackPointer + 4) ===
+            0x006f_f8e8 &&
+          this.#bgiCallbackCallSequences.size === 0 &&
+          this.#report.supportedCallCount === 282_874 &&
+          this.#scheduledSharedClockSampleCount === 100_557 &&
+          this.#scheduledSharedClockWindowTimerCallbackCount === 40 &&
+          this.#scheduledSharedClockPresentCount === 4 &&
+          this.#report.instructions === 392_354_437,
+        "post-TestCooperativeLevel timer-peek TranslateMessage checkpoint has no matching runtime state",
+      );
+      const reflection =
+        this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-memory-summary" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation) &&
+          reflection.contentSha256 ===
+            "a85467a00711ff144b0a14740e571d50d00406ad8fafd49cafefdded17fd369f",
+        "post-TestCooperativeLevel timer-peek TranslateMessage checkpoint memory summary changed",
+      );
+      checkpoint.instructionCount = this.#report.instructions;
+      checkpoint.nextEndpoint = structuredClone(endpoint);
+      checkpoint.nextArguments = [0x006f_f8e8];
+      checkpoint.memoryContentSha256 = reflection.contentSha256;
+      checkpoint.nextReturnAddress = 0x1009_37ac;
+      checkpoint.nextStackPointer = stackPointer;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "USER32 TranslateMessage after post-TestCooperativeLevel timer PeekMessageA checkpoint completed",
+        null,
+      );
+      return;
+    }
     if (
       isUser32PeekMessageAPostTestCooperativeLevelTimerWaitProfile(
         this.#configuration.capabilityProfile,
@@ -14476,6 +14698,10 @@ class BrowserRuntimeSession {
         implementationOccurrence,
       );
       this.#recordUser32PeekMessageAPostTestCooperativeLevelTimerWaitCall(
+        call,
+        implementationOccurrence,
+      );
+      this.#recordUser32TranslateMessagePostTestCooperativeLevelTimerPeekCall(
         call,
         implementationOccurrence,
       );

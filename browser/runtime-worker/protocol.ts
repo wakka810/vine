@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 124 as const;
+export const protocolVersion = 125 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -41,6 +41,7 @@ export type BgiCapabilityProfile =
   | "kernel32-set-waitable-timer-post-test-cooperative-level"
   | "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm"
   | "user32-peek-message-a-post-test-cooperative-level-timer-wait"
+  | "user32-translate-message-post-test-cooperative-level-timer-peek"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1855,6 +1856,55 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "user32-translate-message-post-test-cooperative-level-timer-peek";
+        implementationId: "runtime.user32-translate-message-post-test-cooperative-level-timer-peek.v1";
+        semanticImplementationId: "user32.translate-message.window-timer-pointer-noop.v2";
+        requiredCompletions: 1;
+        completionCount: 1;
+        prerequisitePeekMessageASequence: number;
+        prerequisitePeekMessageAInstructionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        call: RuntimeSupportedCallSnapshot;
+        compatibilityPolicyId: "kernel32-delete-file-a-v1";
+        translationProfileId: "published-current-thread-window-timer-noop-v1";
+        stateAuthority: "rust-runtime-current-thread-message-queue-window-timer-and-guest-memory";
+        mutation: "none-validation-only";
+        failureAtomicity: true;
+        currentThreadId: 8192;
+        messageAddress: number;
+        messageByteLength: 28;
+        message: {
+          hwnd: number;
+          message: number;
+          wParam: number;
+          lParam: number;
+          time: number;
+          pointX: number;
+          pointY: number;
+        };
+        messageContentSha256: string;
+        windowTimer: RuntimeWindowTimerSnapshot;
+        translateResult: 0;
+        lastErrorPolicy: "preserve";
+        guestWriteBytes: 0;
+        queueDepthAtCompletion: 0;
+        messageBytesPreserved: true;
+        hostMessageImported: false;
+        browserOwnsMessageQueueState: false;
+        browserTimerCreated: false;
+        activeCallbackDepthAtCompletion: 0;
+        generalKeyboardTranslationImplemented: false;
+        instructionCount: number;
+        nextEndpoint: unknown;
+        nextArguments: number[];
+        memoryContentSha256: string;
+        nextReturnAddress: number;
+        nextStackPointer: number;
+      }
     | {
         capability: "user32-peek-message-a-post-test-cooperative-level-timer-wait";
         implementationId: "runtime.user32-peek-message-a-post-test-cooperative-level-timer-wait.v1";

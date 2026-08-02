@@ -67,7 +67,8 @@ Representative checks:
 
 ```powershell
 cargo test -p vine-core --test api_dispatcher peek_message_a --locked
-cargo test -p vine-core --test runtime_window_timer --locked
+cargo test -p vine-core --test runtime_message_queue --locked
+cargo test -p vine-core --test runtime_waitable_timer --locked
 npm run check:runtime:bgi -- --profile user32-peek-message-a-post-test-cooperative-level-timer-wait
 node tools/run-browser-runtime-check.mjs --bgi --bgi-profile user32-peek-message-a-post-test-cooperative-level-timer-wait --bgi-policy fixtures/runtime-policies/kernel32-delete-file-a-v1.json
 npm run check:runtime:browser-worker

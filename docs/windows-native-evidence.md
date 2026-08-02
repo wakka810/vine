@@ -6363,3 +6363,26 @@ message, browser timer, or Windows queue authority. Both stop 10 instructions la
 at `USER32.dll!TranslateMessage`; exact report and artifact identities remain
 authoritative only in [current-checkpoint.json](current-checkpoint.json). Details are
 in [the bounded PeekMessageA profile](bgi-user32-peek-message-a-post-test-cooperative-level-timer-wait.md).
+
+## 191. BGI post-timer-wait `TranslateMessage` validation
+
+The reached call reuses the timer-message translation relation fixed by the
+focused BGI caller captures and controlled x86 oracle in sections 178 and 180.
+After `PeekMessageA(PM_REMOVE)` returns TRUE, the caller excludes `WM_QUIT` and
+passes the same guest `MSG32` pointer first to `TranslateMessage`, then to
+`DispatchMessageA`. The reached `WM_TIMER`／non-keyboard case returns FALSE and
+does not synthesize another message. No new native trace was needed because the
+input layout, live timer relation, result, and consumer branch are already fixed;
+native HWND／time／point and runtime sequence remain evidence identity rather than
+semantic dispatch selectors.
+
+Canonical Node and Chrome complete the call at sequence 282,874／occurrence 43／
+instruction 392,354,433. Both return FALSE／LastError 0 with zero guest writes and
+validate the exact published message: logical HWND `0x48010001`, `WM_TIMER`, timer
+ID 1, TIMERPROC `0x10099600`, logical time 3,800,773, point `(960, 540)`, and
+delivery count 41. Queue depth, timer deadlines, callback depth, and the message
+bytes remain unchanged; TypeScript imports no host message, browser timer, or
+Windows translation authority. Both stop four instructions later at
+`USER32.dll!DispatchMessageA`; exact report and artifact identities remain
+authoritative only in [current-checkpoint.json](current-checkpoint.json). Details
+are in [the bounded TranslateMessage profile](bgi-user32-translate-message-post-test-cooperative-level-timer-peek.md).

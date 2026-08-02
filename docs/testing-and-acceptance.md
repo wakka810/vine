@@ -2392,6 +2392,23 @@ cross-thread retrieval、browser ownership of Windows message stateはacceptance
 詳細は
 [post-timer-wait `PeekMessageA` profile](bgi-user32-peek-message-a-post-test-cooperative-level-timer-wait.md)を正とする。
 
+Post-wait `TranslateMessage` leafは、直前にpublishされたexact `WM_TIMER MSG32`と
+live window timer relationをprerequisiteとして既存のread-only validation contractを
+再利用する。Node／Chromeはsequence 282,874、occurrence 43、trap instruction
+392,354,433、FALSE、LastError 0、zero guest write、queue depth 0、delivery count 41、
+message content SHA-256
+`e6521e2aa3109cd80f56da82d2662d3e526b5a40981927410a2d9061f5ad6135`を
+一致させる。両adapterは282,874 supported calls、9,003 pacing completions、ordered
+semantic digest
+`b13bfc18d983ebe62496144c5a49c95b1a3aeb153cc26b650e531003b352da1e`、terminal
+memory digest
+`a85467a00711ff144b0a14740e571d50d00406ad8fafd49cafefdded17fd369f`を一致させ、
+4 instructions後の`USER32.dll!DispatchMessageA`で停止する。Protocol v125／report
+schema 91でcancel／watchdog cleanupを維持する。Dispatch、TIMERPROC callback、general
+keyboard translation、browser ownership of Windows message stateはacceptanceへ含めない。
+詳細は
+[post-timer-wait `TranslateMessage` profile](bgi-user32-translate-message-post-test-cooperative-level-timer-peek.md)を正とする。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

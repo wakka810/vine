@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 123 as const/u);
+assert.match(protocol, /protocolVersion = 125 as const/u);
 assert.match(protocol, /"d3d9-begin-scene-post-partial-dirty-region"/u);
 assert.match(protocol, /"d3d9-set-sampler-state-post-begin-scene"/u);
 assert.match(
@@ -39,6 +39,10 @@ assert.match(
 assert.match(
   protocol,
   /capability: "kernel32-set-waitable-timer-post-test-cooperative-level";[\s\S]*?implementationId: "runtime\.kernel32-set-waitable-timer-post-test-cooperative-level\.v1";[\s\S]*?semanticImplementationId: "kernel32\.set-waitable-timer\.relative-one-shot\.v1";[\s\S]*?browserTimerCreated: false;/u,
+);
+assert.match(
+  protocol,
+  /capability: "user32-translate-message-post-test-cooperative-level-timer-peek";[\s\S]*?implementationId: "runtime\.user32-translate-message-post-test-cooperative-level-timer-peek\.v1";[\s\S]*?semanticImplementationId: "user32\.translate-message\.window-timer-pointer-noop\.v2";[\s\S]*?generalKeyboardTranslationImplemented: false;/u,
 );
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
@@ -529,6 +533,14 @@ assert.match(worker, /user32\.get-async-key-state\.v1/u);
 assert.match(worker, /user32\.get-window-rect\.v1/u);
 assert.match(worker, /user32\.get-cursor-pos\.v1/u);
 assert.match(worker, /user32\.peek-message-a\.current-thread\.v1/u);
+assert.match(
+  worker,
+  /#recordUser32TranslateMessagePostTestCooperativeLevelTimerPeekCall/u,
+);
+assert.match(
+  worker,
+  /user32\.translate-message\.window-timer-pointer-noop\.v2/u,
+);
 assert.match(worker, /ingestKeyboardInput/u);
 assert.match(worker, /#pendingInputEvents/u);
 assert.match(fullProbe, /type: "keyboard-input"/u);
@@ -536,6 +548,10 @@ assert.match(fullProbe, /pointerSourceEvent\(\s*1,\s*"button-down"/u);
 assert.match(fullProbe, /pointerSourceEvent\(\s*2,\s*"button-up"/u);
 assert.match(fullProbe, /type: "pointer-input"/u);
 assert.match(fullProbe, /primary-main-loop-action-input-progress-gateway/u);
+assert.match(
+  fullProbe,
+  /user32-translate-message-post-test-cooperative-level-timer-peek/u,
+);
 assert.match(worker, /terminal\.outcome === "structured-stop"/u);
 assert.match(
   worker,

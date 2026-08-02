@@ -126,6 +126,17 @@ bounded claimは
 [the reached timer-wait PeekMessageA profile](bgi-user32-peek-message-a-post-test-cooperative-level-timer-wait.md)
 を正とする。
 
+続くsequence 282,874の`TranslateMessage(0x006FF8E8)`は、同じ28-byte
+`MSG32`をimmutableに読み、live window、owner thread、timer ID 1、delivery 41、
+TIMERPROC `0x10099600`のrelationを再検証してFALSEを返す。Guest write、LastError、
+queue depth 0、timer deadline／delivery、callback depth 0を変更せず、browser message／
+timer authorityも導入しない。Node／Chromeはmessage content SHA-256
+`e6521e2aa3109cd80f56da82d2662d3e526b5a40981927410a2d9061f5ad6135`と
+zero-mutation completionを一致させ、4 instructions後の`DispatchMessageA`で停止する。
+General keyboard translationとdispatchはclaimしない。Bounded claimは
+[the reached timer-wait TranslateMessage profile](bgi-user32-translate-message-post-test-cooperative-level-timer-peek.md)
+を正とする。
+
 ## Pointer-button message production and WndProc dispatch
 
 Versioned pointer ingressはnormalized coordinate、primary／secondary button、strict source sequenceだけを

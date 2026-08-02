@@ -437,6 +437,22 @@ Filtered／cross-thread retrieval and translation remain outside this bounded
 profile. Details are in
 [the post-timer-wait `PeekMessageA` profile](bgi-user32-peek-message-a-post-test-cooperative-level-timer-wait.md).
 
+Protocol version 125／BGI report schema 91 continues through the immediately
+following `TranslateMessage`. Node and Chrome agree on sequence 282,874／
+occurrence 43 at instruction 392,354,433, FALSE, LastError 0, zero guest writes,
+and the exact immutable `WM_TIMER` `MSG32` relation for HWND `0x48010001`／timer
+ID 1／callback `0x10099600`／delivery count 41. Rust validates guest memory,
+window, owner thread, and live timer registration without changing queue depth,
+timer state, callback depth, or message bytes. The Worker retains only the
+immutable completion and imports no Windows translation state. Both stop at
+instruction 392,354,437 before `USER32.dll!DispatchMessageA` with semantic
+digest `b13bfc18d983ebe62496144c5a49c95b1a3aeb153cc26b650e531003b352da1e`
+and terminal memory digest
+`a85467a00711ff144b0a14740e571d50d00406ad8fafd49cafefdded17fd369f`.
+General keyboard translation and dispatch remain outside this bounded profile.
+Details are in
+[the post-timer-wait `TranslateMessage` profile](bgi-user32-translate-message-post-test-cooperative-level-timer-peek.md).
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk
