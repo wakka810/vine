@@ -3814,16 +3814,18 @@ function assertScheduledSharedClockReportSemantics({
   if (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateReport) {
     const dispatchMessageA =
       nodeExecution.user32DispatchMessageAPostTestCooperativeLevelTimerTranslate;
-    const translateMessage =
-      nodeExecution.user32TranslateMessagePostTestCooperativeLevelTimerPeek;
     assert.equal(nodeStop.fault, null);
     assert.equal(
       nodeStop.terminal.instructionCount,
       expectedNext.instructionCount,
     );
-    assert.equal(translateMessage.checkpointCompletion.call.sequence, 282_874);
     assert.equal(
-      translateMessage.checkpointCompletion.lastCompletionInstructionCount,
+      dispatchMessageA.checkpointCompletion.prerequisiteTranslateMessageSequence,
+      282_874,
+    );
+    assert.equal(
+      dispatchMessageA.checkpointCompletion
+        .prerequisiteTranslateMessageInstructionCount,
       392_354_433,
     );
     assert.equal(dispatchMessageA.checkpointCompletion.dispatchEntry.sequence, 282_875);
