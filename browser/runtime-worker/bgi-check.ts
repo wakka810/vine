@@ -53,7 +53,8 @@ const scheduledSharedClockSetWindowText =
   capabilityProfile === "user32-get-cursor-info" ||
   capabilityProfile === "d3d9-update-texture-partial-dirty-region" ||
   capabilityProfile === "d3d9-begin-scene-post-partial-dirty-region" ||
-  capabilityProfile === "d3d9-set-sampler-state-post-begin-scene";
+  capabilityProfile === "d3d9-set-sampler-state-post-begin-scene" ||
+  capabilityProfile === "d3d9-set-texture-stage-state-post-sampler-state";
 const d3d9Canvas =
   scheduledSharedClockSetWindowText ||
   capabilityProfile === "d3d9-first-present" ||
@@ -235,7 +236,9 @@ const startMessage = {
         : capabilityProfile === "user32-get-cursor-info" ||
             capabilityProfile === "d3d9-update-texture-partial-dirty-region" ||
             capabilityProfile === "d3d9-begin-scene-post-partial-dirty-region" ||
-            capabilityProfile === "d3d9-set-sampler-state-post-begin-scene"
+            capabilityProfile === "d3d9-set-sampler-state-post-begin-scene" ||
+            capabilityProfile ===
+              "d3d9-set-texture-stage-state-post-sampler-state"
           ? 405_000_000
         : capabilityProfile === "gdi-outline-text-metrics-224x112"
           ? 385_000_000
@@ -715,6 +718,7 @@ function parseCapabilityProfile(
     value === "d3d9-update-texture-partial-dirty-region" ||
     value === "d3d9-begin-scene-post-partial-dirty-region" ||
     value === "d3d9-set-sampler-state-post-begin-scene" ||
+    value === "d3d9-set-texture-stage-state-post-sampler-state" ||
     value === "kernel32-wait-for-single-object-ex" ||
     value === "kernel32-enter-critical-section" ||
     value === "primary-main-loop-progression" ||

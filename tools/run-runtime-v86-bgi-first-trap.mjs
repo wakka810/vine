@@ -256,6 +256,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "d3d9-update-texture-partial-dirty-region",
         "d3d9-begin-scene-post-partial-dirty-region",
         "d3d9-set-sampler-state-post-begin-scene",
+        "d3d9-set-texture-stage-state-post-sampler-state",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
@@ -471,6 +472,7 @@ assert(
       "d3d9-update-texture-partial-dirty-region",
       "d3d9-begin-scene-post-partial-dirty-region",
       "d3d9-set-sampler-state-post-begin-scene",
+      "d3d9-set-texture-stage-state-post-sampler-state",
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
       "user32-set-window-pos-frame-change-move",
@@ -524,7 +526,9 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
     genericRuntimeCapability === "user32-get-cursor-info" ||
     genericRuntimeCapability === "d3d9-update-texture-partial-dirty-region" ||
     genericRuntimeCapability === "d3d9-begin-scene-post-partial-dirty-region" ||
-    genericRuntimeCapability === "d3d9-set-sampler-state-post-begin-scene"
+    genericRuntimeCapability === "d3d9-set-sampler-state-post-begin-scene" ||
+    genericRuntimeCapability ===
+      "d3d9-set-texture-stage-state-post-sampler-state"
       ? "kernel32-delete-file-a-v1.json"
       : genericRuntimeCapability === "kernel32-find-first-file-a"
       ? "kernel32-find-file-a-v1.json"
@@ -1048,9 +1052,15 @@ const d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled =
 const d3d9SetSamplerStatePostBeginSceneCheckpointEnabled =
   genericRuntimeCapability ===
   "d3d9-set-sampler-state-post-begin-scene";
+const d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled =
+  genericRuntimeCapability ===
+  "d3d9-set-texture-stage-state-post-sampler-state";
+const d3d9SetSamplerStatePostBeginSceneEvidenceEnabled =
+  d3d9SetSamplerStatePostBeginSceneCheckpointEnabled ||
+  d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled;
 const d3d9BeginScenePostPartialDirtyRegionEvidenceEnabled =
   d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled ||
-  d3d9SetSamplerStatePostBeginSceneCheckpointEnabled;
+  d3d9SetSamplerStatePostBeginSceneEvidenceEnabled;
 const d3d9UpdateTexturePartialDirtyRegionEvidenceEnabled =
   d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled ||
   d3d9BeginScenePostPartialDirtyRegionEvidenceEnabled;
@@ -1982,8 +1992,10 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? d3d9SetSamplerStatePostBeginSceneCheckpointEnabled
-      ? "v86-bgi-d3d9-set-sampler-state-post-begin-scene"
+    ? d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled
+      ? "v86-bgi-d3d9-set-texture-stage-state-post-sampler-state"
+      : d3d9SetSamplerStatePostBeginSceneCheckpointEnabled
+        ? "v86-bgi-d3d9-set-sampler-state-post-begin-scene"
       : d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled
         ? "v86-bgi-d3d9-begin-scene-post-partial-dirty-region"
       : d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled
@@ -6589,6 +6601,11 @@ async function run() {
       });
       if (genericRuntimeCapability === null) {
         validateGenericRuntimeReentryResult(genericResult);
+      } else if (d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled) {
+        validateD3d9SetTextureStageStatePostSamplerStateResult(
+          genericResult,
+          sourceRegistration,
+        );
       } else if (d3d9SetSamplerStatePostBeginSceneCheckpointEnabled) {
         validateD3d9SetSamplerStatePostBeginSceneResult(
           genericResult,
@@ -6959,8 +6976,10 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
-          : d3d9SetSamplerStatePostBeginSceneCheckpointEnabled
-            ? "bgi D3D9 SetSamplerState pair after post-partial BeginScene"
+          : d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled
+            ? "bgi D3D9 SetTextureStageState band after later sampler pair"
+            : d3d9SetSamplerStatePostBeginSceneCheckpointEnabled
+              ? "bgi D3D9 SetSamplerState pair after post-partial BeginScene"
             : d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled
               ? "bgi D3D9 BeginScene after partial dirty-region UpdateTexture"
           : d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled
@@ -9092,6 +9111,11 @@ async function runGenericRuntimeReentry({
         d3d9SetSamplerStatePostBeginSceneCheckpointEnabled &&
         checkpointCompletion.capability ===
           "d3d9-set-sampler-state-post-begin-scene"
+      ) &&
+      !(
+        d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled &&
+        checkpointCompletion.capability ===
+          "d3d9-set-texture-stage-state-post-sampler-state"
       )
     ) {
       checkpointCompletion = null;
@@ -9107,6 +9131,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "d3d9-set-texture-stage-state-post-sampler-state"
+            ? "d3d9-set-texture-stage-state-post-sampler-state-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "d3d9-set-sampler-state-post-begin-scene"
             ? "d3d9-set-sampler-state-post-begin-scene-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -9308,7 +9335,14 @@ async function runGenericRuntimeReentry({
             checkpointCompletion.nextEndpoint.interfaceIndex =
               terminal.interfaceIndex;
             checkpointCompletion.nextEndpoint.vtableSlot = terminal.vtableSlot;
-            if (d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled) {
+            if (d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled) {
+              assert.equal(endpoint.address, 0x0101_1440);
+              assert.equal(terminal.interfaceIndex, 1);
+              assert.equal(terminal.vtableSlot, 65);
+              checkpointCompletion.nextEndpoint.interface =
+                "IDirect3DDevice9";
+              checkpointCompletion.nextEndpoint.method = "SetTexture";
+            } else if (d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled) {
               assert.equal(endpoint.address, 0x0101_12c0);
               assert.equal(terminal.interfaceIndex, 1);
               assert.equal(terminal.vtableSlot, 41);
@@ -11048,6 +11082,142 @@ async function runGenericRuntimeReentry({
         logicalGraphicsDeviceGeneration: device.generation,
         samplerZeroMinFilter: device.samplerStates.samplerZero.minFilter,
         samplerZeroMagFilter: device.samplerStates.samplerZero.magFilter,
+        backBufferContentGeneration: device.backBuffer.contentGeneration,
+        backBufferClearSequence:
+          device.backBuffer.uniformClear?.sequence ?? null,
+        presentedFrameSequence: device.presentedFrame?.sequence ?? null,
+        browserRendererResourceCreated: device.renderer !== undefined,
+        activeCallbackDepthAtCompletion: activeCallbacks.length,
+        instructionCount: 0,
+        nextEndpoint: null,
+        memoryContentSha256: "",
+      };
+    }
+    if (
+      d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled &&
+      call.interface === "IDirect3DDevice9" &&
+      call.vtableSlot === 67 &&
+      call.sequence === 282_861
+    ) {
+      const samplerCalls = supportedCalls.filter(
+        (candidate) =>
+          candidate.sequence >= 282_851 &&
+          candidate.sequence <= 282_852 &&
+          candidate.interface === "IDirect3DDevice9" &&
+          candidate.vtableSlot === 69,
+      );
+      const textureStageStateCalls = supportedCalls.filter(
+        (candidate) =>
+          candidate.sequence >= 282_856 &&
+          candidate.sequence <= 282_861 &&
+          candidate.interface === "IDirect3DDevice9" &&
+          candidate.vtableSlot === 67,
+      );
+      assert.equal(checkpointCompletion, null);
+      assert.equal(samplerCalls.length, 2);
+      assert.equal(textureStageStateCalls.length, 6);
+      assert.equal(activeCallbacks.length, 0);
+      const expectedStates = [1, 2, 3, 4, 5, 6];
+      const expectedValues = [4, 2, 0, 2, 2, 0];
+      const expectedInstructionCounts = [
+        392_353_994, 392_354_003, 392_354_012, 392_354_021, 392_354_030,
+        392_354_039,
+      ];
+      const expectedReturnAddresses = [
+        0x1005_b1f5, 0x1005_b20b, 0x1005_b221, 0x1005_b237,
+        0x1005_b24d, 0x1005_b263,
+      ];
+      const expectedTextureStageState = {
+        stageZero: {
+          colorOperation: "modulate",
+          colorArgumentOne: "texture",
+          colorArgumentTwo: "diffuse",
+          alphaOperation: "select-argument-one",
+          alphaArgumentOne: "texture",
+          alphaArgumentTwo: "diffuse",
+        },
+      };
+      for (const [index, textureStageStateCall] of
+        textureStageStateCalls.entries()) {
+        assert.equal(textureStageStateCall.sequence, 282_856 + index);
+        assert.equal(textureStageStateCall.occurrence, 19 + index);
+        assert.equal(
+          textureStageStateCall.trapInstructionCount,
+          expectedInstructionCounts[index],
+        );
+        assert.deepEqual(textureStageStateCall.arguments, [
+          0x0101_0004,
+          0,
+          expectedStates[index],
+          expectedValues[index],
+        ]);
+        assert.deepEqual(textureStageStateCall.result, {
+          kind: "h-result",
+          value: 0,
+        });
+        assert.equal(
+          textureStageStateCall.returnAddress,
+          expectedReturnAddresses[index],
+        );
+        assert.equal(textureStageStateCall.stackPointerBefore, 0x006f_b864);
+        assert.equal(textureStageStateCall.stackPointerAfter, 0x006f_b878);
+        assert.equal(textureStageStateCall.referenceCount, 5);
+        assert.equal(textureStageStateCall.objectRetired, false);
+        assert.deepEqual(textureStageStateCall.guestWrites, []);
+        const device = textureStageStateCall.graphicsDevice;
+        assert(
+          device,
+          "later SetTextureStageState completion omitted its device snapshot",
+        );
+        assert.equal(device.id, 3);
+        assert.equal(device.comObjectId, "21");
+        assert.deepEqual(device.activeScene, { sequence: 4 });
+        assert.deepEqual(device.samplerStates?.samplerZero, {
+          minFilter: "linear",
+          magFilter: "linear",
+        });
+        assert.deepEqual(
+          device.textureStageStates,
+          expectedTextureStageState,
+        );
+        assert.equal(device.generation, 71);
+        assert.equal(device.backBuffer.contentGeneration, 10);
+        assert.equal(device.backBuffer.uniformClear?.sequence, 4);
+        assert.equal(device.presentedFrame?.sequence, 3);
+        assert.equal(device.renderer, undefined);
+      }
+      const device = textureStageStateCalls.at(-1).graphicsDevice;
+      checkpointCompletion = {
+        capability: "d3d9-set-texture-stage-state-post-sampler-state",
+        implementationId:
+          "runtime.d3d9-set-texture-stage-state-post-sampler-state.v1",
+        requiredCompletions: 6,
+        completionCount: 6,
+        prerequisiteSamplerStateSequence: samplerCalls.at(-1).sequence,
+        prerequisiteSamplerStateInstructionCount:
+          samplerCalls.at(-1).trapInstructionCount,
+        firstCompletionSequence: textureStageStateCalls[0].sequence,
+        firstCompletionInstructionCount:
+          textureStageStateCalls[0].trapInstructionCount,
+        lastCompletionSequence: textureStageStateCalls.at(-1).sequence,
+        lastCompletionInstructionCount:
+          textureStageStateCalls.at(-1).trapInstructionCount,
+        calls: structuredClone(textureStageStateCalls),
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33",
+        textureStageStateProfileId:
+          "primary-first-frame-fixed-function-texture-stage-zero-v1",
+        stateAuthority:
+          "rust-runtime-graphics-logical-device-texture-stage-states",
+        mutation: "validate-plan-preflight-targeted-idempotent-commit",
+        sameValueGenerationChange: 0,
+        failureAtomicity: true,
+        logicalGraphicsDeviceId: device.id,
+        logicalGraphicsComObjectId: device.comObjectId,
+        activeSceneSequence: device.activeScene.sequence,
+        logicalGraphicsDeviceGeneration: device.generation,
+        textureStageState: structuredClone(
+          device.textureStageStates.stageZero,
+        ),
         backBufferContentGeneration: device.backBuffer.contentGeneration,
         backBufferClearSequence:
           device.backBuffer.uniformClear?.sequence ?? null,
@@ -27018,6 +27188,96 @@ function validateD3d9UpdateTexturePartialDirtyRegionResult(
   assert.equal(result.activeCallbackDepth, 0);
 }
 
+function validateD3d9SetTextureStageStatePostSamplerStateResult(
+  result,
+  sourceRegistration,
+) {
+  assert(d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled);
+  assert(sourceRegistration !== null);
+  assert.equal(result.supportedCalls.length, 282_861);
+  assert.equal(result.fault, null);
+  const completion = result.checkpointCompletion;
+  assert(
+    completion,
+    "later texture-stage-state checkpoint completion is missing",
+  );
+  assert.equal(
+    completion.capability,
+    "d3d9-set-texture-stage-state-post-sampler-state",
+  );
+  assert.equal(
+    completion.implementationId,
+    "runtime.d3d9-set-texture-stage-state-post-sampler-state.v1",
+  );
+  assert.equal(completion.requiredCompletions, 6);
+  assert.equal(completion.completionCount, 6);
+  assert.equal(completion.prerequisiteSamplerStateSequence, 282_852);
+  assert.equal(
+    completion.prerequisiteSamplerStateInstructionCount,
+    392_353_961,
+  );
+  assert.equal(completion.firstCompletionSequence, 282_856);
+  assert.equal(completion.firstCompletionInstructionCount, 392_353_994);
+  assert.equal(completion.lastCompletionSequence, 282_861);
+  assert.equal(completion.lastCompletionInstructionCount, 392_354_039);
+  assert.equal(completion.calls.length, 6);
+  assert.equal(
+    completion.compatibilityPolicyId,
+    "d3d9-primary-virtual-adapter-v33",
+  );
+  assert.equal(
+    completion.textureStageStateProfileId,
+    "primary-first-frame-fixed-function-texture-stage-zero-v1",
+  );
+  assert.equal(completion.sameValueGenerationChange, 0);
+  assert.equal(completion.failureAtomicity, true);
+  assert.equal(completion.logicalGraphicsDeviceId, 3);
+  assert.equal(completion.logicalGraphicsComObjectId, "21");
+  assert.equal(completion.activeSceneSequence, 4);
+  assert.equal(completion.logicalGraphicsDeviceGeneration, 71);
+  assert.deepEqual(completion.textureStageState, {
+    colorOperation: "modulate",
+    colorArgumentOne: "texture",
+    colorArgumentTwo: "diffuse",
+    alphaOperation: "select-argument-one",
+    alphaArgumentOne: "texture",
+    alphaArgumentTwo: "diffuse",
+  });
+  assert.equal(completion.backBufferContentGeneration, 10);
+  assert.equal(completion.backBufferClearSequence, 4);
+  assert.equal(completion.presentedFrameSequence, 3);
+  assert.equal(completion.browserRendererResourceCreated, false);
+  assert.equal(completion.activeCallbackDepthAtCompletion, 0);
+  assert.equal(completion.instructionCount, 392_354_048);
+  assert.deepEqual(completion.nextEndpoint, {
+    id: 0,
+    address: 0x0101_1440,
+    module: "<com>",
+    symbol: { kind: "name", name: "interface-1-slot-65" },
+    disposition: "declared-com-method",
+    interfaceIndex: 1,
+    vtableSlot: 65,
+    interface: "IDirect3DDevice9",
+    method: "SetTexture",
+  });
+  assert.equal(completion.nextReturnAddress, 0x1005_b27c);
+  assert.equal(completion.nextStackPointer, 0x006f_b868);
+  assert.equal(
+    completion.memoryContentSha256,
+    "48b7fe34c489b126994490d0819a7a02bb3bfb82da13bcdd8d3d1b0af9697a4c",
+  );
+  assert.equal(result.terminal.instructionCount, 392_354_048);
+  assert.equal(result.terminal.terminal.endpointAddress, 0x0101_1440);
+  assert.equal(result.terminal.terminal.interfaceIndex, 1);
+  assert.equal(result.terminal.terminal.vtableSlot, 65);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1005_b27c);
+  assert.equal(result.finalGeneration, 333_496);
+  assert.equal(result.sourceReads.length, 154);
+  assert.equal(result.heapPageMaterializations.length, 3_112);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+  assert.equal(result.activeCallbackDepth, 0);
+}
+
 function validateD3d9SetSamplerStatePostBeginSceneResult(
   result,
   sourceRegistration,
@@ -40615,7 +40875,13 @@ function buildGenericRuntimeReentryReport({
       );
       if (findFirstFileACheckpointEnabled) {
         if (deleteFileACheckpointEnabled) {
-          if (d3d9SetSamplerStatePostBeginSceneCheckpointEnabled) {
+          if (d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled) {
+            assert.equal(completedSupportedCalls.length, 282_861);
+            assert.equal(
+              supportedCallSemanticsSha256,
+              "c7b07ed41957516d5bb95814070ba858eee5a95e069a8bda53665867222cbb12",
+            );
+          } else if (d3d9SetSamplerStatePostBeginSceneCheckpointEnabled) {
             assert.equal(completedSupportedCalls.length, 282_855);
             assert.equal(
               supportedCallSemanticsSha256,
@@ -43903,7 +44169,7 @@ function buildScheduledSharedClockPrimaryReport({
         ) ?? null
       : null;
   const d3d9SetSamplerStatePostBeginSceneCalls =
-    d3d9SetSamplerStatePostBeginSceneCheckpointEnabled
+    d3d9SetSamplerStatePostBeginSceneEvidenceEnabled
       ? completedSupportedCalls.filter(
           (call) =>
             call.sequence >= 282_851 &&
@@ -43913,13 +44179,23 @@ function buildScheduledSharedClockPrimaryReport({
         )
       : [];
   const d3d9PostSamplerRenderStateRejections =
-    d3d9SetSamplerStatePostBeginSceneCheckpointEnabled
+    d3d9SetSamplerStatePostBeginSceneEvidenceEnabled
       ? completedSupportedCalls.filter(
           (call) =>
             call.sequence >= 282_853 &&
             call.sequence <= 282_855 &&
             call.interface === "IDirect3DDevice9" &&
             call.vtableSlot === 57,
+        )
+      : [];
+  const d3d9SetTextureStageStatePostSamplerStateCalls =
+    d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled
+      ? completedSupportedCalls.filter(
+          (call) =>
+            call.sequence >= 282_856 &&
+            call.sequence <= 282_861 &&
+            call.interface === "IDirect3DDevice9" &&
+            call.vtableSlot === 67,
         )
       : [];
   const successfulFindCalls = [
@@ -43940,8 +44216,10 @@ function buildScheduledSharedClockPrimaryReport({
     };
   });
   return {
-    schema: d3d9SetSamplerStatePostBeginSceneCheckpointEnabled
-      ? "vine.v86-bgi-d3d9-set-sampler-state-post-begin-scene-primary"
+    schema: d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled
+      ? "vine.v86-bgi-d3d9-set-texture-stage-state-post-sampler-state-primary"
+      : d3d9SetSamplerStatePostBeginSceneCheckpointEnabled
+        ? "vine.v86-bgi-d3d9-set-sampler-state-post-begin-scene-primary"
       : d3d9BeginScenePostPartialDirtyRegionCheckpointEnabled
         ? "vine.v86-bgi-d3d9-begin-scene-post-partial-dirty-region-primary"
       : d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled
@@ -44199,12 +44477,22 @@ function buildScheduledSharedClockPrimaryReport({
             },
           }
         : {}),
-      ...(d3d9SetSamplerStatePostBeginSceneCheckpointEnabled
+      ...(d3d9SetSamplerStatePostBeginSceneEvidenceEnabled
         ? {
             d3d9SetSamplerStatePostBeginScene: {
               calls: d3d9SetSamplerStatePostBeginSceneCalls,
               postSamplerRenderStateRejections:
                 d3d9PostSamplerRenderStateRejections,
+              ...(d3d9SetSamplerStatePostBeginSceneCheckpointEnabled
+                ? { checkpointCompletion: genericResult.checkpointCompletion }
+                : {}),
+            },
+          }
+        : {}),
+      ...(d3d9SetTextureStageStatePostSamplerStateCheckpointEnabled
+        ? {
+            d3d9SetTextureStageStatePostSamplerState: {
+              calls: d3d9SetTextureStageStatePostSamplerStateCalls,
               checkpointCompletion: genericResult.checkpointCompletion,
             },
           }

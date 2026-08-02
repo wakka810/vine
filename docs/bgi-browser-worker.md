@@ -404,8 +404,8 @@ fingerprint before and after execution.
   Arbitrary partial histories and the native dynamic-destination variant remain
   unsupported. The Worker performs only a bounded rendering-time byte copy and
   owns no Windows texture or lock state. The initial and reached post-partial BeginScene transitions create
-  only Rust-owned logical scene state, the two reached sampler calls add only Rust-owned typed
-  sampler state, the six reached texture-stage calls add only Rust-owned typed stage-0
+  only Rust-owned logical scene state, the initial and fourth-scene sampler pairs add only Rust-owned typed
+  sampler state, and the initial plus fourth-scene six-call texture-stage bands add only Rust-owned typed stage-0
   fixed-function state, SetTexture adds one non-owning Rust-owned binding, SetFVF
   adds the one reached Rust-owned typed vertex format, SetStreamSource adds
   the exact non-owning stream-0／offset-0／stride-28 relation, and DrawPrimitive

@@ -2220,6 +2220,18 @@ memory digest `f6b4db633a16a90781587cf86ae16d4ad72cc6718230ca5f0c2a9076381261af`
 Protocol v111／report schema 77でcancel／watchdog cleanupも維持する。一般sampler／render-state、
 後続texture-stage mutation、可読title sceneはclaimしない。
 
+Post-sampler texture-stage leafは同じdevice-owned sparse typed stage-0 mapを再利用する。Node／Chromeは
+sequence 282,856..282,861、occurrence 19..24、trap instructions
+392,353,994／392,354,003／392,354,012／392,354,021／392,354,030／392,354,039、stage 0、
+states 1–6、values `4,2,0,2,2,0`、`D3D_OK`、zero guest writes、reference count 5を一致させる。
+既存値のrepeatなのでdevice generationは71、active scene sequenceは4のままで、最終typed stateは
+color `modulate(texture,diffuse)`、alpha `select-argument-one(texture,diffuse)`である。Capability
+checkpointは282,861 supported calls、392,354,048 instructions、semantic digest
+`c7b07ed41957516d5bb95814070ba858eee5a95e069a8bda53665867222cbb12`、terminal memory digest
+`48b7fe34c489b126994490d0819a7a02bb3bfb82da13bcdd8d3d1b0af9697a4c`で完了し、次のowned endpoint
+`IDirect3DDevice9::SetTexture(0,0x01030004)` slot 65を記録する。Protocol v112／report schema 78で
+cancel／watchdog cleanupも維持する。他stage／state／value、後続texture binding、可読title sceneはclaimしない。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 111 as const;
+export const protocolVersion = 112 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -28,6 +28,7 @@ export type BgiCapabilityProfile =
   | "d3d9-update-texture-partial-dirty-region"
   | "d3d9-begin-scene-post-partial-dirty-region"
   | "d3d9-set-sampler-state-post-begin-scene"
+  | "d3d9-set-texture-stage-state-post-sampler-state"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1840,6 +1841,47 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | {
+        capability: "d3d9-set-texture-stage-state-post-sampler-state";
+        implementationId: "runtime.d3d9-set-texture-stage-state-post-sampler-state.v1";
+        requiredCompletions: 6;
+        completionCount: 6;
+        prerequisiteSamplerStateSequence: number;
+        prerequisiteSamplerStateInstructionCount: number;
+        firstCompletionSequence: number;
+        firstCompletionInstructionCount: number;
+        lastCompletionSequence: number;
+        lastCompletionInstructionCount: number;
+        calls: RuntimeSupportedCallSnapshot[];
+        compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33";
+        textureStageStateProfileId: "primary-first-frame-fixed-function-texture-stage-zero-v1";
+        stateAuthority: "rust-runtime-graphics-logical-device-texture-stage-states";
+        mutation: "validate-plan-preflight-targeted-idempotent-commit";
+        sameValueGenerationChange: 0;
+        failureAtomicity: true;
+        logicalGraphicsDeviceId: 3;
+        logicalGraphicsComObjectId: "21";
+        activeSceneSequence: 4;
+        logicalGraphicsDeviceGeneration: 71;
+        textureStageState: {
+          colorOperation: "modulate";
+          colorArgumentOne: "texture";
+          colorArgumentTwo: "diffuse";
+          alphaOperation: "select-argument-one";
+          alphaArgumentOne: "texture";
+          alphaArgumentTwo: "diffuse";
+        };
+        backBufferContentGeneration: 10;
+        backBufferClearSequence: 4;
+        presentedFrameSequence: 3;
+        browserRendererResourceCreated: false;
+        activeCallbackDepthAtCompletion: 0;
+        instructionCount: number;
+        nextEndpoint: unknown;
+        memoryContentSha256: string;
+        nextReturnAddress: number;
+        nextStackPointer: number;
+      }
     | {
         capability: "d3d9-set-sampler-state-post-begin-scene";
         implementationId: "runtime.d3d9-set-sampler-state-post-begin-scene.v1";

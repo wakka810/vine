@@ -158,7 +158,11 @@ function validateExecutionStateMachine(value, label, errors) {
 export function validateCurrentCheckpoint(manifest) {
   const errors = [];
   const root = requireRecord(manifest, "manifest", errors);
+  const d3d9SetTextureStageStatePostSamplerStateActive =
+    root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
+    "d3d9-set-texture-stage-state-post-sampler-state";
   const d3d9SetSamplerStatePostBeginSceneActive =
+    d3d9SetTextureStageStatePostSamplerStateActive ||
     root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
     "d3d9-set-sampler-state-post-begin-scene";
   const d3d9BeginScenePostPartialDirtyRegionActive =
@@ -599,7 +603,11 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9RecreatedTexturesActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-set-window-pos-repeat-activation";
+  const d3d9SetTextureStageStatePostSamplerStateProfileActive =
+    root.activeRuntimeCheckpoint?.capabilityProfile ===
+    "d3d9-set-texture-stage-state-post-sampler-state";
   const d3d9SetSamplerStatePostBeginSceneProfileActive =
+    d3d9SetTextureStageStatePostSamplerStateProfileActive ||
     root.activeRuntimeCheckpoint?.capabilityProfile ===
     "d3d9-set-sampler-state-post-begin-scene";
   const d3d9BeginScenePostPartialDirtyRegionProfileActive =
@@ -1443,7 +1451,27 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    d3d9SetSamplerStatePostBeginSceneProfileActive
+    d3d9SetTextureStageStatePostSamplerStateProfileActive
+    ? {
+        benchmarkObservation: "current-archive-source-read-observation",
+        browserMappingDeltas: 127_997,
+        browserMappingDirtyPages: 150_402,
+        browserSuccessExecutionTransitions: 589_100,
+        browserFinalGeneration: 315_160,
+        browserReportSchemaVersion: 78,
+        latestSchema:
+          "vine.v86-bgi-d3d9-set-texture-stage-state-post-sampler-state-primary",
+        latestWritebackBatches: 165_255,
+        latestWritebackDirtyPages: 244_675,
+        latestWritebackChangedBytes: 43_072_557,
+        latestHostDeltaBatches: 127_997,
+        latestFinalMemoryGeneration: 333_496,
+        semanticCallDigestSha256:
+          "c7b07ed41957516d5bb95814070ba858eee5a95e069a8bda53665867222cbb12",
+        memoryContentSha256:
+          "48b7fe34c489b126994490d0819a7a02bb3bfb82da13bcdd8d3d1b0af9697a4c",
+      }
+    : d3d9SetSamplerStatePostBeginSceneProfileActive
     ? {
         benchmarkObservation: "current-archive-source-read-observation",
         browserMappingDeltas: 127_997,
@@ -3658,7 +3686,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    d3d9SetSamplerStatePostBeginSceneActive
+    d3d9SetTextureStageStatePostSamplerStateActive
+      ? "vine.browser-runtime-worker.v112"
+      : d3d9SetSamplerStatePostBeginSceneActive
       ? "vine.browser-runtime-worker.v111"
       : d3d9BeginScenePostPartialDirtyRegionActive
       ? "vine.browser-runtime-worker.v110"
@@ -21933,7 +21963,9 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureBefore !== null ||
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureAfter !== null)) ||
     latestEvidence.implementation !==
-      (d3d9SetSamplerStatePostBeginSceneActive
+      (d3d9SetTextureStageStatePostSamplerStateActive
+        ? "Rust-owned D3D9 texture-stage-state authority accepts the reached fourth-scene stage-0 color and alpha operation/argument band through the existing validated idempotent plan/commit without advancing logical device generation, and stops at the next SetTexture slot 65 endpoint"
+        : d3d9SetSamplerStatePostBeginSceneActive
         ? "Rust-owned D3D9 sampler-state authority accepts the reached fourth-scene MINFILTER and MAGFILTER linear assignments through the existing validated idempotent plan/commit without advancing logical device generation, rejects three out-of-band render-state variants with D3DERR_NOTAVAILABLE before mutation, and stops at the next SetTextureStageState slot 67 endpoint"
         : d3d9BeginScenePostPartialDirtyRegionActive
         ? "Rust-owned D3D9 policy v33 completes the reached fourth BeginScene after the exact partial dirty-region UpdateTexture through the existing inactive-to-active scene plan/commit, preserving device identity and the third presented frame while advancing active scene sequence 4 and device generation 71 before the next SetSamplerState slot 69 endpoint"
@@ -24316,7 +24348,45 @@ export function validateCurrentCheckpoint(manifest) {
             errors,
           )
         : {};
-    const expectedNode = d3d9SetSamplerStatePostBeginSceneActive
+    const d3d9SetTextureStageStatePostSamplerStateNode =
+      d3d9SetTextureStageStatePostSamplerStateActive
+        ? requireRecord(
+            node.d3d9SetTextureStageStatePostSamplerState,
+            "activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence.d3d9SetTextureStageStatePostSamplerState",
+            errors,
+          )
+        : {};
+    const expectedNode = d3d9SetTextureStageStatePostSamplerStateActive
+      ? {
+          schema:
+            "vine.v86-bgi-d3d9-set-texture-stage-state-post-sampler-state-primary",
+          runtimeKernelCheckpoint:
+            "d3d9-set-texture-stage-state-post-sampler-state",
+          repeatRuns: 1,
+          reportBytes: 2_621_914,
+          reportSha256:
+            "31c646a3c4083ec02b6bf315314a6983654835022bda801cda2d22cebad7eaf6",
+          nodeReplayOldSpaceMiB: 8_192,
+          completedSupportedCalls: 282_861,
+          supportedCallSemanticsSha256:
+            "c7b07ed41957516d5bb95814070ba858eee5a95e069a8bda53665867222cbb12",
+          clockSampleCount: 100_556,
+          lastClockTick: 3_800_550,
+          lastClockTime100ns: 2_005_500_000,
+          lastClockGeneration: 16_305,
+          lastClockRetiredInstructions: 391_909_858,
+          lastClockPendingRetiredInstructions: 1_858,
+          windowTimerCallbackCount: 40,
+          timerPacingCompletionCount: 9_002,
+          writebackBatches: 286_059,
+          hostDeltaBatches: 143_087,
+          callbackEventCount: 148,
+          finalMemoryGeneration: 333_496,
+          terminalInstructionCount: 392_354_048,
+          terminalMemoryContentSha256:
+            "48b7fe34c489b126994490d0819a7a02bb3bfb82da13bcdd8d3d1b0af9697a4c",
+        }
+      : d3d9SetSamplerStatePostBeginSceneActive
       ? {
           schema:
             "vine.v86-bgi-d3d9-set-sampler-state-post-begin-scene-primary",
@@ -24645,7 +24715,93 @@ export function validateCurrentCheckpoint(manifest) {
       currentStop.prerequisiteUpdateTextureCheckpoint ?? {};
     const prerequisiteBeginSceneCheckpoint =
       currentStop.prerequisiteBeginSceneCheckpoint ?? {};
-    const currentStopValid = d3d9SetSamplerStatePostBeginSceneActive
+    const prerequisiteSamplerCheckpoint =
+      currentStop.prerequisiteSamplerCheckpoint ?? {};
+    const currentStopValid = d3d9SetTextureStageStatePostSamplerStateActive
+      ? currentStop.kind === "capability-checkpoint" &&
+        currentStop.classification === "semantic-leaf" &&
+        currentStop.nextCheckpoint ===
+          "d3d9-set-texture-post-texture-stage-state" &&
+        currentStop.pausedHistoricalCheckpoint ===
+          "d3d9-set-texture-stage-state-post-sampler-state" &&
+        currentStop.instructionCount === 392_354_048 &&
+        currentStop.capabilityCluster ===
+          "d3d9-idirect3ddevice9-method" &&
+        currentStop.reason ===
+          "d3d9-set-texture-stage-state-post-sampler-state-checkpoint-complete" &&
+        prerequisiteSamplerCheckpoint.capability ===
+          "d3d9-set-sampler-state-post-begin-scene" &&
+        prerequisiteSamplerCheckpoint.lastCompletionSequence === 282_852 &&
+        prerequisiteSamplerCheckpoint.lastCompletionInstructionCount ===
+          392_353_961 &&
+        prerequisiteSamplerCheckpoint.logicalGraphicsDeviceGeneration ===
+          71 &&
+        expectedCompletion.capability ===
+          "d3d9-set-texture-stage-state-post-sampler-state" &&
+        expectedCompletion.implementationId ===
+          "runtime.d3d9-set-texture-stage-state-post-sampler-state.v1" &&
+        expectedCompletion.requiredCompletions === 6 &&
+        expectedCompletion.completionCount === 6 &&
+        expectedCompletion.prerequisiteSamplerStateSequence === 282_852 &&
+        expectedCompletion.prerequisiteSamplerStateInstructionCount ===
+          392_353_961 &&
+        expectedCompletion.firstCompletionSequence === 282_856 &&
+        expectedCompletion.firstCompletionInstructionCount === 392_353_994 &&
+        expectedCompletion.lastCompletionSequence === 282_861 &&
+        expectedCompletion.lastCompletionInstructionCount === 392_354_039 &&
+        expectedCompletion.compatibilityPolicyId ===
+          "d3d9-primary-virtual-adapter-v33" &&
+        expectedCompletion.textureStageStateProfileId ===
+          "primary-first-frame-fixed-function-texture-stage-zero-v1" &&
+        expectedCompletion.stateAuthority ===
+          "rust-runtime-graphics-logical-device-texture-stage-states" &&
+        expectedCompletion.mutation ===
+          "validate-plan-preflight-targeted-idempotent-commit" &&
+        expectedCompletion.sameValueGenerationChange === 0 &&
+        expectedCompletion.failureAtomicity === true &&
+        expectedCompletion.logicalGraphicsDeviceId === 3 &&
+        expectedCompletion.logicalGraphicsComObjectId === "21" &&
+        expectedCompletion.activeSceneSequence === 4 &&
+        expectedCompletion.logicalGraphicsDeviceGeneration === 71 &&
+        expectedCompletion.textureStageState?.colorOperation === "modulate" &&
+        expectedCompletion.textureStageState?.colorArgumentOne === "texture" &&
+        expectedCompletion.textureStageState?.colorArgumentTwo === "diffuse" &&
+        expectedCompletion.textureStageState?.alphaOperation ===
+          "select-argument-one" &&
+        expectedCompletion.textureStageState?.alphaArgumentOne === "texture" &&
+        expectedCompletion.textureStageState?.alphaArgumentTwo === "diffuse" &&
+        expectedCompletion.backBufferContentGeneration === 10 &&
+        expectedCompletion.backBufferClearSequence === 4 &&
+        expectedCompletion.presentedFrameSequence === 3 &&
+        expectedCompletion.browserRendererResourceCreated === false &&
+        expectedCompletion.activeCallbackDepthAtCompletion === 0 &&
+        expectedCompletion.instructionCount === 392_354_048 &&
+        expectedCompletion.memoryContentSha256 ===
+          "48b7fe34c489b126994490d0819a7a02bb3bfb82da13bcdd8d3d1b0af9697a4c" &&
+        expectedCompletion.nextReturnAddress === 0x1005_b27c &&
+        expectedCompletion.nextStackPointer === 0x006f_b868 &&
+        expectedEndpoint.endpointKind === "com-method" &&
+        expectedEndpoint.endpointId === 0 &&
+        expectedEndpoint.api === "IDirect3DDevice9!SetTexture" &&
+        expectedEndpoint.endpointAddress === "0x01011440" &&
+        expectedEndpoint.observedModule === "<com>" &&
+        expectedEndpoint.observedSymbol === "interface-1-slot-65" &&
+        expectedEndpoint.id === 0 &&
+        expectedEndpoint.address === 0x0101_1440 &&
+        expectedEndpoint.module === "<com>" &&
+        expectedEndpoint.symbol?.kind === "name" &&
+        expectedEndpoint.symbol.name === "interface-1-slot-65" &&
+        expectedEndpoint.disposition === "declared-com-method" &&
+        expectedEndpoint.interfaceIndex === 1 &&
+        expectedEndpoint.vtableSlot === 65 &&
+        expectedEndpoint.interface === "IDirect3DDevice9" &&
+        expectedEndpoint.method === "SetTexture" &&
+        expectedEndpoint.thisPointer === "0x01010004" &&
+        expectedEndpoint.arguments?.join(",") ===
+          "0x00000000,0x01030004" &&
+        expectedEndpoint.returnAddress === "0x1005b27c" &&
+        expectedEndpoint.stackPointer === "0x006fb868"
+      : d3d9SetSamplerStatePostBeginSceneActive
       ? currentStop.kind === "capability-checkpoint" &&
         currentStop.classification === "semantic-leaf" &&
         currentStop.nextCheckpoint ===
@@ -26187,6 +26343,68 @@ export function validateCurrentCheckpoint(manifest) {
         d3d9SetSamplerStatePostBeginSceneLatest.chromeCompletions === 2 &&
         d3d9SetSamplerStatePostBeginSceneLatest.nodeChromeOrderedSemanticsMatched ===
           true);
+    const d3d9SetTextureStageStatePostSamplerStateLatest =
+      latestEvidence.d3d9SetTextureStageStatePostSamplerState ?? {};
+    const d3d9SetTextureStageStatePostSamplerStateEvidenceValid =
+      !d3d9SetTextureStageStatePostSamplerStateActive ||
+      (d3d9SetTextureStageStatePostSamplerStateNode.completionCount === 6 &&
+        d3d9SetTextureStageStatePostSamplerStateNode.sequences?.join(",") ===
+          "282856,282857,282858,282859,282860,282861" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.occurrences?.join(",") ===
+          "19,20,21,22,23,24" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.instructionCounts?.join(",") ===
+          "392353994,392354003,392354012,392354021,392354030,392354039" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.states?.join(",") ===
+          "1,2,3,4,5,6" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.values?.join(",") ===
+          "4,2,0,2,2,0" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.result ===
+          "0x00000000" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.compatibilityPolicyId ===
+          "d3d9-primary-virtual-adapter-v33" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.textureStageStateProfileId ===
+          "primary-first-frame-fixed-function-texture-stage-zero-v1" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.stateAuthority ===
+          "rust-runtime-graphics-logical-device-texture-stage-states" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.mutation ===
+          "validate-plan-preflight-targeted-idempotent-commit" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.sameValueGenerationChange ===
+          0 &&
+        d3d9SetTextureStageStatePostSamplerStateNode.failureAtomicity === true &&
+        d3d9SetTextureStageStatePostSamplerStateNode.logicalGraphicsDeviceId ===
+          3 &&
+        d3d9SetTextureStageStatePostSamplerStateNode.logicalGraphicsComObjectId ===
+          "21" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.activeSceneSequence === 4 &&
+        d3d9SetTextureStageStatePostSamplerStateNode.logicalGraphicsDeviceGeneration ===
+          71 &&
+        d3d9SetTextureStageStatePostSamplerStateNode.textureStageState?.colorOperation ===
+          "modulate" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.textureStageState?.colorArgumentOne ===
+          "texture" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.textureStageState?.colorArgumentTwo ===
+          "diffuse" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.textureStageState?.alphaOperation ===
+          "select-argument-one" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.textureStageState?.alphaArgumentOne ===
+          "texture" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.textureStageState?.alphaArgumentTwo ===
+          "diffuse" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.nextEndpoint ===
+          "IDirect3DDevice9!SetTexture" &&
+        d3d9SetTextureStageStatePostSamplerStateNode.nextInstructionCount ===
+          392_354_048 &&
+        d3d9SetTextureStageStatePostSamplerStateLatest.completionCount === 6 &&
+        d3d9SetTextureStageStatePostSamplerStateLatest.sequences?.join(",") ===
+          "282856,282857,282858,282859,282860,282861" &&
+        d3d9SetTextureStageStatePostSamplerStateLatest.sameValueGenerationChange ===
+          0 &&
+        d3d9SetTextureStageStatePostSamplerStateLatest.failureAtomicity ===
+          true &&
+        d3d9SetTextureStageStatePostSamplerStateLatest.nodeCompletions === 6 &&
+        d3d9SetTextureStageStatePostSamplerStateLatest.chromeCompletions === 6 &&
+        d3d9SetTextureStageStatePostSamplerStateLatest.nodeChromeOrderedSemanticsMatched ===
+          true);
     if (
       scheduled.schema !== "vine.scheduled-shared-clock-checkpoint" ||
       scheduled.schemaVersion !== 1 ||
@@ -26264,7 +26482,9 @@ export function validateCurrentCheckpoint(manifest) {
       node.terminalMemoryContentSha256 !==
         expectedNode.terminalMemoryContentSha256 ||
       browserBoundary.runtimeProtocol !==
-        (d3d9SetSamplerStatePostBeginSceneActive
+        (d3d9SetTextureStageStatePostSamplerStateActive
+          ? "vine.browser-runtime-worker.v112"
+          : d3d9SetSamplerStatePostBeginSceneActive
           ? "vine.browser-runtime-worker.v111"
           : d3d9BeginScenePostPartialDirtyRegionActive
           ? "vine.browser-runtime-worker.v110"
@@ -26288,7 +26508,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.retiredInstructionCursorTransport !==
         "checked-u64-low-high-per-api-and-com-dispatch" ||
       browserBoundary.browserOwnsGuestClockState !== false ||
-      (d3d9SetSamplerStatePostBeginSceneActive
+      (d3d9SetTextureStageStatePostSamplerStateActive
+        ? browserBoundary.browserReportSchemaVersion !== 78
+        : d3d9SetSamplerStatePostBeginSceneActive
         ? browserBoundary.browserReportSchemaVersion !== 77
         : d3d9BeginScenePostPartialDirtyRegionActive
         ? browserBoundary.browserReportSchemaVersion !== 76
@@ -26309,7 +26531,9 @@ export function validateCurrentCheckpoint(manifest) {
         "npm run check:runtime:browser-worker" ||
       browserBoundary.chromeVersion !== "150.0.7871.187" ||
       browserBoundary.reportBytes !==
-        (d3d9SetSamplerStatePostBeginSceneActive
+        (d3d9SetTextureStageStatePostSamplerStateActive
+          ? 35_951
+          : d3d9SetSamplerStatePostBeginSceneActive
           ? 35_953
           : d3d9BeginScenePostPartialDirtyRegionActive
           ? 35_961
@@ -26329,7 +26553,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 35_961
           : 35_951) ||
       browserBoundary.reportSha256 !==
-        (d3d9SetSamplerStatePostBeginSceneActive
+        (d3d9SetTextureStageStatePostSamplerStateActive
+          ? "58abf92600989ffb8f67fd61a9afa8bb1e78f073d067696a57c760f45a372665"
+          : d3d9SetSamplerStatePostBeginSceneActive
           ? "fdfc683079127b21d5227ee6c90e3c4ed14f097ec5ac6c7bbe86962dae8d31e7"
           : d3d9BeginScenePostPartialDirtyRegionActive
           ? "291c9234748f7903df4c21bc950d384ca481ae94bb16895fa9dd2a36e65c9aef"
@@ -26349,7 +26575,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "bd77deb28553190382622adb663ac87b99e4c9f9df719bbba2282f5bae5bca94"
           : "ecd982f21410c69c4d844a114041e301fd140fedbb520cf5773f4d13d2846aa1") ||
       browserBoundary.runtimeWorkerBytes !==
-        (d3d9SetSamplerStatePostBeginSceneActive
+        (d3d9SetTextureStageStatePostSamplerStateActive
+          ? 1_118_209
+          : d3d9SetSamplerStatePostBeginSceneActive
           ? 1_110_374
           : d3d9BeginScenePostPartialDirtyRegionActive
           ? 1_101_694
@@ -26369,7 +26597,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 1_053_379
           : 1_049_048) ||
       browserBoundary.runtimeWorkerSha256 !==
-        (d3d9SetSamplerStatePostBeginSceneActive
+        (d3d9SetTextureStageStatePostSamplerStateActive
+          ? "fce9f7ecad456ad7c7c56d4477caf0a9bb16d72c71f91827fa5a33a3f61cd7c0"
+          : d3d9SetSamplerStatePostBeginSceneActive
           ? "aa8221a45971c71d7fbacf11309fa973a18a16617b0f8e19b0766b7f49a87496"
           : d3d9BeginScenePostPartialDirtyRegionActive
           ? "ddd671e184d75692c33084ca5df76e32db723bfff5d5d7c32f52e2c78328d1ce"
@@ -26389,7 +26619,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "1f2812982a31f8b94c994ba531c7d58285122b9299da1b51169b49631790f420"
           : "dbb154a48ed3db86b915396bb549add364443e050b6d68f52f0c811c8b46b1c4") ||
       browserBoundary.runtimeCoreWasmBytes !==
-        (d3d9SetSamplerStatePostBeginSceneActive
+        (d3d9SetTextureStageStatePostSamplerStateActive
+          ? 5_407_751
+          : d3d9SetSamplerStatePostBeginSceneActive
           ? 5_407_751
           : d3d9BeginScenePostPartialDirtyRegionActive
           ? 5_407_751
@@ -26409,7 +26641,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 5_361_144
           : 5_354_885) ||
       browserBoundary.runtimeCoreWasmSha256 !==
-        (d3d9SetSamplerStatePostBeginSceneActive
+        (d3d9SetTextureStageStatePostSamplerStateActive
+          ? "60674a1917bdd4641cf8f3884cc73dc177817d45e480f4587cc4627a1f71798e"
+          : d3d9SetSamplerStatePostBeginSceneActive
           ? "60674a1917bdd4641cf8f3884cc73dc177817d45e480f4587cc4627a1f71798e"
           : d3d9BeginScenePostPartialDirtyRegionActive
           ? "60674a1917bdd4641cf8f3884cc73dc177817d45e480f4587cc4627a1f71798e"
@@ -26433,7 +26667,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.privatePrimaryCommand !==
         "node tools/run-browser-runtime-check.mjs --bgi" ||
       browserBoundary.privatePrimaryReportBytes !==
-        (d3d9SetSamplerStatePostBeginSceneActive
+        (d3d9SetTextureStageStatePostSamplerStateActive
+          ? 2_668_401
+          : d3d9SetSamplerStatePostBeginSceneActive
           ? 2_630_713
           : d3d9BeginScenePostPartialDirtyRegionActive
           ? 2_618_052
@@ -26453,7 +26689,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 2_598_978
           : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
-        (d3d9SetSamplerStatePostBeginSceneActive
+        (d3d9SetTextureStageStatePostSamplerStateActive
+          ? "1898ae3da0dfdc96f29ac337c3ef05d83083a9932d61129aec8ce8788e4a47d6"
+          : d3d9SetSamplerStatePostBeginSceneActive
           ? "94ed316622f2ac6f49993c8e9ba7142f4ffbd13c1466962fb2fd80dca9aa6c86"
           : d3d9BeginScenePostPartialDirtyRegionActive
           ? "ef2d4869c366bd593c6d9362b3544be3b19f54bd582e06566acc08daff747ca8"
@@ -26514,6 +26752,7 @@ export function validateCurrentCheckpoint(manifest) {
       !d3d9UpdateTexturePartialDirtyRegionEvidenceValid ||
       !d3d9BeginScenePostPartialDirtyRegionEvidenceValid ||
       !d3d9SetSamplerStatePostBeginSceneEvidenceValid ||
+      !d3d9SetTextureStageStatePostSamplerStateEvidenceValid ||
       conclusion.clockFreezeWasProximateCause !== false ||
       (privateHeapOrdinarySegmentGrowthActive &&
         conclusion.ordinaryHeapCapacityWasProximateCause !== false) ||
@@ -26526,7 +26765,9 @@ export function validateCurrentCheckpoint(manifest) {
       (getCursorInfoActive &&
         conclusion.cursorInfoWasProximateCause !== false) ||
       conclusion.nextEndpoint !==
-        (d3d9SetSamplerStatePostBeginSceneActive
+        (d3d9SetTextureStageStatePostSamplerStateActive
+          ? "IDirect3DDevice9!SetTexture"
+          : d3d9SetSamplerStatePostBeginSceneActive
           ? "IDirect3DDevice9!SetTextureStageState"
           : d3d9BeginScenePostPartialDirtyRegionActive
           ? "IDirect3DDevice9!SetSamplerState"
@@ -26564,6 +26805,7 @@ export function validateCurrentCheckpoint(manifest) {
           d3d9UpdateTexturePartialDirtyRegionEvidenceValid,
           d3d9BeginScenePostPartialDirtyRegionEvidenceValid,
           d3d9SetSamplerStatePostBeginSceneEvidenceValid,
+          d3d9SetTextureStageStatePostSamplerStateEvidenceValid,
         })})`,
       );
     }

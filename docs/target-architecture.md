@@ -951,7 +951,8 @@ permissivenessを推測で一般化せず、unsupported sampler／state／value�
 その直後の未profile render-state三件は`D3DERR_NOTAVAILABLE`でmutation前に拒否する。Reached
 `SetTextureStageState`も同じdevice owner上のstage 0 sparse typed stateへ、到達したcolor／alpha operationとargumentの
 六設定だけをplan／preflight／idempotent commitする。Native driverが受理するprofile外stage／state／valueはpolicyへ
-暗黙昇格させない。Reached `SetTexture`はlive device／texture COM relationとsame-device ownershipを解決し、
+暗黙昇格させない。Post-partial 4回目のsceneで再到達した同じ六設定もこのownerを通り、既存値ならdevice generationを
+進めずsuccessにする。Reached `SetTexture`はlive device／texture COM relationとsame-device ownershipを解決し、
 `RuntimeGraphicsDevice`にstage 0のnon-owning texture IDだけをplan／preflight／idempotent commitする。NULLはunbind、
 texture final retirementは同じretirement commitで残存bindingをclearし、binding自体はCOM AddRefを所有しない。
 Reached `SetFVF`はraw DWORDをdevice stateへ複製せず、versioned policyが許可した`0x144`をtyped

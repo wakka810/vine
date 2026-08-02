@@ -1181,7 +1181,11 @@ sequence 4 without browser graphics ownership, and also stops at slot 69. The
 owner for the reached MIN／MAG linear pair, proves both assignments idempotent at
 device generation 71, preserves the active fourth scene, records three mutation-free
 `D3DERR_NOTAVAILABLE` render-state rejections, and stops at
-`IDirect3DDevice9::SetTextureStageState` slot 67. The historical
+`IDirect3DDevice9::SetTextureStageState` slot 67. The
+`d3d9-set-texture-stage-state-post-sampler-state` profile reuses the same typed
+stage-0 owner for the fourth-scene state 1–6／value `4,2,0,2,2,0` band, proves
+all six assignments idempotent at device generation 71, preserves the active
+fourth scene, and stops at `IDirect3DDevice9::SetTexture` slot 65. The historical
 `d3d9-initial-sampler-states` profile enables only the exact sampler-0 MIN／MAG
 linear transitions, explicitly rejects the following three unprofiled render
 states, and stops at `IDirect3DDevice9::SetTextureStageState` slot 67. The historical

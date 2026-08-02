@@ -396,12 +396,27 @@ function isD3d9SetSamplerStatePostBeginSceneProfile(
   return profile === "d3d9-set-sampler-state-post-begin-scene";
 }
 
+function isD3d9SetTextureStageStatePostSamplerStateProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return profile === "d3d9-set-texture-stage-state-post-sampler-state";
+}
+
+function includesD3d9SetSamplerStatePostBeginSceneProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isD3d9SetSamplerStatePostBeginSceneProfile(profile) ||
+    isD3d9SetTextureStageStatePostSamplerStateProfile(profile)
+  );
+}
+
 function includesD3d9BeginScenePostPartialDirtyRegionProfile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isD3d9BeginScenePostPartialDirtyRegionProfile(profile) ||
-    isD3d9SetSamplerStatePostBeginSceneProfile(profile)
+    includesD3d9SetSamplerStatePostBeginSceneProfile(profile)
   );
 }
 
@@ -3764,6 +3779,8 @@ class BrowserRuntimeSession {
   #d3d9RasterStatusCompletionCount = 0;
   readonly #d3d9InitialSamplerStateCalls: RuntimeSupportedCallSnapshot[] = [];
   readonly #d3d9SetSamplerStatePostBeginSceneCalls: RuntimeSupportedCallSnapshot[] =
+    [];
+  readonly #d3d9SetTextureStageStatePostSamplerStateCalls: RuntimeSupportedCallSnapshot[] =
     [];
   readonly #d3d9InitialTextureStageStateCalls: RuntimeSupportedCallSnapshot[] =
     [];
@@ -8296,6 +8313,7 @@ class BrowserRuntimeSession {
       this.#recordD3d9UpdateTexturePartialDirtyRegionCall(call);
       this.#recordD3d9BeginScenePostPartialDirtyRegionCall(call);
       this.#recordD3d9SetSamplerStatePostBeginSceneCall(call);
+      this.#recordD3d9SetTextureStageStatePostSamplerStateCall(call);
     } else {
       this.#recordD3d9RecreatedTextureCall(call);
       this.#recordD3d9ClearCall(call);
@@ -8558,7 +8576,7 @@ class BrowserRuntimeSession {
     call: RuntimeSupportedCallSnapshot,
   ): void {
     if (
-      !isD3d9SetSamplerStatePostBeginSceneProfile(
+      !includesD3d9SetSamplerStatePostBeginSceneProfile(
         this.#configuration.capabilityProfile,
       ) ||
       call.interface !== "IDirect3DDevice9"
@@ -8712,9 +8730,147 @@ class BrowserRuntimeSession {
       `later D3D9 post-sampler render-state rejection changed: ${JSON.stringify(call)}`,
     );
     checkpoint.postSamplerRenderStateRejections.push(structuredClone(call));
-    if (checkpoint.postSamplerRenderStateRejections.length === 3) {
+    if (
+      checkpoint.postSamplerRenderStateRejections.length === 3 &&
+      isD3d9SetSamplerStatePostBeginSceneProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
       this.#bgiCheckpointPending = true;
     }
+  }
+
+  #recordD3d9SetTextureStageStatePostSamplerStateCall(
+    call: RuntimeSupportedCallSnapshot,
+  ): void {
+    if (
+      !isD3d9SetTextureStageStatePostSamplerStateProfile(
+        this.#configuration.capabilityProfile,
+      ) ||
+      call.interface !== "IDirect3DDevice9" ||
+      call.vtableSlot !== 67 ||
+      call.sequence < 282_856
+    ) {
+      return;
+    }
+    const previous = this.#report.checkpointCompletion;
+    const index = this.#d3d9SetTextureStageStatePostSamplerStateCalls.length;
+    const expectedState = [1, 2, 3, 4, 5, 6] as const;
+    const expectedValue = [4, 2, 0, 2, 2, 0] as const;
+    const expectedReturnAddress = [
+      0x1005_b1f5, 0x1005_b20b, 0x1005_b221, 0x1005_b237,
+      0x1005_b24d, 0x1005_b263,
+    ] as const;
+    const expectedInstructionCount = [
+      392_353_994, 392_354_003, 392_354_012, 392_354_021, 392_354_030,
+      392_354_039,
+    ] as const;
+    const device = call.graphicsDevice;
+    invariant(
+      previous?.capability === "d3d9-set-sampler-state-post-begin-scene" &&
+        previous.lastCompletionSequence === 282_852 &&
+        previous.lastCompletionInstructionCount === 392_353_961 &&
+        previous.postSamplerRenderStateRejections.length === 3 &&
+        index < 6 &&
+        call.sequence === 282_856 + index &&
+        this.#report.instructions === expectedInstructionCount[index] &&
+        call.symbol === "IDirect3DDevice9.SetTextureStageState" &&
+        call.arguments.length === 4 &&
+        call.arguments[0] === 0x0101_0004 &&
+        call.arguments[1] === 0 &&
+        call.arguments[2] === expectedState[index] &&
+        call.arguments[3] === expectedValue[index] &&
+        "kind" in call.result &&
+        call.result.kind === "h-result" &&
+        call.result.value === 0 &&
+        call.returnAddress === expectedReturnAddress[index] &&
+        call.stackPointerBefore === 0x006f_b864 &&
+        call.stackPointerAfter === 0x006f_b878 &&
+        call.referenceCount === 5 &&
+        call.objectRetired === false &&
+        call.guestWrites.length === 0 &&
+        device?.id === 3 &&
+        device.namespace === "vine.logical-graphics-device.v1" &&
+        device.frontend === "d3d9" &&
+        device.comObjectId === "21" &&
+        device.activeScene?.sequence === 4 &&
+        device.generation === 71 &&
+        device.samplerStates?.samplerZero.minFilter === "linear" &&
+        device.samplerStates.samplerZero.magFilter === "linear" &&
+        device.textureStageStates?.stageZero.colorOperation === "modulate" &&
+        device.textureStageStates.stageZero.colorArgumentOne === "texture" &&
+        device.textureStageStates.stageZero.colorArgumentTwo === "diffuse" &&
+        device.textureStageStates.stageZero.alphaOperation ===
+          "select-argument-one" &&
+        device.textureStageStates.stageZero.alphaArgumentOne === "texture" &&
+        device.textureStageStates.stageZero.alphaArgumentTwo === "diffuse" &&
+        device.backBuffer.contentGeneration === 10 &&
+        device.backBuffer.uniformClear?.sequence === 4 &&
+        device.presentedFrame?.sequence === 3 &&
+        device.renderer === undefined &&
+        this.#bgiCallbackCallSequences.size === 0,
+      `later D3D9 SetTextureStageState ABI or idempotent state changed: ${JSON.stringify(call)}`,
+    );
+    this.#d3d9SetTextureStageStatePostSamplerStateCalls.push(
+      structuredClone(call),
+    );
+    if (this.#d3d9SetTextureStageStatePostSamplerStateCalls.length !== 6) {
+      return;
+    }
+    const first = this.#d3d9SetTextureStageStatePostSamplerStateCalls[0];
+    const last = this.#d3d9SetTextureStageStatePostSamplerStateCalls[5];
+    invariant(
+      first !== undefined && last !== undefined,
+      "later texture-stage-state calls missing",
+    );
+    this.#report.checkpointCompletion = {
+      capability: "d3d9-set-texture-stage-state-post-sampler-state",
+      implementationId:
+        "runtime.d3d9-set-texture-stage-state-post-sampler-state.v1",
+      requiredCompletions: 6,
+      completionCount: 6,
+      prerequisiteSamplerStateSequence: previous.lastCompletionSequence,
+      prerequisiteSamplerStateInstructionCount:
+        previous.lastCompletionInstructionCount,
+      firstCompletionSequence: first.sequence,
+      firstCompletionInstructionCount: expectedInstructionCount[0],
+      lastCompletionSequence: last.sequence,
+      lastCompletionInstructionCount: expectedInstructionCount[5],
+      calls: structuredClone(
+        this.#d3d9SetTextureStageStatePostSamplerStateCalls,
+      ),
+      compatibilityPolicyId: "d3d9-primary-virtual-adapter-v33",
+      textureStageStateProfileId:
+        "primary-first-frame-fixed-function-texture-stage-zero-v1",
+      stateAuthority:
+        "rust-runtime-graphics-logical-device-texture-stage-states",
+      mutation: "validate-plan-preflight-targeted-idempotent-commit",
+      sameValueGenerationChange: 0,
+      failureAtomicity: true,
+      logicalGraphicsDeviceId: 3,
+      logicalGraphicsComObjectId: "21",
+      activeSceneSequence: 4,
+      logicalGraphicsDeviceGeneration: 71,
+      textureStageState: {
+        colorOperation: "modulate",
+        colorArgumentOne: "texture",
+        colorArgumentTwo: "diffuse",
+        alphaOperation: "select-argument-one",
+        alphaArgumentOne: "texture",
+        alphaArgumentTwo: "diffuse",
+      },
+      backBufferContentGeneration: 10,
+      backBufferClearSequence: 4,
+      presentedFrameSequence: 3,
+      browserRendererResourceCreated: false,
+      activeCallbackDepthAtCompletion: 0,
+      instructionCount: 0,
+      nextEndpoint: null,
+      memoryContentSha256: "",
+      nextReturnAddress: 0,
+      nextStackPointer: 0,
+    };
+    this.#bgiCheckpointPending = true;
   }
 
   #recordScheduledSharedClockCall(call: RuntimeSupportedCallSnapshot): void {
@@ -9818,6 +9974,61 @@ class BrowserRuntimeSession {
     stackPointer: number,
   ): void {
     const checkpoint = this.#report.checkpointCompletion;
+    if (
+      isD3d9SetTextureStageStatePostSamplerStateProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      invariant(
+        checkpoint?.capability ===
+          "d3d9-set-texture-stage-state-post-sampler-state" &&
+          checkpoint.calls.length === 6 &&
+          this.#requirePrepared().runtime.kernel32Policy ===
+            "kernel32-delete-file-a-v1" &&
+          endpointAddress === 0x0101_1440 &&
+          stackPointer === 0x006f_b868 &&
+          this.#requireEngine().readGuestU32(stackPointer) === 0x1005_b27c &&
+          this.#bgiCallbackCallSequences.size === 0 &&
+          this.#report.supportedCallCount === 282_861 &&
+          this.#scheduledSharedClockSampleCount === 100_556 &&
+          this.#scheduledSharedClockWindowTimerCallbackCount === 40 &&
+          this.#scheduledSharedClockPresentCount === 3 &&
+          this.#report.instructions === 392_354_048,
+        "post-sampler SetTextureStageState checkpoint has no matching runtime state",
+      );
+      const reflection =
+        this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-memory-summary" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation) &&
+          reflection.contentSha256 ===
+            "48b7fe34c489b126994490d0819a7a02bb3bfb82da13bcdd8d3d1b0af9697a4c",
+        "post-sampler SetTextureStageState checkpoint memory summary changed",
+      );
+      checkpoint.instructionCount = this.#report.instructions;
+      checkpoint.nextEndpoint = {
+        id: 0,
+        address: endpointAddress,
+        module: "<com>",
+        symbol: { kind: "name", name: "interface-1-slot-65" },
+        disposition: "declared-com-method",
+        interfaceIndex: 1,
+        vtableSlot: 65,
+        interface: "IDirect3DDevice9",
+        method: "SetTexture",
+      };
+      checkpoint.memoryContentSha256 = reflection.contentSha256;
+      checkpoint.nextReturnAddress = 0x1005_b27c;
+      checkpoint.nextStackPointer = stackPointer;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "D3D9 SetTextureStageState after later sampler checkpoint completed",
+        null,
+      );
+      return;
+    }
     if (
       isD3d9SetSamplerStatePostBeginSceneProfile(
         this.#configuration.capabilityProfile,
