@@ -1201,7 +1201,9 @@ function isScheduledSharedClockNodeReport(report) {
     report?.schema ===
       "vine.v86-bgi-user32-translate-message-post-test-cooperative-level-timer-peek-primary" ||
     report?.schema ===
-      "vine.v86-bgi-user32-dispatch-message-a-post-test-cooperative-level-timer-translate-primary"
+      "vine.v86-bgi-user32-dispatch-message-a-post-test-cooperative-level-timer-translate-primary" ||
+    report?.schema ===
+      "vine.v86-bgi-kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch-primary"
   );
 }
 
@@ -1243,7 +1245,9 @@ function isGetCursorInfoOrLaterNodeReport(report) {
     report?.schema ===
       "vine.v86-bgi-user32-translate-message-post-test-cooperative-level-timer-peek-primary" ||
     report?.schema ===
-      "vine.v86-bgi-user32-dispatch-message-a-post-test-cooperative-level-timer-translate-primary"
+      "vine.v86-bgi-user32-dispatch-message-a-post-test-cooperative-level-timer-translate-primary" ||
+    report?.schema ===
+      "vine.v86-bgi-kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch-primary"
   );
 }
 
@@ -1252,6 +1256,15 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (
+    nodeReport.schema ===
+    "vine.v86-bgi-kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch-primary"
+  ) {
+    return structuredClone(
+      execution.kernel32GetTickCountPostTestCooperativeLevelTimerDispatch
+        .checkpointCompletion,
+    );
+  }
   if (
     nodeReport.schema ===
     "vine.v86-bgi-user32-dispatch-message-a-post-test-cooperative-level-timer-translate-primary"
@@ -3086,6 +3099,78 @@ function assertUser32TranslateMessagePostTestCooperativeLevelTimerPeekCheckpoint
   assert.deepEqual(actual.nextEndpoint.symbol, expectedEndpoint.symbol);
 }
 
+function assertKernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpoint(
+  actual,
+  expectedCompletion,
+  expectedEndpoint,
+) {
+  assert(
+    actual !== null,
+    "post-DispatchMessageA timer GetTickCount checkpoint is missing",
+  );
+  for (const field of [
+    "capability",
+    "implementationId",
+    "semanticImplementationId",
+    "requiredCompletions",
+    "completionCount",
+    "prerequisiteDispatchMessageASequence",
+    "prerequisiteDispatchMessageAInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "compatibilityPolicyId",
+    "clockProfileId",
+    "stateAuthority",
+    "mutation",
+    "failureAtomicity",
+    "currentThreadId",
+    "callbackFrameId",
+    "activeCallbackDepthAtCompletion",
+    "callbackCompletedAtCompletion",
+    "outerDispatchPendingAtCompletion",
+    "lastErrorPolicy",
+    "guestWriteBytes",
+    "hostClockImported",
+    "browserClockImported",
+    "instructionCount",
+    "memoryContentSha256",
+    "nextReturnAddress",
+    "nextStackPointer",
+    "callbackResultIgnored",
+    "outerDispatchResult",
+    "callbackCompletedBeforeNextEndpoint",
+    "outerDispatchCompletedBeforeNextEndpoint",
+    "activeCallbackDepthAtStop",
+    "messageBytesPreserved",
+  ]) {
+    assert.equal(actual[field], expectedCompletion[field], field);
+  }
+  for (const field of ["call", "dispatchCompletion"]) {
+    assert.equal(
+      actual[field].module.toLowerCase(),
+      expectedCompletion[field].module.toLowerCase(),
+      `${field}.module`,
+    );
+    assert.deepEqual(
+      { ...actual[field], module: undefined },
+      { ...expectedCompletion[field], module: undefined },
+      field,
+    );
+  }
+  assert.deepEqual(actual.callbackReturn, expectedCompletion.callbackReturn);
+  assert.deepEqual(actual.nextArguments, expectedCompletion.nextArguments);
+  for (const field of ["id", "address", "disposition", "iatAddress"]) {
+    assert.equal(actual.nextEndpoint[field], expectedEndpoint[field], field);
+  }
+  assert.equal(
+    actual.nextEndpoint.module.toLowerCase(),
+    expectedEndpoint.module.toLowerCase(),
+  );
+  assert.deepEqual(actual.nextEndpoint.symbol, expectedEndpoint.symbol);
+}
+
 function assertUser32DispatchMessageAPostTestCooperativeLevelTimerTranslateCheckpoint(
   actual,
   expectedCompletion,
@@ -3407,6 +3492,9 @@ function assertScheduledSharedClockReportSemantics({
   const user32DispatchMessageAPostTestCooperativeLevelTimerTranslateReport =
     nodeReport.schema ===
     "vine.v86-bgi-user32-dispatch-message-a-post-test-cooperative-level-timer-translate-primary";
+  const kernel32GetTickCountPostTestCooperativeLevelTimerDispatchReport =
+    nodeReport.schema ===
+    "vine.v86-bgi-kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch-primary";
 
   assert(
     expectedNext.kind === "capability-checkpoint" ||
@@ -3811,7 +3899,54 @@ function assertScheduledSharedClockReportSemantics({
     expectedNext,
   );
   let expectedFaultCode = null;
-  if (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateReport) {
+  if (kernel32GetTickCountPostTestCooperativeLevelTimerDispatchReport) {
+    const getTickCount =
+      nodeExecution.kernel32GetTickCountPostTestCooperativeLevelTimerDispatch;
+    const completion = getTickCount.checkpointCompletion;
+    const call = completion.call;
+    assert.equal(nodeStop.fault, null);
+    assert.equal(
+      nodeStop.terminal.instructionCount,
+      expectedNext.instructionCount,
+    );
+    assert.equal(completion.prerequisiteDispatchMessageASequence, 282_875);
+    assert.equal(
+      completion.prerequisiteDispatchMessageAInstructionCount,
+      392_354_437,
+    );
+    assert.equal(call.sequence, 282_876);
+    assert.equal(call.occurrence, 100_079);
+    assert.equal(call.trapInstructionCount, 392_354_458);
+    assert.equal(call.module.toLowerCase(), "kernel32.dll");
+    assert.equal(call.symbol, "GetTickCount");
+    assert.deepEqual(call.arguments, []);
+    assert.deepEqual(call.result, { action: "set", value: 3_800_773 });
+    assert.equal(call.implementationId, "kernel32.get-tick-count.v1");
+    assert.equal(call.returnAddress, 0x1009_9537);
+    assert.equal(call.stackPointerBefore, 0x006f_f890);
+    assert.equal(call.stackPointerAfter, 0x006f_f894);
+    assert.equal(call.lastError, 0);
+    assert.deepEqual(call.guestWrites, []);
+    assert.equal(call.tickCount.returnedTickCount, 3_800_773);
+    assert.equal(call.tickCount.nextTickCount, 3_800_773);
+    assert.equal(call.tickCount.incrementPerRead, 0);
+    assert.equal(call.tickCount.timerClock.currentTime100ns, 2_007_735_000);
+    assert.equal(call.tickCount.timerClock.generation, 16_309);
+    assert.equal(completion.dispatchCompletion.sequence, 282_875);
+    assert.equal(completion.dispatchCompletion.callback.frameId, 75);
+    assert.deepEqual(completion.callbackReturn, {
+      action: "return",
+      sequence: 282_875,
+      frameId: 75,
+      instructionCount: 392_355_081,
+      result: 64,
+    });
+    assertKernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpoint(
+      nodeCheckpoint,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+  } else if (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateReport) {
     const dispatchMessageA =
       nodeExecution.user32DispatchMessageAPostTestCooperativeLevelTimerTranslate;
     assert.equal(nodeStop.fault, null);
@@ -4600,6 +4735,7 @@ function assertScheduledSharedClockReportSemantics({
     );
   }
   if (
+    !kernel32GetTickCountPostTestCooperativeLevelTimerDispatchReport &&
     !user32DispatchMessageAPostTestCooperativeLevelTimerTranslateReport &&
     !user32TranslateMessagePostTestCooperativeLevelTimerPeekReport &&
     !user32PeekMessageAPostTestCooperativeLevelTimerWaitReport &&
@@ -4642,6 +4778,7 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext,
     );
   } else if (
+    !kernel32GetTickCountPostTestCooperativeLevelTimerDispatchReport &&
     !user32DispatchMessageAPostTestCooperativeLevelTimerTranslateReport &&
     !user32TranslateMessagePostTestCooperativeLevelTimerPeekReport &&
     !user32PeekMessageAPostTestCooperativeLevelTimerWaitReport &&
@@ -4712,7 +4849,34 @@ function assertScheduledSharedClockReportSemantics({
   assert.equal(browser.pendingCallbacks, 0);
 
   const browserUnsupported = browser.firstUnsupported;
-  if (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateReport) {
+  if (kernel32GetTickCountPostTestCooperativeLevelTimerDispatchReport) {
+    assert.equal(browserUnsupported, null);
+    assertKernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpoint(
+      browser.checkpointCompletion,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+    for (const field of ["call", "dispatchCompletion"]) {
+      assert.equal(
+        browser.checkpointCompletion[field].module.toLowerCase(),
+        nodeCheckpoint[field].module.toLowerCase(),
+      );
+      assert.deepEqual(
+        { ...browser.checkpointCompletion[field], module: undefined },
+        { ...nodeCheckpoint[field], module: undefined },
+      );
+    }
+    assert.deepEqual(
+      browser.checkpointCompletion.callbackReturn,
+      nodeCheckpoint.callbackReturn,
+    );
+    assert.equal(browser.d3d9Present.call.sequence, 282_868);
+    assert.equal(
+      browser.d3d9Present.call.browserPresentation.resource.id,
+      "browser-resource:1",
+    );
+    assert.equal(browser.d3d9Present.call.browserPresentation.frameSequence, 4);
+  } else if (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateReport) {
     assert.equal(browserUnsupported, null);
     assertUser32DispatchMessageAPostTestCooperativeLevelTimerTranslateCheckpoint(
       browser.checkpointCompletion,
@@ -5021,6 +5185,7 @@ function assertScheduledSharedClockReportSemantics({
     );
   }
   if (
+    !kernel32GetTickCountPostTestCooperativeLevelTimerDispatchReport &&
     !user32DispatchMessageAPostTestCooperativeLevelTimerTranslateReport &&
     !user32TranslateMessagePostTestCooperativeLevelTimerPeekReport &&
     !user32PeekMessageAPostTestCooperativeLevelTimerWaitReport &&
@@ -5067,6 +5232,7 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext,
     );
   } else if (
+    !kernel32GetTickCountPostTestCooperativeLevelTimerDispatchReport &&
     !user32DispatchMessageAPostTestCooperativeLevelTimerTranslateReport &&
     !user32TranslateMessagePostTestCooperativeLevelTimerPeekReport &&
     !user32PeekMessageAPostTestCooperativeLevelTimerWaitReport &&
@@ -5683,6 +5849,11 @@ const nodeInstructions = scheduledNodeReport
     : nodeReport.firstUnsupported.instructionCount;
 const nodeMemoryContentSha256 = scheduledNodeReport
   ? nodeReport.schema ===
+    "vine.v86-bgi-kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch-primary"
+    ? nodeReport.execution
+        .kernel32GetTickCountPostTestCooperativeLevelTimerDispatch
+        .checkpointCompletion.memoryContentSha256
+    : nodeReport.schema ===
     "vine.v86-bgi-user32-dispatch-message-a-post-test-cooperative-level-timer-translate-primary"
     ? nodeReport.execution
         .user32DispatchMessageAPostTestCooperativeLevelTimerTranslate

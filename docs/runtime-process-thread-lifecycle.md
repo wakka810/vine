@@ -108,6 +108,14 @@ Policies without an increment preserve their historical fixed-sample behavior.
 TypeScript observes the serialized process clock for equivalence only and never
 advances guest time.
 
+`scheduled-shared-logical-deadline-v1`では、各API／COM dispatch boundaryがcheckedな
+cumulative retired-instruction cursorを`RuntimeProcessState`へ渡し、logical timer deadlineと
+同じclockを先に進める。このprofileの`GetTickCount`／`timeGetTime`は進行済みclockの
+mutation-free projectionであり、read自身はtickを増やさない。Cursor regression、overflow、
+process lifecycle mismatchはclock、timer、callback stateを変更する前に拒否する。このため
+通常loop内とTIMERPROC内のreadは同じauthorityを参照し、host／browser clockを第二の正本に
+しない。Incrementing profileのplan／commit contractは別のversioned policyとして維持する。
+
 ## Exit request and completion
 
 Thread/process exitは二段階である。

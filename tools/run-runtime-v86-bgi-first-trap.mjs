@@ -271,6 +271,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-peek-message-a-post-test-cooperative-level-timer-wait",
         "user32-translate-message-post-test-cooperative-level-timer-peek",
         "user32-dispatch-message-a-post-test-cooperative-level-timer-translate",
+        "kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
@@ -501,6 +502,7 @@ assert(
       "user32-peek-message-a-post-test-cooperative-level-timer-wait",
       "user32-translate-message-post-test-cooperative-level-timer-peek",
       "user32-dispatch-message-a-post-test-cooperative-level-timer-translate",
+      "kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch",
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
       "user32-set-window-pos-frame-change-move",
@@ -577,6 +579,8 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
       "user32-translate-message-post-test-cooperative-level-timer-peek"
       || genericRuntimeCapability ===
         "user32-dispatch-message-a-post-test-cooperative-level-timer-translate"
+      || genericRuntimeCapability ===
+        "kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch"
       ? "kernel32-delete-file-a-v1.json"
       : genericRuntimeCapability === "kernel32-find-first-file-a"
       ? "kernel32-find-file-a-v1.json"
@@ -1137,9 +1141,15 @@ const user32TranslateMessagePostTestCooperativeLevelTimerPeekCheckpointEnabled =
 const user32DispatchMessageAPostTestCooperativeLevelTimerTranslateCheckpointEnabled =
   genericRuntimeCapability ===
   "user32-dispatch-message-a-post-test-cooperative-level-timer-translate";
+const kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpointEnabled =
+  genericRuntimeCapability ===
+  "kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch";
+const user32DispatchMessageAPostTestCooperativeLevelTimerTranslateEvidenceEnabled =
+  user32DispatchMessageAPostTestCooperativeLevelTimerTranslateCheckpointEnabled ||
+  kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpointEnabled;
 const user32TranslateMessagePostTestCooperativeLevelTimerPeekEvidenceEnabled =
   user32TranslateMessagePostTestCooperativeLevelTimerPeekCheckpointEnabled ||
-  user32DispatchMessageAPostTestCooperativeLevelTimerTranslateCheckpointEnabled;
+  user32DispatchMessageAPostTestCooperativeLevelTimerTranslateEvidenceEnabled;
 const user32PeekMessageAPostTestCooperativeLevelTimerWaitEvidenceEnabled =
   user32PeekMessageAPostTestCooperativeLevelTimerWaitCheckpointEnabled ||
   user32TranslateMessagePostTestCooperativeLevelTimerPeekEvidenceEnabled;
@@ -2116,7 +2126,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? user32DispatchMessageAPostTestCooperativeLevelTimerTranslateCheckpointEnabled
+    ? kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpointEnabled
+      ? "v86-bgi-get-tick-count-post-test-cooperative-level-timer-dispatch"
+    : user32DispatchMessageAPostTestCooperativeLevelTimerTranslateCheckpointEnabled
       ? "v86-bgi-dispatch-message-a-post-test-cooperative-level-timer-translate"
       : user32TranslateMessagePostTestCooperativeLevelTimerPeekCheckpointEnabled
       ? "v86-bgi-translate-message-post-test-cooperative-level-timer-peek"
@@ -6754,6 +6766,13 @@ async function run() {
       if (genericRuntimeCapability === null) {
         validateGenericRuntimeReentryResult(genericResult);
       } else if (
+        kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpointEnabled
+      ) {
+        validateKernel32GetTickCountPostTestCooperativeLevelTimerDispatchResult(
+          genericResult,
+          sourceRegistration,
+        );
+      } else if (
         user32DispatchMessageAPostTestCooperativeLevelTimerTranslateCheckpointEnabled
       ) {
         validateUser32DispatchMessageAPostTestCooperativeLevelTimerTranslateResult(
@@ -7208,6 +7227,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpointEnabled
+            ? "bgi KERNEL32 GetTickCount after post-TestCooperativeLevel timer DispatchMessageA"
           : user32DispatchMessageAPostTestCooperativeLevelTimerTranslateCheckpointEnabled
             ? "bgi USER32 DispatchMessageA after post-TestCooperativeLevel timer TranslateMessage"
           : user32TranslateMessagePostTestCooperativeLevelTimerPeekCheckpointEnabled
@@ -8015,6 +8036,9 @@ async function runGenericRuntimeReentry({
   let checkpointCompletion = null;
   let user32PeekMessageAPostTestCooperativeLevelTimerWaitPrerequisite = null;
   let user32TranslateMessagePostTestCooperativeLevelTimerPeekPrerequisite = null;
+  let user32DispatchMessageAPostTestCooperativeLevelTimerTranslatePrerequisite =
+    null;
+  let kernel32GetTickCountPostTestCooperativeLevelTimerDispatchEntry = null;
   const largeHeapFreeCompletions = [];
   const heapAlloc24Completions = [];
   const postHeapTimeGetTimeCompletions = [];
@@ -9195,6 +9219,60 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
+      kernel32GetTickCountPostTestCooperativeLevelTimerDispatchEntry !== null &&
+      endpoint !== null
+    ) {
+      const entry =
+        kernel32GetTickCountPostTestCooperativeLevelTimerDispatchEntry;
+      const prerequisite =
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslatePrerequisite;
+      const dispatch = supportedCalls.find(
+        (call) => call.sequence === prerequisite?.lastEntrySequence,
+      );
+      const callbackReturn = callbackEvents.at(-1);
+      const messageBytes = Buffer.from(
+        context.readVirtualBytes(
+          0x006f_f8e8,
+          28,
+          "WM_TIMER MSG after GetTickCount callback unwind",
+        ),
+      );
+      assert(prerequisite);
+      assert.equal(activeCallbacks.length, 0);
+      assert.equal(dispatch?.pendingCallback, undefined);
+      assert.equal(
+        dispatch?.implementationId,
+        "user32.dispatch-message-a.window-timer-pointer-callback.v2",
+      );
+      assert.deepEqual(dispatch.result, { action: "set", value: 0 });
+      assert.equal(dispatch.callback?.frameId, entry.callbackFrameId);
+      assert.equal(dispatch.callback.result, callbackReturn?.result);
+      assert.equal(callbackReturn?.action, "return");
+      assert.equal(callbackReturn.sequence, prerequisite.lastEntrySequence);
+      assert.equal(callbackReturn.frameId, entry.callbackFrameId);
+      assert.equal(
+        crypto.createHash("sha256").update(messageBytes).digest("hex"),
+        prerequisite.messageContentSha256,
+      );
+      checkpointCompletion = {
+        ...entry,
+        dispatchCompletion: {
+          ...structuredClone(dispatch),
+          runtimeThreadId: 8_192,
+        },
+        callbackReturn: structuredClone(callbackReturn),
+        callbackResultIgnored: true,
+        outerDispatchResult: dispatch.result.value,
+        callbackCompletedBeforeNextEndpoint: true,
+        outerDispatchCompletedBeforeNextEndpoint: true,
+        activeCallbackDepthAtStop: activeCallbacks.length,
+        messageBytesPreserved: true,
+      };
+      kernel32GetTickCountPostTestCooperativeLevelTimerDispatchEntry = null;
+      user32DispatchMessageAPostTestCooperativeLevelTimerTranslatePrerequisite =
+        null;
+    }
+    if (
       peekMessageAPostWindowTimerCallbackEntry !== null &&
       endpoint !== null
     ) {
@@ -9440,6 +9518,11 @@ async function runGenericRuntimeReentry({
           "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm"
       ) &&
       !(
+        kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpointEnabled &&
+        checkpointCompletion.capability ===
+          "kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch"
+      ) &&
+      !(
         user32DispatchMessageAPostTestCooperativeLevelTimerTranslateCheckpointEnabled &&
         checkpointCompletion.capability ===
           "user32-dispatch-message-a-post-test-cooperative-level-timer-translate"
@@ -9468,6 +9551,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch"
+            ? "kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "user32-dispatch-message-a-post-test-cooperative-level-timer-translate"
             ? "user32-dispatch-message-a-post-test-cooperative-level-timer-translate-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -9823,6 +9909,12 @@ async function runGenericRuntimeReentry({
         }
       }
       if (
+        kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpointEnabled
+      ) {
+        checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 6);
+        checkpointCompletion.nextReturnAddress = terminal.returnAddress;
+        checkpointCompletion.nextStackPointer = continuation.finalState.esp;
+      } else if (
         user32DispatchMessageAPostTestCooperativeLevelTimerTranslateCheckpointEnabled
       ) {
         checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 1);
@@ -11166,7 +11258,7 @@ async function runGenericRuntimeReentry({
         dispatchMessageAPointerReleaseDispatching = false;
       }
       if (
-        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateCheckpointEnabled &&
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslateEvidenceEnabled &&
         sequence === 282_875
       ) {
         const prerequisite =
@@ -11214,7 +11306,7 @@ async function runGenericRuntimeReentry({
           crypto.createHash("sha256").update(messageBytes).digest("hex"),
           prerequisite.messageContentSha256,
         );
-        checkpointCompletion = {
+        const completion = {
           capability:
             "user32-dispatch-message-a-post-test-cooperative-level-timer-translate",
           implementationId:
@@ -11285,6 +11377,14 @@ async function runGenericRuntimeReentry({
           nextReturnAddress: 0,
           nextStackPointer: 0,
         };
+        if (
+          user32DispatchMessageAPostTestCooperativeLevelTimerTranslateCheckpointEnabled
+        ) {
+          checkpointCompletion = completion;
+        } else {
+          user32DispatchMessageAPostTestCooperativeLevelTimerTranslatePrerequisite =
+            completion;
+        }
       }
       continuation = executeToNextOwnedTrap(
         offer,
@@ -13006,6 +13106,77 @@ async function runGenericRuntimeReentry({
         user32TranslateMessagePostTestCooperativeLevelTimerPeekPrerequisite =
           completion;
       }
+    }
+    if (
+      kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpointEnabled &&
+      call.sequence === 282_876 &&
+      call.implementationId === "kernel32.get-tick-count.v1"
+    ) {
+      const prerequisite =
+        user32DispatchMessageAPostTestCooperativeLevelTimerTranslatePrerequisite;
+      assert(
+        prerequisite,
+        "GetTickCount omitted its timer DispatchMessageA prerequisite",
+      );
+      assert.equal(checkpointCompletion, null);
+      assert.equal(call.module.toLowerCase(), "kernel32.dll");
+      assert.equal(call.symbol, "GetTickCount");
+      assert.deepEqual(call.arguments, []);
+      assert.deepEqual(call.result, { action: "set", value: 3_800_773 });
+      assert.equal(call.returnAddress, 0x1009_9537);
+      assert.equal(call.stackPointerBefore, 0x006f_f890);
+      assert.equal(call.stackPointerAfter, 0x006f_f894);
+      assert.equal(call.lastError, 0);
+      assert.deepEqual(call.guestWrites, []);
+      assert.equal(call.tickCount?.returnedTickCount, 3_800_773);
+      assert.equal(call.tickCount.nextTickCount, 3_800_773);
+      assert.equal(call.tickCount.incrementPerRead, 0);
+      assert.equal(
+        call.tickCount.clockProfileId,
+        "scheduled-shared-logical-deadline-v1",
+      );
+      assert.equal(currentThreadId, 8_192);
+      assert.equal(activeCallbacks.length, 1);
+      assert.equal(activeCallbacks[0].entry.frameId, 75);
+      kernel32GetTickCountPostTestCooperativeLevelTimerDispatchEntry = {
+        capability:
+          "kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch",
+        implementationId:
+          "runtime.kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch.v1",
+        semanticImplementationId: "kernel32.get-tick-count.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        prerequisiteDispatchMessageASequence:
+          prerequisite.lastEntrySequence,
+        prerequisiteDispatchMessageAInstructionCount:
+          prerequisite.lastEntryInstructionCount,
+        firstCompletionSequence: call.sequence,
+        firstCompletionInstructionCount: call.trapInstructionCount,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: call.trapInstructionCount,
+        call: structuredClone(call),
+        compatibilityPolicyId: runtimePolicy.id,
+        clockProfileId: "scheduled-shared-logical-deadline-v1",
+        stateAuthority:
+          "rust-runtime-process-clock-and-scheduled-execution-cursor",
+        mutation: "none-scheduled-clock-projection",
+        failureAtomicity: true,
+        currentThreadId,
+        callbackFrameId: activeCallbacks[0].entry.frameId,
+        activeCallbackDepthAtCompletion: activeCallbacks.length,
+        callbackCompletedAtCompletion: false,
+        outerDispatchPendingAtCompletion: true,
+        lastErrorPolicy: "preserve",
+        guestWriteBytes: 0,
+        hostClockImported: false,
+        browserClockImported: false,
+        instructionCount: 0,
+        nextEndpoint: null,
+        nextArguments: [],
+        memoryContentSha256: "",
+        nextReturnAddress: 0,
+        nextStackPointer: 0,
+      };
     }
     if (
       peekMessageAPostWindowTimerCallbackContinuationCheckpointEnabled &&
@@ -29767,6 +29938,153 @@ function validateD3d9TestCooperativeLevelPostTimeGetTimeResult(
   assert.equal(result.activeCallbackDepth, 0);
 }
 
+function validateKernel32GetTickCountPostTestCooperativeLevelTimerDispatchResult(
+  result,
+  sourceRegistration,
+) {
+  assert(
+    kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpointEnabled,
+  );
+  assert(sourceRegistration !== null);
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  assert.equal(result.supportedCalls.length, 282_876);
+  assert.equal(
+    result.supportedCalls.filter((call) => call.pendingCallback !== true).length,
+    282_876,
+  );
+  const completion = result.checkpointCompletion;
+  assert(completion);
+  assert.equal(
+    completion.capability,
+    "kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch",
+  );
+  assert.equal(
+    completion.implementationId,
+    "runtime.kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch.v1",
+  );
+  assert.equal(completion.semanticImplementationId, "kernel32.get-tick-count.v1");
+  assert.equal(completion.requiredCompletions, 1);
+  assert.equal(completion.completionCount, 1);
+  assert.equal(completion.prerequisiteDispatchMessageASequence, 282_875);
+  assert.equal(
+    completion.prerequisiteDispatchMessageAInstructionCount,
+    392_354_437,
+  );
+  assert.equal(completion.firstCompletionSequence, 282_876);
+  assert.equal(completion.firstCompletionInstructionCount, 392_354_458);
+  assert.equal(completion.lastCompletionSequence, 282_876);
+  assert.equal(completion.lastCompletionInstructionCount, 392_354_458);
+  assert.equal(completion.compatibilityPolicyId, "kernel32-delete-file-a-v1");
+  assert.equal(completion.clockProfileId, "scheduled-shared-logical-deadline-v1");
+  assert.equal(
+    completion.stateAuthority,
+    "rust-runtime-process-clock-and-scheduled-execution-cursor",
+  );
+  assert.equal(completion.mutation, "none-scheduled-clock-projection");
+  assert.equal(completion.failureAtomicity, true);
+  assert.equal(completion.currentThreadId, 8_192);
+  assert.equal(completion.callbackFrameId, 75);
+  assert.equal(completion.activeCallbackDepthAtCompletion, 1);
+  assert.equal(completion.callbackCompletedAtCompletion, false);
+  assert.equal(completion.outerDispatchPendingAtCompletion, true);
+  assert.equal(completion.lastErrorPolicy, "preserve");
+  assert.equal(completion.guestWriteBytes, 0);
+  assert.equal(completion.hostClockImported, false);
+  assert.equal(completion.browserClockImported, false);
+  const call = completion.call;
+  assert.equal(call.sequence, 282_876);
+  assert.equal(call.occurrence, 100_079);
+  assert.equal(call.module.toLowerCase(), "kernel32.dll");
+  assert.equal(call.symbol, "GetTickCount");
+  assert.equal(call.trapInstructionCount, 392_354_458);
+  assert.deepEqual(call.arguments, []);
+  assert.deepEqual(call.result, { action: "set", value: 3_800_773 });
+  assert.equal(call.implementationId, "kernel32.get-tick-count.v1");
+  assert.equal(call.returnAddress, 0x1009_9537);
+  assert.equal(call.stackPointerBefore, 0x006f_f890);
+  assert.equal(call.stackPointerAfter, 0x006f_f894);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.equal(call.tickCount.returnedTickCount, 3_800_773);
+  assert.equal(call.tickCount.nextTickCount, 3_800_773);
+  assert.equal(call.tickCount.incrementPerRead, 0);
+  assert.equal(
+    call.tickCount.clockProfileId,
+    "scheduled-shared-logical-deadline-v1",
+  );
+  assert.deepEqual(call.tickCount.timerClock, {
+    currentTime100ns: 2_007_735_000,
+    generation: 16_309,
+  });
+  assert.deepEqual(call.tickCount.scheduledExecutionClock, {
+    retiredInstructions: 392_354_458,
+    pendingRetiredInstructions: 458,
+    retiredInstructionsPerSecond: 2_000_000,
+  });
+  assert.equal(completion.dispatchCompletion.sequence, 282_875);
+  assert.equal(
+    completion.dispatchCompletion.implementationId,
+    "user32.dispatch-message-a.window-timer-pointer-callback.v2",
+  );
+  assert.deepEqual(completion.dispatchCompletion.result, {
+    action: "set",
+    value: 0,
+  });
+  assert.equal(completion.callbackReturn.action, "return");
+  assert.equal(completion.callbackReturn.sequence, 282_875);
+  assert.equal(completion.callbackReturn.frameId, 75);
+  assert.equal(completion.callbackReturn.instructionCount, 392_355_081);
+  assert.equal(completion.callbackReturn.result, 64);
+  assert.equal(
+    completion.callbackReturn.result,
+    completion.dispatchCompletion.callback.result,
+  );
+  assert.equal(completion.callbackResultIgnored, true);
+  assert.equal(completion.outerDispatchResult, 0);
+  assert.equal(completion.callbackCompletedBeforeNextEndpoint, true);
+  assert.equal(completion.outerDispatchCompletedBeforeNextEndpoint, true);
+  assert.equal(completion.activeCallbackDepthAtStop, 0);
+  assert.equal(completion.messageBytesPreserved, true);
+  assert.equal(completion.instructionCount, 392_355_090);
+  assert.deepEqual(completion.nextEndpoint, {
+    id: 164,
+    address: 0x7f00_0a30,
+    module: "USER32.dll",
+    symbol: { kind: "name", name: "PeekMessageA" },
+    disposition: "declared-runtime-export",
+    iatAddress: 0x100d_1368,
+  });
+  assert.deepEqual(completion.nextArguments, [0x006f_f8e8, 0, 0, 0, 1]);
+  assert.equal(completion.nextReturnAddress, 0x1009_37bb);
+  assert.equal(completion.nextStackPointer, 0x006f_f8c4);
+  assert.equal(
+    completion.memoryContentSha256,
+    "bd50f8282664659b53c4ab720e735885696265ac05a4bf7235f0bef82518c58c",
+  );
+  assert.equal(result.terminal.instructionCount, completion.instructionCount);
+  assert.equal(result.terminal.terminal.kind, "owned-import-thunk");
+  assert.equal(result.terminal.terminal.thunk.id, 164);
+  assert.equal(result.terminal.terminal.thunk.address, 0x7f00_0a30);
+  assert.equal(result.terminal.terminal.thunk.module, "USER32.dll");
+  assert.equal(result.terminal.terminal.thunk.name, "PeekMessageA");
+  assert.equal(result.terminal.terminal.thunk.iatAddress, 0x100d_1368);
+  assert.equal(result.terminal.terminal.returnAddress, 0x1009_37bb);
+  assert.equal(result.terminal.initialInstructionCount, 392_355_081);
+  assert.equal(result.terminal.additionalInstructionCount, 9);
+  assert.equal(result.finalGeneration, 333_515);
+  assert.equal(result.writebacks.length, 286_075);
+  assert.equal(result.hostDeltas.length, 143_090);
+  assert.equal(result.callbackEvents.length, 150);
+  assert.equal(result.threadExecution.contextSwitches, 2_274);
+  assert.equal(result.clockSamples.length, 100_558);
+  assert.equal(result.windowTimerCallbacks.length, 41);
+  assert.equal(result.timerPacing.length, 9_003);
+  assert.equal(result.sourceReads.length, 154);
+  assert.equal(result.heapPageMaterializations.length, 3_112);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+}
+
 function validateUser32DispatchMessageAPostTestCooperativeLevelTimerTranslateResult(
   result,
   sourceRegistration,
@@ -44325,6 +44643,14 @@ function buildGenericRuntimeReentryReport({
       if (findFirstFileACheckpointEnabled) {
         if (deleteFileACheckpointEnabled) {
           if (
+            kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpointEnabled
+          ) {
+            assert.equal(completedSupportedCalls.length, 282_876);
+            assert.equal(
+              supportedCallSemanticsSha256,
+              "4759db3b97a4e71467ae9ccd93330b6a45befb528339ca419bcbddd962efdcaa",
+            );
+          } else if (
             user32TranslateMessagePostTestCooperativeLevelTimerPeekEvidenceEnabled
           ) {
             assert.equal(completedSupportedCalls.length, 282_874);
@@ -47848,6 +48174,14 @@ function buildScheduledSharedClockPrimaryReport({
               "user32.peek-message-a.current-thread.v1",
         ) ?? null
       : null;
+  const kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCall =
+    kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpointEnabled
+      ? completedSupportedCalls.find(
+          (call) =>
+            call.sequence === 282_876 &&
+            call.implementationId === "kernel32.get-tick-count.v1",
+        ) ?? null
+      : null;
   const successfulFindCalls = [
     ...findFirstCalls,
     ...findNextCalls.filter((call) => call.result.value === 1),
@@ -47866,7 +48200,9 @@ function buildScheduledSharedClockPrimaryReport({
     };
   });
   return {
-    schema: user32DispatchMessageAPostTestCooperativeLevelTimerTranslateCheckpointEnabled
+    schema: kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpointEnabled
+      ? "vine.v86-bgi-kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch-primary"
+      : user32DispatchMessageAPostTestCooperativeLevelTimerTranslateCheckpointEnabled
       ? "vine.v86-bgi-user32-dispatch-message-a-post-test-cooperative-level-timer-translate-primary"
       : user32TranslateMessagePostTestCooperativeLevelTimerPeekCheckpointEnabled
       ? "vine.v86-bgi-user32-translate-message-post-test-cooperative-level-timer-peek-primary"
@@ -48334,6 +48670,30 @@ function buildScheduledSharedClockPrimaryReport({
               call: user32PeekMessageAPostTestCooperativeLevelTimerWaitCall,
             },
             user32DispatchMessageAPostTestCooperativeLevelTimerTranslate: {
+              checkpointCompletion: genericResult.checkpointCompletion,
+            },
+          }
+        : {}),
+      ...(kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpointEnabled
+        ? {
+            winmmTimeGetTimePostPresent: {
+              call: winmmTimeGetTimePostPresentCall,
+            },
+            d3d9TestCooperativeLevelPostTimeGetTime: {
+              call: d3d9TestCooperativeLevelPostTimeGetTimeCall,
+            },
+            kernel32SetWaitableTimerPostTestCooperativeLevel: {
+              call: kernel32SetWaitableTimerPostTestCooperativeLevelCall,
+            },
+            kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArm: {
+              call:
+                kernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmCall,
+            },
+            user32PeekMessageAPostTestCooperativeLevelTimerWait: {
+              call: user32PeekMessageAPostTestCooperativeLevelTimerWaitCall,
+            },
+            kernel32GetTickCountPostTestCooperativeLevelTimerDispatch: {
+              call: kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCall,
               checkpointCompletion: genericResult.checkpointCompletion,
             },
           }

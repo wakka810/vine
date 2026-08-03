@@ -124,9 +124,13 @@ const user32TranslateMessagePostTestCooperativeLevelTimerPeekProfile =
 const user32DispatchMessageAPostTestCooperativeLevelTimerTranslateProfile =
   bgiProfile ===
   "user32-dispatch-message-a-post-test-cooperative-level-timer-translate";
+const kernel32GetTickCountPostTestCooperativeLevelTimerDispatchProfile =
+  bgiProfile ===
+  "kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch";
 const d3d9UpdateTexturePartialDirtyRegionProfile =
   bgiProfile === "d3d9-update-texture-partial-dirty-region";
 const includesD3d9UpdateTexturePartialDirtyRegionProfile =
+  kernel32GetTickCountPostTestCooperativeLevelTimerDispatchProfile ||
   user32DispatchMessageAPostTestCooperativeLevelTimerTranslateProfile ||
   user32TranslateMessagePostTestCooperativeLevelTimerPeekProfile ||
   user32PeekMessageAPostTestCooperativeLevelTimerWaitProfile ||
@@ -432,7 +436,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v126";
+const runtimeProtocol = "vine.browser-runtime-worker.v127";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -2101,6 +2105,163 @@ function validateD3d9GetRasterStatusPostEndSceneBgiProbe(
   assert.equal(completion.nextStackPointer, 0x006f_b890);
   assert.equal(report.timerPacing.requests, 9_002);
   assert.equal(report.timerPacing.completions, 9_002);
+  assert.equal(report.timerPacing.pending, 0);
+}
+
+function validateKernel32GetTickCountPostTestCooperativeLevelTimerDispatchBgiProbe(
+  evidence,
+  scenario,
+) {
+  if (scenario !== "success") {
+    validateScheduledSharedClockBgiProbe(evidence, scenario);
+    return;
+  }
+  const report = evidence.report;
+  const completion = report.checkpointCompletion;
+  const call = completion.call;
+  const dispatch = completion.dispatchCompletion;
+  const callbackReturn = completion.callbackReturn;
+  const receipt = report.d3d9Present?.call?.browserPresentation;
+  assert.equal(report.outcome, "checkpoint-complete");
+  assert.equal(report.error, null);
+  assert.equal(report.supportedCallCount, 282_876);
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    "4759db3b97a4e71467ae9ccd93330b6a45befb528339ca419bcbddd962efdcaa",
+  );
+  assert.equal(report.instructions, 392_355_090);
+  assert.equal(report.initialGeneration, 27);
+  assert.equal(report.finalGeneration, 355_970);
+  assert.equal(report.writebackBatches, 308_640);
+  assert.equal(report.writebackPages, 526_047);
+  assert.equal(report.mappingDeltas, 143_090);
+  assert.equal(report.mappingDirtyPages, 171_660);
+  assert.equal(report.contextSwitches, 2_274);
+  assert.equal(report.sourceReads.length, 154);
+  assert.equal(report.writableDirectoryCreates.length, 1);
+  assert.equal((report.heapPageMaterializations ?? []).length, 3_112);
+  assert.equal(report.firstUnsupported, null);
+  assert.equal(
+    completion.capability,
+    "kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch",
+  );
+  assert.equal(
+    completion.implementationId,
+    "runtime.kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch.v1",
+  );
+  assert.equal(completion.semanticImplementationId, "kernel32.get-tick-count.v1");
+  assert.equal(completion.requiredCompletions, 1);
+  assert.equal(completion.completionCount, 1);
+  assert.equal(completion.prerequisiteDispatchMessageASequence, 282_875);
+  assert.equal(
+    completion.prerequisiteDispatchMessageAInstructionCount,
+    392_354_437,
+  );
+  assert.equal(completion.firstCompletionSequence, 282_876);
+  assert.equal(completion.firstCompletionInstructionCount, 392_354_458);
+  assert.equal(completion.lastCompletionSequence, 282_876);
+  assert.equal(completion.lastCompletionInstructionCount, 392_354_458);
+  assert.equal(completion.compatibilityPolicyId, "kernel32-delete-file-a-v1");
+  assert.equal(completion.clockProfileId, "scheduled-shared-logical-deadline-v1");
+  assert.equal(
+    completion.stateAuthority,
+    "rust-runtime-process-clock-and-scheduled-execution-cursor",
+  );
+  assert.equal(completion.mutation, "none-scheduled-clock-projection");
+  assert.equal(completion.failureAtomicity, true);
+  assert.equal(completion.currentThreadId, 8_192);
+  assert.equal(completion.callbackFrameId, 75);
+  assert.equal(completion.activeCallbackDepthAtCompletion, 1);
+  assert.equal(completion.callbackCompletedAtCompletion, false);
+  assert.equal(completion.outerDispatchPendingAtCompletion, true);
+  assert.equal(completion.lastErrorPolicy, "preserve");
+  assert.equal(completion.guestWriteBytes, 0);
+  assert.equal(completion.hostClockImported, false);
+  assert.equal(completion.browserClockImported, false);
+  assert.equal(call.sequence, 282_876);
+  assert.equal(call.occurrence, 100_079);
+  assert.equal(call.module.toLowerCase(), "kernel32.dll");
+  assert.equal(call.symbol, "GetTickCount");
+  assert.equal(call.trapInstructionCount, 392_354_458);
+  assert.deepEqual(call.arguments, []);
+  assert.deepEqual(call.result, { action: "set", value: 3_800_773 });
+  assert.equal(call.implementationId, "kernel32.get-tick-count.v1");
+  assert.equal(call.returnAddress, 0x1009_9537);
+  assert.equal(call.stackPointerBefore, 0x006f_f890);
+  assert.equal(call.stackPointerAfter, 0x006f_f894);
+  assert.equal(call.lastError, 0);
+  assert.deepEqual(call.guestWrites, []);
+  assert.equal(call.tickCount.returnedTickCount, 3_800_773);
+  assert.equal(call.tickCount.nextTickCount, 3_800_773);
+  assert.equal(call.tickCount.incrementPerRead, 0);
+  assert.equal(
+    call.tickCount.clockProfileId,
+    "scheduled-shared-logical-deadline-v1",
+  );
+  assert.deepEqual(call.tickCount.timerClock, {
+    currentTime100ns: 2_007_735_000,
+    generation: 16_309,
+  });
+  assert.deepEqual(call.tickCount.scheduledExecutionClock, {
+    retiredInstructions: 392_354_458,
+    pendingRetiredInstructions: 458,
+    retiredInstructionsPerSecond: 2_000_000,
+  });
+  assert.equal(dispatch.sequence, 282_875);
+  assert.equal(dispatch.occurrence, 43);
+  assert.equal(dispatch.trapInstructionCount, 392_354_437);
+  assert.equal(dispatch.runtimeThreadId, 8_192);
+  assert.equal(dispatch.module.toLowerCase(), "user32.dll");
+  assert.equal(dispatch.symbol, "DispatchMessageA");
+  assert.deepEqual(dispatch.arguments, [0x006f_f8e8]);
+  assert.deepEqual(dispatch.result, { action: "set", value: 0 });
+  assert.equal(
+    dispatch.implementationId,
+    "user32.dispatch-message-a.window-timer-pointer-callback.v2",
+  );
+  assert.equal(dispatch.returnAddress, 0x1009_37ac);
+  assert.equal(dispatch.stackPointerBefore, 0x006f_f8d4);
+  assert.equal(dispatch.stackPointerAfter, 0x006f_f8dc);
+  assert.equal(dispatch.lastError, 0);
+  assert.deepEqual(dispatch.guestWrites, []);
+  assert.equal(dispatch.callback.frameId, 75);
+  assert.equal(dispatch.callback.returnInstructionCount, 392_355_081);
+  assert.equal(dispatch.callback.result, 64);
+  assert.deepEqual(callbackReturn, {
+    action: "return",
+    sequence: 282_875,
+    frameId: 75,
+    instructionCount: 392_355_081,
+    result: 64,
+  });
+  assert.equal(completion.callbackResultIgnored, true);
+  assert.equal(completion.outerDispatchResult, 0);
+  assert.equal(completion.callbackCompletedBeforeNextEndpoint, true);
+  assert.equal(completion.outerDispatchCompletedBeforeNextEndpoint, true);
+  assert.equal(completion.activeCallbackDepthAtStop, 0);
+  assert.equal(completion.messageBytesPreserved, true);
+  assert.equal(completion.instructionCount, 392_355_090);
+  assert.deepEqual(completion.nextEndpoint, {
+    id: 164,
+    address: 0x7f00_0a30,
+    module: "user32.dll",
+    symbol: { kind: "name", name: "PeekMessageA" },
+    disposition: "declared-runtime-export",
+    iatAddress: 0x100d_1368,
+  });
+  assert.deepEqual(completion.nextArguments, [0x006f_f8e8, 0, 0, 0, 1]);
+  assert.equal(completion.nextReturnAddress, 0x1009_37bb);
+  assert.equal(completion.nextStackPointer, 0x006f_f8c4);
+  assert.equal(
+    completion.memoryContentSha256,
+    "bd50f8282664659b53c4ab720e735885696265ac05a4bf7235f0bef82518c58c",
+  );
+  assert.equal(receipt.backend, "webgl2-offscreen-canvas");
+  assert.equal(receipt.resource.id, "browser-resource:1");
+  assert.equal(receipt.frameSequence, 4);
+  assert.equal(receipt.renderedBeforeGuestResume, true);
+  assert.equal(report.timerPacing.requests, 9_003);
+  assert.equal(report.timerPacing.completions, 9_003);
   assert.equal(report.timerPacing.pending, 0);
 }
 
@@ -4430,6 +4591,13 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.report.pendingCallbacks, 0);
     assertExecutionStateMachine(evidence.report, scenario);
     assertExecutionEngine(evidence.report);
+    if (kernel32GetTickCountPostTestCooperativeLevelTimerDispatchProfile) {
+      validateKernel32GetTickCountPostTestCooperativeLevelTimerDispatchBgiProbe(
+        evidence,
+        scenario,
+      );
+      return evidence;
+    }
     if (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateProfile) {
       validateUser32DispatchMessageAPostTestCooperativeLevelTimerTranslateBgiProbe(
         evidence,
@@ -10205,6 +10373,153 @@ function validateD3d9EndScenePostDrawPrimitiveBgiEquivalence(browser, oracle) {
   assert.equal(report.timerPacing.pending, 0);
 }
 
+function validateKernel32GetTickCountPostTestCooperativeLevelTimerDispatchBgiEquivalence(
+  browser,
+  oracle,
+) {
+  const report = browser.report;
+  const completion = report.checkpointCompletion;
+  const oracleCompletion =
+    oracle.execution.kernel32GetTickCountPostTestCooperativeLevelTimerDispatch
+      .checkpointCompletion;
+  const receipt = report.d3d9Present.call.browserPresentation;
+  assert.equal(
+    oracle.schema,
+    "vine.v86-bgi-kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch-primary",
+  );
+  assert.equal(report.evidenceLevel, fullEvidence ? "full" : "summary");
+  assert.equal(
+    report.supportedCallCount,
+    oracle.execution.completedSupportedCalls,
+  );
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    oracle.execution.supportedCallSemanticsSha256,
+  );
+  assert.equal(report.instructions, oracle.stop.terminal.instructionCount);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert.deepEqual(
+    report.sourceReads.map(normalizeBrowserSourceRead),
+    oracle.synchronization.sourceReads.map(normalizeNodeSourceRead),
+  );
+  assert.deepEqual(
+    (report.heapPageMaterializations ?? []).map(
+      normalizeHeapPageMaterialization,
+    ),
+    oracle.synchronization.heapPageMaterializations.map(
+      normalizeHeapPageMaterialization,
+    ),
+  );
+  assert.deepEqual(
+    report.writableDirectoryCreates.map(normalizeWritableDirectoryCreate),
+    oracle.synchronization.writableDirectoryCreates.map(
+      normalizeWritableDirectoryCreate,
+    ),
+  );
+  assert.equal(report.firstUnsupported, null);
+  assert.equal(oracle.stop.fault, null);
+  assert.deepEqual(
+    normalizeSemanticCall(completion.call),
+    normalizeSemanticCall(oracleCompletion.call),
+  );
+  assert.equal(completion.call.occurrence, oracleCompletion.call.occurrence);
+  assert.equal(
+    completion.call.trapInstructionCount,
+    oracleCompletion.call.trapInstructionCount,
+  );
+  assert.deepEqual(
+    normalizeSemanticCall(completion.dispatchCompletion),
+    normalizeSemanticCall(oracleCompletion.dispatchCompletion),
+  );
+  for (const field of [
+    "occurrence",
+    "trapInstructionCount",
+    "runtimeThreadId",
+  ]) {
+    assert.deepEqual(
+      completion.dispatchCompletion[field],
+      oracleCompletion.dispatchCompletion[field],
+      `dispatchCompletion.${field}`,
+    );
+  }
+  assert.deepEqual(completion.callbackReturn, oracleCompletion.callbackReturn);
+  for (const field of [
+    "capability",
+    "implementationId",
+    "semanticImplementationId",
+    "requiredCompletions",
+    "completionCount",
+    "prerequisiteDispatchMessageASequence",
+    "prerequisiteDispatchMessageAInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "compatibilityPolicyId",
+    "clockProfileId",
+    "stateAuthority",
+    "mutation",
+    "failureAtomicity",
+    "currentThreadId",
+    "callbackFrameId",
+    "activeCallbackDepthAtCompletion",
+    "callbackCompletedAtCompletion",
+    "outerDispatchPendingAtCompletion",
+    "lastErrorPolicy",
+    "guestWriteBytes",
+    "hostClockImported",
+    "browserClockImported",
+    "callbackResultIgnored",
+    "outerDispatchResult",
+    "callbackCompletedBeforeNextEndpoint",
+    "outerDispatchCompletedBeforeNextEndpoint",
+    "activeCallbackDepthAtStop",
+    "messageBytesPreserved",
+    "nextReturnAddress",
+    "nextStackPointer",
+  ]) {
+    assert.deepEqual(completion[field], oracleCompletion[field], field);
+  }
+  assert.equal(
+    completion.instructionCount,
+    oracle.stop.terminal.instructionCount,
+  );
+  assert.deepEqual(
+    {
+      ...completion.nextEndpoint,
+      module: completion.nextEndpoint.module.toLowerCase(),
+    },
+    {
+      ...oracleCompletion.nextEndpoint,
+      module: oracleCompletion.nextEndpoint.module.toLowerCase(),
+    },
+  );
+  assert.deepEqual(completion.nextArguments, oracleCompletion.nextArguments);
+  assert.equal(
+    completion.memoryContentSha256,
+    oracleCompletion.memoryContentSha256,
+  );
+  assert.equal(receipt.backend, "webgl2-offscreen-canvas");
+  assert.equal(receipt.resource.id, "browser-resource:1");
+  assert.equal(receipt.frameSequence, 4);
+  assert.equal(receipt.renderedBeforeGuestResume, true);
+  assert.equal(report.pointerInput.receipts.length, 2);
+  assert.deepEqual(
+    report.pointerInput.receipts[0],
+    oracle.execution.pointerInput.first.receipt,
+  );
+  assert.deepEqual(
+    report.pointerInput.receipts[1],
+    oracle.execution.pointerInput.last.receipt,
+  );
+  assert.equal(report.timerPacing.requests, oracle.execution.timerPacing.count);
+  assert.equal(
+    report.timerPacing.completions,
+    oracle.execution.timerPacing.count,
+  );
+  assert.equal(report.timerPacing.pending, 0);
+}
+
 function validateUser32DispatchMessageAPostTestCooperativeLevelTimerTranslateBgiEquivalence(
   browser,
   oracle,
@@ -12483,6 +12798,13 @@ function validateCreateFontA224x112BgiEquivalence(browser, oracle) {
 }
 
 function validateBgiEquivalence(browser, oracle) {
+  if (kernel32GetTickCountPostTestCooperativeLevelTimerDispatchProfile) {
+    validateKernel32GetTickCountPostTestCooperativeLevelTimerDispatchBgiEquivalence(
+      browser,
+      oracle,
+    );
+    return;
+  }
   if (user32DispatchMessageAPostTestCooperativeLevelTimerTranslateProfile) {
     validateUser32DispatchMessageAPostTestCooperativeLevelTimerTranslateBgiEquivalence(
       browser,

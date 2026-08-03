@@ -6408,3 +6408,21 @@ the callback's nested `KERNEL32.dll!GetTickCount`; callback return and outer res
 are not claimed at this stop. Exact report and artifact identities remain authoritative
 only in [current-checkpoint.json](current-checkpoint.json). Details are in
 [the bounded timer DispatchMessageA profile](bgi-user32-dispatch-message-a-post-test-cooperative-level-timer-translate.md).
+
+## 193. BGI timer-callback `GetTickCount` and dispatch completion
+
+Sections 178, 180, and 192 already fix the native consumer contract needed at this
+boundary: TIMERPROC receives `(HWND, WM_TIMER, timer ID, DWORD time)`, its callback
+result is ignored, and the outer `DispatchMessageA` returns zero. No new native trace
+was needed. The logical tick, frame ID, sequence, instruction count, and guest addresses
+remain runtime evidence identity rather than semantic handler selectors.
+
+Canonical Node and Chrome complete nested `GetTickCount` at sequence 282,876／
+occurrence 100,079／instruction 392,354,458 with tick 3,800,773 and no guest write.
+Both then observe frame 75 returning 64 at instruction 392,355,081, retire the frame,
+complete pending dispatch sequence 282,875 with zero, preserve the published `MSG32`,
+and reach the next `PeekMessageA` at instruction 392,355,090 with callback depth zero.
+TypeScript imports no host clock or Windows callback authority. Exact active artifact
+identities remain authoritative only in [current-checkpoint.json](current-checkpoint.json).
+Details are in
+[the bounded timer-callback completion profile](bgi-kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch.md).

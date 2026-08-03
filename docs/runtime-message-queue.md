@@ -148,6 +148,15 @@ depth 0、message bytesは不変で、Node／Chromeは21 instructions後のneste
 [the reached timer DispatchMessageA profile](bgi-user32-dispatch-message-a-post-test-cooperative-level-timer-translate.md)
 を正とする。
 
+そのframe 75内のsequence 282,876 `GetTickCount`は、shared scheduled clockから
+3,800,773をmutation-freeにprojectionする。Instruction 392,355,081のstrict returnは
+frame ID／top depth／pending sequenceを照合してresult 64をretireし、timer dispatch policyは
+その値をouter resultへ伝播させず0を返す。Callbackとouter dispatchの完了後も28-byte
+`MSG32`と空queueは不変で、Node／Chromeはinstruction 392,355,090の次の
+`PeekMessageA`へdepth 0で到達する。Bounded claimは
+[the reached timer-callback completion profile](bgi-kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch.md)
+を正とする。
+
 ## Pointer-button message production and WndProc dispatch
 
 Versioned pointer ingressはnormalized coordinate、primary／secondary button、strict source sequenceだけを

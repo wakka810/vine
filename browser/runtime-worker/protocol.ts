@@ -1,7 +1,7 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 
-export const protocolVersion = 126 as const;
+export const protocolVersion = 127 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -43,6 +43,7 @@ export type BgiCapabilityProfile =
   | "user32-peek-message-a-post-test-cooperative-level-timer-wait"
   | "user32-translate-message-post-test-cooperative-level-timer-peek"
   | "user32-dispatch-message-a-post-test-cooperative-level-timer-translate"
+  | "kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1208,6 +1209,71 @@ export type D3d9CompatibilityPolicyId =
   | "d3d9-primary-virtual-adapter-v32"
   | "d3d9-primary-virtual-adapter-v33";
 
+export interface Kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpoint {
+  capability: "kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch";
+  implementationId: "runtime.kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch.v1";
+  semanticImplementationId: "kernel32.get-tick-count.v1";
+  requiredCompletions: 1;
+  completionCount: 1;
+  prerequisiteDispatchMessageASequence: number;
+  prerequisiteDispatchMessageAInstructionCount: number;
+  firstCompletionSequence: number;
+  firstCompletionInstructionCount: number;
+  lastCompletionSequence: number;
+  lastCompletionInstructionCount: number;
+  call: RuntimeSupportedCallSnapshot & {
+    occurrence: number;
+    trapInstructionCount: number;
+  };
+  compatibilityPolicyId: "kernel32-delete-file-a-v1";
+  clockProfileId: "scheduled-shared-logical-deadline-v1";
+  stateAuthority: "rust-runtime-process-clock-and-scheduled-execution-cursor";
+  mutation: "none-scheduled-clock-projection";
+  failureAtomicity: true;
+  currentThreadId: 8192;
+  callbackFrameId: number;
+  activeCallbackDepthAtCompletion: 1;
+  callbackCompletedAtCompletion: false;
+  outerDispatchPendingAtCompletion: true;
+  lastErrorPolicy: "preserve";
+  guestWriteBytes: 0;
+  hostClockImported: false;
+  browserClockImported: false;
+  dispatchCompletion:
+    | (RuntimeSupportedCallSnapshot & {
+        occurrence: number;
+        trapInstructionCount: number;
+        runtimeThreadId: 8192;
+      })
+    | null;
+  callbackReturn: {
+    action: "return";
+    sequence: number;
+    frameId: number;
+    instructionCount: number;
+    result: number;
+  } | null;
+  callbackResultIgnored: boolean;
+  outerDispatchResult: number | null;
+  callbackCompletedBeforeNextEndpoint: boolean;
+  outerDispatchCompletedBeforeNextEndpoint: boolean;
+  activeCallbackDepthAtStop: number | null;
+  messageBytesPreserved: boolean;
+  instructionCount: number;
+  nextEndpoint: {
+    id: number;
+    address: number;
+    module: string;
+    symbol: { kind: "name"; name: "PeekMessageA" };
+    disposition: "declared-runtime-export";
+    iatAddress: number;
+  } | null;
+  nextArguments: number[];
+  memoryContentSha256: string;
+  nextReturnAddress: number;
+  nextStackPointer: number;
+}
+
 export interface SessionReport {
   evidenceLevel: "full" | "summary";
   outcome:
@@ -1857,6 +1923,7 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | Kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpoint
     | {
         capability: "user32-dispatch-message-a-post-test-cooperative-level-timer-translate";
         implementationId: "runtime.user32-dispatch-message-a-post-test-cooperative-level-timer-translate.v1";

@@ -468,6 +468,20 @@ before nested `KERNEL32.dll!GetTickCount`, with terminal memory digest
 Callback return and outer result remain outside this bounded profile. Details are in
 [the post-TranslateMessage timer `DispatchMessageA` profile](bgi-user32-dispatch-message-a-post-test-cooperative-level-timer-translate.md).
 
+Protocol version 127／BGI report schema 93 continues through the nested timer
+`GetTickCount` and strict dispatch unwind. Node and Chrome agree on sequence
+282,876／occurrence 100,079 at instruction 392,354,458, returned tick 3,800,773,
+timer-clock generation 16,309, and zero guest writes. Both then validate callback
+frame 75 returning 64 at instruction 392,355,081, ignore that result by TIMERPROC
+policy, complete outer dispatch sequence 282,875 with zero, preserve the published
+`MSG32`, and stop at instruction 392,355,090 before the next `PeekMessageA` at
+callback depth zero. Completed-call count is 282,876, semantic digest is
+`4759db3b97a4e71467ae9ccd93330b6a45befb528339ca419bcbddd962efdcaa`, and
+terminal memory digest is
+`bd50f8282664659b53c4ab720e735885696265ac05a4bf7235f0bef82518c58c`.
+The Worker imports neither clock nor Windows callback state. Details are in
+[the timer-callback `GetTickCount` completion profile](bgi-kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch.md).
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk
