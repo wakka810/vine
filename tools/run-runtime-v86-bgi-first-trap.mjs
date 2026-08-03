@@ -30077,9 +30077,25 @@ function validateKernel32GetTickCountPostTestCooperativeLevelTimerDispatchResult
   assert.equal(result.hostDeltas.length, 143_090);
   assert.equal(result.callbackEvents.length, 150);
   assert.equal(result.threadExecution.contextSwitches, 2_274);
-  assert.equal(result.clockSamples.length, 100_558);
-  assert.equal(result.windowTimerCallbacks.length, 41);
-  assert.equal(result.timerPacing.length, 9_003);
+  const completedCalls = result.supportedCalls.filter(
+    (call) => call.pendingCallback !== true,
+  );
+  assert.equal(
+    completedCalls.filter((candidate) => candidate.tickCount !== undefined)
+      .length,
+    100_558,
+  );
+  assert.equal(
+    completedCalls.filter(
+      (candidate) =>
+        candidate.module.toLowerCase() === "user32.dll" &&
+        candidate.symbol === "DispatchMessageA" &&
+        candidate.windowTimer !== undefined &&
+        candidate.callback !== undefined,
+    ).length,
+    41,
+  );
+  assert.equal((result.timerPacing ?? []).length, 9_003);
   assert.equal(result.sourceReads.length, 154);
   assert.equal(result.heapPageMaterializations.length, 3_112);
   assert.equal(result.writableDirectoryCreates.length, 1);
