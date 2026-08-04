@@ -30,7 +30,7 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "DispatchMessageA's preflighted TIMERPROC frame entry, the callback's scheduled GetTickCount projection, and strict callback/outer DispatchMessageA unwind also pass before the next PeekMessageA",
+    "strict callback/outer DispatchMessageA unwind, and the following empty current-thread PeekMessageA PM_REMOVE validation also pass before timeGetTime",
   ),
 );
 assert.ok(
@@ -1327,6 +1327,24 @@ falseScheduledClockConclusion.activeRuntimeCheckpoint.scheduledSharedClock.proxi
   true;
 assert.ok(
   validateCurrentCheckpoint(falseScheduledClockConclusion).some((error) =>
+    error.includes("scheduled shared clock checkpoint evidence"),
+  ),
+);
+
+const browserOwnedPostCallbackPeek = structuredClone(manifest);
+browserOwnedPostCallbackPeek.activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence.user32PeekMessageAPostTestCooperativeLevelTimerCallback.browserOwnsMessageQueueState =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedPostCallbackPeek).some((error) =>
+    error.includes("scheduled shared clock checkpoint evidence"),
+  ),
+);
+
+const mutatedPostCallbackPeekSummary = structuredClone(manifest);
+mutatedPostCallbackPeekSummary.activeRuntimeCheckpoint.latestEvidence.user32PeekMessageAPostTestCooperativeLevelTimerCallback.messageBytesPreserved =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(mutatedPostCallbackPeekSummary).some((error) =>
     error.includes("scheduled shared clock checkpoint evidence"),
   ),
 );

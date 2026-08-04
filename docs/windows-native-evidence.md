@@ -6426,3 +6426,23 @@ TypeScript imports no host clock or Windows callback authority. Exact active art
 identities remain authoritative only in [current-checkpoint.json](current-checkpoint.json).
 Details are in
 [the bounded timer-callback completion profile](bgi-kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch.md).
+
+## 194. BGI post-callback empty `PeekMessageA`
+
+Sections 178, 180, 191, and 193 already fix the native and controlled-fixture
+contract needed here: unfiltered current-thread `PeekMessageA(PM_REMOVE)` returns
+FALSE without modifying the output buffer when no message is available, while the
+queue and guest bytes remain runtime-owned. No new native trace was needed. The
+primary sequence, occurrence, instruction count, pointer, and message digest remain
+evidence identity rather than semantic handler selectors.
+
+Canonical Node and Chrome complete sequence 282,877／occurrence 111 at instruction
+392,355,090 after callback frame 75 and outer `DispatchMessageA` have retired. Both
+observe queue depth zero before and after, callback depth zero, FALSE, LastError 0,
+and no guest write while preserving the prior `WM_TIMER MSG32` at the call boundary.
+They stop 34 guest instructions later at `WINMM.dll!timeGetTime`; the guest, rather
+than User32, changes the MSG time／point fields between those boundaries. TypeScript
+imports no host message or Windows queue authority. Exact active artifact identities
+remain authoritative only in [current-checkpoint.json](current-checkpoint.json).
+Details are in
+[the bounded post-callback empty PeekMessageA profile](bgi-user32-peek-message-a-post-test-cooperative-level-timer-callback.md).

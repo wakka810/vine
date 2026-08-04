@@ -157,6 +157,16 @@ frame ID／top depth／pending sequenceを照合してresult 64をretireし、ti
 [the reached timer-callback completion profile](bgi-kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch.md)
 を正とする。
 
+Callback／outer dispatch完了後のsequence 282,877 `PeekMessageA(PM_REMOVE)`は、同じ
+current thread 8192のauthoritative queueが空であることを確認し、FALSEを返す。Queue depthは
+before／afterとも0、guest writeとLastError変更はなく、直前の28-byte `WM_TIMER MSG32`もcall
+boundaryでは不変である。続く34 guest instructionsがMSGのtime／point fieldsを変更するため、
+次の`timeGetTime`でのterminal memory digestは異なるが、これはUser32 writeではない。
+WorkerはRust completionのimmutable projectionだけを持ち、browser messageをqueueへimportしない。
+Bounded claimは
+[the reached post-callback empty PeekMessageA profile](bgi-user32-peek-message-a-post-test-cooperative-level-timer-callback.md)
+を正とする。
+
 ## Pointer-button message production and WndProc dispatch
 
 Versioned pointer ingressはnormalized coordinate、primary／secondary button、strict source sequenceだけを

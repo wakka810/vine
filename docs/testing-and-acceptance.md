@@ -2437,6 +2437,18 @@ cancel／watchdog cleanupを維持する。次のmessage retrieval、timer repla
 non-timer／cross-thread dispatchはacceptanceへ含めない。詳細は
 [timer-callback `GetTickCount` completion profile](bgi-kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch.md)を正とする。
 
+Post-callback empty `PeekMessageA` leafは、frame 75とouter dispatchのstrict completionを
+prerequisiteに、既存のcurrent-thread unfiltered retrieval contractを再利用する。Node／Chromeは
+sequence 282,877、occurrence 111、instruction 392,355,090、FALSE、LastError 0、queue depth
+0／0、callback depth 0、zero guest write、call-time `MSG32` preservationを一致させる。両adapterは
+282,877 completed calls、ordered digest
+`3eaa8bd819d4734c03e42670a942d8862148da54eb6a54d45f661a4f5ac18cf9`、terminal memory
+digest `a49abb18e8952699d36c2c1c1a0fe2b7e2d1d73ae4cb963a20895caa9686c664`を一致させ、
+34 guest instructions後の`WINMM.dll!timeGetTime`で停止する。Protocol v129／report schema
+94でcancel／watchdog cleanupを維持する。次のclock read、filtered／cross-thread retrieval、
+browser ownership of Windows message stateはacceptanceへ含めない。詳細は
+[post-callback empty `PeekMessageA` profile](bgi-user32-peek-message-a-post-test-cooperative-level-timer-callback.md)を正とする。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

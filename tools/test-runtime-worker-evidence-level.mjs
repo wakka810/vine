@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 128 as const/u);
+assert.match(protocol, /protocolVersion = 129 as const/u);
 assert.match(protocol, /"d3d9-begin-scene-post-partial-dirty-region"/u);
 assert.match(protocol, /"d3d9-set-sampler-state-post-begin-scene"/u);
 assert.match(
@@ -51,6 +51,10 @@ assert.match(
 assert.match(
   protocol,
   /capability: "kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch";[\s\S]*?implementationId: "runtime\.kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch\.v1";[\s\S]*?semanticImplementationId: "kernel32\.get-tick-count\.v1";[\s\S]*?clockProfileId: "scheduled-shared-logical-deadline-v1";[\s\S]*?callbackCompletedBeforeNextEndpoint: boolean;/u,
+);
+assert.match(
+  protocol,
+  /capability: "user32-peek-message-a-post-test-cooperative-level-timer-callback";[\s\S]*?implementationId: "runtime\.user32-peek-message-a-post-test-cooperative-level-timer-callback\.v1";[\s\S]*?semanticImplementationId: "user32\.peek-message-a\.current-thread\.v1";[\s\S]*?retrievalProfileId: "current-thread-unfiltered-peek-message-a-v1";[\s\S]*?browserOwnsMessageQueueState: false;/u,
 );
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);

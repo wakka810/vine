@@ -2,7 +2,7 @@ import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 import type { BrowserNativeStorageConfiguration } from "../storage/protocol.js";
 
-export const protocolVersion = 128 as const;
+export const protocolVersion = 129 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -45,6 +45,7 @@ export type BgiCapabilityProfile =
   | "user32-translate-message-post-test-cooperative-level-timer-peek"
   | "user32-dispatch-message-a-post-test-cooperative-level-timer-translate"
   | "kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch"
+  | "user32-peek-message-a-post-test-cooperative-level-timer-callback"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1276,6 +1277,58 @@ export interface Kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckp
   nextStackPointer: number;
 }
 
+export interface User32PeekMessageAPostTestCooperativeLevelTimerCallbackCheckpoint {
+  capability: "user32-peek-message-a-post-test-cooperative-level-timer-callback";
+  implementationId: "runtime.user32-peek-message-a-post-test-cooperative-level-timer-callback.v1";
+  semanticImplementationId: "user32.peek-message-a.current-thread.v1";
+  requiredCompletions: 1;
+  completionCount: 1;
+  prerequisiteGetTickCountSequence: number;
+  prerequisiteGetTickCountInstructionCount: number;
+  firstCompletionSequence: number;
+  firstCompletionInstructionCount: number;
+  lastCompletionSequence: number;
+  lastCompletionInstructionCount: number;
+  call: RuntimeSupportedCallSnapshot & {
+    occurrence: number;
+    trapInstructionCount: number;
+    runtimeThreadId: 8192;
+  };
+  compatibilityPolicyId: "kernel32-delete-file-a-v1";
+  retrievalProfileId: "current-thread-unfiltered-peek-message-a-v1";
+  stateAuthority: "rust-runtime-current-thread-message-queue-and-guest-memory";
+  mutation: "none-empty-queue-validation-only";
+  failureAtomicity: true;
+  currentThreadId: 8192;
+  callbackFrameId: number;
+  callbackCompletedBeforeCompletion: true;
+  outerDispatchCompletedBeforeCompletion: true;
+  activeCallbackDepthAtCompletion: 0;
+  queueDepthBefore: 0;
+  queueDepthAfter: 0;
+  peekResult: 0;
+  lastErrorPolicy: "preserve";
+  guestWriteBytes: 0;
+  hostMessageImported: false;
+  browserOwnsMessageQueueState: false;
+  messageBytesPreserved: true;
+  messageContentSha256: string;
+  activeCallbackDepthAtStop: 0;
+  instructionCount: number;
+  nextEndpoint: {
+    id: number;
+    address: number;
+    module: string;
+    symbol: { kind: "name"; name: "timeGetTime" };
+    disposition: "declared-runtime-export";
+    iatAddress: number;
+  } | null;
+  nextArguments: number[];
+  memoryContentSha256: string;
+  nextReturnAddress: number;
+  nextStackPointer: number;
+}
+
 export interface SessionReport {
   evidenceLevel: "full" | "summary";
   outcome:
@@ -1925,6 +1978,7 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | User32PeekMessageAPostTestCooperativeLevelTimerCallbackCheckpoint
     | Kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpoint
     | {
         capability: "user32-dispatch-message-a-post-test-cooperative-level-timer-translate";
