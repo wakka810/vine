@@ -26,13 +26,13 @@ checkpointで偶然動いたことだけではResolvedにしない。
 
 | ID | 未解決の判断 | 現在のbaseline | Gateを閉じるためのevidence |
 |---|---|---|---|
-| Q-PLATFORM | Supported Chrome tier、cross-origin isolation／SABを必須にするか | Chrome、専用Runtime Worker、same-origin localhost Vine serverがactive baseline。SABは測定済みtransport requirementが出るまでoptional | Local-host smoke、storage／audio capability matrix、lifecycle E2E、fallback cost |
+| Q-PLATFORM | Supported Chrome tier、cross-origin isolation／SABを必須にするか | Chrome、固定secure origin、専用Runtime／Storage Worker、File System Access／IndexedDB／OPFSがactive baseline。SABは測定済みtransport requirementが出るまでoptional | Installed-client／permission／storage／audio capability matrix、lifecycle E2E、fallback cost |
 | Q-MEMORY | Execute protection、guard／exception delivery、self-modifying code、snapshot policy | Rust page metadataとadapter fetch checkがauthority、mapping invalidationはexplicit | Compiler／SEH fixture、write-to-code、guard delivery、snapshot identity／memory-ceiling test |
 | Q-THREADS | Required SEH／VEH／APCとadvanced thread behavior | Reached CreateThread／ResumeThread、dynamic stack／TEB／CPU bootstrap、logical priority state、multiple guest context、host-wait schedulingは成立。priority-weighted selectionと高度なWindows delivery semanticsは未確定 | Primary fairness／wait traceとcontrolled block／wake／timeout／cancel／exception fixture |
 | Q-LOADER | Required PE／DLL feature setとdeterministic module resolution | Mapped image、import／export、module graph、process attach／detach foundationは成立 | 到達dynamic load／unload、TLS／delay import、alias／manifest、search order、failure unwind trace |
 | Q-ABI | ABI metadata生成と到達Win32／COM／variadic support band | Generic checked dispatchとexplicit unsupported stopがbaseline | Nested structure、callback、union、size-versioned API、COM class use、caller consumer、format grammar fixture |
-| Q-VFS | Windows path／share／mappingの残るrequired subsetとsource／profile lifecycle | Immutable manifestとmetadata-only writable profile version 3をpath-disjointに登録し、Rustがhandle／cursor／hydrated committed bytes／staged bytes／file・directory・search identity／generation、same-origin serviceがsource bytes／SQLite committed generationを所有する。Profile contentはbounded binary rangeでhydrateし、bounded read／write／seek／flush／close、allowlisted durable directory create、registered source／writable snapshotのWindows-932 wildcard enumeration、cancel、failed commit retryは成立。48-object／約5.9 GiB primary sourceはstreaming hash／rangeで登録済み | Replacement／TOCTOU、broader path／share、rename／delete、recursive／broad wildcard enumeration、mapped file、arbitrary large-corpus performance test |
-| Q-SAVE | Write／flush／close successの厳密なWindows-visible時点、backup／migration | Title/profile-scoped SQLite、file／directory generation CAS、idempotency ledger、quota、rollback、restart／response-loss modelに加え、transaction内epoch lease検証、terminal commit barrier、recoverable Win32 failure completionが成立。既存BGI.gdbはnew DBだけへseedし配布fileへ書き戻さず、private directory checkはrun-local DBだけを変更する | Controlled Chrome guest file write／browser restart／load、commit各段階のbrowser／Worker／server kill、permission revoke、migration、export／import test |
+| Q-VFS | Windows path／share／mappingの残るrequired subsetとsource／profile lifecycle | Immutable manifestとmetadata-only writable profile version 3をpath-disjointに登録し、Rustがhandle／cursor／hydrated committed bytes／staged bytes／file・directory・search identity／generationを所有する。Production browserはIndexedDBのread-only directory capabilityとOPFS SQLite committed generationだけを所有し、local serviceはoracleである。Browser-native public source read、handle restart、Worker cloneは成立。Local oracleで48-object／約5.9 GiB sourceのstreaming hash／rangeが成立 | Real picker／permission revoke、primary 5.9 GiB browser mount、timestamp-preserving replacement／TOCTOU、broader path／share、rename／delete、recursive／broad wildcard enumeration、mapped file、large-corpus browser performance test |
+| Q-SAVE | Write／flush／close successの厳密なWindows-visible時点、backup／migration | Title/profile-scoped OPFS SQLite、exclusive Web Lock、file／directory generation CAS、idempotency ledger、quota、rollback、Worker kill／response-loss／Chrome process restart backend testが成立。Local SQLite oracleはepoch lease、terminal commit barrier、recoverable Win32 failure completionを回帰する。既存BGI.gdbはnew DBだけへseedしsourceへ書き戻さない | Controlled Chrome guest file write／browser restart／load、Runtime Worker unknown-outcome recovery、permission revoke、site-data deletion、migration、export／import test |
 | Q-GRAPHICS | Bounded DirectInput／D3D9、common surface boundary、renderer、日本語font behavior | Logical frontend stateとbrowser／GPU resourceを分離する | Primary vtable／state／format／draw／input trace、upload／readback benchmark、context loss、glyph／metric／visual oracle |
 | Q-AUDIO | Audio transport、clock／drift、到達WinMM／media scope | Rust-owned DirectSound8 root、primary／secondary buffer descriptor、PCM format、full-range secondary Lock／Unlock backing、content generation、looping playback stateをbrowser audio resourceから分離し、AudioWorkletをconsumer候補とする | Cursor／notification／Stop／Restore oracle、browser PCM transport、long playback drift／underrun、activation／background recovery、到達command trace |
 | Q-055 | Full-play performance、fingerprint内容、soak／fuzz budget、acceptance evidence | Component／browser workload gateはあるがfull-play behaviorの代用ではない | Representative scene、versioned fuzz profile、long-run distribution、save／restart session、fingerprint collision／update test |
@@ -108,7 +108,7 @@ moveとして閉じた。GeometryはNCCALCSIZE completionでのみcommitし、GD
 これは新しいstorage／browser capability blockerではない。
 このevidenceはgeneral menu tree／window resize、rendering、input、audio milestone、general asset breadthを閉じない。
 
-初期storage locationの選択はADR-006で閉じた。Remote service、cloud同期、OPFS／IndexedDBへの移行は現在の未解決実装ではなく、localhost vertical slice後に具体的な要求が出た場合だけ再開する。
+Production storage locationの再選択はADR-010で閉じ、ADR-006のlocalhost backendはoracleへ降格した。Remote serviceとcloud同期はactive scope外である。残る判断はOPFS採否ではなく、real permission lifecycle、eviction／backup、primary corpus scale、migrationのacceptanceである。
 
 Primary `SetTimer`のidentity、owner thread、interval、TIMERPROC、replacement generation、process teardownに加え、
 16回のlogical expiry、empty current-thread queueへのlow-priority `WM_TIMER` materialization、missed-period coalescing、
@@ -168,8 +168,8 @@ new SQLite profileだけへseedし、以後のread／writeを配布directoryか�
 runnable childが選択されないscheduler progress不足と分類し、競合中だけ数える64 API-boundary quantumでNode／Chromeの
 両thread実行と一回のswitchを一致させた。Reached timer waitはsingle current laneのbounded immediate roundtripまで
 成立した。今回のscheduler round tripで二つのrunnable lane選択は固定できたが、残るthread riskはCPU-bound laneのpreemption、cross-thread wait／timer wake ordering、
-child exit／cleanupをprimary flowで固定できていないことである。Storage riskはprimary guest write、browser／server restart後
-load、kill injectionであり、配布fileを復元・書換して解消しない。IME compositionやDOM inputへscopeを広げる前に、
+child exit／cleanupをprimary flowで固定できていないことである。Storage riskはreal source permission、primary guest write、browser restart後
+load、site-data deletion／backupであり、配布fileを復元・書換して解消しない。IME compositionやDOM inputへscopeを広げる前に、
 wait pacingとstorage vertical sliceをそれぞれのowner境界で進める。
 
 Primary `SetWaitableTimer`のrelative one-shot armと

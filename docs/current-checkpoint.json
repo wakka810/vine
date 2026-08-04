@@ -185,7 +185,7 @@
     "workload": "private-bgi-generic-session",
     "bgiSession": "semantic-equivalence-passed",
     "bgiBenchmark": "threshold-passed",
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v127",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v128",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json",
     "browserRuntimeWorker": true,
     "browserRuntimeCoreWasm": {
@@ -250,6 +250,40 @@
       "watchdogPendingCallbacksAfterCleanup": 0,
       "reportBytes": 23505,
       "reportSha256": "a8a5aba21b10092fa616ac7c128c5985e464976200c1dc8d1bf4735aa6bda4ab"
+    },
+    "browserNativeStorageEvidence": {
+      "schema": "vine.browser-native-storage-evidence",
+      "schemaVersion": 1,
+      "status": "passed",
+      "storageProtocolVersion": 1,
+      "productionBackend": "file-system-access+indexeddb-mount-catalog+opfs-sahpool-sqlite",
+      "sourceMountCatalog": "indexeddb-file-system-directory-handle",
+      "sourceVerification": "stream-sha256-registration+size-last-modified-range-revalidation",
+      "writableAuthority": "title-profile-scoped-opfs-sahpool-sqlite",
+      "sqliteVersion": "3.53.0",
+      "journalMode": "delete",
+      "synchronousMode": "full",
+      "profileExclusion": "exclusive-origin-web-lock",
+      "indexedDbHandleRoundTrip": true,
+      "workerHandleClone": true,
+      "runtimeSourceFixturePassed": true,
+      "committedGeneration": 2,
+      "directoryGeneration": 1,
+      "concurrentWorkerRejected": true,
+      "uncommittedWorkerKillRolledBack": true,
+      "responseLossRecoveredIdempotently": true,
+      "chromeProcessRestartReloaded": true,
+      "persistentStorageGrantRequired": false,
+      "persistentStorageGrantObserved": false,
+      "canonicalCommand": "npm run check:browser-storage",
+      "nonClaims": [
+        "user-picker-permission-lifecycle",
+        "primary-5.9-gib-source-mount",
+        "controlled-guest-write-save-load",
+        "registry-semantics",
+        "migration-export-import",
+        "permission-revoke"
+      ]
     },
     "browserRuntimeEvidence": {
       "chromeVersion": "150.0.7871.187",
@@ -14476,7 +14510,7 @@
         }
       },
       "browserBoundaryEvidence": {
-        "runtimeProtocol": "vine.browser-runtime-worker.v127",
+        "runtimeProtocol": "vine.browser-runtime-worker.v128",
         "browserReportSchemaVersion": 93,
         "retiredInstructionCursorTransport": "checked-u64-low-high-per-api-and-com-dispatch",
         "browserOwnsGuestClockState": false,

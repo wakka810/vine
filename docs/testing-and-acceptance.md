@@ -1645,23 +1645,25 @@ API count だけを coverage としない。status ごとに implementation vari
 
 ### 5.6 VFS と registry tests
 
-- same-origin localhost serverが登録済みsource rootとtitle-local profileだけを公開し、raw host path／wrong title／wrong snapshotを拒否する
-- source manifest登録時に全objectのbyte length／SHA-256を検証し、HTTP request／responseのtitle fingerprint、snapshot、source、object、offset、requested／transferred lengthを照合する
+- production clientがuser-selected read-only directory handleだけをsource capabilityとして受け、handleをIndexedDBから復元し、raw host absolute path／wrong title／wrong snapshotをstorage requestへ渡さない
+- source mount登録時に全objectのbyte length／SHA-256をstreaming検証し、real Unicode path bindingとWindows-932 pathを分離し、session／range read前後のsize／last-modified identityを照合する
+- OPFS SQLiteをexclusive origin Web Lock下の専用Storage Workerで開き、title/profile identity、lease、generation、hash、quota、idempotencyを一transactionで検証する
+- localhost source／SQLite adapterが同じRust host-service contractのdeterministic oracleとして残り、HTTP identity／wrong-origin rejectionを回帰する
 - drive、absolute／relative、`.`／`..`、separator、case、trailing dot／space の policy
 - case collision、Windows-932-aware wildcard、deterministic open-view enumeration、rename、replace
 - read-only source と writable overlay の通常 file shadowing、および executable／DLL shadowing の拒否
 - sharing mode、delete-on-close、locking、mapped view の採用範囲
 - CP932／Unicode filename、invalid sequence、long path の採用範囲
-- SQLite base generation、duplicate commit、quota full、permission revoke、browser／Worker／server kill、commit interruption
+- SQLite base generation、duplicate commit、quota full、permission revoke、browser／Worker kill、commit interruption、OPFS／IndexedDB site-data deletion
 - registry key case、value type、enumeration、delete、default value
 - runtime schema upgrade／downgrade refusal、backup／restore
 - import 後／delay-load 前の host source replacement と、managed module snapshot の restart 後 hash
 
-最初のvertical sliceはimmutable sourceに加えてbounded writable profileまで成立している。Rust model／integrationはmount escape、Windows-932-aware case identity、source／profile path overlap、share conflict、create／truncate、sparse write、quota、cursor、guest-memory failure atomicity、durable close、failed-close retry、wrong／duplicate completion、process-exit discard、metadata-only profileのhash-bound atomic hydrationを検証する。Version 3 profileではfileと別namespaceのallowlisted directory identity／generationを持ち、host-first durable `CreateDirectoryA`、duplicate、missing parent、file conflict、stale／malformed completion、cancelのfailure atomicityも検証する。File search modelは別identity／typed handleでWindows-932 pairを壊さないASCII case-insensitive `*`／`?` matching、lexical order、immutable open snapshot、320-byte `WIN32_FIND_DATAA`、terminal `ERROR_NO_MORE_FILES`、`FindClose`、capacity／guest-write failure atomicityを検証する。SQLite modelはnew profile、restart、base generation CAS、idempotent duplicate、request-key conflict、quota、transaction rollback、commit後response loss、epoch lease revoke／replacement、late commit拒否、SQLite lock、4 MiB profileのbounded binary range、same-origin profile-v3 range／commit／directory createを検証する。Recoverable storage failureはRustへWin32 failure completionを返し、dirty handle／staged bytesまたはuncommitted directory planをcontractに従って保持または破棄する。Public PE32 fixtureはimmutable `CreateFileA -> GetFileSize -> ReadFile -> SetFilePointer -> ReadFile -> CloseHandle`を自己検証し、clean-profile Chromeはsame-origin success、pending cancellation、watchdog cleanupを通す。Private targetはBGI.gdbをprofile objectとしてSQLiteから読み、run-local SQLiteへ`UserData` directoryを作成し、48-object source snapshotからnativeと同じ45 archiveを列挙してNode／Chromeのordered semantics、terminal commit barrier／lease revoke、配布fileとshared profile不変を比較する。
+最初のvertical sliceはimmutable sourceに加えてbounded writable profileまで成立している。Rust model／integrationはmount escape、Windows-932-aware case identity、source／profile path overlap、share conflict、create／truncate、sparse write、quota、cursor、guest-memory failure atomicity、durable close、failed-close retry、wrong／duplicate completion、process-exit discard、metadata-only profileのhash-bound atomic hydrationを検証する。Version 3 profileではfileと別namespaceのallowlisted directory identity／generationを持ち、host-first durable `CreateDirectoryA`、duplicate、missing parent、file conflict、stale／malformed completion、cancelのfailure atomicityも検証する。File search modelは別identity／typed handleでWindows-932 pairを壊さないASCII case-insensitive `*`／`?` matching、lexical order、immutable open snapshot、320-byte `WIN32_FIND_DATAA`、terminal `ERROR_NO_MORE_FILES`、`FindClose`、capacity／guest-write failure atomicityを検証する。Local SQLite modelはnew profile、restart、base generation CAS、idempotent duplicate、request-key conflict、quota、transaction rollback、commit後response loss、epoch lease revoke／replacement、late commit拒否、SQLite lock、4 MiB profileのbounded binary range、same-origin profile-v3 range／commit／directory createを検証する。Browser-native Chrome gateはIndexedDB handle roundtrip、Worker structured clone、source range、OPFS SQLite file／directory generation、exclusive Worker rejection、transaction中Worker kill rollback、commit後response lossのsame-key recovery、別Chrome process reloadを検証する。Recoverable storage failureはRustへWin32 failure completionを返し、dirty handle／staged bytesまたはuncommitted directory planをcontractに従って保持または破棄する。Public PE32 fixtureはimmutable `CreateFileA -> GetFileSize -> ReadFile -> SetFilePointer -> ReadFile -> CloseHandle`を自己検証し、clean-profile Chromeはlocal oracleとbrowser-native source success、pending cancellation、watchdog cleanupを通す。Private targetはBGI.gdbをprofile objectとしてlocal SQLite oracleから読み、run-local SQLiteへ`UserData` directoryを作成し、48-object source snapshotからnativeと同じ45 archiveを列挙してNode／Chromeのordered semantics、terminal commit barrier／lease revoke、配布fileとshared profile不変を比較する。
 
-Controlled guestによるChrome上のWrite／durable Close、browser／Worker／server停止後の再load、各commit段階のkill injection、permission revokeは未完了である。Primary titleのsave UI、複数slot、registry、general mapped fileもこのstorage foundationからclaimしない。詳細は[runtime-vfs.md](runtime-vfs.md)を正とする。
+Controlled guestによるChrome上のWrite／durable Closeとbrowser restart後の再load、real directory picker／permission revoke、primary 5.9 GiB browser mountは未完了である。Primary titleのsave UI、複数slot、registry、tombstone／delete、migration／export、site-data eviction recovery、general mapped fileもこのstorage foundationからclaimしない。詳細は[runtime-vfs.md](runtime-vfs.md)を正とする。
 
-Crash consistency test は SQLite transactionのstage前、stage後、commit中、publish後でprocess／Worker／server killを模擬し、再起動後に旧generationまたは新generationのどちらか一方が完全に読めることを確認する。
+Crash consistency test は SQLite transactionのstage前、stage後、commit中、publish後でprocess／Worker killを模擬し、再起動後に旧generationまたは新generationのどちらか一方が完全に読めることを確認する。Local oracleはserver kill、production adapterはStorage Worker／browser process terminationを使い分ける。
 
 ### 5.7 Window、message、input tests
 
@@ -2564,15 +2566,16 @@ Clean browser profile から次を自動化する。
 
 ```text
 feature preflight
- -> same-origin localhost server start
- -> local fixture / actual asset import
+ -> fixed secure-origin client start
+ -> user-selected source handle recovery or directory picker
+ -> local fixture / actual asset mount
  -> source hash verification
  -> launch
  -> canvas first frame
  -> input replay
  -> audio activation / output counters
  -> save
- -> runtime stop, browser context close, and server restart
+ -> runtime stop and browser process restart
  -> reopen from committed generation
  -> load
  -> final state / screen / file hash verification
@@ -2703,7 +2706,7 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P0-04`: CI が format、lint、unit、browser smoke、dependency integrity check を main branch で通す
 - `AC-P0-05`: T0／T1 fixture、fingerprint 済み T3 corpus、サクラノ詩 critical scenario／checkpoint、Windows oracle 手順が記録済み
 - `AC-P0-06`: resource limit、browser Tier 候補、primary reference desktop、測定指標、D3D9／DirectInput dynamic inventory が定義済み
-- `AC-P0-07`: ADR-001、002、003、004、006、011 が Accepted。ADR-005 と ADR-009 は候補、測定方法、Phase 1 の決定期限が明示済み
+- `AC-P0-07`: ADR-001、002、003、004、010、011 が Accepted。ADR-006 はproduction backendとしてsupersededされoracleとして残り、ADR-005 と ADR-009 は候補、測定方法、Phase 1 の決定期限が明示済み
 - `AC-P0-08`: 全 Must requirement が少なくとも一つの owner task と test／AC へ到達する完全展開 traceability manifest を機械検査できる
 - `AC-P0-09`: pin 済み Markdown check が採用した CJK／table policy で通り、文書 link／ID／fence／table 構造を検査する
 
@@ -2748,8 +2751,8 @@ Phase gate の required test は skip 0 を原則とする。browser／device fe
 - `AC-P3-02`: User message queue の post／send／peek／get／dispatch、timer、callback の deterministic fixture が通る
 - `AC-P3-03`: Windows path、case-insensitive lookup、overlay、sharing の採用範囲を differential test で満たす
 - `AC-P3-04`: Windows-932／Unicode の filename、API string、registry value round-trip が通る
-- `AC-P3-05`: save と virtual registry をlocalhost SQLiteへcommitし、browser／Worker／serverを停止、再起動、loadして同じ state hash を得る
-- `AC-P3-06`: SQLite commit中のbrowser／Worker／server kill、quota full、permission revoke後も旧／新いずれかの整合したsave generationを読める
+- `AC-P3-05`: save と virtual registry をtitle/profile別OPFS SQLiteへcommitし、Runtime Worker／Storage Worker／browser processを停止、再起動、loadして同じ state hash を得る
+- `AC-P3-06`: OPFS SQLite commit中のStorage Worker／browser kill、quota full、permission revoke後も旧／新いずれかの整合したsave generationを読める
 - `AC-P3-07`: 実title asset一つをread-only snapshotからOpen／Read／Seek／Closeし、同じsessionでsave一つをCreate／Write／Close、再起動、Open／Readでき、source hashとauthority境界が不変である
 - `AC-P3-08`: IUnknown ABI、vtable thunk、HRESULT、interface identity、reference count の共通 foundation が fixture を通る
 - `AC-P3-09`: renderer／surface の ADR-007 と DirectSound／AudioWorklet／clock の ADR-008 が Accepted

@@ -46,7 +46,24 @@ CPU writeback, window loader, Chrome Canvas presentation, and the full Chrome
 Runtime Worker vertical path. The Worker check runs guest CPU, deferred host
 completion, depth-2 callbacks, Canvas, Web Audio, IndexedDB, immutable source
 Open／Size／Read／Seek／Close, pending-request cancellation, and watchdog cleanup.
-It also rejects a cross-origin source service before fetch and uses only repository fixtures.
+It exercises both the local oracle and browser-native source adapter, rejects a
+cross-origin source service before fetch, and uses only repository fixtures.
+
+The focused browser-native storage gate is:
+
+```powershell
+npm run check:browser-storage
+```
+
+It uses pinned Chrome for Testing and one preserved browser user-data directory
+across two Chrome processes. The check streams and hashes a directory-handle source,
+round-trips that handle through IndexedDB and a Worker, then verifies OPFS SAH-pool
+SQLite generation CAS, directory publication, exclusive Web Lock rejection,
+uncommitted Worker-kill rollback, post-commit response-loss idempotency, and restart
+reload. `navigator.storage.persist()` is recorded but is not a pass condition because
+a denied persistent-storage grant is distinct from same-run and restart durability.
+The automated source handle is an OPFS-backed controlled directory; real
+`showDirectoryPicker()` user activation and permission revoke remain acceptance work.
 
 The focused immutable-source contracts are:
 

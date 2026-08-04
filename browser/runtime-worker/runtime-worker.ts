@@ -95,11 +95,18 @@ import {
 } from "./semantic-call.mjs";
 import {
   recoverableCommitHttpError,
+  recoverableCommitStorageError,
   writableCommitFailureControl,
+  writableCommitSuccessControl,
   writableDirectoryCreateFailureControl,
 } from "./profile-storage.js";
 import { TaskTimerPacingDriver, TimerPacingService } from "./timer-pacing.js";
 import { D3d9WebGl2Renderer } from "./d3d9-renderer.js";
+import {
+  BrowserStorageClient,
+  BrowserStorageError,
+} from "../storage/client.js";
+import { sourceSnapshotManifest } from "../storage/protocol.js";
 
 const worker = self as DedicatedWorkerGlobalScope;
 const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
@@ -3750,6 +3757,7 @@ class BrowserRuntimeSession {
   readonly #writableMutationTasks = new Set<Promise<void>>();
   #sourceManifest: SourceManifest | null = null;
   #writableProfile: WritableProfileManifest | null = null;
+  #browserStorage: BrowserStorageClient | null = null;
   readonly #profileSessionKey = crypto.randomUUID();
   #profileLeaseAcquisitionTask: Promise<void> | null = null;
   #profileLease: WritableProfileLease | null = null;
@@ -4270,7 +4278,30 @@ class BrowserRuntimeSession {
       if (this.#terminal || this.#stopping) {
         return;
       }
-      if (profileBackedWorkload) {
+      const browserNativeStorage = this.#configuration.browserNativeStorage;
+      if (browserNativeStorage !== undefined) {
+        invariant(
+          sourceBackedWorkload,
+          "browser-native storage requires a source-backed workload",
+        );
+        invariant(
+          profileBackedWorkload ===
+            (browserNativeStorage.writableProfile !== undefined),
+          "browser-native writable profile presence differs from the workload",
+        );
+        const acquisition = this.#initializeBrowserStorage(
+          browserNativeStorage,
+        );
+        this.#profileLeaseAcquisitionTask = acquisition;
+        try {
+          await acquisition;
+        } finally {
+          if (this.#profileLeaseAcquisitionTask === acquisition) {
+            this.#profileLeaseAcquisitionTask = null;
+          }
+        }
+        this.#requireStorageSetupActive();
+      } else if (profileBackedWorkload) {
         const acquisition = this.#acquireWritableProfileLease();
         this.#profileLeaseAcquisitionTask = acquisition;
         try {
@@ -4283,14 +4314,20 @@ class BrowserRuntimeSession {
         this.#requireStorageSetupActive();
       }
       const sourceManifestBytes = sourceBackedWorkload
-        ? await this.#fetchBytes(
-            this.#sameOriginStorageUrl(
-              this.#configuration.sourceManifestUrl,
-              "/api/source/v1/manifest",
-              "source manifest URL",
-            ),
-            "source manifest",
-          )
+        ? browserNativeStorage === undefined
+          ? await this.#fetchBytes(
+              this.#sameOriginStorageUrl(
+                this.#configuration.sourceManifestUrl,
+                "/api/source/v1/manifest",
+                "source manifest URL",
+              ),
+              "source manifest",
+            )
+          : new TextEncoder().encode(
+              JSON.stringify(
+                sourceSnapshotManifest(browserNativeStorage.sourceMount),
+              ),
+            )
         : null;
       const writableProfileBytes = profileBackedWorkload
         ? await this.#fetchWritableProfileSnapshot()
@@ -4620,6 +4657,54 @@ class BrowserRuntimeSession {
     return this.#fetchBytes(url, "runtime policy");
   }
 
+  async #initializeBrowserStorage(
+    configuration: NonNullable<SessionConfiguration["browserNativeStorage"]>,
+  ): Promise<void> {
+    invariant(
+      this.#browserStorage === null && this.#profileLease === null,
+      "browser-native storage is already active",
+    );
+    const storage = new BrowserStorageClient();
+    this.#browserStorage = storage;
+    try {
+      const initialized = await storage.initialize(
+        configuration,
+        this.#profileSessionKey,
+      );
+      invariant(
+        initialized.titleFingerprint ===
+          configuration.sourceMount.titleFingerprint &&
+          initialized.snapshotId === configuration.sourceMount.snapshotId &&
+          initialized.sourceId === configuration.sourceMount.sourceId,
+        "browser-native source initialization identity mismatch",
+      );
+      if (configuration.writableProfile !== undefined) {
+        invariant(
+          initialized.profileId === configuration.writableProfile.profileId &&
+            initialized.sessionEpoch > 0,
+          "browser-native profile initialization identity mismatch",
+        );
+        this.#profileLease = {
+          sessionKey: this.#profileSessionKey,
+          epoch: initialized.sessionEpoch,
+          titleFingerprint: configuration.writableProfile.titleFingerprint,
+          profileId: configuration.writableProfile.profileId,
+        };
+      } else {
+        invariant(
+          initialized.profileId === null,
+          "source-only browser storage unexpectedly opened a profile",
+        );
+      }
+    } catch (error) {
+      storage.dispose();
+      if (this.#browserStorage === storage) {
+        this.#browserStorage = null;
+      }
+      throw error;
+    }
+  }
+
   async #acquireWritableProfileLease(): Promise<void> {
     invariant(
       this.#profileLease === null,
@@ -4665,6 +4750,19 @@ class BrowserRuntimeSession {
 
   async #fetchWritableProfileSnapshot(): Promise<Uint8Array> {
     const lease = this.#requireProfileLease();
+    const browserStorage = this.#browserStorage;
+    if (browserStorage !== null) {
+      return this.#runProfileTransport(async (signal) => {
+        const snapshot = await browserStorage.profileSnapshot(signal);
+        this.#requireStorageSetupActive();
+        invariant(
+          snapshot.titleFingerprint === lease.titleFingerprint &&
+            snapshot.profileId === lease.profileId,
+          "browser-native profile snapshot lease identity mismatch",
+        );
+        return new TextEncoder().encode(JSON.stringify(snapshot));
+      });
+    }
     const url = this.#sameOriginStorageUrl(
       this.#configuration.writableProfileUrl,
       "/api/profile/v3/snapshot",
@@ -4707,11 +4805,23 @@ class BrowserRuntimeSession {
       let offset = 0;
       while (offset < file.byteLength) {
         const requestedBytes = Math.min(1024 * 1024, file.byteLength - offset);
-        const url = this.#profileObjectUrl(file.objectId);
-        url.searchParams.set("generation", String(file.generation));
-        url.searchParams.set("offset", String(offset));
-        url.searchParams.set("length", String(requestedBytes));
         const chunk = await this.#runProfileTransport(async (signal) => {
+          const browserStorage = this.#browserStorage;
+          if (browserStorage !== null) {
+            const payload = await browserStorage.profileRead(
+              file.objectId,
+              file.generation,
+              offset,
+              requestedBytes,
+              signal,
+            );
+            this.#requireStorageSetupActive();
+            return payload;
+          }
+          const url = this.#profileObjectUrl(file.objectId);
+          url.searchParams.set("generation", String(file.generation));
+          url.searchParams.set("offset", String(offset));
+          url.searchParams.set("length", String(requestedBytes));
           const response = await fetch(url, {
             method: "GET",
             cache: "no-store",
@@ -5975,22 +6085,6 @@ class BrowserRuntimeSession {
       requestedBytes ?? 0,
       file.byteLength - Number(offset),
     );
-    const base = this.#sameOriginStorageUrl(
-      this.#configuration.sourceApiUrl,
-      "/api/source/v1/",
-      "source API URL",
-    );
-    if (!base.pathname.endsWith("/")) {
-      base.pathname += "/";
-    }
-    const url = new URL(
-      `titles/${encodeURIComponent(manifest.titleFingerprint)}/` +
-        `snapshots/${encodeURIComponent(manifest.snapshotId)}/` +
-        `sources/${sourceId}/objects/${objectId}`,
-      base,
-    );
-    url.searchParams.set("offset", offset.toString());
-    url.searchParams.set("length", String(requestedBytes));
     const controller = new AbortController();
     invariant(
       !this.#sourceReadControllers.has(metadata.requestId),
@@ -5998,29 +6092,57 @@ class BrowserRuntimeSession {
     );
     this.#sourceReadControllers.set(metadata.requestId, controller);
     try {
-      const response = await fetch(url, {
-        method: "GET",
-        cache: "no-store",
-        signal: controller.signal,
-      });
-      invariant(
-        response.status === 206,
-        `source read failed with ${response.status}`,
-      );
-      invariant(
-        response.headers.get("x-vine-title-fingerprint") ===
-          manifest.titleFingerprint &&
-          response.headers.get("x-vine-snapshot-id") === manifest.snapshotId &&
-          response.headers.get("x-vine-source-id") === String(sourceId) &&
-          response.headers.get("x-vine-object-id") === String(objectId) &&
-          response.headers.get("x-vine-offset") === offset.toString() &&
-          response.headers.get("x-vine-requested-bytes") ===
-            String(requestedBytes) &&
-          response.headers.get("x-vine-transferred-bytes") ===
-            String(expectedBytes),
-        "source read response identity mismatch",
-      );
-      const payload = new Uint8Array(await response.arrayBuffer());
+      const browserStorage = this.#browserStorage;
+      let payload: Uint8Array;
+      if (browserStorage !== null) {
+        payload = await browserStorage.sourceRead(
+          sourceId ?? 0,
+          objectId ?? 0,
+          Number(offset),
+          requestedBytes ?? 0,
+          controller.signal,
+        );
+      } else {
+        const base = this.#sameOriginStorageUrl(
+          this.#configuration.sourceApiUrl,
+          "/api/source/v1/",
+          "source API URL",
+        );
+        if (!base.pathname.endsWith("/")) {
+          base.pathname += "/";
+        }
+        const url = new URL(
+          `titles/${encodeURIComponent(manifest.titleFingerprint)}/` +
+            `snapshots/${encodeURIComponent(manifest.snapshotId)}/` +
+            `sources/${sourceId}/objects/${objectId}`,
+          base,
+        );
+        url.searchParams.set("offset", offset.toString());
+        url.searchParams.set("length", String(requestedBytes));
+        const response = await fetch(url, {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        invariant(
+          response.status === 206,
+          `source read failed with ${response.status}`,
+        );
+        invariant(
+          response.headers.get("x-vine-title-fingerprint") ===
+            manifest.titleFingerprint &&
+            response.headers.get("x-vine-snapshot-id") === manifest.snapshotId &&
+            response.headers.get("x-vine-source-id") === String(sourceId) &&
+            response.headers.get("x-vine-object-id") === String(objectId) &&
+            response.headers.get("x-vine-offset") === offset.toString() &&
+            response.headers.get("x-vine-requested-bytes") ===
+              String(requestedBytes) &&
+            response.headers.get("x-vine-transferred-bytes") ===
+              String(expectedBytes),
+          "source read response identity mismatch",
+        );
+        payload = new Uint8Array(await response.arrayBuffer());
+      }
       invariant(
         payload.byteLength === expectedBytes,
         "source read response length mismatch",
@@ -6090,10 +6212,6 @@ class BrowserRuntimeSession {
       requestedBytes ?? 0,
       file.byteLength - Number(offset),
     );
-    const url = this.#profileObjectUrl(objectId ?? 0);
-    url.searchParams.set("generation", String(file.generation));
-    url.searchParams.set("offset", offset.toString());
-    url.searchParams.set("length", String(requestedBytes));
     const controller = new AbortController();
     invariant(
       !this.#sourceReadControllers.has(metadata.requestId),
@@ -6101,33 +6219,49 @@ class BrowserRuntimeSession {
     );
     this.#sourceReadControllers.set(metadata.requestId, controller);
     try {
-      const response = await fetch(url, {
-        method: "GET",
-        cache: "no-store",
-        headers: this.#profileLeaseHeaders(),
-        signal: controller.signal,
-      });
-      invariant(
-        response.status === 206,
-        `profile read failed with ${response.status}`,
-      );
-      invariant(
-        response.headers.get("x-vine-title-fingerprint") ===
-          profile.titleFingerprint &&
-          response.headers.get("x-vine-profile-id") === profile.profileId &&
-          response.headers.get("x-vine-object-id") === String(objectId) &&
-          response.headers.get("x-vine-generation") ===
-            String(file.generation) &&
-          response.headers.get("x-vine-offset") === offset.toString() &&
-          response.headers.get("x-vine-requested-bytes") ===
-            String(requestedBytes) &&
-          response.headers.get("x-vine-transferred-bytes") ===
-            String(expectedBytes) &&
-          response.headers.get("x-vine-session-epoch") ===
-            String(this.#requireProfileLease().epoch),
-        "profile read response identity mismatch",
-      );
-      const payload = new Uint8Array(await response.arrayBuffer());
+      const browserStorage = this.#browserStorage;
+      let payload: Uint8Array;
+      if (browserStorage !== null) {
+        payload = await browserStorage.profileRead(
+          objectId ?? 0,
+          file.generation,
+          Number(offset),
+          requestedBytes ?? 0,
+          controller.signal,
+        );
+      } else {
+        const url = this.#profileObjectUrl(objectId ?? 0);
+        url.searchParams.set("generation", String(file.generation));
+        url.searchParams.set("offset", offset.toString());
+        url.searchParams.set("length", String(requestedBytes));
+        const response = await fetch(url, {
+          method: "GET",
+          cache: "no-store",
+          headers: this.#profileLeaseHeaders(),
+          signal: controller.signal,
+        });
+        invariant(
+          response.status === 206,
+          `profile read failed with ${response.status}`,
+        );
+        invariant(
+          response.headers.get("x-vine-title-fingerprint") ===
+            profile.titleFingerprint &&
+            response.headers.get("x-vine-profile-id") === profile.profileId &&
+            response.headers.get("x-vine-object-id") === String(objectId) &&
+            response.headers.get("x-vine-generation") ===
+              String(file.generation) &&
+            response.headers.get("x-vine-offset") === offset.toString() &&
+            response.headers.get("x-vine-requested-bytes") ===
+              String(requestedBytes) &&
+            response.headers.get("x-vine-transferred-bytes") ===
+              String(expectedBytes) &&
+            response.headers.get("x-vine-session-epoch") ===
+              String(this.#requireProfileLease().epoch),
+          "profile read response identity mismatch",
+        );
+        payload = new Uint8Array(await response.arrayBuffer());
+      }
       invariant(
         payload.byteLength === expectedBytes,
         "profile read response length mismatch",
@@ -6222,9 +6356,64 @@ class BrowserRuntimeSession {
       contentSha256 === request.contentSha256,
       "writable commit payload hash mismatch",
     );
+    const requestKey = `${this.#profileSessionKey}:${metadata.requestId}`;
+    const browserStorage = this.#browserStorage;
+    if (browserStorage !== null) {
+      let committedGeneration: number;
+      try {
+        const result = await browserStorage.profileCommit({
+          requestKey,
+          objectId: objectId ?? 0,
+          baseGeneration: Number(baseGeneration),
+          contentSha256,
+          bytes: payloadOutput.payload,
+        });
+        invariant(
+          result.objectId === objectId &&
+            result.baseGeneration === Number(baseGeneration) &&
+            result.committedGeneration > result.baseGeneration,
+          "browser-native writable commit response identity mismatch",
+        );
+        committedGeneration = result.committedGeneration;
+      } catch (error) {
+        if (error instanceof BrowserStorageError) {
+          const win32Error = recoverableCommitStorageError(error.code);
+          invariant(
+            win32Error !== null,
+            `browser-native writable commit failed with ${error.code}`,
+          );
+          this.#completeWritableCommit(
+            metadata,
+            writableCommitFailureControl(
+              objectId ?? 0,
+              baseGeneration,
+              win32Error,
+            ),
+          );
+          return;
+        }
+        throw error;
+      }
+      const control = writableCommitSuccessControl(
+        objectId ?? 0,
+        baseGeneration,
+        BigInt(committedGeneration),
+      );
+      this.#deliverInIssueOrder(metadata.requestId, () => {
+        const completion = this.#completeWritableCommit(metadata, control);
+        invariant(
+          completion.succeeded,
+          "browser-native writable commit completed as a failure",
+        );
+        file.exists = true;
+        file.generation = completion.committedGeneration;
+        file.byteLength = payloadOutput.payload.byteLength;
+        file.sha256 = contentSha256;
+      });
+      return;
+    }
     const url = this.#profileObjectUrl(objectId ?? 0);
     url.pathname += "/commits";
-    const requestKey = `${this.#profileSessionKey}:${metadata.requestId}`;
     let response: Response | null = null;
     for (let attempt = 0; attempt < 2 && response === null; attempt += 1) {
       try {
@@ -6331,8 +6520,62 @@ class BrowserRuntimeSession {
       !directory.exists && BigInt(directory.generation) === baseGeneration,
       "writable directory create base state differs from the browser snapshot",
     );
-    const url = this.#profileDirectoryCommitUrl(directoryId ?? 0);
     const requestKey = `${this.#profileSessionKey}:${metadata.requestId}`;
+    const browserStorage = this.#browserStorage;
+    if (browserStorage !== null) {
+      let committedGeneration: number;
+      try {
+        const result = await browserStorage.createProfileDirectory({
+          requestKey,
+          directoryId: directoryId ?? 0,
+          baseGeneration: Number(baseGeneration),
+        });
+        invariant(
+          result.directoryId === directoryId &&
+            result.baseGeneration === Number(baseGeneration) &&
+            result.committedGeneration > result.baseGeneration,
+          "browser-native directory response identity mismatch",
+        );
+        committedGeneration = result.committedGeneration;
+      } catch (error) {
+        if (error instanceof BrowserStorageError) {
+          const win32Error = recoverableCommitStorageError(error.code);
+          invariant(
+            win32Error !== null,
+            `browser-native directory create failed with ${error.code}`,
+          );
+          this.#completeWritableDirectoryCreate(
+            metadata,
+            writableDirectoryCreateFailureControl(
+              directoryId ?? 0,
+              baseGeneration,
+              win32Error,
+            ),
+          );
+          return;
+        }
+        throw error;
+      }
+      const control = writableCommitSuccessControl(
+        directoryId ?? 0,
+        baseGeneration,
+        BigInt(committedGeneration),
+      );
+      this.#deliverInIssueOrder(metadata.requestId, () => {
+        const completion = this.#completeWritableDirectoryCreate(
+          metadata,
+          control,
+        );
+        invariant(
+          completion.succeeded,
+          "browser-native directory create completed as a failure",
+        );
+        directory.exists = true;
+        directory.generation = completion.committedGeneration;
+      });
+      return;
+    }
+    const url = this.#profileDirectoryCommitUrl(directoryId ?? 0);
     let response: Response | null = null;
     for (let attempt = 0; attempt < 2 && response === null; attempt += 1) {
       try {
@@ -24852,6 +25095,13 @@ class BrowserRuntimeSession {
   }
 
   async #revokeWritableProfileLease(): Promise<void> {
+    const browserStorage = this.#browserStorage;
+    if (browserStorage !== null) {
+      await browserStorage.close();
+      this.#browserStorage = null;
+      this.#profileLease = null;
+      return;
+    }
     const lease = this.#profileLease;
     if (lease === null) {
       return;

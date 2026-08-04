@@ -7,8 +7,17 @@ import {
   type SessionReport,
   type WorkerToMainMessage,
 } from "./protocol.js";
+import {
+  asciiSourcePathBindings,
+  registerSourceMount,
+} from "../storage/mount-catalog.js";
+import {
+  type BrowserNativeStorageConfiguration,
+  browserNativeStorageSchema,
+  browserNativeStorageSchemaVersion,
+} from "../storage/protocol.js";
 
-type SourceScenario = SessionMode | "wrong-origin";
+type SourceScenario = SessionMode | "wrong-origin" | "browser-native";
 
 interface SourceBrowserEvidence {
   scenario: SourceScenario;
@@ -27,7 +36,10 @@ declare global {
 const worker = new Worker(new URL("./runtime-worker.js", import.meta.url), { type: "module" });
 const status = requiredElement<HTMLOutputElement>("#status");
 const scenario = parseScenario(new URL(location.href).searchParams.get("scenario"));
-const mode: SessionMode = scenario === "wrong-origin" ? "success" : scenario;
+const mode: SessionMode =
+  scenario === "wrong-origin" || scenario === "browser-native"
+    ? "success"
+    : scenario;
 const sessionId = 1;
 const pageLifecycle = observePageLifecycle((lifecycle) => {
   worker.postMessage({
@@ -86,30 +98,97 @@ worker.addEventListener("message", (event: MessageEvent<WorkerToMainMessage>) =>
 
 worker.addEventListener("error", (event) => fail(new Error(event.message)));
 
-worker.postMessage({
-  type: "start-session",
-  protocolVersion,
-  sessionId,
-  configuration: {
-    mode,
-    evidenceLevel: "full",
-    workload: "controlled-source-read",
-    executableUrl: "./source-read.exe",
-    policyUrl: "./kernel32-source-file-read-v1.json",
-    sourceManifestUrl: "/api/source/v1/manifest",
-    sourceApiUrl:
-      scenario === "wrong-origin" ? "https://example.invalid/api/source/v1/" : "/api/source/v1/",
-    instructionBudget: 8,
-    watchdogInstructionLimit: 100_000,
-    watchdogWallMilliseconds: scenario === "watchdog" ? 100 : 10_000,
-    pageLifecycle: pageLifecycle.snapshot(),
-  },
-} satisfies MainToWorkerMessage);
+void start();
+
+async function start(): Promise<void> {
+  try {
+    const browserNativeStorage =
+      scenario === "browser-native" ? await prepareBrowserNativeStorage() : undefined;
+    worker.postMessage({
+      type: "start-session",
+      protocolVersion,
+      sessionId,
+      configuration: {
+        mode,
+        evidenceLevel: "full",
+        workload: "controlled-source-read",
+        executableUrl: "./source-read.exe",
+        policyUrl: "./kernel32-source-file-read-v1.json",
+        sourceManifestUrl: "/api/source/v1/manifest",
+        sourceApiUrl:
+          scenario === "wrong-origin"
+            ? "https://example.invalid/api/source/v1/"
+            : "/api/source/v1/",
+        ...(browserNativeStorage === undefined ? {} : { browserNativeStorage }),
+        instructionBudget: 8,
+        watchdogInstructionLimit: 100_000,
+        watchdogWallMilliseconds: scenario === "watchdog" ? 100 : 10_000,
+        pageLifecycle: pageLifecycle.snapshot(),
+      },
+    } satisfies MainToWorkerMessage);
+  } catch (error) {
+    fail(error instanceof Error ? error : new Error(String(error)));
+  }
+}
+
+async function prepareBrowserNativeStorage(): Promise<BrowserNativeStorageConfiguration> {
+  const manifestResponse = await fetch("/api/source/v1/manifest", { cache: "no-store" });
+  invariant(manifestResponse.status === 200, "source manifest bootstrap failed");
+  const manifest = (await manifestResponse.json()) as {
+    schema: "vine.source-snapshot-manifest";
+    schemaVersion: 1;
+    titleFingerprint: string;
+    snapshotId: string;
+    mount: { sourceId: number; rootPathA: number[] };
+    files: Array<{
+      objectId: number;
+      relativePathA: number[];
+      byteLength: number;
+      sha256: string;
+    }>;
+  };
+  invariant(manifest.files.length === 1, "source fixture manifest changed");
+  const descriptor = manifest.files[0];
+  invariant(descriptor !== undefined, "source fixture descriptor is missing");
+  const objectUrl =
+    `/api/source/v1/titles/${encodeURIComponent(manifest.titleFingerprint)}` +
+    `/snapshots/${encodeURIComponent(manifest.snapshotId)}` +
+    `/sources/${manifest.mount.sourceId}/objects/${descriptor.objectId}` +
+    `?offset=0&length=${descriptor.byteLength}`;
+  const objectResponse = await fetch(objectUrl, { cache: "no-store" });
+  invariant(objectResponse.status === 206, "source fixture bootstrap read failed");
+  const bytes = new Uint8Array(await objectResponse.arrayBuffer());
+  invariant(bytes.byteLength === descriptor.byteLength, "source fixture bootstrap was short");
+  const opfsRoot = await navigator.storage.getDirectory();
+  const directory = await opfsRoot.getDirectoryHandle("runtime-source-check", {
+    create: true,
+  });
+  const file = await directory.getFileHandle("source-read-v1.dat", { create: true });
+  const writable = await file.createWritable();
+  await writable.write(bytes);
+  await writable.close();
+  const pathBindings = asciiSourcePathBindings(manifest);
+  pathBindings[0] = {
+    objectId: descriptor.objectId,
+    pathSegments: ["source-read-v1.dat"],
+  };
+  const sourceMount = await registerSourceMount({
+    mountId: "runtime-source-check-v1",
+    directoryHandle: directory,
+    manifest,
+    pathBindings,
+  });
+  return {
+    schema: browserNativeStorageSchema,
+    schemaVersion: browserNativeStorageSchemaVersion,
+    sourceMount,
+  };
+}
 
 function finish(report: SessionReport): void {
   window.clearInterval(heartbeat);
   const expectedOutcome =
-    scenario === "success"
+    scenario === "success" || scenario === "browser-native"
       ? "completed"
       : scenario === "wrong-origin"
         ? "fault"
@@ -151,7 +230,10 @@ function fail(error: Error): void {
 }
 
 function parseScenario(value: string | null): SourceScenario {
-  return value === "cancel-pending" || value === "watchdog" || value === "wrong-origin"
+  return value === "cancel-pending" ||
+    value === "watchdog" ||
+    value === "wrong-origin" ||
+    value === "browser-native"
     ? value
     : "success";
 }

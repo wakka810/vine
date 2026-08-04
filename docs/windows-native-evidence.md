@@ -3020,7 +3020,7 @@ Rust `RuntimeFiles`はmanifest／Windows-932 path／share／typed file payload�
 
 Historical private Node／Chrome evidenceは二つのfile lifetimeで同じBGI.gdb contentをoffset 0から全量readし、ordered calls、guest writes、memory digest、next stopを再現した。Read semanticsのevidenceは有効だが、payload hash不変をsource immutabilityの証明には使わない。Source executableは実行前後で1,193,472 bytes／SHA-256 `f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1`のままであり、こちらは引き続きimmutable corpus identityである。
 
-現在のruntime contractはimmutable fixtureのOpen／Size／Read／Seek／Closeに加え、BGI.gdb profileのCreate／Write／Seek／Flush／durable Close、generation／idempotency／SQLite rollbackをmodel／integration testで成立させる。Primary runはprofile readを通すが、guestによるChrome write、browser restart後load、kill injection、directory enumeration、mapped file、large-corpus streamingは未検証である。Stable contractは[runtime-vfs.md](runtime-vfs.md)、backend decisionは[ADR-006](adr-006-vfs-local-server.md)を正とする。
+現在のruntime contractはimmutable fixtureのOpen／Size／Read／Seek／Closeに加え、BGI.gdb profileのCreate／Write／Seek／Flush／durable Close、generation／idempotency／SQLite rollbackをmodel／integration testで成立させる。Browser-native backendはpublic source read、IndexedDB handle restart、OPFS Worker-kill rollbackを通す。Primary runはprofile readを通すが、guestによるOPFS write、browser restart後load、primary large-corpus browser mount、directory enumeration、mapped fileは未検証である。Stable contractは[runtime-vfs.md](runtime-vfs.md)、production backend decisionは[ADR-010](adr-010-browser-native-storage.md)、local oracleは[ADR-006](adr-006-vfs-local-server.md)を正とする。
 
 ## 103. BGI synchronous logical-window creation
 

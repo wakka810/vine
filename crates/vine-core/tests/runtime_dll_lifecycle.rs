@@ -371,7 +371,7 @@ fn guest_import_graph_drives_atomic_dll_process_lifecycle() {
     );
     assert_eq!(
         runtime.current_thread_state().unwrap().callback_frames,
-        [outer_callback.clone(), engine_detach.frame.clone()]
+        [outer_callback, engine_detach.frame]
     );
     let codec_detach = expect_callback(
         runtime
@@ -389,7 +389,7 @@ fn guest_import_graph_drives_atomic_dll_process_lifecycle() {
     );
     assert_eq!(
         runtime.current_thread_state().unwrap().callback_frames,
-        [outer_callback.clone(), codec_detach.frame.clone()]
+        [outer_callback, codec_detach.frame]
     );
     let detached = expect_completion(
         runtime
@@ -408,7 +408,7 @@ fn guest_import_graph_drives_atomic_dll_process_lifecycle() {
     );
     assert_eq!(
         runtime.current_thread_state().unwrap().callback_frames,
-        [outer_callback.clone()]
+        [outer_callback]
     );
     runtime
         .pop_callback_frame(outer_callback.id)

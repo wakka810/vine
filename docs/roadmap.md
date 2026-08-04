@@ -66,7 +66,7 @@ high-impact unknownだけは、到達前でもbounded spikeを許可する。
 |---|---|---|---|
 | 1 | Primary bootを継続 | Manifest-selected semantic leafを次のsubsystem gatewayまで閉じる。caller-visible semanticsと既存authorityを維持する | Node／Chromeが同じ次stopへ到達し、cancel後にworkを残さずsource bytesを変更しない |
 | 2 | Process／loader／execution completeness | 到達したdynamic DLL load／unload、thread creation／bootstrap、per-thread stack／TEB lifecycle、wait-any／wait-all、timeout、message、synchronization blocking、corpus-required exception behavior | Controlled multi-thread fixtureとprimary pathがcreate、block、wake、callback、exitを複数CPU contextで実行し、starvation／orphan workを残さない |
-| 3 | Immutable sourceとpersistence | 実装済みsource／writable-profile gatewayの上でcontrolled guestによるChrome commitを通し、browser／Worker／server restart後load、kill injection、必要なregistry projectionを一つのstorage verticalにまとめる | Assetはimmutable sourceから読み、再起動後にsaveを復元できる。Kill時はlast committed generationへ戻り、EXE／DLL／assetと配布profile seedが不変 |
+| 3 | Immutable sourceとpersistence | 実装済みbrowser-native source／OPFS gatewayの上でreal picker／permission lifecycle、primary 5.9 GiB mount、controlled guest commit、browser restart後load、kill injection、必要なregistry projection、export／migrationを一つのstorage verticalにまとめる | Assetはuser-selected immutable sourceから読み、再起動後にOPFS saveを復元できる。Kill時はlast committed generationへ戻り、EXE／DLL／assetと配布profile seedが不変 |
 | 4 | Logical windowとmessage flow | HWND／class ownership、message dispatch、paint invalidation、focus、normalized keyboard／mouse、GDI object／DC lifetime、DIB／blit／text／font、到達GDI+ image path | Browser E2Eがfirst readable presentへ到達し、semantic／visual oracle付きでinputを消費する |
 | 5 | Primary graphicsとinput | Corpus-bounded D3D9 COM／device／resource／state／present、DirectInput device／acquire／state、backend translation、device／context loss recovery | Primary first-presentとrepresentative scene／input checkpointがsilent unsupportedやunbounded growthなしで通る |
 | 6 | Primary audio | DirectSound identity／buffer semantics、guest clockとaudio clock、cursor／notification wake、browser transport、activation／suspend／resume、到達WinMM／media command | BGM／voice／effectがoffline semantics、browser lifecycle E2E、long-run underrun／drift gateを通る |
@@ -81,8 +81,8 @@ Graphics、audio、storage、threadingがdownstreamの成立性を脅かす場�
   検証する。Measured title workloadに必要なfairnessを持ち、waiting threadがCPU contextを独占しない。
 - **Memory／snapshot**: full-play peak memoryとsnapshot sizeをversioned limit内に収める。Limit failureは
   guest memory、mapping、scheduler、allocator identityを部分更新しない。
-- **Source／save safety**: source module／assetはlocalhost serverのread-only snapshot、save／registryは別の
-  title-local SQLite overlayとする。Rust VFSとserver durabilityのauthorityを分け、flush／close commitを明示する。
+- **Source／save safety**: source module／assetはuser-selected directoryのread-only verified mount、save／registry／tombstone／metadataは別の
+  title/profile-scoped OPFS SQLite overlayとする。Rust VFSとbrowser durabilityのauthorityを分け、flush／close commitを明示する。Local serverはoracleに限定する。
 - **Graphics／audio lifecycle**: browser focus、background、device／context loss、audio suspensionを
   host timingの推測ではなくrecoverable stateとして扱う。
 - **Diagnostics**: unsupported gatewayはprivate raw traceをGitへ入れず、owner module／thread／resourceと

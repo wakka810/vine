@@ -71,7 +71,7 @@ Vine は、Windows 向け VN/ADV の元の `.exe` と同梱 `.dll` を原則と�
 | Windows API | サクラノ詩が必要とする `ntdll` 相当の内部境界、Kernel32、User32、GDI32、GDI+、COM、および限定した補助 DLL |
 | graphics | GDI、GDI+ image subset、bounded D3D9。DirectDraw は比較 branch。backend は成立性検証で WebGL2 / WebGPU を中心に決定 |
 | audio | DirectSound から Web Audio API への接続。WinMM／MCI は primary scenario で到達する command subset |
-| storage | Rust-owned VFSとsame-origin localhost Vine server。初期save／registry storeはtitle-local SQLite、OPFS／IndexedDBは将来の交換backend |
+| storage | Rust-owned VFS、user-selected read-only source mount、IndexedDB capability catalog、title/profile-scoped OPFS SQLite writable overlay |
 | input | User32 keyboard／mouse／focus と、サクラノ詩が呼ぶ DirectInput 8 subset。IME と gamepad は優先度を別途決定 |
 | locale | 日本語 VN に必要な Unicode / Windows-932、時刻、基本 locale、font mapping |
 | browser | current stable Chrome を最初の target とし、evidence に実 version を記録。最低 version は成立性検証後に固定 |
@@ -110,7 +110,7 @@ Vine は、Windows 向け VN/ADV の元の `.exe` と同梱 `.dll` を原則と�
 | CON-03 | DOM、audio、storage には thread、user activation、permission、quota の制約がある |
 | CON-04 | guest の 32 bit 仮想アドレス空間を host Wasm memory へ単純に 1:1 対応できるとは仮定しない |
 | CON-07 | 初期性能の成立性が証明されるまで、DBT/JIT や SharedArrayBuffer を必須構成と断定しない |
-| CON-08 | 初期storageはsame-origin localhost Vine serverを必要とする。remote upload、cloud account、browser-only persistenceはactive baselineとしない |
+| CON-08 | Production storageは固定secure origin上のFile System Access API／IndexedDB／OPFSを必要とする。Directory permission、origin quota、site-data deletionの制約を診断し、remote upload／cloud accountはactive baselineとしない |
 
 ## 7. 機能要件
 
@@ -267,7 +267,7 @@ DirectInput／DirectDraw interface、device／resource semantics、または`REQ
 | REQ-FS-03 | create、read、write、seek、truncate、enumeration、metadata の corpus 必要範囲を提供する | Must |
 | REQ-FS-04 | sharing、locking、delete-on-close、memory-mapped file の必要範囲を測定し、実装状態を明示する | Must |
 | REQ-FS-05 | save data を crash-consistent に永続化し、write 成功、flush／close、storage transaction commit の durability point を定義して export、backup、delete できる | Must |
-| REQ-FS-06 | 初期backendはsame-origin localhost Vine serverとし、immutable sourceはread-only、save／registryはtitle fingerprint別SQLite transactionへ保存する | Must |
+| REQ-FS-06 | Production backendは利用者が選択したread-only directory handleをIndexedDB catalogへ保存し、save／registry／tombstone／metadataはsourceと分離したtitle/profile別OPFS SQLite transactionへ保存する。Localhost adapterはoracle／migration用に残す | Must |
 | REQ-FS-07 | storage境界はtitle／snapshot／profile／object identityだけを受け、生のguest pointer、Win32 handle、任意host absolute pathを受け入れない | Must |
 | REQ-REG-01 | HKCU を中心とした virtual registry の key、value、type、enumeration を提供する | Must |
 | REQ-REG-02 | machine-wide、COM registration 等の hive は必要な read-only default または title-local overlay として隔離する | Should |

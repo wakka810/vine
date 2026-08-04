@@ -10,6 +10,7 @@ import { build } from "esbuild";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = path.join(root, "browser", "runtime-worker");
 const benchmarkSource = path.join(root, "browser", "v86-benchmark");
+const storageSource = path.join(root, "browser", "storage");
 const output = path.join(root, ".work", "browser-runtime");
 const executionEngineProfilePath = path.join(
   root,
@@ -91,6 +92,7 @@ await build({
     "bgi-check": path.join(source, "bgi-check.ts"),
     "bgi-benchmark": path.join(source, "bgi-benchmark.ts"),
     "runtime-worker": path.join(source, "runtime-worker.ts"),
+    "browser-storage-worker": path.join(storageSource, "storage-worker.ts"),
     "benchmark-main": path.join(benchmarkSource, "benchmark-main.ts"),
     "benchmark-worker": path.join(benchmarkSource, "benchmark-worker.ts"),
   },
@@ -133,6 +135,10 @@ await Promise.all([
     assets.sourcePolicy,
     path.join(output, "kernel32-source-file-read-v1.json"),
   ),
+  copyFile(
+    path.join(root, "node_modules", "@sqlite.org", "sqlite-wasm", "dist", "sqlite3.wasm"),
+    path.join(output, "sqlite3.wasm"),
+  ),
 ]);
 
 const manifest = {
@@ -156,6 +162,8 @@ const manifest = {
         "bgi-benchmark.html",
         "bgi-benchmark.js",
         "runtime-worker.js",
+        "browser-storage-worker.js",
+        "sqlite3.wasm",
         "benchmark.html",
         "benchmark.css",
         "benchmark-main.js",

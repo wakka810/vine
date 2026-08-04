@@ -1,7 +1,8 @@
 import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
+import type { BrowserNativeStorageConfiguration } from "../storage/protocol.js";
 
-export const protocolVersion = 127 as const;
+export const protocolVersion = 128 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -904,6 +905,7 @@ export interface SessionConfiguration {
   sourceApiUrl?: string;
   writableProfileUrl?: string;
   writableProfileApiUrl?: string;
+  browserNativeStorage?: BrowserNativeStorageConfiguration;
   instructionBudget: number;
   watchdogInstructionLimit: number;
   watchdogWallMilliseconds: number;

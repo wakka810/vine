@@ -4105,7 +4105,7 @@ export function validateCurrentCheckpoint(manifest) {
   }
   const expectedBrowserRuntimeProtocol =
     kernel32GetTickCountPostTestCooperativeLevelTimerDispatchActive
-      ? "vine.browser-runtime-worker.v127"
+      ? "vine.browser-runtime-worker.v128"
       : user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
       ? "vine.browser-runtime-worker.v126"
       : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
@@ -4432,6 +4432,53 @@ export function validateCurrentCheckpoint(manifest) {
       "a8a5aba21b10092fa616ac7c128c5985e464976200c1dc8d1bf4735aa6bda4ab"
   ) {
     errors.push("browser immutable source-read evidence is invalid");
+  }
+  const browserNativeStorageEvidence = requireRecord(
+    browser.browserNativeStorageEvidence,
+    "browserCheckpoint.browserNativeStorageEvidence",
+    errors,
+  );
+  const browserNativeStorageNonClaims = requireStringArray(
+    browserNativeStorageEvidence.nonClaims,
+    "browserCheckpoint.browserNativeStorageEvidence.nonClaims",
+    errors,
+  );
+  if (
+    browserNativeStorageEvidence.schema !==
+      "vine.browser-native-storage-evidence" ||
+    browserNativeStorageEvidence.schemaVersion !== 1 ||
+    browserNativeStorageEvidence.status !== "passed" ||
+    browserNativeStorageEvidence.storageProtocolVersion !== 1 ||
+    browserNativeStorageEvidence.productionBackend !==
+      "file-system-access+indexeddb-mount-catalog+opfs-sahpool-sqlite" ||
+    browserNativeStorageEvidence.sourceMountCatalog !==
+      "indexeddb-file-system-directory-handle" ||
+    browserNativeStorageEvidence.sourceVerification !==
+      "stream-sha256-registration+size-last-modified-range-revalidation" ||
+    browserNativeStorageEvidence.writableAuthority !==
+      "title-profile-scoped-opfs-sahpool-sqlite" ||
+    browserNativeStorageEvidence.sqliteVersion !== "3.53.0" ||
+    browserNativeStorageEvidence.journalMode !== "delete" ||
+    browserNativeStorageEvidence.synchronousMode !== "full" ||
+    browserNativeStorageEvidence.profileExclusion !==
+      "exclusive-origin-web-lock" ||
+    browserNativeStorageEvidence.indexedDbHandleRoundTrip !== true ||
+    browserNativeStorageEvidence.workerHandleClone !== true ||
+    browserNativeStorageEvidence.runtimeSourceFixturePassed !== true ||
+    browserNativeStorageEvidence.committedGeneration !== 2 ||
+    browserNativeStorageEvidence.directoryGeneration !== 1 ||
+    browserNativeStorageEvidence.concurrentWorkerRejected !== true ||
+    browserNativeStorageEvidence.uncommittedWorkerKillRolledBack !== true ||
+    browserNativeStorageEvidence.responseLossRecoveredIdempotently !== true ||
+    browserNativeStorageEvidence.chromeProcessRestartReloaded !== true ||
+    browserNativeStorageEvidence.persistentStorageGrantRequired !== false ||
+    browserNativeStorageEvidence.persistentStorageGrantObserved !== false ||
+    browserNativeStorageEvidence.canonicalCommand !==
+      "npm run check:browser-storage" ||
+    browserNativeStorageNonClaims.join(",") !==
+      "user-picker-permission-lifecycle,primary-5.9-gib-source-mount,controlled-guest-write-save-load,registry-semantics,migration-export-import,permission-revoke"
+  ) {
+    errors.push("browser-native storage evidence is invalid");
   }
   const bgiBrowserEvidence = requireRecord(
     browser.bgiRuntimeEvidence,
@@ -30017,7 +30064,7 @@ export function validateCurrentCheckpoint(manifest) {
         expectedNode.terminalMemoryContentSha256 ||
       browserBoundary.runtimeProtocol !==
         (kernel32GetTickCountPostTestCooperativeLevelTimerDispatchActive
-          ? "vine.browser-runtime-worker.v127"
+          ? "vine.browser-runtime-worker.v128"
           : user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
           ? "vine.browser-runtime-worker.v126"
           : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive

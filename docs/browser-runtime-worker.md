@@ -3,7 +3,7 @@
 ## Status
 
 - Status: Verified controlled fixture and private BGI semantic checkpoint
-- Date: 2026-07-31
+- Date: 2026-08-04
 - Browser: current acceptance build is manifest-owned
 - Protocol: `vine.browser-runtime-worker`; current version is manifest-owned
 - Runtime core: Rust/Wasm, zero imports; current artifact identity is manifest-owned
@@ -234,48 +234,59 @@ delta and resume the existing structured-stop path.
 
 ## Storage boundary
 
-The private BGI path obtains a `vine.writable-profile-snapshot` from the same
-origin instead of registering `BGI.gdb` as immutable source. The Worker compares
-title fingerprint, profile ID, root, quota, file／directory path and identity,
-existence, generation, length, and hash with Rust prepared metadata. Version 3
-keeps file bytes out of this JSON bootstrap and adds a separate directory allowlist;
-an allowlisted absent directory is not treated as existing.
-The Worker acquires a server epoch lease, fetches existing content in bounded binary
-ranges, verifies its complete hash, and hydrates one Rust-owned object at a time
-before guest entry. Clean reads carry reserved source ID zero and fetch a
-generation-bound object range. Dirty reads never cross this adapter; Rust serves its
-staged bytes directly.
+Protocol version 128 adds the browser-native session descriptor. Production uses a
+user-selected read-only `FileSystemDirectoryHandle`, an IndexedDB mount catalog, and
+a dedicated Storage Worker. The Runtime Worker reconstructs the version 1 source
+manifest from that validated descriptor and sends only source/object identity and a
+bounded range to the Storage Worker. The Storage Worker reopens the bound real path,
+revalidates size／last-modified identity before and after the read, and returns bytes
+through the existing Rust completion. The public PE32 source fixture exercises this
+path end to end. Its bootstrap uses a controlled OPFS directory handle so automation
+does not pretend to test a user picker or permission prompt.
+
+Writable production state uses SQLite Wasm's OPFS SAH-pool VFS in the same dedicated
+Worker. An exclusive origin Web Lock prevents a second writable context from opening
+the shared pool. The database uses rollback journal `DELETE`, `synchronous=FULL`, a
+monotonic epoch lease, generation compare-and-swap, whole-profile quota, SHA-256, and
+request-key ledgers. File／directory rows are active. Tombstone, registry, and metadata
+tables share the schema but do not become guest-visible until their Rust semantics
+are reached and fixed.
+
+The private BGI and deterministic failure-injection checks retain the same-origin
+localhost adapter as an oracle. Both adapters return the same
+`vine.writable-profile-snapshot` version 3 shape. The Worker compares title
+fingerprint, profile ID, root, quota, file／directory path and identity, existence,
+generation, length, and hash with Rust prepared metadata. File bytes remain outside
+JSON; existing objects are fetched in bounded binary ranges, complete-hashed, and
+hydrated into Rust one object at a time. Clean reads carry reserved source ID zero.
+Dirty reads never cross an adapter because Rust serves its staged bytes directly.
 
 For a flush or dirty close, Rust emits `storage.profile-commit.v1` metadata while
-retaining payload and Win32 state authority. The Worker obtains the payload through
-the Wasm bridge, verifies its length and SHA-256, and posts it to the same-origin
-SQLite profile-v3 endpoint with an epoch lease and session/request idempotency key.
-The server revalidates the lease inside the publication transaction. One
-transport/5xx retry uses the same key. Recoverable quota, conflict, lock, and storage
-failures become binary Win32 failure completions so Rust retains the dirty handle
-and staged bytes for guest retry; malformed identity or control data remains fatal.
-An exhausted transport without a definitive response is fatal as an unknown commit
-outcome; it is not reported to Rust as a known failed publication.
-Every terminal path drains commit tasks and revokes the lease before reporting the
-session finished. The Worker updates its read-only profile metadata only after
-SQLite and Rust both accept the completion; it does not decide generation, dirty
-state, or handle lifetime. The local runner seeds a new database from an existing
-distribution `BGI.gdb` only once and asserts the distribution file is unchanged
-after Node and Chrome execution.
+retaining payload and Win32 state authority. The Runtime Worker obtains the payload
+through the Wasm bridge, verifies length and SHA-256, adds an opaque
+session/request idempotency key, and calls the selected adapter. The adapter
+revalidates lease, generation, hash, and quota inside the publication transaction.
+Recoverable quota, conflict, lock, and storage failures become binary Win32 failure
+completions so Rust retains the dirty handle and staged bytes for guest retry;
+malformed identity or control remains fatal. A transport loss without a definitive
+response is also fatal because the Runtime Worker cannot report a known failed
+publication. The OPFS backend check separately proves that an exact same-key retry
+can recover a published response loss without applying bytes twice.
 
-For `storage.profile-directory-create.v1`, Rust retains the directory identity,
-base generation, existence decision, pending request, and Win32 result authority.
-The Worker forwards only prepared profile/session/request/directory metadata. SQLite
-revalidates the lease, generation, and idempotency key in one transaction; Rust
-publishes existence only after validating the durable completion. Storage failure,
-stale or malformed completion, cancellation, and terminal cleanup cannot leave a
-TypeScript-owned Windows directory state. Private target checks use a run-local
-database so neither the shared profile nor the distribution directory is mutated.
+For `storage.profile-directory-create.v1`, Rust retains directory identity, base
+generation, existence decision, pending request, and Win32 result authority. The
+Worker forwards only prepared profile/session/request/directory metadata. SQLite
+publishes existence and its ledger atomically; Rust publishes existence only after a
+valid durable completion. Every terminal path drains storage work and closes or
+revokes the lease before reporting completion. No TypeScript layer owns a Windows
+directory, dirty decision, handle, or generation.
 
-Protocol version 12 adds writable profile configuration and commit completion
-metadata. The current private checkpoint reads the profile but does not reach a
-guest write. A controlled Chrome write/restart/load fixture and the primary title
-save scenario remain separate acceptance work.
+The browser-native backend check covers IndexedDB handle restart, Worker clone,
+exclusive context rejection, uncommitted Worker-kill rollback, commit-response-loss
+idempotency, and reload in a second Chrome process. It does not yet cover a real
+picker／permission-revoke lifecycle, the primary 5.9 GiB mount, controlled guest
+OPFS write/restart/load, registry semantics, migration/export, or site-data eviction.
+The current private checkpoint reads the profile but does not reach a guest write.
 
 Protocol version 13 adds a normal `checkpoint-complete` terminal with immutable
 capability identity, required and observed completion counts, last completion
@@ -579,6 +590,7 @@ in [current-checkpoint.json](current-checkpoint.json). Detailed private-run non-
 
 ```powershell
 npm run check:runtime:browser-worker
+npm run check:browser-storage
 npm run check:runtime:bgi-browser
 npm run check:runtime:bgi-browser-benchmark
 npm run serve:runtime:browser-worker
@@ -587,8 +599,9 @@ npm run check:runtime:browser-worker:stress
 
 The first command generates the PE fixture, prepares the pinned adapter, builds
 the Rust core for `wasm32-unknown-unknown`, type-checks and bundles the browser
-application, then runs success, pending-cancel, and watchdog probes in a clean
-Chrome profile. The serve command exposes the operational UI on loopback. The
+application, then runs local-oracle and browser-native source success,
+pending-cancel, and watchdog probes in a clean Chrome profile. The second command
+runs the dedicated OPFS/IndexedDB restart and crash-consistency gate. The serve command exposes the operational UI on loopback. The
 stress command adds the 30-minute repeated lifecycle run.
 
 ## Remaining gates

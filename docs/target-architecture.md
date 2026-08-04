@@ -195,13 +195,14 @@ controlled callback／entry return ingressでは、sentinel kindをcontrol addre
 
 | Context | 責務 | 禁止事項 |
 |---|---|---|
-| Main thread | shell UI、DOM input、user activation、canvas presentation、permission prompt | guest 命令 loop、長い parse、同期 wait |
+| Main thread | shell UI、DOM input、user activation、canvas presentation、directory picker／permission prompt | guest 命令 loop、長い parse、同期 wait |
 | Runtime Worker | Rust kernel／CPU adapterの駆動、browser request delivery、watchdog、trace | DOM直接操作、guest-visible Windows stateの所有 |
 | AudioWorklet | deadline に沿った PCM consume、sample clock、underrun counter | guest API、file parse、重い allocation |
-| Local Vine server | same-origin UI／API配信、immutable source read、SQLite save transaction | Windows path／handle semantics、guest pointer参照、任意directory公開 |
-| Optional storage worker | 将来のOPFS／IndexedDB adapterが要求するtransaction／snapshot | guest-visible file stateの所有、guest pointer参照 |
+| Fixed secure-origin host | versioned UI／Worker／Wasm asset配信、service worker更新境界 | user-selected directoryの代理公開、Windows semanticsの所有 |
+| Storage Worker | File System Access source range、OPFS SQLite transaction／snapshot、Web Lock、quota診断 | guest-visible file state、guest pointer、Win32 handleの所有 |
+| Local oracle server | fixtureのsame-origin source／SQLite adapter、failure injection、migration source | production source／overlay authority、任意directory公開 |
 
-OffscreenCanvas、SharedArrayBuffer、Atomics、OPFS sync access 等の採用は browser matrix と cross-origin isolation のコストを測って決める。これらがない環境では、copy queue または support Tier の引き下げを選べるようにする。
+OPFS sync accessは専用Storage Worker内のSQLite Wasm SAH-pool VFSとして採用する。OffscreenCanvas、SharedArrayBuffer、Atomicsの採用はbrowser matrixとcross-origin isolationのコストを測って決める。必要capabilityがない環境では、local oracle adapterまたはsupport Tierの引き下げを明示し、黙って別authorityへ切り替えない。
 
 ### 5.2 Guest thread model
 
@@ -226,7 +227,7 @@ handle／policyは`runtime/process.rs::RuntimeProcessState`が所有する。既
 `RuntimeProcessView`がheap、module、synchronization、timer resolution、TLS／FLS ownerをimmutable borrowして従来の
 `process` shapeへflattenするが、このviewはmutation authorityではない。
 
-Immutable sourceとwritable profile stateはprivate `runtime/files.rs::RuntimeFiles`が所有する。Manifest、Windows-932-aware path index、monotonic file ID、cursor、committed／staged bytes、dirty base generation／revision、pending read／commitはkernelへmutable collectionとして公開しない。同一pathのsource／profile登録は拒否する。Typed file handle generationは`RuntimeObjectTable`、file payload lifetimeは`RuntimeFiles`が所有し、kernelはopen、read／write、durable flush／last close、scheduler request／completion、process exitを全owner preflight後にcommitする。Local serverのSQLiteはcommitted generationだけを所有し、BGI.gdb等のprofile objectを配布directoryへ書き戻さない。詳細は[runtime-vfs.md](runtime-vfs.md)を正とする。
+Immutable sourceとwritable profile stateはprivate `runtime/files.rs::RuntimeFiles`が所有する。Manifest、Windows-932-aware path index、monotonic file ID、cursor、committed／staged bytes、dirty base generation／revision、pending read／commitはkernelへmutable collectionとして公開しない。同一pathのsource／profile登録は拒否する。Typed file handle generationは`RuntimeObjectTable`、file payload lifetimeは`RuntimeFiles`が所有し、kernelはopen、read／write、durable flush／last close、scheduler request／completion、process exitを全owner preflight後にcommitする。ProductionではOPFS SQLiteがcommitted generationだけを所有し、BGI.gdb等のprofile objectを選択source directoryへ書き戻さない。Local server SQLiteは同じcontractのoracleである。詳細は[runtime-vfs.md](runtime-vfs.md)を正とする。
 
 Mutable thread records、process-wide TLS index／FLS slot registries、TLS／FLS／callback-frame／thread ID allocatorsは
 private `runtime/thread.rs::RuntimeThreads`だけが所有する。Registration、LastError／TLS／FLS、callback
@@ -667,15 +668,15 @@ Path normalization は Windows semantics と mount resolution を同じ関数で
 - backend quota、permission loss、database／schema incompatibilityを起動前に診断する
 - title fingerprint ごとに storage を隔離する
 
-初期backendはsame-origin localhost Vine serverとし、immutable source filesystemはread-only、save／registryはtitle fingerprint別SQLite transactionを使う。Rust VFSがWindows path、mount、handle、cursor、access／share、LastErrorのauthorityであり、serverはsource snapshot bytesとcommitted generationのdurabilityだけを所有する。Workerはscheduler-owned host requestを運び、別のfile stateを作らない。
+Production backendは固定secure originのVine Clientとする。利用者が明示的に選択したdirectoryのread-only `FileSystemDirectoryHandle`をIndexedDB capability catalogへ保存し、source objectはmanifestのWindows-932 pathとreal Unicode path segments、length、SHA-256へbindingする。Save／registry／tombstone／metadataはsourceと分離したtitle/profile別OPFS SQLiteへ保存する。Rust VFSがWindows path、mount、handle、cursor、access／share、LastError、staged writeのauthorityであり、browserはpermission／source capabilityとcommitted generationのdurabilityだけを所有する。Runtime WorkerとStorage Workerはscheduler-owned host requestを運び、別のWindows file stateを作らない。
 
-実装済みstorage foundationはprocess-static source manifest version 1とmetadata-only writable profile version 3をRustへ登録し、`CreateFileA`／`GetFileSize`／`ReadFile`／`WriteFile`／`SetFilePointer`／`FlushFileBuffers`／`CloseHandle`、一件のallowlisted durable `CreateDirectoryA`、bounded `FindFirstFileA`／`FindNextFileA`／`FindClose`、およびmissing-final-componentだけを投影する`DeleteFileA`をpath-disjointなmountへ接続する。Profileはfile、directory、open searchのidentity／existence／generation／cursorを別namespaceで表現し、allowlist自体を存在として扱わない。Findは登録済みsourceとexisting writable entryからRust内でimmutable open-viewを作り、Windows-932 pairを壊さないASCII case-insensitive wildcardとdeterministic lexical orderを適用する。Deleteのactive variantは同じRust path classificationからFALSE／not-foundを返すだけで、existing object、source、overlay、SQLite、host filesystemを変更しない。Host／browser directory enumerationをimportせず、search handleと最初のguest出力は全ownerをpreflightした後だけ同時publishする。File contentはJSON／Wasm bootstrapへ連結せず、Workerがserver epoch lease下のbounded binary rangeで取得し、hash照合後にobject単位でRustへhydrateする。Worker requestはprepared manifest／profileへbindingされ、HTTP URLとresponse headerでtitle fingerprint、snapshot／profile、source／object／directory、generation、offset、length、lease epochを往復検証し、Workerと異なるoriginはfetch前に拒否する。Serverはsourceの検証済みimmutable copyをrange deliveryし、profileは同じSQLite transaction内でleaseを再検証してfile／directory generation、hash／quota、idempotencyをcommitする。通常のstorage failureはWin32 failure completionとしてRustへ戻し、terminal pathはcommitをdrainしてleaseをrevokeしてからsession終了を公開する。Wrong／stale／duplicate completion、memory write failure、storage failure、cancel、process exitはfile／search cursor、directory existence、staged／committed bytes、guest bytes、handle／directory／search allocatorを部分更新しない。
+実装済みstorage foundationはprocess-static source manifest version 1とmetadata-only writable profile version 3をRustへ登録し、`CreateFileA`／`GetFileSize`／`ReadFile`／`WriteFile`／`SetFilePointer`／`FlushFileBuffers`／`CloseHandle`、一件のallowlisted durable `CreateDirectoryA`、bounded `FindFirstFileA`／`FindNextFileA`／`FindClose`、およびmissing-final-componentだけを投影する`DeleteFileA`をpath-disjointなmountへ接続する。Profileはfile、directory、open searchのidentity／existence／generation／cursorを別namespaceで表現し、allowlist自体を存在として扱わない。Findは登録済みsourceとexisting writable entryからRust内でimmutable open-viewを作り、Windows-932 pairを壊さないASCII case-insensitive wildcardとdeterministic lexical orderを適用する。Deleteのactive variantは同じRust path classificationからFALSE／not-foundを返すだけで、existing object、source、overlay、SQLite、host filesystemを変更しない。Host／browser directory enumerationをimportせず、search handleと最初のguest出力は全ownerをpreflightした後だけ同時publishする。File contentはJSON／Wasm bootstrapへ連結せず、Workerがbounded binary rangeで取得し、hash照合後にobject単位でRustへhydrateする。Production sourceは登録時にstream hashし、session開始とrange前後にsize／last-modified identityを再検証する。OPFS profileはexclusive origin Web Lock下でSQLite rollback journal `DELETE`／`synchronous=FULL`を使い、同じ`BEGIN IMMEDIATE` transaction内でlease、file／directory generation、hash／quota、idempotencyをcommitする。Local HTTP／SQLite adapterは同じtitle／snapshot／profile／object identity contractのoracleとして残る。通常のstorage failureはWin32 failure completionとしてRustへ戻し、terminal pathはcommitをdrainしてleaseをrevokeしてからsession終了を公開する。Wrong／stale／duplicate completion、memory write failure、storage failure、cancel、process exitはfile／search cursor、directory existence、staged／committed bytes、guest bytes、handle／directory／search allocatorを部分更新しない。
 
-このfoundationはcontrolled browser guest file write、browser／server restart後load、kill injection、general directory create／recursive enumeration／existing-object delete／rename、mapped file、registry、primary save／loadを実装済みとしない。Primaryの48-object／約5.9 GiB source登録とbounded range readはstreamingで成立したが、arbitrary large-corpusのperformance envelopeは未確定である。
+Browser-native backend checkはIndexedDB handle roundtrip、Worker clone、OPFS file／directory generation、concurrent Worker rejection、transaction中Worker kill rollback、commit後response lossのsame-key recovery、別Chrome processでのreloadを成立させた。Public PE32 source fixtureもRuntime Workerから専用Storage Workerとdirectory handleを通る。このfoundationはproduction picker／permission lifecycle、controlled guest file writeとbrowser restart後load、primary 48-object／約5.9 GiB source mount、general directory create／recursive enumeration／existing-object delete／rename、mapped file、registry、primary save／loadを実装済みとしない。Local oracleで成立した5.9 GiB streaming envelopeをbrowser mountへそのまま外挿しない。
 
-Storage requestにはtitle fingerprint、snapshot／profile ID、mount内object／path key、range、base generationを渡し、生のguest pointer、Win32 handle、任意host absolute pathを渡さない。UIとAPIをloopbackの同一originから配信し、利用者が登録したsource rootとVine管理profile root以外を公開しない。Flushまたは成功したCloseを最初のdurability boundaryとし、cancel／watchdog／server killでは未commit write-setをrollbackする。詳細は[ADR-006](adr-006-vfs-local-server.md)を正とする。
+Storage requestにはtitle fingerprint、snapshot／profile ID、mount内object／path key、range、base generationを渡し、生のguest pointer、Win32 handle、任意host absolute pathを渡さない。UIとversioned assetを固定secure originから配信し、選択source capabilityとorigin-private profile以外へ到達しない。Flushまたは成功したCloseを最初のdurability boundaryとし、cancel／watchdog／Worker killでは未commit write-setをrollbackする。Production topologyは[ADR-010](adr-010-browser-native-storage.md)、historical local oracleは[ADR-006](adr-006-vfs-local-server.md)を正とする。
 
-OPFS、IndexedDB、memory adapterは同じstorage contractの将来backendとする。Remote upload／cloud同期はactive scope外であり、同期accessが可能でもschedulerを無制限にblockしない。
+OPFS／IndexedDBはproduction adapterとして採用済みである。Source permissionが失われた場合はmain-thread user gestureへ戻し、persistent storage grantを必須成功条件にしない。Remote upload／cloud同期はactive scope外であり、OPFS sync accessが可能でもRuntime Worker schedulerを無制限にblockせず専用Storage Workerへ隔離する。
 
 ### 11.3 Registry
 
@@ -1238,10 +1239,11 @@ runtime は互換性 failure が browser tab 全体の停止や再現不能な s
 | ADR-003 | sparse guest memory、page size、protection、snapshot | Phase 0 |
 | ADR-004 | Runtime Worker、guest scheduling、async suspension | Phase 0 |
 | ADR-005 | API metadata、thunk、callback、marshaller の生成方式 | Phase 1 前半 |
-| ADR-006 | [Local VFS backend、immutable source、SQLite overlay、durability／hard-stop rollback](adr-006-vfs-local-server.md) | Accepted initial backend |
+| ADR-006 | [Local VFS backend、immutable source、SQLite overlay、durability／hard-stop rollback](adr-006-vfs-local-server.md) | Superseded production backend; retained oracle |
 | ADR-007 | renderer、GDI／DirectDraw surface、D3D9 resource／presentation boundary | Phase 3 まで |
 | ADR-008 | DirectSound mixer、AudioWorklet、clock ownership | Phase 3 まで |
 | ADR-009 | browser support Tier、SAB、COOP / COEP | Phase 1 終了時 |
+| ADR-010 | [Browser-native source mount、IndexedDB capability catalog、OPFS overlay](adr-010-browser-native-storage.md) | Accepted production backend |
 | ADR-011 | compatibility profile と API inventory schema | Phase 0 |
 
 各選択肢と決定方法は [risks-and-open-questions.md](risks-and-open-questions.md) に記載する。

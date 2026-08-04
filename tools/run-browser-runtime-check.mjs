@@ -436,7 +436,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v127";
+const runtimeProtocol = "vine.browser-runtime-worker.v128";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -8016,7 +8016,7 @@ async function runSourceProbe(browserWebSocketUrl, baseUrl, scenario) {
       evidence.statuses.some(({ phase }) => phase === "waiting-host"),
       `${scenario} source status history has no waiting-host phase: ${JSON.stringify(evidence.statuses)}`,
     );
-    if (scenario === "success") {
+    if (scenario === "success" || scenario === "browser-native") {
       assert.equal(evidence.report.outcome, "completed");
       assert.equal(evidence.report.exitCode, 0);
       assert.equal(evidence.report.instructions, 217);
@@ -17876,6 +17876,11 @@ if (serveOnly) {
         url,
         "success",
       );
+      const browserNativeSource = await runSourceProbe(
+        chrome.browserWebSocketUrl,
+        url,
+        "browser-native",
+      );
       const sourceCancellation = await runSourceProbe(
         chrome.browserWebSocketUrl,
         url,
@@ -17916,6 +17921,7 @@ if (serveOnly) {
         watchdog,
         sourceGateway: {
           success: sourceSuccess,
+          browserNative: browserNativeSource,
           cancellation: sourceCancellation,
           watchdog: sourceWatchdog,
         },
@@ -17930,7 +17936,7 @@ if (serveOnly) {
         `browser Worker vertical slice passed: instructions=${success.evidence.report.instructions}, ` +
           `yields=${success.evidence.report.budgetYields}, callbacks=2/depth2, ` +
           `pixel=rgba(255,0,0,255), audio=880Hz, storage=0x5a, ` +
-          `sourceReads=${sourceSuccess.report.sourceReads.length}, ` +
+          `sourceReads=${sourceSuccess.report.sourceReads.length}, browserNativeSource=true, ` +
           `cancel/watchdog=clean, Chrome=${version}, reportSha256=${hash(reportBytes)}`,
       );
     }

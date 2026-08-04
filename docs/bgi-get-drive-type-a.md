@@ -132,8 +132,8 @@ p99 `2.800 ms`, heartbeat p99 `9.730 ms`, and maximum heartbeat gap
 This checkpoint does not implement removable, remote, optical, RAM-disk, or
 unknown drive types; UNC paths; volume labels; per-drive current directories;
 general DOS normalization; file or directory existence; case-insensitive
-lookup; mounts; source/overlay resolution; browser storage; or the localhost
-backend accepted by ADR-006. Returning `DRIVE_NO_ROOT_DIR` for non-root and
+lookup; mounts; source/overlay resolution; browser storage; or either storage
+adapter defined by ADR-010 and the ADR-006 oracle. Returning `DRIVE_NO_ROOT_DIR` for non-root and
 unregistered paths is the measured bounded query behavior, not proof that a
 general VFS would resolve those paths the same way.
 

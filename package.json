@@ -6,12 +6,12 @@
   "scripts": {
     "check": "npm run check:fast && npm run check:fixture-e2e",
     "check:fast": "npm run check:static && npm run check:toolchain-engine && npm run check:rust",
-    "check:static": "npm run check:docs && npm run check:evidence-classification && npm run check:checkpoint-manifest && npm run check:bgi-command-contract && npm run check:semantic-call-digest && npm run check:runtime-worker-state-contract && npm run check:browser-performance-environment && npm run check:com-foundation && npm run check:private-target-contract && npm run check:private-target-evidence && npm run check:win32-policy && npm run check:v86-benchmark-gate && npm run check:js && npm run check:windows-trace && npm run check:ci-contract",
+    "check:static": "npm run check:docs && npm run check:evidence-classification && npm run check:checkpoint-manifest && npm run check:bgi-command-contract && npm run check:semantic-call-digest && npm run check:runtime-worker-state-contract && npm run typecheck:browser-storage && npm run check:browser-performance-environment && npm run check:com-foundation && npm run check:private-target-contract && npm run check:private-target-evidence && npm run check:win32-policy && npm run check:v86-benchmark-gate && npm run check:js && npm run check:windows-trace && npm run check:ci-contract",
     "check:toolchain-engine": "npm run check:toolchain && npm run check:engine",
     "check:fixture-e2e": "npm run prepare:engine && npm run check:fixture-e2e:prepared",
     "check:fixture-e2e:prepared": "npm run check:execution-engine-contract:prepared && npm run check:fixture-core-e2e:prepared && npm run check:fixture-browser-e2e:prepared",
     "check:fixture-core-e2e:prepared": "npm run check:runtime:entry && npm run check:runtime:cdecl && npm run check:runtime:callback && npm run check:runtime:outer-return && npm run check:runtime:entry-return && npm run check:runtime:stack-bootstrap && npm run check:runtime:bootstrap-fs-first-stop && npm run check:runtime:bootstrap-fs && npm run check:runtime:bootstrap-params-first-stop && npm run check:runtime:bootstrap-params && npm run check:runtime:memory-delta && npm run check:runtime:memory-writeback && npm run check:runtime:window-loader",
-    "check:fixture-browser-e2e:prepared": "npm run check:runtime:window-browser && npm run check:runtime:browser-worker:prepared",
+    "check:fixture-browser-e2e:prepared": "npm run check:runtime:window-browser && npm run check:runtime:browser-worker:prepared && npm run check:browser-storage",
     "check:adapter": "npm run prepare:engine && npm run check:engine:adapter && npm run check:runtime:memory",
     "check:private-corpus": "node tools/check-private-corpus.mjs",
     "check:private-target": "node tools/run-private-target-check.mjs",
@@ -24,6 +24,9 @@
     "check:bgi-command-contract": "node tools/test-bgi-checkpoint-command.mjs",
     "check:semantic-call-digest": "node tools/test-semantic-call-digest.mjs",
     "check:runtime-worker-state-contract": "node tools/test-runtime-worker-execution-state.mjs && node tools/test-runtime-worker-timer-pacing.mjs && node tools/test-runtime-worker-evidence-level.mjs && node tools/test-runtime-worker-storage.mjs",
+    "typecheck:browser-storage": "tsc -p browser/storage/tsconfig.json",
+    "build:browser-storage": "npm run typecheck:browser-storage && node tools/build-browser-native-storage.mjs",
+    "check:browser-storage": "npm run build:browser-storage && node tools/run-browser-native-storage-check.mjs",
     "check:browser-performance-environment": "node tools/test-browser-performance-environment.mjs",
     "check:com-foundation": "cargo test -p vine-core --test com_iunknown_foundation --locked && cargo test -p vine-core --test ole32_dispatcher --locked && cargo test -p vine-core --lib runtime::thread::tests::com_apartment --locked && npm run typecheck:runtime:browser-worker && node tools/test-browser-resource-identity.mjs",
     "check:execution-engine-contract:prepared": "node tools/test-execution-engine-contract.mjs",
@@ -60,7 +63,7 @@
     "check:runtime:window-browser": "node tools/run-runtime-window-browser-slice.mjs",
     "typecheck:runtime:browser-worker": "tsc -p browser/runtime-worker/tsconfig.json",
     "typecheck:runtime:v86-benchmark": "tsc -p browser/v86-benchmark/tsconfig.json",
-    "build:runtime:browser-worker:prepared": "cargo build -p vine-runtime-wasm --target wasm32-unknown-unknown --release --locked && npm run typecheck:runtime:browser-worker && npm run typecheck:runtime:v86-benchmark && node tools/build-browser-runtime.mjs",
+    "build:runtime:browser-worker:prepared": "cargo build -p vine-runtime-wasm --target wasm32-unknown-unknown --release --locked && npm run typecheck:runtime:browser-worker && npm run typecheck:runtime:v86-benchmark && npm run typecheck:browser-storage && node tools/build-browser-runtime.mjs",
     "build:runtime:browser-worker": "npm run check:toolchain && npm run prepare:engine && npm run build:runtime:browser-worker:prepared",
     "check:runtime:browser-worker:prepared": "npm run build:runtime:browser-worker:prepared && node tools/run-browser-runtime-check.mjs",
     "check:runtime:browser-worker": "npm run check:toolchain && npm run prepare:engine && npm run check:runtime:browser-worker:prepared",
@@ -87,5 +90,9 @@
     "typescript": "^7.0.2",
     "v86": "0.5.424",
     "yaml": "^2.9.0"
+  },
+  "dependencies": {
+    "@noble/hashes": "2.2.0",
+    "@sqlite.org/sqlite-wasm": "3.53.0-build1"
   }
 }

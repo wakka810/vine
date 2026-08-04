@@ -26,44 +26,71 @@ export function writableDirectoryCreateFailureControl(
   return writableCommitFailureControl(directoryId, baseGeneration, win32Error);
 }
 
-export function recoverableCommitHttpError(
-  status: number,
-  errorCode: string | null,
-): number | null {
+export function writableCommitSuccessControl(
+  objectId: number,
+  baseGeneration: bigint,
+  committedGeneration: bigint,
+): Uint8Array {
+  const control = writableCommitFailureControl(objectId, baseGeneration, 0);
+  const view = new DataView(control.buffer, control.byteOffset, control.byteLength);
+  view.setUint32(16, Number(committedGeneration & 0xffff_ffffn), true);
+  view.setUint32(20, Number((committedGeneration >> 32n) & 0xffff_ffffn), true);
+  return control;
+}
+
+export function recoverableCommitStorageError(errorCode: string): number | null {
   if (
-    errorCode !== null &&
-    (errorCode.includes("invalid") ||
-      errorCode.includes("mismatch") ||
-      errorCode.includes("unknown") ||
-      errorCode.includes("request-key-conflict"))
+    errorCode.includes("invalid") ||
+    errorCode.includes("mismatch") ||
+    errorCode.includes("unknown") ||
+    errorCode.includes("request-key-conflict")
   ) {
     return null;
   }
   if (errorCode === "writable-profile-lease-revoked") {
     return 995;
   }
-  if (
-    errorCode !== null &&
-    (errorCode.includes("SQLITE_BUSY") || errorCode.includes("SQLITE_LOCKED"))
-  ) {
+  if (errorCode.includes("SQLITE_BUSY") || errorCode.includes("SQLITE_LOCKED")) {
     return 33;
   }
   if (
-    errorCode !== null &&
-    (errorCode.includes("quota") ||
-      errorCode.includes("disk-full") ||
-      errorCode.includes("bytes-exceeded"))
+    errorCode.includes("quota") ||
+    errorCode.includes("SQLITE_FULL") ||
+    errorCode.includes("disk-full") ||
+    errorCode.includes("bytes-exceeded")
   ) {
     return 112;
   }
   if (
-    (errorCode !== null && errorCode.includes("generation-stale")) ||
-    errorCode?.startsWith("ERR_SQLITE") === true ||
-    errorCode?.startsWith("SQLITE_") === true ||
+    errorCode.includes("generation-stale") ||
+    errorCode.startsWith("ERR_SQLITE") ||
+    errorCode.startsWith("SQLITE_") ||
     errorCode === "writable-profile-storage-failure" ||
-    errorCode === "writable-profile-directory-storage-failure"
+    errorCode === "writable-profile-directory-storage-failure" ||
+    errorCode === "browser-storage-failure"
   ) {
     return 29;
+  }
+  return null;
+}
+
+export function recoverableCommitHttpError(
+  status: number,
+  errorCode: string | null,
+): number | null {
+  if (errorCode !== null) {
+    if (
+      errorCode.includes("invalid") ||
+      errorCode.includes("mismatch") ||
+      errorCode.includes("unknown") ||
+      errorCode.includes("request-key-conflict")
+    ) {
+      return null;
+    }
+    const mapped = recoverableCommitStorageError(errorCode);
+    if (mapped !== null) {
+      return mapped;
+    }
   }
   if (status === 423 || status === 429) {
     return 33;

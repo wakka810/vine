@@ -4,10 +4,11 @@
 
 - State owner: Rust `runtime/files.rs::RuntimeFiles`
 - Aggregate coordinator: `runtime/kernel.rs::RuntimeKernel`
-- Immutable adapter: same-origin `storage.source-read.v1`
-- Writable adapters: same-origin `storage.profile-read.v1`,
+- Immutable adapter: versioned `storage.source-read.v1` over browser-native or local oracle transport
+- Writable adapters: versioned `storage.profile-read.v1`,
   `storage.profile-commit.v1`, and `storage.profile-directory-create.v1`
-- Durable backend: title/profile-scoped SQLite under ignored `.work/`
+- Production backend: user-selected read-only directory handle plus IndexedDB mount catalog and title/profile-scoped OPFS SQLite
+- Oracle backend: same-origin localhost SQLite under ignored `.work/`
 - Primary save/browser-restart/load acceptance: not yet complete
 
 This document defines the stable storage contract. Current call counts, artifact
@@ -27,20 +28,23 @@ directory, and search IDs, open-file access/share/cursor state, immutable search
 snapshots and cursors, profile file／directory generations, committed and staged
 bytes, dirty revisions, and pending read/commit/create records. `RuntimeObjectTable`
 owns typed handle generation and staleness, including the distinct file-search
-handle kind. The Worker and local server never own a Win32 handle, search cursor,
+handle kind. The Worker and either storage adapter never own a Win32 handle, search cursor,
 guest pointer, LastError, or dirty-file decision.
 
 An immutable `vine.source-snapshot-manifest` version 1 binds a title and snapshot
-to source/object IDs, paths, byte lengths, and SHA-256 values. The source server
-validates and caches the configured host bytes and accepts no guest-supplied host
-path. The primary title registers the versioned
+to source/object IDs, paths, byte lengths, and SHA-256 values. Production mount
+registration streams each selected-directory object, persists the read-only
+`FileSystemDirectoryHandle` in IndexedDB, and binds real Unicode path segments to
+the manifest without accepting a guest-supplied host path. The local oracle server
+validates and caches an immutable copy under the same object contract. The primary title registers the versioned
 `fixtures/source-snapshots/primary-game-archives-v2.json` snapshot — the three boot
 archives `system.arc`, `sysprg.arc`, and `sysgrp.arc` plus the 45 reached
 `data0????.arc` archives — under mount root `C:\Vine` beside the `BGI.gdb`
 writable profile. The two mounts share one title fingerprint and root, and writable
 paths may not shadow immutable objects. Registration streams and hashes each large
-source object while checking stable host identity before and after the read; runtime
-range service then addresses only verified source/object IDs. Unregistered paths,
+source object while checking stable host identity before and after the read; production
+range reads also revalidate size／last-modified identity before and after each bounded
+read. Runtime storage addresses only verified source/object IDs. Unregistered paths,
 including the engine's loose-file member probes, resolve to not-found exactly as on
 the native disk.
 
@@ -62,6 +66,15 @@ seed so current user state is retained. An existing database is never reseeded.
 If neither the database nor seed exists, the object begins absent and the guest can
 generate it through `OPEN_ALWAYS`. Runtime reads and writes after initialization
 target the profile only; Vine never writes the distribution `BGI.gdb`.
+
+The production OPFS schema keeps file and directory rows, tombstones, registry
+keys／values, overlay metadata, commit ledgers, and the profile lease in one
+versioned database. Only file read／commit and allowlisted directory create are
+guest-visible today. Tombstone and registry tables reserve the future atomicity
+boundary; they do not claim delete or registry semantics. OPFS and IndexedDB remain
+subject to origin quota and site-data deletion. Persistent-storage grant is recorded
+as a diagnostic, not required for startup, so export／import and backup remain an
+acceptance requirement rather than an implicit browser guarantee.
 
 ## Path and Win32 support band
 
@@ -108,7 +121,7 @@ keeps both the handle and dirty staging available for retry.
 `GetFileAttributesA` is a mutation-free query over this same path authority. A
 missing final component returns `ERROR_FILE_NOT_FOUND`; a missing parent or mount
 escape returns `ERROR_PATH_NOT_FOUND`. Success preserves LastError. It never probes
-the Node／browser host filesystem, and an absent writable object does not become an
+the host/browser filesystem, and an absent writable object does not become an
 existing file or directory merely because its path is allowlisted.
 The bounded `DeleteFileA` contract reuses exactly this classification. It returns
 FALSE／`ERROR_FILE_NOT_FOUND` for a missing final component and
@@ -130,13 +143,13 @@ capacity, and guest output before publishing either search or handle; failures d
 consume either allocator. `FindNextFileA` commits the cursor only with its complete
 guest write. Exhaustion returns FALSE／`ERROR_NO_MORE_FILES` without touching the
 output, and successful `FindClose` preserves LastError. No enumeration asks Node,
-Chrome, or the source server to list a host directory.
+Chrome, or either source adapter to list a host directory.
 
 ## Read, write, and commit transactions
 
 A clean file read is a scheduler/VFS/guest-memory transaction. Rust validates the
 handle, cursor, request identity, generation, and guest outputs before suspending the
-thread. The same-origin adapter returns bounded bytes identified by title, profile or
+thread. The selected storage adapter returns bounded bytes identified by title, profile or
 snapshot, object, offset, and generation. Rust validates the exact binary response
 and preflights all guest writes before advancing the cursor. Dirty profile reads use
 Rust-owned staged bytes directly and cannot observe stale SQLite content.
@@ -149,13 +162,14 @@ and guest output unchanged.
 
 A dirty flush or close creates a versioned commit request containing object ID, base
 generation, length, hash, and close intent. The payload remains Rust-owned. The
-adapter adds a session/request idempotency key and sends it to the same-origin
-profile-v3 endpoint. Session startup first acquires a SQLite-backed monotonic epoch
+adapter adds a session/request idempotency key. Session startup first acquires a monotonic epoch
 lease. Every snapshot, object read, and commit carries the opaque session key and
 epoch. A commit revalidates that lease inside the same `BEGIN IMMEDIATE`
 transaction that performs generation compare-and-swap, hash/length verification,
-whole-profile quota accounting, and publication. `WAL` and `synchronous=FULL` are
-enabled.
+whole-profile quota accounting, and publication. Production OPFS uses SQLite rollback
+journal `DELETE` and `synchronous=FULL` under an exclusive origin Web Lock because
+the SAH-pool VFS owns its SyncAccessHandles. The local oracle uses `WAL` and
+`synchronous=FULL` for deterministic server/process failure injection.
 
 Rust advances committed generation, clears dirty state, and closes a requested
 handle only after a valid successful response. A storage failure removes the pending
@@ -207,13 +221,17 @@ allowlisted directory identity, host-first durable creation, duplicate／missing
 file-conflict classification, stale plans, malformed completion, failure retry, and
 cancellation. The dispatcher suite also covers missing-file／missing-parent
 `DeleteFileA`, NULL／malformed／disabled policy, existing source／writable file and
-directory rejection, unchanged GuestMemory, and unchanged VFS state. The SQLite tests cover
+directory rejection, unchanged GuestMemory, and unchanged VFS state. The local SQLite tests cover
 first creation, restart, idempotent duplicate, stale generation, identity/hash
 rejection, transaction rollback, post-commit response loss, quota, a held SQLite
 write lock, lease revoke and replacement, rejected late commits, a 4 MiB
 high-expansion profile, and the same-origin HTTP-v3 range/commit/directory protocol.
-The public immutable fixture continues to cover open/size/read/seek/close and browser
-read cancellation/watchdog cleanup.
+The browser-native Chrome check covers IndexedDB directory-handle recovery,
+Worker structured clone, source range identity, OPFS SQLite file／directory commit,
+exclusive-worker rejection, uncommitted Worker-kill rollback, commit-response-loss
+idempotency, and reload in a second Chrome process. The public immutable fixture
+covers open/size/read/seek/close over both the local oracle and the browser-native
+Runtime Worker to Storage Worker path, plus pending-read cancellation/watchdog cleanup.
 
 The private Node and Chrome checks import `BGI.gdb` through the writable profile,
 serve it from SQLite, create the run-local allowlisted `UserData` directory, enumerate
@@ -222,8 +240,9 @@ reached absent `.sud` deletions without mutation, and verify that
 the distribution files and shared profile are unchanged. This checkpoint establishes
 the storage authority, durable file／directory commit paths, and host-independent
 primary archive enumeration. It does not
-yet claim that a controlled guest fixture has performed a browser commit and loaded
-it after a browser restart, nor that the primary title's full save/load UI,
-multi-slot lifecycle, registry settings, migration UI, crash recovery matrix, or
-long-run quota behavior has passed. Those remain scenario milestones under
-[`ADR-006`](adr-006-vfs-local-server.md).
+yet claim that a controlled guest fixture has performed an OPFS commit and loaded
+it after a browser restart, nor that the production picker／permission-revoke path,
+primary 5.9 GiB browser mount, full save/load UI, multi-slot lifecycle, registry
+settings, migration／export UI, or long-run quota／eviction behavior has passed.
+Those remain scenario milestones under
+[`ADR-010`](adr-010-browser-native-storage.md).

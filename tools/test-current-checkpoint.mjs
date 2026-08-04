@@ -150,6 +150,15 @@ assert.ok(
   ),
 );
 
+const browserNativeStorageLosesCrashRollback = structuredClone(manifest);
+browserNativeStorageLosesCrashRollback.browserCheckpoint.browserNativeStorageEvidence.uncommittedWorkerKillRolledBack =
+  false;
+assert.ok(
+  validateCurrentCheckpoint(browserNativeStorageLosesCrashRollback).some((error) =>
+    error.includes("browser-native storage evidence"),
+  ),
+);
+
 const fixedExecutionMirrorPool = structuredClone(manifest);
 fixedExecutionMirrorPool.memoryAuthorityEvidence.executionMirrorCapacity.growthPolicy =
   "fixed-two-mebibytes";

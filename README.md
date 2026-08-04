@@ -17,7 +17,7 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Runtime diagnostics | `kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch`: 282,876 calls across 137 endpoint contracts / 135 APIs, memory generation 333,515 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
-| Shared clock | `scheduled-shared-logical-deadline-v1`: cumulative retired guest instructions at 2,000,000/s with 1 ms resolution; API reads do not advance it; Node primary recorded 100,558 samples / 41 TIMERPROC callbacks; Chrome `vine.browser-runtime-worker.v127` boundary passed |
+| Shared clock | `scheduled-shared-logical-deadline-v1`: cumulative retired guest instructions at 2,000,000/s with 1 ms resolution; API reads do not advance it; Node primary recorded 100,558 samples / 41 TIMERPROC callbacks; Chrome `vine.browser-runtime-worker.v128` boundary passed |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
 | Next structured stop | `kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch` completed 1 recurring waits by instruction 392354458; verification stopped at `USER32.dll!PeekMessageA` on instruction 392355090 (`kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch-checkpoint-complete`) |
 

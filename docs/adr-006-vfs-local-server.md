@@ -2,14 +2,14 @@
 
 ## 1. Status
 
-- Status: Accepted
+- Status: Superseded for the production backend by [ADR-010](adr-010-browser-native-storage.md)
 - Decision date: 2026-07-16
-- Scope: 最初のasset／save vertical sliceに使うstorage topologyとauthority境界
-- Decision: same-origin localhost Vine serverを最初のbackendとし、immutable sourceはread-only、save／registryはtitle-local SQLite transactionへ保存する
+- Scope: 最初のasset／save vertical sliceに使ったstorage topologyとauthority境界
+- Historical decision: same-origin localhost Vine serverを最初のbackendとし、immutable sourceはread-only、save／registryはtitle-local SQLite transactionへ保存する
 - Implemented: bounded immutable-source manifestとwritable profile、Windows-932 path／share／cursor／typed-handle／staged state、`CreateFileA`／`GetFileSize`／`ReadFile`／`WriteFile`／`SetFilePointer`／`FlushFileBuffers`／`CloseHandle`、same-origin range／SQLite commit service、generation／idempotency／quota／rollback、cancel／watchdog cleanup
 - Not implemented: controlled browser save／restart／load acceptance、kill matrix、registry projection、migration／backup UI、general Windows file breadth
 
-このADRは最初のbackendを決めるものであり、VFSまたはpersistenceの完成を意味しない。OPFS／IndexedDBやremote serviceは初期baselineに含めず、実測された必要性が出た場合に同じbackend contractへ追加する。
+このADRはdeterministicな初期backendとoracleを記録する履歴であり、VFSまたはpersistenceの完成を意味しない。2026-08-04以降のproduction baselineはFile System Access API、IndexedDB mount catalog、OPFS overlayを採用したADR-010を正とする。Local server／SQLite adapterはfixture、native比較、failure injection、将来のmigration sourceとして維持する。
 
 ## 2. Context
 
@@ -66,6 +66,6 @@ Controlled guestによるChrome commit、server／browser restart後load、kill 
 
 ## 6. Consequences and reconsideration
 
-初期実装はbrowser storage固有問題をVFS semanticsから分離でき、server restartとSQLite transactionへ決定的にfailureを注入できる。一方、Vine local serverが起動していない状態でのoffline browser-only実行はclaimしない。
+初期実装はbrowser storage固有問題をVFS semanticsから分離でき、server restartとSQLite transactionへ決定的にfailureを注入できた。このlocalhost backend単独では、Vine local serverが起動していない状態でのoffline browser-only実行をclaimしない。
 
-OPFS／IndexedDB backend、remote save同期、複数device、multi-user conflictは、local vertical sliceが通り、active targetから具体的な要求が観測された時だけ再検討する。Backendを追加してもRust VFS authority、source／overlay分離、generation付きdurable commitを変更しない。
+OPFS／IndexedDBへの再検討は[ADR-010](adr-010-browser-native-storage.md)で完了した。Remote save同期、複数device、multi-user conflictはactive scope外に残る。Backendが変わってもRust VFS authority、source／overlay分離、generation付きdurable commitは変更しない。
