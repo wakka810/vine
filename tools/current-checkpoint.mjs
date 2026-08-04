@@ -30173,7 +30173,7 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.chromeVersion !== "150.0.7871.187" ||
       browserBoundary.reportBytes !==
         (kernel32GetTickCountPostTestCooperativeLevelTimerDispatchActive
-          ? 35_961
+          ? 42_845
           : user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
           ? 35_937
           : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
@@ -30225,7 +30225,7 @@ export function validateCurrentCheckpoint(manifest) {
           : 35_951) ||
       browserBoundary.reportSha256 !==
         (kernel32GetTickCountPostTestCooperativeLevelTimerDispatchActive
-          ? "dfaf08b3e08e4e967a3375800e7275c3635591d8d173e7582ddd24828801da59"
+          ? "aab2bb4ef67107f97a1e74b31006a485622ec5f3594d98df73337cb1df84a4d4"
           : user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
           ? "23ba71a4a15ed26532bcc1b110a89516de4feb728c2c1d36bbcd8fa18989dbb4"
           : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
@@ -30277,7 +30277,7 @@ export function validateCurrentCheckpoint(manifest) {
           : "ecd982f21410c69c4d844a114041e301fd140fedbb520cf5773f4d13d2846aa1") ||
       browserBoundary.runtimeWorkerBytes !==
         (kernel32GetTickCountPostTestCooperativeLevelTimerDispatchActive
-          ? 1_242_054
+          ? 1_261_393
           : user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
           ? 1_226_348
           : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
@@ -30329,7 +30329,7 @@ export function validateCurrentCheckpoint(manifest) {
           : 1_049_048) ||
       browserBoundary.runtimeWorkerSha256 !==
         (kernel32GetTickCountPostTestCooperativeLevelTimerDispatchActive
-          ? "e631f86b578add9abf5316d3b8d628055f5e543c12b47a46679631df682254fa"
+          ? "bb5707a67e3fa2d1001cc356fa8e3806f6ef52f365b984b24faea2b201387fd7"
           : user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
           ? "b6ee93502abf652d29e3854c7c49ab494aabe37012af40512f2e118cf74a9a23"
           : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive
@@ -30485,7 +30485,7 @@ export function validateCurrentCheckpoint(manifest) {
           : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
         (kernel32GetTickCountPostTestCooperativeLevelTimerDispatchActive
-          ? "3c62c89631ff809d9adaf1a693f334efd9da06a2b772266367573d446b8ffa1b"
+          ? "3ef01445a4743fc8b6f72a2dac9aa8f3877201f4a52463d3d9dd7b3cbde21a28"
           : user32DispatchMessageAPostTestCooperativeLevelTimerTranslateActive
           ? "4ffa8a4f3a0115fb6251563af82512cea9bd953ff9f6ba76c75e69e4568e18cd"
           : user32TranslateMessagePostTestCooperativeLevelTimerPeekActive

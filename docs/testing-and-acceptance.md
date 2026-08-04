@@ -2432,7 +2432,7 @@ instruction 392,355,081でresult 64を返し、TIMERPROC policyがこれを無�
 282,876 completed calls、ordered digest
 `4759db3b97a4e71467ae9ccd93330b6a45befb528339ca419bcbddd962efdcaa`、terminal memory
 digest `bd50f8282664659b53c4ab720e735885696265ac05a4bf7235f0bef82518c58c`を一致させ、
-instruction 392,355,090の次の`PeekMessageA`で停止する。Protocol v127／report schema 93で
+instruction 392,355,090の次の`PeekMessageA`で停止する。Protocol v128／report schema 93で
 cancel／watchdog cleanupを維持する。次のmessage retrieval、timer replacement／kill、
 non-timer／cross-thread dispatchはacceptanceへ含めない。詳細は
 [timer-callback `GetTickCount` completion profile](bgi-kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch.md)を正とする。

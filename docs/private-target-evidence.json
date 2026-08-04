@@ -2,11 +2,11 @@
   "schema": "vine.private-target-evidence",
   "schemaVersion": 6,
   "status": "passed",
-  "recordedAt": "2026-08-03T21:40:34.183Z",
+  "recordedAt": "2026-08-04T00:28:18.825Z",
   "repository": {
-    "implementationCommit": "6654dcc86f8315d1e7d859b679f1532583eff945",
-    "implementationTree": "60c30e3cd15fa163a9206c9e7194f4d53ed830e3",
-    "headCommit": "6654dcc86f8315d1e7d859b679f1532583eff945",
+    "implementationCommit": "a20265d6ef14b2cbc70e8c89f297d670772265c1",
+    "implementationTree": "c0d0a70a5e3cd94ef3d7aaf358805bc2e15b1c68",
+    "headCommit": "a20265d6ef14b2cbc70e8c89f297d670772265c1",
     "dirty": true,
     "dirtyPaths": [
       "CON"
@@ -39,7 +39,7 @@
     "policySource": "fixtures/runtime-policies/kernel32-delete-file-a-v1.json",
     "nodeReportSchema": "vine.v86-bgi-kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch-primary",
     "nodeReportSchemaVersion": 1,
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v127",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v128",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json"
   },
   "environment": {
@@ -1591,8 +1591,8 @@
     },
     "browserReport": {
       "path": ".work/browser-runtime/bgi-browser-report.json",
-      "bytes": 2624703,
-      "sha256": "71c6fce5abd9271b4320f96ad94d169b586cb264491f0c24aa641dad24da71ac"
+      "bytes": 2624704,
+      "sha256": "3ef01445a4743fc8b6f72a2dac9aa8f3877201f4a52463d3d9dd7b3cbde21a28"
     },
     "toolchainReport": {
       "path": ".work/toolchain-spike/report.json",
@@ -1606,8 +1606,8 @@
     },
     "browserBuildManifest": {
       "path": ".work/browser-runtime/build-manifest.json",
-      "bytes": 3768,
-      "sha256": "8d54b3a4a8ec8d9cf3a3b9fb6db498a378602ebeb8501f92617404e77ee83ded"
+      "bytes": 4052,
+      "sha256": "55c1bf4d7f0d5dd94159a17375143aec8d1f63a0d5d5727f7b9a1011790886cb"
     },
     "runtimeCoreWasm": {
       "path": ".work/browser-runtime/runtime-core.wasm",
@@ -1626,8 +1626,8 @@
     },
     "npmLock": {
       "path": "package-lock.json",
-      "bytes": 28862,
-      "sha256": "94f8b8d56a06a6b086663ba1d766240fc4f8301c63394426b7fae0dc508edef7"
+      "bytes": 29871,
+      "sha256": "290665203ae61c3447269ff6da3951f1d2d008d49a26484eaf24ec97d4d49b67"
     }
   },
   "performanceObservation": {
@@ -1644,5 +1644,5 @@
     "thresholdFailureIds": [],
     "reportSha256": "a05e5d8108550ffbb6a216423417d834519741da8ec2102c476f6298321a6070"
   },
-  "payloadSha256": "b45dc3b932b519adaca692dd7467f89d08c2dc0ec474d4bc521e15be68d82913"
+  "payloadSha256": "9e77ca2741dfbb186cb2372da6cbf7fd37a71a2a4b7626b92877c021aa790ae3"
 }

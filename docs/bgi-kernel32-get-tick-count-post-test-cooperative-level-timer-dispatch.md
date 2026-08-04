@@ -36,10 +36,10 @@ digestは`bd50f8282664659b53c4ab720e735885696265ac05a4bf7235f0bef82518c58c`で�
 2,637,877-byte reportのSHA-256は
 `69d2790e54993a16523fa9056e523b679329943f7856de8d9312e9423b843f99`である。
 
-Chrome Worker protocol v127／BGI report schema 93は同じcall、frame return、ignored result、
+Chrome Worker protocol v128／BGI report schema 93は同じcall、frame return、ignored result、
 outer result、callback depth、MSG preservation、next endpointを照合する。Private Chrome reportは
 2,624,704 bytes、SHA-256
-`3c62c89631ff809d9adaf1a693f334efd9da06a2b772266367573d446b8ffa1b`である。Artifactの
+`3ef01445a4743fc8b6f72a2dac9aa8f3877201f4a52463d3d9dd7b3cbde21a28`である。Artifactの
 active identityと次stopは[current-checkpoint.json](current-checkpoint.json)だけを正本とする。
 
 Representative checks:
