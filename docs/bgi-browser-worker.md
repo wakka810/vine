@@ -495,6 +495,19 @@ and terminal memory digest is
 The Worker imports no browser message or Windows queue authority. Details are in
 [the post-callback empty `PeekMessageA` profile](bgi-user32-peek-message-a-post-test-cooperative-level-timer-callback.md).
 
+Protocol version 130／BGI report schema 95 continues through the post-callback
+`WINMM.dll!timeGetTime`. Node and Chrome agree on sequence 282,878／occurrence 480
+at instruction 392,355,124, returned tick 3,800,773, timer-clock generation 16,309,
+retired cursor 392,355,124 with 1,124 pending instructions, callback depth zero,
+LastError 0, and no guest writes. Completed-call count is 282,878, semantic digest
+is `e94e4c5abed4721d66b08acadf6b3e343fe95aef1cdc7ce115a69c1694d316c8`,
+and terminal memory digest is
+`c1398f49cce0bfad683906c42e7fa05da421dcf43197f79610183091227934d5`.
+Both stop at instruction 392,355,420 before
+`USER32.dll!GetWindowRect(0x48010001, 0x006FF894)`. The Worker imports no host／
+browser clock or Windows callback authority. Details are in
+[the post-callback timeGetTime profile](bgi-winmm-time-get-time-post-test-cooperative-level-timer-callback.md).
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk

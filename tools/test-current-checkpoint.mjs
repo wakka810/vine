@@ -30,12 +30,12 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "strict callback/outer DispatchMessageA unwind, and the following empty current-thread PeekMessageA PM_REMOVE validation also pass before timeGetTime",
+    "strict callback/outer DispatchMessageA unwind, the following empty current-thread PeekMessageA PM_REMOVE validation, and the post-callback timeGetTime projection also pass before GetWindowRect",
   ),
 );
 assert.ok(
   rendered.includes(
-    "Node primary recorded 100,558 samples / 41 TIMERPROC callbacks",
+    "Node primary recorded 100,559 samples / 41 TIMERPROC callbacks",
   ),
 );
 assert.ok(rendered.includes("| Shared clock |"));
@@ -1345,6 +1345,24 @@ mutatedPostCallbackPeekSummary.activeRuntimeCheckpoint.latestEvidence.user32Peek
   false;
 assert.ok(
   validateCurrentCheckpoint(mutatedPostCallbackPeekSummary).some((error) =>
+    error.includes("scheduled shared clock checkpoint evidence"),
+  ),
+);
+
+const browserOwnedPostCallbackTime = structuredClone(manifest);
+browserOwnedPostCallbackTime.activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence.winmmTimeGetTimePostTestCooperativeLevelTimerCallback.browserClockImported =
+  true;
+assert.ok(
+  validateCurrentCheckpoint(browserOwnedPostCallbackTime).some((error) =>
+    error.includes("scheduled shared clock checkpoint evidence"),
+  ),
+);
+
+const mutatedPostCallbackTimeSummary = structuredClone(manifest);
+mutatedPostCallbackTimeSummary.activeRuntimeCheckpoint.latestEvidence.winmmTimeGetTimePostTestCooperativeLevelTimerCallback.returnedTickCount +=
+  1;
+assert.ok(
+  validateCurrentCheckpoint(mutatedPostCallbackTimeSummary).some((error) =>
     error.includes("scheduled shared clock checkpoint evidence"),
   ),
 );

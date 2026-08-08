@@ -6446,3 +6446,23 @@ imports no host message or Windows queue authority. Exact active artifact identi
 remain authoritative only in [current-checkpoint.json](current-checkpoint.json).
 Details are in
 [the bounded post-callback empty PeekMessageA profile](bgi-user32-peek-message-a-post-test-cooperative-level-timer-callback.md).
+
+## 195. BGI post-callback `timeGetTime`
+
+The controlled x86 oracle and earlier post-Present continuation already fix the
+native contract needed here: `timeGetTime` is a zero-argument x86 stdcall returning
+a DWORD clock sample, preserves LastError, writes no guest bytes, and shares the
+logical process-clock projection used by `GetTickCount`. No new native trace was
+needed. Primary sequence, occurrence, instruction count, and guest addresses remain
+evidence identity rather than semantic handler selectors.
+
+Canonical Node and Chrome complete sequence 282,878／occurrence 480 at instruction
+392,355,124 after callback frame 75 and outer `DispatchMessageA` have retired. Both
+return 3,800,773 from timer-clock generation 16,309 and retired／pending schedule
+392,355,124／1,124, preserve LastError 0, write no guest bytes, and retain callback
+depth zero. They stop 296 guest instructions later at
+`USER32.dll!GetWindowRect(0x48010001, 0x006FF894)`. TypeScript imports no host or
+browser clock and owns no Windows callback state. Exact active artifact identities
+remain authoritative only in [current-checkpoint.json](current-checkpoint.json).
+Details are in
+[the bounded post-callback timeGetTime profile](bgi-winmm-time-get-time-post-test-cooperative-level-timer-callback.md).

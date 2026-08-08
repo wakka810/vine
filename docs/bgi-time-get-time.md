@@ -132,6 +132,19 @@ without becoming a clock or Windows graphics authority. See
 [bgi-winmm-time-get-time-post-present.md](bgi-winmm-time-get-time-post-present.md)
 for the bounded acceptance and non-claims.
 
+## Post-callback continuation
+
+The later `winmm-time-get-time-post-test-cooperative-level-timer-callback`
+profile reuses the same semantic handler after the reached TIMERPROC frame,
+outer `DispatchMessageA`, and empty current-thread `PeekMessageA` have completed.
+It samples the existing scheduled process clock without advancing it, imports no
+host or browser time, and continues to the following `USER32.dll!GetWindowRect`
+boundary. Node and Chrome must agree on the exact clock projection, zero-write
+contract, retired callback state, ordered semantics, terminal memory, and next
+endpoint. See
+[the post-callback timeGetTime profile](bgi-winmm-time-get-time-post-test-cooperative-level-timer-callback.md)
+for bounded acceptance and non-claims.
+
 ## Non-claims
 
 - One deterministic increment per API read is not elapsed host time and does

@@ -2,7 +2,7 @@ import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 import type { BrowserNativeStorageConfiguration } from "../storage/protocol.js";
 
-export const protocolVersion = 129 as const;
+export const protocolVersion = 130 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -46,6 +46,7 @@ export type BgiCapabilityProfile =
   | "user32-dispatch-message-a-post-test-cooperative-level-timer-translate"
   | "kernel32-get-tick-count-post-test-cooperative-level-timer-dispatch"
   | "user32-peek-message-a-post-test-cooperative-level-timer-callback"
+  | "winmm-time-get-time-post-test-cooperative-level-timer-callback"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1329,6 +1330,66 @@ export interface User32PeekMessageAPostTestCooperativeLevelTimerCallbackCheckpoi
   nextStackPointer: number;
 }
 
+export interface WinmmTimeGetTimePostTestCooperativeLevelTimerCallbackCheckpoint {
+  capability: "winmm-time-get-time-post-test-cooperative-level-timer-callback";
+  implementationId: "runtime.winmm-time-get-time-post-test-cooperative-level-timer-callback.v1";
+  semanticImplementationId: "winmm.time-get-time.v1";
+  requiredCompletions: 1;
+  completionCount: 1;
+  prerequisitePeekMessageASequence: number;
+  prerequisitePeekMessageAInstructionCount: number;
+  firstCompletionSequence: number;
+  firstCompletionInstructionCount: number;
+  lastCompletionSequence: number;
+  lastCompletionInstructionCount: number;
+  call: RuntimeSupportedCallSnapshot & {
+    occurrence: number;
+    trapInstructionCount: number;
+    runtimeThreadId: 8192;
+  };
+  compatibilityPolicyId: "kernel32-delete-file-a-v1";
+  clockProfileId: "scheduled-shared-logical-deadline-v1";
+  clockAuthority: "runtime/process.rs::RuntimeProcessState";
+  clockRelation: "shared-with-kernel32-get-tick-count";
+  returnedTickCount: number;
+  nextTickCount: number;
+  incrementPerRead: 0;
+  apiReadsAdvanceClock: false;
+  timerClock: {
+    currentTime100ns: number;
+    generation: number;
+  };
+  scheduledExecutionClock: {
+    retiredInstructions: number;
+    pendingRetiredInstructions: number;
+    retiredInstructionsPerSecond: 2000000;
+  };
+  timerResolutionAffectsSampledClock: false;
+  lastErrorPolicy: "preserve";
+  runtimeStateMutation: false;
+  failureAtomicity: true;
+  hostClockImported: false;
+  browserClockImported: false;
+  currentThreadId: 8192;
+  prerequisiteCallbackFrameId: number;
+  prerequisiteCallbackCompleted: true;
+  prerequisiteOuterDispatchCompleted: true;
+  activeCallbackDepthAtCompletion: 0;
+  instructionCount: number;
+  nextEndpoint: {
+    id: number;
+    address: number;
+    module: string;
+    symbol: { kind: "name"; name: "GetWindowRect" };
+    disposition: "declared-runtime-export";
+    iatAddress: number;
+  } | null;
+  nextArguments: number[];
+  memoryContentSha256: string;
+  nextReturnAddress: number;
+  nextStackPointer: number;
+}
+
 export interface SessionReport {
   evidenceLevel: "full" | "summary";
   outcome:
@@ -1978,6 +2039,7 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | WinmmTimeGetTimePostTestCooperativeLevelTimerCallbackCheckpoint
     | User32PeekMessageAPostTestCooperativeLevelTimerCallbackCheckpoint
     | Kernel32GetTickCountPostTestCooperativeLevelTimerDispatchCheckpoint
     | {
