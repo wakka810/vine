@@ -30951,7 +30951,7 @@ export function validateCurrentCheckpoint(manifest) {
         "node tools/run-browser-runtime-check.mjs --bgi" ||
       browserBoundary.privatePrimaryReportBytes !==
         (winmmTimeGetTimePostTestCooperativeLevelTimerCallbackActive
-          ? 2_622_958
+          ? 2_622_959
           : user32PeekMessageAPostTestCooperativeLevelTimerCallbackActive
           ? 2_622_273
           : kernel32GetTickCountPostTestCooperativeLevelTimerDispatchActive
@@ -31007,7 +31007,7 @@ export function validateCurrentCheckpoint(manifest) {
           : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
         (winmmTimeGetTimePostTestCooperativeLevelTimerCallbackActive
-          ? "663fcd2bbf00bf6808a8a194493b29aa365e9c2b00e0cafe7b4f081046be1340"
+          ? "03dc714290aa506f75ae010e6aa3983a3f278ba9fd345530fe94dfe9da666058"
           : user32PeekMessageAPostTestCooperativeLevelTimerCallbackActive
           ? "62bdc32f34caaa341b4b6a3d0b39b11a2528a4ebb5e89463228c7245652177b4"
           : kernel32GetTickCountPostTestCooperativeLevelTimerDispatchActive

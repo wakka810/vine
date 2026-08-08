@@ -45,8 +45,8 @@ terminal memory digestは
 
 Chrome Worker protocol v130／BGI report schema 95は同じclock sample、zero write、callback／
 outer-dispatch completion、terminal memory、`GetWindowRect` stopを照合する。Private Chrome reportは
-2,622,958 bytes、SHA-256
-`663fcd2bbf00bf6808a8a194493b29aa365e9c2b00e0cafe7b4f081046be1340`である。
+2,622,959 bytes、SHA-256
+`03dc714290aa506f75ae010e6aa3983a3f278ba9fd345530fe94dfe9da666058`である。
 Artifactのactive identityと次stopは[current-checkpoint.json](current-checkpoint.json)だけを正本とする。
 
 Representative checks:
