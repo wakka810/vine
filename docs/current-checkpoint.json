@@ -5839,7 +5839,7 @@
     "hostCompletionModel": "scheduler-event",
     "genericDispatcherApiCount": 135,
     "genericDispatcherContractCount": 137,
-    "genericDispatcherCallOccurrenceCount": 282877,
+    "genericDispatcherCallOccurrenceCount": 282878,
     "genericDispatcherApis": [
       "KERNEL32.dll!GetSystemTimeAsFileTime",
       "KERNEL32.dll!GetCurrentProcessId",
@@ -16417,7 +16417,7 @@
       "nativeDefWindowProcPointerReleaseOracleCaptureAfter": null,
       "implementation": "The existing Rust-owned scheduled process clock projects the post-callback timeGetTime sample from the same logical timer and retired-instruction schedule as GetTickCount without mutation or host time after the TIMERPROC frame and outer DispatchMessageA have completed; TypeScript records only the non-owning browser evidence projection and stops at the following GetWindowRect",
       "implementedApiContractCount": 137,
-      "genericSupportedCallCount": 282877,
+      "genericSupportedCallCount": 282878,
       "createWindowExAImplemented": true,
       "createWindowExASequence": 1388,
       "createWindowExAInstructionCount": 11476236,
