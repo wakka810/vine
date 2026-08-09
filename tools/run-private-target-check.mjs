@@ -3242,6 +3242,7 @@ function assertPrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint(
   actual,
   expectedCompletion,
   expectedEndpoint,
+  terminalBoundary = true,
 ) {
   assert(actual !== null, "post-callback window/input scan batch is missing");
   for (const field of [
@@ -3262,10 +3263,6 @@ function assertPrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint(
     "browserOwnsWindowState",
     "browserOwnsMessageQueueState",
     "activeCallbackDepthAtCompletion",
-    "instructionCount",
-    "memoryContentSha256",
-    "nextReturnAddress",
-    "nextStackPointer",
   ]) {
     assert.deepEqual(actual[field], expectedCompletion[field], field);
   }
@@ -3342,6 +3339,23 @@ function assertPrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint(
     ),
   );
   assert.deepEqual(actual.pendingActionMessage, expectedCompletion.pendingActionMessage);
+  if (!terminalBoundary) {
+    assert.equal(actual.instructionCount, 0);
+    assert.equal(actual.memoryContentSha256, "");
+    assert.equal(actual.nextEndpoint, null);
+    assert.deepEqual(actual.nextArguments, []);
+    assert.equal(actual.nextReturnAddress, 0);
+    assert.equal(actual.nextStackPointer, 0);
+    return;
+  }
+  for (const field of [
+    "instructionCount",
+    "memoryContentSha256",
+    "nextReturnAddress",
+    "nextStackPointer",
+  ]) {
+    assert.deepEqual(actual[field], expectedCompletion[field], field);
+  }
   assert.deepEqual(actual.nextArguments, expectedCompletion.nextArguments);
   for (const field of ["id", "address", "disposition", "iatAddress"]) {
     assert.equal(actual.nextEndpoint[field], expectedEndpoint[field], field);
@@ -3385,6 +3399,7 @@ function assertPrimaryMainLoopPostCallbackPointerMessageConsumptionBatchCheckpoi
     actual.prerequisiteWindowInputScan,
     expectedPrerequisite,
     expectedPrerequisite.nextEndpoint,
+    false,
   );
   assert.deepEqual(actual.message, {
     id: 44,
