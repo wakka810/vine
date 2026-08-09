@@ -508,6 +508,19 @@ Both stop at instruction 392,355,420 before
 browser clock or Windows callback authority. Details are in
 [the post-callback timeGetTime profile](bgi-winmm-time-get-time-post-test-cooperative-level-timer-callback.md).
 
+Protocol version 131／BGI report schema 96 continues through the reached
+`USER32.dll!GetWindowRect`. Node and Chrome agree on sequence 282,879／occurrence
+145 at instruction 392,355,420, `TRUE`, LastError 0, and one atomic 16-byte RECT
+publication `[317,154,1603,903]` to `0x006FF894`. The window remains owned by
+`RuntimeUser32`; callback depth remains zero and neither adapter imports DOM／host
+geometry. Completed-call count is 282,879, semantic digest is
+`c0d54e73c82a938aaf0694ab57377dcac8d6b7729b53ef273cf1988d8202c504`, and
+terminal memory digest is
+`76ec157e2098a4401055790c710388759c00566570c382573123f15989ea4341`.
+Both stop four guest instructions later at `USER32.dll!GetCursorPos(0x006FF88C)`.
+Details are in
+[the post-timeGetTime GetWindowRect profile](bgi-user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time.md).
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk

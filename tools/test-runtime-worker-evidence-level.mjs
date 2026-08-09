@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 130 as const/u);
+assert.match(protocol, /protocolVersion = 131 as const/u);
 assert.match(protocol, /"d3d9-begin-scene-post-partial-dirty-region"/u);
 assert.match(protocol, /"d3d9-set-sampler-state-post-begin-scene"/u);
 assert.match(
@@ -59,6 +59,10 @@ assert.match(
 assert.match(
   protocol,
   /capability: "winmm-time-get-time-post-test-cooperative-level-timer-callback";[\s\S]*?implementationId: "runtime\.winmm-time-get-time-post-test-cooperative-level-timer-callback\.v1";[\s\S]*?semanticImplementationId: "winmm\.time-get-time\.v1";[\s\S]*?clockAuthority: "runtime\/process\.rs::RuntimeProcessState";[\s\S]*?browserClockImported: false;[\s\S]*?symbol: \{ kind: "name"; name: "GetWindowRect" \};/u,
+);
+assert.match(
+  protocol,
+  /capability: "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time";[\s\S]*?implementationId: "runtime\.user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time\.v1";[\s\S]*?semanticImplementationId: "user32\.get-window-rect\.v1";[\s\S]*?windowAuthority: "runtime\/user32\.rs::RuntimeUser32";[\s\S]*?browserGeometryImported: false;[\s\S]*?symbol: \{ kind: "name"; name: "GetCursorPos" \};/u,
 );
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);

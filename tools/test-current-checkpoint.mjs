@@ -30,7 +30,7 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "strict callback/outer DispatchMessageA unwind, the following empty current-thread PeekMessageA PM_REMOVE validation, and the post-callback timeGetTime projection also pass before GetWindowRect",
+    "strict callback/outer DispatchMessageA unwind, the following empty current-thread PeekMessageA PM_REMOVE validation, the post-callback timeGetTime projection, and one atomic GetWindowRect projection also pass before GetCursorPos",
   ),
 );
 assert.ok(

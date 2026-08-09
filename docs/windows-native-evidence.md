@@ -6466,3 +6466,23 @@ browser clock and owns no Windows callback state. Exact active artifact identiti
 remain authoritative only in [current-checkpoint.json](current-checkpoint.json).
 Details are in
 [the bounded post-callback timeGetTime profile](bgi-winmm-time-get-time-post-test-cooperative-level-timer-callback.md).
+
+## 196. BGI post-`timeGetTime` `GetWindowRect`
+
+Section 174 already fixes the native contract required at this boundary. Primary
+and confirmation captures agree that caller RVA `0x00088558` receives `TRUE`,
+LastError 0, and outer screen rectangle `[317,154,1603,903]`; the invalid-HWND
+control returns FALSE／1400 while preserving the output sentinel. The caller next
+queries client geometry and cursor position for coordinate comparison. No new
+native trace was needed. Sequence, occurrence, instruction count, guest address,
+and logical HWND remain runtime evidence identity rather than semantic selectors.
+
+Canonical Node and Chrome complete sequence 282,879／occurrence 145 at instruction
+392,355,420 after the post-callback `timeGetTime`. Both preflight the live
+Rust-owned logical window and full output span, return TRUE／LastError 0, and publish
+the same 16-byte RECT once without window-state mutation. They stop four guest
+instructions later at `USER32.dll!GetCursorPos(0x006FF88C)`. TypeScript imports no
+DOM／host geometry and owns no HWND or RECT state. Exact active artifact identities
+remain authoritative only in [current-checkpoint.json](current-checkpoint.json).
+Details are in
+[the bounded post-timeGetTime GetWindowRect profile](bgi-user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time.md).

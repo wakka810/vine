@@ -2462,6 +2462,19 @@ schema 95でcancel／watchdog cleanupを維持する。次のwindow query、host
 background-tab catch-upはacceptanceへ含めない。詳細は
 [post-callback `timeGetTime` profile](bgi-winmm-time-get-time-post-test-cooperative-level-timer-callback.md)を正とする。
 
+Post-`timeGetTime` `GetWindowRect` leafは、retire済みframe 75、outer dispatch、empty
+`PeekMessageA`、shared-clock `timeGetTime`をprerequisiteに、既存の
+`user32.get-window-rect.v1`とRust-owned logical window geometryを再利用する。Node／Chromeは
+sequence 282,879、occurrence 145、instruction 392,355,420、`TRUE`、LastError 0、callback
+depth 0、output `0x006FF894`へのRECT `[317,154,1603,903]`の一回の16-byte writeを一致させる。
+両adapterは282,879 completed calls、ordered digest
+`c0d54e73c82a938aaf0694ab57377dcac8d6b7729b53ef273cf1988d8202c504`、terminal memory
+digest `76ec157e2098a4401055790c710388759c00566570c382573123f15989ea4341`を一致させ、
+instruction 392,355,424の`USER32.dll!GetCursorPos`で停止する。Protocol v131／report
+schema 96でcancel／watchdog cleanupを維持する。次のcursor query、DOM／host geometry import、
+multi-window／resize／DPI variantはacceptanceへ含めない。詳細は
+[post-timeGetTime `GetWindowRect` profile](bgi-user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time.md)を正とする。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

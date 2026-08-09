@@ -16,7 +16,7 @@
         "id": "logical-window-and-message-flow",
         "label": "Logical window and message flow",
         "status": "in-progress",
-        "evidenceBoundary": "Primary logical window creation, activation, paint, owner-thread timers, and the normalized primary-button flow pass. One Rust-owned scheduled clock advances from cumulative retired guest instructions across all API/COM boundaries; Node and private Chrome agree on 282,878 completed semantic calls, 100,559 samples, 41 completed TIMERPROC callbacks, and the deterministic pointer down/up receipts. The reached SetWindowTextA synchronously commits サクラノ詩, Runtime VFS search enumerates all 45 data0????.arc entries, both missing-file DeleteFileA calls complete, the third ordinary private-heap segment succeeds, the 224 x 112 selected-font GetOutlineTextMetricsA pair and two GetCursorInfo projections complete, the later exact partial dirty-region UpdateTexture consumes the Rust-owned source, the following fourth BeginScene activates scene sequence 4, the reached MIN／MAG linear sampler pair remains idempotent through three bounded render-state rejections, six repeated stage-0 texture-state assignments remain idempotent, the following non-owning stage-0 static DEFAULT texture binding remains idempotent, the transformed diffuse textured FVF 0x144 and non-owning stream-zero vertex-buffer binding remain idempotent, the following triangle-strip quad becomes immutable draw submission 4, EndScene closes scene 4 while preserving that submission, the Rust policy publishes one atomic last-visible-line raster sample, and the fourth discard Present publishes frame 4 through the reused Worker WebGL2 resource. The following scheduled timeGetTime read, live-device TestCooperativeLevel query, relative one-shot SetWaitableTimer arm, finite alertable WaitForSingleObjectEx completion, due coalesced WM_TIMER PeekMessageA PM_REMOVE retrieval, read-only TranslateMessage validation, DispatchMessageA's preflighted TIMERPROC frame entry, the callback's scheduled GetTickCount projection, strict callback/outer DispatchMessageA unwind, the following empty current-thread PeekMessageA PM_REMOVE validation, and the post-callback timeGetTime projection also pass before GetWindowRect. Rust owns callback frame 75 through its strict return and returns zero from the outer DispatchMessageA; the empty read preserves the prior MSG32 at the API boundary without importing browser message state. Replacement, KillTimer, focus-transition messages, cross-thread focus, capture transitions, move/wheel, filtered and cross-thread retrieval, general keyboard translation, and general message-flow breadth remain partial."
+        "evidenceBoundary": "Primary logical window creation, activation, paint, owner-thread timers, and the normalized primary-button flow pass. One Rust-owned scheduled clock advances from cumulative retired guest instructions across all API/COM boundaries; Node and private Chrome agree on 282,879 completed semantic calls, 100,559 samples, 41 completed TIMERPROC callbacks, and the deterministic pointer down/up receipts. The reached SetWindowTextA synchronously commits サクラノ詩, Runtime VFS search enumerates all 45 data0????.arc entries, both missing-file DeleteFileA calls complete, the third ordinary private-heap segment succeeds, the 224 x 112 selected-font GetOutlineTextMetricsA pair and two GetCursorInfo projections complete, the later exact partial dirty-region UpdateTexture consumes the Rust-owned source, the following fourth BeginScene activates scene sequence 4, the reached MIN／MAG linear sampler pair remains idempotent through three bounded render-state rejections, six repeated stage-0 texture-state assignments remain idempotent, the following non-owning stage-0 static DEFAULT texture binding remains idempotent, the transformed diffuse textured FVF 0x144 and non-owning stream-zero vertex-buffer binding remain idempotent, the following triangle-strip quad becomes immutable draw submission 4, EndScene closes scene 4 while preserving that submission, the Rust policy publishes one atomic last-visible-line raster sample, and the fourth discard Present publishes frame 4 through the reused Worker WebGL2 resource. The following scheduled timeGetTime read, live-device TestCooperativeLevel query, relative one-shot SetWaitableTimer arm, finite alertable WaitForSingleObjectEx completion, due coalesced WM_TIMER PeekMessageA PM_REMOVE retrieval, read-only TranslateMessage validation, DispatchMessageA's preflighted TIMERPROC frame entry, the callback's scheduled GetTickCount projection, strict callback/outer DispatchMessageA unwind, the following empty current-thread PeekMessageA PM_REMOVE validation, the post-callback timeGetTime projection, and one atomic GetWindowRect projection also pass before GetCursorPos. Rust owns callback frame 75 through its strict return and returns zero from the outer DispatchMessageA; the empty read preserves the prior MSG32 at the API boundary without importing browser message state, and the window rectangle remains Rust-owned without host geometry import. Replacement, KillTimer, focus-transition messages, cross-thread focus, capture transitions, move/wheel, filtered and cross-thread retrieval, general keyboard translation, and general message-flow breadth remain partial."
       },
       {
         "id": "immutable-source-asset-access",
@@ -28,7 +28,7 @@
         "id": "first-present-readable-screen",
         "label": "First present and readable screen",
         "status": "in-progress",
-        "evidenceBoundary": "Controlled Canvas pixel, public Chrome Worker, and the private Node-equivalent scheduled-clock replay pass; the primary D3D9 logical device has completed four bounded scene/draw/present cycles with synchronous Worker WebGL2 materialization. Under the deterministic scheduled clock, 100,559 samples, 41 completed TIMERPROC callbacks, deterministic pointer down/up consumption, SetWindowTextA／WM_SETTEXT, the complete 45-entry archive search, both missing-file DeleteFileA calls, the third ordinary private-heap segment, the 224 x 112 logical font and exact 448 x 336 DIB pipeline, the two-call selected-font GetOutlineTextMetricsA contract, two Rust-owned GetCursorInfo projections, the exact `[583,530,1260,582]` UpdateTexture, the following fourth BeginScene, its idempotent MIN／MAG linear sampler pair, three bounded render-state rejections, six idempotent stage-0 texture-state assignments, the idempotent non-owning stage-0 static DEFAULT texture binding, transformed diffuse textured FVF 0x144, stream-zero vertex-buffer binding, the bounded triangle-strip quad draw, matching EndScene, one atomic post-scene GetRasterStatus sample, the fourth discard Present, the following scheduled timeGetTime read, the live-device TestCooperativeLevel query, the relative one-shot SetWaitableTimer arm, its finite alertable WaitForSingleObjectEx completion, the due coalesced WM_TIMER PeekMessageA PM_REMOVE retrieval, read-only TranslateMessage validation, preflighted TIMERPROC frame entry, the callback's scheduled GetTickCount projection, strict callback/outer DispatchMessageA unwind, the following empty PeekMessageA, and the post-callback timeGetTime projection all pass before GetWindowRect. The draw snapshots 112 authoritative vertex bytes and texture content generation 4 into immutable logical submission 4; EndScene closes scene 4 and preserves the submission; GetRasterStatus writes `InVBlank=FALSE` and `ScanLine=1079` without renderer state; Present publishes content generation 11 as frame 4, advances the empty discard back buffer to generation 12, and reuses `browser-resource:1` before guest resume; TestCooperativeLevel returns D3D_OK without guest writes, device mutation, or COM refcount mutation; the timer wait returns WAIT_OBJECT_0 while Rust retains clock, expiration, signal, registration, and scheduler authority; PeekMessageA lazily materializes delivery 41 and atomically commits the exact MSG32 while Rust retains queue, timer, and guest-memory authority; TranslateMessage validates that immutable MSG32 and returns FALSE without mutation; DispatchMessageA preserves that MSG32, enters Rust-owned callback frame 75, projects GetTickCount at callback depth one, ignores the callback's result 64 by policy, and returns zero from the outer dispatch. The next PeekMessageA observes the same Rust-owned current-thread queue empty, returns FALSE without guest writes, and leaves the MSG32 unchanged at the call boundary. The exact center pixel remains black `[0,0,0,255]`, so readable title-scene content, visible input response, resize, device loss/recovery, Reset, general stack overflow/SEH, and long-run stability remain unproven."
+        "evidenceBoundary": "Controlled Canvas pixel, public Chrome Worker, and the private Node-equivalent scheduled-clock replay pass; the primary D3D9 logical device has completed four bounded scene/draw/present cycles with synchronous Worker WebGL2 materialization. Under the deterministic scheduled clock, 100,559 samples, 41 completed TIMERPROC callbacks, deterministic pointer down/up consumption, SetWindowTextA／WM_SETTEXT, the complete 45-entry archive search, both missing-file DeleteFileA calls, the third ordinary private-heap segment, the 224 x 112 logical font and exact 448 x 336 DIB pipeline, the two-call selected-font GetOutlineTextMetricsA contract, two Rust-owned GetCursorInfo projections, the exact `[583,530,1260,582]` UpdateTexture, the following fourth BeginScene, its idempotent MIN／MAG linear sampler pair, three bounded render-state rejections, six idempotent stage-0 texture-state assignments, the idempotent non-owning stage-0 static DEFAULT texture binding, transformed diffuse textured FVF 0x144, stream-zero vertex-buffer binding, the bounded triangle-strip quad draw, matching EndScene, one atomic post-scene GetRasterStatus sample, the fourth discard Present, the following scheduled timeGetTime read, the live-device TestCooperativeLevel query, the relative one-shot SetWaitableTimer arm, its finite alertable WaitForSingleObjectEx completion, the due coalesced WM_TIMER PeekMessageA PM_REMOVE retrieval, read-only TranslateMessage validation, preflighted TIMERPROC frame entry, the callback's scheduled GetTickCount projection, strict callback/outer DispatchMessageA unwind, the following empty PeekMessageA, the post-callback timeGetTime projection, and one atomic GetWindowRect projection all pass before GetCursorPos. The draw snapshots 112 authoritative vertex bytes and texture content generation 4 into immutable logical submission 4; EndScene closes scene 4 and preserves the submission; GetRasterStatus writes `InVBlank=FALSE` and `ScanLine=1079` without renderer state; Present publishes content generation 11 as frame 4, advances the empty discard back buffer to generation 12, and reuses `browser-resource:1` before guest resume; TestCooperativeLevel returns D3D_OK without guest writes, device mutation, or COM refcount mutation; the timer wait returns WAIT_OBJECT_0 while Rust retains clock, expiration, signal, registration, and scheduler authority; PeekMessageA lazily materializes delivery 41 and atomically commits the exact MSG32 while Rust retains queue, timer, and guest-memory authority; TranslateMessage validates that immutable MSG32 and returns FALSE without mutation; DispatchMessageA preserves that MSG32, enters Rust-owned callback frame 75, projects GetTickCount at callback depth one, ignores the callback's result 64 by policy, and returns zero from the outer dispatch. The next PeekMessageA observes the same Rust-owned current-thread queue empty, returns FALSE without guest writes, and leaves the MSG32 unchanged at the call boundary. GetWindowRect then publishes the Rust-owned outer rectangle `[317,154,1603,903]` without importing browser geometry. The exact center pixel remains black `[0,0,0,255]`, so readable title-scene content, visible input response, resize, device loss/recovery, Reset, general stack overflow/SEH, and long-run stability remain unproven."
       },
       {
         "id": "user-input-consumption",
@@ -185,7 +185,7 @@
     "workload": "private-bgi-generic-session",
     "bgiSession": "semantic-equivalence-passed",
     "bgiBenchmark": "threshold-passed",
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v130",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v131",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json",
     "browserRuntimeWorker": true,
     "browserRuntimeCoreWasm": {
@@ -5720,10 +5720,10 @@
     "decisionScope": "controlled-browser-runtime-baseline"
   },
   "activeRuntimeCheckpoint": {
-    "runtimeKernelCheckpoint": "winmm-time-get-time-post-test-cooperative-level-timer-callback",
+    "runtimeKernelCheckpoint": "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time",
     "status": "checkpoint-complete",
     "profile": "user32-peek-message-a-post-window-timer-callback-continuation",
-    "capabilityProfile": "winmm-time-get-time-post-test-cooperative-level-timer-callback",
+    "capabilityProfile": "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time",
     "runtimeStateAuthority": "rust",
     "runtimeStateScope": "single-process-controlled-and-api-created-thread-wait-message-heap-module-dll-lifecycle-critical-section-named-mutex-pointer-decoding-fls-allocation-private-heap-allocation-fls-value-interlocked-increment-second-heap-allocation-standard-input-handle-file-type-standard-output-handle-standard-output-file-type-standard-error-handle-standard-error-file-type-set-handle-count-policy-process-command-line-wide-environment-copy-lifetime-windows-932-wide-and-multibyte-conversion-one-byte-uninitialized-heap-buffer-thread-last-error-read-write-thread-local-storage-read-fiber-local-storage-read-active-code-page-read-544-byte-uninitialized-heap-buffer-active-code-page-information-output-ctype1-classification-ja-jp-lowercase-and-uppercase-mapping-interlocked-decrement-process-image-path-ansi-copy-16-byte-uninitialized-heap-buffer-4-byte-zeroed-environment-pointer-table-one-byte-private-heap-free-128-byte-zeroed-heap-buffer-explicit-processor-feature-presence-process-unhandled-exception-filter-private-heap-size-query-default-critical-section-initialization-active-code-page-selector-nul-terminated-conversion-process-current-directory-ansi-identity-current-thread-pseudo-handle-dynamic-resolution-thread-logical-affinity-mask-deterministic-monotonic-tick-progression-deterministic-high-resolution-performance-frequency-and-counter-progression-x86-virtual-system-information-single-logical-monitor-enumeration-and-work-area-query-per-thread-com-apartment-initialization-system-default-lang-id-read-process-image-drive-type-query-logical-mouse-button-mapping-focused-virtual-key-state-and-pressed-since-query-winmm-timer-capabilities-logical-winmm-timer-resolution-request-lifetime-policy-owned-ansi-os-version-information-manual-reset-unnamed-waitable-timer-identity-handle-lifetime-relative-one-shot-arm-nonsignaled-reset-logical-expiration-clock-and-bounded-finite-alertable-wait-pe-resource-catalog-module-shared-icon-identity-and-process-lifetime-system-arrow-and-module-resource-shared-cursor-identity-and-process-lifetime-process-local-window-class-identity-atom-module-wndproc-resource-reference-and-lifetime-logical-system-metrics-read-process-large-private-heap-permanent-slot-lazy-page-materialization-logical-top-level-window-five-message-synchronous-creation-callback-lifecycle-dedicated-scratch-small-icon-size-metrics-module-shared-small-icon-load-image-selection-same-thread-synchronous-wm-seticon-small-icon-relation-and-initial-offscreen-show-hide-position-visibility-callback-free-dynamic-runtime-system-module-identity-reference-and-attach-state-d3d9-device-render-state-texture-binding-flexible-vertex-format-stream-source-binding-draw-submission-lifetime-directinput8-root-com-identity-lifetime-directinput8-empty-attached-game-controller-enumeration-directsound8-root-com-audio-identity-lifetime-priority-cooperative-window-relation-primary-and-secondary-logical-audio-buffer-descriptor-format-lazy-sample-backing-lock-content-playback-and-com-lifetime-logical-window-timer-registration-identity-owner-thread-interval-callback-and-process-lifetime-guest-thread-stack-teb-bootstrap-suspend-resume-lifetime-logical-priority-and-explicit-api-boundary-yield-primary-screen-dc-acquisition-lifetime-bounded-cp932-font-enumeration-callback-catalog-logical-font-object-creation-null-source-compatible-memory-dc-dib-lifecycle-selected-font-outline-metrics-output-bounded-cp932-text-raster-into-selected-dib-and-logical-gdiplus-startup-session-token-lifetime-logical-window-file-drop-acceptance-runtime-vfs-registered-file-and-derived-directory-attribute-query-runtime-vfs-durable-writable-directory-create-same-active-window-repeat-position-validation-only-callback-current-thread-unfiltered-nonblocking-message-peek-and-optional-remove-logical-window-minimized-state-query-from-effective-style-logical-window-timer-expiry-low-priority-wm-timer-materialization-translate-noop-and-validated-timerproc-dispatch-foreground-client-pointer-button-message-production-and-wndproc-dispatch-with-queued-release-same-current-thread-active-focused-foreground-set-focus-idempotent-read-same-current-thread-visible-active-focused-foreground-cursor-derived-wm-lbuttondown-default-window-processing-current-thread-unfiltered-pm-remove-wm-lbuttonup-msg32-write-and-empty-queue-read-only-wm-lbuttonup-translate-from-guest-memory-with-empty-current-thread-queue-wm-lbuttonup-dispatch-defwindowproc-zero-result-and-callback-unwind-same-thread-wm-settext-windows-932-window-title-commit-system-arrow-cursor-info-flags-handle-and-logical-position-projection",
     "runtimeVirtualMemoryScope": "null-preferred-96m-reserve-top-down-page-readwrite-without-commit-decommit-or-release",
@@ -5839,7 +5839,7 @@
     "hostCompletionModel": "scheduler-event",
     "genericDispatcherApiCount": 135,
     "genericDispatcherContractCount": 137,
-    "genericDispatcherCallOccurrenceCount": 282878,
+    "genericDispatcherCallOccurrenceCount": 282879,
     "genericDispatcherApis": [
       "KERNEL32.dll!GetSystemTimeAsFileTime",
       "KERNEL32.dll!GetCurrentProcessId",
@@ -6196,7 +6196,7 @@
         "kernel32_virtual_memory_dispatcher::owner_capacity_failure_is_atomic_across_allocator_and_guest_memory",
         "kernel32_virtual_memory_dispatcher::guest_region_overlap_rejects_before_allocator_commit_or_owner_id_advance"
       ],
-      "capabilityExpansionPausedAt": "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time"
+      "capabilityExpansionPausedAt": "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect"
     },
     "runtimeObjectModel": {
       "schema": "vine.runtime-object-table.v2",
@@ -13329,13 +13329,13 @@
       "allApiAndComDispatchBoundariesUseSharedSchedule": true,
       "regressingInstructionCursorRejectedBeforeMutation": true,
       "nodePrimaryEvidence": {
-        "schema": "vine.v86-bgi-winmm-time-get-time-post-test-cooperative-level-timer-callback-primary",
+        "schema": "vine.v86-bgi-user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time-primary",
         "schemaVersion": 1,
         "canonicalCommand": "npm run check:runtime:bgi",
         "repeatRuns": 1,
-        "reportPath": ".work/v86-bgi-time-get-time-post-test-cooperative-level-timer-callback/report.json",
-        "reportBytes": 2637926,
-        "reportSha256": "b78563d485a21616d427ceaf8ad7313af68e783e644befff656859c3f8dab4b4",
+        "reportPath": ".work/v86-bgi-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time/report.json",
+        "reportBytes": 2642326,
+        "reportSha256": "0a26e7854653c5159a142032d969dc348b9ccaf47d7db9b91a8c9d64b4178bd3",
         "nodeReplayOldSpaceMiB": 8192,
         "rejectedNodeReplayOldSpaceMiB": 6144,
         "rejectedNodeReplayOutcome": "v8-heap-out-of-memory-near-limit",
@@ -13343,8 +13343,8 @@
         "sourceBytes": 1193472,
         "sourceSha256": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
         "sourceImmutableAcrossRun": true,
-        "completedSupportedCalls": 282878,
-        "supportedCallSemanticsSha256": "e94e4c5abed4721d66b08acadf6b3e343fe95aef1cdc7ce115a69c1694d316c8",
+        "completedSupportedCalls": 282879,
+        "supportedCallSemanticsSha256": "c0d54e73c82a938aaf0694ab57377dcac8d6b7729b53ef273cf1988d8202c504",
         "clockSampleCount": 100559,
         "firstClockTick": 3600000,
         "firstClockRetiredInstructions": 29,
@@ -13359,13 +13359,13 @@
         "presentCount": 4,
         "thirdPresentReached": true,
         "fourthPresentReached": true,
-        "writebackBatches": 286077,
-        "hostDeltaBatches": 143090,
+        "writebackBatches": 286078,
+        "hostDeltaBatches": 143091,
         "callbackEventCount": 150,
         "activeCallbackDepth": 0,
-        "finalMemoryGeneration": 333517,
-        "terminalInstructionCount": 392355420,
-        "terminalMemoryContentSha256": "c1398f49cce0bfad683906c42e7fa05da421dcf43197f79610183091227934d5",
+        "finalMemoryGeneration": 333519,
+        "terminalInstructionCount": 392355424,
+        "terminalMemoryContentSha256": "76ec157e2098a4401055790c710388759c00566570c382573123f15989ea4341",
         "pointerInputEventCount": 2,
         "pointerInputDownCommittedAfterSequence": 222004,
         "pointerInputUpCommittedAfterSequence": 222096,
@@ -14583,47 +14583,104 @@
           "activeCallbackDepthAtCompletion": 0,
           "nextEndpoint": "USER32.dll!GetWindowRect",
           "nextInstructionCount": 392355420
+        },
+        "user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTime": {
+          "completionCount": 1,
+          "sequence": 282879,
+          "occurrence": 145,
+          "instructionCount": 392355420,
+          "arguments": [
+            "0x48010001",
+            "0x006ff894"
+          ],
+          "result": "0x00000001",
+          "returnAddress": "0x10088558",
+          "stackPointers": [
+            "0x006ff874",
+            "0x006ff880"
+          ],
+          "lastError": 0,
+          "guestWriteAddress": "0x006ff894",
+          "guestWriteBytes": [
+            61,
+            1,
+            0,
+            0,
+            154,
+            0,
+            0,
+            0,
+            67,
+            6,
+            0,
+            0,
+            135,
+            3,
+            0,
+            0
+          ],
+          "rect": {
+            "left": 317,
+            "top": 154,
+            "right": 1603,
+            "bottom": 903
+          },
+          "implementationId": "user32.get-window-rect.v1",
+          "compatibilityPolicyId": "kernel32-delete-file-a-v1",
+          "windowAuthority": "runtime/user32.rs::RuntimeUser32",
+          "geometrySource": "logical-window-creation-geometry",
+          "runtimeStateMutation": false,
+          "failureAtomicity": true,
+          "hostGeometryImported": false,
+          "browserGeometryImported": false,
+          "currentThreadId": 8192,
+          "callbackFrameId": 75,
+          "callbackCompletedBeforeCompletion": true,
+          "outerDispatchCompletedBeforeCompletion": true,
+          "activeCallbackDepthAtCompletion": 0,
+          "nextEndpoint": "USER32.dll!GetCursorPos",
+          "nextInstructionCount": 392355424
         }
       },
       "browserBoundaryEvidence": {
-        "runtimeProtocol": "vine.browser-runtime-worker.v130",
-        "browserReportSchemaVersion": 95,
+        "runtimeProtocol": "vine.browser-runtime-worker.v131",
+        "browserReportSchemaVersion": 96,
         "retiredInstructionCursorTransport": "checked-u64-low-high-per-api-and-com-dispatch",
         "browserOwnsGuestClockState": false,
         "controlledChromeE2e": "passed",
         "controlledChromeCommand": "npm run check:runtime:browser-worker",
         "chromeVersion": "151.0.7922.77",
-        "reportBytes": 42835,
-        "reportSha256": "a79fd7453d5ed9bbbd4a8cdcd889e34385103bb58d639b5ef3e591eabc1dc3df",
-        "runtimeWorkerBytes": 1282866,
-        "runtimeWorkerSha256": "eb676551823e41985afd66e9b3781b5a0452369fcabcbb1abdd92977884f4266",
+        "reportBytes": 42857,
+        "reportSha256": "0a8d7af91aefed4f0f897da5f6c0f9aff1617b809b8c7970b2a0f932bfcac2a2",
+        "runtimeWorkerBytes": 1293391,
+        "runtimeWorkerSha256": "9763fe9a804148b252d9b86e07dfff7a596da69e57b5b195d18c2687bbf55db5",
         "runtimeCoreWasmBytes": 5408396,
         "runtimeCoreWasmSha256": "cab48fe0cddd1b5846b6929c13da50004b257f76f8946790e325c4ad1fc30da6",
         "privatePrimaryReplay": "passed-node-equivalent-scheduled-shared-clock",
         "privatePrimaryCommand": "node tools/run-browser-runtime-check.mjs --bgi",
-        "privatePrimaryReportBytes": 2622959,
-        "privatePrimaryReportSha256": "03dc714290aa506f75ae010e6aa3983a3f278ba9fd345530fe94dfe9da666058",
+        "privatePrimaryReportBytes": 2625725,
+        "privatePrimaryReportSha256": "d9de542e3d3e9705554be192650589dce7528ca5144bdc58e29ac3eaa4cb6866",
         "privatePrimaryChromeVersion": "151.0.7922.77",
-        "privatePrimarySupportedCalls": 282878,
-        "privatePrimarySupportedCallSemanticsSha256": "e94e4c5abed4721d66b08acadf6b3e343fe95aef1cdc7ce115a69c1694d316c8",
-        "privatePrimaryInstructionCount": 392355420,
+        "privatePrimarySupportedCalls": 282879,
+        "privatePrimarySupportedCallSemanticsSha256": "c0d54e73c82a938aaf0694ab57377dcac8d6b7729b53ef273cf1988d8202c504",
+        "privatePrimaryInstructionCount": 392355424,
         "privatePrimaryClockSampleCount": 100559,
         "privatePrimaryWindowTimerCallbackCount": 41,
         "privatePrimaryPresentCount": 4,
         "privatePrimaryPointerInputEventCount": 2,
         "privatePrimaryTimerPacingCompletionCount": 9003,
-        "privatePrimaryMappingDeltas": 143090,
-        "privatePrimaryFinalMemoryGeneration": 355972,
-        "privatePrimaryWritebackBatches": 308642,
-        "privatePrimaryTerminalMemoryContentSha256": "c1398f49cce0bfad683906c42e7fa05da421dcf43197f79610183091227934d5",
+        "privatePrimaryMappingDeltas": 143091,
+        "privatePrimaryFinalMemoryGeneration": 355974,
+        "privatePrimaryWritebackBatches": 308643,
+        "privatePrimaryTerminalMemoryContentSha256": "76ec157e2098a4401055790c710388759c00566570c382573123f15989ea4341",
         "privatePrimaryRawGenerationAndWritebacksAreAdapterSpecific": true,
         "privatePrimaryCancellationClean": true,
         "privatePrimaryWatchdogClean": true
       },
       "proximateCauseConclusion": {
         "clockFreezeWasProximateCause": false,
-        "reason": "scheduled progression completed 100559 shared-clock samples, 41 completed TIMERPROC callbacks, two GetCursorInfo projections, a third Present, the reached exact partial dirty-region UpdateTexture, the following fourth BeginScene, two idempotent linear sampler assignments, three bounded render-state rejections, six idempotent texture-stage assignments, the idempotent stage-0 texture binding, transformed diffuse textured FVF, non-owning stream-zero binding, immutable triangle-strip submission 4, its matching EndScene, one atomic Rust-policy raster-status sample, the fourth discard Present with synchronous reused WebGL2 publication, the next multimedia clock read, a read-only live-device TestCooperativeLevel query, the following relative one-shot SetWaitableTimer arm, its finite alertable WaitForSingleObjectEx completion through one cancellable browser pacing task, the due coalesced WM_TIMER PeekMessageA PM_REMOVE retrieval, read-only TranslateMessage validation, one preflighted TIMERPROC frame entry, the callback's scheduled GetTickCount projection, strict callback/outer DispatchMessageA unwind, the following empty current-thread PeekMessageA PM_REMOVE validation, and the post-callback multimedia clock projection from the same Rust-owned schedule",
-        "nextEndpoint": "USER32.dll!GetWindowRect",
+        "reason": "scheduled progression completed 100559 shared-clock samples, 41 completed TIMERPROC callbacks, two GetCursorInfo projections, a third Present, the reached exact partial dirty-region UpdateTexture, the following fourth BeginScene, two idempotent linear sampler assignments, three bounded render-state rejections, six idempotent texture-stage assignments, the idempotent stage-0 texture binding, transformed diffuse textured FVF, non-owning stream-zero binding, immutable triangle-strip submission 4, its matching EndScene, one atomic Rust-policy raster-status sample, the fourth discard Present with synchronous reused WebGL2 publication, the next multimedia clock read, a read-only live-device TestCooperativeLevel query, the following relative one-shot SetWaitableTimer arm, its finite alertable WaitForSingleObjectEx completion through one cancellable browser pacing task, the due coalesced WM_TIMER PeekMessageA PM_REMOVE retrieval, read-only TranslateMessage validation, one preflighted TIMERPROC frame entry, the callback's scheduled GetTickCount projection, strict callback/outer DispatchMessageA unwind, the following empty current-thread PeekMessageA PM_REMOVE validation, the post-callback multimedia clock projection from the same Rust-owned schedule, and one preflighted 16-byte GetWindowRect projection from Rust-owned logical window geometry",
+        "nextEndpoint": "USER32.dll!GetCursorPos",
         "archiveEnumerationWasProximateCause": false,
         "missingFileDeleteWasProximateCause": false,
         "ordinaryHeapCapacityWasProximateCause": false,
@@ -14634,7 +14691,7 @@
       }
     },
     "latestEvidence": {
-      "schema": "vine.v86-bgi-winmm-time-get-time-post-test-cooperative-level-timer-callback-primary",
+      "schema": "vine.v86-bgi-user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time-primary",
       "nativeSleepZeroOracleProfile": "x86-sleep-zero-ready-competitor-v1",
       "nativeSleepZeroOracleArchitecture": "coff-i386",
       "nativeSleepZeroOracleSourceBytes": 6481,
@@ -16415,9 +16472,9 @@
       "nativeDefWindowProcPointerReleaseOracleForegroundPreserved": true,
       "nativeDefWindowProcPointerReleaseOracleCaptureBefore": null,
       "nativeDefWindowProcPointerReleaseOracleCaptureAfter": null,
-      "implementation": "The existing Rust-owned scheduled process clock projects the post-callback timeGetTime sample from the same logical timer and retired-instruction schedule as GetTickCount without mutation or host time after the TIMERPROC frame and outer DispatchMessageA have completed; TypeScript records only the non-owning browser evidence projection and stops at the following GetWindowRect",
+      "implementation": "The existing Rust-owned logical-window geometry completes the reached post-timeGetTime GetWindowRect through guest-memory preflight and one atomic 16-byte RECT write without mutating window state or importing host or browser geometry; TypeScript records only the non-owning browser evidence projection and stops at the following GetCursorPos",
       "implementedApiContractCount": 137,
-      "genericSupportedCallCount": 282878,
+      "genericSupportedCallCount": 282879,
       "createWindowExAImplemented": true,
       "createWindowExASequence": 1388,
       "createWindowExAInstructionCount": 11476236,
@@ -16734,11 +16791,11 @@
       "initializeCriticalSectionDeltaAddress": "0x100fd000",
       "initializeCriticalSectionDeltaOwner": 1,
       "initializeCriticalSectionDeltaPayloadSha256": "80eb4797e4759ad5c9f4c484abf155aa7008a2ef8bfdffad9c17319ae36ef0fb",
-      "writebackBatches": 165271,
-      "writebackDirtyPages": 244681,
-      "writebackChangedBytes": 43072577,
-      "hostDeltaBatches": 127999,
-      "finalMemoryGeneration": 333517,
+      "writebackBatches": 165272,
+      "writebackDirtyPages": 244682,
+      "writebackChangedBytes": 43072582,
+      "hostDeltaBatches": 128000,
+      "finalMemoryGeneration": 333519,
       "allocationDeltaSequence": 198,
       "allocationDeltaFromGeneration": 281,
       "allocationDeltaGeneration": 282,
@@ -16939,7 +16996,7 @@
         "browserResourceCreated": false,
         "nodeChromeOrderedSemanticsMatched": true
       },
-      "memoryContentSha256": "c1398f49cce0bfad683906c42e7fa05da421dcf43197f79610183091227934d5",
+      "memoryContentSha256": "76ec157e2098a4401055790c710388759c00566570c382573123f15989ea4341",
       "enterCriticalSectionCheckpointCompletions": 3,
       "enterCriticalSectionSequences": [
         18699,
@@ -20806,7 +20863,7 @@
       "directSoundSetCooperativeLevelChromeCompletions": 1,
       "directSoundSetCooperativeLevelNodeChromeOrderedSemanticsMatched": true,
       "semanticCallDigestAlgorithm": "sha256-canonical-json-v1",
-      "semanticCallDigestSha256": "e94e4c5abed4721d66b08acadf6b3e343fe95aef1cdc7ce115a69c1694d316c8",
+      "semanticCallDigestSha256": "c0d54e73c82a938aaf0694ab57377dcac8d6b7729b53ef273cf1988d8202c504",
       "nativeDirectSoundInitialBuffersPrimaryTraceBytes": 382086,
       "nativeDirectSoundInitialBuffersPrimaryTraceLines": 801,
       "nativeDirectSoundInitialBuffersPrimaryTraceSha256": "6d924745fb6b61efa7992ec4ccda6cd553bab625348b0734876216e12af37f33",
@@ -27348,6 +27405,22 @@
         "nodeCompletions": 1,
         "chromeCompletions": 1,
         "nodeChromeOrderedSemanticsMatched": true
+      },
+      "user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTime": {
+        "completionCount": 1,
+        "sequence": 282879,
+        "occurrence": 145,
+        "rect": {
+          "left": 317,
+          "top": 154,
+          "right": 1603,
+          "bottom": 903
+        },
+        "windowAuthority": "runtime/user32.rs::RuntimeUser32",
+        "failureAtomicity": true,
+        "nodeCompletions": 1,
+        "chromeCompletions": 1,
+        "nodeChromeOrderedSemanticsMatched": true
       }
     },
     "canonicalReproductionCommand": "npm run check:runtime:bgi"
@@ -27356,11 +27429,11 @@
   "nextStructuredStop": {
     "kind": "capability-checkpoint",
     "classification": "semantic-leaf",
-    "nextCheckpoint": "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time",
-    "pausedHistoricalCheckpoint": "winmm-time-get-time-post-test-cooperative-level-timer-callback",
-    "instructionCount": 392355420,
-    "capabilityCluster": "user32-post-test-cooperative-level-timer-callback-time-get-time-window-query-continuation",
-    "reason": "winmm-time-get-time-post-test-cooperative-level-timer-callback-checkpoint-complete",
+    "nextCheckpoint": "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect",
+    "pausedHistoricalCheckpoint": "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time",
+    "instructionCount": 392355424,
+    "capabilityCluster": "user32-post-test-cooperative-level-timer-callback-time-get-time-window-geometry-query-continuation",
+    "reason": "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time-checkpoint-complete",
     "historicalOutlineTextMetricsCheckpoint": {
       "capability": "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
       "implementationId": "runtime.gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336.v1",
@@ -28511,7 +28584,7 @@
       "nextReturnAddress": 269033151,
       "nextStackPointer": 7338244
     },
-    "completion": {
+    "prerequisiteTimeGetTimeCheckpoint": {
       "capability": "winmm-time-get-time-post-test-cooperative-level-timer-callback",
       "implementationId": "runtime.winmm-time-get-time-post-test-cooperative-level-timer-callback.v1",
       "semanticImplementationId": "winmm.time-get-time.v1",
@@ -28605,28 +28678,133 @@
       "nextReturnAddress": 268993880,
       "nextStackPointer": 7338100
     },
+    "completion": {
+      "capability": "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time",
+      "implementationId": "runtime.user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time.v1",
+      "semanticImplementationId": "user32.get-window-rect.v1",
+      "requiredCompletions": 1,
+      "completionCount": 1,
+      "prerequisiteTimeGetTimeSequence": 282878,
+      "prerequisiteTimeGetTimeInstructionCount": 392355124,
+      "firstCompletionSequence": 282879,
+      "firstCompletionInstructionCount": 392355420,
+      "lastCompletionSequence": 282879,
+      "lastCompletionInstructionCount": 392355420,
+      "call": {
+        "sequence": 282879,
+        "module": "USER32.dll",
+        "symbol": "GetWindowRect",
+        "occurrence": 145,
+        "trapInstructionCount": 392355420,
+        "arguments": [
+          1208025089,
+          7338132
+        ],
+        "result": {
+          "action": "set",
+          "value": 1
+        },
+        "implementationId": "user32.get-window-rect.v1",
+        "returnAddress": 268993880,
+        "stackPointerBefore": 7338100,
+        "stackPointerAfter": 7338112,
+        "lastError": 0,
+        "guestWrites": [
+          {
+            "address": 7338132,
+            "bytes": [
+              61,
+              1,
+              0,
+              0,
+              154,
+              0,
+              0,
+              0,
+              67,
+              6,
+              0,
+              0,
+              135,
+              3,
+              0,
+              0
+            ],
+            "result": {
+              "bytesWritten": 16,
+              "dirtyPages": 1,
+              "invalidation": {
+                "generation": 333518,
+                "dataTlb": false,
+                "instructionFetch": false,
+                "generatedCode": false
+              }
+            }
+          }
+        ],
+        "runtimeThreadId": 8192
+      },
+      "compatibilityPolicyId": "kernel32-delete-file-a-v1",
+      "windowAuthority": "runtime/user32.rs::RuntimeUser32",
+      "geometrySource": "logical-window-creation-geometry",
+      "rect": {
+        "left": 317,
+        "top": 154,
+        "right": 1603,
+        "bottom": 903
+      },
+      "lastErrorPolicy": "preserve-success-invalid-window-handle-on-failure",
+      "runtimeStateMutation": false,
+      "failureAtomicity": true,
+      "hostGeometryImported": false,
+      "browserGeometryImported": false,
+      "currentThreadId": 8192,
+      "prerequisiteCallbackFrameId": 75,
+      "prerequisiteCallbackCompleted": true,
+      "prerequisiteOuterDispatchCompleted": true,
+      "activeCallbackDepthAtCompletion": 0,
+      "instructionCount": 392355424,
+      "nextEndpoint": {
+        "id": 190,
+        "address": 2130709456,
+        "module": "USER32.dll",
+        "symbol": {
+          "kind": "name",
+          "name": "GetCursorPos"
+        },
+        "disposition": "declared-runtime-export",
+        "iatAddress": 269292496
+      },
+      "nextArguments": [
+        7338124,
+        0
+      ],
+      "memoryContentSha256": "76ec157e2098a4401055790c710388759c00566570c382573123f15989ea4341",
+      "nextReturnAddress": 268993891,
+      "nextStackPointer": 7338104
+    },
     "nextEndpoint": {
       "endpointKind": "runtime-system-export",
-      "endpointId": 228,
-      "api": "USER32.dll!GetWindowRect",
-      "endpointAddress": "0x7f000e30",
+      "endpointId": 190,
+      "api": "USER32.dll!GetCursorPos",
+      "endpointAddress": "0x7f000bd0",
       "observedModule": "USER32.dll",
-      "observedSymbol": "GetWindowRect",
-      "id": 228,
-      "address": 2130710064,
+      "observedSymbol": "GetCursorPos",
+      "id": 190,
+      "address": 2130709456,
       "module": "USER32.dll",
       "symbol": {
         "kind": "name",
-        "name": "GetWindowRect"
+        "name": "GetCursorPos"
       },
       "disposition": "declared-runtime-export",
-      "iatAddress": 269292648,
+      "iatAddress": 269292496,
       "arguments": [
-        "0x48010001",
-        "0x006ff894"
+        "0x006ff88c",
+        "0x00000000"
       ],
-      "returnAddress": "0x10088558",
-      "stackPointer": "0x006ff874"
+      "returnAddress": "0x10088563",
+      "stackPointer": "0x006ff878"
     },
     "historicalFollowingFault": {
       "class": "unsupported",
