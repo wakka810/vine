@@ -25172,9 +25172,9 @@ export function validateCurrentCheckpoint(manifest) {
           runtimeKernelCheckpoint:
             "primary-main-loop-post-callback-window-input-scan-batch",
           repeatRuns: 1,
-          reportBytes: 2_668_233,
+          reportBytes: 2_668_326,
           reportSha256:
-            "8f7e4a3c2e33b260878dc16bf9398763ecdc672feb9ce2117c10fb87d8a0744a",
+            "598769a763e98f006ac0834bfabcf978cd08e252a60fbfcaeae04fe746a1f128",
           nodeReplayOldSpaceMiB: 8_192,
           completedSupportedCalls: 283_412,
           supportedCallSemanticsSha256:
@@ -31482,7 +31482,7 @@ export function validateCurrentCheckpoint(manifest) {
         "node tools/run-browser-runtime-check.mjs --bgi" ||
       browserBoundary.privatePrimaryReportBytes !==
         (primaryMainLoopPostCallbackWindowInputScanBatchActive
-          ? 2_647_142
+          ? 2_647_144
           : user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeActive
           ? 2_625_725
           : winmmTimeGetTimePostTestCooperativeLevelTimerCallbackActive
@@ -31542,7 +31542,7 @@ export function validateCurrentCheckpoint(manifest) {
           : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
         (primaryMainLoopPostCallbackWindowInputScanBatchActive
-          ? "6901c1abce63e24bba97aa8f1b763eddef0c190a106cc7f57ee2f36409cad364"
+          ? "6e05777cd6898448322159e26a26909b911ce9b725f447db754196ab157bcf84"
           : user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeActive
           ? "b9bd0efa3bde8a4b66929d8b4279b5fe22d0ae5bb5a5a08ef9c7b6636b9cd55e"
           : winmmTimeGetTimePostTestCooperativeLevelTimerCallbackActive

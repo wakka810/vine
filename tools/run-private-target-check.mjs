@@ -4014,12 +4014,20 @@ function assertScheduledSharedClockReportSemantics({
   assert.equal(nodeExecution.pointerInput.count, 2);
   assert.equal(browser.keyboardInput.receivedMessages, 0);
   assert.equal(browser.keyboardInput.receipts.length, 0);
-  assert.equal(browser.pointerInput.receivedMessages, 2);
-  assert.equal(browser.pointerInput.queuedBeforePrepare, 2);
-  assert.deepEqual(browser.pointerInput.receipts, [
+  const expectedPointerReceipts = [
     nodeExecution.pointerInput.first.receipt,
     nodeExecution.pointerInput.last.receipt,
-  ]);
+    ...(user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectReport
+      ? [
+          nodeExecution
+            .user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRect
+            .checkpointCompletion.actionInputEvents[0].receipt,
+        ]
+      : []),
+  ];
+  assert.equal(browser.pointerInput.receivedMessages, expectedPointerReceipts.length);
+  assert.equal(browser.pointerInput.queuedBeforePrepare, expectedPointerReceipts.length);
+  assert.deepEqual(browser.pointerInput.receipts, expectedPointerReceipts);
   assert.equal(
     nodeExecution.pointerInput.first.committedAfterSequence,
     scheduled.nodePrimaryEvidence.pointerInputDownCommittedAfterSequence,

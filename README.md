@@ -21,8 +21,8 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
 | Next structured stop | `primary-main-loop-post-callback-window-input-scan-batch` projected the Rust-owned cursor, committed primary-button input sequence 3, and completed 18 GetSystemMetrics calls plus IsIconic at sequence 283412 / instruction 445134233; Rust retains pending message 44 for the next consumption batch, and verification stopped at `WINMM.dll!timeGetTime` on instruction 445134242 (`primary-main-loop-post-callback-window-input-scan-batch-checkpoint-complete`) |
 
-The active semantic report is 2,668,233 bytes with SHA-256
-`8f7e4a3c2e33b260878dc16bf9398763ecdc672feb9ce2117c10fb87d8a0744a`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 2,668,326 bytes with SHA-256
+`598769a763e98f006ac0834bfabcf978cd08e252a60fbfcaeae04fe746a1f128`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 
