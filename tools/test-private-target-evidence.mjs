@@ -85,7 +85,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 96);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 97);
 assert.match(
   privateTargetRunner,
   /function assertUser32PeekMessageAPostTestCooperativeLevelTimerCallbackCheckpoint[\s\S]*?"queueDepthBefore"[\s\S]*?"queueDepthAfter"[\s\S]*?"browserOwnsMessageQueueState"[\s\S]*?"messageBytesPreserved"[\s\S]*?"activeCallbackDepthAtStop"/u,
@@ -97,6 +97,10 @@ assert.match(
 assert.match(
   privateTargetRunner,
   /function assertUser32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeCheckpoint[\s\S]*?"windowAuthority"[\s\S]*?"geometrySource"[\s\S]*?"runtimeStateMutation"[\s\S]*?"failureAtomicity"[\s\S]*?"hostGeometryImported"[\s\S]*?"browserGeometryImported"[\s\S]*?normalizeCall/u,
+);
+assert.match(
+  privateTargetRunner,
+  /function assertPrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint[\s\S]*?"stateAuthority"[\s\S]*?"failureAtomicity"[\s\S]*?"browserOwnsInputState"[\s\S]*?"browserOwnsWindowState"[\s\S]*?"browserOwnsMessageQueueState"[\s\S]*?metricCalls[\s\S]*?pendingActionMessage/u,
 );
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };

@@ -6486,3 +6486,23 @@ DOM／host geometry and owns no HWND or RECT state. Exact active artifact identi
 remain authoritative only in [current-checkpoint.json](current-checkpoint.json).
 Details are in
 [the bounded post-timeGetTime GetWindowRect profile](bgi-user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time.md).
+
+## 197. BGI post-callback window/input scan batch
+
+Sections 100, 175, and 179 already fix the native semantics and caller consumers for
+the reached `GetSystemMetrics`, `GetCursorPos`, and `IsIconic` variants. The existing
+pointer oracle also fixes center-point normalization and `WM_LBUTTONDOWN` packing.
+No new native trace was needed; sequence, occurrence, instruction, guest address,
+and message ID remain runtime evidence identities rather than semantic selectors.
+
+Canonical Node and Chrome complete `GetCursorPos` at sequence 282,880／instruction
+392,355,424, then commit normalized primary-button event 3 through the Rust input
+owner. The receipt targets HWND `0x48010001`／thread 8192, client `(640,360)`, and
+publishes pending message ID 44 with `message=0x0201`, `wParam=1`,
+`lParam=0x01680280`, time 3,800,773, and screen point `(960,540)`. Both subsequently
+complete 18 metric calls with six exact `(7,4,8) -> (3,23,3)` groups and
+`IsIconic(FALSE)` at sequence 283,412, then stop at the following `timeGetTime`.
+Rust remains authoritative for input, window, queue, and guest bytes; TypeScript
+only compares the non-owning projection. Exact active artifact identities remain
+authoritative only in [current-checkpoint.json](current-checkpoint.json). Details are
+in [the bounded window/input scan batch](bgi-primary-main-loop-post-callback-window-input-scan-batch.md).

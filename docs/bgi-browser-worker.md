@@ -521,6 +521,20 @@ Both stop four guest instructions later at `USER32.dll!GetCursorPos(0x006FF88C)`
 Details are in
 [the post-timeGetTime GetWindowRect profile](bgi-user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time.md).
 
+Protocol version 132／BGI report schema 97 advances the same replay as one
+post-callback window/input scan batch. Node and Chrome agree that sequence 282,880
+publishes cursor `(960,540)`, then pointer event 3 commits a primary-button down and
+creates pending Rust-owned `WM_LBUTTONDOWN` message 44. Both complete six repeated
+`GetSystemMetrics(7,4,8)` triplets with `(3,23,3)`, followed by
+`IsIconic(0x48010001) == FALSE` at sequence 283,412／instruction 445,134,233.
+Completed-call count is 283,412, semantic digest is
+`81bbe99a26372d63efc1ad4318bebcd4387b9461d7e666de3e1975ea6a8a16a2`, and terminal
+memory digest is
+`1354319d15490d41a85e6468c58ebc39f39e9ac0f55a720dd3aab71a7448e6df`.
+Both stop at the following `WINMM.dll!timeGetTime`; TypeScript owns no Windows
+cursor, keyboard, window, or message-queue state. Details are in
+[the post-callback window/input scan batch](bgi-primary-main-loop-post-callback-window-input-scan-batch.md).
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk

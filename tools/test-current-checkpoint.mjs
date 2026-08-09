@@ -30,12 +30,12 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "strict callback/outer DispatchMessageA unwind, the following empty current-thread PeekMessageA PM_REMOVE validation, the post-callback timeGetTime projection, and one atomic GetWindowRect projection also pass before GetCursorPos",
+    "committed primary-button input sequence 3",
   ),
 );
 assert.ok(
   rendered.includes(
-    "Node primary recorded 100,559 samples / 41 TIMERPROC callbacks",
+    "Node primary recorded 100,565 samples / 41 TIMERPROC callbacks",
   ),
 );
 assert.ok(rendered.includes("| Shared clock |"));

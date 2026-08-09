@@ -1209,6 +1209,8 @@ function isScheduledSharedClockNodeReport(report) {
     report?.schema ===
       "vine.v86-bgi-winmm-time-get-time-post-test-cooperative-level-timer-callback-primary" ||
     report?.schema ===
+      "vine.v86-bgi-user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect-primary" ||
+    report?.schema ===
       "vine.v86-bgi-user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time-primary"
   );
 }
@@ -1259,6 +1261,8 @@ function isGetCursorInfoOrLaterNodeReport(report) {
     report?.schema ===
       "vine.v86-bgi-winmm-time-get-time-post-test-cooperative-level-timer-callback-primary" ||
     report?.schema ===
+      "vine.v86-bgi-user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect-primary" ||
+    report?.schema ===
       "vine.v86-bgi-user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time-primary"
   );
 }
@@ -1268,6 +1272,16 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (
+    nodeReport.schema ===
+    "vine.v86-bgi-user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect-primary"
+  ) {
+    return structuredClone(
+      execution
+        .user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRect
+        .checkpointCompletion,
+    );
+  }
   if (
     nodeReport.schema ===
     "vine.v86-bgi-user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time-primary"
@@ -3208,6 +3222,116 @@ function assertUser32PeekMessageAPostTestCooperativeLevelTimerCallbackCheckpoint
   assert.deepEqual(actual.nextEndpoint.symbol, expectedEndpoint.symbol);
 }
 
+function assertPrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint(
+  actual,
+  expectedCompletion,
+  expectedEndpoint,
+) {
+  assert(actual !== null, "post-callback window/input scan batch is missing");
+  for (const field of [
+    "capability",
+    "implementationId",
+    "requiredCompletions",
+    "completionCount",
+    "prerequisiteGetCursorPosSequence",
+    "prerequisiteGetCursorPosInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "stateAuthority",
+    "mutation",
+    "failureAtomicity",
+    "browserOwnsInputState",
+    "browserOwnsWindowState",
+    "browserOwnsMessageQueueState",
+    "activeCallbackDepthAtCompletion",
+    "instructionCount",
+    "memoryContentSha256",
+    "nextReturnAddress",
+    "nextStackPointer",
+  ]) {
+    assert.deepEqual(actual[field], expectedCompletion[field], field);
+  }
+  const actualCursor = actual.prerequisiteGetCursorPos;
+  const expectedCursor = expectedCompletion.prerequisiteGetCursorPos;
+  for (const field of [
+    "capability",
+    "implementationId",
+    "semanticImplementationId",
+    "requiredCompletions",
+    "completionCount",
+    "prerequisiteGetWindowRectSequence",
+    "prerequisiteGetWindowRectInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "compatibilityPolicyId",
+    "cursorPositionAuthority",
+    "cursorPosition",
+    "cursorPositionGeneration",
+    "outputType",
+    "lastErrorPolicy",
+    "mutation",
+    "runtimeStateMutation",
+    "failureAtomicity",
+    "hostPointerImported",
+    "browserPointerImported",
+    "currentThreadId",
+    "prerequisiteCallbackFrameId",
+    "prerequisiteCallbackCompleted",
+    "prerequisiteOuterDispatchCompleted",
+    "activeCallbackDepthAtCompletion",
+  ]) {
+    assert.deepEqual(actualCursor[field], expectedCursor[field], `cursor.${field}`);
+  }
+  assert.deepEqual(
+    normalizeSemanticCall(actualCursor.call),
+    normalizeSemanticCall(expectedCursor.call),
+  );
+  for (const field of ["occurrence", "trapInstructionCount", "runtimeThreadId"]) {
+    assert.equal(actualCursor.call[field], expectedCursor.call[field], `cursor.call.${field}`);
+  }
+  assert.equal(actual.metricCalls.length, expectedCompletion.metricCalls.length);
+  assert.deepEqual(
+    actual.metricCalls.map(normalizeSemanticCall),
+    expectedCompletion.metricCalls.map(normalizeSemanticCall),
+  );
+  assert.deepEqual(
+    actual.metricCalls.map(({ occurrence, trapInstructionCount }) => ({
+      occurrence,
+      trapInstructionCount,
+    })),
+    expectedCompletion.metricCalls.map(({ occurrence, trapInstructionCount }) => ({
+      occurrence,
+      trapInstructionCount,
+    })),
+  );
+  assert.deepEqual(
+    normalizeSemanticCall(actual.isIconicCall),
+    normalizeSemanticCall(expectedCompletion.isIconicCall),
+  );
+  for (const field of ["occurrence", "trapInstructionCount", "runtimeThreadId"]) {
+    assert.equal(
+      actual.isIconicCall[field],
+      expectedCompletion.isIconicCall[field],
+      `isIconic.${field}`,
+    );
+  }
+  assert.deepEqual(actual.actionInputEvents, expectedCompletion.actionInputEvents);
+  assert.deepEqual(actual.pendingActionMessage, expectedCompletion.pendingActionMessage);
+  assert.deepEqual(actual.nextArguments, expectedCompletion.nextArguments);
+  for (const field of ["id", "address", "disposition", "iatAddress"]) {
+    assert.equal(actual.nextEndpoint[field], expectedEndpoint[field], field);
+  }
+  assert.equal(
+    actual.nextEndpoint.module.toLowerCase(),
+    expectedEndpoint.module.toLowerCase(),
+  );
+  assert.deepEqual(actual.nextEndpoint.symbol, expectedEndpoint.symbol);
+}
+
 function assertUser32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeCheckpoint(
   actual,
   expectedCompletion,
@@ -3758,6 +3882,9 @@ function assertScheduledSharedClockReportSemantics({
   const winmmTimeGetTimePostTestCooperativeLevelTimerCallbackReport =
     nodeReport.schema ===
     "vine.v86-bgi-winmm-time-get-time-post-test-cooperative-level-timer-callback-primary";
+  const user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectReport =
+    nodeReport.schema ===
+    "vine.v86-bgi-user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect-primary";
   const user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeReport =
     nodeReport.schema ===
     "vine.v86-bgi-user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time-primary";
@@ -4166,6 +4293,55 @@ function assertScheduledSharedClockReportSemantics({
   );
   let expectedFaultCode = null;
   if (
+    user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectReport
+  ) {
+    const completion =
+      nodeExecution
+        .user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRect
+        .checkpointCompletion;
+    const getCursorPos = completion.prerequisiteGetCursorPos;
+    const cursorWrite = getCursorPos.call.guestWrites[0];
+    assert.equal(nodeStop.fault, null);
+    assert.equal(nodeStop.terminal.instructionCount, expectedNext.instructionCount);
+    assert.equal(getCursorPos.call.sequence, 282_880);
+    assert.equal(getCursorPos.call.occurrence, 145);
+    assert.equal(getCursorPos.call.trapInstructionCount, 392_355_424);
+    assert.equal(getCursorPos.call.module.toLowerCase(), "user32.dll");
+    assert.equal(getCursorPos.call.symbol, "GetCursorPos");
+    assert.deepEqual(getCursorPos.call.arguments, [0x006f_f88c]);
+    assert.deepEqual(getCursorPos.call.result, { action: "set", value: 1 });
+    assert.equal(getCursorPos.call.implementationId, "user32.get-cursor-pos.v1");
+    assert.equal(cursorWrite.address, 0x006f_f88c);
+    assert.deepEqual(cursorWrite.bytes, [0xc0, 0x03, 0, 0, 0x1c, 0x02, 0, 0]);
+    assert.equal(cursorWrite.result.invalidation.generation, 333_520);
+    assert.equal(completion.metricCalls.length, 18);
+    assert.deepEqual(
+      completion.metricCalls.map((call) => call.arguments[0]),
+      Array.from({ length: 6 }, () => [7, 4, 8]).flat(),
+    );
+    assert.deepEqual(
+      completion.metricCalls.map((call) => call.result.value),
+      Array.from({ length: 6 }, () => [3, 23, 3]).flat(),
+    );
+    assert.equal(completion.isIconicCall.sequence, 283_412);
+    assert.equal(completion.isIconicCall.occurrence, 68);
+    assert.deepEqual(completion.isIconicCall.arguments, [0x4801_0001]);
+    assert.deepEqual(completion.isIconicCall.result, { action: "set", value: 0 });
+    assert.equal(completion.actionInputEvents.length, 1);
+    const action = completion.actionInputEvents[0];
+    assert.equal(action.event.sequence, 3);
+    assert.equal(action.event.kind, "button-down");
+    assert.equal(action.event.button, "primary");
+    assert.equal(action.receipt.message.message, 0x0201);
+    assert.equal(action.receipt.message.wParam, 1);
+    assert.equal(action.receipt.message.lParam, 0x0168_0280);
+    assert.deepEqual(completion.pendingActionMessage, action.receipt.message);
+    assertPrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint(
+      nodeCheckpoint,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+  } else if (
     user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeReport
   ) {
     const getWindowRect =
@@ -5138,6 +5314,7 @@ function assertScheduledSharedClockReportSemantics({
     );
   }
   if (
+    !user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectReport &&
     !user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeReport &&
     !winmmTimeGetTimePostTestCooperativeLevelTimerCallbackReport &&
     !user32PeekMessageAPostTestCooperativeLevelTimerCallbackReport &&
@@ -5184,6 +5361,7 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext,
     );
   } else if (
+    !user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectReport &&
     !user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeReport &&
     !winmmTimeGetTimePostTestCooperativeLevelTimerCallbackReport &&
     !user32PeekMessageAPostTestCooperativeLevelTimerCallbackReport &&
@@ -5259,6 +5437,28 @@ function assertScheduledSharedClockReportSemantics({
 
   const browserUnsupported = browser.firstUnsupported;
   if (
+    user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectReport
+  ) {
+    assert.equal(browserUnsupported, null);
+    assertPrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint(
+      browser.checkpointCompletion,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+    );
+    assertPrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint(
+      browser.checkpointCompletion,
+      nodeCheckpoint,
+      expectedNext.nextEndpoint,
+    );
+    assert.equal(browser.pointerInput.receivedMessages, 3);
+    assert.equal(browser.pointerInput.receipts.length, 3);
+    assert.equal(browser.d3d9Present.call.sequence, 282_868);
+    assert.equal(
+      browser.d3d9Present.call.browserPresentation.resource.id,
+      "browser-resource:1",
+    );
+    assert.equal(browser.d3d9Present.call.browserPresentation.frameSequence, 4);
+  } else if (
     user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeReport
   ) {
     assert.equal(browserUnsupported, null);
@@ -5664,6 +5864,7 @@ function assertScheduledSharedClockReportSemantics({
     );
   }
   if (
+    !user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectReport &&
     !user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeReport &&
     !winmmTimeGetTimePostTestCooperativeLevelTimerCallbackReport &&
     !user32PeekMessageAPostTestCooperativeLevelTimerCallbackReport &&
@@ -5714,6 +5915,7 @@ function assertScheduledSharedClockReportSemantics({
       expectedNext,
     );
   } else if (
+    !user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectReport &&
     !user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeReport &&
     !winmmTimeGetTimePostTestCooperativeLevelTimerCallbackReport &&
     !user32PeekMessageAPostTestCooperativeLevelTimerCallbackReport &&
@@ -6334,6 +6536,11 @@ const nodeInstructions = scheduledNodeReport
     : nodeReport.firstUnsupported.instructionCount;
 const nodeMemoryContentSha256 = scheduledNodeReport
   ? nodeReport.schema ===
+    "vine.v86-bgi-user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect-primary"
+    ? nodeReport.execution
+        .user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRect
+        .checkpointCompletion.memoryContentSha256
+    : nodeReport.schema ===
     "vine.v86-bgi-user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time-primary"
     ? nodeReport.execution
         .user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTime

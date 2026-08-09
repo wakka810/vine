@@ -2475,6 +2475,19 @@ schema 96でcancel／watchdog cleanupを維持する。次のcursor query、DOM�
 multi-window／resize／DPI variantはacceptanceへ含めない。詳細は
 [post-timeGetTime `GetWindowRect` profile](bgi-user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time.md)を正とする。
 
+Post-callback window/input scan gatewayは、直前の`GetWindowRect`をprerequisiteに、
+`GetCursorPos` completion、第三のnormalized primary-button down投入、18件の
+`GetSystemMetrics(7,4,8)`、`IsIconic(FALSE)`を一つのbounded batchとして検証する。Node／Chromeは
+283,412 completed calls、100,565 clock samples、41 completed TIMERPROC callbacks、9,035 pacing
+completions、ordered digest
+`81bbe99a26372d63efc1ad4318bebcd4387b9461d7e666de3e1975ea6a8a16a2`、terminal memory digest
+`1354319d15490d41a85e6468c58ebc39f39e9ac0f55a720dd3aab71a7448e6df`を一致させる。
+第三のreceiptは`WM_LBUTTONDOWN` ID 44を生成し、Rust-owned current-thread queueにpendingのまま
+保持する。Protocol v132／report schema 97でcancel／watchdog cleanupを維持し、次の
+`timeGetTime`で停止する。Message consumption、visible response、general input／display breadthは
+acceptanceへ含めない。詳細は
+[post-callback window/input scan batch](bgi-primary-main-loop-post-callback-window-input-scan-batch.md)を正とする。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

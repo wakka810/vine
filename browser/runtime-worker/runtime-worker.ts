@@ -64,6 +64,8 @@ import {
   type RuntimeVirtualMemorySnapshot,
   type WinmmTimeGetTimePostTestCooperativeLevelTimerCallbackCheckpoint,
   type User32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeCheckpoint,
+  type User32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectCheckpoint,
+  type PrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint,
   type WorkerToMainMessage,
 } from "./protocol.js";
 import {
@@ -545,12 +547,34 @@ function isUser32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimePr
   );
 }
 
+function isUser32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile ===
+    "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect"
+  );
+}
+
+function includesUser32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isUser32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeProfile(
+      profile,
+    ) ||
+    isUser32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectProfile(
+      profile,
+    )
+  );
+}
+
 function includesWinmmTimeGetTimePostTestCooperativeLevelTimerCallbackProfile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isWinmmTimeGetTimePostTestCooperativeLevelTimerCallbackProfile(profile) ||
-    isUser32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeProfile(
+    includesUser32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeProfile(
       profile,
     )
   );
@@ -4144,6 +4168,18 @@ class BrowserRuntimeSession {
     null;
   #winmmTimeGetTimePostTestCooperativeLevelTimerCallbackPrerequisite: WinmmTimeGetTimePostTestCooperativeLevelTimerCallbackCheckpoint | null =
     null;
+  #user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimePrerequisite: User32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeCheckpoint | null =
+    null;
+  #user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectPrerequisite: User32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectCheckpoint | null =
+    null;
+  readonly #postCallbackWindowInputScanMetricCalls: Array<
+    RuntimeSupportedCallSnapshot & {
+      occurrence: number;
+      trapInstructionCount: number;
+    }
+  > = [];
+  readonly #postCallbackActionInputEvents: RuntimePointerButtonInputBoundaryEvidence[] =
+    [];
   #d3d9RasterStatusCompletionCount = 0;
   readonly #d3d9InitialSamplerStateCalls: RuntimeSupportedCallSnapshot[] = [];
   readonly #d3d9SetSamplerStatePostBeginSceneCalls: RuntimeSupportedCallSnapshot[] =
@@ -5648,6 +5684,10 @@ class BrowserRuntimeSession {
   ): void {
     const mainTimerHandle = 0x5701_0002;
     const eventCount = this.#inputProgressPointerEvents.length;
+    const postCallbackWindowInputScan =
+      isUser32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectProfile(
+        this.#configuration.capabilityProfile,
+      );
     if (eventCount === 0) {
       if (this.#scheduledSharedClockPresentCount < 2) {
         return;
@@ -5685,7 +5725,8 @@ class BrowserRuntimeSession {
             this.#inputProgressBaseline.cycleCount &&
           this.#scheduledSharedClockPresentCount === 2 &&
           this.#inputProgressAsyncKeyStateQuery === null &&
-          this.#pendingInputEvents.length === 2,
+          this.#pendingInputEvents.length ===
+            (postCallbackWindowInputScan ? 3 : 2),
         "scheduled input did not retain its two-event trace through the 253-cycle boundary",
       );
       const pending = this.#pendingInputEvents.shift();
@@ -5742,7 +5783,8 @@ class BrowserRuntimeSession {
           call.result.value === 0xffff_8001 &&
           call.lastError === 0 &&
           call.guestWrites.length === 0 &&
-          this.#pendingInputEvents.length === 1,
+          this.#pendingInputEvents.length ===
+            (postCallbackWindowInputScan ? 2 : 1),
         "scheduled input async-key consumer changed",
       );
       const pending = this.#pendingInputEvents.shift();
@@ -5786,6 +5828,66 @@ class BrowserRuntimeSession {
         committedAfterSequence: call.sequence,
         committedAfterInstructionCount: this.#report.instructions,
         event: { ...structuredClone(event), sequence: 2 },
+        receipt: structuredClone(metadata.receipt),
+        keyboard: structuredClone(metadata.keyboard),
+        cursor: structuredClone(metadata.cursor),
+      });
+      return;
+    }
+    if (
+      eventCount === 2 &&
+      postCallbackWindowInputScan &&
+      call.sequence === 282_880 &&
+      call.implementationId === "user32.get-cursor-pos.v1"
+    ) {
+      invariant(
+        this
+            .#user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectPrerequisite !==
+          null &&
+          this.#postCallbackActionInputEvents.length === 0 &&
+          this.#pendingInputEvents.length === 1,
+        "post-callback action input did not retain its button-down event until GetCursorPos",
+      );
+      const pending = this.#pendingInputEvents.shift();
+      invariant(
+        pending?.source === "pointer" &&
+          pending.event.sequence === "3" &&
+          pending.event.kind === "button-down" &&
+          pending.event.button === "primary" &&
+          pending.event.normalizedX === 0x8000 &&
+          pending.event.normalizedY === 0x8000,
+        "post-callback action input event changed",
+      );
+      const event = pending.event;
+      const metadata = this.#commitPointerInput(event);
+      invariant(
+        metadata.receipt.windowId === 1 &&
+          metadata.receipt.windowHandle === 0x4801_0001 &&
+          metadata.receipt.targetThreadId === 8_192 &&
+          metadata.receipt.clientX === 640 &&
+          metadata.receipt.clientY === 360 &&
+          metadata.receipt.input.virtualKey === 0x01 &&
+          metadata.receipt.input.keyboard.generation === 4 &&
+          metadata.keyboard.generation === 4 &&
+          metadata.keyboard.lastEventSequence === 3 &&
+          metadata.keyboard.downWords.join(",") === "2,0,0,0,0,0,0,0" &&
+          metadata.keyboard.pressedWords.join(",") === "2,0,0,0,0,0,0,0" &&
+          metadata.cursor.screenX === 960 &&
+          metadata.cursor.screenY === 540 &&
+          metadata.cursor.generation === 0 &&
+          metadata.receipt.message.id === 44 &&
+          metadata.receipt.message.message === 0x0201 &&
+          metadata.receipt.message.wParam === 1 &&
+          metadata.receipt.message.lParam === 0x0168_0280 &&
+          metadata.receipt.message.time === 3_800_773 &&
+          metadata.receipt.message.pointX === 960 &&
+          metadata.receipt.message.pointY === 540,
+        "post-callback action input did not commit the expected Rust input and message state",
+      );
+      this.#postCallbackActionInputEvents.push({
+        committedAfterSequence: call.sequence,
+        committedAfterInstructionCount: this.#report.instructions,
+        event: { ...structuredClone(event), sequence: 3 },
         receipt: structuredClone(metadata.receipt),
         keyboard: structuredClone(metadata.keyboard),
         cursor: structuredClone(metadata.cursor),
@@ -11711,7 +11813,7 @@ class BrowserRuntimeSession {
     this.#user32PeekMessageAPostTestCooperativeLevelTimerCallbackPrerequisite =
       null;
     if (
-      isUser32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeProfile(
+      includesUser32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeProfile(
         this.#configuration.capabilityProfile,
       )
     ) {
@@ -11735,7 +11837,7 @@ class BrowserRuntimeSession {
     occurrence: number,
   ): void {
     if (
-      !isUser32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeProfile(
+      !includesUser32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeProfile(
         this.#configuration.capabilityProfile,
       ) ||
       call.sequence !== 282_879 ||
@@ -11840,6 +11942,265 @@ class BrowserRuntimeSession {
         nextStackPointer: 0,
       };
     this.#winmmTimeGetTimePostTestCooperativeLevelTimerCallbackPrerequisite =
+      null;
+    if (
+      isUser32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      invariant(
+        this
+          .#user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimePrerequisite ===
+          null,
+        "post-callback GetCursorPos replaced its GetWindowRect prerequisite",
+      );
+      this.#user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimePrerequisite =
+        checkpoint;
+      this.#report.checkpointCompletion = null;
+    } else {
+      this.#report.checkpointCompletion = checkpoint;
+      this.#bgiCheckpointPending = true;
+    }
+  }
+
+  #recordUser32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectCall(
+    call: RuntimeSupportedCallSnapshot,
+    occurrence: number,
+  ): void {
+    if (
+      !isUser32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectProfile(
+        this.#configuration.capabilityProfile,
+      ) ||
+      call.sequence !== 282_880 ||
+      call.implementationId !== "user32.get-cursor-pos.v1"
+    ) {
+      return;
+    }
+    const prerequisite =
+      this
+        .#user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimePrerequisite;
+    const write = call.guestWrites[0];
+    invariant(
+      prerequisite?.capability ===
+          "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time" &&
+        prerequisite.lastCompletionSequence === 282_879 &&
+        prerequisite.lastCompletionInstructionCount === 392_355_420 &&
+        prerequisite.activeCallbackDepthAtCompletion === 0 &&
+        this
+            .#user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectPrerequisite ===
+          null &&
+        this.#report.checkpointCompletion === null &&
+        this.#report.instructions === 392_355_424 &&
+        this.#currentThreadId === 8_192 &&
+        occurrence === 145 &&
+        call.module.toLowerCase() === "user32.dll" &&
+        call.symbol === "GetCursorPos" &&
+        call.arguments.join(",") === "7338124" &&
+        "action" in call.result &&
+        call.result.action === "set" &&
+        call.result.value === 1 &&
+        call.returnAddress === 0x1008_8563 &&
+        call.stackPointerBefore === 0x006f_f878 &&
+        call.stackPointerAfter === 0x006f_f880 &&
+        call.lastError === 0 &&
+        call.guestWrites.length === 1 &&
+        write?.address === 0x006f_f88c &&
+        "bytes" in write &&
+        write.bytes.join(",") === "192,3,0,0,28,2,0,0" &&
+        this.#bgiCallbackCallSequences.size === 0 &&
+        this.#windowTimerCallbackEntry === null &&
+        this.#report.supportedCallCount === 282_879,
+      `post-callback GetCursorPos evidence changed: ${JSON.stringify({
+        prerequisite,
+        call,
+        occurrence,
+        instructionCount: this.#report.instructions,
+        currentThreadId: this.#currentThreadId,
+        activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+        supportedCallCount: this.#report.supportedCallCount,
+      })}`,
+    );
+    const checkpoint: User32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectCheckpoint =
+      {
+        capability:
+          "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect",
+        implementationId:
+          "runtime.user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect.v1",
+        semanticImplementationId: "user32.get-cursor-pos.v1",
+        requiredCompletions: 1,
+        completionCount: 1,
+        prerequisiteGetWindowRectSequence:
+          prerequisite.lastCompletionSequence,
+        prerequisiteGetWindowRectInstructionCount:
+          prerequisite.lastCompletionInstructionCount,
+        prerequisiteGetWindowRect: structuredClone(prerequisite),
+        firstCompletionSequence: call.sequence,
+        firstCompletionInstructionCount: this.#report.instructions,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: this.#report.instructions,
+        call: {
+          ...structuredClone(call),
+          occurrence,
+          trapInstructionCount: this.#report.instructions,
+          runtimeThreadId: 8_192,
+        },
+        compatibilityPolicyId: "kernel32-delete-file-a-v1",
+        cursorPositionAuthority: "runtime/input.rs::RuntimeInput",
+        cursorPosition: { x: 960, y: 540 },
+        cursorPositionGeneration: 0,
+        outputType: "POINT",
+        lastErrorPolicy:
+          "preserve-success-error-noaccess-on-invalid-output",
+        mutation: "guest-memory-preflight-atomic-write",
+        runtimeStateMutation: false,
+        failureAtomicity: true,
+        hostPointerImported: false,
+        browserPointerImported: false,
+        currentThreadId: 8_192,
+        prerequisiteCallbackFrameId: prerequisite.prerequisiteCallbackFrameId,
+        prerequisiteCallbackCompleted: true,
+        prerequisiteOuterDispatchCompleted: true,
+        activeCallbackDepthAtCompletion: 0,
+        instructionCount: 0,
+        nextEndpoint: null,
+        nextArguments: [],
+        memoryContentSha256: "",
+        nextReturnAddress: 0,
+        nextStackPointer: 0,
+      };
+    this.#user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimePrerequisite =
+      null;
+    this.#user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectPrerequisite =
+      checkpoint;
+  }
+
+  #recordPrimaryMainLoopPostCallbackWindowInputScanCall(
+    call: RuntimeSupportedCallSnapshot,
+    occurrence: number,
+  ): void {
+    if (
+      !isUser32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      return;
+    }
+    const prerequisite =
+      this
+        .#user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectPrerequisite;
+    if (prerequisite === null) {
+      return;
+    }
+    if (call.implementationId === "user32.get-system-metrics.v1") {
+      const expectedIndices = Array.from({ length: 6 }, () => [7, 4, 8]).flat();
+      const expectedResults = Array.from({ length: 6 }, () => [3, 23, 3]).flat();
+      const index = this.#postCallbackWindowInputScanMetricCalls.length;
+      invariant(
+        index < expectedIndices.length &&
+          call.sequence > prerequisite.lastCompletionSequence &&
+          call.module.toLowerCase() === "user32.dll" &&
+          call.symbol === "GetSystemMetrics" &&
+          call.arguments.length === 1 &&
+          call.arguments[0] === expectedIndices[index] &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === expectedResults[index] &&
+          occurrence === 450 + index &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0,
+        `post-callback window input metric scan changed: ${JSON.stringify({
+          index,
+          call,
+          occurrence,
+        })}`,
+      );
+      this.#postCallbackWindowInputScanMetricCalls.push({
+        ...structuredClone(call),
+        occurrence,
+        trapInstructionCount: this.#report.instructions,
+      });
+      return;
+    }
+    if (call.implementationId !== "user32.is-iconic.logical-window-style.v1") {
+      return;
+    }
+    const action = this.#postCallbackActionInputEvents[0];
+    const metricCalls = this.#postCallbackWindowInputScanMetricCalls;
+    invariant(
+      this.#report.checkpointCompletion === null &&
+        metricCalls.length === 18 &&
+        metricCalls[0]?.sequence === 282_881 &&
+        metricCalls[0]?.trapInstructionCount === 392_355_433 &&
+        metricCalls.at(-1)?.sequence === 283_411 &&
+        metricCalls.at(-1)?.trapInstructionCount === 445_134_090 &&
+        action !== undefined &&
+        this.#postCallbackActionInputEvents.length === 1 &&
+        action.receipt.message.source.kind === "pointer-input" &&
+        action.receipt.message.source.event_sequence === 3 &&
+        call.sequence === 283_412 &&
+        this.#report.instructions === 445_134_233 &&
+        occurrence === 68 &&
+        call.module.toLowerCase() === "user32.dll" &&
+        call.symbol === "IsIconic" &&
+        call.arguments.join(",") === "1208025089" &&
+        "action" in call.result &&
+        call.result.action === "set" &&
+        call.result.value === 0 &&
+        call.lastError === 0 &&
+        call.guestWrites.length === 0 &&
+        this.#bgiCallbackCallSequences.size === 0 &&
+        this.#report.supportedCallCount === 283_411,
+      `post-callback window input scan boundary changed: ${JSON.stringify({
+        prerequisite,
+        metricCallCount: metricCalls.length,
+        action,
+        call,
+        occurrence,
+        instructionCount: this.#report.instructions,
+        supportedCallCount: this.#report.supportedCallCount,
+      })}`,
+    );
+    const checkpoint: PrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint =
+      {
+        capability: "primary-main-loop-post-callback-window-input-scan-batch",
+        implementationId:
+          "runtime.primary-main-loop-post-callback-window-input-scan-batch.v1",
+        requiredCompletions: 20,
+        completionCount: 20,
+        prerequisiteGetCursorPosSequence: prerequisite.lastCompletionSequence,
+        prerequisiteGetCursorPosInstructionCount:
+          prerequisite.lastCompletionInstructionCount,
+        prerequisiteGetCursorPos: structuredClone(prerequisite),
+        firstCompletionSequence: prerequisite.firstCompletionSequence,
+        firstCompletionInstructionCount:
+          prerequisite.firstCompletionInstructionCount,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: this.#report.instructions,
+        metricCalls: structuredClone(metricCalls),
+        isIconicCall: {
+          ...structuredClone(call),
+          occurrence,
+          trapInstructionCount: this.#report.instructions,
+          runtimeThreadId: 8_192,
+        },
+        actionInputEvents: [structuredClone(action)],
+        pendingActionMessage: structuredClone(action.receipt.message),
+        stateAuthority:
+          "rust-runtime-input-window-message-queue-and-guest-memory",
+        mutation: "owner-local-preflight-targeted-commits",
+        failureAtomicity: true,
+        browserOwnsInputState: false,
+        browserOwnsWindowState: false,
+        browserOwnsMessageQueueState: false,
+        activeCallbackDepthAtCompletion: 0,
+        instructionCount: 0,
+        nextEndpoint: null,
+        nextArguments: [],
+        memoryContentSha256: "",
+        nextReturnAddress: 0,
+        nextStackPointer: 0,
+      };
+    this.#user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectPrerequisite =
       null;
     this.#report.checkpointCompletion = checkpoint;
     this.#bgiCheckpointPending = true;
@@ -12562,6 +12923,9 @@ class BrowserRuntimeSession {
     }
     if (
       includesGetCursorInfoProfile(this.#configuration.capabilityProfile) &&
+      (this.#getCursorInfoFirstCall === null ||
+        this.#report.checkpointCompletion?.capability ===
+          "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336") &&
       call.module.toLowerCase() === "user32.dll" &&
       call.symbol === "GetCursorInfo" &&
       call.implementationId === "user32.get-cursor-info.system-arrow.v1"
@@ -12677,11 +13041,17 @@ class BrowserRuntimeSession {
       this.#scheduledSharedClockDefaultProcessingSequence;
     const inputQuerySequence =
       this.#inputProgressAsyncKeyStateQuery?.sequence ?? null;
+    const expectedPendingInputEvents =
+      isUser32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectProfile(
+        this.#configuration.capabilityProfile,
+      )
+        ? 1
+        : 0;
     invariant(
       this.#report.checkpointCompletion === null &&
         defaultProcessingSequence !== null &&
         this.#inputProgressPointerEvents.length === 2 &&
-        this.#pendingInputEvents.length === 0 &&
+        this.#pendingInputEvents.length === expectedPendingInputEvents &&
         this.#scheduledSharedClockInputTimerCycleCount ===
           this.#inputProgressBaseline.cycleCount &&
         !this.#scheduledSharedClockInputTimerCycleOpen &&
@@ -12946,6 +13316,177 @@ class BrowserRuntimeSession {
     stackPointer: number,
   ): void {
     const checkpoint = this.#report.checkpointCompletion;
+    if (
+      isUser32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      const endpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpointAddress,
+      );
+      const engine = this.#requireEngine();
+      const pacing = this.#timerPacing.metrics();
+      const batch =
+        checkpoint as PrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint | null;
+      const action = batch?.actionInputEvents[0];
+      invariant(
+        batch?.capability ===
+            "primary-main-loop-post-callback-window-input-scan-batch" &&
+          batch.implementationId ===
+            "runtime.primary-main-loop-post-callback-window-input-scan-batch.v1" &&
+          batch.requiredCompletions === 20 &&
+          batch.completionCount === 20 &&
+          batch.prerequisiteGetCursorPosSequence === 282_880 &&
+          batch.prerequisiteGetCursorPosInstructionCount === 392_355_424 &&
+          batch.firstCompletionSequence === 282_880 &&
+          batch.firstCompletionInstructionCount === 392_355_424 &&
+          batch.lastCompletionSequence === 283_412 &&
+          batch.lastCompletionInstructionCount === 445_134_233 &&
+          batch.metricCalls.length === 18 &&
+          batch.metricCalls
+            .map((call) => call.arguments[0])
+            .join(",") ===
+            Array.from({ length: 6 }, () => [7, 4, 8]).flat().join(",") &&
+          batch.metricCalls
+            .map((call) =>
+              "action" in call.result && call.result.action === "set"
+                ? call.result.value
+                : -1,
+            )
+            .join(",") ===
+            Array.from({ length: 6 }, () => [3, 23, 3]).flat().join(",") &&
+          batch.isIconicCall.sequence === 283_412 &&
+          batch.isIconicCall.occurrence === 68 &&
+          batch.isIconicCall.trapInstructionCount === 445_134_233 &&
+          batch.isIconicCall.runtimeThreadId === 8_192 &&
+          batch.isIconicCall.implementationId ===
+            "user32.is-iconic.logical-window-style.v1" &&
+          "action" in batch.isIconicCall.result &&
+          batch.isIconicCall.result.action === "set" &&
+          batch.isIconicCall.result.value === 0 &&
+          batch.actionInputEvents.length === 1 &&
+          action?.event.sequence === 3 &&
+          action.event.kind === "button-down" &&
+          action.event.button === "primary" &&
+          action.event.normalizedX === 0x8000 &&
+          action.event.normalizedY === 0x8000 &&
+          action.keyboard.generation === 4 &&
+          action.keyboard.lastEventSequence === 3 &&
+          action.keyboard.downWords.join(",") === "2,0,0,0,0,0,0,0" &&
+          action.keyboard.pressedWords.join(",") === "2,0,0,0,0,0,0,0" &&
+          action.cursor.screenX === 960 &&
+          action.cursor.screenY === 540 &&
+          action.cursor.generation === 0 &&
+          batch.pendingActionMessage.id === 44 &&
+          batch.pendingActionMessage.source.kind === "pointer-input" &&
+          batch.pendingActionMessage.source.event_sequence === 3 &&
+          batch.pendingActionMessage.targetThreadId === 8_192 &&
+          batch.pendingActionMessage.hwnd === 0x4801_0001 &&
+          batch.pendingActionMessage.message === 0x0201 &&
+          batch.pendingActionMessage.wParam === 1 &&
+          batch.pendingActionMessage.lParam === 0x0168_0280 &&
+          batch.pendingActionMessage.time === 3_800_773 &&
+          batch.pendingActionMessage.pointX === 960 &&
+          batch.pendingActionMessage.pointY === 540 &&
+          batch.stateAuthority ===
+            "rust-runtime-input-window-message-queue-and-guest-memory" &&
+          batch.mutation === "owner-local-preflight-targeted-commits" &&
+          batch.failureAtomicity === true &&
+          batch.browserOwnsInputState === false &&
+          batch.browserOwnsWindowState === false &&
+          batch.browserOwnsMessageQueueState === false &&
+          batch.activeCallbackDepthAtCompletion === 0 &&
+          endpoint?.id === 8 &&
+          endpoint.address === 0x7f00_0070 &&
+          endpoint.module?.toLowerCase() === "winmm.dll" &&
+          endpoint.symbol?.kind === "name" &&
+          endpoint.symbol.name === "timeGetTime" &&
+          endpoint.iatAddress === 0x100d_14e4 &&
+          stackPointer === 0x006f_f8d8 &&
+          engine.readGuestU32(stackPointer) === 0x1009_1ebf &&
+          this.#bgiCallbackCallSequences.size === 0 &&
+          this.#windowTimerCallbackEntry === null &&
+          this
+              .#user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimePrerequisite ===
+            null &&
+          this
+              .#user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectPrerequisite ===
+            null &&
+          this.#postCallbackWindowInputScanMetricCalls.length === 18 &&
+          this.#postCallbackActionInputEvents.length === 1 &&
+          this.#inputProgressPointerEvents.length === 2 &&
+          this.#pendingInputEvents.length === 0 &&
+          this.#report.pointerInput.receivedMessages === 3 &&
+          this.#report.pointerInput.queuedBeforePrepare === 3 &&
+          this.#report.pointerInput.receipts.length === 3 &&
+          this.#report.supportedCallCount === 283_412 &&
+          this.#scheduledSharedClockSampleCount === 100_565 &&
+          this.#scheduledSharedClockWindowTimerCallbackCount === 41 &&
+          this.#scheduledSharedClockPresentCount === 4 &&
+          pacing.completions === 9_035 &&
+          this.#report.instructions === 445_134_242,
+        `post-callback window input scan checkpoint has no matching continuation: ${JSON.stringify(
+          {
+            checkpoint: batch,
+            endpoint,
+            stackPointer,
+            returnAddress: engine.readGuestU32(stackPointer),
+            activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+            windowTimerCallbackEntry: this.#windowTimerCallbackEntry,
+            getWindowRectPrerequisite:
+              this
+                .#user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimePrerequisite,
+            getCursorPosPrerequisite:
+              this
+                .#user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectPrerequisite,
+            metricCallCount:
+              this.#postCallbackWindowInputScanMetricCalls.length,
+            actionInputEventCount: this.#postCallbackActionInputEvents.length,
+            inputProgressPointerEventCount:
+              this.#inputProgressPointerEvents.length,
+            pendingInputEvents: this.#pendingInputEvents.length,
+            pointerInput: this.#report.pointerInput,
+            supportedCallCount: this.#report.supportedCallCount,
+            clockSampleCount: this.#scheduledSharedClockSampleCount,
+            windowTimerCallbackCount:
+              this.#scheduledSharedClockWindowTimerCallbackCount,
+            presentCount: this.#scheduledSharedClockPresentCount,
+            instructions: this.#report.instructions,
+            timerPacing: pacing,
+          },
+        )}`,
+      );
+      const reflection =
+        this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-memory-summary" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation) &&
+          reflection.contentSha256 ===
+            "1354319d15490d41a85e6468c58ebc39f39e9ac0f55a720dd3aab71a7448e6df",
+        "post-callback window input scan memory summary changed",
+      );
+      batch.instructionCount = this.#report.instructions;
+      batch.nextEndpoint = {
+        id: 8,
+        address: endpoint.address,
+        module: endpoint.module,
+        symbol: { kind: "name", name: "timeGetTime" },
+        disposition: "declared-runtime-export",
+        iatAddress: endpoint.iatAddress,
+      };
+      batch.nextArguments = [];
+      batch.memoryContentSha256 = reflection.contentSha256;
+      batch.nextReturnAddress = 0x1009_1ebf;
+      batch.nextStackPointer = stackPointer;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "Primary post-callback window and input scan batch completed",
+        null,
+      );
+      return;
+    }
     if (
       isUser32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeProfile(
         this.#configuration.capabilityProfile,
@@ -16390,6 +16931,14 @@ class BrowserRuntimeSession {
         implementationOccurrence,
       );
       this.#recordUser32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeCall(
+        call,
+        implementationOccurrence,
+      );
+      this.#recordUser32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectCall(
+        call,
+        implementationOccurrence,
+      );
+      this.#recordPrimaryMainLoopPostCallbackWindowInputScanCall(
         call,
         implementationOccurrence,
       );

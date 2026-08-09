@@ -81,7 +81,9 @@ const scheduledSharedClockSetWindowText =
   capabilityProfile ===
     "winmm-time-get-time-post-test-cooperative-level-timer-callback" ||
   capabilityProfile ===
-    "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time";
+    "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time" ||
+  capabilityProfile ===
+    "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect";
 const d3d9Canvas =
   scheduledSharedClockSetWindowText ||
   capabilityProfile === "d3d9-first-present" ||
@@ -295,6 +297,9 @@ const startMessage = {
             capabilityProfile ===
               "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time"
           ? 405_000_000
+        : capabilityProfile ===
+              "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect"
+          ? 455_000_000
         : capabilityProfile === "gdi-outline-text-metrics-224x112"
           ? 385_000_000
         : capabilityProfile === "kernel32-delete-file-a" ||
@@ -680,6 +685,27 @@ if (
       sessionId,
       event: upEvent,
     } satisfies MainToWorkerMessage);
+    if (
+      capabilityProfile ===
+      "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect"
+    ) {
+      const actionDownEvent = pointerSourceEvent(
+        3,
+        "button-down",
+        0,
+        0x8000,
+        0x8000,
+      );
+      if (actionDownEvent === null) {
+        throw new Error("primary action pointer button is outside the bounded source mapping");
+      }
+      worker.postMessage({
+        type: "pointer-input",
+        protocolVersion,
+        sessionId,
+        event: actionDownEvent,
+      } satisfies MainToWorkerMessage);
+    }
   } else {
     const downEvent = {
       sequence: "1",
@@ -800,6 +826,8 @@ function parseCapabilityProfile(
       "winmm-time-get-time-post-test-cooperative-level-timer-callback" ||
     value ===
       "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time" ||
+    value ===
+      "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect" ||
     value === "kernel32-wait-for-single-object-ex" ||
     value === "kernel32-enter-critical-section" ||
     value === "primary-main-loop-progression" ||

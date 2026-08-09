@@ -2,7 +2,7 @@ import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 import type { BrowserNativeStorageConfiguration } from "../storage/protocol.js";
 
-export const protocolVersion = 131 as const;
+export const protocolVersion = 132 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -48,6 +48,7 @@ export type BgiCapabilityProfile =
   | "user32-peek-message-a-post-test-cooperative-level-timer-callback"
   | "winmm-time-get-time-post-test-cooperative-level-timer-callback"
   | "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time"
+  | "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1437,6 +1438,95 @@ export interface User32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGet
   nextStackPointer: number;
 }
 
+export interface User32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectCheckpoint {
+  capability: "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect";
+  implementationId: "runtime.user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect.v1";
+  semanticImplementationId: "user32.get-cursor-pos.v1";
+  requiredCompletions: 1;
+  completionCount: 1;
+  prerequisiteGetWindowRectSequence: number;
+  prerequisiteGetWindowRectInstructionCount: number;
+  prerequisiteGetWindowRect: User32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeCheckpoint;
+  firstCompletionSequence: number;
+  firstCompletionInstructionCount: number;
+  lastCompletionSequence: number;
+  lastCompletionInstructionCount: number;
+  call: RuntimeSupportedCallSnapshot & {
+    occurrence: number;
+    trapInstructionCount: number;
+    runtimeThreadId: 8192;
+  };
+  compatibilityPolicyId: "kernel32-delete-file-a-v1";
+  cursorPositionAuthority: "runtime/input.rs::RuntimeInput";
+  cursorPosition: { x: 960; y: 540 };
+  cursorPositionGeneration: 0;
+  outputType: "POINT";
+  lastErrorPolicy: "preserve-success-error-noaccess-on-invalid-output";
+  mutation: "guest-memory-preflight-atomic-write";
+  runtimeStateMutation: false;
+  failureAtomicity: true;
+  hostPointerImported: false;
+  browserPointerImported: false;
+  currentThreadId: 8192;
+  prerequisiteCallbackFrameId: number;
+  prerequisiteCallbackCompleted: true;
+  prerequisiteOuterDispatchCompleted: true;
+  activeCallbackDepthAtCompletion: 0;
+  instructionCount: 0;
+  nextEndpoint: null;
+  nextArguments: [];
+  memoryContentSha256: "";
+  nextReturnAddress: 0;
+  nextStackPointer: 0;
+}
+
+export interface PrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint {
+  capability: "primary-main-loop-post-callback-window-input-scan-batch";
+  implementationId: "runtime.primary-main-loop-post-callback-window-input-scan-batch.v1";
+  requiredCompletions: 20;
+  completionCount: 20;
+  prerequisiteGetCursorPosSequence: number;
+  prerequisiteGetCursorPosInstructionCount: number;
+  prerequisiteGetCursorPos: User32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectCheckpoint;
+  firstCompletionSequence: number;
+  firstCompletionInstructionCount: number;
+  lastCompletionSequence: number;
+  lastCompletionInstructionCount: number;
+  metricCalls: Array<
+    RuntimeSupportedCallSnapshot & {
+      occurrence: number;
+      trapInstructionCount: number;
+    }
+  >;
+  isIconicCall: RuntimeSupportedCallSnapshot & {
+    occurrence: number;
+    trapInstructionCount: number;
+    runtimeThreadId: 8192;
+  };
+  actionInputEvents: [RuntimePointerButtonInputBoundaryEvidence];
+  pendingActionMessage: RuntimeThreadMessageSnapshot;
+  stateAuthority: "rust-runtime-input-window-message-queue-and-guest-memory";
+  mutation: "owner-local-preflight-targeted-commits";
+  failureAtomicity: true;
+  browserOwnsInputState: false;
+  browserOwnsWindowState: false;
+  browserOwnsMessageQueueState: false;
+  activeCallbackDepthAtCompletion: 0;
+  instructionCount: number;
+  nextEndpoint: {
+    id: number;
+    address: number;
+    module: string;
+    symbol: { kind: "name"; name: "timeGetTime" };
+    disposition: "declared-runtime-export";
+    iatAddress: number;
+  } | null;
+  nextArguments: [];
+  memoryContentSha256: string;
+  nextReturnAddress: number;
+  nextStackPointer: number;
+}
+
 export interface SessionReport {
   evidenceLevel: "full" | "summary";
   outcome:
@@ -2086,6 +2176,7 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | PrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint
     | User32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeCheckpoint
     | WinmmTimeGetTimePostTestCooperativeLevelTimerCallbackCheckpoint
     | User32PeekMessageAPostTestCooperativeLevelTimerCallbackCheckpoint
