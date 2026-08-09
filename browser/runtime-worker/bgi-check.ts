@@ -83,7 +83,9 @@ const scheduledSharedClockSetWindowText =
   capabilityProfile ===
     "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time" ||
   capabilityProfile ===
-    "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect";
+    "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect" ||
+  capabilityProfile ===
+    "primary-main-loop-post-callback-pointer-message-consumption-batch";
 const d3d9Canvas =
   scheduledSharedClockSetWindowText ||
   capabilityProfile === "d3d9-first-present" ||
@@ -298,7 +300,9 @@ const startMessage = {
               "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time"
           ? 405_000_000
         : capabilityProfile ===
-              "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect"
+              "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect" ||
+            capabilityProfile ===
+              "primary-main-loop-post-callback-pointer-message-consumption-batch"
           ? 455_000_000
         : capabilityProfile === "gdi-outline-text-metrics-224x112"
           ? 385_000_000
@@ -687,7 +691,9 @@ if (
     } satisfies MainToWorkerMessage);
     if (
       capabilityProfile ===
-      "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect"
+        "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect" ||
+      capabilityProfile ===
+        "primary-main-loop-post-callback-pointer-message-consumption-batch"
     ) {
       const actionDownEvent = pointerSourceEvent(
         3,
@@ -828,6 +834,8 @@ function parseCapabilityProfile(
       "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time" ||
     value ===
       "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect" ||
+    value ===
+      "primary-main-loop-post-callback-pointer-message-consumption-batch" ||
     value === "kernel32-wait-for-single-object-ex" ||
     value === "kernel32-enter-critical-section" ||
     value === "primary-main-loop-progression" ||

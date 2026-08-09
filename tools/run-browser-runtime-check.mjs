@@ -139,9 +139,13 @@ const user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeProfile
 const user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectProfile =
   bgiProfile ===
   "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect";
+const primaryMainLoopPostCallbackPointerMessageConsumptionProfile =
+  bgiProfile ===
+  "primary-main-loop-post-callback-pointer-message-consumption-batch";
 const d3d9UpdateTexturePartialDirtyRegionProfile =
   bgiProfile === "d3d9-update-texture-partial-dirty-region";
 const includesD3d9UpdateTexturePartialDirtyRegionProfile =
+  primaryMainLoopPostCallbackPointerMessageConsumptionProfile ||
   user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectProfile ||
   user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeProfile ||
   winmmTimeGetTimePostTestCooperativeLevelTimerCallbackProfile ||
@@ -452,7 +456,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v132";
+const runtimeProtocol = "vine.browser-runtime-worker.v133";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -2255,6 +2259,136 @@ function assertPrimaryMainLoopPostCallbackWindowInputScanCheckpoint(completion) 
     completion.memoryContentSha256,
     "1354319d15490d41a85e6468c58ebc39f39e9ac0f55a720dd3aab71a7448e6df",
   );
+}
+
+function assertPrimaryMainLoopPostCallbackPointerMessageConsumptionCheckpoint(
+  completion,
+) {
+  assert.equal(
+    completion.capability,
+    "primary-main-loop-post-callback-pointer-message-consumption-batch",
+  );
+  assert.equal(
+    completion.implementationId,
+    "runtime.primary-main-loop-post-callback-pointer-message-consumption-batch.v1",
+  );
+  assert.equal(completion.requiredCompletions, 6);
+  assert.equal(completion.completionCount, 6);
+  assert.equal(
+    completion.prerequisiteWindowInputScan.capability,
+    "primary-main-loop-post-callback-window-input-scan-batch",
+  );
+  assert.equal(completion.prerequisiteWindowInputScan.completionCount, 20);
+  assert.equal(completion.firstCompletionSequence, 283_422);
+  assert.equal(completion.firstCompletionInstructionCount, 445_135_019);
+  assert.equal(completion.lastCompletionSequence, 283_427);
+  assert.equal(completion.lastCompletionInstructionCount, 445_135_265);
+  assert.equal(completion.actionInputEvent.event.sequence, 3);
+  assert.deepEqual(completion.message, completion.actionInputEvent.receipt.message);
+  assert.equal(completion.message.id, 44);
+  assert.equal(completion.message.message, 0x0201);
+  assert.equal(completion.peekMessage.sequence, 283_422);
+  assert.equal(completion.peekMessage.occurrence, 112);
+  assert.equal(completion.peekMessage.trapInstructionCount, 445_135_019);
+  assert.deepEqual(completion.peekMessage.arguments, [0x006f_f8e8, 0, 0, 0, 1]);
+  assert.deepEqual(completion.peekMessage.result, { action: "set", value: 1 });
+  assert.deepEqual(completion.peekMessage.guestWrites[0], {
+    address: 0x006f_f8e8,
+    bytes: [
+      1, 0, 1, 72, 1, 2, 0, 0, 1, 0, 0, 0, 128, 2, 104, 1, 197, 254,
+      57, 0, 192, 3, 0, 0, 28, 2, 0, 0,
+    ],
+  });
+  assert.equal(completion.translateMessage.sequence, 283_423);
+  assert.equal(completion.translateMessage.occurrence, 44);
+  assert.equal(completion.translateMessage.trapInstructionCount, 445_135_029);
+  assert.deepEqual(completion.translateMessage.arguments, [0x006f_f8e8]);
+  assert.deepEqual(completion.translateMessage.result, { action: "set", value: 0 });
+  assert.equal(completion.dispatchEntry.sequence, 283_424);
+  assert.equal(completion.dispatchEntry.occurrence, 44);
+  assert.equal(completion.dispatchEntry.trapInstructionCount, 445_135_033);
+  assert.deepEqual(completion.dispatchEntry.arguments, [0x006f_f8e8]);
+  assert.equal(completion.dispatchEntry.pendingCallback, true);
+  assert.equal(completion.callbackEntry.frameId, 76);
+  assert.equal(completion.callbackEntry.target, 0x1009_2550);
+  assert.deepEqual(completion.callbackEntry.arguments, [
+    0x4801_0001,
+    0x0201,
+    1,
+    0x0168_0280,
+  ]);
+  assert.equal(completion.queueDepthBefore, 1);
+  assert.equal(completion.queueDepthAtCallbackEntry, 0);
+  assert.equal(completion.messageRemoved, true);
+  assert.equal(completion.browserOwnsMessageQueueState, false);
+  assert.equal(completion.activeCallbackDepthAtStop, 1);
+  assert.deepEqual(
+    completion.callbackNestedCalls.map((call) => call.sequence),
+    [283_425, 283_426, 283_427],
+  );
+  assert.deepEqual(
+    completion.callbackNestedCalls.map((call) => call.implementationId),
+    [
+      "kernel32.enter-critical-section.v1",
+      "kernel32.heap-alloc.v2",
+      "kernel32.leave-critical-section.v1",
+    ],
+  );
+  assert.equal(completion.callbackNestedCalls[0].arguments[0], 0x1014_c8a0);
+  assert.equal(completion.callbackNestedCalls[2].arguments[0], 0x1014_c8a0);
+  assert.equal(
+    completion.callbackNestedCalls[1].heapAllocation.allocation.byteLength,
+    16,
+  );
+  assert.equal(completion.instructionCount, 445_135_271);
+  assert.deepEqual(
+    { ...completion.nextEndpoint, module: completion.nextEndpoint.module.toLowerCase() },
+    {
+      id: 209,
+      address: 0x7f00_0d00,
+      module: "user32.dll",
+      symbol: { kind: "name", name: "SetFocus" },
+      disposition: "declared-runtime-export",
+      iatAddress: 0x100d_141c,
+    },
+  );
+  assert.deepEqual(completion.nextArguments, [0x4801_0001]);
+  assert.equal(completion.nextReturnAddress, 0x1009_2dcb);
+  assert.equal(completion.nextStackPointer, 0x006f_f518);
+  assert.equal(
+    completion.memoryContentSha256,
+    "d22b59031f485dbc11347930f72893696ed32844c07df27f0919c0b6e6656f42",
+  );
+}
+
+function validatePrimaryMainLoopPostCallbackPointerMessageConsumptionBgiProbe(
+  evidence,
+  scenario,
+) {
+  if (scenario !== "success") {
+    validateScheduledSharedClockBgiProbe(evidence, scenario);
+    return;
+  }
+  const report = evidence.report;
+  assert.equal(report.outcome, "checkpoint-complete");
+  assert.equal(report.error, null);
+  assert.equal(report.supportedCallCount, 283_426);
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    "90bff2119a16d7aca682bde9f03f8f111cac56f8436a2b8886e85f71f4003af7",
+  );
+  assert.equal(report.instructions, 445_135_271);
+  assert.equal(report.firstUnsupported, null);
+  assert.equal(report.pointerInput.receivedMessages, 3);
+  assert.equal(report.pointerInput.queuedBeforePrepare, 3);
+  assert.equal(report.pointerInput.receipts.length, 3);
+  assert.equal(report.keyboardInput.receivedMessages, 0);
+  assertPrimaryMainLoopPostCallbackPointerMessageConsumptionCheckpoint(
+    report.checkpointCompletion,
+  );
+  assert.equal(report.timerPacing.requests, 9_036);
+  assert.equal(report.timerPacing.completions, 9_036);
+  assert.equal(report.timerPacing.pending, 0);
 }
 
 function validateUser32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectBgiProbe(
@@ -5146,6 +5280,13 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.report.pendingCallbacks, 0);
     assertExecutionStateMachine(evidence.report, scenario);
     assertExecutionEngine(evidence.report);
+    if (primaryMainLoopPostCallbackPointerMessageConsumptionProfile) {
+      validatePrimaryMainLoopPostCallbackPointerMessageConsumptionBgiProbe(
+        evidence,
+        scenario,
+      );
+      return evidence;
+    }
     if (
       user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectProfile
     ) {
@@ -10960,6 +11101,179 @@ function validateD3d9EndScenePostDrawPrimitiveBgiEquivalence(browser, oracle) {
   assert.equal(report.timerPacing.pending, 0);
 }
 
+function normalizeCheckpointCall(call) {
+  return {
+    semantic: normalizeSemanticCall(call),
+    occurrence: call.occurrence,
+    trapInstructionCount: call.trapInstructionCount,
+    runtimeThreadId: call.runtimeThreadId,
+  };
+}
+
+function validatePrimaryMainLoopPostCallbackPointerMessageConsumptionBgiEquivalence(
+  browser,
+  oracle,
+) {
+  const report = browser.report;
+  const completion = report.checkpointCompletion;
+  const oracleCompletion =
+    oracle.execution.postCallbackPointerMessageConsumption.checkpointCompletion;
+  assert.equal(
+    oracle.schema,
+    "vine.v86-bgi-primary-main-loop-post-callback-pointer-message-consumption-batch",
+  );
+  assert.equal(report.evidenceLevel, fullEvidence ? "full" : "summary");
+  assert.equal(report.supportedCallCount, oracle.execution.completedSupportedCalls);
+  assert.equal(
+    report.supportedCallSemanticsSha256,
+    oracle.execution.supportedCallSemanticsSha256,
+  );
+  assert.equal(report.instructions, oracle.stop.terminal.instructionCount);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert.deepEqual(
+    report.sourceReads.map(normalizeBrowserSourceRead),
+    oracle.synchronization.sourceReads.map(normalizeNodeSourceRead),
+  );
+  assert.deepEqual(
+    (report.heapPageMaterializations ?? []).map(normalizeHeapPageMaterialization),
+    oracle.synchronization.heapPageMaterializations.map(
+      normalizeHeapPageMaterialization,
+    ),
+  );
+  assert.deepEqual(
+    report.writableDirectoryCreates.map(normalizeWritableDirectoryCreate),
+    oracle.synchronization.writableDirectoryCreates.map(
+      normalizeWritableDirectoryCreate,
+    ),
+  );
+  assert.equal(report.firstUnsupported, null);
+  assert.equal(oracle.stop.fault, null);
+  assertPrimaryMainLoopPostCallbackPointerMessageConsumptionCheckpoint(completion);
+
+  for (const field of [
+    "capability",
+    "implementationId",
+    "requiredCompletions",
+    "completionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "message",
+    "queueDepthBefore",
+    "queueDepthAtCallbackEntry",
+    "messageRemoved",
+    "browserOwnsMessageQueueState",
+    "activeCallbackDepthAtStop",
+    "instructionCount",
+    "nextArguments",
+    "memoryContentSha256",
+    "nextReturnAddress",
+    "nextStackPointer",
+  ]) {
+    assert.deepEqual(completion[field], oracleCompletion[field], field);
+  }
+  assert.deepEqual(
+    { ...completion.nextEndpoint, module: completion.nextEndpoint.module.toLowerCase() },
+    {
+      ...oracleCompletion.nextEndpoint,
+      module: oracleCompletion.nextEndpoint.module.toLowerCase(),
+    },
+  );
+  assert.deepEqual(
+    { ...completion.dispatchEntry, module: completion.dispatchEntry.module.toLowerCase() },
+    {
+      ...oracleCompletion.dispatchEntry,
+      module: oracleCompletion.dispatchEntry.module.toLowerCase(),
+    },
+  );
+  assert.deepEqual(completion.callbackEntry, oracleCompletion.callbackEntry);
+  assert.deepEqual(
+    normalizeCheckpointCall(completion.peekMessage),
+    normalizeCheckpointCall(oracleCompletion.peekMessage),
+  );
+  assert.deepEqual(
+    normalizeCheckpointCall(completion.translateMessage),
+    normalizeCheckpointCall(oracleCompletion.translateMessage),
+  );
+  assert.deepEqual(
+    completion.callbackNestedCalls.map(normalizeCheckpointCall),
+    oracleCompletion.callbackNestedCalls.map(normalizeCheckpointCall),
+  );
+  for (const field of [
+    "committedAfterSequence",
+    "committedAfterInstructionCount",
+    "event",
+    "receipt",
+    "keyboard",
+    "cursor",
+  ]) {
+    assert.deepEqual(
+      completion.actionInputEvent[field],
+      oracleCompletion.actionInputEvent[field],
+      `actionInputEvent.${field}`,
+    );
+  }
+  const scan = completion.prerequisiteWindowInputScan;
+  const oracleScan = oracleCompletion.prerequisiteWindowInputScan;
+  for (const field of [
+    "capability",
+    "implementationId",
+    "requiredCompletions",
+    "completionCount",
+    "prerequisiteGetCursorPosSequence",
+    "prerequisiteGetCursorPosInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "stateAuthority",
+    "mutation",
+    "failureAtomicity",
+    "browserOwnsInputState",
+    "browserOwnsWindowState",
+    "browserOwnsMessageQueueState",
+    "activeCallbackDepthAtCompletion",
+    "instructionCount",
+    "nextEndpoint",
+    "nextArguments",
+    "memoryContentSha256",
+    "nextReturnAddress",
+    "nextStackPointer",
+  ]) {
+    assert.deepEqual(scan[field], oracleScan[field], `prerequisite.${field}`);
+  }
+  assert.deepEqual(
+    scan.metricCalls.map(normalizeCheckpointCall),
+    oracleScan.metricCalls.map(normalizeCheckpointCall),
+  );
+  assert.deepEqual(
+    normalizeCheckpointCall(scan.isIconicCall),
+    normalizeCheckpointCall(oracleScan.isIconicCall),
+  );
+  assert.deepEqual(scan.pendingActionMessage, oracleScan.pendingActionMessage);
+  assert.deepEqual(
+    normalizeCheckpointCall(scan.prerequisiteGetCursorPos.call),
+    normalizeCheckpointCall(oracleScan.prerequisiteGetCursorPos.call),
+  );
+  assert.equal(report.pointerInput.receipts.length, 3);
+  assert.deepEqual(
+    report.pointerInput.receipts[0],
+    oracle.execution.pointerInput.first.receipt,
+  );
+  assert.deepEqual(
+    report.pointerInput.receipts[1],
+    oracle.execution.pointerInput.last.receipt,
+  );
+  assert.deepEqual(
+    report.pointerInput.receipts[2],
+    oracleCompletion.actionInputEvent.receipt,
+  );
+  assert.equal(report.timerPacing.requests, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.completions, oracle.execution.timerPacing.count);
+  assert.equal(report.timerPacing.pending, 0);
+}
+
 function validateUser32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectBgiEquivalence(
   browser,
   oracle,
@@ -13999,6 +14313,13 @@ function validateCreateFontA224x112BgiEquivalence(browser, oracle) {
 }
 
 function validateBgiEquivalence(browser, oracle) {
+  if (primaryMainLoopPostCallbackPointerMessageConsumptionProfile) {
+    validatePrimaryMainLoopPostCallbackPointerMessageConsumptionBgiEquivalence(
+      browser,
+      oracle,
+    );
+    return;
+  }
   if (
     user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectProfile
   ) {

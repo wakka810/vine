@@ -85,7 +85,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 97);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 98);
 assert.match(
   privateTargetRunner,
   /function assertUser32PeekMessageAPostTestCooperativeLevelTimerCallbackCheckpoint[\s\S]*?"queueDepthBefore"[\s\S]*?"queueDepthAfter"[\s\S]*?"browserOwnsMessageQueueState"[\s\S]*?"messageBytesPreserved"[\s\S]*?"activeCallbackDepthAtStop"/u,
@@ -101,6 +101,10 @@ assert.match(
 assert.match(
   privateTargetRunner,
   /function assertPrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint[\s\S]*?"stateAuthority"[\s\S]*?"failureAtomicity"[\s\S]*?"browserOwnsInputState"[\s\S]*?"browserOwnsWindowState"[\s\S]*?"browserOwnsMessageQueueState"[\s\S]*?metricCalls[\s\S]*?pendingActionMessage/u,
+);
+assert.match(
+  privateTargetRunner,
+  /function assertPrimaryMainLoopPostCallbackPointerMessageConsumptionBatchCheckpoint[\s\S]*?peekMessage[\s\S]*?translateMessage[\s\S]*?dispatchEntry[\s\S]*?callbackNestedCalls[\s\S]*?activeCallbackDepthAtStop/u,
 );
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
@@ -482,6 +486,20 @@ assert.deepEqual(
   validatePrivateTargetEvidence(validEvidence(), checkpoint),
   [],
 );
+if (
+  checkpoint.nextStructuredStop.completion.capability ===
+  "primary-main-loop-post-callback-pointer-message-consumption-batch"
+) {
+  const staleNestedCall = mutated((value) => {
+    value.semantic.browser.checkpointCompletion.callbackNestedCalls[1].symbol =
+      "HeapFree";
+  });
+  assert(
+    validatePrivateTargetEvidence(staleNestedCall, checkpoint).some((error) =>
+      error.includes("callbackNestedCalls.symbols"),
+    ),
+  );
+}
 if (
   checkpoint.nextStructuredStop.completion.capability ===
     "user32-get-window-rect-post-pointer-release-continuation" ||

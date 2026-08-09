@@ -2488,6 +2488,20 @@ completions、ordered digest
 acceptanceへ含めない。詳細は
 [post-callback window/input scan batch](bgi-primary-main-loop-post-callback-window-input-scan-batch.md)を正とする。
 
+Post-callback pointer-message consumption leafは、pending `WM_LBUTTONDOWN` ID 44を
+prerequisiteに、`PeekMessageA(PM_REMOVE)`、pointer `TranslateMessage` no-op、
+`DispatchMessageA` WndProc entry、callback内の`EnterCriticalSection`、`HeapAlloc(16)`、
+`LeaveCriticalSection`を一つのbounded batchとして検証する。Node／Chromeは283,426 completed
+calls、100,566 clock samples、41 completed TIMERPROC callbacks、9,036 pacing completions、
+ordered digest
+`90bff2119a16d7aca682bde9f03f8f111cac56f8436a2b8886e85f71f4003af7`、terminal memory digest
+`d22b59031f485dbc11347930f72893696ed32844c07df27f0919c0b6e6656f42`を一致させる。
+Protocol v133／report schema 98でqueue depth `1 -> 0`、callback frame 76、三件のnested call
+order、callback depth 1、cancel／watchdog cleanupを維持し、次の`SetFocus`で停止する。
+`SetFocus` completion、callback unwind、visible response、general pointer／focus breadthは
+acceptanceへ含めない。詳細は
+[post-callback pointer-message consumption batch](bgi-primary-main-loop-post-callback-pointer-message-consumption-batch.md)を正とする。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

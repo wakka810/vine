@@ -2,7 +2,7 @@ import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 import type { BrowserNativeStorageConfiguration } from "../storage/protocol.js";
 
-export const protocolVersion = 132 as const;
+export const protocolVersion = 133 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -49,6 +49,7 @@ export type BgiCapabilityProfile =
   | "winmm-time-get-time-post-test-cooperative-level-timer-callback"
   | "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time"
   | "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect"
+  | "primary-main-loop-post-callback-pointer-message-consumption-batch"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1527,6 +1528,71 @@ export interface PrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint {
   nextStackPointer: number;
 }
 
+export interface PrimaryMainLoopPostCallbackPointerMessageConsumptionBatchCheckpoint {
+  capability: "primary-main-loop-post-callback-pointer-message-consumption-batch";
+  implementationId: "runtime.primary-main-loop-post-callback-pointer-message-consumption-batch.v1";
+  requiredCompletions: 6;
+  completionCount: 6;
+  prerequisiteWindowInputScan: PrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint;
+  firstCompletionSequence: number;
+  firstCompletionInstructionCount: number;
+  lastCompletionSequence: number;
+  lastCompletionInstructionCount: number;
+  actionInputEvent: RuntimePointerButtonInputBoundaryEvidence;
+  message: RuntimeThreadMessageSnapshot;
+  peekMessage: RuntimeSupportedCallSnapshot & {
+    occurrence: number;
+    trapInstructionCount: number;
+  };
+  translateMessage: RuntimeSupportedCallSnapshot & {
+    occurrence: number;
+    trapInstructionCount: number;
+  };
+  dispatchEntry: {
+    sequence: number;
+    module: string;
+    symbol: "DispatchMessageA";
+    occurrence: number;
+    trapInstructionCount: number;
+    arguments: [number];
+    pendingCallback: true;
+    implementationId: "user32.dispatch-message-a.window-timer-pointer-callback.v2";
+  };
+  callbackEntry: {
+    action: "enter";
+    sequence: number;
+    frameId: number;
+    instructionCount: number;
+    target: number;
+    stackPointer: number;
+    arguments: [number, number, number, number];
+  };
+  queueDepthBefore: 1;
+  queueDepthAtCallbackEntry: 0;
+  messageRemoved: true;
+  browserOwnsMessageQueueState: false;
+  activeCallbackDepthAtStop: 1;
+  callbackNestedCalls: Array<
+    RuntimeSupportedCallSnapshot & {
+      occurrence: number;
+      trapInstructionCount: number;
+    }
+  >;
+  instructionCount: number;
+  nextEndpoint: {
+    id: number;
+    address: number;
+    module: string;
+    symbol: { kind: "name"; name: "SetFocus" };
+    disposition: "declared-runtime-export";
+    iatAddress: number;
+  };
+  memoryContentSha256: string;
+  nextArguments: [number];
+  nextReturnAddress: number;
+  nextStackPointer: number;
+}
+
 export interface SessionReport {
   evidenceLevel: "full" | "summary";
   outcome:
@@ -2176,6 +2242,7 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | PrimaryMainLoopPostCallbackPointerMessageConsumptionBatchCheckpoint
     | PrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint
     | User32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeCheckpoint
     | WinmmTimeGetTimePostTestCooperativeLevelTimerCallbackCheckpoint

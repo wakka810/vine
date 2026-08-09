@@ -14,15 +14,15 @@ Edit the manifest and run `npm run docs:generate`; do not edit this block by han
 |---|---|
 | Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
 | Active scenario | `first-present-readable-screen` |
-| Runtime diagnostics | `primary-main-loop-post-callback-window-input-scan-batch`: 283,412 calls across 137 endpoint contracts / 135 APIs, memory generation 334,488 |
+| Runtime diagnostics | `primary-main-loop-post-callback-pointer-message-consumption-batch`: 283,426 calls across 137 endpoint contracts / 135 APIs, memory generation 334,510 |
 | Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
 | Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
-| Shared clock | `scheduled-shared-logical-deadline-v1`: cumulative retired guest instructions at 2,000,000/s with 1 ms resolution; API reads do not advance it; Node primary recorded 100,565 samples / 41 TIMERPROC callbacks; Chrome `vine.browser-runtime-worker.v132` boundary passed |
+| Shared clock | `scheduled-shared-logical-deadline-v1`: cumulative retired guest instructions at 2,000,000/s with 1 ms resolution; API reads do not advance it; Node primary recorded 100,566 samples / 41 TIMERPROC callbacks; Chrome `vine.browser-runtime-worker.v133` boundary passed |
 | Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `primary-main-loop-post-callback-window-input-scan-batch` projected the Rust-owned cursor, committed primary-button input sequence 3, and completed 18 GetSystemMetrics calls plus IsIconic at sequence 283412 / instruction 445134233; Rust retains pending message 44 for the next consumption batch, and verification stopped at `WINMM.dll!timeGetTime` on instruction 445134242 (`primary-main-loop-post-callback-window-input-scan-batch-checkpoint-complete`) |
+| Next structured stop | `primary-main-loop-post-callback-pointer-message-consumption-batch` removed Rust-owned pointer message 44, entered WndProc callback frame 76, and completed 3 nested synchronization/heap calls through sequence 283427 / instruction 445135265; verification stopped at `USER32.dll!SetFocus` on instruction 445135271 (`primary-main-loop-post-callback-pointer-message-consumption-batch-checkpoint-complete`) |
 
-The active semantic report is 2,668,326 bytes with SHA-256
-`598769a763e98f006ac0834bfabcf978cd08e252a60fbfcaeae04fe746a1f128`. The hash identifies the artifact; semantic checks are the gate.
+The active semantic report is 2,708,283 bytes with SHA-256
+`d5adac6b0d8bf67263bd507378f61098768ae9977ca56e7d62601edf202980ba`. The hash identifies the artifact; semantic checks are the gate.
 
 ### Scenario Milestones
 

@@ -141,6 +141,65 @@ function capabilityCompletionFields(expected, includeDispatchBoundary = false) {
       ];
 }
 
+function validatePostCallbackPointerMessageConsumption(
+  completion,
+  expected,
+  label,
+  errors,
+) {
+  if (
+    expected.capability !==
+    "primary-main-loop-post-callback-pointer-message-consumption-batch"
+  ) {
+    return;
+  }
+  const message = requireRecord(completion.message, `${label}.message`, errors);
+  const peek = requireRecord(completion.peekMessage, `${label}.peekMessage`, errors);
+  const translate = requireRecord(
+    completion.translateMessage,
+    `${label}.translateMessage`,
+    errors,
+  );
+  const dispatch = requireRecord(
+    completion.dispatchEntry,
+    `${label}.dispatchEntry`,
+    errors,
+  );
+  const callback = requireRecord(
+    completion.callbackEntry,
+    `${label}.callbackEntry`,
+    errors,
+  );
+  const nested = Array.isArray(completion.callbackNestedCalls)
+    ? completion.callbackNestedCalls
+    : (errors.push(`${label}.callbackNestedCalls must be an array`), []);
+  for (const [field, actual, expectedValue] of [
+    ["message.id", message.id, 44],
+    ["message.message", message.message, 0x0201],
+    ["peekMessage.sequence", peek.sequence, 283_422],
+    ["peekMessage.occurrence", peek.occurrence, 112],
+    ["translateMessage.sequence", translate.sequence, 283_423],
+    ["translateMessage.occurrence", translate.occurrence, 44],
+    ["dispatchEntry.sequence", dispatch.sequence, 283_424],
+    ["dispatchEntry.pendingCallback", dispatch.pendingCallback, true],
+    ["callbackEntry.frameId", callback.frameId, 76],
+    ["callbackEntry.target", callback.target, 0x1009_2550],
+    ["queueDepthBefore", completion.queueDepthBefore, 1],
+    ["queueDepthAtCallbackEntry", completion.queueDepthAtCallbackEntry, 0],
+    ["messageRemoved", completion.messageRemoved, true],
+    ["browserOwnsMessageQueueState", completion.browserOwnsMessageQueueState, false],
+    ["activeCallbackDepthAtStop", completion.activeCallbackDepthAtStop, 1],
+    ["callbackNestedCalls.length", nested.length, 3],
+    [
+      "callbackNestedCalls.symbols",
+      nested.map((call) => call?.symbol).join(","),
+      "EnterCriticalSection,HeapAlloc,LeaveCriticalSection",
+    ],
+  ]) {
+    checkEqual(actual, expectedValue, `${label}.${field}`, errors);
+  }
+}
+
 function validatePointerReleaseCompletion(
   completion,
   expected,
@@ -2078,6 +2137,12 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
         `evidence.semantic.${label}.checkpointCompletion`,
         errors,
         { requireWriteReceipt: label === "node" },
+      );
+      validatePostCallbackPointerMessageConsumption(
+        completion,
+        expectedCompletion,
+        `evidence.semantic.${label}.checkpointCompletion`,
+        errors,
       );
       if (expectedCompletion.requiredPointerMessages !== undefined) {
         const dispatchEntry = requireRecord(

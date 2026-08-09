@@ -535,6 +535,22 @@ Both stop at the following `WINMM.dll!timeGetTime`; TypeScript owns no Windows
 cursor, keyboard, window, or message-queue state. Details are in
 [the post-callback window/input scan batch](bgi-primary-main-loop-post-callback-window-input-scan-batch.md).
 
+Protocol version 133／BGI report schema 98 consumes that pending pointer message
+and enters its WndProc as one batch. Node and Chrome agree that sequence 283,422
+removes message 44 through `PeekMessageA(PM_REMOVE)`, sequence 283,423 validates
+pointer `TranslateMessage` as a no-op, and pending sequence 283,424 publishes
+WndProc frame 76 through `DispatchMessageA`. The callback then completes
+`EnterCriticalSection`, `HeapAlloc(16)`, and `LeaveCriticalSection` through
+sequence 283,427／instruction 445,135,265. Completed-call count is 283,426,
+semantic digest is
+`90bff2119a16d7aca682bde9f03f8f111cac56f8436a2b8886e85f71f4003af7`, and
+terminal memory digest is
+`d22b59031f485dbc11347930f72893696ed32844c07df27f0919c0b6e6656f42`.
+Both stop six instructions later at `USER32.dll!SetFocus(0x48010001)` with
+callback depth one. TypeScript owns no Windows queue, callback, synchronization,
+heap, or guest-memory state. Details are in
+[the post-callback pointer-message consumption batch](bgi-primary-main-loop-post-callback-pointer-message-consumption-batch.md).
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk

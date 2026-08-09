@@ -30,12 +30,12 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "committed primary-button input sequence 3",
+    "removed Rust-owned pointer message 44",
   ),
 );
 assert.ok(
   rendered.includes(
-    "Node primary recorded 100,565 samples / 41 TIMERPROC callbacks",
+    "Node primary recorded 100,566 samples / 41 TIMERPROC callbacks",
   ),
 );
 assert.ok(rendered.includes("| Shared clock |"));

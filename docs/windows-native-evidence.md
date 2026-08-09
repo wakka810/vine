@@ -6506,3 +6506,25 @@ Rust remains authoritative for input, window, queue, and guest bytes; TypeScript
 only compares the non-owning projection. Exact active artifact identities remain
 authoritative only in [current-checkpoint.json](current-checkpoint.json). Details are
 in [the bounded window/input scan batch](bgi-primary-main-loop-post-callback-window-input-scan-batch.md).
+
+## 198. BGI post-callback pointer-message consumption batch
+
+Sections 178, 180, 191, and the existing critical-section／heap captures already fix
+the native and controlled-fixture contracts required at this boundary. Unfiltered
+current-thread `PeekMessageA(PM_REMOVE)` publishes the exact `MSG32` before removal,
+pointer `TranslateMessage` is a no-op, and `DispatchMessageA` enters the live window
+procedure with `(HWND, WM_LBUTTONDOWN, wParam, lParam)`. No new native trace was
+needed. Primary sequence, occurrence, frame ID, heap address, and guest addresses
+remain evidence identities rather than semantic selectors.
+
+Canonical Node and Chrome remove message ID 44 at sequence 283,422, validate
+translation at 283,423, and publish WndProc frame 76 at pending sequence 283,424.
+The callback completes `EnterCriticalSection(0x1014C8A0)`,
+`HeapAlloc(0x68010001, 0, 16) -> 0x3E429780`, and
+`LeaveCriticalSection(0x1014C8A0)` through sequence 283,427／instruction
+445,135,265, then reaches `SetFocus(0x48010001)` six instructions later. Rust
+remains authoritative for queue, callback, synchronization, heap, and guest bytes;
+TypeScript only compares the non-owning projection. Exact active artifact identities
+remain authoritative only in [current-checkpoint.json](current-checkpoint.json).
+Details are in
+[the bounded pointer-message consumption batch](bgi-primary-main-loop-post-callback-pointer-message-consumption-batch.md).

@@ -185,7 +185,7 @@
     "workload": "private-bgi-generic-session",
     "bgiSession": "semantic-equivalence-passed",
     "bgiBenchmark": "threshold-passed",
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v132",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v133",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json",
     "browserRuntimeWorker": true,
     "browserRuntimeCoreWasm": {
@@ -5720,10 +5720,10 @@
     "decisionScope": "controlled-browser-runtime-baseline"
   },
   "activeRuntimeCheckpoint": {
-    "runtimeKernelCheckpoint": "primary-main-loop-post-callback-window-input-scan-batch",
+    "runtimeKernelCheckpoint": "primary-main-loop-post-callback-pointer-message-consumption-batch",
     "status": "checkpoint-complete",
     "profile": "user32-peek-message-a-post-window-timer-callback-continuation",
-    "capabilityProfile": "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect",
+    "capabilityProfile": "primary-main-loop-post-callback-pointer-message-consumption-batch",
     "runtimeStateAuthority": "rust",
     "runtimeStateScope": "single-process-controlled-and-api-created-thread-wait-message-heap-module-dll-lifecycle-critical-section-named-mutex-pointer-decoding-fls-allocation-private-heap-allocation-fls-value-interlocked-increment-second-heap-allocation-standard-input-handle-file-type-standard-output-handle-standard-output-file-type-standard-error-handle-standard-error-file-type-set-handle-count-policy-process-command-line-wide-environment-copy-lifetime-windows-932-wide-and-multibyte-conversion-one-byte-uninitialized-heap-buffer-thread-last-error-read-write-thread-local-storage-read-fiber-local-storage-read-active-code-page-read-544-byte-uninitialized-heap-buffer-active-code-page-information-output-ctype1-classification-ja-jp-lowercase-and-uppercase-mapping-interlocked-decrement-process-image-path-ansi-copy-16-byte-uninitialized-heap-buffer-4-byte-zeroed-environment-pointer-table-one-byte-private-heap-free-128-byte-zeroed-heap-buffer-explicit-processor-feature-presence-process-unhandled-exception-filter-private-heap-size-query-default-critical-section-initialization-active-code-page-selector-nul-terminated-conversion-process-current-directory-ansi-identity-current-thread-pseudo-handle-dynamic-resolution-thread-logical-affinity-mask-deterministic-monotonic-tick-progression-deterministic-high-resolution-performance-frequency-and-counter-progression-x86-virtual-system-information-single-logical-monitor-enumeration-and-work-area-query-per-thread-com-apartment-initialization-system-default-lang-id-read-process-image-drive-type-query-logical-mouse-button-mapping-focused-virtual-key-state-and-pressed-since-query-winmm-timer-capabilities-logical-winmm-timer-resolution-request-lifetime-policy-owned-ansi-os-version-information-manual-reset-unnamed-waitable-timer-identity-handle-lifetime-relative-one-shot-arm-nonsignaled-reset-logical-expiration-clock-and-bounded-finite-alertable-wait-pe-resource-catalog-module-shared-icon-identity-and-process-lifetime-system-arrow-and-module-resource-shared-cursor-identity-and-process-lifetime-process-local-window-class-identity-atom-module-wndproc-resource-reference-and-lifetime-logical-system-metrics-read-process-large-private-heap-permanent-slot-lazy-page-materialization-logical-top-level-window-five-message-synchronous-creation-callback-lifecycle-dedicated-scratch-small-icon-size-metrics-module-shared-small-icon-load-image-selection-same-thread-synchronous-wm-seticon-small-icon-relation-and-initial-offscreen-show-hide-position-visibility-callback-free-dynamic-runtime-system-module-identity-reference-and-attach-state-d3d9-device-render-state-texture-binding-flexible-vertex-format-stream-source-binding-draw-submission-lifetime-directinput8-root-com-identity-lifetime-directinput8-empty-attached-game-controller-enumeration-directsound8-root-com-audio-identity-lifetime-priority-cooperative-window-relation-primary-and-secondary-logical-audio-buffer-descriptor-format-lazy-sample-backing-lock-content-playback-and-com-lifetime-logical-window-timer-registration-identity-owner-thread-interval-callback-and-process-lifetime-guest-thread-stack-teb-bootstrap-suspend-resume-lifetime-logical-priority-and-explicit-api-boundary-yield-primary-screen-dc-acquisition-lifetime-bounded-cp932-font-enumeration-callback-catalog-logical-font-object-creation-null-source-compatible-memory-dc-dib-lifecycle-selected-font-outline-metrics-output-bounded-cp932-text-raster-into-selected-dib-and-logical-gdiplus-startup-session-token-lifetime-logical-window-file-drop-acceptance-runtime-vfs-registered-file-and-derived-directory-attribute-query-runtime-vfs-durable-writable-directory-create-same-active-window-repeat-position-validation-only-callback-current-thread-unfiltered-nonblocking-message-peek-and-optional-remove-logical-window-minimized-state-query-from-effective-style-logical-window-timer-expiry-low-priority-wm-timer-materialization-translate-noop-and-validated-timerproc-dispatch-foreground-client-pointer-button-message-production-and-wndproc-dispatch-with-queued-release-same-current-thread-active-focused-foreground-set-focus-idempotent-read-same-current-thread-visible-active-focused-foreground-cursor-derived-wm-lbuttondown-default-window-processing-current-thread-unfiltered-pm-remove-wm-lbuttonup-msg32-write-and-empty-queue-read-only-wm-lbuttonup-translate-from-guest-memory-with-empty-current-thread-queue-wm-lbuttonup-dispatch-defwindowproc-zero-result-and-callback-unwind-same-thread-wm-settext-windows-932-window-title-commit-system-arrow-cursor-info-flags-handle-and-logical-position-projection",
     "runtimeVirtualMemoryScope": "null-preferred-96m-reserve-top-down-page-readwrite-without-commit-decommit-or-release",
@@ -5839,7 +5839,7 @@
     "hostCompletionModel": "scheduler-event",
     "genericDispatcherApiCount": 135,
     "genericDispatcherContractCount": 137,
-    "genericDispatcherCallOccurrenceCount": 283412,
+    "genericDispatcherCallOccurrenceCount": 283426,
     "genericDispatcherApis": [
       "KERNEL32.dll!GetSystemTimeAsFileTime",
       "KERNEL32.dll!GetCurrentProcessId",
@@ -6196,7 +6196,7 @@
         "kernel32_virtual_memory_dispatcher::owner_capacity_failure_is_atomic_across_allocator_and_guest_memory",
         "kernel32_virtual_memory_dispatcher::guest_region_overlap_rejects_before_allocator_commit_or_owner_id_advance"
       ],
-      "capabilityExpansionPausedAt": "primary-main-loop-post-callback-pointer-message-consumption-batch"
+      "capabilityExpansionPausedAt": "primary-main-loop-post-callback-pointer-action-continuation-batch"
     },
     "runtimeObjectModel": {
       "schema": "vine.runtime-object-table.v2",
@@ -13329,13 +13329,13 @@
       "allApiAndComDispatchBoundariesUseSharedSchedule": true,
       "regressingInstructionCursorRejectedBeforeMutation": true,
       "nodePrimaryEvidence": {
-        "schema": "vine.v86-bgi-user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect-primary",
+        "schema": "vine.v86-bgi-primary-main-loop-post-callback-pointer-message-consumption-batch",
         "schemaVersion": 1,
         "canonicalCommand": "npm run check:runtime:bgi",
         "repeatRuns": 1,
-        "reportPath": ".work/v86-bgi-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect/report.json",
-        "reportBytes": 2668326,
-        "reportSha256": "598769a763e98f006ac0834bfabcf978cd08e252a60fbfcaeae04fe746a1f128",
+        "reportPath": ".work/v86-bgi-post-callback-pointer-message-consumption-batch/report.json",
+        "reportBytes": 2708283,
+        "reportSha256": "d5adac6b0d8bf67263bd507378f61098768ae9977ca56e7d62601edf202980ba",
         "nodeReplayOldSpaceMiB": 8192,
         "rejectedNodeReplayOldSpaceMiB": 6144,
         "rejectedNodeReplayOutcome": "v8-heap-out-of-memory-near-limit",
@@ -13343,29 +13343,29 @@
         "sourceBytes": 1193472,
         "sourceSha256": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
         "sourceImmutableAcrossRun": true,
-        "completedSupportedCalls": 283412,
-        "supportedCallSemanticsSha256": "81bbe99a26372d63efc1ad4318bebcd4387b9461d7e666de3e1975ea6a8a16a2",
-        "clockSampleCount": 100565,
+        "completedSupportedCalls": 283426,
+        "supportedCallSemanticsSha256": "90bff2119a16d7aca682bde9f03f8f111cac56f8436a2b8886e85f71f4003af7",
+        "clockSampleCount": 100566,
         "firstClockTick": 3600000,
         "firstClockRetiredInstructions": 29,
-        "lastClockTick": 3827178,
-        "lastClockTime100ns": 2271785000,
-        "lastClockGeneration": 16550,
-        "lastClockRetiredInstructions": 445133821,
-        "lastClockPendingRetiredInstructions": 1821,
+        "lastClockTick": 3827179,
+        "lastClockTime100ns": 2271795000,
+        "lastClockGeneration": 16551,
+        "lastClockRetiredInstructions": 445134242,
+        "lastClockPendingRetiredInstructions": 242,
         "apiReadIncrement": 0,
         "windowTimerCallbackCount": 41,
-        "timerPacingCompletionCount": 9035,
+        "timerPacingCompletionCount": 9036,
         "presentCount": 4,
         "thirdPresentReached": true,
         "fourthPresentReached": true,
-        "writebackBatches": 286611,
-        "hostDeltaBatches": 143527,
-        "callbackEventCount": 150,
-        "activeCallbackDepth": 0,
-        "finalMemoryGeneration": 334488,
-        "terminalInstructionCount": 445134242,
-        "terminalMemoryContentSha256": "1354319d15490d41a85e6468c58ebc39f39e9ac0f55a720dd3aab71a7448e6df",
+        "writebackBatches": 286626,
+        "hostDeltaBatches": 143534,
+        "callbackEventCount": 151,
+        "activeCallbackDepth": 1,
+        "finalMemoryGeneration": 334510,
+        "terminalInstructionCount": 445135271,
+        "terminalMemoryContentSha256": "d22b59031f485dbc11347930f72893696ed32844c07df27f0919c0b6e6656f42",
         "pointerInputEventCount": 3,
         "pointerInputDownCommittedAfterSequence": 222004,
         "pointerInputUpCommittedAfterSequence": 222096,
@@ -14731,47 +14731,97 @@
           "failureAtomicity": true,
           "nextEndpoint": "WINMM.dll!timeGetTime",
           "nextInstructionCount": 445134242
+        },
+        "primaryMainLoopPostCallbackPointerMessageConsumptionBatch": {
+          "completionCount": 6,
+          "firstSequence": 283422,
+          "firstInstructionCount": 445135019,
+          "lastSequence": 283427,
+          "lastInstructionCount": 445135265,
+          "message": {
+            "id": 44,
+            "message": 513,
+            "wParam": 1,
+            "lParam": 23593600
+          },
+          "peekMessage": {
+            "sequence": 283422,
+            "occurrence": 112,
+            "instructionCount": 445135019,
+            "result": 1
+          },
+          "translateMessage": {
+            "sequence": 283423,
+            "occurrence": 44,
+            "instructionCount": 445135029,
+            "result": 0
+          },
+          "dispatchMessage": {
+            "sequence": 283424,
+            "occurrence": 44,
+            "instructionCount": 445135033,
+            "pendingCallback": true
+          },
+          "callback": {
+            "frameId": 76,
+            "target": "0x10092550",
+            "activeDepth": 1
+          },
+          "nestedCallSymbols": [
+            "EnterCriticalSection",
+            "HeapAlloc",
+            "LeaveCriticalSection"
+          ],
+          "criticalSectionAddress": "0x1014c8a0",
+          "heapAllocationSize": 16,
+          "queueDepthBefore": 1,
+          "queueDepthAtCallbackEntry": 0,
+          "messageRemoved": true,
+          "activeCallbackDepthAtStop": 1,
+          "browserOwnsMessageQueueState": false,
+          "nextEndpoint": "USER32.dll!SetFocus",
+          "nextInstructionCount": 445135271
         }
       },
       "browserBoundaryEvidence": {
-        "runtimeProtocol": "vine.browser-runtime-worker.v132",
-        "browserReportSchemaVersion": 97,
+        "runtimeProtocol": "vine.browser-runtime-worker.v133",
+        "browserReportSchemaVersion": 98,
         "retiredInstructionCursorTransport": "checked-u64-low-high-per-api-and-com-dispatch",
         "browserOwnsGuestClockState": false,
         "controlledChromeE2e": "passed",
         "controlledChromeCommand": "npm run check:runtime:browser-worker",
         "chromeVersion": "151.0.7922.77",
-        "reportBytes": 42842,
-        "reportSha256": "26cbd4c2a84000f3ce92485d16e0b222418b7ac1fe7791191aeef35825bc5787",
-        "runtimeWorkerBytes": 1314078,
-        "runtimeWorkerSha256": "12f3bb781a32398e73687c4a2a756aee72a6e73b6386b2ff95a001f66723c95c",
+        "reportBytes": 42833,
+        "reportSha256": "7d0074bcdb6f219635fb31385a24c1274db13f763ae7bdc04d62bd67e14c6898",
+        "runtimeWorkerBytes": 1332435,
+        "runtimeWorkerSha256": "5c4b75ab169d4b6b87bf15fb9da58f8a0046009b3a37d6c1fc4dcdf879059b23",
         "runtimeCoreWasmBytes": 5408396,
         "runtimeCoreWasmSha256": "cab48fe0cddd1b5846b6929c13da50004b257f76f8946790e325c4ad1fc30da6",
         "privatePrimaryReplay": "passed-node-equivalent-scheduled-shared-clock",
         "privatePrimaryCommand": "node tools/run-browser-runtime-check.mjs --bgi",
-        "privatePrimaryReportBytes": 2647144,
-        "privatePrimaryReportSha256": "6e05777cd6898448322159e26a26909b911ce9b725f447db754196ab157bcf84",
+        "privatePrimaryReportBytes": 2659098,
+        "privatePrimaryReportSha256": "fbdbd414e282ed4c958281ce19ceb6be4346d5627245b50bd663040f88ba8bf4",
         "privatePrimaryChromeVersion": "151.0.7922.77",
-        "privatePrimarySupportedCalls": 283412,
-        "privatePrimarySupportedCallSemanticsSha256": "81bbe99a26372d63efc1ad4318bebcd4387b9461d7e666de3e1975ea6a8a16a2",
-        "privatePrimaryInstructionCount": 445134242,
-        "privatePrimaryClockSampleCount": 100565,
+        "privatePrimarySupportedCalls": 283426,
+        "privatePrimarySupportedCallSemanticsSha256": "90bff2119a16d7aca682bde9f03f8f111cac56f8436a2b8886e85f71f4003af7",
+        "privatePrimaryInstructionCount": 445135271,
+        "privatePrimaryClockSampleCount": 100566,
         "privatePrimaryWindowTimerCallbackCount": 41,
         "privatePrimaryPresentCount": 4,
         "privatePrimaryPointerInputEventCount": 3,
-        "privatePrimaryTimerPacingCompletionCount": 9035,
-        "privatePrimaryMappingDeltas": 143527,
-        "privatePrimaryFinalMemoryGeneration": 360133,
-        "privatePrimaryWritebackBatches": 312366,
-        "privatePrimaryTerminalMemoryContentSha256": "1354319d15490d41a85e6468c58ebc39f39e9ac0f55a720dd3aab71a7448e6df",
+        "privatePrimaryTimerPacingCompletionCount": 9036,
+        "privatePrimaryMappingDeltas": 143534,
+        "privatePrimaryFinalMemoryGeneration": 360155,
+        "privatePrimaryWritebackBatches": 312381,
+        "privatePrimaryTerminalMemoryContentSha256": "d22b59031f485dbc11347930f72893696ed32844c07df27f0919c0b6e6656f42",
         "privatePrimaryRawGenerationAndWritebacksAreAdapterSpecific": true,
         "privatePrimaryCancellationClean": true,
         "privatePrimaryWatchdogClean": true
       },
       "proximateCauseConclusion": {
         "clockFreezeWasProximateCause": false,
-        "reason": "scheduled progression completed the prior TIMERPROC and GetWindowRect chain, atomically projected the Rust-owned cursor at (960, 540), committed a third normalized primary-button down through Rust input ingress, completed six repeated GetSystemMetrics frame triplets and IsIconic(FALSE), and retained the resulting WM_LBUTTONDOWN as Rust-owned pending message 44 for the next message-consumption batch",
-        "nextEndpoint": "WINMM.dll!timeGetTime",
+        "reason": "scheduled progression removed Rust-owned WM_LBUTTONDOWN message 44 with PeekMessageA, validated pointer TranslateMessage as a no-op, entered WndProc frame 76 through DispatchMessageA, and completed its nested EnterCriticalSection, HeapAlloc(16), and LeaveCriticalSection calls before SetFocus",
+        "nextEndpoint": "USER32.dll!SetFocus",
         "archiveEnumerationWasProximateCause": false,
         "missingFileDeleteWasProximateCause": false,
         "ordinaryHeapCapacityWasProximateCause": false,
@@ -14782,7 +14832,7 @@
       }
     },
     "latestEvidence": {
-      "schema": "vine.v86-bgi-user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect-primary",
+      "schema": "vine.v86-bgi-primary-main-loop-post-callback-pointer-message-consumption-batch",
       "nativeSleepZeroOracleProfile": "x86-sleep-zero-ready-competitor-v1",
       "nativeSleepZeroOracleArchitecture": "coff-i386",
       "nativeSleepZeroOracleSourceBytes": 6481,
@@ -16563,9 +16613,9 @@
       "nativeDefWindowProcPointerReleaseOracleForegroundPreserved": true,
       "nativeDefWindowProcPointerReleaseOracleCaptureBefore": null,
       "nativeDefWindowProcPointerReleaseOracleCaptureAfter": null,
-      "implementation": "Rust-owned cursor, input, logical-window, message-queue, and guest-memory authorities complete the reached post-callback window/input scan as one 20-call batch: GetCursorPos atomically projects the center point, one normalized primary-button down is committed through the Rust input ingress, six repeated GetSystemMetrics triplets and IsIconic complete, and the resulting WM_LBUTTONDOWN remains pending for the next message-consumption batch without browser-owned Windows state",
+      "implementation": "Rust-owned input, message-queue, callback-frame, heap, synchronization, and guest-memory authorities remove the reached WM_LBUTTONDOWN through PeekMessageA, validate TranslateMessageA as a pointer no-op, enter the window procedure through DispatchMessageA, and complete the nested EnterCriticalSection, HeapAlloc(16), and LeaveCriticalSection calls before stopping at SetFocus; TypeScript records only the non-owning browser projection",
       "implementedApiContractCount": 137,
-      "genericSupportedCallCount": 283412,
+      "genericSupportedCallCount": 283426,
       "createWindowExAImplemented": true,
       "createWindowExASequence": 1388,
       "createWindowExAInstructionCount": 11476236,
@@ -16882,11 +16932,11 @@
       "initializeCriticalSectionDeltaAddress": "0x100fd000",
       "initializeCriticalSectionDeltaOwner": 1,
       "initializeCriticalSectionDeltaPayloadSha256": "80eb4797e4759ad5c9f4c484abf155aa7008a2ef8bfdffad9c17319ae36ef0fb",
-      "writebackBatches": 165805,
-      "writebackDirtyPages": 244682,
-      "writebackChangedBytes": 43072582,
-      "hostDeltaBatches": 128436,
-      "finalMemoryGeneration": 334488,
+      "writebackBatches": 286626,
+      "writebackDirtyPages": 477102,
+      "writebackChangedBytes": 49879790,
+      "hostDeltaBatches": 143534,
+      "finalMemoryGeneration": 334510,
       "allocationDeltaSequence": 198,
       "allocationDeltaFromGeneration": 281,
       "allocationDeltaGeneration": 282,
@@ -17087,7 +17137,7 @@
         "browserResourceCreated": false,
         "nodeChromeOrderedSemanticsMatched": true
       },
-      "memoryContentSha256": "1354319d15490d41a85e6468c58ebc39f39e9ac0f55a720dd3aab71a7448e6df",
+      "memoryContentSha256": "d22b59031f485dbc11347930f72893696ed32844c07df27f0919c0b6e6656f42",
       "enterCriticalSectionCheckpointCompletions": 3,
       "enterCriticalSectionSequences": [
         18699,
@@ -20954,7 +21004,7 @@
       "directSoundSetCooperativeLevelChromeCompletions": 1,
       "directSoundSetCooperativeLevelNodeChromeOrderedSemanticsMatched": true,
       "semanticCallDigestAlgorithm": "sha256-canonical-json-v1",
-      "semanticCallDigestSha256": "81bbe99a26372d63efc1ad4318bebcd4387b9461d7e666de3e1975ea6a8a16a2",
+      "semanticCallDigestSha256": "90bff2119a16d7aca682bde9f03f8f111cac56f8436a2b8886e85f71f4003af7",
       "nativeDirectSoundInitialBuffersPrimaryTraceBytes": 382086,
       "nativeDirectSoundInitialBuffersPrimaryTraceLines": 801,
       "nativeDirectSoundInitialBuffersPrimaryTraceSha256": "6d924745fb6b61efa7992ec4ccda6cd553bab625348b0734876216e12af37f33",
@@ -27522,6 +27572,16 @@
         "nodeCompletions": 20,
         "chromeCompletions": 20,
         "nodeChromeOrderedSemanticsMatched": true
+      },
+      "primaryMainLoopPostCallbackPointerMessageConsumptionBatch": {
+        "completionCount": 6,
+        "messageId": 44,
+        "messageRemoved": true,
+        "nestedCallCount": 3,
+        "activeCallbackDepthAtStop": 1,
+        "nodeCompletions": 6,
+        "chromeCompletions": 6,
+        "nodeChromeOrderedSemanticsMatched": true
       }
     },
     "canonicalReproductionCommand": "npm run check:runtime:bgi"
@@ -27529,12 +27589,12 @@
   "activeBlocker": null,
   "nextStructuredStop": {
     "kind": "capability-checkpoint",
-    "classification": "subsystem-gateway",
-    "nextCheckpoint": "primary-main-loop-post-callback-pointer-message-consumption-batch",
+    "classification": "semantic-leaf",
+    "nextCheckpoint": "primary-main-loop-post-callback-pointer-action-continuation-batch",
     "pausedHistoricalCheckpoint": "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect",
-    "instructionCount": 445134242,
-    "capabilityCluster": "primary-main-loop-post-callback-window-input-message-consumption",
-    "reason": "primary-main-loop-post-callback-window-input-scan-batch-checkpoint-complete",
+    "instructionCount": 445135271,
+    "capabilityCluster": "primary-main-loop-post-callback-pointer-action-continuation",
+    "reason": "primary-main-loop-post-callback-pointer-message-consumption-batch-checkpoint-complete",
     "historicalOutlineTextMetricsCheckpoint": {
       "capability": "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
       "implementationId": "runtime.gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336.v1",
@@ -28770,7 +28830,7 @@
       "nextReturnAddress": 269033151,
       "nextStackPointer": 7338244
     },
-    "completion": {
+    "prerequisiteWindowInputScanCompletion": {
       "capability": "primary-main-loop-post-callback-window-input-scan-batch",
       "implementationId": "runtime.primary-main-loop-post-callback-window-input-scan-batch.v1",
       "requiredCompletions": 20,
@@ -29569,25 +29629,132 @@
       "nextReturnAddress": 269033151,
       "nextStackPointer": 7338200
     },
+    "completion": {
+      "capability": "primary-main-loop-post-callback-pointer-message-consumption-batch",
+      "implementationId": "runtime.primary-main-loop-post-callback-pointer-message-consumption-batch.v1",
+      "requiredCompletions": 6,
+      "completionCount": 6,
+      "firstCompletionSequence": 283422,
+      "firstCompletionInstructionCount": 445135019,
+      "lastCompletionSequence": 283427,
+      "lastCompletionInstructionCount": 445135265,
+      "message": {
+        "id": 44,
+        "message": 513,
+        "wParam": 1,
+        "lParam": 23593600
+      },
+      "peekMessage": {
+        "sequence": 283422,
+        "occurrence": 112,
+        "trapInstructionCount": 445135019,
+        "result": 1
+      },
+      "translateMessage": {
+        "sequence": 283423,
+        "occurrence": 44,
+        "trapInstructionCount": 445135029,
+        "result": 0
+      },
+      "dispatchEntry": {
+        "sequence": 283424,
+        "occurrence": 44,
+        "trapInstructionCount": 445135033,
+        "pendingCallback": true
+      },
+      "callbackEntry": {
+        "frameId": 76,
+        "target": 269034832,
+        "arguments": [
+          1208025089,
+          513,
+          1,
+          23593600
+        ]
+      },
+      "queueDepthBefore": 1,
+      "queueDepthAtCallbackEntry": 0,
+      "messageRemoved": true,
+      "browserOwnsMessageQueueState": false,
+      "activeCallbackDepthAtStop": 1,
+      "callbackNestedCalls": [
+        {
+          "sequence": 283425,
+          "module": "KERNEL32.dll",
+          "symbol": "EnterCriticalSection",
+          "occurrence": 50456,
+          "trapInstructionCount": 445135202,
+          "arguments": [
+            269797536
+          ],
+          "implementationId": "kernel32.enter-critical-section.v1"
+        },
+        {
+          "sequence": 283426,
+          "module": "KERNEL32.dll",
+          "symbol": "HeapAlloc",
+          "occurrence": 2856,
+          "trapInstructionCount": 445135232,
+          "arguments": [
+            1744896001,
+            0,
+            16
+          ],
+          "result": 1044551552,
+          "implementationId": "kernel32.heap-alloc.v2"
+        },
+        {
+          "sequence": 283427,
+          "module": "KERNEL32.dll",
+          "symbol": "LeaveCriticalSection",
+          "occurrence": 50456,
+          "trapInstructionCount": 445135265,
+          "arguments": [
+            269797536
+          ],
+          "implementationId": "kernel32.leave-critical-section.v1"
+        }
+      ],
+      "instructionCount": 445135271,
+      "nextEndpoint": {
+        "id": 209,
+        "address": 2130709760,
+        "module": "USER32.dll",
+        "symbol": {
+          "kind": "name",
+          "name": "SetFocus"
+        },
+        "disposition": "declared-runtime-export",
+        "iatAddress": 269292572
+      },
+      "nextArguments": [
+        1208025089
+      ],
+      "memoryContentSha256": "d22b59031f485dbc11347930f72893696ed32844c07df27f0919c0b6e6656f42",
+      "nextReturnAddress": 269037003,
+      "nextStackPointer": 7337240
+    },
     "nextEndpoint": {
       "endpointKind": "runtime-system-export",
-      "endpointId": 8,
-      "api": "WINMM.dll!timeGetTime",
-      "endpointAddress": "0x7f000070",
-      "observedModule": "WINMM.dll",
-      "observedSymbol": "timeGetTime",
-      "id": 8,
-      "address": 2130706544,
-      "module": "WINMM.dll",
+      "endpointId": 209,
+      "api": "USER32.dll!SetFocus",
+      "endpointAddress": "0x7f000d00",
+      "observedModule": "USER32.dll",
+      "observedSymbol": "SetFocus",
+      "id": 209,
+      "address": 2130709760,
+      "module": "USER32.dll",
       "symbol": {
         "kind": "name",
-        "name": "timeGetTime"
+        "name": "SetFocus"
       },
       "disposition": "declared-runtime-export",
-      "iatAddress": 269292772,
-      "arguments": [],
-      "returnAddress": "0x10091ebf",
-      "stackPointer": "0x006ff8d8"
+      "iatAddress": 269292572,
+      "arguments": [
+        "0x48010001"
+      ],
+      "returnAddress": "0x10092dcb",
+      "stackPointer": "0x006ff518"
     },
     "historicalFollowingFault": {
       "class": "unsupported",

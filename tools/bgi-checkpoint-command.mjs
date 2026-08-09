@@ -15,6 +15,12 @@ export function bgiProfileOutputDirectory(profile) {
     return "v86-bgi-generic-runtime-reentry";
   }
   if (
+    profile ===
+    "primary-main-loop-post-callback-pointer-message-consumption-batch"
+  ) {
+    return "v86-bgi-post-callback-pointer-message-consumption-batch";
+  }
+  if (
     !profile.startsWith("kernel32-") &&
     !profile.startsWith("user32-") &&
     !profile.startsWith("shell32-") &&
