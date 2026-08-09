@@ -8597,7 +8597,7 @@ impl RuntimeKernel {
                 "critical section spin count exceeds the Win32 24-bit range",
             ));
         }
-        Ok(self.synchronization.commit(plan))
+        self.synchronization.commit(plan)
     }
 
     pub fn initialize_critical_section_with_spin_state(
@@ -8609,7 +8609,7 @@ impl RuntimeKernel {
         let plan = self
             .synchronization
             .plan_initialization(address, spin_count_field)?;
-        Ok(self.synchronization.commit(plan))
+        self.synchronization.commit(plan)
     }
 
     pub fn enter_critical_section(
@@ -8621,7 +8621,7 @@ impl RuntimeKernel {
         let plan = self
             .synchronization
             .plan_enter(address, current_thread_id)?;
-        Ok(self.synchronization.commit(plan))
+        self.synchronization.commit(plan)
     }
 
     pub fn leave_critical_section(
@@ -8633,7 +8633,16 @@ impl RuntimeKernel {
         let plan = self
             .synchronization
             .plan_leave(address, current_thread_id)?;
-        Ok(self.synchronization.commit(plan))
+        self.synchronization.commit(plan)
+    }
+
+    pub fn delete_critical_section(
+        &mut self,
+        address: GuestAddress,
+    ) -> Result<RuntimeCriticalSection, RuntimeStateError> {
+        self.require_critical_section_operation_state()?;
+        let plan = self.synchronization.plan_retirement(address)?;
+        self.synchronization.commit_retirement(plan)
     }
 
     pub fn critical_section(

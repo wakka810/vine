@@ -2,7 +2,7 @@ import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 import type { BrowserNativeStorageConfiguration } from "../storage/protocol.js";
 
-export const protocolVersion = 134 as const;
+export const protocolVersion = 135 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -51,6 +51,7 @@ export type BgiCapabilityProfile =
   | "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect"
   | "primary-main-loop-post-callback-pointer-message-consumption-batch"
   | "primary-main-loop-post-callback-pointer-action-continuation-batch"
+  | "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -223,6 +224,20 @@ export interface RuntimePointerButtonInputEvidence {
   receipts: RuntimePointerButtonIngressReceipt[];
 }
 
+export interface RuntimeMemoryStatsSnapshot {
+  owners: number;
+  imageOwners: number;
+  sealedOwners: number;
+  regions: number;
+  imageRegions: number;
+  reservedPages: number;
+  committedPages: number;
+  physicalPages: number;
+  dirtyPages: number;
+  generation: number;
+  acknowledgedGeneration: number;
+}
+
 export interface RuntimePointerButtonInputBoundaryEvidence {
   committedAfterSequence: number;
   committedAfterInstructionCount: number;
@@ -232,6 +247,7 @@ export interface RuntimePointerButtonInputBoundaryEvidence {
   receipt: RuntimePointerButtonIngressReceipt;
   keyboard: RuntimeKeyboardStateSnapshot;
   cursor: RuntimeCursorPositionSnapshot;
+  memory: RuntimeMemoryStatsSnapshot;
 }
 
 export interface RuntimeKeyboardStateSnapshot {
@@ -1653,6 +1669,55 @@ export interface PrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckp
   nextArguments: [number, number, number, number, number];
 }
 
+export interface PrimaryMainLoopPostCallbackPointerActionNextIterationBatchCheckpoint {
+  capability: "primary-main-loop-post-callback-pointer-action-next-iteration-batch";
+  implementationId: "runtime.primary-main-loop-post-callback-pointer-action-next-iteration-batch.v1";
+  requiredCompletions: number;
+  completionCount: number;
+  prerequisiteActionContinuation: PrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoint;
+  prerequisiteActionCompletionSequence: number;
+  prerequisiteActionCompletionInstructionCount: number;
+  firstCompletionSequence: number;
+  firstCompletionInstructionCount: number;
+  lastCompletionSequence: number;
+  lastCompletionInstructionCount: number;
+  nextIterationCalls: Array<
+    RuntimeSupportedCallSnapshot & {
+      occurrence: number;
+      trapInstructionCount: number;
+    }
+  >;
+  actionInputQuery: RuntimeSupportedCallSnapshot & {
+    occurrence: number;
+    trapInstructionCount: number;
+    runtimeThreadId: number;
+  };
+  actionInputEvents: RuntimePointerButtonInputBoundaryEvidence[];
+  releaseInputEvent: RuntimePointerButtonInputBoundaryEvidence;
+  releaseMessage: RuntimeThreadMessageSnapshot;
+  releaseMessageQueued: true;
+  stateAuthority: "rust-runtime-input-window-message-queue-and-guest-memory";
+  mutation: "owner-local-preflight-targeted-commits";
+  failureAtomicity: true;
+  browserOwnsInputState: false;
+  browserOwnsWindowState: false;
+  browserOwnsMessageQueueState: false;
+  activeCallbackDepthAtCompletion: 0;
+  instructionCount: number;
+  nextEndpoint: {
+    id: number;
+    address: number;
+    module: string;
+    symbol: { kind: "name"; name: string };
+    disposition: "declared-runtime-export";
+    iatAddress: number;
+  };
+  nextArguments: [number];
+  memoryContentSha256: string;
+  nextReturnAddress: number;
+  nextStackPointer: number;
+}
+
 export interface SessionReport {
   evidenceLevel: "full" | "summary";
   outcome:
@@ -2302,6 +2367,7 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | PrimaryMainLoopPostCallbackPointerActionNextIterationBatchCheckpoint
     | PrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoint
     | PrimaryMainLoopPostCallbackPointerMessageConsumptionBatchCheckpoint
     | PrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint

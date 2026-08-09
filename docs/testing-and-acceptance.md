@@ -2515,6 +2515,21 @@ processing、frame identity、queue／callback depth 0、cancel／watchdog clean
 次iterationはacceptanceへ含めない。詳細は
 [post-callback pointer-action continuation batch](bgi-primary-main-loop-post-callback-pointer-action-continuation-batch.md)を正とする。
 
+Post-callback pointer-action next-iteration batchは、retire済みmessage 44／frame 76を
+prerequisiteに、次の`PeekMessageA`から57,602件のcontiguous completion、三件の
+`DeleteCriticalSection`、`GetAsyncKeyState(VK_LBUTTON)`のheld／pressed-since consumption、
+normalized release、queued `WM_LBUTTONUP`までをまとめて検証する。Node／Chromeは341,032
+completed calls、101,366 clock samples、113 completed TIMERPROC callbacks、12,214 pacing
+completions、32 presents、ordered digest
+`20e034774f95ec69008f55477c8d6b1a2b7d9e3add2d694ef62d0d8b25cd1575`、terminal memory
+digest `5840ee438cbbdaae914c5a7169f0dc8aac5169c70388234778cd96079e8d0b11`を一致させる。
+Protocol v135／report schema 100で24,576-page mirror ceiling、signed i32境界を越える
+monotonic instruction transport、critical-section retirementのfailure atomicity、release message
+117、cancel／watchdog cleanupを維持し、次の`GetAsyncKeyState(VK_RBUTTON)`で停止する。
+残りのinput scan、release message consumption、visible response、full-play peak memoryは
+acceptanceへ含めない。詳細は
+[post-action next-iteration batch](bgi-primary-main-loop-post-callback-pointer-action-next-iteration-batch.md)を正とする。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

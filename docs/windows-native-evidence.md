@@ -6548,3 +6548,24 @@ process clock, and guest bytes; TypeScript only compares the non-owning projecti
 Exact active artifact identities remain authoritative only in
 [current-checkpoint.json](current-checkpoint.json). Details are in
 [the bounded pointer-action continuation batch](bgi-primary-main-loop-post-callback-pointer-action-continuation-batch.md).
+
+## 200. BGI next-iteration progression and critical-section deletion
+
+The controlled x86 critical-section oracle captures one complete
+`x86-uncontended-recursive-v1` lifecycle. After initialization, recursive
+enter／leave, and final leave, `DeleteCriticalSection` preserves LastError sentinel
+92 and changes the complete 24-byte unowned structure to zero. Because the API is
+VOID, the observed tracer result is not used as guest semantics. The earlier
+10-second primary capacity capture recorded no deletes, so the controlled lifecycle
+is the semantic oracle while the active replay supplies reached title consumption.
+
+Canonical Node and Chrome complete three reached deletes at sequences 302,673,
+310,290, and 328,190. Each call preserves EAX／LastError, retires one Rust-owned
+record only after full guest-write preflight, and publishes 24 zero bytes. The same
+replay completes 57,602 calls after the prior action checkpoint, consumes
+`GetAsyncKeyState(VK_LBUTTON) == 0xFFFF8001` at sequence 341,032, commits normalized
+release event 4, and queues `WM_LBUTTONUP` message 117. Both stop 88 guest
+instructions later at `GetAsyncKeyState(VK_RBUTTON)`. Exact report and artifact
+identities remain authoritative only in
+[current-checkpoint.json](current-checkpoint.json). Details are in
+[the bounded next-iteration batch](bgi-primary-main-loop-post-callback-pointer-action-next-iteration-batch.md).

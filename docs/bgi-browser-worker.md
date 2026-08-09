@@ -566,6 +566,24 @@ Both stop nine guest instructions later at the next unfiltered
 callback, process-clock, or guest-memory state. Details are in
 [the post-callback pointer-action continuation batch](bgi-primary-main-loop-post-callback-pointer-action-continuation-batch.md).
 
+Protocol version 135／BGI report schema 100 completes one further main-loop
+iteration as a bounded batch. Node and Chrome agree on 57,602 contiguous calls
+from sequence 283,431 through sequence 341,032, where
+`GetAsyncKeyState(VK_LBUTTON)` consumes the held／pressed-since state as
+`0xFFFF8001`. Both then commit normalized release event 4, enqueue Rust-owned
+`WM_LBUTTONUP` message 117, and stop at instruction 3,114,597,221 before the next
+`GetAsyncKeyState(VK_RBUTTON)`. The same run retires three reached critical
+sections through `kernel32.delete-critical-section.v1`, grows the prepared v86
+mirror within its 24,576-page ceiling, and carries the adapter counter past the
+signed i32 boundary without regressing the logical instruction cursor. Completed
+call count is 341,032, semantic digest is
+`20e034774f95ec69008f55477c8d6b1a2b7d9e3add2d694ef62d0d8b25cd1575`, and
+terminal memory digest is
+`5840ee438cbbdaae914c5a7169f0dc8aac5169c70388234778cd96079e8d0b11`.
+TypeScript owns no Windows input, synchronization, queue, clock, or guest-memory
+state. Details are in
+[the post-action next-iteration batch](bgi-primary-main-loop-post-callback-pointer-action-next-iteration-batch.md).
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk

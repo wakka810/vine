@@ -34,6 +34,7 @@ import {
   writableProfileCommitService,
   writableProfileDirectoryCreateService,
 } from "./writable-profile.mjs";
+import { createMonotonicV86InstructionCounter } from "./v86-instruction-counter.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const timerPacingService = "runtime.timer-delay.v1";
@@ -278,6 +279,7 @@ for (let index = 0; index < commandArguments.length; index += 1) {
         "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect",
         "primary-main-loop-post-callback-pointer-message-consumption-batch",
         "primary-main-loop-post-callback-pointer-action-continuation-batch",
+        "primary-main-loop-post-callback-pointer-action-next-iteration-batch",
         "user32-set-window-pos-repeat-activation",
         "d3d9-recreated-textures",
         "user32-set-window-pos-frame-change-move",
@@ -515,6 +517,7 @@ assert(
       "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect",
       "primary-main-loop-post-callback-pointer-message-consumption-batch",
       "primary-main-loop-post-callback-pointer-action-continuation-batch",
+      "primary-main-loop-post-callback-pointer-action-next-iteration-batch",
       "user32-set-window-pos-repeat-activation",
       "d3d9-recreated-textures",
       "user32-set-window-pos-frame-change-move",
@@ -604,7 +607,9 @@ if (genericRuntimeReentry && runtimePolicyPath === null) {
       || genericRuntimeCapability ===
         "primary-main-loop-post-callback-pointer-message-consumption-batch" ||
       genericRuntimeCapability ===
-        "primary-main-loop-post-callback-pointer-action-continuation-batch"
+        "primary-main-loop-post-callback-pointer-action-continuation-batch" ||
+      genericRuntimeCapability ===
+        "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
       ? "kernel32-delete-file-a-v1.json"
       : genericRuntimeCapability === "kernel32-find-first-file-a"
       ? "kernel32-find-file-a-v1.json"
@@ -1186,9 +1191,15 @@ const postCallbackPointerMessageConsumptionCheckpointEnabled =
 const postCallbackPointerActionContinuationCheckpointEnabled =
   genericRuntimeCapability ===
   "primary-main-loop-post-callback-pointer-action-continuation-batch";
+const postCallbackPointerActionNextIterationBatchCheckpointEnabled =
+  genericRuntimeCapability ===
+  "primary-main-loop-post-callback-pointer-action-next-iteration-batch";
+const postCallbackPointerActionContinuationEvidenceEnabled =
+  postCallbackPointerActionContinuationCheckpointEnabled ||
+  postCallbackPointerActionNextIterationBatchCheckpointEnabled;
 const postCallbackPointerMessageConsumptionEvidenceEnabled =
   postCallbackPointerMessageConsumptionCheckpointEnabled ||
-  postCallbackPointerActionContinuationCheckpointEnabled;
+  postCallbackPointerActionContinuationEvidenceEnabled;
 const user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectEvidenceEnabled =
   user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectCheckpointEnabled ||
   postCallbackPointerMessageConsumptionEvidenceEnabled;
@@ -1436,7 +1447,7 @@ const windowTimerCallbackDeliveryEnabled =
 const user32CompatibilityPolicyId =
   defWindowProcAPointerReleaseContinuationCheckpointEnabled
     ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-set-window-text-v36"
-    : postCallbackPointerActionContinuationCheckpointEnabled ||
+    : postCallbackPointerActionContinuationEvidenceEnabled ||
       defWindowProcAActionContinuationCheckpointEnabled
     ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-down-v34"
     : setFocusActionContinuationCheckpointEnabled
@@ -2191,7 +2202,9 @@ const outputDirectory = path.join(
   root,
   ".work",
   genericRuntimeCapability !== null
-    ? postCallbackPointerActionContinuationCheckpointEnabled
+    ? postCallbackPointerActionNextIterationBatchCheckpointEnabled
+      ? "v86-bgi-post-callback-pointer-action-next-iteration-batch"
+      : postCallbackPointerActionContinuationCheckpointEnabled
       ? "v86-bgi-post-callback-pointer-action-continuation-batch"
       : postCallbackPointerMessageConsumptionCheckpointEnabled
       ? "v86-bgi-post-callback-pointer-message-consumption-batch"
@@ -6123,9 +6136,9 @@ const getSystemInfoExpected = {
     faultCode: "endpoint-contract-missing",
   },
 };
-const bgiMaximumPhysicalPages = 16 * 1024;
+const bgiMaximumPhysicalPages = 24 * 1024;
 const guest = {
-  physicalPoolBytes: sourceFileReadEnabled ? 71_442_432 : 2 * 1024 * 1024,
+  physicalPoolBytes: sourceFileReadEnabled ? 104_996_864 : 2 * 1024 * 1024,
   excludedPhysicalRanges: [
     { start: 0x000a0000, end: 0x000c0000, role: "vga-mmio" },
   ],
@@ -6842,6 +6855,13 @@ async function run() {
       });
       if (genericRuntimeCapability === null) {
         validateGenericRuntimeReentryResult(genericResult);
+      } else if (
+        postCallbackPointerActionNextIterationBatchCheckpointEnabled
+      ) {
+        validatePostCallbackPointerActionNextIterationBatchResult(
+          genericResult,
+          sourceRegistration,
+        );
       } else if (postCallbackPointerActionContinuationCheckpointEnabled) {
         validatePostCallbackPointerActionContinuationResult(
           genericResult,
@@ -7342,6 +7362,8 @@ async function run() {
       const checkpointLabel =
         genericRuntimeCapability === null
           ? "bgi generic runtime re-entry"
+          : postCallbackPointerActionNextIterationBatchCheckpointEnabled
+            ? "bgi post-callback pointer action next-iteration batch"
           : postCallbackPointerActionContinuationCheckpointEnabled
             ? "bgi post-callback pointer action continuation batch"
           : postCallbackPointerMessageConsumptionCheckpointEnabled
@@ -8217,6 +8239,7 @@ async function runGenericRuntimeReentry({
     : inputProgressKeyboardEvents;
   let pointerMessageActionGatewayEntry = null;
   let postCallbackPointerMessageConsumptionEntry = null;
+  let postCallbackPointerActionContinuationEntry = null;
   let setFocusActionContinuationEntry = null;
   let timeGetTimeActionContinuationEntry = null;
   let defWindowProcAActionContinuationEntry = null;
@@ -9018,7 +9041,9 @@ async function runGenericRuntimeReentry({
         address,
         owner,
       })),
-      cleanWritablePages: discovery.cleanWritablePages,
+      ...(evidenceLevel === "full"
+        ? { cleanWritablePages: discovery.cleanWritablePages }
+        : { cleanWritablePageCount: discovery.cleanWritablePages.length }),
       clearedDirtyBits: discovery.pages.length,
       tlbFlushAfterClear: true,
       controlBytes: writeback.control.length,
@@ -9643,8 +9668,9 @@ async function runGenericRuntimeReentry({
       };
     }
     if (
-      postCallbackPointerActionContinuationCheckpointEnabled &&
+      postCallbackPointerActionContinuationEvidenceEnabled &&
       postCallbackPointerMessageConsumptionEntry !== null &&
+      postCallbackPointerActionContinuationEntry === null &&
       checkpointCompletion === null &&
       endpoint?.module.toLowerCase() === "user32.dll" &&
       endpoint.symbol === "PeekMessageA" &&
@@ -9746,7 +9772,7 @@ async function runGenericRuntimeReentry({
         dispatchCompletion.callback.returnInstructionCount,
       );
 
-      checkpointCompletion = {
+      const actionContinuationCompletion = {
         ...postCallbackPointerMessageConsumptionEntry,
         capability:
           "primary-main-loop-post-callback-pointer-action-continuation-batch",
@@ -9775,6 +9801,42 @@ async function runGenericRuntimeReentry({
         nextReturnAddress: 0,
         nextStackPointer: 0,
       };
+      if (postCallbackPointerActionNextIterationBatchCheckpointEnabled) {
+        assert.equal(endpoint.kind, "runtime-system-export");
+        assert.equal(endpoint.id, 164);
+        assert.equal(endpoint.address, 0x7f00_0a30);
+        assert.equal(terminal.kind, "owned-import-thunk");
+        assert.equal(terminal.thunk.iatAddress, 0x100d_1368);
+        assert.equal(continuation.instructionCount, 445_135_370);
+        assert.deepEqual(terminal.stackWords.slice(1, 6), [
+          0x006f_f8e8,
+          0,
+          0,
+          0,
+          1,
+        ]);
+        assert.equal(terminal.returnAddress, 0x1009_37bb);
+        assert.equal(continuation.finalState.esp, 0x006f_f8c4);
+        postCallbackPointerActionContinuationEntry = {
+          ...actionContinuationCompletion,
+          instructionCount: continuation.instructionCount,
+          nextEndpoint: {
+            id: endpoint.id,
+            address: endpoint.address,
+            module: endpoint.module,
+            symbol: { kind: "name", name: endpoint.symbol },
+            disposition: "declared-runtime-export",
+            iatAddress: terminal.thunk.iatAddress,
+          },
+          nextArguments: terminal.stackWords.slice(1, 6),
+          memoryContentSha256:
+            "f82b5e3e63f9d4676b97f130abc8da6fa375f3e5787357d56e25c83b49556b5b",
+          nextReturnAddress: terminal.returnAddress,
+          nextStackPointer: continuation.finalState.esp,
+        };
+      } else {
+        checkpointCompletion = actionContinuationCompletion;
+      }
     }
     if (
       postCallbackPointerMessageConsumptionCheckpointEnabled &&
@@ -9810,7 +9872,7 @@ async function runGenericRuntimeReentry({
     }
     if (
       !setFocusActionContinuationCheckpointEnabled &&
-      !postCallbackPointerActionContinuationCheckpointEnabled &&
+      !postCallbackPointerActionContinuationEvidenceEnabled &&
       pointerMessageActionGatewayEntry !== null &&
       checkpointCompletion === null &&
       endpoint?.module.toLowerCase() === "user32.dll" &&
@@ -9836,6 +9898,7 @@ async function runGenericRuntimeReentry({
         "primary-main-loop-post-callback-window-input-scan-batch",
         "primary-main-loop-post-callback-pointer-message-consumption-batch",
         "primary-main-loop-post-callback-pointer-action-continuation-batch",
+        "primary-main-loop-post-callback-pointer-action-next-iteration-batch",
       ].includes(checkpointCompletion.capability) &&
       !(
         d3d9UpdateTexturePartialDirtyRegionCheckpointEnabled &&
@@ -9946,6 +10009,9 @@ async function runGenericRuntimeReentry({
         generation,
         reason:
           checkpointCompletion.capability ===
+          "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+            ? "primary-main-loop-post-callback-pointer-action-next-iteration-batch-checkpoint-complete"
+            : checkpointCompletion.capability ===
           "primary-main-loop-post-callback-pointer-action-continuation-batch"
             ? "primary-main-loop-post-callback-pointer-action-continuation-batch-checkpoint-complete"
             : checkpointCompletion.capability ===
@@ -10322,6 +10388,14 @@ async function runGenericRuntimeReentry({
         }
       }
       if (
+        postCallbackPointerActionNextIterationBatchCheckpointEnabled &&
+        checkpointCompletion.capability ===
+          "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+      ) {
+        checkpointCompletion.nextArguments = terminal.stackWords.slice(1, 2);
+        checkpointCompletion.nextReturnAddress = terminal.returnAddress;
+        checkpointCompletion.nextStackPointer = continuation.finalState.esp;
+      } else if (
         postCallbackPointerActionContinuationCheckpointEnabled &&
         checkpointCompletion.capability ===
           "primary-main-loop-post-callback-pointer-action-continuation-batch"
@@ -14965,6 +15039,7 @@ async function runGenericRuntimeReentry({
       user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectEvidenceEnabled &&
       user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectEntry !==
         null &&
+      postCallbackWindowInputScanEntry === null &&
       postCallbackActionInputEvents.length === 1 &&
       call.implementationId === "user32.is-iconic.logical-window-style.v1" &&
       call.sequence > 282_880
@@ -15033,6 +15108,99 @@ async function runGenericRuntimeReentry({
       } else {
         checkpointCompletion = completion;
       }
+    }
+    if (
+      postCallbackPointerActionNextIterationBatchCheckpointEnabled &&
+      postCallbackPointerActionContinuationEntry !== null &&
+      checkpointCompletion === null &&
+      postCallbackActionInputEvents.length === 1 &&
+      call.implementationId === "user32.get-async-key-state.v1" &&
+      call.arguments[0] === 0x01
+    ) {
+      assert.equal(activeCallbacks.length, 0);
+      assert.deepEqual(call.result, { action: "set", value: 0xffff_8001 });
+      assert.equal(call.lastError, 0);
+      assert.deepEqual(call.guestWrites, []);
+      const releaseEvent = {
+        sequence: 4,
+        kind: "button-up",
+        button: "primary",
+        normalizedX: 0x8000,
+        normalizedY: 0x8000,
+      };
+      const releaseCompletion = await ingestGenericRuntimePointerButtonInput({
+        child,
+        protocolReader,
+        generation,
+        event: releaseEvent,
+      });
+      const releaseInputEvent = {
+        committedAfterSequence: call.sequence,
+        committedAfterInstructionCount: call.trapInstructionCount,
+        event: releaseEvent,
+        ...releaseCompletion,
+      };
+      postCallbackActionInputEvents.push(releaseInputEvent);
+      const nextIterationCalls = supportedCalls.filter(
+        (candidate) =>
+          candidate.sequence >
+            postCallbackPointerActionContinuationEntry.lastCompletionSequence &&
+          candidate.pendingCallback !== true,
+      );
+      assert(nextIterationCalls.length > 1);
+      assert.equal(nextIterationCalls[0].sequence, call.sequence - nextIterationCalls.length + 1);
+      assert.equal(nextIterationCalls.at(-1).sequence, call.sequence);
+      assert.deepEqual(releaseCompletion.receipt.message.source, {
+        kind: "pointer-input",
+        event_sequence: releaseEvent.sequence,
+      });
+      assert.equal(releaseCompletion.receipt.message.message, 0x0202);
+      assert.equal(releaseCompletion.receipt.message.wParam, 0);
+      assert.equal(releaseCompletion.receipt.message.lParam, 0x0168_0280);
+      checkpointCompletion = {
+        capability:
+          "primary-main-loop-post-callback-pointer-action-next-iteration-batch",
+        implementationId:
+          "runtime.primary-main-loop-post-callback-pointer-action-next-iteration-batch.v1",
+        requiredCompletions: nextIterationCalls.length + 1,
+        completionCount: nextIterationCalls.length + 1,
+        prerequisiteActionContinuation: structuredClone(
+          postCallbackPointerActionContinuationEntry,
+        ),
+        prerequisiteActionCompletionSequence:
+          postCallbackPointerActionContinuationEntry.lastCompletionSequence,
+        prerequisiteActionCompletionInstructionCount:
+          postCallbackPointerActionContinuationEntry
+            .lastCompletionInstructionCount,
+        firstCompletionSequence: nextIterationCalls[0].sequence,
+        firstCompletionInstructionCount:
+          nextIterationCalls[0].trapInstructionCount,
+        lastCompletionSequence: call.sequence,
+        lastCompletionInstructionCount: call.trapInstructionCount,
+        nextIterationCalls: structuredClone(nextIterationCalls),
+        actionInputQuery: {
+          ...structuredClone(call),
+          runtimeThreadId: currentThreadId,
+        },
+        actionInputEvents: structuredClone(postCallbackActionInputEvents),
+        releaseInputEvent: structuredClone(releaseInputEvent),
+        releaseMessage: structuredClone(releaseCompletion.receipt.message),
+        releaseMessageQueued: true,
+        stateAuthority:
+          "rust-runtime-input-window-message-queue-and-guest-memory",
+        mutation: "owner-local-preflight-targeted-commits",
+        failureAtomicity: true,
+        browserOwnsInputState: false,
+        browserOwnsWindowState: false,
+        browserOwnsMessageQueueState: false,
+        activeCallbackDepthAtCompletion: activeCallbacks.length,
+        instructionCount: 0,
+        nextEndpoint: null,
+        nextArguments: [],
+        memoryContentSha256: "",
+        nextReturnAddress: 0,
+        nextStackPointer: 0,
+      };
     }
     if (
       setFocusActionContinuationCheckpointEnabled &&
@@ -17631,6 +17799,7 @@ function validateGenericRuntimeReady(ready, offer) {
       (windowTimerCallbackDeliveryEnabled ? 2 : 0) +
       (setRectCheckpointEnabled ? 1 : 0) +
       (sourceFileReadEnabled ? 2 : 0) +
+      (genericRuntimeCapability === null ? 0 : 1) +
       (genericRuntimeCapability === null
         ? 0
         : deleteFileACheckpointEnabled
@@ -18744,6 +18913,14 @@ function validateGenericRuntimeFault(fault, endpoint, generation) {
       fault.fault.class === "resource-limit" &&
       fault.fault.stage === "runtime-heap-backing" &&
       fault.fault.code === "heap-backing-capacity-exceeded"
+    ) &&
+    !(
+      postCallbackPointerActionNextIterationBatchCheckpointEnabled &&
+      endpoint.module.toLowerCase() === "kernel32.dll" &&
+      endpoint.symbol === "HeapAlloc" &&
+      fault.fault.class === "resource-limit" &&
+      fault.fault.stage === "physical-allocator" &&
+      fault.fault.code === "physical-page-quota-exceeded"
     )
   ) {
     assert.equal(
@@ -31159,6 +31336,124 @@ function validatePostCallbackPointerMessageConsumptionResult(
   assert.equal(result.terminal.instructionCount, checkpoint.instructionCount);
   assert.equal(result.sourceReads.length, 154);
   assert.equal(result.heapPageMaterializations.length, 3_112);
+  assert.equal(result.writableDirectoryCreates.length, 1);
+}
+
+function validatePostCallbackPointerActionNextIterationBatchResult(
+  result,
+  sourceRegistration,
+) {
+  assert(postCallbackPointerActionNextIterationBatchCheckpointEnabled);
+  assert(sourceRegistration !== null);
+  assert.equal(result.fault, null);
+  assert.equal(result.activeCallbackDepth, 0);
+  const checkpoint = result.checkpointCompletion;
+  assert(checkpoint);
+  assert.equal(
+    checkpoint.capability,
+    "primary-main-loop-post-callback-pointer-action-next-iteration-batch",
+  );
+  assert.equal(
+    checkpoint.implementationId,
+    "runtime.primary-main-loop-post-callback-pointer-action-next-iteration-batch.v1",
+  );
+  assert.equal(checkpoint.completionCount, checkpoint.requiredCompletions);
+  assert.equal(
+    checkpoint.completionCount,
+    checkpoint.nextIterationCalls.length + 1,
+  );
+  const prerequisite = checkpoint.prerequisiteActionContinuation;
+  assert.equal(
+    prerequisite.capability,
+    "primary-main-loop-post-callback-pointer-action-continuation-batch",
+  );
+  assert.equal(prerequisite.activeCallbackDepthAtStop, 0);
+  assert.equal(
+    checkpoint.prerequisiteActionCompletionSequence,
+    prerequisite.lastCompletionSequence,
+  );
+  assert.equal(
+    checkpoint.prerequisiteActionCompletionInstructionCount,
+    prerequisite.lastCompletionInstructionCount,
+  );
+  assert(checkpoint.nextIterationCalls.length > 1);
+  assert.equal(
+    checkpoint.firstCompletionSequence,
+    prerequisite.lastCompletionSequence + 1,
+  );
+  assert.equal(
+    checkpoint.firstCompletionInstructionCount,
+    checkpoint.nextIterationCalls[0].trapInstructionCount,
+  );
+  assert.deepEqual(
+    checkpoint.nextIterationCalls.map((call) => call.sequence),
+    Array.from(
+      { length: checkpoint.nextIterationCalls.length },
+      (_, index) => checkpoint.firstCompletionSequence + index,
+    ),
+  );
+  const query = checkpoint.actionInputQuery;
+  assert.deepEqual(query.arguments, [0x01]);
+  assert.equal(query.implementationId, "user32.get-async-key-state.v1");
+  assert.deepEqual(query.result, { action: "set", value: 0xffff_8001 });
+  assert.equal(query.lastError, 0);
+  assert.deepEqual(query.guestWrites, []);
+  assert.equal(query.runtimeThreadId, 8_192);
+  assert.equal(checkpoint.lastCompletionSequence, query.sequence);
+  assert.equal(
+    checkpoint.lastCompletionInstructionCount,
+    query.trapInstructionCount,
+  );
+  assert.equal(checkpoint.actionInputEvents.length, 2);
+  const {
+    memory: _prerequisiteActionMemory,
+    ...prerequisiteActionInputEvent
+  } = checkpoint.actionInputEvents[0];
+  assert.deepEqual(
+    prerequisiteActionInputEvent,
+    prerequisite.actionInputEvent,
+  );
+  const release = checkpoint.releaseInputEvent;
+  assert.deepEqual(release.event, {
+    sequence: 4,
+    kind: "button-up",
+    button: "primary",
+    normalizedX: 0x8000,
+    normalizedY: 0x8000,
+  });
+  assert.equal(release.committedAfterSequence, query.sequence);
+  assert.equal(
+    release.committedAfterInstructionCount,
+    query.trapInstructionCount,
+  );
+  assert.deepEqual(checkpoint.actionInputEvents[1], release);
+  assert.deepEqual(checkpoint.releaseMessage, release.receipt.message);
+  assert.equal(checkpoint.releaseMessage.source.kind, "pointer-input");
+  assert.equal(checkpoint.releaseMessage.source.event_sequence, 4);
+  assert.equal(checkpoint.releaseMessage.hwnd, prerequisite.message.hwnd);
+  assert.equal(checkpoint.releaseMessage.message, 0x0202);
+  assert.equal(checkpoint.releaseMessage.wParam, 0);
+  assert.equal(checkpoint.releaseMessage.lParam, prerequisite.message.lParam);
+  assert.equal(checkpoint.releaseMessageQueued, true);
+  assert.equal(
+    checkpoint.stateAuthority,
+    "rust-runtime-input-window-message-queue-and-guest-memory",
+  );
+  assert.equal(checkpoint.mutation, "owner-local-preflight-targeted-commits");
+  assert.equal(checkpoint.failureAtomicity, true);
+  assert.equal(checkpoint.browserOwnsInputState, false);
+  assert.equal(checkpoint.browserOwnsWindowState, false);
+  assert.equal(checkpoint.browserOwnsMessageQueueState, false);
+  assert.equal(checkpoint.activeCallbackDepthAtCompletion, 0);
+  assert.match(checkpoint.memoryContentSha256, /^[0-9a-f]{64}$/u);
+  assert.equal(
+    result.supportedCalls.filter((call) => call.pendingCallback !== true)
+      .length,
+    result.supportedCalls.length,
+  );
+  assert.equal(result.supportedCalls.length, query.sequence);
+  assert.equal(result.terminal.instructionCount, checkpoint.instructionCount);
+  assert.equal(result.sourceReads.length, 183);
   assert.equal(result.writableDirectoryCreates.length, 1);
 }
 
@@ -46443,6 +46738,18 @@ function buildGenericRuntimeReentryReport({
   sourceAfter,
   sourceBefore,
 }) {
+  if (
+    postCallbackPointerActionNextIterationBatchCheckpointEnabled &&
+    genericResult.checkpointCompletion === undefined
+  ) {
+    throw new Error(
+      `post-callback pointer action next iteration ended before its checkpoint: ${JSON.stringify({
+        fault: genericResult.fault,
+        terminal: genericResult.terminal,
+        lastCall: genericResult.supportedCalls.at(-1) ?? null,
+      })}`,
+    );
+  }
   const completedSupportedCalls = genericResult.supportedCalls.filter(
     (call) => call.pendingCallback !== true,
   );
@@ -46470,7 +46777,7 @@ function buildGenericRuntimeReentryReport({
       }
       if (findFirstFileACheckpointEnabled) {
         if (deleteFileACheckpointEnabled) {
-          if (postCallbackPointerActionContinuationCheckpointEnabled) {
+          if (postCallbackPointerActionContinuationEvidenceEnabled) {
             assert(completedSupportedCalls.length > 283_427);
             assert.equal(
               completedSupportedCalls.length,
@@ -50103,7 +50410,9 @@ function buildScheduledSharedClockPrimaryReport({
     };
   });
   return {
-    schema: postCallbackPointerActionContinuationCheckpointEnabled
+    schema: postCallbackPointerActionNextIterationBatchCheckpointEnabled
+      ? "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+      : postCallbackPointerActionContinuationCheckpointEnabled
       ? "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-continuation-batch"
       : postCallbackPointerMessageConsumptionCheckpointEnabled
       ? "vine.v86-bgi-primary-main-loop-post-callback-pointer-message-consumption-batch"
@@ -50654,8 +50963,12 @@ function buildScheduledSharedClockPrimaryReport({
                   user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectCall,
                 checkpointCompletion:
                   postCallbackPointerMessageConsumptionEvidenceEnabled
-                    ? genericResult.checkpointCompletion
-                        .prerequisiteWindowInputScan
+                    ? postCallbackPointerActionNextIterationBatchCheckpointEnabled
+                      ? genericResult.checkpointCompletion
+                          .prerequisiteActionContinuation
+                          .prerequisiteWindowInputScan
+                      : genericResult.checkpointCompletion
+                          .prerequisiteWindowInputScan
                     : genericResult.checkpointCompletion,
               },
             ...(postCallbackPointerMessageConsumptionCheckpointEnabled
@@ -50665,9 +50978,20 @@ function buildScheduledSharedClockPrimaryReport({
                   },
                 }
               : {}),
-            ...(postCallbackPointerActionContinuationCheckpointEnabled
+            ...(postCallbackPointerActionContinuationEvidenceEnabled
               ? {
                   postCallbackPointerActionContinuation: {
+                    checkpointCompletion:
+                      postCallbackPointerActionNextIterationBatchCheckpointEnabled
+                        ? genericResult.checkpointCompletion
+                            .prerequisiteActionContinuation
+                        : genericResult.checkpointCompletion,
+                  },
+                }
+              : {}),
+            ...(postCallbackPointerActionNextIterationBatchCheckpointEnabled
+              ? {
+                  postCallbackPointerActionNextIteration: {
                     checkpointCompletion: genericResult.checkpointCompletion,
                   },
                 }
@@ -51702,6 +52026,9 @@ async function prepareV86(offer) {
     }
   }
 
+  const readInstructionCount = createMonotonicV86InstructionCounter(() =>
+    wasm.vine_instruction_counter(),
+  );
   return {
     allocations,
     hostImportCalls,
@@ -51719,6 +52046,7 @@ async function prepareV86(offer) {
     readVirtualBytes,
     readVirtualU32,
     readableVirtualByteLength,
+    readInstructionCount,
     threadContextTemplate,
     wasm,
   };
@@ -56861,7 +57189,7 @@ function captureCpuState(context, reason) {
   return {
     reason,
     errorCode: context.wasm.vine_get_stop_error_code(),
-    instructionCount: context.wasm.vine_instruction_counter(),
+    instructionCount: context.readInstructionCount(),
     eax: words[stateWord.eax],
     ecx: words[stateWord.ecx],
     edx: words[stateWord.edx],
@@ -57396,7 +57724,9 @@ function executeToNextOwnedTrap(offer, context, initialInstructionCount) {
   const maximumExecuteStops = sourceFileReadEnabled
     ? user32AsyncKeyStateInitialScanEnabled
       ? runtimeTraplessExecutionBudgetEnabled
-        ? 15_625
+        ? postCallbackPointerActionNextIterationBatchCheckpointEnabled
+          ? 31_250
+          : 15_625
         : 156_250
       : 39_063
     : guest.maximumExecuteStops;
@@ -58434,7 +58764,7 @@ function executeToFirstOwnedTrap(offer, context) {
     return {
       reason,
       errorCode: context.wasm.vine_get_stop_error_code(),
-      instructionCount: context.wasm.vine_instruction_counter(),
+      instructionCount: context.readInstructionCount(),
       eax: words[stateWord.eax],
       ecx: words[stateWord.ecx],
       edx: words[stateWord.edx],

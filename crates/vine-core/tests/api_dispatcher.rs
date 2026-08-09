@@ -5,9 +5,9 @@ use vine_core::{
     ApiEndpointIdentity, ApiFaultClass, ApiGuestWrite, ApiGuestWriteReceipt, ApiHandlerResult,
     ApiImmediate, ApiOwnedTrap, ApiReturnSchema, ApiReturnValue, ApiTrap, ApiValueSchema,
     CREATE_MUTEX_A_IMPLEMENTATION, CREATE_WAITABLE_TIMER_A_IMPLEMENTATION, CallbackPolicy,
-    CallingConvention, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE, DispatchOutcome, ExecutionSession,
-    FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION, GET_CP_INFO_IMPLEMENTATION,
-    GET_CURRENT_THREAD_IMPLEMENTATION, GET_DRIVE_TYPE_A_IMPLEMENTATION,
+    CallingConvention, DELETE_CRITICAL_SECTION_IMPLEMENTATION, DYNAMIC_EXPORT_ENDPOINT_NAMESPACE,
+    DispatchOutcome, ExecutionSession, FLS_GET_VALUE_IMPLEMENTATION, GET_ACP_IMPLEMENTATION,
+    GET_CP_INFO_IMPLEMENTATION, GET_CURRENT_THREAD_IMPLEMENTATION, GET_DRIVE_TYPE_A_IMPLEMENTATION,
     GET_LAST_ERROR_IMPLEMENTATION, GET_STRING_TYPE_W_IMPLEMENTATION,
     GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION, GET_SYSTEM_INFO_IMPLEMENTATION,
     GET_VERSION_EX_A_IMPLEMENTATION, GLOBAL_MEMORY_STATUS_IMPLEMENTATION, GUEST_PAGE_SIZE,
@@ -8566,6 +8566,94 @@ fn critical_section_contract_owns_recursive_state_and_guest_bytes() {
             .expect("released critical section bytes"),
         expected_critical_section_bytes(4000, None, 0)
     );
+
+    let delete_contract = kernel32_contract_for_endpoint(endpoints[3].clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented DeleteCriticalSection endpoint");
+    assert_eq!(
+        delete_contract.implementation_id,
+        DELETE_CRITICAL_SECTION_IMPLEMENTATION
+    );
+    assert_eq!(delete_contract.abi.return_value, ApiReturnSchema::Void);
+    assert_eq!(delete_contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(delete_contract.last_error_policy, LastErrorPolicy::Preserve);
+    assert_eq!(delete_contract.abi.arguments.len(), 1);
+
+    let deleted = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[3],
+        frames[3].0,
+        frames[3].1[0],
+    );
+    assert_eq!(deleted.eax, RegisterUpdate::Preserve);
+    assert_eq!(deleted.stack_pointer, GuestAddress(frames[3].0 + 8));
+    assert_eq!(deleted.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(deleted.guest_writes.len(), 1);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(CRITICAL_SECTION_ADDRESS), 24)
+            .expect("deleted critical section bytes"),
+        vec![0; 24]
+    );
+    assert_eq!(
+        runtime
+            .critical_section(GuestAddress(CRITICAL_SECTION_ADDRESS))
+            .unwrap_err()
+            .code,
+        "critical-section-uninitialized"
+    );
+
+    dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[0],
+        frames[0].0,
+        frames[0].1[0],
+    );
+    acknowledge_pending_delta(&mut memory);
+    memory
+        .protect(
+            owner,
+            GuestRange::new(GuestAddress(OUTPUT_BASE), GUEST_PAGE_SIZE)
+                .expect("critical section page range"),
+            PageProtection {
+                read: true,
+                write: false,
+                execute: false,
+            },
+        )
+        .expect("make critical section storage read-only");
+    acknowledge_pending_delta(&mut memory);
+    let runtime_before_rejected_delete = runtime.clone();
+    let bytes_before_rejected_delete = memory
+        .read(GuestAddress(CRITICAL_SECTION_ADDRESS), 24)
+        .expect("read critical section before rejected delete");
+    let rejected_delete = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&endpoints[3], frames[3].0, frames[3].1[0]),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        rejected_delete,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::InvalidCall
+                && fault.code == "guest-page-fault"
+                && fault.message.contains("WriteDenied")
+    ));
+    assert_eq!(runtime, runtime_before_rejected_delete);
+    assert_eq!(
+        memory
+            .read(GuestAddress(CRITICAL_SECTION_ADDRESS), 24)
+            .expect("read critical section after rejected delete"),
+        bytes_before_rejected_delete
+    );
 }
 
 #[test]
@@ -9554,11 +9642,12 @@ fn critical_section_dispatcher_fixture(
     memory: &mut GuestMemory,
     owner: MemoryOwnerId,
     critical_section_address: u32,
-) -> (ApiDispatcher, Vec<ApiEndpointIdentity>, [FrameWords; 3]) {
+) -> (ApiDispatcher, Vec<ApiEndpointIdentity>, [FrameWords; 4]) {
     let names = [
         "InitializeCriticalSectionAndSpinCount",
         "EnterCriticalSection",
         "LeaveCriticalSection",
+        "DeleteCriticalSection",
     ];
     let thunks = names
         .into_iter()
@@ -9612,6 +9701,10 @@ fn critical_section_dispatcher_fixture(
         (
             STACK_BASE + 0x160,
             vec![0x1000_0303, critical_section_address],
+        ),
+        (
+            STACK_BASE + 0x180,
+            vec![0x1000_0304, critical_section_address],
         ),
     ];
     for (address, words) in &frames {

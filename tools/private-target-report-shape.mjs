@@ -77,6 +77,34 @@ export function projectCapabilityCheckpointCompletion(completion) {
   const projected = structuredClone(
     requireRecord(completion, "capability checkpoint completion"),
   );
+  if (
+    projected.capability ===
+    "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+  ) {
+    if (!Array.isArray(projected.nextIterationCalls)) {
+      throw new TypeError(
+        "post-callback next-iteration completion must include its call sequence",
+      );
+    }
+    const projectCall = (call) => {
+      const value = requireRecord(call, "post-callback next-iteration call");
+      return {
+        sequence: value.sequence,
+        symbol: value.symbol,
+        occurrence: value.occurrence,
+        trapInstructionCount: value.trapInstructionCount,
+        implementationId: value.implementationId,
+      };
+    };
+    projected.nextIterationCallCount = projected.nextIterationCalls.length;
+    projected.firstNextIterationCall = projectCall(
+      projected.nextIterationCalls[0],
+    );
+    projected.lastNextIterationCall = projectCall(
+      projected.nextIterationCalls.at(-1),
+    );
+    delete projected.nextIterationCalls;
+  }
   const hasSequence = Object.hasOwn(projected, "lastCompletionSequence");
   const hasInstructionCount = Object.hasOwn(
     projected,

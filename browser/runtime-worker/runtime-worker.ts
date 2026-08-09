@@ -36,6 +36,7 @@ import {
   type RuntimeKeyboardInputEvent,
   type RuntimeKeyboardInputBoundaryEvidence,
   type RuntimeKeyboardStateSnapshot,
+  type RuntimeMemoryStatsSnapshot,
   type RuntimePointerButtonIngressReceipt,
   type RuntimePointerButtonInputBoundaryEvidence,
   type RuntimePointerButtonInputEvent,
@@ -66,6 +67,7 @@ import {
   type User32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeCheckpoint,
   type User32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectCheckpoint,
   type PrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint,
+  type PrimaryMainLoopPostCallbackPointerActionNextIterationBatchCheckpoint,
   type PrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoint,
   type PrimaryMainLoopPostCallbackPointerMessageConsumptionBatchCheckpoint,
   type WorkerToMainMessage,
@@ -576,12 +578,30 @@ function isPrimaryMainLoopPostCallbackPointerActionContinuationProfile(
   );
 }
 
+function isPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile ===
+    "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+  );
+}
+
+function includesPrimaryMainLoopPostCallbackPointerActionContinuationProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isPrimaryMainLoopPostCallbackPointerActionContinuationProfile(profile) ||
+    isPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(profile)
+  );
+}
+
 function includesPrimaryMainLoopPostCallbackPointerMessageConsumptionProfile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isPrimaryMainLoopPostCallbackPointerMessageConsumptionProfile(profile) ||
-    isPrimaryMainLoopPostCallbackPointerActionContinuationProfile(profile)
+    includesPrimaryMainLoopPostCallbackPointerActionContinuationProfile(profile)
   );
 }
 
@@ -3570,6 +3590,7 @@ interface PointerButtonEventMetadata {
   receipt: RuntimePointerButtonIngressReceipt;
   keyboard: RuntimeKeyboardStateSnapshot;
   cursor: RuntimeCursorPositionSnapshot;
+  memory: RuntimeMemoryStatsSnapshot;
 }
 
 type PendingRuntimeInputEvent =
@@ -4159,9 +4180,7 @@ class BrowserRuntimeSession {
   };
   readonly #semanticCallDigest = new SemanticCallDigest();
   readonly #implementationOccurrences = new Map<string, number>();
-  readonly #comMethodOccurrences = new Map<string, number>([
-    ["IDirect3DDevice9:slot-3", 2],
-  ]);
+  readonly #comMethodOccurrences = new Map<string, number>();
   #waitForSingleObjectExCompletions = 0;
   #postTestCooperativeLevelTimerArmPacing: {
     sequence: number;
@@ -4252,6 +4271,14 @@ class BrowserRuntimeSession {
   #postCallbackPointerMessageConsumptionEntry: PostCallbackPointerMessageConsumptionEntry | null =
     null;
   readonly #postCallbackPointerMessageNestedCalls: Array<
+    RuntimeSupportedCallSnapshot & {
+      occurrence: number;
+      trapInstructionCount: number;
+    }
+  > = [];
+  #postCallbackPointerActionContinuationPrerequisite: PrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoint | null =
+    null;
+  readonly #postCallbackPointerActionNextIterationCalls: Array<
     RuntimeSupportedCallSnapshot & {
       occurrence: number;
       trapInstructionCount: number;
@@ -5590,7 +5617,10 @@ class BrowserRuntimeSession {
         receipt.message.lParam ===
           (((receipt.clientY & 0xffff) << 16) | (receipt.clientX & 0xffff)) >>> 0 &&
         receipt.message.pointX === metadata.cursor.screenX &&
-        receipt.message.pointY === metadata.cursor.screenY,
+        receipt.message.pointY === metadata.cursor.screenY &&
+        metadata.memory.generation === Number(this.#generation) &&
+        metadata.memory.acknowledgedGeneration === Number(this.#generation) &&
+        metadata.memory.dirtyPages === 0,
       "Rust pointer event receipt is inconsistent with the input protocol",
     );
     this.#report.pointerInput.receipts.push(structuredClone(receipt));
@@ -5766,6 +5796,10 @@ class BrowserRuntimeSession {
       includesUser32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectProfile(
         this.#configuration.capabilityProfile,
       );
+    const postCallbackNextIteration =
+      isPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
+        this.#configuration.capabilityProfile,
+      );
     if (eventCount === 0) {
       if (this.#scheduledSharedClockPresentCount < 2) {
         return;
@@ -5804,7 +5838,11 @@ class BrowserRuntimeSession {
           this.#scheduledSharedClockPresentCount === 2 &&
           this.#inputProgressAsyncKeyStateQuery === null &&
           this.#pendingInputEvents.length ===
-            (postCallbackWindowInputScan ? 3 : 2),
+            (postCallbackNextIteration
+              ? 4
+              : postCallbackWindowInputScan
+                ? 3
+                : 2),
         "scheduled input did not retain its two-event trace through the 253-cycle boundary",
       );
       const pending = this.#pendingInputEvents.shift();
@@ -5846,6 +5884,7 @@ class BrowserRuntimeSession {
         receipt: structuredClone(metadata.receipt),
         keyboard: structuredClone(metadata.keyboard),
         cursor: structuredClone(metadata.cursor),
+        memory: structuredClone(metadata.memory),
       });
       return;
     }
@@ -5862,7 +5901,11 @@ class BrowserRuntimeSession {
           call.lastError === 0 &&
           call.guestWrites.length === 0 &&
           this.#pendingInputEvents.length ===
-            (postCallbackWindowInputScan ? 2 : 1),
+            (postCallbackNextIteration
+              ? 3
+              : postCallbackWindowInputScan
+                ? 2
+                : 1),
         "scheduled input async-key consumer changed",
       );
       const pending = this.#pendingInputEvents.shift();
@@ -5909,6 +5952,7 @@ class BrowserRuntimeSession {
         receipt: structuredClone(metadata.receipt),
         keyboard: structuredClone(metadata.keyboard),
         cursor: structuredClone(metadata.cursor),
+        memory: structuredClone(metadata.memory),
       });
       return;
     }
@@ -5923,7 +5967,7 @@ class BrowserRuntimeSession {
             .#user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectPrerequisite !==
           null &&
           this.#postCallbackActionInputEvents.length === 0 &&
-          this.#pendingInputEvents.length === 1,
+          this.#pendingInputEvents.length === (postCallbackNextIteration ? 2 : 1),
         "post-callback action input did not retain its button-down event until GetCursorPos",
       );
       const pending = this.#pendingInputEvents.shift();
@@ -5969,7 +6013,143 @@ class BrowserRuntimeSession {
         receipt: structuredClone(metadata.receipt),
         keyboard: structuredClone(metadata.keyboard),
         cursor: structuredClone(metadata.cursor),
+        memory: structuredClone(metadata.memory),
       });
+      return;
+    }
+    if (
+      eventCount === 2 &&
+      postCallbackNextIteration &&
+      this.#postCallbackPointerActionContinuationPrerequisite !== null &&
+      this.#postCallbackActionInputEvents.length === 1 &&
+      call.implementationId === "user32.get-async-key-state.v1" &&
+      call.arguments[0] === 0x01
+    ) {
+      const calls = this.#postCallbackPointerActionNextIterationCalls;
+      const query = calls.at(-1);
+      invariant(
+        query !== undefined &&
+          query.sequence === call.sequence &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 0xffff_8001 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0 &&
+          this.#pendingInputEvents.length === 1 &&
+          this.#bgiCallbackCallSequences.size === 0 &&
+          this.#report.checkpointCompletion === null,
+        "post-callback next-iteration input query changed",
+      );
+      const pending = this.#pendingInputEvents.shift();
+      invariant(
+        pending?.source === "pointer" &&
+          pending.event.sequence === "4" &&
+          pending.event.kind === "button-up" &&
+          pending.event.button === "primary" &&
+          pending.event.normalizedX === 0x8000 &&
+          pending.event.normalizedY === 0x8000,
+        "post-callback action release event changed",
+      );
+      const event = pending.event;
+      const metadata = this.#commitPointerInput(event);
+      invariant(
+        metadata.receipt.input.virtualKey === 0x01 &&
+          metadata.receipt.input.keyboard.generation === 6 &&
+          metadata.keyboard.generation === 6 &&
+          metadata.keyboard.lastEventSequence === 4 &&
+          metadata.keyboard.downWords.every((word) => word === 0) &&
+          metadata.keyboard.pressedWords.every((word) => word === 0) &&
+          metadata.receipt.message.source.kind === "pointer-input" &&
+          metadata.receipt.message.source.event_sequence === 4 &&
+          metadata.receipt.message.message === 0x0202 &&
+          metadata.receipt.message.wParam === 0,
+        "post-callback action release did not commit authoritative input state",
+      );
+      const releaseInputEvent: RuntimePointerButtonInputBoundaryEvidence = {
+        committedAfterSequence: call.sequence,
+        committedAfterInstructionCount: this.#report.instructions,
+        event: { ...structuredClone(event), sequence: 4 },
+        receipt: structuredClone(metadata.receipt),
+        keyboard: structuredClone(metadata.keyboard),
+        cursor: structuredClone(metadata.cursor),
+        memory: structuredClone(metadata.memory),
+      };
+      this.#postCallbackActionInputEvents.push(releaseInputEvent);
+      const prerequisite =
+        this.#postCallbackPointerActionContinuationPrerequisite;
+      const firstSequence = calls[0]?.sequence ?? null;
+      const discontinuityIndex = calls.findIndex(
+        (candidate, index) =>
+          candidate.sequence !== (firstSequence ?? 0) + index,
+      );
+      invariant(
+        calls.length > 1 &&
+          calls[0]?.sequence === prerequisite.lastCompletionSequence + 1 &&
+          discontinuityIndex === -1,
+        `post-callback next-iteration call sequence changed: ${JSON.stringify({
+          firstSequence,
+          lastSequence: calls.at(-1)?.sequence ?? null,
+          callCount: calls.length,
+          discontinuityIndex,
+          previousSequence:
+            discontinuityIndex > 0
+              ? calls[discontinuityIndex - 1]?.sequence
+              : null,
+          actualSequence:
+            discontinuityIndex >= 0
+              ? calls[discontinuityIndex]?.sequence
+              : null,
+        })}`,
+      );
+      this.#report.checkpointCompletion = {
+        capability:
+          "primary-main-loop-post-callback-pointer-action-next-iteration-batch",
+        implementationId:
+          "runtime.primary-main-loop-post-callback-pointer-action-next-iteration-batch.v1",
+        requiredCompletions: calls.length + 1,
+        completionCount: calls.length + 1,
+        prerequisiteActionContinuation: structuredClone(prerequisite),
+        prerequisiteActionCompletionSequence:
+          prerequisite.lastCompletionSequence,
+        prerequisiteActionCompletionInstructionCount:
+          prerequisite.lastCompletionInstructionCount,
+        firstCompletionSequence: calls[0].sequence,
+        firstCompletionInstructionCount: calls[0].trapInstructionCount,
+        lastCompletionSequence: query.sequence,
+        lastCompletionInstructionCount: query.trapInstructionCount,
+        nextIterationCalls: structuredClone(calls),
+        actionInputQuery: {
+          ...structuredClone(query),
+          runtimeThreadId: this.#currentThreadId,
+        },
+        actionInputEvents: structuredClone(this.#postCallbackActionInputEvents),
+        releaseInputEvent: structuredClone(releaseInputEvent),
+        releaseMessage: structuredClone(metadata.receipt.message),
+        releaseMessageQueued: true,
+        stateAuthority:
+          "rust-runtime-input-window-message-queue-and-guest-memory",
+        mutation: "owner-local-preflight-targeted-commits",
+        failureAtomicity: true,
+        browserOwnsInputState: false,
+        browserOwnsWindowState: false,
+        browserOwnsMessageQueueState: false,
+        activeCallbackDepthAtCompletion: 0,
+        instructionCount: 0,
+        nextEndpoint: {
+          id: 0,
+          address: 0,
+          module: "",
+          symbol: { kind: "name", name: "" },
+          disposition: "declared-runtime-export",
+          iatAddress: 0,
+        },
+        nextArguments: [0],
+        memoryContentSha256: "",
+        nextReturnAddress: 0,
+        nextStackPointer: 0,
+      } satisfies PrimaryMainLoopPostCallbackPointerActionNextIterationBatchCheckpoint;
+      this.#postCallbackPointerActionContinuationPrerequisite = null;
+      this.#bgiCheckpointPending = true;
     }
   }
 
@@ -6029,6 +6209,7 @@ class BrowserRuntimeSession {
         receipt: structuredClone(metadata.receipt),
         keyboard: structuredClone(metadata.keyboard),
         cursor: structuredClone(metadata.cursor),
+        memory: structuredClone(metadata.memory),
       });
       return;
     }
@@ -6090,6 +6271,7 @@ class BrowserRuntimeSession {
         receipt: structuredClone(metadata.receipt),
         keyboard: structuredClone(metadata.keyboard),
         cursor: structuredClone(metadata.cursor),
+        memory: structuredClone(metadata.memory),
       });
     }
   }
@@ -7777,6 +7959,70 @@ class BrowserRuntimeSession {
   }
 
   async #dispatchApi(endpoint: number, stackPointer: number): Promise<void> {
+    if (
+      isPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#postCallbackPointerActionContinuationPrerequisite !== null &&
+      this.#postCallbackPointerActionNextIterationCalls.length === 0 &&
+      this.#postCallbackPointerActionContinuationPrerequisite
+        .instructionCount === 0
+    ) {
+      const ownedEndpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpoint,
+      );
+      const engine = this.#requireEngine();
+      invariant(
+        this.#report.instructions === 445_135_370 &&
+          ownedEndpoint?.id === 164 &&
+          ownedEndpoint.address === 0x7f00_0a30 &&
+          ownedEndpoint.module?.toLowerCase() === "user32.dll" &&
+          ownedEndpoint.symbol?.kind === "name" &&
+          ownedEndpoint.symbol.name === "PeekMessageA" &&
+          ownedEndpoint.iatAddress === 0x100d_1368 &&
+          stackPointer === 0x006f_f8c4 &&
+          engine.readGuestU32(stackPointer) === 0x1009_37bb &&
+          engine.readGuestU32(stackPointer + 4) === 0x006f_f8e8 &&
+          engine.readGuestU32(stackPointer + 8) === 0 &&
+          engine.readGuestU32(stackPointer + 12) === 0 &&
+          engine.readGuestU32(stackPointer + 16) === 0 &&
+          engine.readGuestU32(stackPointer + 20) === 1,
+        "post-callback pointer action prerequisite stopped at an invalid endpoint",
+      );
+      const reflection =
+        this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-memory-summary" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation) &&
+          reflection.contentSha256 ===
+            "f82b5e3e63f9d4676b97f130abc8da6fa375f3e5787357d56e25c83b49556b5b",
+        "post-callback pointer action prerequisite memory summary changed",
+      );
+      this.#postCallbackPointerActionContinuationPrerequisite = {
+        ...this.#postCallbackPointerActionContinuationPrerequisite,
+        instructionCount: this.#report.instructions,
+        nextEndpoint: {
+          id: ownedEndpoint.id,
+          address: ownedEndpoint.address,
+          module: ownedEndpoint.module,
+          symbol: { kind: "name", name: ownedEndpoint.symbol.name },
+          disposition: "declared-runtime-export",
+          iatAddress: ownedEndpoint.iatAddress,
+        },
+        nextArguments: [
+          engine.readGuestU32(stackPointer + 4),
+          engine.readGuestU32(stackPointer + 8),
+          engine.readGuestU32(stackPointer + 12),
+          engine.readGuestU32(stackPointer + 16),
+          engine.readGuestU32(stackPointer + 20),
+        ],
+        memoryContentSha256: reflection.contentSha256,
+        nextReturnAddress: engine.readGuestU32(stackPointer),
+        nextStackPointer: stackPointer,
+      };
+    }
     if (this.#postCallbackPointerMessageConsumptionAwaitingSetFocus) {
       const ownedEndpoint = this.#requirePrepared().endpoints.find(
         (candidate) => candidate.address === endpoint,
@@ -9432,7 +9678,7 @@ class BrowserRuntimeSession {
         : { graphicsTextureUpdate: metadata.graphicsTextureUpdate }),
       ...(browserPresentation === undefined ? {} : { browserPresentation }),
     };
-    const comOccurrenceKey = `${call.interface}:slot-${call.vtableSlot}`;
+    const comOccurrenceKey = `slot-${call.vtableSlot}`;
     const comOccurrence =
       (this.#comMethodOccurrences.get(comOccurrenceKey) ?? 0) + 1;
     this.#comMethodOccurrences.set(comOccurrenceKey, comOccurrence);
@@ -9485,6 +9731,10 @@ class BrowserRuntimeSession {
       this.#recordD3d9PresentCall(call);
       this.#recordPresentationProgressComCall(call, comOccurrence);
     }
+    this.#recordPrimaryMainLoopPostCallbackPointerMessageConsumptionCall(
+      call,
+      comOccurrence,
+    );
     this.#recordCompletedCallEvidence(call);
   }
 
@@ -9738,6 +9988,12 @@ class BrowserRuntimeSession {
     if (call.sequence < 282_851) {
       return;
     }
+    if (
+      call.vtableSlot === 69 &&
+      this.#d3d9SetSamplerStatePostBeginSceneCalls.length === 2
+    ) {
+      return;
+    }
     if (call.vtableSlot === 69) {
       const previous = this.#report.checkpointCompletion;
       const index = this.#d3d9SetSamplerStatePostBeginSceneCalls.length;
@@ -9901,7 +10157,8 @@ class BrowserRuntimeSession {
       ) ||
       call.interface !== "IDirect3DDevice9" ||
       call.vtableSlot !== 67 ||
-      call.sequence < 282_856
+      call.sequence < 282_856 ||
+      this.#d3d9SetTextureStageStatePostSamplerStateCalls.length === 6
     ) {
       return;
     }
@@ -12494,12 +12751,48 @@ class BrowserRuntimeSession {
     const frozenCall = {
       ...structuredClone(call),
       occurrence,
-      trapInstructionCount: this.#report.instructions,
+      trapInstructionCount:
+        call.callback !== undefined &&
+        this.#windowTimerCallbackEntry?.sequence === call.sequence
+          ? this.#windowTimerCallbackEntry.instructionCount
+          : this.#report.instructions,
     };
+    if (
+      isPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#postCallbackPointerActionContinuationPrerequisite !== null
+    ) {
+      const calls = this.#postCallbackPointerActionNextIterationCalls;
+      const firstSequence =
+        this.#postCallbackPointerActionContinuationPrerequisite
+          .lastCompletionSequence + 1;
+      const insertionIndex = calls.findIndex(
+        (candidate) => candidate.sequence > call.sequence,
+      );
+      invariant(
+        call.sequence >= firstSequence &&
+          !calls.some((candidate) => candidate.sequence === call.sequence),
+        `post-callback next-iteration call sequence changed: ${JSON.stringify({
+          callSequence: call.sequence,
+          firstSequence,
+          insertionIndex,
+          firstRecordedSequence: calls[0]?.sequence ?? null,
+          lastRecordedSequence: calls.at(-1)?.sequence ?? null,
+          recordedCallCount: calls.length,
+        })}`,
+      );
+      if (insertionIndex === -1) {
+        calls.push(frozenCall);
+      } else {
+        calls.splice(insertionIndex, 0, frozenCall);
+      }
+      return;
+    }
     const entry = this.#postCallbackPointerMessageConsumptionEntry;
     if (entry !== null) {
       if (
-        isPrimaryMainLoopPostCallbackPointerActionContinuationProfile(
+        includesPrimaryMainLoopPostCallbackPointerActionContinuationProfile(
           this.#configuration.capabilityProfile,
         ) &&
         call.sequence === entry.dispatchEntry.sequence
@@ -12536,7 +12829,7 @@ class BrowserRuntimeSession {
             },
           )}`,
         );
-        this.#report.checkpointCompletion = {
+        const actionContinuation = {
           ...entry,
           capability:
             "primary-main-loop-post-callback-pointer-action-continuation-batch",
@@ -12582,7 +12875,17 @@ class BrowserRuntimeSession {
           nextStackPointer: 0,
         } satisfies PrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoint;
         this.#postCallbackPointerMessageConsumptionEntry = null;
-        this.#bgiCheckpointPending = true;
+        if (
+          isPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
+            this.#configuration.capabilityProfile,
+          )
+        ) {
+          this.#postCallbackPointerActionContinuationPrerequisite =
+            actionContinuation;
+        } else {
+          this.#report.checkpointCompletion = actionContinuation;
+          this.#bgiCheckpointPending = true;
+        }
         return;
       }
       const index = this.#postCallbackPointerMessageNestedCalls.length;
@@ -12623,7 +12926,7 @@ class BrowserRuntimeSession {
           stackPointerBefore: 0x006f_f508,
           stackPointerAfter: 0x006f_f510,
         },
-        ...(isPrimaryMainLoopPostCallbackPointerActionContinuationProfile(
+        ...(includesPrimaryMainLoopPostCallbackPointerActionContinuationProfile(
           this.#configuration.capabilityProfile,
         )
           ? [
@@ -13630,11 +13933,15 @@ class BrowserRuntimeSession {
     const inputQuerySequence =
       this.#inputProgressAsyncKeyStateQuery?.sequence ?? null;
     const expectedPendingInputEvents =
-      includesUser32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectProfile(
+      isPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
         this.#configuration.capabilityProfile,
       )
-        ? 1
-        : 0;
+        ? 2
+        : includesUser32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectProfile(
+              this.#configuration.capabilityProfile,
+            )
+          ? 1
+          : 0;
     invariant(
       this.#report.checkpointCompletion === null &&
         defaultProcessingSequence !== null &&
@@ -13904,6 +14211,187 @@ class BrowserRuntimeSession {
     stackPointer: number,
   ): void {
     const checkpoint = this.#report.checkpointCompletion;
+    if (
+      isPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      const endpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpointAddress,
+      );
+      const engine = this.#requireEngine();
+      const pacing = this.#timerPacing.metrics();
+      const batch =
+        checkpoint as PrimaryMainLoopPostCallbackPointerActionNextIterationBatchCheckpoint | null;
+      const calls = batch?.nextIterationCalls ?? [];
+      const query = batch?.actionInputQuery;
+      const release = batch?.releaseInputEvent;
+      invariant(
+        batch !== null &&
+          query !== undefined &&
+          release !== undefined &&
+          endpoint !== undefined &&
+          endpoint.module !== undefined &&
+          endpoint.symbol?.kind === "name" &&
+          endpoint.iatAddress !== undefined,
+        "post-callback pointer action next iteration stopped at an invalid endpoint",
+      );
+      const completionChecks = {
+        identity:
+          batch.capability ===
+            "primary-main-loop-post-callback-pointer-action-next-iteration-batch" &&
+          batch.implementationId ===
+            "runtime.primary-main-loop-post-callback-pointer-action-next-iteration-batch.v1",
+        cardinality:
+          batch.requiredCompletions === calls.length + 1 &&
+          batch.completionCount === batch.requiredCompletions &&
+          batch.requiredCompletions === 57_603 &&
+          calls.length === 57_602,
+        prerequisite:
+          batch.prerequisiteActionContinuation.capability ===
+            "primary-main-loop-post-callback-pointer-action-continuation-batch" &&
+          batch.prerequisiteActionCompletionSequence ===
+            batch.prerequisiteActionContinuation.lastCompletionSequence &&
+          batch.prerequisiteActionCompletionInstructionCount ===
+            batch.prerequisiteActionContinuation.lastCompletionInstructionCount,
+        firstCall:
+          calls.length > 1 &&
+          calls[0]?.sequence ===
+            batch.prerequisiteActionCompletionSequence + 1 &&
+          calls[0]?.sequence === 283_431 &&
+          calls[0]?.occurrence === 113 &&
+          calls[0]?.trapInstructionCount === 445_135_370 &&
+          calls[0]?.implementationId ===
+            "user32.peek-message-a.current-thread.v1",
+        contiguousCalls: calls.every(
+          (candidate, index) =>
+            candidate.sequence === batch.firstCompletionSequence + index,
+        ),
+        actionQuery:
+          query.sequence === calls.at(-1)?.sequence &&
+          query.sequence === 341_032 &&
+          query.occurrence === 2_924 &&
+          query.trapInstructionCount === 3_114_597_133 &&
+          query.implementationId === "user32.get-async-key-state.v1" &&
+          query.arguments.join(",") === "1" &&
+          "action" in query.result &&
+          query.result.action === "set" &&
+          query.result.value === 0xffff_8001 &&
+          query.lastError === 0 &&
+          query.guestWrites.length === 0 &&
+          batch.lastCompletionSequence === query.sequence &&
+          batch.lastCompletionInstructionCount === query.trapInstructionCount,
+        release:
+          batch.actionInputEvents.length === 2 &&
+          release.event.sequence === 4 &&
+          release.event.kind === "button-up" &&
+          release.event.button === "primary" &&
+          release.receipt.input.keyboard.generation === 6 &&
+          batch.releaseMessage.id === release.receipt.message.id &&
+          batch.releaseMessage.id === 117 &&
+          batch.releaseMessage.message === 0x0202 &&
+          batch.releaseMessage.time === 5_163_564 &&
+          batch.releaseMessage.source.kind === "pointer-input" &&
+          batch.releaseMessage.source.event_sequence === 4 &&
+          batch.releaseMessageQueued === true,
+        authority:
+          batch.stateAuthority ===
+            "rust-runtime-input-window-message-queue-and-guest-memory" &&
+          batch.mutation === "owner-local-preflight-targeted-commits" &&
+          batch.failureAtomicity === true &&
+          batch.browserOwnsInputState === false &&
+          batch.browserOwnsWindowState === false &&
+          batch.browserOwnsMessageQueueState === false &&
+          batch.activeCallbackDepthAtCompletion === 0,
+        endpoint:
+          endpoint.id === 231 &&
+          endpoint.address === 0x7f00_0e60 &&
+          endpoint.module.toLowerCase() === "user32.dll" &&
+          endpoint.symbol.name === "GetAsyncKeyState" &&
+          endpoint.iatAddress === 0x100d_1474 &&
+          stackPointer === 0x006f_f5fc &&
+          engine.readGuestU32(stackPointer) === 0x1006_8405 &&
+          engine.readGuestU32(stackPointer + 4) === 2,
+        queues:
+          this.#bgiCallbackCallSequences.size === 0 &&
+          this.#pendingInputEvents.length === 0,
+        report:
+          this.#report.supportedCallCount === query.sequence &&
+          this.#report.pointerInput.receivedMessages === 4 &&
+          this.#report.pointerInput.receipts.length === 4 &&
+          this.#report.sourceReads.length === 183 &&
+          this.#report.heapPageMaterializations?.length === 4_914 &&
+          this.#report.writableDirectoryCreates.length === 1,
+        clocks:
+          this.#scheduledSharedClockSampleCount === 101_366 &&
+          this.#scheduledSharedClockWindowTimerCallbackCount === 113 &&
+          this.#scheduledSharedClockPresentCount === 32 &&
+          pacing.completions === 12_214 &&
+          this.#report.instructions === 3_114_597_221,
+      };
+      const failedCompletionChecks = Object.entries(completionChecks)
+        .filter(([, passed]) => !passed)
+        .map(([name]) => name);
+      invariant(
+        failedCompletionChecks.length === 0,
+        `post-callback pointer action next iteration failed checks: ${JSON.stringify({
+          failedCompletionChecks,
+          callCount: calls.length,
+          firstCall: calls[0],
+          lastCall: calls.at(-1),
+          query,
+          endpoint,
+          stackPointer,
+          returnAddress: engine.readGuestU32(stackPointer),
+          nextArgument: engine.readGuestU32(stackPointer + 4),
+          activeCallbackDepth: this.#bgiCallbackCallSequences.size,
+          pendingInputEvents: this.#pendingInputEvents.length,
+          supportedCallCount: this.#report.supportedCallCount,
+          clockSampleCount: this.#scheduledSharedClockSampleCount,
+          windowTimerCallbackCount:
+            this.#scheduledSharedClockWindowTimerCallbackCount,
+          presentCount: this.#scheduledSharedClockPresentCount,
+          pointerMessages: this.#report.pointerInput.receivedMessages,
+          pointerReceipts: this.#report.pointerInput.receipts.length,
+          sourceReads: this.#report.sourceReads.length,
+          heapPageMaterializations:
+            this.#report.heapPageMaterializations?.length,
+          writableDirectoryCreates: this.#report.writableDirectoryCreates.length,
+          pacingCompletions: pacing.completions,
+          instructions: this.#report.instructions,
+        })}`,
+      );
+      const reflection =
+        this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-memory-summary" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation) &&
+          reflection.contentSha256 ===
+            "5840ee438cbbdaae914c5a7169f0dc8aac5169c70388234778cd96079e8d0b11",
+        "post-callback pointer action next-iteration memory summary changed",
+      );
+      batch.instructionCount = this.#report.instructions;
+      batch.nextEndpoint = {
+        id: endpoint.id,
+        address: endpoint.address,
+        module: endpoint.module,
+        symbol: { kind: "name", name: endpoint.symbol.name },
+        disposition: "declared-runtime-export",
+        iatAddress: endpoint.iatAddress,
+      };
+      batch.nextArguments = [engine.readGuestU32(stackPointer + 4)];
+      batch.memoryContentSha256 = reflection.contentSha256;
+      batch.nextReturnAddress = engine.readGuestU32(stackPointer);
+      batch.nextStackPointer = stackPointer;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "Primary post-callback pointer action next-iteration batch completed",
+        null,
+      );
+      return;
+    }
     if (
       isPrimaryMainLoopPostCallbackPointerActionContinuationProfile(
         this.#configuration.capabilityProfile,
@@ -17631,7 +18119,7 @@ class BrowserRuntimeSession {
     );
     let postCallbackPointerActionCallback: RuntimeSupportedCallSnapshot["callback"];
     if (
-      isPrimaryMainLoopPostCallbackPointerActionContinuationProfile(
+      includesPrimaryMainLoopPostCallbackPointerActionContinuationProfile(
         this.#configuration.capabilityProfile,
       ) &&
       completion.implementationId ===

@@ -66,6 +66,18 @@ fn synchronization_mutates_only_after_runtime_lifecycle_and_subsystem_preflight(
         .expect("owner releases critical section");
     assert_eq!(released.owning_thread_id, None);
     assert_eq!(released.recursion_count, 0);
+
+    let retired = runtime
+        .delete_critical_section(CRITICAL_SECTION)
+        .expect("delete released critical section");
+    assert_eq!(retired.address, CRITICAL_SECTION);
+    assert_eq!(
+        runtime.critical_section(CRITICAL_SECTION).unwrap_err().code,
+        "critical-section-uninitialized"
+    );
+    runtime
+        .initialize_critical_section(CRITICAL_SECTION, 0)
+        .expect("deleted storage can be initialized again");
 }
 
 fn initialized_runtime() -> RuntimeState {

@@ -114,17 +114,21 @@ and recursion count. `RuntimeKernel`（compatibility alias `RuntimeState`）only
 coordinates process／thread／scheduler preflight and the owner-local commit.
 Native thread IDs and kernel synchronization handles are not imported.
 
-Three Kernel32 contracts are registered:
+Four Kernel32 contracts are registered:
 
 | API | Return | Behavior |
 |---|---|---|
 | `InitializeCriticalSectionAndSpinCount` | BOOL `1` | creates unlocked process state and writes all 24 bytes |
 | `EnterCriticalSection` | VOID | validates guest bytes, acquires or recursively enters for the current thread |
 | `LeaveCriticalSection` | VOID | validates ownership, decrements recursion, and releases at zero |
+| `DeleteCriticalSection` | VOID | validates an unowned record, retires it, and writes 24 zero bytes |
 
-All three use stdcall cleanup and preserve LastError. Enter and leave require the
-guest bytes to match the authoritative process state before mutation. The guest
-owner field uses Vine's controlled TID, `8192`, rather than a native Windows TID.
+All four use stdcall cleanup and preserve LastError. Enter, leave, and delete
+require the guest bytes to match the authoritative process state before mutation.
+Delete preflights the full guest write before retirement and rejects an owned
+record with `critical-section-delete-while-owned`. The subsystem generation
+rejects duplicate plans and delete／recreate ABA commits. The guest owner field
+uses Vine's controlled TID, `8192`, rather than a native Windows TID.
 
 Cross-thread contention is not silently accepted. The dispatcher returns
 structured unsupported fault `critical-section-contention-unimplemented` before
@@ -132,17 +136,28 @@ changing the process object or guest bytes because scheduler-backed blocking and
 wake-up are not implemented. Uninitialized, inconsistent, and wrong-owner calls
 also fail with typed runtime faults.
 
-`DeleteCriticalSection` is observed by the oracle but not registered in this
-checkpoint because the current BGI continuation does not reach it. The same is
-true for try-enter, spin-count mutation, and scheduler-visible contention.
+Try-enter, spin-count mutation, and scheduler-visible contention remain outside
+this bounded contract.
 
 The representative public semantic test covers initialization, exact bytes,
-same-thread recursion, partial and final release, LastError preservation, and a
-second controlled thread's contention fault:
+same-thread recursion, partial and final release, deletion and address reuse,
+LastError preservation, failure atomicity, and a second controlled thread's
+contention fault:
 
 ```powershell
 cargo test -p vine-core --test api_dispatcher --locked
 ```
+
+The controlled x86 oracle `x86-uncontended-recursive-v1` runs initialize,
+recursive enter／leave, final leave, and delete against one 24-byte structure.
+Delete preserves LastError sentinel 92 and replaces the complete unowned structure
+with zero bytes. The active primary continuation consumes the same contract three
+times at sequences 302,673, 310,290, and 328,190. Each dispatch preflights the
+guest write before owner retirement; the read-only negative test proves that
+neither the record nor guest bytes change when publication cannot commit. Exact
+runtime identities remain manifest-owned; the cohesive reachability checkpoint is
+documented in
+[the post-action next-iteration batch](bgi-primary-main-loop-post-callback-pointer-action-next-iteration-batch.md).
 
 ## Generic BGI continuation
 

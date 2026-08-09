@@ -27,6 +27,12 @@ export function bgiProfileOutputDirectory(profile) {
     return "v86-bgi-post-callback-pointer-action-continuation-batch";
   }
   if (
+    profile ===
+    "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+  ) {
+    return "v86-bgi-post-callback-pointer-action-next-iteration-batch";
+  }
+  if (
     !profile.startsWith("kernel32-") &&
     !profile.startsWith("user32-") &&
     !profile.startsWith("shell32-") &&

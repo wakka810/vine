@@ -8,8 +8,31 @@ import {
   planBgiCheckpointCommand,
 } from "./bgi-checkpoint-command.mjs";
 import { loadCurrentCheckpoint } from "./current-checkpoint.mjs";
+import { createMonotonicV86InstructionCounter } from "./v86-instruction-counter.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const rawInstructionCounts = [
+  0x7fff_fffe,
+  0x7fff_ffff,
+  -0x8000_0000,
+  -1,
+  0,
+  1,
+];
+const readInstructionCount = createMonotonicV86InstructionCounter(() =>
+  rawInstructionCounts.shift(),
+);
+assert.deepEqual(
+  Array.from({ length: rawInstructionCounts.length }, () => readInstructionCount()),
+  [
+    0x7fff_fffe,
+    0x7fff_ffff,
+    0x8000_0000,
+    0xffff_ffff,
+    0x1_0000_0000,
+    0x1_0000_0001,
+  ],
+);
 const manifest = loadCurrentCheckpoint(
   path.join(root, "docs", "current-checkpoint.json"),
 );

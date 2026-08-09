@@ -422,11 +422,18 @@ Rust prepared metadata also supplies the semantic committed-page limit. The
 v86 mirror starts with a 64 KiB physical pool and grows geometrically only after
 a complete reflection／host-delta preflight. Growth reinstantiates the cached
 adapter module and preserves CPU context、mappings、bytes、protection、PTE Dirty
-state; Rust remains byte authority. The BGI limit is 16,384 guest pages
-（64 MiB）and the corresponding page-directory／all-page-table／VGA-hole-inclusive
-mirror ceiling is 71,442,432 bytes. Decommit／release zero and free data pages,
+state; Rust remains byte authority. The BGI limit is 24,576 guest pages
+（96 MiB）and the corresponding page-directory／all-page-table／VGA-hole-inclusive
+mirror ceiling is 104,996,864 bytes, below the 128 MiB browser hard ceiling. Decommit／release zero and free data pages,
 empty page tables are reclaimed, and recommit reuses zeroed pages. Capacity
 failure is the mutation-free typed code `v86-physical-pool-exhausted`.
+
+The pinned v86 adapter exports its retired-instruction counter as `u32`; JavaScript
+may therefore observe values above `0x7FFFFFFF` as signed `i32` and the raw value
+eventually wraps. Browser slices compute an unsigned modular delta and the Worker
+accumulates that delta in a safe integer. The Node runner uses the same raw-bit
+normalization plus a monotonic wrap epoch. Neither path treats the signed host
+projection or a raw `u32` wrap as guest time or as a negative instruction count.
 
 The verified adapter module is cached once per Worker; each runtime session
 still creates a fresh Wasm instance, CPU context, mapping registry, and guest
@@ -606,7 +613,7 @@ stress command adds the 30-minute repeated lifecycle run.
 
 ## Remaining gates
 
-- full-play peak committed pages and memory-pressure ceiling beyond the bounded 64 MiB guest limit
+- full-play peak committed pages and memory-pressure ceiling beyond the bounded 96 MiB guest limit
 - general process, thread, DLL, heap, wait, message, and object lifecycle
 - long-idle heap-capacity plateau and full-play growth slope
 - isolated rerun of any active private-workload performance blocker

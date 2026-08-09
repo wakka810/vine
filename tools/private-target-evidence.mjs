@@ -287,6 +287,76 @@ function validatePostCallbackPointerActionContinuation(
   }
 }
 
+function validatePostCallbackPointerActionNextIteration(
+  completion,
+  expected,
+  label,
+  errors,
+) {
+  if (
+    expected.capability !==
+    "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+  ) {
+    return;
+  }
+  const first = requireRecord(
+    completion.firstNextIterationCall,
+    `${label}.firstNextIterationCall`,
+    errors,
+  );
+  const last = requireRecord(
+    completion.lastNextIterationCall,
+    `${label}.lastNextIterationCall`,
+    errors,
+  );
+  const query = requireRecord(
+    completion.actionInputQuery,
+    `${label}.actionInputQuery`,
+    errors,
+  );
+  const release = requireRecord(
+    completion.releaseInputEvent,
+    `${label}.releaseInputEvent`,
+    errors,
+  );
+  const releaseEvent = requireRecord(
+    release.event,
+    `${label}.releaseInputEvent.event`,
+    errors,
+  );
+  const releaseMessage = requireRecord(
+    completion.releaseMessage,
+    `${label}.releaseMessage`,
+    errors,
+  );
+  for (const [field, actual, expectedValue] of [
+    ["nextIterationCallCount", completion.nextIterationCallCount, 57_602],
+    ["firstNextIterationCall.sequence", first.sequence, 283_431],
+    ["firstNextIterationCall.symbol", first.symbol, "PeekMessageA"],
+    ["lastNextIterationCall.sequence", last.sequence, 341_032],
+    ["lastNextIterationCall.symbol", last.symbol, "GetAsyncKeyState"],
+    ["actionInputQuery.sequence", query.sequence, 341_032],
+    ["actionInputQuery.occurrence", query.occurrence, 2_924],
+    ["actionInputQuery.trapInstructionCount", query.trapInstructionCount, 3_114_597_133],
+    ["releaseInputEvent.event.sequence", releaseEvent.sequence, 4],
+    ["releaseInputEvent.event.kind", releaseEvent.kind, "button-up"],
+    ["releaseMessage.id", releaseMessage.id, 117],
+    ["releaseMessage.message", releaseMessage.message, 0x0202],
+    ["releaseMessage.time", releaseMessage.time, 5_163_564],
+    [
+      "stateAuthority",
+      completion.stateAuthority,
+      "rust-runtime-input-window-message-queue-and-guest-memory",
+    ],
+    ["failureAtomicity", completion.failureAtomicity, true],
+    ["browserOwnsInputState", completion.browserOwnsInputState, false],
+    ["browserOwnsWindowState", completion.browserOwnsWindowState, false],
+    ["browserOwnsMessageQueueState", completion.browserOwnsMessageQueueState, false],
+  ]) {
+    checkEqual(actual, expectedValue, `${label}.${field}`, errors);
+  }
+}
+
 function validatePointerReleaseCompletion(
   completion,
   expected,
@@ -2232,6 +2302,12 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
         errors,
       );
       validatePostCallbackPointerActionContinuation(
+        completion,
+        expectedCompletion,
+        `evidence.semantic.${label}.checkpointCompletion`,
+        errors,
+      );
+      validatePostCallbackPointerActionNextIteration(
         completion,
         expectedCompletion,
         `evidence.semantic.${label}.checkpointCompletion`,

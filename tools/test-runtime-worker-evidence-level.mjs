@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 134 as const/u);
+assert.match(protocol, /protocolVersion = 135 as const/u);
 assert.match(protocol, /"d3d9-begin-scene-post-partial-dirty-region"/u);
 assert.match(protocol, /"d3d9-set-sampler-state-post-begin-scene"/u);
 assert.match(
@@ -79,6 +79,10 @@ assert.match(
 assert.match(
   protocol,
   /capability: "primary-main-loop-post-callback-pointer-action-continuation-batch";[\s\S]*?implementationId: "runtime\.primary-main-loop-post-callback-pointer-action-continuation-batch\.v1";[\s\S]*?requiredCompletions: 9;[\s\S]*?completionCount: 9;[\s\S]*?actionContinuationCalls:[\s\S]*?dispatchCompletion:[\s\S]*?callbackReturn:[\s\S]*?browserOwnsCallbackState: false;/u,
+);
+assert.match(
+  protocol,
+  /capability: "primary-main-loop-post-callback-pointer-action-next-iteration-batch";[\s\S]*?implementationId: "runtime\.primary-main-loop-post-callback-pointer-action-next-iteration-batch\.v1";[\s\S]*?nextIterationCalls:[\s\S]*?actionInputQuery:[\s\S]*?releaseInputEvent:[\s\S]*?browserOwnsInputState: false;/u,
 );
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);

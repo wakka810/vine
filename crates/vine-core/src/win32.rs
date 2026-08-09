@@ -140,6 +140,7 @@ pub const INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION: &str =
     "kernel32.initialize-critical-section.v1";
 pub const ENTER_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.enter-critical-section.v1";
 pub const LEAVE_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.leave-critical-section.v1";
+pub const DELETE_CRITICAL_SECTION_IMPLEMENTATION: &str = "kernel32.delete-critical-section.v1";
 
 const HEAP_ENABLE_TERMINATION_ON_CORRUPTION: u32 = 1;
 const HEAP_ZERO_MEMORY: u32 = 0x0000_0008;
@@ -356,6 +357,9 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
         LEAVE_CRITICAL_SECTION_IMPLEMENTATION => {
             handle_leave_critical_section(contract, frame, session)
         }
+        DELETE_CRITICAL_SECTION_IMPLEMENTATION => {
+            handle_delete_critical_section(contract, frame, session)
+        }
         implementation_id => Err(ApiFault::unsupported(
             "win32-api-dispatch",
             "implementation-id-unsupported",
@@ -456,6 +460,7 @@ pub fn kernel32_contract_for_endpoint(
         "InitializeCriticalSection" => initialize_critical_section_contract(endpoint)?,
         "EnterCriticalSection" => enter_critical_section_contract(endpoint)?,
         "LeaveCriticalSection" => leave_critical_section_contract(endpoint)?,
+        "DeleteCriticalSection" => delete_critical_section_contract(endpoint)?,
         _ => return Ok(None),
     };
     Ok(Some(contract))
@@ -4734,6 +4739,26 @@ fn handle_leave_critical_section(
         .with_guest_write(address, x86_critical_section_bytes(section)))
 }
 
+fn handle_delete_critical_section(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = GuestAddress(required_argument(
+        contract,
+        frame,
+        0,
+        "critical section storage",
+    )?);
+    validate_x86_critical_section(contract, session, address)?;
+    session
+        .runtime_mut()
+        .delete_critical_section(address)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::Void)
+        .with_guest_write(address, vec![0; X86_CRITICAL_SECTION_BYTE_LENGTH]))
+}
+
 fn validate_x86_critical_section(
     contract: &ApiContract,
     session: &ExecutionSession<'_>,
@@ -4755,6 +4780,14 @@ fn validate_x86_critical_section(
             "guest CRITICAL_SECTION bytes differ from the process-owned synchronization state",
         ));
     }
+    session
+        .memory()
+        .validate_access(
+            address,
+            X86_CRITICAL_SECTION_BYTE_LENGTH,
+            MemoryAccess::Write,
+        )
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
     Ok(())
 }
 
@@ -6052,6 +6085,22 @@ pub fn leave_critical_section_contract(
         )],
         ApiReturnSchema::Void,
         LEAVE_CRITICAL_SECTION_IMPLEMENTATION,
+    )
+}
+
+pub fn delete_critical_section_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "DeleteCriticalSection",
+        vec![inout_struct(
+            "criticalSection",
+            "RTL_CRITICAL_SECTION",
+            X86_CRITICAL_SECTION_BYTE_LENGTH as u32,
+        )],
+        ApiReturnSchema::Void,
+        DELETE_CRITICAL_SECTION_IMPLEMENTATION,
     )
 }
 

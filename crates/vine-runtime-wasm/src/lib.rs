@@ -67,7 +67,7 @@ const MAPPING_FIXTURE_STAGE_COUNT: u32 = 7;
 const FIXTURE_MAX_PHYSICAL_PAGES: usize = 16;
 const BGI_SHA256: &str = "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1";
 const BGI_LOAD_BASE: GuestAddress = GuestAddress(0x1000_0000);
-const BGI_MAX_PHYSICAL_PAGES: usize = 16 * 1024;
+const BGI_MAX_PHYSICAL_PAGES: usize = 24 * 1024;
 const BGI_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 
 thread_local! {
@@ -499,6 +499,7 @@ impl BrowserRuntime {
             "receipt": receipt,
             "keyboard": self.runtime.keyboard_state(),
             "cursor": self.runtime.cursor_position(),
+            "memory": self.memory.stats(),
         }))
     }
 

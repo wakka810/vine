@@ -2602,7 +2602,7 @@ fn run_v86_reflection_session(
     loader_report: &LoaderIngressReport,
 ) -> Result<(), LoaderError> {
     const MAX_REFLECTION_PAGES: usize = 16;
-    const MAX_LARGE_IMAGE_REFLECTION_PAGES: usize = 16 * 1024;
+    const MAX_LARGE_IMAGE_REFLECTION_PAGES: usize = 24 * 1024;
     const MAX_REFLECTION_MESSAGE_BYTES: usize = 512 * 1024;
     const MAX_LARGE_IMAGE_REFLECTION_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
     let generic_runtime_reentry = arguments.generic_runtime_reentry;
@@ -2658,7 +2658,7 @@ fn run_v86_reflection_session(
     };
     if max_physical_pages > reflection_page_limit {
         let message = if arguments.large_image_reflection {
-            "the version 1 large-image reflection session is limited to 16384 physical pages"
+            "the version 1 large-image reflection session is limited to 24576 physical pages"
         } else {
             "the version 1 reflection session is limited to 16 physical pages"
         };
@@ -7924,7 +7924,8 @@ fn runtime_capability_enables_endpoint(
     match name.as_str() {
         "InitializeCriticalSectionAndSpinCount"
         | "EnterCriticalSection"
-        | "LeaveCriticalSection" => matches!(
+        | "LeaveCriticalSection"
+        | "DeleteCriticalSection" => matches!(
             enabled,
             Some(
                 GenericRuntimeCapability::CriticalSectionSynchronization
@@ -15212,7 +15213,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time"
                 | "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect"
                 | "primary-main-loop-post-callback-pointer-message-consumption-batch"
-                | "primary-main-loop-post-callback-pointer-action-continuation-batch" => {
+                | "primary-main-loop-post-callback-pointer-action-continuation-batch"
+                | "primary-main-loop-post-callback-pointer-action-next-iteration-batch" => {
                     GenericRuntimeCapability::D3d9EndScenePostDrawPrimitive
                 }
                 "d3d9-begin-scene" => GenericRuntimeCapability::D3d9BeginScene,

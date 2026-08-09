@@ -87,7 +87,9 @@ const scheduledSharedClockSetWindowText =
   capabilityProfile ===
     "primary-main-loop-post-callback-pointer-message-consumption-batch" ||
   capabilityProfile ===
-    "primary-main-loop-post-callback-pointer-action-continuation-batch";
+    "primary-main-loop-post-callback-pointer-action-continuation-batch" ||
+  capabilityProfile ===
+    "primary-main-loop-post-callback-pointer-action-next-iteration-batch";
 const d3d9Canvas =
   scheduledSharedClockSetWindowText ||
   capabilityProfile === "d3d9-first-present" ||
@@ -308,6 +310,9 @@ const startMessage = {
             capabilityProfile ===
               "primary-main-loop-post-callback-pointer-action-continuation-batch"
           ? 455_000_000
+        : capabilityProfile ===
+              "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+          ? 3_200_000_000
         : capabilityProfile === "gdi-outline-text-metrics-224x112"
           ? 385_000_000
         : capabilityProfile === "kernel32-delete-file-a" ||
@@ -445,7 +450,10 @@ const startMessage = {
                   ? 35_000_000
                   : 20_000_000,
     watchdogWallMilliseconds:
-      scheduledSharedClockSetWindowText ||
+      capabilityProfile ===
+      "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+        ? 1_800_000
+        : scheduledSharedClockSetWindowText ||
       capabilityProfile === "user32-async-key-state-initial-scan" ||
       capabilityProfile ===
         "user32-async-key-state-initial-scan-continuation" ||
@@ -699,7 +707,9 @@ if (
       capabilityProfile ===
         "primary-main-loop-post-callback-pointer-message-consumption-batch" ||
       capabilityProfile ===
-        "primary-main-loop-post-callback-pointer-action-continuation-batch"
+        "primary-main-loop-post-callback-pointer-action-continuation-batch" ||
+      capabilityProfile ===
+        "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
     ) {
       const actionDownEvent = pointerSourceEvent(
         3,
@@ -717,6 +727,29 @@ if (
         sessionId,
         event: actionDownEvent,
       } satisfies MainToWorkerMessage);
+      if (
+        capabilityProfile ===
+        "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+      ) {
+        const actionUpEvent = pointerSourceEvent(
+          4,
+          "button-up",
+          0,
+          0x8000,
+          0x8000,
+        );
+        if (actionUpEvent === null) {
+          throw new Error(
+            "primary action release is outside the bounded source mapping",
+          );
+        }
+        worker.postMessage({
+          type: "pointer-input",
+          protocolVersion,
+          sessionId,
+          event: actionUpEvent,
+        } satisfies MainToWorkerMessage);
+      }
     }
   } else {
     const downEvent = {
@@ -844,6 +877,8 @@ function parseCapabilityProfile(
       "primary-main-loop-post-callback-pointer-message-consumption-batch" ||
     value ===
       "primary-main-loop-post-callback-pointer-action-continuation-batch" ||
+    value ===
+      "primary-main-loop-post-callback-pointer-action-next-iteration-batch" ||
     value === "kernel32-wait-for-single-object-ex" ||
     value === "kernel32-enter-critical-section" ||
     value === "primary-main-loop-progression" ||

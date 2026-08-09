@@ -30,12 +30,12 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "Rust removes WM_LBUTTONDOWN message 44",
+    "Rust completes the WM_LBUTTONDOWN action, one full following main-loop iteration",
   ),
 );
 assert.ok(
   rendered.includes(
-    "Node primary recorded 100,567 samples / 41 TIMERPROC callbacks",
+    "Node primary recorded 101,366 samples / 113 TIMERPROC callbacks",
   ),
 );
 assert.ok(rendered.includes("| Shared clock |"));

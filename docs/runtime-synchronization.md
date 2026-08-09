@@ -24,9 +24,10 @@ shapeはcurrent diagnostic representationであり、persistent snapshot ABIで�
 - 全preflight成功後にsubsystem commitを呼ぶ
 
 address、duplicate、capacity、owner、recursion、contentionのvalidationとstate transitionは
-`RuntimeSynchronization::plan_*`がowned stateのcloneだけへ適用する。planはcollectionを変更せず、
-`commit`だけが1 recordを置換する。したがってlifecycle、Win32 spin-count、subsystem transitionの
-いずれかが失敗してもaggregate stateは変化しない。
+`RuntimeSynchronization::plan_*`がmutation-freeで組み立てる。各critical-section planはrecordの
+before-imageに加えてsubsystem generationを保持し、同じaddressへ同じ値を再作成したABAもstale commitとして
+拒否する。`commit`だけがtarget recordとgenerationを更新するため、lifecycle、Win32 spin-count、
+subsystem transitionのいずれかが失敗してもaggregate stateは変化しない。
 
 Mutex create／open／last-closeはobject tableも変更する。Object subsystemはprevious／next stateを閉じ込めた
 opaque `RuntimeMutexObjectMutationPlan`を返し、stale commitをmutation前に拒否する。Aggregate coordinatorは
@@ -41,6 +42,8 @@ refcountを直接mutateせず、object tableはname、owner、recursionを保持
 - initialize: unowned、recursion `0`
 - enter: current thread ownership、checked recursive increment
 - leave: current ownerだけがdecrementし、zeroでownerをclear
+- delete: unowned recordだけをretireし、validated guest `RTL_CRITICAL_SECTION`の24 bytesをzero化
+- plan lifetime: subsystem generationによりduplicate／stale／delete-and-recreate ABA commitを拒否
 - contention: `critical-section-contended`をmutation前に返す
 - maximum live mutexes: `4096`
 - named identity: owned ANSI bytes plus Windows-932 UTF-16 key
@@ -50,7 +53,7 @@ refcountを直接mutateせず、object tableはname、owner、recursionを保持
 - release: current ownerだけがchecked decrementし、zeroでownerをclear
 - close／teardown: remaining handleはobjectを保持し、last close／process exitでrecordとnameをretire
 
-Blocking contention、abandonment、guest wait／release／close contract、critical-section delete、
+Blocking contention、abandonment、guest wait／release／close contract、try-enter、spin-count mutation、
 arbitrary native raw stateは追加していない。
 
 ## Regression
@@ -63,11 +66,11 @@ cargo test -p vine-core --test api_dispatcher critical_section_contract --locked
 cargo test -p vine-core --test api_dispatcher create_mutex_a --locked
 ```
 
-Subsystem unit testsはplanのmutation-free性、recursive transition、rejected transitionのstate不変を
-固定する。Integration testsはaggregate lifecycle rejection、invalid spin-count、second-thread contention、
+Subsystem unit testsはplanのmutation-free性、recursive transition、owned delete rejection、retire／reuse、
+duplicateおよびABA stale commitのstate不変を固定する。Integration testsはaggregate lifecycle rejection、invalid spin-count、second-thread contention、
 named identity copy、distinct-handle shared object、recursive mutex wait／release、last-close recreation、
 process teardown、serialized field compatibilityを検査する。Dispatcher testsはGuestMemory bytes、
-LastError、ABI、policy rejection、critical-section and mutex ownership behaviorを保持する。
+LastError、ABI、policy rejection、delete後の24-byte zero、critical-section and mutex ownership behaviorを保持する。
 
 Primary BGI callerだけへ限定した10秒native traceは、spin-count initialize 17件、plain initialize
 16,517件、delete 0件、maximum／final live 16,534件を観測した。最後のinitializeはmain module loadから

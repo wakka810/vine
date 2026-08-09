@@ -86,6 +86,8 @@ pub struct RuntimeMutex {
 #[serde(rename_all = "camelCase")]
 pub(super) struct RuntimeSynchronization {
     critical_sections: BTreeMap<GuestAddress, RuntimeCriticalSection>,
+    #[serde(skip)]
+    critical_section_generation: u64,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     mutexes: BTreeMap<RuntimeMutexId, RuntimeMutex>,
     #[serde(skip)]
@@ -98,6 +100,7 @@ impl Default for RuntimeSynchronization {
     fn default() -> Self {
         Self {
             critical_sections: BTreeMap::new(),
+            critical_section_generation: 0,
             mutexes: BTreeMap::new(),
             named_mutexes: BTreeMap::new(),
             next_mutex_id: 1,
@@ -110,6 +113,16 @@ pub(super) struct RuntimeCriticalSectionPlan {
     address: GuestAddress,
     previous: Option<RuntimeCriticalSection>,
     next: RuntimeCriticalSection,
+    expected_generation: u64,
+    next_generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RuntimeCriticalSectionRetirementPlan {
+    address: GuestAddress,
+    previous: RuntimeCriticalSection,
+    expected_generation: u64,
+    next_generation: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -157,6 +170,18 @@ pub(super) struct RuntimeMutexRetirementPlan {
 }
 
 impl RuntimeSynchronization {
+    fn next_critical_section_generation(&self) -> Result<u64, RuntimeStateError> {
+        self.critical_section_generation
+            .checked_add(1)
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-critical-section",
+                    "critical-section-generation-exhausted",
+                    "critical section mutation generation overflowed",
+                )
+            })
+    }
+
     pub(super) fn plan_initialization(
         &self,
         address: GuestAddress,
@@ -195,6 +220,8 @@ impl RuntimeSynchronization {
                 owning_thread_id: None,
                 recursion_count: 0,
             },
+            expected_generation: self.critical_section_generation,
+            next_generation: self.next_critical_section_generation()?,
         })
     }
 
@@ -241,6 +268,8 @@ impl RuntimeSynchronization {
             address,
             previous: Some(previous),
             next,
+            expected_generation: self.critical_section_generation,
+            next_generation: self.next_critical_section_generation()?,
         })
     }
 
@@ -269,20 +298,86 @@ impl RuntimeSynchronization {
             address,
             previous: Some(previous),
             next,
+            expected_generation: self.critical_section_generation,
+            next_generation: self.next_critical_section_generation()?,
         })
     }
 
-    pub(super) fn commit(&mut self, plan: RuntimeCriticalSectionPlan) -> &RuntimeCriticalSection {
-        debug_assert_eq!(
-            self.critical_sections.get(&plan.address).copied(),
-            plan.previous,
-            "critical section plan was not committed against its preflight state"
-        );
-        let previous = self.critical_sections.insert(plan.address, plan.next);
-        debug_assert_eq!(previous, plan.previous);
-        self.critical_sections
+    pub(super) fn plan_retirement(
+        &self,
+        address: GuestAddress,
+    ) -> Result<RuntimeCriticalSectionRetirementPlan, RuntimeStateError> {
+        let previous = *self.critical_section(address)?;
+        if previous.owning_thread_id.is_some() || previous.recursion_count != 0 {
+            return Err(RuntimeStateError::conflict(
+                "runtime-critical-section",
+                "critical-section-delete-while-owned",
+                format!(
+                    "critical section {:#010x} cannot be deleted while owned",
+                    address.0
+                ),
+            ));
+        }
+        Ok(RuntimeCriticalSectionRetirementPlan {
+            address,
+            previous,
+            expected_generation: self.critical_section_generation,
+            next_generation: self.next_critical_section_generation()?,
+        })
+    }
+
+    pub(super) fn commit(
+        &mut self,
+        plan: RuntimeCriticalSectionPlan,
+    ) -> Result<&RuntimeCriticalSection, RuntimeStateError> {
+        if self.critical_section_generation != plan.expected_generation
+            || self.critical_sections.get(&plan.address).copied() != plan.previous
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-critical-section",
+                "critical-section-plan-stale",
+                format!(
+                    "critical section plan for {:#010x} is stale",
+                    plan.address.0
+                ),
+            ));
+        }
+        self.critical_sections.insert(plan.address, plan.next);
+        self.critical_section_generation = plan.next_generation;
+        Ok(self
+            .critical_sections
             .get(&plan.address)
-            .expect("committed critical section is missing")
+            .expect("committed critical section is missing"))
+    }
+
+    pub(super) fn commit_retirement(
+        &mut self,
+        plan: RuntimeCriticalSectionRetirementPlan,
+    ) -> Result<RuntimeCriticalSection, RuntimeStateError> {
+        if self.critical_section_generation != plan.expected_generation
+            || self.critical_sections.get(&plan.address).copied() != Some(plan.previous)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-critical-section",
+                "critical-section-retirement-plan-stale",
+                format!(
+                    "critical section retirement plan for {:#010x} is stale",
+                    plan.address.0
+                ),
+            ));
+        }
+        let retired = self
+            .critical_sections
+            .remove(&plan.address)
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-critical-section",
+                    "critical-section-retirement-commit-missing",
+                    "validated critical section disappeared during retirement commit",
+                )
+            })?;
+        self.critical_section_generation = plan.next_generation;
+        Ok(retired)
     }
 
     pub(super) fn critical_section(
@@ -523,7 +618,7 @@ mod tests {
         let initialization = synchronization.plan_initialization(ADDRESS, 4000).unwrap();
         assert_eq!(synchronization, before_initialization);
         assert_eq!(
-            *synchronization.commit(initialization),
+            *synchronization.commit(initialization).unwrap(),
             RuntimeCriticalSection {
                 address: ADDRESS,
                 spin_count: 4000,
@@ -535,8 +630,10 @@ mod tests {
         let before_enter = synchronization.clone();
         let enter = synchronization.plan_enter(ADDRESS, OWNER).unwrap();
         assert_eq!(synchronization, before_enter);
-        synchronization.commit(enter);
-        synchronization.commit(synchronization.plan_enter(ADDRESS, OWNER).unwrap());
+        synchronization.commit(enter).unwrap();
+        synchronization
+            .commit(synchronization.plan_enter(ADDRESS, OWNER).unwrap())
+            .unwrap();
         assert_eq!(
             synchronization.critical_section(ADDRESS).unwrap(),
             &RuntimeCriticalSection {
@@ -547,8 +644,12 @@ mod tests {
             }
         );
 
-        synchronization.commit(synchronization.plan_leave(ADDRESS, OWNER).unwrap());
-        synchronization.commit(synchronization.plan_leave(ADDRESS, OWNER).unwrap());
+        synchronization
+            .commit(synchronization.plan_leave(ADDRESS, OWNER).unwrap())
+            .unwrap();
+        synchronization
+            .commit(synchronization.plan_leave(ADDRESS, OWNER).unwrap())
+            .unwrap();
         assert_eq!(
             synchronization.critical_section(ADDRESS).unwrap(),
             &RuntimeCriticalSection {
@@ -564,9 +665,9 @@ mod tests {
     fn rejected_plans_preserve_all_synchronization_state() {
         let mut synchronization = RuntimeSynchronization::default();
         let initialization = synchronization.plan_initialization(ADDRESS, 4000).unwrap();
-        synchronization.commit(initialization);
+        synchronization.commit(initialization).unwrap();
         let enter = synchronization.plan_enter(ADDRESS, OWNER).unwrap();
-        synchronization.commit(enter);
+        synchronization.commit(enter).unwrap();
         let before = synchronization.clone();
 
         assert_eq!(
@@ -590,7 +691,53 @@ mod tests {
                 .code,
             "critical-section-not-owned-by-current-thread"
         );
+        assert_eq!(
+            synchronization.plan_retirement(ADDRESS).unwrap_err().code,
+            "critical-section-delete-while-owned"
+        );
         assert_eq!(synchronization, before);
+    }
+
+    #[test]
+    fn retirement_is_targeted_reusable_and_rejects_duplicate_commit() {
+        let mut synchronization = RuntimeSynchronization::default();
+        let initialization = synchronization.plan_initialization(ADDRESS, 4000).unwrap();
+        synchronization.commit(initialization).unwrap();
+
+        let retirement = synchronization.plan_retirement(ADDRESS).unwrap();
+        let duplicate = retirement;
+        assert_eq!(
+            synchronization.commit_retirement(retirement).unwrap(),
+            RuntimeCriticalSection {
+                address: ADDRESS,
+                spin_count: 4000,
+                owning_thread_id: None,
+                recursion_count: 0,
+            }
+        );
+        let replacement = synchronization.plan_initialization(ADDRESS, 4000).unwrap();
+        synchronization.commit(replacement).unwrap();
+        let before_duplicate = synchronization.clone();
+        assert_eq!(
+            synchronization
+                .commit_retirement(duplicate)
+                .unwrap_err()
+                .code,
+            "critical-section-retirement-plan-stale"
+        );
+        assert_eq!(synchronization, before_duplicate);
+
+        let fresh_retirement = synchronization.plan_retirement(ADDRESS).unwrap();
+        synchronization.commit_retirement(fresh_retirement).unwrap();
+        let replacement = synchronization.plan_initialization(ADDRESS, 1234).unwrap();
+        synchronization.commit(replacement).unwrap();
+        assert_eq!(
+            synchronization
+                .critical_section(ADDRESS)
+                .unwrap()
+                .spin_count,
+            1234
+        );
     }
 
     #[test]
@@ -603,7 +750,7 @@ mod tests {
                 .unwrap();
             let address = GuestAddress(0x2000_0000_u32.checked_add(offset).unwrap());
             let plan = synchronization.plan_initialization(address, 0).unwrap();
-            synchronization.commit(plan);
+            synchronization.commit(plan).unwrap();
         }
         assert_eq!(
             synchronization.critical_sections.len(),

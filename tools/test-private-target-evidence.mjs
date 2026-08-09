@@ -85,7 +85,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 99);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 100);
 assert.match(
   privateTargetRunner,
   /function assertUser32PeekMessageAPostTestCooperativeLevelTimerCallbackCheckpoint[\s\S]*?"queueDepthBefore"[\s\S]*?"queueDepthAfter"[\s\S]*?"browserOwnsMessageQueueState"[\s\S]*?"messageBytesPreserved"[\s\S]*?"activeCallbackDepthAtStop"/u,
@@ -109,6 +109,10 @@ assert.match(
 assert.match(
   privateTargetRunner,
   /function assertPrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoint[\s\S]*?actionContinuationCalls[\s\S]*?dispatchCompletion[\s\S]*?callbackReturn[\s\S]*?activeCallbackDepthAtStop/u,
+);
+assert.match(
+  privateTargetRunner,
+  /function assertPrimaryMainLoopPostCallbackPointerActionNextIterationBatchCheckpoint[\s\S]*?nextIterationCalls[\s\S]*?actionInputQuery[\s\S]*?releaseInputEvent[\s\S]*?nextEndpoint/u,
 );
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
@@ -223,6 +227,19 @@ if (
   assert.equal(
     expectedBrowserEvidence.runtimeCoreWasmSha256,
     scheduled.browserBoundaryEvidence.runtimeCoreWasmSha256,
+  );
+}
+if (
+  checkpoint.nextStructuredStop.completion.capability ===
+  "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+) {
+  const staleNextIterationCount = mutated((value) => {
+    value.semantic.browser.checkpointCompletion.nextIterationCallCount -= 1;
+  });
+  assert(
+    validatePrivateTargetEvidence(staleNextIterationCount, checkpoint).some(
+      (error) => error.includes("nextIterationCallCount"),
+    ),
   );
 }
 
