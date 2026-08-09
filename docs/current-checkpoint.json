@@ -5839,7 +5839,7 @@
     "hostCompletionModel": "scheduler-event",
     "genericDispatcherApiCount": 135,
     "genericDispatcherContractCount": 137,
-    "genericDispatcherCallOccurrenceCount": 283426,
+    "genericDispatcherCallOccurrenceCount": 283430,
     "genericDispatcherApis": [
       "KERNEL32.dll!GetSystemTimeAsFileTime",
       "KERNEL32.dll!GetCurrentProcessId",
@@ -16652,7 +16652,7 @@
       "nativeDefWindowProcPointerReleaseOracleCaptureAfter": null,
       "implementation": "Rust-owned window, message-queue, callback-frame, synchronization, heap, process-clock, and guest-memory authorities complete the reached WM_LBUTTONDOWN action path as one nine-completion batch: SetFocus preserves the same current window, timeGetTime samples the shared logical clock, DefWindowProcA returns zero, and WndProc plus outer DispatchMessageA unwind before the next PeekMessageA; TypeScript records only the non-owning browser projection",
       "implementedApiContractCount": 137,
-      "genericSupportedCallCount": 283426,
+      "genericSupportedCallCount": 283430,
       "createWindowExAImplemented": true,
       "createWindowExASequence": 1388,
       "createWindowExAInstructionCount": 11476236,
