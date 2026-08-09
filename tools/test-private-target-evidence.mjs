@@ -85,7 +85,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 98);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 99);
 assert.match(
   privateTargetRunner,
   /function assertUser32PeekMessageAPostTestCooperativeLevelTimerCallbackCheckpoint[\s\S]*?"queueDepthBefore"[\s\S]*?"queueDepthAfter"[\s\S]*?"browserOwnsMessageQueueState"[\s\S]*?"messageBytesPreserved"[\s\S]*?"activeCallbackDepthAtStop"/u,
@@ -105,6 +105,10 @@ assert.match(
 assert.match(
   privateTargetRunner,
   /function assertPrimaryMainLoopPostCallbackPointerMessageConsumptionBatchCheckpoint[\s\S]*?peekMessage[\s\S]*?translateMessage[\s\S]*?dispatchEntry[\s\S]*?callbackNestedCalls[\s\S]*?activeCallbackDepthAtStop/u,
+);
+assert.match(
+  privateTargetRunner,
+  /function assertPrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoint[\s\S]*?actionContinuationCalls[\s\S]*?dispatchCompletion[\s\S]*?callbackReturn[\s\S]*?activeCallbackDepthAtStop/u,
 );
 
 const firstPacingRequest = { requestId: "3", sequence: 18_682 };
@@ -488,7 +492,9 @@ assert.deepEqual(
 );
 if (
   checkpoint.nextStructuredStop.completion.capability ===
-  "primary-main-loop-post-callback-pointer-message-consumption-batch"
+    "primary-main-loop-post-callback-pointer-action-continuation-batch" ||
+  checkpoint.nextStructuredStop.completion.capability ===
+    "primary-main-loop-post-callback-pointer-message-consumption-batch"
 ) {
   const staleNestedCall = mutated((value) => {
     value.semantic.browser.checkpointCompletion.callbackNestedCalls[1].symbol =

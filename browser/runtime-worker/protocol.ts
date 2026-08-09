@@ -2,7 +2,7 @@ import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 import type { BrowserNativeStorageConfiguration } from "../storage/protocol.js";
 
-export const protocolVersion = 133 as const;
+export const protocolVersion = 134 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -50,6 +50,7 @@ export type BgiCapabilityProfile =
   | "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time"
   | "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect"
   | "primary-main-loop-post-callback-pointer-message-consumption-batch"
+  | "primary-main-loop-post-callback-pointer-action-continuation-batch"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1593,6 +1594,65 @@ export interface PrimaryMainLoopPostCallbackPointerMessageConsumptionBatchCheckp
   nextStackPointer: number;
 }
 
+export interface PrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoint extends Omit<
+  PrimaryMainLoopPostCallbackPointerMessageConsumptionBatchCheckpoint,
+  | "capability"
+  | "implementationId"
+  | "requiredCompletions"
+  | "completionCount"
+  | "lastCompletionSequence"
+  | "lastCompletionInstructionCount"
+  | "activeCallbackDepthAtStop"
+  | "callbackNestedCalls"
+  | "nextEndpoint"
+  | "nextArguments"
+> {
+  capability: "primary-main-loop-post-callback-pointer-action-continuation-batch";
+  implementationId: "runtime.primary-main-loop-post-callback-pointer-action-continuation-batch.v1";
+  requiredCompletions: 9;
+  completionCount: 9;
+  lastCompletionSequence: number;
+  lastCompletionInstructionCount: number;
+  callbackNestedCalls: Array<
+    RuntimeSupportedCallSnapshot & {
+      occurrence: number;
+      trapInstructionCount: number;
+    }
+  >;
+  actionContinuationCalls: Array<
+    RuntimeSupportedCallSnapshot & {
+      occurrence: number;
+      trapInstructionCount: number;
+    }
+  >;
+  dispatchCompletion: RuntimeSupportedCallSnapshot & {
+    occurrence: number;
+    trapInstructionCount: number;
+  };
+  callbackReturn: {
+    action: "return";
+    sequence: number;
+    frameId: number;
+    instructionCount: number;
+    result: number;
+  };
+  dispatchResult: 0;
+  dispatchCompletionInstructionCount: number;
+  activeCallbackDepthAtStop: 0;
+  stateAuthority: "rust-runtime-window-message-queue-callback-and-process-clock";
+  browserOwnsCallbackState: false;
+  failureAtomicity: true;
+  nextEndpoint: {
+    id: number;
+    address: number;
+    module: string;
+    symbol: { kind: "name"; name: "PeekMessageA" };
+    disposition: "declared-runtime-export";
+    iatAddress: number;
+  };
+  nextArguments: [number, number, number, number, number];
+}
+
 export interface SessionReport {
   evidenceLevel: "full" | "summary";
   outcome:
@@ -2242,6 +2302,7 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | PrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoint
     | PrimaryMainLoopPostCallbackPointerMessageConsumptionBatchCheckpoint
     | PrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint
     | User32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeCheckpoint

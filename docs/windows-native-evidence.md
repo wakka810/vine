@@ -6528,3 +6528,23 @@ TypeScript only compares the non-owning projection. Exact active artifact identi
 remain authoritative only in [current-checkpoint.json](current-checkpoint.json).
 Details are in
 [the bounded pointer-message consumption batch](bgi-primary-main-loop-post-callback-pointer-message-consumption-batch.md).
+
+## 199. BGI post-callback pointer-action continuation batch
+
+The controlled same-window `SetFocus` oracle recorded in the acceptance contract,
+the shared-clock `timeGetTime` contract, and section 182's client
+`WM_LBUTTONDOWN` `DefWindowProcA` oracle already fix the native semantics and caller
+consumers required by this batch. No new native trace was needed. Primary sequence,
+occurrence, frame ID, instruction count, and guest addresses remain evidence
+identities rather than semantic selectors.
+
+Canonical Node and Chrome complete same-window `SetFocus` at sequence 283,428,
+shared-clock `timeGetTime` at 283,429, and zero-result `DefWindowProcA` at 283,430.
+WndProc frame 76 returns zero at instruction 445,135,361 and the pending outer
+`DispatchMessageA` retires with the same result. Both retain queue and callback depth
+zero and reach the next unfiltered `PeekMessageA(PM_REMOVE)` at instruction
+445,135,370. Rust remains authoritative for window/focus relation, queue, callback,
+process clock, and guest bytes; TypeScript only compares the non-owning projection.
+Exact active artifact identities remain authoritative only in
+[current-checkpoint.json](current-checkpoint.json). Details are in
+[the bounded pointer-action continuation batch](bgi-primary-main-loop-post-callback-pointer-action-continuation-batch.md).

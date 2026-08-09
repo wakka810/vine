@@ -30,12 +30,12 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "removed Rust-owned pointer message 44",
+    "Rust removes WM_LBUTTONDOWN message 44",
   ),
 );
 assert.ok(
   rendered.includes(
-    "Node primary recorded 100,566 samples / 41 TIMERPROC callbacks",
+    "Node primary recorded 100,567 samples / 41 TIMERPROC callbacks",
   ),
 );
 assert.ok(rendered.includes("| Shared clock |"));
@@ -182,6 +182,15 @@ mismatchedScheduledCalls.activeRuntimeCheckpoint.scheduledSharedClock.nodePrimar
   1;
 assert.ok(
   validateCurrentCheckpoint(mismatchedScheduledCalls).some((error) =>
+    error.includes("scheduled shared clock checkpoint evidence"),
+  ),
+);
+
+const mismatchedPointerActionEvidence = structuredClone(manifest);
+mismatchedPointerActionEvidence.activeRuntimeCheckpoint.latestEvidence.primaryMainLoopPostCallbackPointerActionContinuationBatch.completionCount -=
+  1;
+assert.ok(
+  validateCurrentCheckpoint(mismatchedPointerActionEvidence).some((error) =>
     error.includes("scheduled shared clock checkpoint evidence"),
   ),
 );

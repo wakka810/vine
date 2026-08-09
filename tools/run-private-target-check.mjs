@@ -1162,6 +1162,8 @@ function assertExecutionStateReport(report, scenario) {
 function isScheduledSharedClockNodeReport(report) {
   return (
     report?.schema ===
+      "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-continuation-batch" ||
+    report?.schema ===
       "vine.v86-bgi-primary-main-loop-post-callback-pointer-message-consumption-batch" ||
     report?.schema === "vine.v86-bgi-scheduled-shared-clock-primary" ||
     report?.schema === "vine.v86-bgi-find-file-a-primary" ||
@@ -1224,6 +1226,8 @@ function isScheduledSharedClockNodeReport(report) {
 function isGetCursorInfoOrLaterNodeReport(report) {
   return (
     report?.schema ===
+      "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-continuation-batch" ||
+    report?.schema ===
       "vine.v86-bgi-primary-main-loop-post-callback-pointer-message-consumption-batch" ||
     report?.schema === "vine.v86-bgi-get-cursor-info-primary" ||
     report?.schema ===
@@ -1280,6 +1284,14 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (
+    nodeReport.schema ===
+    "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-continuation-batch"
+  ) {
+    return structuredClone(
+      execution.postCallbackPointerActionContinuation.checkpointCompletion,
+    );
+  }
   if (
     nodeReport.schema ===
     "vine.v86-bgi-primary-main-loop-post-callback-pointer-message-consumption-batch"
@@ -3466,6 +3478,115 @@ function assertPrimaryMainLoopPostCallbackPointerMessageConsumptionBatchCheckpoi
   assert.equal(actual.nextEndpoint.symbol.name, "SetFocus");
 }
 
+function assertPrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoint(
+  actual,
+  expectedCompletion,
+  expectedEndpoint,
+  expectedPrerequisite,
+) {
+  assert(actual !== null, "post-callback pointer action batch is missing");
+  for (const field of [
+    "capability",
+    "implementationId",
+    "requiredCompletions",
+    "completionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "queueDepthBefore",
+    "queueDepthAtCallbackEntry",
+    "messageRemoved",
+    "browserOwnsMessageQueueState",
+    "activeCallbackDepthAtStop",
+    "dispatchResult",
+    "dispatchCompletionInstructionCount",
+    "stateAuthority",
+    "browserOwnsCallbackState",
+    "failureAtomicity",
+    "instructionCount",
+    "memoryContentSha256",
+    "nextReturnAddress",
+    "nextStackPointer",
+  ]) {
+    assert.deepEqual(actual[field], expectedCompletion[field], field);
+  }
+  assertPrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint(
+    actual.prerequisiteWindowInputScan,
+    expectedPrerequisite,
+    expectedPrerequisite.nextEndpoint,
+    false,
+  );
+  assert.equal(actual.message.id, 44);
+  assert.equal(actual.message.message, 0x0201);
+  assert.deepEqual(actual.actionInputEvent.receipt.message, actual.message);
+  assert.equal(actual.peekMessage.sequence, 283_422);
+  assert.equal(actual.peekMessage.occurrence, 112);
+  assert.deepEqual(actual.peekMessage.arguments, [0x006f_f8e8, 0, 0, 0, 1]);
+  assert.deepEqual(actual.peekMessage.result, { action: "set", value: 1 });
+  assert.equal(actual.translateMessage.sequence, 283_423);
+  assert.equal(actual.translateMessage.occurrence, 44);
+  assert.deepEqual(actual.translateMessage.result, { action: "set", value: 0 });
+  assert.equal(actual.dispatchEntry.sequence, 283_424);
+  assert.equal(actual.dispatchEntry.pendingCallback, true);
+  assert.equal(actual.callbackEntry.frameId, 76);
+  assert.equal(actual.callbackEntry.target, 0x1009_2550);
+  assert.deepEqual(
+    actual.callbackNestedCalls.map((call) => call.symbol),
+    [
+      "EnterCriticalSection",
+      "HeapAlloc",
+      "LeaveCriticalSection",
+      "SetFocus",
+      "timeGetTime",
+      "DefWindowProcA",
+    ],
+  );
+  assert.deepEqual(
+    actual.callbackNestedCalls.map((call) => call.sequence),
+    [283_425, 283_426, 283_427, 283_428, 283_429, 283_430],
+  );
+  assert.deepEqual(
+    actual.actionContinuationCalls.map((call) => call.symbol),
+    ["SetFocus", "timeGetTime", "DefWindowProcA"],
+  );
+  assert.deepEqual(
+    actual.actionContinuationCalls.map((call) => call.sequence),
+    [283_428, 283_429, 283_430],
+  );
+  assert.deepEqual(
+    actual.actionContinuationCalls.map((call) => call.result.value),
+    [0x4801_0001, 3_827_181, 0],
+  );
+  assert.equal(actual.dispatchCompletion.sequence, 283_424);
+  assert.equal(actual.dispatchCompletion.occurrence, 44);
+  assert.deepEqual(actual.dispatchCompletion.result, {
+    action: "set",
+    value: 0,
+  });
+  assert.equal(actual.dispatchCompletion.callback.frameId, 76);
+  assert.equal(
+    actual.dispatchCompletion.callback.returnInstructionCount,
+    445_135_361,
+  );
+  assert.equal(actual.dispatchCompletion.callback.result, 0);
+  assert.deepEqual(actual.callbackReturn, {
+    action: "return",
+    sequence: 283_424,
+    frameId: 76,
+    instructionCount: 445_135_361,
+    result: 0,
+  });
+  assert.deepEqual(actual.nextArguments, [0x006f_f8e8, 0, 0, 0, 1]);
+  assert.equal(actual.nextEndpoint.id, expectedEndpoint.endpointId);
+  assert.equal(
+    actual.nextEndpoint.address,
+    Number.parseInt(expectedEndpoint.endpointAddress, 16),
+  );
+  assert.equal(actual.nextEndpoint.module.toLowerCase(), "user32.dll");
+  assert.equal(actual.nextEndpoint.symbol.name, "PeekMessageA");
+}
+
 function assertUser32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeCheckpoint(
   actual,
   expectedCompletion,
@@ -3953,7 +4074,11 @@ function assertScheduledSharedClockReportSemantics({
   const nodeStop = nodeReport.stop;
   const browser = browserReport.success.report;
   const sourceIdentity = { bytes: source.bytes, sha256: source.sha256 };
+  const primaryMainLoopPostCallbackPointerActionContinuationBatchReport =
+    nodeReport.schema ===
+    "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-continuation-batch";
   const primaryMainLoopPostCallbackPointerMessageConsumptionBatchReport =
+    primaryMainLoopPostCallbackPointerActionContinuationBatchReport ||
     nodeReport.schema ===
     "vine.v86-bgi-primary-main-loop-post-callback-pointer-message-consumption-batch";
   const d3d9UpdateTexturePartialDirtyRegionReport =
@@ -4157,12 +4282,15 @@ function assertScheduledSharedClockReportSemantics({
     ...(primaryMainLoopPostCallbackPointerMessageConsumptionBatchReport ||
     user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectReport
       ? [
-          primaryMainLoopPostCallbackPointerMessageConsumptionBatchReport
-            ? nodeExecution.postCallbackPointerMessageConsumption
+          primaryMainLoopPostCallbackPointerActionContinuationBatchReport
+            ? nodeExecution.postCallbackPointerActionContinuation
                 .checkpointCompletion.actionInputEvent.receipt
-            : nodeExecution
-                .user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRect
-                .checkpointCompletion.actionInputEvents[0].receipt,
+            : primaryMainLoopPostCallbackPointerMessageConsumptionBatchReport
+              ? nodeExecution.postCallbackPointerMessageConsumption
+                  .checkpointCompletion.actionInputEvent.receipt
+              : nodeExecution
+                  .user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRect
+                  .checkpointCompletion.actionInputEvents[0].receipt,
         ]
       : []),
   ];
@@ -4455,7 +4583,21 @@ function assertScheduledSharedClockReportSemantics({
     expectedNext,
   );
   let expectedFaultCode = null;
-  if (
+  if (primaryMainLoopPostCallbackPointerActionContinuationBatchReport) {
+    const completion =
+      nodeExecution.postCallbackPointerActionContinuation.checkpointCompletion;
+    assert.equal(nodeStop.fault, null);
+    assert.equal(
+      nodeStop.terminal.instructionCount,
+      expectedNext.instructionCount,
+    );
+    assertPrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoint(
+      completion,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+      expectedNext.prerequisiteWindowInputScanCompletion,
+    );
+  } else if (
     primaryMainLoopPostCallbackPointerMessageConsumptionBatchReport
   ) {
     const completion =
@@ -5614,7 +5756,29 @@ function assertScheduledSharedClockReportSemantics({
   assert.equal(browser.pendingCallbacks, 0);
 
   const browserUnsupported = browser.firstUnsupported;
-  if (
+  if (primaryMainLoopPostCallbackPointerActionContinuationBatchReport) {
+    assert.equal(browserUnsupported, null);
+    assertPrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoint(
+      browser.checkpointCompletion,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+      expectedNext.prerequisiteWindowInputScanCompletion,
+    );
+    assertPrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoint(
+      browser.checkpointCompletion,
+      nodeCheckpoint,
+      expectedNext.nextEndpoint,
+      nodeCheckpoint.prerequisiteWindowInputScan,
+    );
+    assert.equal(browser.pointerInput.receivedMessages, 3);
+    assert.equal(browser.pointerInput.receipts.length, 3);
+    assert.equal(browser.d3d9Present.call.sequence, 282_868);
+    assert.equal(
+      browser.d3d9Present.call.browserPresentation.resource.id,
+      "browser-resource:1",
+    );
+    assert.equal(browser.d3d9Present.call.browserPresentation.frameSequence, 4);
+  } else if (
     primaryMainLoopPostCallbackPointerMessageConsumptionBatchReport
   ) {
     assert.equal(browserUnsupported, null);
@@ -6760,6 +6924,10 @@ const nodeInstructions = scheduledNodeReport
     : nodeReport.firstUnsupported.instructionCount;
 const nodeMemoryContentSha256 = scheduledNodeReport
   ? nodeReport.schema ===
+    "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-continuation-batch"
+    ? nodeReport.execution.postCallbackPointerActionContinuation
+        .checkpointCompletion.memoryContentSha256
+    : nodeReport.schema ===
     "vine.v86-bgi-primary-main-loop-post-callback-pointer-message-consumption-batch"
     ? nodeReport.execution.postCallbackPointerMessageConsumption
         .checkpointCompletion.memoryContentSha256

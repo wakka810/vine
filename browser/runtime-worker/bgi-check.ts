@@ -85,7 +85,9 @@ const scheduledSharedClockSetWindowText =
   capabilityProfile ===
     "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect" ||
   capabilityProfile ===
-    "primary-main-loop-post-callback-pointer-message-consumption-batch";
+    "primary-main-loop-post-callback-pointer-message-consumption-batch" ||
+  capabilityProfile ===
+    "primary-main-loop-post-callback-pointer-action-continuation-batch";
 const d3d9Canvas =
   scheduledSharedClockSetWindowText ||
   capabilityProfile === "d3d9-first-present" ||
@@ -302,7 +304,9 @@ const startMessage = {
         : capabilityProfile ===
               "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect" ||
             capabilityProfile ===
-              "primary-main-loop-post-callback-pointer-message-consumption-batch"
+              "primary-main-loop-post-callback-pointer-message-consumption-batch" ||
+            capabilityProfile ===
+              "primary-main-loop-post-callback-pointer-action-continuation-batch"
           ? 455_000_000
         : capabilityProfile === "gdi-outline-text-metrics-224x112"
           ? 385_000_000
@@ -693,7 +697,9 @@ if (
       capabilityProfile ===
         "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect" ||
       capabilityProfile ===
-        "primary-main-loop-post-callback-pointer-message-consumption-batch"
+        "primary-main-loop-post-callback-pointer-message-consumption-batch" ||
+      capabilityProfile ===
+        "primary-main-loop-post-callback-pointer-action-continuation-batch"
     ) {
       const actionDownEvent = pointerSourceEvent(
         3,
@@ -836,6 +842,8 @@ function parseCapabilityProfile(
       "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect" ||
     value ===
       "primary-main-loop-post-callback-pointer-message-consumption-batch" ||
+    value ===
+      "primary-main-loop-post-callback-pointer-action-continuation-batch" ||
     value === "kernel32-wait-for-single-object-ex" ||
     value === "kernel32-enter-critical-section" ||
     value === "primary-main-loop-progression" ||

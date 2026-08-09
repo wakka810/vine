@@ -13,7 +13,7 @@ const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
 
-assert.match(protocol, /protocolVersion = 133 as const/u);
+assert.match(protocol, /protocolVersion = 134 as const/u);
 assert.match(protocol, /"d3d9-begin-scene-post-partial-dirty-region"/u);
 assert.match(protocol, /"d3d9-set-sampler-state-post-begin-scene"/u);
 assert.match(
@@ -75,6 +75,10 @@ assert.match(
 assert.match(
   protocol,
   /capability: "primary-main-loop-post-callback-pointer-message-consumption-batch";[\s\S]*?implementationId: "runtime\.primary-main-loop-post-callback-pointer-message-consumption-batch\.v1";[\s\S]*?requiredCompletions: 6;[\s\S]*?completionCount: 6;[\s\S]*?peekMessage:[\s\S]*?translateMessage:[\s\S]*?dispatchEntry:[\s\S]*?browserOwnsMessageQueueState: false;[\s\S]*?callbackNestedCalls:/u,
+);
+assert.match(
+  protocol,
+  /capability: "primary-main-loop-post-callback-pointer-action-continuation-batch";[\s\S]*?implementationId: "runtime\.primary-main-loop-post-callback-pointer-action-continuation-batch\.v1";[\s\S]*?requiredCompletions: 9;[\s\S]*?completionCount: 9;[\s\S]*?actionContinuationCalls:[\s\S]*?dispatchCompletion:[\s\S]*?callbackReturn:[\s\S]*?browserOwnsCallbackState: false;/u,
 );
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
@@ -382,7 +386,7 @@ assert.match(
 );
 assert.match(
   worker,
-  /#timeGetTimePostPointerReleaseContinuationDispatching &&[\s\S]*?completion\.implementationId === "winmm\.time-get-time\.v1"[\s\S]*?timeGetTimePostPointerReleaseRepeatCompletions\.push\(completedCall\)[\s\S]*?maximumRepeatCompletions: 16[\s\S]*?timeGetTimePostReleaseCompletions: completions[\s\S]*?#bgiCheckpointPending = true/u,
+  /#timeGetTimePostPointerReleaseContinuationDispatching &&[\s\S]*?completion\.implementationId === "winmm\.time-get-time\.v1"[\s\S]*?timeGetTimePostPointerReleaseRepeatCompletions\.push\(\s*completedCall,?\s*\)[\s\S]*?maximumRepeatCompletions: 16[\s\S]*?timeGetTimePostReleaseCompletions: completions[\s\S]*?#bgiCheckpointPending = true/u,
 );
 assert.match(
   bridge,

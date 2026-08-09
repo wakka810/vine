@@ -200,6 +200,93 @@ function validatePostCallbackPointerMessageConsumption(
   }
 }
 
+function validatePostCallbackPointerActionContinuation(
+  completion,
+  expected,
+  label,
+  errors,
+) {
+  if (
+    expected.capability !==
+    "primary-main-loop-post-callback-pointer-action-continuation-batch"
+  ) {
+    return;
+  }
+  const message = requireRecord(completion.message, `${label}.message`, errors);
+  const dispatch = requireRecord(
+    completion.dispatchCompletion,
+    `${label}.dispatchCompletion`,
+    errors,
+  );
+  const dispatchCallback = isRecord(dispatch.callback) ? dispatch.callback : {};
+  const callbackReturn = requireRecord(
+    completion.callbackReturn,
+    `${label}.callbackReturn`,
+    errors,
+  );
+  const nested = Array.isArray(completion.callbackNestedCalls)
+    ? completion.callbackNestedCalls
+    : (errors.push(`${label}.callbackNestedCalls must be an array`), []);
+  const action = Array.isArray(completion.actionContinuationCalls)
+    ? completion.actionContinuationCalls
+    : (errors.push(`${label}.actionContinuationCalls must be an array`), []);
+  for (const [field, actual, expectedValue] of [
+    ["message.id", message.id, 44],
+    ["message.message", message.message, 0x0201],
+    ["activeCallbackDepthAtStop", completion.activeCallbackDepthAtStop, 0],
+    ["callbackNestedCalls.length", nested.length, 6],
+    [
+      "callbackNestedCalls.symbols",
+      nested.map((call) => call?.symbol).join(","),
+      "EnterCriticalSection,HeapAlloc,LeaveCriticalSection,SetFocus,timeGetTime,DefWindowProcA",
+    ],
+    ["actionContinuationCalls.length", action.length, 3],
+    [
+      "actionContinuationCalls.symbols",
+      action.map((call) => call?.symbol).join(","),
+      "SetFocus,timeGetTime,DefWindowProcA",
+    ],
+    [
+      "actionContinuationCalls.sequences",
+      action.map((call) => call?.sequence).join(","),
+      "283428,283429,283430",
+    ],
+    ["dispatchCompletion.sequence", dispatch.sequence, 283_424],
+    [
+      "dispatchCompletion.result",
+      isRecord(dispatch.result) ? dispatch.result.value : dispatch.result,
+      0,
+    ],
+    [
+      "dispatchCompletion.callback.frameId",
+      dispatchCallback.frameId ?? dispatch.callbackFrameId,
+      76,
+    ],
+    [
+      "dispatchCompletion.callback.returnInstructionCount",
+      dispatchCallback.returnInstructionCount ??
+        completion.dispatchCompletionInstructionCount,
+      445_135_361,
+    ],
+    ["callbackReturn.frameId", callbackReturn.frameId, 76],
+    [
+      "callbackReturn.instructionCount",
+      callbackReturn.instructionCount,
+      445_135_361,
+    ],
+    ["dispatchResult", completion.dispatchResult, 0],
+    [
+      "stateAuthority",
+      completion.stateAuthority,
+      "rust-runtime-window-message-queue-callback-and-process-clock",
+    ],
+    ["browserOwnsCallbackState", completion.browserOwnsCallbackState, false],
+    ["failureAtomicity", completion.failureAtomicity, true],
+  ]) {
+    checkEqual(actual, expectedValue, `${label}.${field}`, errors);
+  }
+}
+
 function validatePointerReleaseCompletion(
   completion,
   expected,
@@ -2139,6 +2226,12 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
         { requireWriteReceipt: label === "node" },
       );
       validatePostCallbackPointerMessageConsumption(
+        completion,
+        expectedCompletion,
+        `evidence.semantic.${label}.checkpointCompletion`,
+        errors,
+      );
+      validatePostCallbackPointerActionContinuation(
         completion,
         expectedCompletion,
         `evidence.semantic.${label}.checkpointCompletion`,
