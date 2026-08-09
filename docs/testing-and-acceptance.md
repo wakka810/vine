@@ -2530,6 +2530,18 @@ monotonic instruction transport、critical-section retirementのfailure atomicit
 acceptanceへ含めない。詳細は
 [post-action next-iteration batch](bgi-primary-main-loop-post-callback-pointer-action-next-iteration-batch.md)を正とする。
 
+Post-callback next-iteration input-scan batchは、上記57,603-completion checkpointを
+prerequisiteに、sequence 341,033から341,036の`GetAsyncKeyState`をvirtual key
+2、4、5、6の順で検証する。Node／Chromeは全callのresult 0、LastError 0、guest write 0、
+Rust input authorityによるquery単位のpressed-bit consumption、341,036 completed calls、
+3,114,597,623 instructions、ordered digest
+`f4aa1424ea30c8414d1233f7cccad40ce17aa3edaa4b602a2afb610b2d56b388`、terminal memory
+digest `07271a6d60b65823d606706a219772c9df481479a757e880dcb9069bb07a4628`を一致させる。
+Protocol v136／report schema 101でcancel／watchdog cleanupも維持し、次の
+`WINMM.dll!timeGetTime`で停止する。後続clock call、queued release messageの消費、visible
+response、full-playはこのacceptanceへ含めない。Exact artifact identityと再現commandは
+[current-checkpoint.json](current-checkpoint.json)を正とする。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

@@ -85,7 +85,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 100);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 101);
 assert.match(
   privateTargetRunner,
   /function assertUser32PeekMessageAPostTestCooperativeLevelTimerCallbackCheckpoint[\s\S]*?"queueDepthBefore"[\s\S]*?"queueDepthAfter"[\s\S]*?"browserOwnsMessageQueueState"[\s\S]*?"messageBytesPreserved"[\s\S]*?"activeCallbackDepthAtStop"/u,
@@ -235,14 +235,14 @@ if (
 }
 if (
   checkpoint.nextStructuredStop.completion.capability ===
-  "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+  "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
 ) {
-  const staleNextIterationCount = mutated((value) => {
-    value.semantic.browser.checkpointCompletion.nextIterationCallCount -= 1;
+  const staleInputScan = mutated((value) => {
+    value.semantic.browser.checkpointCompletion.scanCalls[3].arguments[0] = 7;
   });
   assert(
-    validatePrivateTargetEvidence(staleNextIterationCount, checkpoint).some(
-      (error) => error.includes("nextIterationCallCount"),
+    validatePrivateTargetEvidence(staleInputScan, checkpoint).some(
+      (error) => error.includes("scanCalls[3].arguments"),
     ),
   );
 }

@@ -584,6 +584,18 @@ TypeScript owns no Windows input, synchronization, queue, clock, or guest-memory
 state. Details are in
 [the post-action next-iteration batch](bgi-primary-main-loop-post-callback-pointer-action-next-iteration-batch.md).
 
+Protocol version 136／BGI report schema 101 extends that prerequisite through the
+remaining reached input scan. Node and Chrome complete sequences 341,033 through
+341,036 as `GetAsyncKeyState` queries for virtual keys 2, 4, 5, and 6. Every query
+returns zero, preserves LastError zero, writes no guest bytes, and consumes only the
+queried Rust-owned pressed-since bit. Both stop at instruction 3,114,597,623 on the
+following `WINMM.dll!timeGetTime`, with 341,036 completed calls, semantic digest
+`f4aa1424ea30c8414d1233f7cccad40ce17aa3edaa4b602a2afb610b2d56b388`, and terminal
+memory digest
+`07271a6d60b65823d606706a219772c9df481479a757e880dcb9069bb07a4628`.
+The Worker records the versioned projection but does not own Windows key state.
+Exact artifact identities and the next structured stop remain manifest-owned.
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk

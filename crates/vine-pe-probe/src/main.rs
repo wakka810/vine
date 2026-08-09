@@ -15214,7 +15214,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect"
                 | "primary-main-loop-post-callback-pointer-message-consumption-batch"
                 | "primary-main-loop-post-callback-pointer-action-continuation-batch"
-                | "primary-main-loop-post-callback-pointer-action-next-iteration-batch" => {
+                | "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+                | "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch" => {
                     GenericRuntimeCapability::D3d9EndScenePostDrawPrimitive
                 }
                 "d3d9-begin-scene" => GenericRuntimeCapability::D3d9BeginScene,

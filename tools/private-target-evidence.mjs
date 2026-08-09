@@ -360,6 +360,82 @@ function validatePostCallbackPointerActionNextIteration(
   }
 }
 
+function validatePostCallbackPointerActionNextIterationInputScan(
+  completion,
+  expected,
+  label,
+  errors,
+) {
+  if (
+    expected.capability !==
+    "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
+  ) {
+    return;
+  }
+  const calls = Array.isArray(completion.scanCalls)
+    ? completion.scanCalls
+    : [];
+  checkEqual(calls.length, 4, `${label}.scanCalls.length`, errors);
+  checkEqual(
+    JSON.stringify(completion.scanVirtualKeys),
+    JSON.stringify(expected.scanVirtualKeys),
+    `${label}.scanVirtualKeys`,
+    errors,
+  );
+  for (let index = 0; index < expected.scanCalls.length; index += 1) {
+    const call = requireRecord(calls[index], `${label}.scanCalls[${index}]`, errors);
+    const expectedCall = expected.scanCalls[index];
+    for (const field of [
+      "sequence",
+      "symbol",
+      "occurrence",
+      "trapInstructionCount",
+      "implementationId",
+      "lastError",
+    ]) {
+      checkEqual(
+        call[field],
+        expectedCall[field],
+        `${label}.scanCalls[${index}].${field}`,
+        errors,
+      );
+    }
+    checkEqual(
+      JSON.stringify(call.arguments),
+      JSON.stringify(expectedCall.arguments),
+      `${label}.scanCalls[${index}].arguments`,
+      errors,
+    );
+    checkEqual(
+      call.result?.value,
+      0,
+      `${label}.scanCalls[${index}].result.value`,
+      errors,
+    );
+  }
+  for (const field of [
+    "prerequisiteCompletionSequence",
+    "prerequisiteCompletionInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "result",
+    "lastError",
+    "guestWriteBytes",
+    "stateAuthority",
+    "mutation",
+    "failureAtomicity",
+    "browserOwnsInputState",
+    "activeCallbackDepthAtCompletion",
+  ]) {
+    checkEqual(
+      JSON.stringify(completion[field]),
+      JSON.stringify(expected[field]),
+      `${label}.${field}`,
+      errors,
+    );
+  }
+}
+
 function validatePointerReleaseCompletion(
   completion,
   expected,
@@ -2311,6 +2387,12 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
         errors,
       );
       validatePostCallbackPointerActionNextIteration(
+        completion,
+        expectedCompletion,
+        `evidence.semantic.${label}.checkpointCompletion`,
+        errors,
+      );
+      validatePostCallbackPointerActionNextIterationInputScan(
         completion,
         expectedCompletion,
         `evidence.semantic.${label}.checkpointCompletion`,

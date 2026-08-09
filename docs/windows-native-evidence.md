@@ -6569,3 +6569,14 @@ instructions later at `GetAsyncKeyState(VK_RBUTTON)`. Exact report and artifact
 identities remain authoritative only in
 [current-checkpoint.json](current-checkpoint.json). Details are in
 [the bounded next-iteration batch](bgi-primary-main-loop-post-callback-pointer-action-next-iteration-batch.md).
+
+## 201. BGI post-action input-scan completion
+
+The next reached scan reuses the established `GetAsyncKeyState` contract rather than
+introducing a title-specific handler. Canonical Node and Chrome complete virtual keys
+2, 4, 5, and 6 at sequences 341,033 through 341,036. All four return zero, preserve
+LastError zero, perform no guest writes, and consume only the queried Rust-owned
+pressed-since state. Execution then reaches `WINMM.dll!timeGetTime` at instruction
+3,114,597,623. The sequence and report hashes are artifact identity; semantic dispatch
+does not select on callsite, occurrence, or title fingerprint. Exact active values
+remain authoritative only in [current-checkpoint.json](current-checkpoint.json).

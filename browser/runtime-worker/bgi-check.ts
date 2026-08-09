@@ -89,7 +89,9 @@ const scheduledSharedClockSetWindowText =
   capabilityProfile ===
     "primary-main-loop-post-callback-pointer-action-continuation-batch" ||
   capabilityProfile ===
-    "primary-main-loop-post-callback-pointer-action-next-iteration-batch";
+    "primary-main-loop-post-callback-pointer-action-next-iteration-batch" ||
+  capabilityProfile ===
+    "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch";
 const d3d9Canvas =
   scheduledSharedClockSetWindowText ||
   capabilityProfile === "d3d9-first-present" ||
@@ -311,7 +313,9 @@ const startMessage = {
               "primary-main-loop-post-callback-pointer-action-continuation-batch"
           ? 455_000_000
         : capabilityProfile ===
-              "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+              "primary-main-loop-post-callback-pointer-action-next-iteration-batch" ||
+            capabilityProfile ===
+              "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
           ? 3_200_000_000
         : capabilityProfile === "gdi-outline-text-metrics-224x112"
           ? 385_000_000
@@ -451,7 +455,9 @@ const startMessage = {
                   : 20_000_000,
     watchdogWallMilliseconds:
       capabilityProfile ===
-      "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+        "primary-main-loop-post-callback-pointer-action-next-iteration-batch" ||
+      capabilityProfile ===
+        "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
         ? 1_800_000
         : scheduledSharedClockSetWindowText ||
       capabilityProfile === "user32-async-key-state-initial-scan" ||
@@ -709,7 +715,9 @@ if (
       capabilityProfile ===
         "primary-main-loop-post-callback-pointer-action-continuation-batch" ||
       capabilityProfile ===
-        "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+        "primary-main-loop-post-callback-pointer-action-next-iteration-batch" ||
+      capabilityProfile ===
+        "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
     ) {
       const actionDownEvent = pointerSourceEvent(
         3,
@@ -729,7 +737,9 @@ if (
       } satisfies MainToWorkerMessage);
       if (
         capabilityProfile ===
-        "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+          "primary-main-loop-post-callback-pointer-action-next-iteration-batch" ||
+        capabilityProfile ===
+          "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
       ) {
         const actionUpEvent = pointerSourceEvent(
           4,
@@ -879,6 +889,8 @@ function parseCapabilityProfile(
       "primary-main-loop-post-callback-pointer-action-continuation-batch" ||
     value ===
       "primary-main-loop-post-callback-pointer-action-next-iteration-batch" ||
+    value ===
+      "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch" ||
     value === "kernel32-wait-for-single-object-ex" ||
     value === "kernel32-enter-critical-section" ||
     value === "primary-main-loop-progression" ||

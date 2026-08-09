@@ -67,6 +67,7 @@ import {
   type User32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeCheckpoint,
   type User32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectCheckpoint,
   type PrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint,
+  type PrimaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchCheckpoint,
   type PrimaryMainLoopPostCallbackPointerActionNextIterationBatchCheckpoint,
   type PrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoint,
   type PrimaryMainLoopPostCallbackPointerMessageConsumptionBatchCheckpoint,
@@ -587,12 +588,34 @@ function isPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
   );
 }
 
+function isPrimaryMainLoopPostCallbackPointerActionNextIterationInputScanProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    profile ===
+    "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
+  );
+}
+
+function includesPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
+  profile: SessionConfiguration["capabilityProfile"],
+): boolean {
+  return (
+    isPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(profile) ||
+    isPrimaryMainLoopPostCallbackPointerActionNextIterationInputScanProfile(
+      profile,
+    )
+  );
+}
+
 function includesPrimaryMainLoopPostCallbackPointerActionContinuationProfile(
   profile: SessionConfiguration["capabilityProfile"],
 ): boolean {
   return (
     isPrimaryMainLoopPostCallbackPointerActionContinuationProfile(profile) ||
-    isPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(profile)
+    includesPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
+      profile,
+    )
   );
 }
 
@@ -4284,6 +4307,16 @@ class BrowserRuntimeSession {
       trapInstructionCount: number;
     }
   > = [];
+  readonly #postCallbackPointerActionNextIterationCallSequences =
+    new Set<number>();
+  #postCallbackPointerActionNextIterationPrerequisite: PrimaryMainLoopPostCallbackPointerActionNextIterationBatchCheckpoint | null =
+    null;
+  readonly #postCallbackPointerActionNextIterationInputScanCalls: Array<
+    RuntimeSupportedCallSnapshot & {
+      occurrence: number;
+      trapInstructionCount: number;
+    }
+  > = [];
   #postCallbackPointerMessageConsumptionAwaitingSetFocus = false;
   #d3d9RasterStatusCompletionCount = 0;
   readonly #d3d9InitialSamplerStateCalls: RuntimeSupportedCallSnapshot[] = [];
@@ -5797,7 +5830,7 @@ class BrowserRuntimeSession {
         this.#configuration.capabilityProfile,
       );
     const postCallbackNextIteration =
-      isPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
+      includesPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
         this.#configuration.capabilityProfile,
       );
     if (eventCount === 0) {
@@ -6101,7 +6134,7 @@ class BrowserRuntimeSession {
               : null,
         })}`,
       );
-      this.#report.checkpointCompletion = {
+      const completion = {
         capability:
           "primary-main-loop-post-callback-pointer-action-next-iteration-batch",
         implementationId:
@@ -6149,7 +6182,85 @@ class BrowserRuntimeSession {
         nextStackPointer: 0,
       } satisfies PrimaryMainLoopPostCallbackPointerActionNextIterationBatchCheckpoint;
       this.#postCallbackPointerActionContinuationPrerequisite = null;
-      this.#bgiCheckpointPending = true;
+      if (
+        isPrimaryMainLoopPostCallbackPointerActionNextIterationInputScanProfile(
+          this.#configuration.capabilityProfile,
+        )
+      ) {
+        this.#postCallbackPointerActionNextIterationPrerequisite = completion;
+      } else {
+        this.#report.checkpointCompletion = completion;
+        this.#bgiCheckpointPending = true;
+      }
+      return;
+    }
+    if (
+      eventCount === 2 &&
+      isPrimaryMainLoopPostCallbackPointerActionNextIterationInputScanProfile(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#postCallbackPointerActionNextIterationPrerequisite !== null &&
+      call.sequence >
+        this.#postCallbackPointerActionNextIterationPrerequisite
+          .lastCompletionSequence &&
+      call.implementationId === "user32.get-async-key-state.v1"
+    ) {
+      const calls =
+        this.#postCallbackPointerActionNextIterationInputScanCalls;
+      const query = calls.at(-1);
+      invariant(
+        query?.sequence === call.sequence &&
+          calls.length <= 4 &&
+          this.#report.checkpointCompletion === null &&
+          this.#bgiCallbackCallSequences.size === 0 &&
+          this.#pendingInputEvents.length === 0,
+        "post-callback next-iteration input scan query recording changed",
+      );
+      if (calls.length === 4) {
+        const prerequisite =
+          this.#postCallbackPointerActionNextIterationPrerequisite;
+        this.#report.checkpointCompletion = {
+          capability:
+            "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch",
+          implementationId:
+            "runtime.primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch.v1",
+          requiredCompletions: 4,
+          completionCount: 4,
+          prerequisiteNextIteration: structuredClone(prerequisite),
+          prerequisiteCompletionSequence: prerequisite.lastCompletionSequence,
+          prerequisiteCompletionInstructionCount:
+            prerequisite.lastCompletionInstructionCount,
+          firstCompletionSequence: calls[0]!.sequence,
+          firstCompletionInstructionCount: calls[0]!.trapInstructionCount,
+          lastCompletionSequence: query.sequence,
+          lastCompletionInstructionCount: query.trapInstructionCount,
+          scanVirtualKeys: [2, 4, 5, 6],
+          scanCalls: structuredClone(calls),
+          result: { action: "set", value: 0 },
+          lastError: 0,
+          guestWriteBytes: 0,
+          stateAuthority: "rust-runtime-input",
+          mutation: "read-and-pressed-bit-consumption-per-query",
+          failureAtomicity: true,
+          browserOwnsInputState: false,
+          activeCallbackDepthAtCompletion: 0,
+          instructionCount: 0,
+          nextEndpoint: {
+            id: 0,
+            address: 0,
+            module: "",
+            symbol: { kind: "name", name: "timeGetTime" },
+            disposition: "declared-runtime-export",
+            iatAddress: 0,
+          },
+          nextArguments: [],
+          memoryContentSha256: "",
+          nextReturnAddress: 0,
+          nextStackPointer: 0,
+        } satisfies PrimaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchCheckpoint;
+        this.#postCallbackPointerActionNextIterationPrerequisite = null;
+        this.#bgiCheckpointPending = true;
+      }
     }
   }
 
@@ -7960,7 +8071,7 @@ class BrowserRuntimeSession {
 
   async #dispatchApi(endpoint: number, stackPointer: number): Promise<void> {
     if (
-      isPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
+      includesPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
         this.#configuration.capabilityProfile,
       ) &&
       this.#postCallbackPointerActionContinuationPrerequisite !== null &&
@@ -12758,35 +12869,75 @@ class BrowserRuntimeSession {
           : this.#report.instructions,
     };
     if (
-      isPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
+      isPrimaryMainLoopPostCallbackPointerActionNextIterationInputScanProfile(
+        this.#configuration.capabilityProfile,
+      ) &&
+      this.#postCallbackPointerActionNextIterationPrerequisite !== null
+    ) {
+      const calls =
+        this.#postCallbackPointerActionNextIterationInputScanCalls;
+      const expectedVirtualKeys = [2, 4, 5, 6] as const;
+      const index = calls.length;
+      invariant(
+        index < expectedVirtualKeys.length &&
+          call.sequence ===
+            this.#postCallbackPointerActionNextIterationPrerequisite
+              .lastCompletionSequence +
+              index +
+              1 &&
+          call.module.toLowerCase() === "user32.dll" &&
+          call.symbol === "GetAsyncKeyState" &&
+          call.implementationId === "user32.get-async-key-state.v1" &&
+          call.arguments.length === 1 &&
+          call.arguments[0] === expectedVirtualKeys[index] &&
+          "action" in call.result &&
+          call.result.action === "set" &&
+          call.result.value === 0 &&
+          call.lastError === 0 &&
+          call.guestWrites.length === 0,
+        `post-callback next-iteration input scan changed: ${JSON.stringify({
+          index,
+          expectedVirtualKey: expectedVirtualKeys[index],
+          call: frozenCall,
+        })}`,
+      );
+      calls.push(frozenCall);
+      return;
+    }
+    if (
+      includesPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
         this.#configuration.capabilityProfile,
       ) &&
       this.#postCallbackPointerActionContinuationPrerequisite !== null
     ) {
       const calls = this.#postCallbackPointerActionNextIterationCalls;
+      const sequences =
+        this.#postCallbackPointerActionNextIterationCallSequences;
       const firstSequence =
         this.#postCallbackPointerActionContinuationPrerequisite
           .lastCompletionSequence + 1;
-      const insertionIndex = calls.findIndex(
-        (candidate) => candidate.sequence > call.sequence,
-      );
       invariant(
         call.sequence >= firstSequence &&
-          !calls.some((candidate) => candidate.sequence === call.sequence),
+          !sequences.has(call.sequence),
         `post-callback next-iteration call sequence changed: ${JSON.stringify({
           callSequence: call.sequence,
           firstSequence,
-          insertionIndex,
           firstRecordedSequence: calls[0]?.sequence ?? null,
           lastRecordedSequence: calls.at(-1)?.sequence ?? null,
           recordedCallCount: calls.length,
         })}`,
       );
-      if (insertionIndex === -1) {
+      const lastSequence = calls.at(-1)?.sequence ?? null;
+      if (lastSequence === null || lastSequence < call.sequence) {
         calls.push(frozenCall);
       } else {
+        const insertionIndex = calls.findIndex(
+          (candidate) => candidate.sequence > call.sequence,
+        );
+        invariant(insertionIndex >= 0, "out-of-order call insertion failed");
         calls.splice(insertionIndex, 0, frozenCall);
       }
+      sequences.add(call.sequence);
       return;
     }
     const entry = this.#postCallbackPointerMessageConsumptionEntry;
@@ -12876,7 +13027,7 @@ class BrowserRuntimeSession {
         } satisfies PrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoint;
         this.#postCallbackPointerMessageConsumptionEntry = null;
         if (
-          isPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
+          includesPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
             this.#configuration.capabilityProfile,
           )
         ) {
@@ -13933,7 +14084,7 @@ class BrowserRuntimeSession {
     const inputQuerySequence =
       this.#inputProgressAsyncKeyStateQuery?.sequence ?? null;
     const expectedPendingInputEvents =
-      isPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
+      includesPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
         this.#configuration.capabilityProfile,
       )
         ? 2
@@ -14211,6 +14362,148 @@ class BrowserRuntimeSession {
     stackPointer: number,
   ): void {
     const checkpoint = this.#report.checkpointCompletion;
+    if (
+      isPrimaryMainLoopPostCallbackPointerActionNextIterationInputScanProfile(
+        this.#configuration.capabilityProfile,
+      )
+    ) {
+      const endpoint = this.#requirePrepared().endpoints.find(
+        (candidate) => candidate.address === endpointAddress,
+      );
+      const engine = this.#requireEngine();
+      const pacing = this.#timerPacing.metrics();
+      const batch =
+        checkpoint as PrimaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchCheckpoint | null;
+      const prerequisite = batch?.prerequisiteNextIteration;
+      const calls = batch?.scanCalls ?? [];
+      const completionChecks = {
+        identity:
+          batch?.capability ===
+            "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch" &&
+          batch.implementationId ===
+            "runtime.primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch.v1",
+        prerequisite:
+          prerequisite?.capability ===
+            "primary-main-loop-post-callback-pointer-action-next-iteration-batch" &&
+          batch?.prerequisiteCompletionSequence ===
+            prerequisite.lastCompletionSequence &&
+          batch.prerequisiteCompletionInstructionCount ===
+            prerequisite.lastCompletionInstructionCount &&
+          prerequisite.lastCompletionSequence === 341_032 &&
+          prerequisite.lastCompletionInstructionCount === 3_114_597_133,
+        cardinality:
+          batch?.requiredCompletions === 4 &&
+          batch.completionCount === 4 &&
+          calls.length === 4,
+        calls:
+          batch?.scanVirtualKeys.join(",") === "2,4,5,6" &&
+          calls.every(
+            (call, index) =>
+              call.sequence === 341_033 + index &&
+              call.occurrence === 2_925 + index &&
+              call.trapInstructionCount ===
+                [3_114_597_221, 3_114_597_297, 3_114_597_373, 3_114_597_449][
+                  index
+                ] &&
+              call.module.toLowerCase() === "user32.dll" &&
+              call.symbol === "GetAsyncKeyState" &&
+              call.implementationId === "user32.get-async-key-state.v1" &&
+              call.arguments[0] === [2, 4, 5, 6][index] &&
+              "action" in call.result &&
+              call.result.action === "set" &&
+              call.result.value === 0 &&
+              call.lastError === 0 &&
+              call.guestWrites.length === 0,
+          ),
+        boundaries:
+          batch?.firstCompletionSequence === 341_033 &&
+          batch.firstCompletionInstructionCount === 3_114_597_221 &&
+          batch.lastCompletionSequence === 341_036 &&
+          batch.lastCompletionInstructionCount === 3_114_597_449,
+        semantics:
+          batch?.result.action === "set" &&
+          batch.result.value === 0 &&
+          batch.lastError === 0 &&
+          batch.guestWriteBytes === 0 &&
+          batch.stateAuthority === "rust-runtime-input" &&
+          batch.mutation === "read-and-pressed-bit-consumption-per-query" &&
+          batch.failureAtomicity === true &&
+          batch.browserOwnsInputState === false &&
+          batch.activeCallbackDepthAtCompletion === 0,
+        endpoint:
+          endpoint?.id === 8 &&
+          endpoint.address === 0x7f00_0070 &&
+          endpoint.module?.toLowerCase() === "winmm.dll" &&
+          endpoint.symbol?.kind === "name" &&
+          endpoint.symbol.name === "timeGetTime" &&
+          endpoint.iatAddress === 0x100d_14e4 &&
+          stackPointer === 0x006f_f790 &&
+          engine.readGuestU32(stackPointer) === 0x1009_1ebf,
+        queues:
+          this.#bgiCallbackCallSequences.size === 0 &&
+          this.#pendingInputEvents.length === 0,
+        report:
+          this.#report.supportedCallCount === 341_036 &&
+          this.#report.pointerInput.receivedMessages === 4 &&
+          this.#report.pointerInput.receipts.length === 4 &&
+          this.#report.sourceReads.length === 183 &&
+          this.#report.heapPageMaterializations?.length === 4_914 &&
+          this.#report.writableDirectoryCreates.length === 1,
+        clocks:
+          this.#scheduledSharedClockSampleCount === 101_366 &&
+          this.#scheduledSharedClockWindowTimerCallbackCount === 113 &&
+          this.#scheduledSharedClockPresentCount === 32 &&
+          pacing.completions === 12_214 &&
+          this.#report.instructions === 3_114_597_623,
+      };
+      const failedCompletionChecks = Object.entries(completionChecks)
+        .filter(([, passed]) => !passed)
+        .map(([name]) => name);
+      invariant(
+        batch !== null &&
+          endpoint !== undefined &&
+          failedCompletionChecks.length === 0,
+        `post-callback next-iteration input scan failed checks: ${JSON.stringify({
+          failedCompletionChecks,
+          batch,
+          endpoint,
+          stackPointer,
+          returnAddress: engine.readGuestU32(stackPointer),
+          supportedCallCount: this.#report.supportedCallCount,
+          instructions: this.#report.instructions,
+        })}`,
+      );
+      const reflection =
+        this.#requireBridge().currentMemorySummary<CurrentMemorySummaryMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-memory-summary" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation) &&
+          reflection.contentSha256 ===
+            "07271a6d60b65823d606706a219772c9df481479a757e880dcb9069bb07a4628",
+        "post-callback next-iteration input-scan memory summary changed",
+      );
+      batch.instructionCount = this.#report.instructions;
+      batch.nextEndpoint = {
+        id: endpoint.id,
+        address: endpoint.address,
+        module: endpoint.module!,
+        symbol: { kind: "name", name: "timeGetTime" },
+        disposition: "declared-runtime-export",
+        iatAddress: endpoint.iatAddress!,
+      };
+      batch.nextArguments = [];
+      batch.memoryContentSha256 = reflection.contentSha256;
+      batch.nextReturnAddress = engine.readGuestU32(stackPointer);
+      batch.nextStackPointer = stackPointer;
+      this.#cancelAndFinish(
+        "checkpoint-complete",
+        "Primary post-callback pointer action next-iteration input scan completed",
+        null,
+      );
+      return;
+    }
     if (
       isPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
         this.#configuration.capabilityProfile,

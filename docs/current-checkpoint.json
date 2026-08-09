@@ -16,7 +16,7 @@
         "id": "logical-window-and-message-flow",
         "label": "Logical window and message flow",
         "status": "in-progress",
-        "evidenceBoundary": "Primary logical window creation, activation, paint, owner-thread timers, and normalized primary-button flow pass. Node and private Chrome agree through 341,032 semantic calls, 101,366 clock samples, 113 completed TIMERPROC callbacks, 32 Presents, and four pointer receipts. Rust completes the WM_LBUTTONDOWN action, one full following main-loop iteration, the VK_LBUTTON pressed-since query, and the matching release that queues WM_LBUTTONUP before the VK_RBUTTON query. Browser code owns no Windows input, window, message-queue, callback, synchronization, or guest-memory state. Visible action response, focus transitions, capture, move/wheel, filtered and cross-thread retrieval, general keyboard translation, and broader message flow remain partial."
+        "evidenceBoundary": "Primary logical window creation, activation, paint, owner-thread timers, and normalized primary-button flow pass. Node and private Chrome agree through 341,036 semantic calls, 101,366 clock samples, 113 completed TIMERPROC callbacks, 32 Presents, and four pointer receipts. Rust completes the WM_LBUTTONDOWN action, one full following main-loop iteration, the VK_LBUTTON pressed-since query, the matching release that queues WM_LBUTTONUP, and the remaining virtual-key 2/4/5/6 scan before the next timeGetTime. Browser code owns no Windows input, window, message-queue, callback, synchronization, or guest-memory state. Visible action response, focus transitions, capture, move/wheel, filtered and cross-thread retrieval, general keyboard translation, and broader message flow remain partial."
       },
       {
         "id": "immutable-source-asset-access",
@@ -28,13 +28,13 @@
         "id": "first-present-readable-screen",
         "label": "First present and readable screen",
         "status": "in-progress",
-        "evidenceBoundary": "Controlled Canvas pixel, public Chrome Worker, and private scheduled-clock replay pass. The primary D3D9 device has completed 32 bounded scene/draw/present cycles with synchronous reused WebGL2 publication; the same replay crosses the v86 signed-counter boundary, completes 57,602 calls through the next post-action iteration, and queues the matching WM_LBUTTONUP before the following VK_RBUTTON query. The exact center pixel remains black [0,0,0,255], so readable title-scene content, visible input response, resize, device loss/recovery, Reset, general stack overflow/SEH, and long-run stability remain unproven."
+        "evidenceBoundary": "Controlled Canvas pixel, public Chrome Worker, and private scheduled-clock replay pass. The primary D3D9 device has completed 32 bounded scene/draw/present cycles with synchronous reused WebGL2 publication; the same replay crosses the v86 signed-counter boundary, completes 57,602 calls through the next post-action iteration, queues the matching WM_LBUTTONUP, and completes the remaining four-key scan before timeGetTime. The exact center pixel remains black [0,0,0,255], so readable title-scene content, visible input response, resize, device loss/recovery, Reset, general stack overflow/SEH, and long-run stability remain unproven."
       },
       {
         "id": "user-input-consumption",
         "label": "User input consumption",
         "status": "in-progress",
-        "evidenceBoundary": "The verified primary-button paths are consumed through Rust-owned cursor, input, logical-window, message-queue, wait, guest-memory, process-clock, and callback-frame authorities. Node and private Chrome agree that the third WM_LBUTTONDOWN is fully dispatched and unwound, the following main-loop iteration consumes VK_LBUTTON as 0xffff8001, and the fourth Rust-ingressed release queues WM_LBUTTONUP message 117 before VK_RBUTTON. Visible gameplay response, focus transitions, capture, pointer move/wheel, DirectInput keyboard/mouse devices, and general input remain unproven."
+        "evidenceBoundary": "The verified primary-button paths are consumed through Rust-owned cursor, input, logical-window, message-queue, wait, guest-memory, process-clock, and callback-frame authorities. Node and private Chrome agree that the third WM_LBUTTONDOWN is fully dispatched and unwound, the following main-loop iteration consumes VK_LBUTTON as 0xffff8001, the fourth Rust-ingressed release queues WM_LBUTTONUP message 117, and the remaining VK_RBUTTON/VK_MBUTTON/VK_XBUTTON1/VK_XBUTTON2 queries return zero before timeGetTime. Visible gameplay response, focus transitions, capture, pointer move/wheel, DirectInput keyboard/mouse devices, and general input remain unproven."
       },
       {
         "id": "audible-output",
@@ -185,7 +185,7 @@
     "workload": "private-bgi-generic-session",
     "bgiSession": "semantic-equivalence-passed",
     "bgiBenchmark": "threshold-passed",
-    "browserRuntimeProtocol": "vine.browser-runtime-worker.v135",
+    "browserRuntimeProtocol": "vine.browser-runtime-worker.v136",
     "executionEngineProfile": "fixtures/execution-engines/v86-browser-v1.json",
     "browserRuntimeWorker": true,
     "browserRuntimeCoreWasm": {
@@ -5720,10 +5720,10 @@
     "decisionScope": "controlled-browser-runtime-baseline"
   },
   "activeRuntimeCheckpoint": {
-    "runtimeKernelCheckpoint": "primary-main-loop-post-callback-pointer-action-next-iteration-batch",
+    "runtimeKernelCheckpoint": "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch",
     "status": "checkpoint-complete",
     "profile": "user32-peek-message-a-post-window-timer-callback-continuation",
-    "capabilityProfile": "primary-main-loop-post-callback-pointer-action-next-iteration-batch",
+    "capabilityProfile": "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch",
     "runtimeStateAuthority": "rust",
     "runtimeStateScope": "single-process-controlled-and-api-created-thread-wait-message-heap-module-dll-lifecycle-critical-section-named-mutex-pointer-decoding-fls-allocation-private-heap-allocation-fls-value-interlocked-increment-second-heap-allocation-standard-input-handle-file-type-standard-output-handle-standard-output-file-type-standard-error-handle-standard-error-file-type-set-handle-count-policy-process-command-line-wide-environment-copy-lifetime-windows-932-wide-and-multibyte-conversion-one-byte-uninitialized-heap-buffer-thread-last-error-read-write-thread-local-storage-read-fiber-local-storage-read-active-code-page-read-544-byte-uninitialized-heap-buffer-active-code-page-information-output-ctype1-classification-ja-jp-lowercase-and-uppercase-mapping-interlocked-decrement-process-image-path-ansi-copy-16-byte-uninitialized-heap-buffer-4-byte-zeroed-environment-pointer-table-one-byte-private-heap-free-128-byte-zeroed-heap-buffer-explicit-processor-feature-presence-process-unhandled-exception-filter-private-heap-size-query-default-critical-section-initialization-active-code-page-selector-nul-terminated-conversion-process-current-directory-ansi-identity-current-thread-pseudo-handle-dynamic-resolution-thread-logical-affinity-mask-deterministic-monotonic-tick-progression-deterministic-high-resolution-performance-frequency-and-counter-progression-x86-virtual-system-information-single-logical-monitor-enumeration-and-work-area-query-per-thread-com-apartment-initialization-system-default-lang-id-read-process-image-drive-type-query-logical-mouse-button-mapping-focused-virtual-key-state-and-pressed-since-query-winmm-timer-capabilities-logical-winmm-timer-resolution-request-lifetime-policy-owned-ansi-os-version-information-manual-reset-unnamed-waitable-timer-identity-handle-lifetime-relative-one-shot-arm-nonsignaled-reset-logical-expiration-clock-and-bounded-finite-alertable-wait-pe-resource-catalog-module-shared-icon-identity-and-process-lifetime-system-arrow-and-module-resource-shared-cursor-identity-and-process-lifetime-process-local-window-class-identity-atom-module-wndproc-resource-reference-and-lifetime-logical-system-metrics-read-process-large-private-heap-permanent-slot-lazy-page-materialization-logical-top-level-window-five-message-synchronous-creation-callback-lifecycle-dedicated-scratch-small-icon-size-metrics-module-shared-small-icon-load-image-selection-same-thread-synchronous-wm-seticon-small-icon-relation-and-initial-offscreen-show-hide-position-visibility-callback-free-dynamic-runtime-system-module-identity-reference-and-attach-state-d3d9-device-render-state-texture-binding-flexible-vertex-format-stream-source-binding-draw-submission-lifetime-directinput8-root-com-identity-lifetime-directinput8-empty-attached-game-controller-enumeration-directsound8-root-com-audio-identity-lifetime-priority-cooperative-window-relation-primary-and-secondary-logical-audio-buffer-descriptor-format-lazy-sample-backing-lock-content-playback-and-com-lifetime-logical-window-timer-registration-identity-owner-thread-interval-callback-and-process-lifetime-guest-thread-stack-teb-bootstrap-suspend-resume-lifetime-logical-priority-and-explicit-api-boundary-yield-primary-screen-dc-acquisition-lifetime-bounded-cp932-font-enumeration-callback-catalog-logical-font-object-creation-null-source-compatible-memory-dc-dib-lifecycle-selected-font-outline-metrics-output-bounded-cp932-text-raster-into-selected-dib-and-logical-gdiplus-startup-session-token-lifetime-logical-window-file-drop-acceptance-runtime-vfs-registered-file-and-derived-directory-attribute-query-runtime-vfs-durable-writable-directory-create-same-active-window-repeat-position-validation-only-callback-current-thread-unfiltered-nonblocking-message-peek-and-optional-remove-logical-window-minimized-state-query-from-effective-style-logical-window-timer-expiry-low-priority-wm-timer-materialization-translate-noop-and-validated-timerproc-dispatch-foreground-client-pointer-button-message-production-and-wndproc-dispatch-with-queued-release-same-current-thread-active-focused-foreground-set-focus-idempotent-read-same-current-thread-visible-active-focused-foreground-cursor-derived-wm-lbuttondown-default-window-processing-current-thread-unfiltered-pm-remove-wm-lbuttonup-msg32-write-and-empty-queue-read-only-wm-lbuttonup-translate-from-guest-memory-with-empty-current-thread-queue-wm-lbuttonup-dispatch-defwindowproc-zero-result-and-callback-unwind-same-thread-wm-settext-windows-932-window-title-commit-system-arrow-cursor-info-flags-handle-and-logical-position-projection",
     "runtimeVirtualMemoryScope": "null-preferred-96m-reserve-top-down-page-readwrite-without-commit-decommit-or-release",
@@ -5839,7 +5839,7 @@
     "hostCompletionModel": "scheduler-event",
     "genericDispatcherApiCount": 136,
     "genericDispatcherContractCount": 138,
-    "genericDispatcherCallOccurrenceCount": 341032,
+    "genericDispatcherCallOccurrenceCount": 341036,
     "genericDispatcherApis": [
       "KERNEL32.dll!GetSystemTimeAsFileTime",
       "KERNEL32.dll!GetCurrentProcessId",
@@ -6197,7 +6197,7 @@
         "kernel32_virtual_memory_dispatcher::owner_capacity_failure_is_atomic_across_allocator_and_guest_memory",
         "kernel32_virtual_memory_dispatcher::guest_region_overlap_rejects_before_allocator_commit_or_owner_id_advance"
       ],
-      "capabilityExpansionPausedAt": "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
+      "capabilityExpansionPausedAt": "winmm-time-get-time-post-next-iteration-input-scan"
     },
     "runtimeObjectModel": {
       "schema": "vine.runtime-object-table.v2",
@@ -13330,13 +13330,13 @@
       "allApiAndComDispatchBoundariesUseSharedSchedule": true,
       "regressingInstructionCursorRejectedBeforeMutation": true,
       "nodePrimaryEvidence": {
-        "schema": "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-next-iteration-batch",
+        "schema": "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch",
         "schemaVersion": 1,
         "canonicalCommand": "npm run check:runtime:bgi",
         "repeatRuns": 1,
-        "reportPath": ".work/v86-bgi-post-callback-pointer-action-next-iteration-batch/report.json",
-        "reportBytes": 92963914,
-        "reportSha256": "3b3f104fde7918226ba91a4be9597e5a2f67de3bdc31d0f254947290c095f0b9",
+        "reportPath": ".work/v86-bgi-post-callback-pointer-action-next-iteration-input-scan-batch/report.json",
+        "reportBytes": 187725700,
+        "reportSha256": "f5068ae7de76c7b9b5b64c200765eb40b1ff78b5531db49ea8722b8547167c0d",
         "nodeReplayOldSpaceMiB": 8192,
         "rejectedNodeReplayOldSpaceMiB": 6144,
         "rejectedNodeReplayOutcome": "v8-heap-out-of-memory-near-limit",
@@ -13344,8 +13344,8 @@
         "sourceBytes": 1193472,
         "sourceSha256": "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1",
         "sourceImmutableAcrossRun": true,
-        "completedSupportedCalls": 341032,
-        "supportedCallSemanticsSha256": "20e034774f95ec69008f55477c8d6b1a2b7d9e3add2d694ef62d0d8b25cd1575",
+        "completedSupportedCalls": 341036,
+        "supportedCallSemanticsSha256": "f4aa1424ea30c8414d1233f7cccad40ce17aa3edaa4b602a2afb610b2d56b388",
         "clockSampleCount": 101366,
         "firstClockTick": 3600000,
         "firstClockRetiredInstructions": 29,
@@ -13360,13 +13360,13 @@
         "presentCount": 32,
         "thirdPresentReached": true,
         "fourthPresentReached": true,
-        "writebackBatches": 346106,
+        "writebackBatches": 346110,
         "hostDeltaBatches": 191120,
         "callbackEventCount": 296,
         "activeCallbackDepth": 0,
-        "finalMemoryGeneration": 443233,
-        "terminalInstructionCount": 3114597221,
-        "terminalMemoryContentSha256": "5840ee438cbbdaae914c5a7169f0dc8aac5169c70388234778cd96079e8d0b11",
+        "finalMemoryGeneration": 443237,
+        "terminalInstructionCount": 3114597623,
+        "terminalMemoryContentSha256": "07271a6d60b65823d606706a219772c9df481479a757e880dcb9069bb07a4628",
         "pointerInputEventCount": 4,
         "pointerInputDownCommittedAfterSequence": 222004,
         "pointerInputUpCommittedAfterSequence": 222096,
@@ -14870,30 +14870,70 @@
           "nextEndpoint": "USER32.dll!GetAsyncKeyState",
           "nextArgument": 2,
           "nextInstructionCount": 3114597221
+        },
+        "primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatch": {
+          "completionCount": 4,
+          "sequences": [
+            341033,
+            341034,
+            341035,
+            341036
+          ],
+          "instructionCounts": [
+            3114597221,
+            3114597297,
+            3114597373,
+            3114597449
+          ],
+          "virtualKeys": [
+            2,
+            4,
+            5,
+            6
+          ],
+          "results": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "lastErrors": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "guestWriteBytes": 0,
+          "stateAuthority": "rust-runtime-input",
+          "mutation": "read-and-pressed-bit-consumption-per-query",
+          "failureAtomicity": true,
+          "browserOwnsInputState": false,
+          "nextEndpoint": "WINMM.dll!timeGetTime",
+          "nextInstructionCount": 3114597623
         }
       },
       "browserBoundaryEvidence": {
-        "runtimeProtocol": "vine.browser-runtime-worker.v135",
-        "browserReportSchemaVersion": 100,
+        "runtimeProtocol": "vine.browser-runtime-worker.v136",
+        "browserReportSchemaVersion": 101,
         "retiredInstructionCursorTransport": "checked-u64-low-high-per-api-and-com-dispatch",
         "browserOwnsGuestClockState": false,
         "controlledChromeE2e": "passed",
         "controlledChromeCommand": "npm run check:runtime:browser-worker",
         "chromeVersion": "151.0.7922.77",
-        "reportBytes": 42848,
-        "reportSha256": "c56459b5dd0768b25aafbb25cae80c08068fc501b69f0788fd700ce85701a9fd",
-        "runtimeWorkerBytes": 1365959,
-        "runtimeWorkerSha256": "754ba586107e1627bc651b0658314740dd4daa726cd364d4d52e1666e9183d15",
+        "reportBytes": 42857,
+        "reportSha256": "8520ab175986b9cbe18d3c8f86f8b2b5655bc7eba5fffd3e93a5d8a4b82e1d7d",
+        "runtimeWorkerBytes": 1376360,
+        "runtimeWorkerSha256": "f47694d7561cc77b91f3cb2f4e90321a698b01c805889aa3d34b79df397d9574",
         "runtimeCoreWasmBytes": 5421214,
         "runtimeCoreWasmSha256": "a8f2014fc6acf0bba403cf4ffe12878a7b6e09b563c4330bdca13e740e406b8a",
         "privatePrimaryReplay": "passed-node-equivalent-scheduled-shared-clock",
         "privatePrimaryCommand": "node tools/run-browser-runtime-check.mjs --bgi",
-        "privatePrimaryReportBytes": 82601456,
-        "privatePrimaryReportSha256": "c717a74b66a8a673b8c0f571de122d5a2cc22d7ede1f2c8ed30ded219a164194",
+        "privatePrimaryReportBytes": 88175407,
+        "privatePrimaryReportSha256": "a95a20c41116d9865b007e2ab8e52f4e1b3df2c10beada11c51aac893b30ecad",
         "privatePrimaryChromeVersion": "151.0.7922.77",
-        "privatePrimarySupportedCalls": 341032,
-        "privatePrimarySupportedCallSemanticsSha256": "20e034774f95ec69008f55477c8d6b1a2b7d9e3add2d694ef62d0d8b25cd1575",
-        "privatePrimaryInstructionCount": 3114597221,
+        "privatePrimarySupportedCalls": 341036,
+        "privatePrimarySupportedCallSemanticsSha256": "f4aa1424ea30c8414d1233f7cccad40ce17aa3edaa4b602a2afb610b2d56b388",
+        "privatePrimaryInstructionCount": 3114597623,
         "privatePrimaryClockSampleCount": 101366,
         "privatePrimaryWindowTimerCallbackCount": 113,
         "privatePrimaryPresentCount": 32,
@@ -14901,17 +14941,17 @@
         "privatePrimaryTimerPacingCompletionCount": 12214,
         "privatePrimaryMappingDeltas": 191120,
         "privatePrimaryExecutionEngineLinearMemoryBytes": 114819072,
-        "privatePrimaryFinalMemoryGeneration": 627773,
-        "privatePrimaryWritebackBatches": 530965,
-        "privatePrimaryTerminalMemoryContentSha256": "5840ee438cbbdaae914c5a7169f0dc8aac5169c70388234778cd96079e8d0b11",
+        "privatePrimaryFinalMemoryGeneration": 627777,
+        "privatePrimaryWritebackBatches": 530969,
+        "privatePrimaryTerminalMemoryContentSha256": "07271a6d60b65823d606706a219772c9df481479a757e880dcb9069bb07a4628",
         "privatePrimaryRawGenerationAndWritebacksAreAdapterSpecific": true,
         "privatePrimaryCancellationClean": true,
         "privatePrimaryWatchdogClean": true
       },
       "proximateCauseConclusion": {
         "clockFreezeWasProximateCause": false,
-        "reason": "scheduled progression completed one full post-action main-loop iteration, consumed the pressed-since state for VK_LBUTTON, committed the matching Rust-owned release and WM_LBUTTONUP message, and stopped at the following VK_RBUTTON query",
-        "nextEndpoint": "USER32.dll!GetAsyncKeyState",
+        "reason": "scheduled progression completed the remaining four-key post-action input scan through Rust-owned GetAsyncKeyState read-and-consume semantics and stopped at the following shared-clock sample",
+        "nextEndpoint": "WINMM.dll!timeGetTime",
         "archiveEnumerationWasProximateCause": false,
         "missingFileDeleteWasProximateCause": false,
         "ordinaryHeapCapacityWasProximateCause": false,
@@ -14922,7 +14962,7 @@
       }
     },
     "latestEvidence": {
-      "schema": "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-next-iteration-batch",
+      "schema": "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch",
       "nativeSleepZeroOracleProfile": "x86-sleep-zero-ready-competitor-v1",
       "nativeSleepZeroOracleArchitecture": "coff-i386",
       "nativeSleepZeroOracleSourceBytes": 6481,
@@ -16703,9 +16743,9 @@
       "nativeDefWindowProcPointerReleaseOracleForegroundPreserved": true,
       "nativeDefWindowProcPointerReleaseOracleCaptureBefore": null,
       "nativeDefWindowProcPointerReleaseOracleCaptureAfter": null,
-      "implementation": "Rust-owned process clock, synchronization, input, message queue, logical window, graphics, audio, filesystem, and guest memory complete 57,602 ordered calls through the next post-action main-loop iteration; DeleteCriticalSection retires three reached objects atomically, VK_LBUTTON consumes the pressed-since state, and the matching release queues WM_LBUTTONUP before the following VK_RBUTTON query; TypeScript remains a non-owning browser adapter",
+      "implementation": "Rust-owned input state completes the remaining post-action main-loop GetAsyncKeyState scan for VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, and VK_XBUTTON2 as four ordered read-and-consume queries without guest writes or browser-owned Windows state; the prior 57,603-call next-iteration checkpoint remains the immutable prerequisite and execution stops at the following timeGetTime",
       "implementedApiContractCount": 138,
-      "genericSupportedCallCount": 341032,
+      "genericSupportedCallCount": 341036,
       "createWindowExAImplemented": true,
       "createWindowExASequence": 1388,
       "createWindowExAInstructionCount": 11476236,
@@ -17022,11 +17062,11 @@
       "initializeCriticalSectionDeltaAddress": "0x100fd000",
       "initializeCriticalSectionDeltaOwner": 1,
       "initializeCriticalSectionDeltaPayloadSha256": "80eb4797e4759ad5c9f4c484abf155aa7008a2ef8bfdffad9c17319ae36ef0fb",
-      "writebackBatches": 346106,
-      "writebackDirtyPages": 657847,
-      "writebackChangedBytes": 164867170,
+      "writebackBatches": 346110,
+      "writebackDirtyPages": 657858,
+      "writebackChangedBytes": 164867269,
       "hostDeltaBatches": 191120,
-      "finalMemoryGeneration": 443233,
+      "finalMemoryGeneration": 443237,
       "allocationDeltaSequence": 198,
       "allocationDeltaFromGeneration": 281,
       "allocationDeltaGeneration": 282,
@@ -17227,7 +17267,7 @@
         "browserResourceCreated": false,
         "nodeChromeOrderedSemanticsMatched": true
       },
-      "memoryContentSha256": "5840ee438cbbdaae914c5a7169f0dc8aac5169c70388234778cd96079e8d0b11",
+      "memoryContentSha256": "07271a6d60b65823d606706a219772c9df481479a757e880dcb9069bb07a4628",
       "enterCriticalSectionCheckpointCompletions": 3,
       "enterCriticalSectionSequences": [
         18699,
@@ -21094,7 +21134,7 @@
       "directSoundSetCooperativeLevelChromeCompletions": 1,
       "directSoundSetCooperativeLevelNodeChromeOrderedSemanticsMatched": true,
       "semanticCallDigestAlgorithm": "sha256-canonical-json-v1",
-      "semanticCallDigestSha256": "20e034774f95ec69008f55477c8d6b1a2b7d9e3add2d694ef62d0d8b25cd1575",
+      "semanticCallDigestSha256": "f4aa1424ea30c8414d1233f7cccad40ce17aa3edaa4b602a2afb610b2d56b388",
       "nativeDirectSoundInitialBuffersPrimaryTraceBytes": 382086,
       "nativeDirectSoundInitialBuffersPrimaryTraceLines": 801,
       "nativeDirectSoundInitialBuffersPrimaryTraceSha256": "6d924745fb6b61efa7992ec4ccda6cd553bab625348b0734876216e12af37f33",
@@ -27714,6 +27754,18 @@
         "nodeCompletions": 57603,
         "chromeCompletions": 57603,
         "nodeChromeOrderedSemanticsMatched": true
+      },
+      "primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatch": {
+        "completionCount": 4,
+        "virtualKeys": [
+          2,
+          4,
+          5,
+          6
+        ],
+        "nodeCompletions": 4,
+        "chromeCompletions": 4,
+        "nodeChromeOrderedSemanticsMatched": true
       }
     },
     "canonicalReproductionCommand": "npm run check:runtime:bgi"
@@ -27722,11 +27774,11 @@
   "nextStructuredStop": {
     "kind": "capability-checkpoint",
     "classification": "semantic-leaf",
-    "nextCheckpoint": "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch",
-    "pausedHistoricalCheckpoint": "primary-main-loop-post-callback-pointer-action-next-iteration-batch",
-    "instructionCount": 3114597221,
-    "capabilityCluster": "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan",
-    "reason": "primary-main-loop-post-callback-pointer-action-next-iteration-batch-checkpoint-complete",
+    "nextCheckpoint": "winmm-time-get-time-post-next-iteration-input-scan",
+    "pausedHistoricalCheckpoint": "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch",
+    "instructionCount": 3114597623,
+    "capabilityCluster": "winmm-time-get-time-post-next-iteration-input-scan",
+    "reason": "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch-checkpoint-complete",
     "historicalOutlineTextMetricsCheckpoint": {
       "capability": "gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336",
       "implementationId": "runtime.gdi32-get-outline-text-metrics-a-224x112-post-create-dib-section-448x336.v1",
@@ -29761,7 +29813,7 @@
       "nextReturnAddress": 269033151,
       "nextStackPointer": 7338200
     },
-    "completion": {
+    "prerequisiteNextIterationCompletion": {
       "capability": "primary-main-loop-post-callback-pointer-action-next-iteration-batch",
       "implementationId": "runtime.primary-main-loop-post-callback-pointer-action-next-iteration-batch.v1",
       "requiredCompletions": 57603,
@@ -29901,27 +29953,136 @@
       "nextReturnAddress": 268862469,
       "nextStackPointer": 7337468
     },
+    "completion": {
+      "capability": "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch",
+      "implementationId": "runtime.primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch.v1",
+      "requiredCompletions": 4,
+      "completionCount": 4,
+      "prerequisiteCompletionSequence": 341032,
+      "prerequisiteCompletionInstructionCount": 3114597133,
+      "firstCompletionSequence": 341033,
+      "firstCompletionInstructionCount": 3114597221,
+      "lastCompletionSequence": 341036,
+      "lastCompletionInstructionCount": 3114597449,
+      "scanVirtualKeys": [
+        2,
+        4,
+        5,
+        6
+      ],
+      "scanCalls": [
+        {
+          "sequence": 341033,
+          "module": "USER32.dll",
+          "symbol": "GetAsyncKeyState",
+          "occurrence": 2925,
+          "trapInstructionCount": 3114597221,
+          "arguments": [
+            2
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.get-async-key-state.v1",
+          "lastError": 0
+        },
+        {
+          "sequence": 341034,
+          "module": "USER32.dll",
+          "symbol": "GetAsyncKeyState",
+          "occurrence": 2926,
+          "trapInstructionCount": 3114597297,
+          "arguments": [
+            4
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.get-async-key-state.v1",
+          "lastError": 0
+        },
+        {
+          "sequence": 341035,
+          "module": "USER32.dll",
+          "symbol": "GetAsyncKeyState",
+          "occurrence": 2927,
+          "trapInstructionCount": 3114597373,
+          "arguments": [
+            5
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.get-async-key-state.v1",
+          "lastError": 0
+        },
+        {
+          "sequence": 341036,
+          "module": "USER32.dll",
+          "symbol": "GetAsyncKeyState",
+          "occurrence": 2928,
+          "trapInstructionCount": 3114597449,
+          "arguments": [
+            6
+          ],
+          "result": {
+            "action": "set",
+            "value": 0
+          },
+          "implementationId": "user32.get-async-key-state.v1",
+          "lastError": 0
+        }
+      ],
+      "result": {
+        "action": "set",
+        "value": 0
+      },
+      "lastError": 0,
+      "guestWriteBytes": 0,
+      "stateAuthority": "rust-runtime-input",
+      "mutation": "read-and-pressed-bit-consumption-per-query",
+      "failureAtomicity": true,
+      "browserOwnsInputState": false,
+      "activeCallbackDepthAtCompletion": 0,
+      "instructionCount": 3114597623,
+      "nextEndpoint": {
+        "id": 8,
+        "address": 2130706544,
+        "module": "WINMM.dll",
+        "symbol": {
+          "kind": "name",
+          "name": "timeGetTime"
+        },
+        "disposition": "declared-runtime-export",
+        "iatAddress": 269292772
+      },
+      "nextArguments": [],
+      "memoryContentSha256": "07271a6d60b65823d606706a219772c9df481479a757e880dcb9069bb07a4628",
+      "nextReturnAddress": 269033151,
+      "nextStackPointer": 7337872
+    },
     "nextEndpoint": {
       "endpointKind": "runtime-system-export",
-      "endpointId": 231,
-      "api": "USER32.dll!GetAsyncKeyState",
-      "endpointAddress": "0x7f000e60",
-      "observedModule": "USER32.dll",
-      "observedSymbol": "GetAsyncKeyState",
-      "id": 231,
-      "address": 2130710112,
-      "module": "USER32.dll",
+      "endpointId": 8,
+      "api": "WINMM.dll!timeGetTime",
+      "endpointAddress": "0x7f000070",
+      "observedModule": "WINMM.dll",
+      "observedSymbol": "timeGetTime",
+      "id": 8,
+      "address": 2130706544,
+      "module": "WINMM.dll",
       "symbol": {
         "kind": "name",
-        "name": "GetAsyncKeyState"
+        "name": "timeGetTime"
       },
       "disposition": "declared-runtime-export",
-      "iatAddress": 269292660,
-      "arguments": [
-        "0x00000002"
-      ],
-      "returnAddress": "0x10068405",
-      "stackPointer": "0x006ff5fc"
+      "iatAddress": 269292772,
+      "arguments": [],
+      "returnAddress": "0x10091ebf",
+      "stackPointer": "0x006ff790"
     },
     "historicalFollowingFault": {
       "class": "unsupported",

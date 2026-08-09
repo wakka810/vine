@@ -79,6 +79,33 @@ export function projectCapabilityCheckpointCompletion(completion) {
   );
   if (
     projected.capability ===
+    "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
+  ) {
+    if (!Array.isArray(projected.scanCalls) || projected.scanCalls.length !== 4) {
+      throw new TypeError(
+        "post-callback next-iteration input scan must include four calls",
+      );
+    }
+    projected.scanCalls = projected.scanCalls.map((call) => {
+      const value = requireRecord(
+        call,
+        "post-callback next-iteration input scan call",
+      );
+      return {
+        sequence: value.sequence,
+        symbol: value.symbol,
+        occurrence: value.occurrence,
+        trapInstructionCount: value.trapInstructionCount,
+        arguments: value.arguments,
+        result: value.result,
+        implementationId: value.implementationId,
+        lastError: value.lastError,
+      };
+    });
+    delete projected.prerequisiteNextIteration;
+  }
+  if (
+    projected.capability ===
     "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
   ) {
     if (!Array.isArray(projected.nextIterationCalls)) {

@@ -158,9 +158,13 @@ function validateExecutionStateMachine(value, label, errors) {
 export function validateCurrentCheckpoint(manifest) {
   const errors = [];
   const root = requireRecord(manifest, "manifest", errors);
-  const primaryMainLoopPostCallbackPointerActionNextIterationBatchActive =
+  const primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive =
     root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
-    "primary-main-loop-post-callback-pointer-action-next-iteration-batch";
+    "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch";
+  const primaryMainLoopPostCallbackPointerActionNextIterationBatchActive =
+    primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive ||
+    root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
+      "primary-main-loop-post-callback-pointer-action-next-iteration-batch";
   const primaryMainLoopPostCallbackPointerActionContinuationBatchActive =
     primaryMainLoopPostCallbackPointerActionNextIterationBatchActive ||
     root.activeRuntimeCheckpoint?.runtimeKernelCheckpoint ===
@@ -691,9 +695,13 @@ export function validateCurrentCheckpoint(manifest) {
     d3d9RecreatedTexturesActive ||
     root.activeRuntimeCheckpoint?.profile ===
       "user32-set-window-pos-repeat-activation";
-  const primaryMainLoopPostCallbackPointerActionNextIterationBatchProfileActive =
+  const primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchProfileActive =
     root.activeRuntimeCheckpoint?.capabilityProfile ===
-    "primary-main-loop-post-callback-pointer-action-next-iteration-batch";
+    "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch";
+  const primaryMainLoopPostCallbackPointerActionNextIterationBatchProfileActive =
+    primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchProfileActive ||
+    root.activeRuntimeCheckpoint?.capabilityProfile ===
+      "primary-main-loop-post-callback-pointer-action-next-iteration-batch";
   const primaryMainLoopPostCallbackPointerActionContinuationBatchProfileActive =
     primaryMainLoopPostCallbackPointerActionNextIterationBatchProfileActive ||
     root.activeRuntimeCheckpoint?.capabilityProfile ===
@@ -1625,7 +1633,27 @@ export function validateCurrentCheckpoint(manifest) {
                                               ? "2,3,4,5,6,7,8"
                                               : "2,3,4";
   const profileExpectations =
-    primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
+    primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive
+      ? {
+          benchmarkObservation: "current-archive-source-read-observation",
+          browserMappingDeltas: 191_120,
+          browserMappingDirtyPages: 243_946,
+          browserSuccessExecutionTransitions: 1_632_982,
+          browserFinalGeneration: 627_777,
+          browserReportSchemaVersion: 101,
+          latestSchema:
+            "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch",
+          latestWritebackBatches: 346_110,
+          latestWritebackDirtyPages: 657_858,
+          latestWritebackChangedBytes: 164_867_269,
+          latestHostDeltaBatches: 191_120,
+          latestFinalMemoryGeneration: 443_237,
+          semanticCallDigestSha256:
+            "f4aa1424ea30c8414d1233f7cccad40ce17aa3edaa4b602a2afb610b2d56b388",
+          memoryContentSha256:
+            "07271a6d60b65823d606706a219772c9df481479a757e880dcb9069bb07a4628",
+        }
+      : primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
       ? {
           benchmarkObservation: "current-archive-source-read-observation",
           browserMappingDeltas: 191_120,
@@ -4300,7 +4328,9 @@ export function validateCurrentCheckpoint(manifest) {
     );
   }
   const expectedBrowserRuntimeProtocol =
-    primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
+    primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive
+      ? "vine.browser-runtime-worker.v136"
+      : primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
       ? "vine.browser-runtime-worker.v135"
       : primaryMainLoopPostCallbackPointerActionContinuationBatchActive
       ? "vine.browser-runtime-worker.v134"
@@ -22679,7 +22709,9 @@ export function validateCurrentCheckpoint(manifest) {
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureBefore !== null ||
         latestEvidence.nativeDefWindowProcPointerReleaseOracleCaptureAfter !== null)) ||
     latestEvidence.implementation !==
-      (primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
+      (primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive
+        ? "Rust-owned input state completes the remaining post-action main-loop GetAsyncKeyState scan for VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, and VK_XBUTTON2 as four ordered read-and-consume queries without guest writes or browser-owned Windows state; the prior 57,603-call next-iteration checkpoint remains the immutable prerequisite and execution stops at the following timeGetTime"
+        : primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
         ? "Rust-owned process clock, synchronization, input, message queue, logical window, graphics, audio, filesystem, and guest memory complete 57,602 ordered calls through the next post-action main-loop iteration; DeleteCriticalSection retires three reached objects atomically, VK_LBUTTON consumes the pressed-since state, and the matching release queues WM_LBUTTONUP before the following VK_RBUTTON query; TypeScript remains a non-owning browser adapter"
         : primaryMainLoopPostCallbackPointerActionContinuationBatchActive
         ? "Rust-owned window, message-queue, callback-frame, synchronization, heap, process-clock, and guest-memory authorities complete the reached WM_LBUTTONDOWN action path as one nine-completion batch: SetFocus preserves the same current window, timeGetTime samples the shared logical clock, DefWindowProcA returns zero, and WndProc plus outer DispatchMessageA unwind before the next PeekMessageA; TypeScript records only the non-owning browser projection"
@@ -25292,6 +25324,14 @@ export function validateCurrentCheckpoint(manifest) {
             errors,
           )
         : {};
+    const primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchNode =
+      primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive
+        ? requireRecord(
+            node.primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatch,
+            "activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence.primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatch",
+            errors,
+          )
+        : {};
     const deleteCriticalSectionNode =
       primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
         ? requireRecord(
@@ -25301,7 +25341,37 @@ export function validateCurrentCheckpoint(manifest) {
           )
         : {};
     const expectedNode =
-      primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
+      primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive
+        ? {
+            schema:
+              "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch",
+            runtimeKernelCheckpoint:
+              "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch",
+            repeatRuns: 1,
+            reportBytes: 187_725_700,
+            reportSha256:
+              "f5068ae7de76c7b9b5b64c200765eb40b1ff78b5531db49ea8722b8547167c0d",
+            nodeReplayOldSpaceMiB: 8_192,
+            completedSupportedCalls: 341_036,
+            supportedCallSemanticsSha256:
+              "f4aa1424ea30c8414d1233f7cccad40ce17aa3edaa4b602a2afb610b2d56b388",
+            clockSampleCount: 101_366,
+            lastClockTick: 5_163_562,
+            lastClockTime100ns: 15_635_625_000,
+            lastClockGeneration: 38_230,
+            lastClockRetiredInstructions: 3_114_593_156,
+            lastClockPendingRetiredInstructions: 1_156,
+            windowTimerCallbackCount: 113,
+            timerPacingCompletionCount: 12_214,
+            writebackBatches: 346_110,
+            hostDeltaBatches: 191_120,
+            callbackEventCount: 296,
+            finalMemoryGeneration: 443_237,
+            terminalInstructionCount: 3_114_597_623,
+            terminalMemoryContentSha256:
+              "07271a6d60b65823d606706a219772c9df481479a757e880dcb9069bb07a4628",
+          }
+        : primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
         ? {
             schema:
               "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-next-iteration-batch",
@@ -26356,8 +26426,95 @@ export function validateCurrentCheckpoint(manifest) {
       currentStop.prerequisiteWindowInputScanCompletion ?? {};
     const prerequisiteActionContinuationCompletion =
       currentStop.prerequisiteActionContinuationCompletion ?? {};
+    const prerequisiteNextIterationCompletion =
+      currentStop.prerequisiteNextIterationCompletion ?? {};
     const currentStopValid =
-      primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
+      primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive
+        ? currentStop.kind === "capability-checkpoint" &&
+          currentStop.classification === "semantic-leaf" &&
+          currentStop.nextCheckpoint ===
+            "winmm-time-get-time-post-next-iteration-input-scan" &&
+          currentStop.pausedHistoricalCheckpoint ===
+            "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch" &&
+          currentStop.instructionCount === 3_114_597_623 &&
+          currentStop.capabilityCluster ===
+            "winmm-time-get-time-post-next-iteration-input-scan" &&
+          currentStop.reason ===
+            "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch-checkpoint-complete" &&
+          prerequisiteNextIterationCompletion.capability ===
+            "primary-main-loop-post-callback-pointer-action-next-iteration-batch" &&
+          prerequisiteNextIterationCompletion.completionCount === 57_603 &&
+          prerequisiteNextIterationCompletion.lastCompletionSequence ===
+            341_032 &&
+          prerequisiteNextIterationCompletion.lastCompletionInstructionCount ===
+            3_114_597_133 &&
+          expectedCompletion.capability ===
+            "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch" &&
+          expectedCompletion.implementationId ===
+            "runtime.primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch.v1" &&
+          expectedCompletion.requiredCompletions === 4 &&
+          expectedCompletion.completionCount === 4 &&
+          expectedCompletion.prerequisiteCompletionSequence === 341_032 &&
+          expectedCompletion.prerequisiteCompletionInstructionCount ===
+            3_114_597_133 &&
+          expectedCompletion.firstCompletionSequence === 341_033 &&
+          expectedCompletion.firstCompletionInstructionCount ===
+            3_114_597_221 &&
+          expectedCompletion.lastCompletionSequence === 341_036 &&
+          expectedCompletion.lastCompletionInstructionCount ===
+            3_114_597_449 &&
+          expectedCompletion.scanVirtualKeys?.join(",") === "2,4,5,6" &&
+          expectedCompletion.scanCalls?.length === 4 &&
+          expectedCompletion.scanCalls
+            .map((call) => call.sequence)
+            .join(",") === "341033,341034,341035,341036" &&
+          expectedCompletion.scanCalls
+            .map((call) => call.occurrence)
+            .join(",") === "2925,2926,2927,2928" &&
+          expectedCompletion.scanCalls
+            .map((call) => call.trapInstructionCount)
+            .join(",") ===
+            "3114597221,3114597297,3114597373,3114597449" &&
+          expectedCompletion.scanCalls
+            .map((call) => call.arguments?.[0])
+            .join(",") === "2,4,5,6" &&
+          expectedCompletion.scanCalls.every(
+            (call) =>
+              call.symbol === "GetAsyncKeyState" &&
+              call.implementationId === "user32.get-async-key-state.v1" &&
+              call.result?.value === 0 &&
+              call.lastError === 0,
+          ) &&
+          expectedCompletion.result?.value === 0 &&
+          expectedCompletion.lastError === 0 &&
+          expectedCompletion.guestWriteBytes === 0 &&
+          expectedCompletion.stateAuthority === "rust-runtime-input" &&
+          expectedCompletion.mutation ===
+            "read-and-pressed-bit-consumption-per-query" &&
+          expectedCompletion.failureAtomicity === true &&
+          expectedCompletion.browserOwnsInputState === false &&
+          expectedCompletion.activeCallbackDepthAtCompletion === 0 &&
+          expectedCompletion.instructionCount === 3_114_597_623 &&
+          expectedCompletion.memoryContentSha256 ===
+            "07271a6d60b65823d606706a219772c9df481479a757e880dcb9069bb07a4628" &&
+          expectedCompletion.nextEndpoint?.id === 8 &&
+          expectedCompletion.nextEndpoint?.address === 0x7f00_0070 &&
+          expectedCompletion.nextEndpoint?.module?.toLowerCase() ===
+            "winmm.dll" &&
+          expectedCompletion.nextEndpoint?.symbol?.name === "timeGetTime" &&
+          expectedCompletion.nextEndpoint?.iatAddress === 0x100d_14e4 &&
+          expectedCompletion.nextArguments?.length === 0 &&
+          expectedCompletion.nextReturnAddress === 0x1009_1ebf &&
+          expectedCompletion.nextStackPointer === 0x006f_f790 &&
+          expectedEndpoint.endpointKind === "runtime-system-export" &&
+          expectedEndpoint.endpointId === 8 &&
+          expectedEndpoint.api === "WINMM.dll!timeGetTime" &&
+          expectedEndpoint.endpointAddress === "0x7f000070" &&
+          expectedEndpoint.iatAddress === 0x100d_14e4 &&
+          expectedEndpoint.arguments?.length === 0 &&
+          expectedEndpoint.returnAddress === "0x10091ebf" &&
+          expectedEndpoint.stackPointer === "0x006ff790"
+        : primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
         ? currentStop.kind === "capability-checkpoint" &&
           currentStop.classification === "semantic-leaf" &&
           currentStop.nextCheckpoint ===
@@ -31711,6 +31868,53 @@ export function validateCurrentCheckpoint(manifest) {
           57_603 &&
         primaryMainLoopPostCallbackPointerActionNextIterationBatchLatest.nodeChromeOrderedSemanticsMatched ===
           true);
+    const primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchLatest =
+      latestEvidence.primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatch ??
+      {};
+    const primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchEvidenceValid =
+      !primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive ||
+      (primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchNode.completionCount ===
+        4 &&
+        primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchNode.sequences?.join(
+          ",",
+        ) === "341033,341034,341035,341036" &&
+        primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchNode.instructionCounts?.join(
+          ",",
+        ) === "3114597221,3114597297,3114597373,3114597449" &&
+        primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchNode.virtualKeys?.join(
+          ",",
+        ) === "2,4,5,6" &&
+        primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchNode.results?.join(
+          ",",
+        ) === "0,0,0,0" &&
+        primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchNode.lastErrors?.join(
+          ",",
+        ) === "0,0,0,0" &&
+        primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchNode.guestWriteBytes ===
+          0 &&
+        primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchNode.stateAuthority ===
+          "rust-runtime-input" &&
+        primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchNode.mutation ===
+          "read-and-pressed-bit-consumption-per-query" &&
+        primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchNode.failureAtomicity ===
+          true &&
+        primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchNode.browserOwnsInputState ===
+          false &&
+        primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchNode.nextEndpoint ===
+          "WINMM.dll!timeGetTime" &&
+        primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchNode.nextInstructionCount ===
+          3_114_597_623 &&
+        primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchLatest.completionCount ===
+          4 &&
+        primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchLatest.virtualKeys?.join(
+          ",",
+        ) === "2,4,5,6" &&
+        primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchLatest.nodeCompletions ===
+          4 &&
+        primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchLatest.chromeCompletions ===
+          4 &&
+        primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchLatest.nodeChromeOrderedSemanticsMatched ===
+          true);
     if (
       scheduled.schema !== "vine.scheduled-shared-clock-checkpoint" ||
       scheduled.schemaVersion !== 1 ||
@@ -31800,7 +32004,9 @@ export function validateCurrentCheckpoint(manifest) {
       node.terminalMemoryContentSha256 !==
         expectedNode.terminalMemoryContentSha256 ||
       browserBoundary.runtimeProtocol !==
-        (primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
+        (primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive
+          ? "vine.browser-runtime-worker.v136"
+          : primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
           ? "vine.browser-runtime-worker.v135"
           : primaryMainLoopPostCallbackPointerActionContinuationBatchActive
           ? "vine.browser-runtime-worker.v134"
@@ -31870,7 +32076,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.retiredInstructionCursorTransport !==
         "checked-u64-low-high-per-api-and-com-dispatch" ||
       browserBoundary.browserOwnsGuestClockState !== false ||
-      (primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
+      (primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive
+        ? browserBoundary.browserReportSchemaVersion !== 101
+        : primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
         ? browserBoundary.browserReportSchemaVersion !== 100
         : primaryMainLoopPostCallbackPointerActionContinuationBatchActive
         ? browserBoundary.browserReportSchemaVersion !== 99
@@ -31940,7 +32148,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "151.0.7922.77"
           : "150.0.7871.187") ||
       browserBoundary.reportBytes !==
-        (primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
+        (primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive
+          ? 42_857
+          : primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
           ? 42_848
           : primaryMainLoopPostCallbackPointerActionContinuationBatchActive
           ? 42_827
@@ -32004,7 +32214,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 35_961
           : 35_951) ||
       browserBoundary.reportSha256 !==
-        (primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
+        (primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive
+          ? "8520ab175986b9cbe18d3c8f86f8b2b5655bc7eba5fffd3e93a5d8a4b82e1d7d"
+          : primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
           ? "c56459b5dd0768b25aafbb25cae80c08068fc501b69f0788fd700ce85701a9fd"
           : primaryMainLoopPostCallbackPointerActionContinuationBatchActive
           ? "0a781199958216c4d4e663dbb56ed0809ea125cab3080ef8147dacd33f967405"
@@ -32068,7 +32280,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? "bd77deb28553190382622adb663ac87b99e4c9f9df719bbba2282f5bae5bca94"
           : "ecd982f21410c69c4d844a114041e301fd140fedbb520cf5773f4d13d2846aa1") ||
       browserBoundary.runtimeWorkerBytes !==
-        (primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
+        (primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive
+          ? 1_376_360
+          : primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
           ? 1_365_959
           : primaryMainLoopPostCallbackPointerActionContinuationBatchActive
           ? 1_347_945
@@ -32134,7 +32348,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 1_053_379
           : 1_049_048) ||
       browserBoundary.runtimeWorkerSha256 !==
-        (primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
+        (primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive
+          ? "f47694d7561cc77b91f3cb2f4e90321a698b01c805889aa3d34b79df397d9574"
+          : primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
           ? "754ba586107e1627bc651b0658314740dd4daa726cd364d4d52e1666e9183d15"
           : primaryMainLoopPostCallbackPointerActionContinuationBatchActive
           ? "458772a51624cab8175acf93ef1cb03c928f9545fe4e006e72f94d9f81091651"
@@ -32256,7 +32472,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.privatePrimaryCommand !==
         "node tools/run-browser-runtime-check.mjs --bgi" ||
       browserBoundary.privatePrimaryReportBytes !==
-        (primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
+        (primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive
+          ? 88_175_407
+          : primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
           ? 82_601_456
           : primaryMainLoopPostCallbackPointerActionContinuationBatchActive
           ? 2_668_680
@@ -32322,7 +32540,9 @@ export function validateCurrentCheckpoint(manifest) {
           ? 2_598_978
           : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
-        (primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
+        (primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive
+          ? "a95a20c41116d9865b007e2ab8e52f4e1b3df2c10beada11c51aac893b30ecad"
+          : primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
           ? "c717a74b66a8a673b8c0f571de122d5a2cc22d7ede1f2c8ed30ded219a164194"
           : primaryMainLoopPostCallbackPointerActionContinuationBatchActive
           ? "c27175640922b2934e8936aba638ee21dd944b090201b8d4b05dca8cf0c4565f"
@@ -32455,6 +32675,7 @@ export function validateCurrentCheckpoint(manifest) {
       !primaryMainLoopPostCallbackPointerMessageConsumptionBatchEvidenceValid ||
       !primaryMainLoopPostCallbackPointerActionContinuationBatchEvidenceValid ||
       !primaryMainLoopPostCallbackPointerActionNextIterationBatchEvidenceValid ||
+      !primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchEvidenceValid ||
       conclusion.clockFreezeWasProximateCause !== false ||
       (privateHeapOrdinarySegmentGrowthActive &&
         conclusion.ordinaryHeapCapacityWasProximateCause !== false) ||
@@ -32467,7 +32688,9 @@ export function validateCurrentCheckpoint(manifest) {
       (getCursorInfoActive &&
         conclusion.cursorInfoWasProximateCause !== false) ||
       conclusion.nextEndpoint !==
-        (primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
+        (primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchActive
+          ? "WINMM.dll!timeGetTime"
+          : primaryMainLoopPostCallbackPointerActionNextIterationBatchActive
           ? "USER32.dll!GetAsyncKeyState"
           : primaryMainLoopPostCallbackPointerActionContinuationBatchActive
           ? "USER32.dll!PeekMessageA"

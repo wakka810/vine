@@ -2,7 +2,7 @@ import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 import type { BrowserNativeStorageConfiguration } from "../storage/protocol.js";
 
-export const protocolVersion = 135 as const;
+export const protocolVersion = 136 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -52,6 +52,7 @@ export type BgiCapabilityProfile =
   | "primary-main-loop-post-callback-pointer-message-consumption-batch"
   | "primary-main-loop-post-callback-pointer-action-continuation-batch"
   | "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
+  | "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1718,6 +1719,48 @@ export interface PrimaryMainLoopPostCallbackPointerActionNextIterationBatchCheck
   nextStackPointer: number;
 }
 
+export interface PrimaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchCheckpoint {
+  capability: "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch";
+  implementationId: "runtime.primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch.v1";
+  requiredCompletions: 4;
+  completionCount: 4;
+  prerequisiteNextIteration: PrimaryMainLoopPostCallbackPointerActionNextIterationBatchCheckpoint;
+  prerequisiteCompletionSequence: number;
+  prerequisiteCompletionInstructionCount: number;
+  firstCompletionSequence: number;
+  firstCompletionInstructionCount: number;
+  lastCompletionSequence: number;
+  lastCompletionInstructionCount: number;
+  scanVirtualKeys: [2, 4, 5, 6];
+  scanCalls: Array<
+    RuntimeSupportedCallSnapshot & {
+      occurrence: number;
+      trapInstructionCount: number;
+    }
+  >;
+  result: { action: "set"; value: 0 };
+  lastError: 0;
+  guestWriteBytes: 0;
+  stateAuthority: "rust-runtime-input";
+  mutation: "read-and-pressed-bit-consumption-per-query";
+  failureAtomicity: true;
+  browserOwnsInputState: false;
+  activeCallbackDepthAtCompletion: 0;
+  instructionCount: number;
+  nextEndpoint: {
+    id: number;
+    address: number;
+    module: string;
+    symbol: { kind: "name"; name: "timeGetTime" };
+    disposition: "declared-runtime-export";
+    iatAddress: number;
+  };
+  nextArguments: [];
+  memoryContentSha256: string;
+  nextReturnAddress: number;
+  nextStackPointer: number;
+}
+
 export interface SessionReport {
   evidenceLevel: "full" | "summary";
   outcome:
@@ -2367,6 +2410,7 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | PrimaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchCheckpoint
     | PrimaryMainLoopPostCallbackPointerActionNextIterationBatchCheckpoint
     | PrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoint
     | PrimaryMainLoopPostCallbackPointerMessageConsumptionBatchCheckpoint
