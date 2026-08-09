@@ -61,6 +61,7 @@ function normalizeRepositoryPath(value) {
 
 function parseArguments(arguments_) {
   let output = defaultOutput;
+  let verifyExistingReports = false;
   const allowedDirtyPaths = [];
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
@@ -70,6 +71,8 @@ function parseArguments(arguments_) {
     } else if (argument === "--allow-dirty" && index + 1 < arguments_.length) {
       allowedDirtyPaths.push(normalizeRepositoryPath(arguments_[index + 1]));
       index += 1;
+    } else if (argument === "--verify-existing-reports") {
+      verifyExistingReports = true;
     } else {
       fail(`unsupported argument: ${argument}`);
     }
@@ -78,6 +81,7 @@ function parseArguments(arguments_) {
     output,
     outputRelative: normalizeRepositoryPath(output),
     allowedDirtyPaths: [...new Set(allowedDirtyPaths)].sort(),
+    verifyExistingReports,
   };
 }
 
@@ -4256,19 +4260,32 @@ function assertScheduledSharedClockReportSemantics({
   const getCursorInfoReport = isGetCursorInfoOrLaterNodeReport(nodeReport);
   if (getCursorInfoReport) {
     const cursorInfo = nodeExecution.getCursorInfo;
-    assert.equal(cursorInfo.completionCount, 2);
-    assert.equal(cursorInfo.calls.length, 2);
+    const recurringCursorInfoCalls =
+      user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectReport
+        ? [
+            [282_961, 392_358_460, 0x006f_f64c],
+            [282_967, 392_360_449, 0x006f_f62c],
+            [282_973, 392_362_466, 0x006f_f64c],
+          ]
+        : [];
+    const expectedCursorInfoCalls = [
+      [282_389, 375_285_853, 0x006f_f530],
+      [282_396, 375_288_207, 0x006f_f550],
+      ...recurringCursorInfoCalls,
+    ];
+    assert.equal(cursorInfo.completionCount, expectedCursorInfoCalls.length);
+    assert.equal(cursorInfo.calls.length, expectedCursorInfoCalls.length);
     assert.deepEqual(
       cursorInfo.calls.map((call) => call.sequence),
-      [282_389, 282_396],
+      expectedCursorInfoCalls.map(([sequence]) => sequence),
     );
     assert.deepEqual(
       cursorInfo.calls.map((call) => call.trapInstructionCount),
-      [375_285_853, 375_288_207],
+      expectedCursorInfoCalls.map(([, instructionCount]) => instructionCount),
     );
     assert.deepEqual(
       cursorInfo.calls.map((call) => call.arguments),
-      [[0x006f_f530], [0x006f_f550]],
+      expectedCursorInfoCalls.map(([, , outputAddress]) => [outputAddress]),
     );
     for (const call of cursorInfo.calls) {
       assert.equal(call.module.toLowerCase(), "user32.dll");
@@ -6414,15 +6431,17 @@ console.log(
   `private target preflight passed: commit ${headCommit.slice(0, 12)}, ` +
     `${beforeDirtyPaths.length} recorded dirty path(s), source ${source.sha256}`,
 );
-if (process.platform === "win32") {
-  runInherited(process.env.ComSpec ?? "cmd.exe", [
-    "/d",
-    "/s",
-    "/c",
-    "npm run check:runtime:bgi-browser",
-  ]);
-} else {
-  runInherited("npm", ["run", "check:runtime:bgi-browser"]);
+if (!options.verifyExistingReports) {
+  if (process.platform === "win32") {
+    runInherited(process.env.ComSpec ?? "cmd.exe", [
+      "/d",
+      "/s",
+      "/c",
+      "npm run check:runtime:bgi-browser",
+    ]);
+  } else {
+    runInherited("npm", ["run", "check:runtime:bgi-browser"]);
+  }
 }
 
 if (git(["rev-parse", "HEAD"]).trim() !== headCommit) {
@@ -6476,6 +6495,10 @@ assertReportSemantics({
   executionEngine,
   source,
 });
+if (options.verifyExistingReports) {
+  console.log("existing private target reports passed semantic projection");
+  process.exit(0);
+}
 
 const runtimeCoreWasmPath = path.join(root, ".work", "browser-runtime", "runtime-core.wasm");
 const v86AdapterWasmPath = path.join(root, ".work", "browser-runtime", "v86-adapter.wasm");
