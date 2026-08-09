@@ -40,6 +40,9 @@ export function projectPrivateTargetExpectedBrowserEvidence(checkpoint) {
     nodeFinalGeneration: node.finalMemoryGeneration,
     finalGeneration: browser.privatePrimaryFinalMemoryGeneration,
     memoryContentSha256: node.terminalMemoryContentSha256,
+    executionEngineLinearMemoryBytes:
+      browser.privatePrimaryExecutionEngineLinearMemoryBytes ??
+      historical.executionEngineLinearMemoryBytes,
     runtimeCoreWasmBytes: browser.runtimeCoreWasmBytes,
     runtimeCoreWasmSha256: browser.runtimeCoreWasmSha256,
   };

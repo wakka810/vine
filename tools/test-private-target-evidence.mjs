@@ -225,6 +225,10 @@ if (
     scheduled.browserBoundaryEvidence.privatePrimaryFinalMemoryGeneration,
   );
   assert.equal(
+    expectedBrowserEvidence.executionEngineLinearMemoryBytes,
+    scheduled.browserBoundaryEvidence.privatePrimaryExecutionEngineLinearMemoryBytes,
+  );
+  assert.equal(
     expectedBrowserEvidence.runtimeCoreWasmSha256,
     scheduled.browserBoundaryEvidence.runtimeCoreWasmSha256,
   );

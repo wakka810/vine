@@ -14900,6 +14900,7 @@
         "privatePrimaryPointerInputEventCount": 4,
         "privatePrimaryTimerPacingCompletionCount": 12214,
         "privatePrimaryMappingDeltas": 191120,
+        "privatePrimaryExecutionEngineLinearMemoryBytes": 114819072,
         "privatePrimaryFinalMemoryGeneration": 627773,
         "privatePrimaryWritebackBatches": 530965,
         "privatePrimaryTerminalMemoryContentSha256": "5840ee438cbbdaae914c5a7169f0dc8aac5169c70388234778cd96079e8d0b11",

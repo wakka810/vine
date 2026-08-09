@@ -32405,6 +32405,9 @@ export function validateCurrentCheckpoint(manifest) {
       browserBoundary.privatePrimaryTimerPacingCompletionCount !==
         node.timerPacingCompletionCount ||
       browserBoundary.privatePrimaryMappingDeltas !== node.hostDeltaBatches ||
+      (primaryMainLoopPostCallbackPointerActionNextIterationBatchActive &&
+        browserBoundary.privatePrimaryExecutionEngineLinearMemoryBytes !==
+          114_819_072) ||
       !Number.isSafeInteger(
         browserBoundary.privatePrimaryFinalMemoryGeneration,
       ) ||

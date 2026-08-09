@@ -3523,12 +3523,14 @@ function assertPrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoi
   ]) {
     assert.deepEqual(actual[field], expectedCompletion[field], field);
   }
-  assertPrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint(
-    actual.prerequisiteWindowInputScan,
-    expectedPrerequisite,
-    expectedPrerequisite.nextEndpoint,
-    false,
-  );
+  if (expectedPrerequisite !== undefined) {
+    assertPrimaryMainLoopPostCallbackWindowInputScanBatchCheckpoint(
+      actual.prerequisiteWindowInputScan,
+      expectedPrerequisite,
+      expectedPrerequisite.nextEndpoint,
+      false,
+    );
+  }
   assert.equal(actual.message.id, 44);
   assert.equal(actual.message.message, 0x0201);
   assert.deepEqual(actual.actionInputEvent.receipt.message, actual.message);
@@ -3590,10 +3592,15 @@ function assertPrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoi
     result: 0,
   });
   assert.deepEqual(actual.nextArguments, [0x006f_f8e8, 0, 0, 0, 1]);
-  assert.equal(actual.nextEndpoint.id, expectedEndpoint.endpointId);
+  assert.equal(
+    actual.nextEndpoint.id,
+    expectedEndpoint.endpointId ?? expectedEndpoint.id,
+  );
   assert.equal(
     actual.nextEndpoint.address,
-    Number.parseInt(expectedEndpoint.endpointAddress, 16),
+    expectedEndpoint.endpointAddress === undefined
+      ? expectedEndpoint.address
+      : Number.parseInt(expectedEndpoint.endpointAddress, 16),
   );
   assert.equal(actual.nextEndpoint.module.toLowerCase(), "user32.dll");
   assert.equal(actual.nextEndpoint.symbol.name, "PeekMessageA");
@@ -4374,7 +4381,11 @@ function assertScheduledSharedClockReportSemantics({
   const expectedPointerReceipts = [
     nodeExecution.pointerInput.first.receipt,
     nodeExecution.pointerInput.last.receipt,
-    ...(primaryMainLoopPostCallbackPointerMessageConsumptionBatchReport ||
+    ...(primaryMainLoopPostCallbackPointerActionNextIterationBatchReport
+      ? nodeExecution.postCallbackPointerActionNextIteration.checkpointCompletion.actionInputEvents.map(
+          (event) => event.receipt,
+        )
+      : primaryMainLoopPostCallbackPointerMessageConsumptionBatchReport ||
     user32GetCursorPosPostTestCooperativeLevelTimerCallbackTimeGetTimeWindowRectReport
       ? [
           primaryMainLoopPostCallbackPointerActionContinuationBatchReport
@@ -4634,21 +4645,37 @@ function assertScheduledSharedClockReportSemantics({
       [282_396, 375_288_207, 0x006f_f550],
       ...recurringCursorInfoCalls,
     ];
-    assert.equal(cursorInfo.completionCount, expectedCursorInfoCalls.length);
-    assert.equal(cursorInfo.calls.length, expectedCursorInfoCalls.length);
+    const sampledCursorInfoCalls =
+      primaryMainLoopPostCallbackPointerActionNextIterationBatchReport
+        ? [...cursorInfo.calls.slice(0, 5), cursorInfo.calls.at(-1)]
+        : cursorInfo.calls;
+    const expectedSampledCursorInfoCalls =
+      primaryMainLoopPostCallbackPointerActionNextIterationBatchReport
+        ? [
+            ...expectedCursorInfoCalls,
+            [336_411, 3_111_080_150, 0x006f_f64c],
+          ]
+        : expectedCursorInfoCalls;
+    const expectedCursorInfoCompletionCount =
+      primaryMainLoopPostCallbackPointerActionNextIterationBatchReport
+        ? 220
+        : expectedCursorInfoCalls.length;
+    assert.equal(cursorInfo.completionCount, expectedCursorInfoCompletionCount);
+    assert.equal(cursorInfo.calls.length, expectedCursorInfoCompletionCount);
     assert.deepEqual(
-      cursorInfo.calls.map((call) => call.sequence),
-      expectedCursorInfoCalls.map(([sequence]) => sequence),
+      sampledCursorInfoCalls.map((call) => call.sequence),
+      expectedSampledCursorInfoCalls.map(([sequence]) => sequence),
     );
     assert.deepEqual(
-      cursorInfo.calls.map((call) => call.trapInstructionCount),
-      expectedCursorInfoCalls.map(([, instructionCount]) => instructionCount),
+      sampledCursorInfoCalls.map((call) => call.trapInstructionCount),
+      expectedSampledCursorInfoCalls.map(([, instructionCount]) => instructionCount),
     );
     assert.deepEqual(
-      cursorInfo.calls.map((call) => call.arguments),
-      expectedCursorInfoCalls.map(([, , outputAddress]) => [outputAddress]),
+      sampledCursorInfoCalls.map((call) => call.arguments),
+      expectedSampledCursorInfoCalls.map(([, , outputAddress]) => [outputAddress]),
     );
-    for (const call of cursorInfo.calls) {
+    for (const [index, call] of cursorInfo.calls.entries()) {
+      assert.equal(call.occurrence, index + 1);
       assert.equal(call.module.toLowerCase(), "user32.dll");
       assert.equal(call.symbol, "GetCursorInfo");
       assert.equal(
@@ -6476,7 +6503,9 @@ function assertScheduledSharedClockReportSemantics({
   );
   assert.equal(
     nodeReport.synchronization.activeCallbackDepth,
-    primaryMainLoopPostCallbackPointerMessageConsumptionBatchReport
+    primaryMainLoopPostCallbackPointerActionNextIterationBatchReport
+      ? expectedNext.completion.activeCallbackDepthAtCompletion
+      : primaryMainLoopPostCallbackPointerMessageConsumptionBatchReport
       ? expectedNext.completion.activeCallbackDepthAtStop
       : user32DispatchMessageAPostTestCooperativeLevelTimerTranslateReport
       ? expectedNext.completion.activeCallbackDepthAtEntry
