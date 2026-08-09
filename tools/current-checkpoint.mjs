@@ -31282,7 +31282,7 @@ export function validateCurrentCheckpoint(manifest) {
           : 2_592_093) ||
       browserBoundary.privatePrimaryReportSha256 !==
         (user32GetWindowRectPostTestCooperativeLevelTimerCallbackTimeGetTimeActive
-          ? "d9de542e3d3e9705554be192650589dce7528ca5144bdc58e29ac3eaa4cb6866"
+          ? "b9bd0efa3bde8a4b66929d8b4279b5fe22d0ae5bb5a5a08ef9c7b6636b9cd55e"
           : winmmTimeGetTimePostTestCooperativeLevelTimerCallbackActive
           ? "03dc714290aa506f75ae010e6aa3983a3f278ba9fd345530fe94dfe9da666058"
           : user32PeekMessageAPostTestCooperativeLevelTimerCallbackActive

@@ -45,7 +45,7 @@ terminal memory digestは
 Chrome Worker protocol v131／BGI report schema 96は同じBOOL、LastError、RECT bytes、authority、
 failure atomicity、callback completion、terminal memory、`GetCursorPos` stopを照合する。Private
 Chrome reportは2,625,725 bytes、SHA-256
-`d9de542e3d3e9705554be192650589dce7528ca5144bdc58e29ac3eaa4cb6866`である。
+`b9bd0efa3bde8a4b66929d8b4279b5fe22d0ae5bb5a5a08ef9c7b6636b9cd55e`である。
 Artifactのactive identityと次stopは[current-checkpoint.json](current-checkpoint.json)だけを正本とする。
 
 Representative checks:
