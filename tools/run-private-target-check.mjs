@@ -6962,7 +6962,9 @@ function assertScheduledSharedClockReportSemantics({
   );
   assert.equal(
     nodeReport.synchronization.activeCallbackDepth,
-    primaryMainLoopPostCallbackPointerActionNextIterationBatchReport
+    primaryMainLoopPostCallbackPointerReleaseMessageConsumptionBatchReport
+      ? expectedNext.completion.activeCallbackDepthAtStop
+      : primaryMainLoopPostCallbackPointerActionNextIterationBatchReport
       ? expectedNext.completion.activeCallbackDepthAtCompletion
       : primaryMainLoopPostCallbackPointerMessageConsumptionBatchReport
       ? expectedNext.completion.activeCallbackDepthAtStop

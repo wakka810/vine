@@ -39,6 +39,11 @@ assert.match(
   /nodeExecution\.presentations\.thirdPresentReached,\s*scheduled\.nodePrimaryEvidence\.thirdPresentReached/u,
   "private target gate must derive third-Present acceptance from the active manifest",
 );
+assert.match(
+  privateTargetRunner,
+  /primaryMainLoopPostCallbackPointerReleaseMessageConsumptionBatchReport\s*\? expectedNext\.completion\.activeCallbackDepthAtStop\s*: primaryMainLoopPostCallbackPointerActionNextIterationBatchReport/u,
+  "release-message validation must select the terminal callback depth before prerequisite profile branches",
+);
 const checkpoint = loadCurrentCheckpoint(
   path.join(root, "docs", "current-checkpoint.json"),
 );
