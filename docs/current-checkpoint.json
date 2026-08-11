@@ -10,20 +10,20 @@
     "browser": "Chrome"
   },
   "activeMilestone": {
-    "id": "primary-visible-action-response-or-readable-frame",
-    "exitCondition": "A repeatable visible response to real pointer/keyboard input or a readable non-black primary frame"
+    "id": "primary-save-browser-restart-load",
+    "exitCondition": "The primary title commits save or configuration state to the writable overlay and restores it after browser and local service restart without changing source files"
   },
   "lastCompletedBoundary": {
-    "id": "primary-audible-output",
-    "summary": "The primary title created and filled a DirectSound streaming buffer, armed position notifications, entered looping playback, and delivered non-zero three-second PCM to a running Chrome Web Audio context"
+    "id": "primary-visible-action-response-or-readable-frame",
+    "summary": "The primary title advanced from a black surface to a non-black title menu with readable Start and Load entries while continuing primary Web Audio playback"
   },
   "currentForwardStop": {
     "kind": "budget",
     "classification": "development-boundary",
     "endpoint": "forward-run-budget-exhausted",
-    "reason": "After primary audio started, the scheduler passed the former PeekMessageA thread-state fault and continued through the title loop until the bounded forward watchdog; no feasibility blocker was reached"
+    "reason": "After rendering the title menu and continuing audio, the release run remained in the supported title loop until the bounded instruction watchdog; no feasibility blocker was reached"
   },
-  "nextDevelopmentGoal": "Continue the post-audio title loop toward a visible input response or readable frame, implementing the next reached semantic family or smallest gateway slice without reviving per-API checkpoints",
+  "nextDevelopmentGoal": "Select Start through the existing pointer path, follow the first reached scenario and persistence behavior, and complete the smallest save/restart/load vertical slice",
   "supportedSubsystems": [
     {
       "id": "execution",
@@ -38,12 +38,12 @@
     {
       "id": "graphics",
       "status": "partial",
-      "summary": "GDI/GDI+ reached paths and bounded D3D9 fixed-function scenes published through WebGL2; latest verified center pixel remained black"
+      "summary": "GDI/GDI+ reached paths and bounded D3D9 fixed-function scenes published through WebGL2; the primary title menu now renders with readable Start and Load entries"
     },
     {
       "id": "source-storage",
       "status": "partial",
-      "summary": "Immutable source snapshot reads and a separate writable profile foundation; primary restart/load is not reached"
+      "summary": "Immutable source reads and a separate writable overlay are active; one directory create and commit are reached, but their save/configuration role and restart/load are not yet accepted"
     },
     {
       "id": "audio",
@@ -52,7 +52,7 @@
     }
   ],
   "importantNonClaims": [
-    "No readable primary title frame or repeatable visible input response is claimed yet",
+    "Title menu rendering is reached, but selecting Start and advancing a representative scenario are not yet accepted",
     "Primary audio format breadth, suspend/resume behavior, and long-run streaming stability are not yet accepted",
     "No primary save/browser-restart/load flow is claimed",
     "No representative route, ending, or long-run acceptance is claimed",
@@ -74,6 +74,7 @@
     "semanticTailEntries": 512
   },
   "artifactReferences": [
-    ".work/target-forward/report.json"
+    ".work/target-forward/report.json",
+    ".work/target-forward/final-frame.png"
   ]
 }

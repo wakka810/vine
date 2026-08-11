@@ -214,6 +214,9 @@ let heartbeatSamples = 0;
 let maximumHeartbeatGapMilliseconds = 0;
 let lastHeartbeat = performance.now();
 let cancellationSent = false;
+let forwardPrefixComplete = false;
+let forwardAudioObserved = false;
+let forwardPostAudioActionSent = false;
 const heartbeat = window.setInterval(() => {
   const now = performance.now();
   maximumHeartbeatGapMilliseconds = Math.max(
@@ -225,6 +228,36 @@ const heartbeat = window.setInterval(() => {
 }, 5);
 
 window.__vineBgiCheck = { result: null, error: null };
+
+function maybePostForwardAction(): void {
+  if (
+    !forwardDevelopment ||
+    !forwardPrefixComplete ||
+    !forwardAudioObserved ||
+    forwardPostAudioActionSent
+  ) {
+    return;
+  }
+  const down = pointerSourceEvent(5, "button-down", 0, 0x8000, 0x8000);
+  const up = pointerSourceEvent(6, "button-up", 0, 0x8000, 0x8000);
+  if (down === null || up === null) {
+    fail(new Error("post-audio pointer action is outside the bounded source mapping"));
+    return;
+  }
+  forwardPostAudioActionSent = true;
+  worker.postMessage({
+    type: "pointer-input",
+    protocolVersion,
+    sessionId,
+    event: down,
+  } satisfies MainToWorkerMessage);
+  worker.postMessage({
+    type: "pointer-input",
+    protocolVersion,
+    sessionId,
+    event: up,
+  } satisfies MainToWorkerMessage);
+}
 
 worker.addEventListener(
   "message",
@@ -243,6 +276,15 @@ worker.addEventListener(
         statuses[maximumRetainedStatuses - 1] = observation;
       }
       status.textContent = message.detail;
+      if (
+        forwardDevelopment &&
+        message.phase === "running" &&
+        message.detail ===
+          "Historical capability boundary bypassed; continuing to the next real stop"
+      ) {
+        forwardPrefixComplete = true;
+        maybePostForwardAction();
+      }
       if (
         scenario === "cancel-pending" &&
         message.phase === "running" &&
@@ -267,6 +309,8 @@ worker.addEventListener(
     }
     if (message.type === "audio-playback") {
       audioPlaybackRequests += 1;
+      forwardAudioObserved = true;
+      maybePostForwardAction();
       void pcmRenderer
         .play(message)
         .then((receipt) => {

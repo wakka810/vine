@@ -10,10 +10,10 @@ This section is generated from [`docs/current-checkpoint.json`](docs/current-che
 | Area | Current state |
 |---|---|
 | Active target | Sakura no Uta `BGI.exe` (PE32/i386) in Chrome |
-| Active milestone | `primary-visible-action-response-or-readable-frame`: A repeatable visible response to real pointer/keyboard input or a readable non-black primary frame |
-| Last completed boundary | `primary-audible-output`: The primary title created and filled a DirectSound streaming buffer, armed position notifications, entered looping playback, and delivered non-zero three-second PCM to a running Chrome Web Audio context |
-| Current forward stop | `development-boundary` / `forward-run-budget-exhausted`: After primary audio started, the scheduler passed the former PeekMessageA thread-state fault and continued through the title loop until the bounded forward watchdog; no feasibility blocker was reached |
-| Next development goal | Continue the post-audio title loop toward a visible input response or readable frame, implementing the next reached semantic family or smallest gateway slice without reviving per-API checkpoints |
+| Active milestone | `primary-save-browser-restart-load`: The primary title commits save or configuration state to the writable overlay and restores it after browser and local service restart without changing source files |
+| Last completed boundary | `primary-visible-action-response-or-readable-frame`: The primary title advanced from a black surface to a non-black title menu with readable Start and Load entries while continuing primary Web Audio playback |
+| Current forward stop | `development-boundary` / `forward-run-budget-exhausted`: After rendering the title menu and continuing audio, the release run remained in the supported title loop until the bounded instruction watchdog; no feasibility blocker was reached |
+| Next development goal | Select Start through the existing pointer path, follow the first reached scenario and persistence behavior, and complete the smallest save/restart/load vertical slice |
 
 ### Subsystems
 
@@ -21,13 +21,13 @@ This section is generated from [`docs/current-checkpoint.json`](docs/current-che
 |---|---|---|
 | `execution` | `partial` | PE32 loading, x86 execution mirror, checked GuestMemory synchronization, process/thread scheduling, callbacks, and reached Win32/COM dispatch |
 | `window-input` | `partial` | Logical window, message queue, timers, focus/cursor state, keyboard scan, pointer down/up dispatch |
-| `graphics` | `partial` | GDI/GDI+ reached paths and bounded D3D9 fixed-function scenes published through WebGL2; latest verified center pixel remained black |
-| `source-storage` | `partial` | Immutable source snapshot reads and a separate writable profile foundation; primary restart/load is not reached |
+| `graphics` | `partial` | GDI/GDI+ reached paths and bounded D3D9 fixed-function scenes published through WebGL2; the primary title menu now renders with readable Start and Load entries |
+| `source-storage` | `partial` | Immutable source reads and a separate writable overlay are active; one directory create and commit are reached, but their save/configuration role and restart/load are not yet accepted |
 | `audio` | `partial` | Reached DirectSound streaming buffers, partial and wrapping Lock/Unlock, position notifications, status/cursor control, looping Play, and non-zero primary PCM through Chrome Web Audio |
 
 ### Important Non-Claims
 
-- No readable primary title frame or repeatable visible input response is claimed yet
+- Title menu rendering is reached, but selecting Start and advancing a representative scenario are not yet accepted
 - Primary audio format breadth, suspend/resume behavior, and long-run streaming stability are not yet accepted
 - No primary save/browser-restart/load flow is claimed
 - No representative route, ending, or long-run acceptance is claimed

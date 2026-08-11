@@ -6,22 +6,17 @@ The roadmap is scenario-first. Work is selected by the shortest path to the next
 
 ## 1. Visible action response or readable frame
 
+Reached on 2026-08-12: release Chrome advanced the primary surface from black to a non-black title menu with readable `Start` and `Load` entries while primary audio remained active.
+
 Exit condition:
 
 - primary target shows readable non-black title content, or
 - a real pointer／keyboard action causes a repeatable visible frame change
 
-Current work:
+Remaining work:
 
-- continue the generic release Chrome path beyond the reached primary-audio boundary
-- implement reached semantic leaves in batches
-- preserve Rust-owned window／message／input and graphics authority
-- inspect final Present diagnostics instead of exact cumulative call totals
-
-Main unknowns:
-
-- whether the next title transition needs another bounded Win32 leaf or a graphics data-path extension
-- whether current black frame reflects source content timing、texture transfer、blend state、or later scenario state
+- retain the same graphics authority and bounded frame diagnostics through later scenes
+- confirm input-driven menu selection while progressing the save/restart/load scenario
 
 ## 2. Primary audio
 
@@ -40,6 +35,12 @@ Remaining unknowns:
 - any later WinMM／MCI fallback
 
 ## 3. Save, browser restart, and load
+
+Current work:
+
+- select `Start` through the existing pointer path and follow the first scenario transition
+- classify the already reached writable directory and commit as configuration or save behavior
+- project the next reached persistence endpoint into the bounded forward report
 
 Exit condition:
 

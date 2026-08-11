@@ -892,6 +892,43 @@ async function captureScreenshot(client, name) {
   };
 }
 
+async function captureBgiSurfaceScreenshot(client) {
+  const rect = await evaluate(
+    client,
+    `(() => {
+      const canvas = document.querySelector("#surface");
+      if (!(canvas instanceof HTMLCanvasElement)) return null;
+      const bounds = canvas.getBoundingClientRect();
+      return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+    })()`,
+  );
+  assert(
+    rect !== null &&
+      [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) &&
+      rect.width > 0 &&
+      rect.height > 0,
+    "BGI surface has no capturable browser geometry",
+  );
+  const result = await client.send("Page.captureScreenshot", {
+    format: "png",
+    fromSurface: true,
+    captureBeyondViewport: false,
+    clip: { ...rect, scale: 1 },
+  });
+  const bytes = Buffer.from(result.data, "base64");
+  const outputDirectory = path.join(root, ".work", "target-forward");
+  fs.mkdirSync(outputDirectory, { recursive: true });
+  const file = path.join(outputDirectory, "final-frame.png");
+  await writeFile(file, bytes);
+  return {
+    file: path.relative(root, file).split(path.sep).join("/"),
+    bytes: bytes.byteLength,
+    sha256: hash(bytes),
+    cssWidth: rect.width,
+    cssHeight: rect.height,
+  };
+}
+
 function assertExecutionStateMachine(report, scenario) {
   assert.equal(report.executionState, "stopped");
   assert(
@@ -5942,7 +5979,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       assert(evidence.report.forwardDevelopment !== null);
       assert.equal(evidence.report.supportedCalls.length, 0);
       assert(evidence.report.forwardDevelopment.semanticTail.length <= 512);
-      return evidence;
+      return {
+        ...evidence,
+        finalFrame: await captureBgiSurfaceScreenshot(client),
+      };
     }
     if (primaryMainLoopPostCallbackPointerReleaseMessageConsumptionProfile) {
       validatePrimaryMainLoopPostCallbackPointerReleaseMessageConsumptionBgiProbe(
@@ -20589,6 +20629,7 @@ if (serveOnly) {
           presentation: {
             presentCount: forward.presentCount,
             latest: forward.latestPresentation,
+            finalFrame: success.finalFrame,
           },
           input: forward.input,
           audio: {
