@@ -37,8 +37,9 @@ use vine_core::{
     monitor_from_window_contract, peek_message_a_contract, register_class_ex_a_contract,
     release_dc_contract, send_message_a_contract, set_focus_contract, set_rect_contract,
     set_timer_contract, set_window_long_a_contract, set_window_pos_contract,
-    set_window_text_a_contract, show_window_contract, swap_mouse_button_contract,
-    translate_message_contract, update_window_contract, user32_contract_for_endpoint,
+    set_window_text_a_contract, show_cursor_contract, show_window_contract,
+    swap_mouse_button_contract, translate_message_contract, update_window_contract,
+    user32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -53,6 +54,9 @@ const SWAP_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0a50);
 const SWAP_FIRST_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8a3b);
 const SWAP_SECOND_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8a43);
 const SWAP_SECOND_STACK_POINTER: u32 = STACK_POINTER + 0x20;
+const SHOW_CURSOR_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0a60);
+const SHOW_CURSOR_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2380;
+const SHOW_CURSOR_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8c08);
 const ICON_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0bf0);
 const IMAGE_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0c00);
 const IMAGE_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 4);
@@ -399,6 +403,89 @@ impl SwapFixture {
                 endpoint_address: self.endpoint.address,
                 stack_pointer: GuestAddress(stack_pointer),
                 return_address,
+            },
+            &mut session,
+            |contract, frame, session| {
+                dispatch_user32_api_with_policy(
+                    &self.policy,
+                    CALLBACK_SENTINEL,
+                    contract,
+                    frame,
+                    session,
+                )
+            },
+        )
+    }
+}
+
+struct ShowCursorFixture {
+    memory: GuestMemory,
+    runtime: RuntimeState,
+    dispatcher: ApiDispatcher,
+    endpoint: ApiEndpointIdentity,
+    policy: User32CompatibilityPolicy,
+}
+
+impl ShowCursorFixture {
+    fn new() -> Self {
+        let (mut memory, owner) = initialized_memory();
+        let thunk = ImportThunk {
+            id: ImportThunkId(167),
+            address: SHOW_CURSOR_ENDPOINT_ADDRESS,
+            requester_owner: owner,
+            module: "USER32.dll".to_owned(),
+            iat_rva: vine_core::Rva(0x0d_1374),
+            iat_address: IAT_ADDRESS,
+            original_iat_value: 0,
+            disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+            target: ImportTarget::Name {
+                name: "ShowCursor".to_owned(),
+                hint: 0,
+                name_rva: vine_core::Rva(0),
+            },
+        };
+        memory
+            .write_initialization(
+                owner,
+                IAT_ADDRESS,
+                &SHOW_CURSOR_ENDPOINT_ADDRESS.0.to_le_bytes(),
+            )
+            .expect("initialize ShowCursor IAT");
+        for (index, show) in [false, false, true, true].into_iter().enumerate() {
+            write_words(
+                &mut memory,
+                owner,
+                GuestAddress(SHOW_CURSOR_STACK_POINTER + u32::try_from(index).unwrap() * 0x10),
+                &[SHOW_CURSOR_RETURN_ADDRESS.0, u32::from(show)],
+            );
+        }
+        memory.seal_owner(owner).expect("seal ShowCursor owner");
+        let reflection = memory.pending_reflection().expect("initial reflection");
+        memory
+            .acknowledge_delta(reflection.invalidation.generation)
+            .expect("acknowledge initial reflection");
+
+        let endpoint = ApiEndpointIdentity::from_import_thunk(&thunk);
+        let contract = show_cursor_contract(endpoint.clone()).expect("ShowCursor contract");
+        let dispatcher =
+            ApiDispatcher::new([endpoint.clone()], [contract]).expect("ShowCursor dispatcher");
+        Self {
+            memory,
+            runtime: controlled_runtime(),
+            dispatcher,
+            endpoint,
+            policy: User32CompatibilityPolicy::controlled_v30(),
+        }
+    }
+
+    fn dispatch(&mut self, index: u32) -> DispatchOutcome {
+        let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
+        self.dispatcher.dispatch_owned(
+            ApiOwnedTrap {
+                endpoint_id: self.endpoint.id,
+                endpoint_address: self.endpoint.address,
+                stack_pointer: GuestAddress(SHOW_CURSOR_STACK_POINTER + index * 0x10),
+                return_address: SHOW_CURSOR_RETURN_ADDRESS,
             },
             &mut session,
             |contract, frame, session| {
@@ -3464,6 +3551,35 @@ fn swap_mouse_button_contract_is_immediate_bool_stdcall() {
     assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
     assert_eq!(contract.abi.arguments.len(), 1);
     assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
+fn show_cursor_contract_is_signed_counter_stdcall() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(167),
+        address: SHOW_CURSOR_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_1374),
+        iat_address: IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "ShowCursor".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = show_cursor_contract(endpoint).expect("ShowCursor contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 1);
+    assert_eq!(contract.abi.arguments[0].value, ApiValueSchema::Bool32);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::I32);
     assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
     assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
     assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
@@ -11379,6 +11495,38 @@ fn swap_mouse_button_returns_previous_mapping_and_bgi_pair_restores_initial_stat
         assert_eq!(
             final_mapping.generation,
             if initial_swapped { 2 } else { 0 }
+        );
+        assert_eq!(fixture.memory.stats().generation, memory_generation);
+    }
+}
+
+#[test]
+fn show_cursor_returns_signed_count_and_preserves_last_error_and_guest_memory() {
+    let mut fixture = ShowCursorFixture::new();
+    let memory_generation = fixture.memory.stats().generation;
+    let last_error = fixture
+        .runtime
+        .current_last_error()
+        .expect("initial ShowCursor LastError");
+
+    for (index, expected) in [(0, -1_i32), (1, -2), (2, -1), (3, 0)] {
+        let completion = match fixture.dispatch(index) {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected ShowCursor completion, got {other:?}"),
+        };
+        assert_eq!(completion.eax, RegisterUpdate::Set(expected as u32));
+        assert_eq!(completion.instruction_pointer, SHOW_CURSOR_RETURN_ADDRESS);
+        assert_eq!(
+            completion.stack_pointer,
+            GuestAddress(SHOW_CURSOR_STACK_POINTER + index * 0x10 + 8)
+        );
+        assert_eq!(completion.last_error, last_error);
+        assert_eq!(
+            fixture
+                .runtime
+                .current_thread_cursor_display_count()
+                .expect("current-thread cursor display count"),
+            expected
         );
         assert_eq!(fixture.memory.stats().generation, memory_generation);
     }

@@ -596,6 +596,36 @@ memory digest
 The Worker records the versioned projection but does not own Windows key state.
 Exact artifact identities and the next structured stop remain manifest-owned.
 
+Protocol version 137／BGI report schema 102 continues the same replay through the
+queued pointer release as one message-loop batch. The existing Rust-owned clock,
+graphics, wait, window, and message contracts carry execution to message 117;
+an independently reached no-release continuation exposes `ShowCursor(FALSE)` and
+its immutable signed-result caller, while native and Rust tests fix the current-thread
+display-counter semantics. In the injected-release checkpoint, canonical Node and
+Chrome both consume the already queued release before that pacing-dependent call;
+other valid pacing can include it at most once. TypeScript does not mirror the
+Win32 counter or turn CSS visibility into guest state.
+`PeekMessageA(PM_REMOVE)` publishes its 28-byte `WM_LBUTTONUP` `MSG32` and removes
+it atomically, `TranslateMessage` validates it without mutation, and
+`DispatchMessageA` enters the window procedure. The reached `DefWindowProcA`
+returns zero, then the WndProc and outer dispatch both retire before execution
+stops at the next observed owned endpoint. That endpoint can be a USER32 message-loop
+call, another already reached import such as `timeGetTime`, or a reached COM method, depending on
+already-due timer/message pacing, and is diagnostic rather than part of the
+completion contract. Its arguments are intentionally not claimed by this profile.
+Each run validates its ordered post-scan continuation locally. Node and Chrome
+compare the release event／message identity, Peek／Translate／Dispatch／default
+processing semantics, callback target and result, authority, and empty queue.
+Intermediate call count and digest, optional pre-release `ShowCursor` occurrence,
+callback frame ID, and the post-retirement endpoint, stack, instruction, and
+whole-memory digest remain per-run evidence. Raw Node／Chrome reports retain the
+full ordered continuation; durable evidence retains its per-run count, digest,
+first call, optional `ShowCursor` call, and dispatch boundary samples so report
+growth stays bounded.
+TypeScript owns no Windows input, queue, callback, clock, window, or guest-memory
+state. Exact counts, instruction boundaries, digests, and artifact identities remain
+manifest-owned.
+
 The semantic gate passes independently from the repeated workload gate. These bounded
 scheduler, system-information, and VFS query leaves do not change the host-service transport, memory topology, browser-resource
 lifetime, graphics, or audio path, so the last versioned archive workload remains risk

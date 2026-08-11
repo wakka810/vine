@@ -155,9 +155,10 @@ primary screen DC acquisition policy.
 `runtime/displays.rs::RuntimeDisplays` owns the configured monitor and contained
 work area; `runtime/input.rs::RuntimeInput` separately owns initial／
 current mouse-button mapping and its generation; `RuntimeUser32` owns icon,
-cursor, and class identities. Policy values select variants but do not become
-parallel state collections. The policy stores no native HMONITOR, HICON,
-HCURSOR, ATOM, host／browser mouse setting, or DOM topology.
+cursor, and class identities; `RuntimeThreads` owns each thread's policy-independent
+signed `ShowCursor` display counter. Policy values select variants but do not become
+parallel state collections. The policy stores no native HMONITOR, HICON, HCURSOR,
+ATOM, host／browser mouse setting, DOM topology, or CSS cursor visibility.
 
 The current `EnumDisplayMonitors` variant accepts only NULL HDC and NULL clip,
 invokes one executable stdcall callback with logical handle namespace

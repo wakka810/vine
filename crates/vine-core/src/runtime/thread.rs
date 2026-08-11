@@ -179,6 +179,8 @@ pub struct RuntimeThreadState {
     pub id: RuntimeThreadId,
     pub lifecycle: RuntimeThreadLifecycleState,
     pub last_error: u32,
+    #[serde(skip_serializing_if = "is_zero_i32")]
+    pub cursor_display_count: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub com_apartment: Option<RuntimeComApartmentState>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -332,6 +334,11 @@ pub(super) struct RuntimeThreadPriorityPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeThreadCursorDisplayPlan {
+    mutation: RuntimeThreadMutationPlan,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeComInitializationPlan {
     previous: RuntimeThreadState,
     next: Option<RuntimeThreadState>,
@@ -389,6 +396,7 @@ impl RuntimeThreadMutationPlan {
         let mut next = previous.clone();
         next.lifecycle = RuntimeThreadLifecycleState::Exited { exit_code };
         next.com_apartment = None;
+        next.cursor_display_count = 0;
         Ok(Self {
             previous: Some(previous),
             next,
@@ -402,6 +410,7 @@ impl RuntimeThreads {
             id: initial_thread_id,
             lifecycle: RuntimeThreadLifecycleState::Initialized,
             last_error: initial_last_error,
+            cursor_display_count: 0,
             com_apartment: None,
             affinity_mask: None,
             priority: None,
@@ -654,6 +663,7 @@ impl RuntimeThreads {
                 id: thread_id,
                 lifecycle: RuntimeThreadLifecycleState::Running,
                 last_error: initial_last_error,
+                cursor_display_count: 0,
                 com_apartment: None,
                 affinity_mask: None,
                 priority: None,
@@ -1136,6 +1146,65 @@ impl RuntimeThreads {
         Ok(self.commit(plan.mutation))
     }
 
+    pub(super) fn cursor_display_count(
+        &self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<i32, RuntimeStateError> {
+        Ok(self.current_state(thread_id)?.cursor_display_count)
+    }
+
+    pub(super) fn plan_cursor_display_count_change(
+        &self,
+        thread_id: RuntimeThreadId,
+        show: bool,
+    ) -> Result<(RuntimeThreadCursorDisplayPlan, i32), RuntimeStateError> {
+        let previous = self.current_state(thread_id)?.clone();
+        if previous.lifecycle != RuntimeThreadLifecycleState::Running {
+            return Err(RuntimeStateError::conflict(
+                "runtime-thread-cursor-display",
+                "cursor-display-lifecycle-state-invalid",
+                "cursor display count can change only for a running runtime thread",
+            ));
+        }
+        let next_count = if show {
+            previous.cursor_display_count.checked_add(1)
+        } else {
+            previous.cursor_display_count.checked_sub(1)
+        }
+        .ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-thread-cursor-display",
+                "cursor-display-count-overflow",
+                "logical cursor display counter exceeds the signed Win32 INT range",
+            )
+        })?;
+        let mut next = previous.clone();
+        next.cursor_display_count = next_count;
+        Ok((
+            RuntimeThreadCursorDisplayPlan {
+                mutation: RuntimeThreadMutationPlan {
+                    previous: Some(previous),
+                    next,
+                },
+            },
+            next_count,
+        ))
+    }
+
+    pub(super) fn commit_cursor_display_count_change(
+        &mut self,
+        plan: RuntimeThreadCursorDisplayPlan,
+    ) -> Result<&RuntimeThreadState, RuntimeStateError> {
+        if self.states.get(&plan.mutation.next.id) != plan.mutation.previous.as_ref() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-thread-cursor-display",
+                "cursor-display-count-plan-stale",
+                "runtime thread changed after cursor display count preflight",
+            ));
+        }
+        Ok(self.commit(plan.mutation))
+    }
+
     pub(super) fn plan_initialize_fls_storage(
         &self,
         thread_id: RuntimeThreadId,
@@ -1367,6 +1436,7 @@ impl RuntimeThreads {
         let mut next = previous.clone();
         next.lifecycle = RuntimeThreadLifecycleState::Exited { exit_code };
         next.com_apartment = None;
+        next.cursor_display_count = 0;
         Ok((
             RuntimeThreadMutationPlan {
                 previous: Some(previous),
@@ -1389,6 +1459,10 @@ impl RuntimeThreads {
             .get(&thread_id)
             .expect("committed runtime thread disappeared")
     }
+}
+
+fn is_zero_i32(value: &i32) -> bool {
+    *value == 0
 }
 
 #[cfg(test)]
@@ -1685,6 +1759,103 @@ mod tests {
             "thread-priority-plan-stale"
         );
         assert_eq!(threads, before_stale);
+    }
+
+    #[test]
+    fn cursor_display_count_is_signed_atomic_thread_local_and_terminal() {
+        let mut threads = RuntimeThreads::new(INITIAL, 11);
+        let start = threads.plan_start(INITIAL).unwrap();
+        threads.commit(start);
+        let registration = threads.plan_registration(SECOND, 33).unwrap();
+        threads.commit(registration);
+
+        assert_eq!(threads.cursor_display_count(INITIAL), Ok(0));
+        assert_eq!(threads.cursor_display_count(SECOND), Ok(0));
+        let initial_serialized = serde_json::to_value(&threads).unwrap();
+        assert_eq!(initial_serialized["8192"].get("cursorDisplayCount"), None);
+        assert_eq!(initial_serialized["4097"].get("cursorDisplayCount"), None);
+        let (stale_initial, _) = threads
+            .plan_cursor_display_count_change(INITIAL, false)
+            .unwrap();
+        let (show_initial, count) = threads
+            .plan_cursor_display_count_change(INITIAL, true)
+            .unwrap();
+        assert_eq!(count, 1);
+        threads
+            .commit_cursor_display_count_change(show_initial)
+            .unwrap();
+        assert_eq!(threads.cursor_display_count(INITIAL), Ok(1));
+        assert_eq!(threads.cursor_display_count(SECOND), Ok(0));
+
+        let before_stale = threads.clone();
+        assert_eq!(
+            threads
+                .commit_cursor_display_count_change(stale_initial)
+                .unwrap_err()
+                .code,
+            "cursor-display-count-plan-stale"
+        );
+        assert_eq!(threads, before_stale);
+
+        let (hide_second, count) = threads
+            .plan_cursor_display_count_change(SECOND, false)
+            .unwrap();
+        assert_eq!(count, -1);
+        threads
+            .commit_cursor_display_count_change(hide_second)
+            .unwrap();
+        assert_eq!(threads.cursor_display_count(INITIAL), Ok(1));
+        assert_eq!(threads.cursor_display_count(SECOND), Ok(-1));
+        let changed_serialized = serde_json::to_value(&threads).unwrap();
+        assert_eq!(changed_serialized["8192"]["cursorDisplayCount"], 1);
+        assert_eq!(changed_serialized["4097"]["cursorDisplayCount"], -1);
+
+        threads
+            .states
+            .get_mut(&INITIAL)
+            .unwrap()
+            .cursor_display_count = i32::MAX;
+        let before_overflow = threads.clone();
+        assert_eq!(
+            threads
+                .plan_cursor_display_count_change(INITIAL, true)
+                .unwrap_err()
+                .code,
+            "cursor-display-count-overflow"
+        );
+        assert_eq!(threads, before_overflow);
+
+        threads
+            .states
+            .get_mut(&INITIAL)
+            .unwrap()
+            .cursor_display_count = i32::MIN;
+        let before_underflow = threads.clone();
+        assert_eq!(
+            threads
+                .plan_cursor_display_count_change(INITIAL, false)
+                .unwrap_err()
+                .code,
+            "cursor-display-count-overflow"
+        );
+        assert_eq!(threads, before_underflow);
+
+        let (request, _) = threads.plan_exit_request(SECOND, 23).unwrap();
+        let terminal = request.terminal_after_request(23).unwrap();
+        threads.commit(request);
+        threads.commit(terminal);
+        assert_eq!(threads.cursor_display_count(SECOND), Ok(0));
+        assert_eq!(
+            serde_json::to_value(&threads).unwrap()["4097"].get("cursorDisplayCount"),
+            None
+        );
+        assert_eq!(
+            threads
+                .plan_cursor_display_count_change(SECOND, true)
+                .unwrap_err()
+                .code,
+            "cursor-display-lifecycle-state-invalid"
+        );
     }
 
     #[test]

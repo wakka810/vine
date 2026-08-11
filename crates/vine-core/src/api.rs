@@ -263,6 +263,7 @@ pub enum ApiReturnSchema {
     Void,
     U16,
     I16,
+    I32,
     U32,
     HResult,
     Bool32,
@@ -525,6 +526,7 @@ pub enum ApiReturnValue {
     Void,
     U16(u16),
     I16(i16),
+    I32(i32),
     U32(u32),
     HResult(ComHResult),
     Bool32(bool),
@@ -2872,6 +2874,7 @@ fn validate_return_value(
         (ApiReturnSchema::I16, ApiReturnValue::I16(value)) => {
             RegisterUpdate::Set((*value as i32) as u32)
         }
+        (ApiReturnSchema::I32, ApiReturnValue::I32(value)) => RegisterUpdate::Set(*value as u32),
         (ApiReturnSchema::U32, ApiReturnValue::U32(value)) => RegisterUpdate::Set(*value),
         (ApiReturnSchema::HResult, ApiReturnValue::HResult(value)) => {
             RegisterUpdate::Set(value.bits())

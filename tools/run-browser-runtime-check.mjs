@@ -151,9 +151,15 @@ const primaryMainLoopPostCallbackPointerActionNextIterationProfile =
 const primaryMainLoopPostCallbackPointerActionNextIterationInputScanProfile =
   bgiProfile ===
   "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch";
+const primaryMainLoopPostCallbackPointerReleaseMessageConsumptionProfile =
+  bgiProfile ===
+  "primary-main-loop-post-callback-pointer-release-message-consumption-batch";
+const includesPrimaryMainLoopPostCallbackPointerActionNextIterationInputScanProfile =
+  primaryMainLoopPostCallbackPointerActionNextIterationInputScanProfile ||
+  primaryMainLoopPostCallbackPointerReleaseMessageConsumptionProfile;
 const includesPrimaryMainLoopPostCallbackPointerActionNextIterationProfile =
   primaryMainLoopPostCallbackPointerActionNextIterationProfile ||
-  primaryMainLoopPostCallbackPointerActionNextIterationInputScanProfile;
+  includesPrimaryMainLoopPostCallbackPointerActionNextIterationInputScanProfile;
 const includesPrimaryMainLoopPostCallbackPointerActionContinuationProfile =
   primaryMainLoopPostCallbackPointerActionContinuationProfile ||
   includesPrimaryMainLoopPostCallbackPointerActionNextIterationProfile;
@@ -472,7 +478,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v136";
+const runtimeProtocol = "vine.browser-runtime-worker.v137";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -2562,6 +2568,181 @@ function validatePrimaryMainLoopPostCallbackPointerActionContinuationBgiProbe(
   );
   assert.equal(report.timerPacing.requests, 9_036);
   assert.equal(report.timerPacing.completions, 9_036);
+  assert.equal(report.timerPacing.pending, 0);
+}
+
+function validatePrimaryMainLoopPostCallbackPointerReleaseMessageConsumptionBgiProbe(
+  evidence,
+  scenario,
+) {
+  if (scenario !== "success") {
+    validateScheduledSharedClockBgiProbe(evidence, scenario);
+    return;
+  }
+  const report = evidence.report;
+  const completion = report.checkpointCompletion;
+  const prerequisite = completion.prerequisiteInputScan;
+  const calls = completion.continuationCalls;
+  assert.equal(report.outcome, "checkpoint-complete");
+  assert.equal(report.error, null);
+  assert.equal(report.firstUnsupported, null);
+  assert.equal(report.supportedCallCount, completion.lastCompletionSequence);
+  assert.equal(completion.requiredCompletions, calls.length);
+  assert.equal(completion.completionCount, calls.length);
+  assert(calls.length > 4);
+  assert.equal(
+    completion.capability,
+    "primary-main-loop-post-callback-pointer-release-message-consumption-batch",
+  );
+  assert.equal(
+    completion.implementationId,
+    "runtime.primary-main-loop-post-callback-pointer-release-message-consumption-batch.v1",
+  );
+  assert.equal(
+    prerequisite.capability,
+    "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch",
+  );
+  assert.equal(
+    completion.prerequisiteCompletionSequence,
+    prerequisite.lastCompletionSequence,
+  );
+  assert.equal(
+    completion.prerequisiteCompletionInstructionCount,
+    prerequisite.lastCompletionInstructionCount,
+  );
+  assert.deepEqual(
+    calls.map((call) => call.sequence),
+    Array.from(
+      { length: calls.length },
+      (_, index) => prerequisite.lastCompletionSequence + index + 1,
+    ),
+  );
+  const showCursorCalls = calls.filter(
+    (call) =>
+      call.module.toLowerCase() === "user32.dll" &&
+      call.symbol === "ShowCursor",
+  );
+  assert(showCursorCalls.length <= 1);
+  if (showCursorCalls.length === 1) {
+    assert.deepEqual(showCursorCalls[0].arguments, [0]);
+    assert.deepEqual(showCursorCalls[0].result, {
+      action: "set",
+      value: 0xffff_ffff,
+    });
+    assert.equal(
+      showCursorCalls[0].implementationId,
+      "user32.show-cursor.display-count.v1",
+    );
+    assert.equal(showCursorCalls[0].lastError, 0);
+    assert.deepEqual(showCursorCalls[0].guestWrites, []);
+  }
+  assert.equal(completion.firstCompletionSequence, calls[0].sequence);
+  assert.equal(
+    completion.firstCompletionInstructionCount,
+    calls[0].trapInstructionCount,
+  );
+  assert.equal(completion.lastCompletionSequence, calls.at(-1).sequence);
+  assert.equal(
+    completion.lastCompletionInstructionCount,
+    calls.at(-1).trapInstructionCount,
+  );
+  assert.deepEqual(
+    completion.message,
+    prerequisite.prerequisiteNextIteration.releaseMessage,
+  );
+  assert.equal(completion.message.id, 117);
+  assert.equal(completion.message.message, 0x0202);
+  assert.equal(completion.message.wParam, 0);
+  assert.deepEqual(completion.peekMessage.result, { action: "set", value: 1 });
+  assert.equal(completion.peekMessage.arguments.at(-1), 1);
+  assert.equal(
+    completion.translateMessage.sequence,
+    completion.peekMessage.sequence + 1,
+  );
+  assert.equal(
+    completion.dispatchEntry.sequence,
+    completion.translateMessage.sequence + 1,
+  );
+  assert.equal(completion.dispatchEntry.pendingCallback, true);
+  assert.deepEqual(completion.callbackEntry.arguments, [
+    completion.message.hwnd,
+    completion.message.message,
+    completion.message.wParam,
+    completion.message.lParam,
+  ]);
+  assert.equal(
+    completion.defaultProcessingCall.sequence,
+    completion.lastCompletionSequence,
+  );
+  assert.equal(
+    completion.defaultProcessingCall.implementationId,
+    "user32.def-window-proc-a.v1",
+  );
+  assert.deepEqual(
+    completion.defaultProcessingCall.arguments,
+    completion.callbackEntry.arguments,
+  );
+  assert.deepEqual(completion.defaultProcessingCall.result, {
+    action: "set",
+    value: 0,
+  });
+  assert.equal(
+    completion.dispatchCompletion.sequence,
+    completion.dispatchEntry.sequence,
+  );
+  assert.equal(completion.dispatchCompletion.pendingCallback, undefined);
+  assert.deepEqual(completion.dispatchCompletion.result, {
+    action: "set",
+    value: 0,
+  });
+  assert.equal(
+    completion.dispatchCompletion.callback.frameId,
+    completion.callbackEntry.frameId,
+  );
+  assert.equal(completion.callbackReturn.sequence, completion.dispatchEntry.sequence);
+  assert.equal(completion.callbackReturn.frameId, completion.callbackEntry.frameId);
+  assert.equal(completion.callbackReturn.result, 0);
+  assert.equal(completion.dispatchResult, 0);
+  assert.equal(
+    completion.dispatchCompletionInstructionCount,
+    completion.callbackReturn.instructionCount,
+  );
+  assert.equal(completion.queueDepthAtCallbackEntry, 0);
+  assert.equal(completion.messageRemoved, true);
+  assert.equal(
+    completion.stateAuthority,
+    "rust-runtime-input-window-message-queue-callback-process-clock-and-guest-memory",
+  );
+  assert.equal(completion.mutation, "owner-local-preflight-targeted-commits");
+  assert.equal(completion.failureAtomicity, true);
+  assert.equal(completion.browserOwnsInputState, false);
+  assert.equal(completion.browserOwnsWindowState, false);
+  assert.equal(completion.browserOwnsMessageQueueState, false);
+  assert.equal(completion.browserOwnsCallbackState, false);
+  assert.equal(completion.activeCallbackDepthAtConsumption, 1);
+  assert.equal(completion.activeCallbackDepthAtStop, 0);
+  assert.equal(
+    completion.completionBoundary,
+    "callback-and-outer-dispatch-retired",
+  );
+  assert.equal(
+    completion.nextEndpointPolicy,
+    "observed-only-after-dispatch-completion",
+  );
+  assert.equal(completion.nextArgumentsPolicy, "omitted-observed-only");
+  // The next owned import is diagnostic; the semantic boundary is dispatch retirement.
+  assert(
+    completion.nextEndpoint.symbol.kind === "ordinal" ||
+      completion.nextEndpoint.symbol.name.length > 0,
+  );
+  assert.deepEqual(completion.nextArguments, []);
+  assert.match(completion.memoryContentSha256, /^[0-9a-f]{64}$/u);
+  assert.equal(report.pointerInput.receivedMessages, 4);
+  assert.equal(report.pointerInput.receipts.length, 4);
+  assert.equal(report.keyboardInput.receivedMessages, 0);
+  assert(report.sourceReads.length > 0);
+  assert.equal(report.writableDirectoryCreates.length, 1);
+  assert.equal(report.timerPacing.requests, report.timerPacing.completions);
   assert.equal(report.timerPacing.pending, 0);
 }
 
@@ -5703,6 +5884,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     const evidence = await waitForBgiCheckpoint(
       client,
       scenario === "success" &&
+        primaryMainLoopPostCallbackPointerReleaseMessageConsumptionProfile
+        ? 3_600_000
+        : scenario === "success" &&
         includesPrimaryMainLoopPostCallbackPointerActionNextIterationProfile
         ? 1_800_000
         : scenario === "success" &&
@@ -5722,6 +5906,13 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.report.pendingCallbacks, 0);
     assertExecutionStateMachine(evidence.report, scenario);
     assertExecutionEngine(evidence.report);
+    if (primaryMainLoopPostCallbackPointerReleaseMessageConsumptionProfile) {
+      validatePrimaryMainLoopPostCallbackPointerReleaseMessageConsumptionBgiProbe(
+        evidence,
+        scenario,
+      );
+      return evidence;
+    }
     if (
       primaryMainLoopPostCallbackPointerActionNextIterationInputScanProfile
     ) {
@@ -10671,7 +10862,10 @@ function validateScheduledSharedClockBgiEquivalence(browser, oracle) {
     oracle.execution.supportedCallSemanticsSha256,
     "Chrome Worker call semantics differ from the scheduled Node oracle",
   );
-  assert.equal(report.instructions, oracle.stop.terminal.instructionCount);
+  assert.equal(
+    report.instructions,
+    oracle.stop.terminal.instructionCount,
+  );
   assert(
     Number.isSafeInteger(report.finalGeneration) &&
       report.finalGeneration > report.initialGeneration,
@@ -11704,6 +11898,179 @@ function assertPrimaryMainLoopPostCallbackPointerActionNextIterationCheckpointEq
     normalizeHistoricalPointerInputBoundary(prerequisite.actionInputEvent),
     normalizeHistoricalPointerInputBoundary(oraclePrerequisite.actionInputEvent),
   );
+}
+
+function validatePrimaryMainLoopPostCallbackPointerReleaseMessageConsumptionBgiEquivalence(
+  browser,
+  oracle,
+) {
+  const report = browser.report;
+  const completion = report.checkpointCompletion;
+  const oracleCompletion =
+    oracle.execution.postCallbackPointerReleaseMessageConsumption
+      .checkpointCompletion;
+  assert.equal(
+    oracle.schema,
+    "vine.v86-bgi-primary-main-loop-post-callback-pointer-release-message-consumption-batch",
+  );
+  assert.equal(report.evidenceLevel, fullEvidence ? "full" : "summary");
+  assert.match(report.supportedCallSemanticsSha256, /^[0-9a-f]{64}$/u);
+  assert(report.finalGeneration >= report.initialGeneration);
+  assert.equal(report.firstUnsupported, null);
+  assert.equal(oracle.stop.fault, null);
+  for (const field of [
+    "capability",
+    "implementationId",
+    "prerequisiteCompletionSequence",
+    "prerequisiteCompletionInstructionCount",
+    "releaseInputEvent",
+    "message",
+    "queueDepthAtCallbackEntry",
+    "messageRemoved",
+    "stateAuthority",
+    "mutation",
+    "failureAtomicity",
+    "browserOwnsInputState",
+    "browserOwnsWindowState",
+    "browserOwnsMessageQueueState",
+    "browserOwnsCallbackState",
+    "activeCallbackDepthAtConsumption",
+    "activeCallbackDepthAtStop",
+    "dispatchResult",
+    "completionBoundary",
+    "nextEndpointPolicy",
+    "nextArgumentsPolicy",
+  ]) {
+    if (field === "releaseInputEvent") {
+      assert.deepEqual(
+        normalizePointerInputBoundary(completion[field]),
+        normalizePointerInputBoundary(oracleCompletion[field]),
+        field,
+      );
+    } else {
+      assert.deepEqual(completion[field], oracleCompletion[field], field);
+    }
+  }
+  assert(
+    completion.nextEndpoint.symbol.kind === "ordinal" ||
+      completion.nextEndpoint.symbol.name.length > 0,
+  );
+  const normalizeReleaseCallSemantics = (call) => ({
+    module: call.module.toLowerCase(),
+    symbol: call.symbol,
+    arguments: call.arguments,
+    result: call.result,
+    implementationId: call.implementationId,
+    lastError: call.lastError,
+    guestWrites: call.guestWrites.map(({ address, bytes }) => ({
+      address,
+      bytes,
+    })),
+  });
+  for (const field of [
+    "peekMessage",
+    "translateMessage",
+    "defaultProcessingCall",
+    "dispatchCompletion",
+  ]) {
+    assert.deepEqual(
+      normalizeReleaseCallSemantics(completion[field]),
+      normalizeReleaseCallSemantics(oracleCompletion[field]),
+      field,
+    );
+  }
+  assert.deepEqual(
+    {
+      module: completion.dispatchEntry.module.toLowerCase(),
+      symbol: completion.dispatchEntry.symbol,
+      arguments: completion.dispatchEntry.arguments,
+      pendingCallback: completion.dispatchEntry.pendingCallback,
+      implementationId: completion.dispatchEntry.implementationId,
+    },
+    {
+      module: oracleCompletion.dispatchEntry.module.toLowerCase(),
+      symbol: oracleCompletion.dispatchEntry.symbol,
+      arguments: oracleCompletion.dispatchEntry.arguments,
+      pendingCallback: oracleCompletion.dispatchEntry.pendingCallback,
+      implementationId: oracleCompletion.dispatchEntry.implementationId,
+    },
+  );
+  assert.deepEqual(
+    {
+      action: completion.callbackEntry.action,
+      target: completion.callbackEntry.target,
+      arguments: completion.callbackEntry.arguments,
+    },
+    {
+      action: oracleCompletion.callbackEntry.action,
+      target: oracleCompletion.callbackEntry.target,
+      arguments: oracleCompletion.callbackEntry.arguments,
+    },
+  );
+  assert.deepEqual(
+    {
+      action: completion.callbackReturn.action,
+      result: completion.callbackReturn.result,
+    },
+    {
+      action: oracleCompletion.callbackReturn.action,
+      result: oracleCompletion.callbackReturn.result,
+    },
+  );
+  assert.deepEqual(
+    {
+      target: completion.dispatchCompletion.callback.target,
+      result: completion.dispatchCompletion.callback.result,
+    },
+    {
+      target: oracleCompletion.dispatchCompletion.callback.target,
+      result: oracleCompletion.dispatchCompletion.callback.result,
+    },
+  );
+
+  const scan = completion.prerequisiteInputScan;
+  const oracleScan = oracleCompletion.prerequisiteInputScan;
+  for (const field of [
+    "capability",
+    "implementationId",
+    "requiredCompletions",
+    "completionCount",
+    "prerequisiteCompletionSequence",
+    "prerequisiteCompletionInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "scanVirtualKeys",
+    "result",
+    "lastError",
+    "guestWriteBytes",
+    "stateAuthority",
+    "mutation",
+    "failureAtomicity",
+    "browserOwnsInputState",
+    "activeCallbackDepthAtCompletion",
+  ]) {
+    assert.deepEqual(scan[field], oracleScan[field], `prerequisite.${field}`);
+  }
+  assert.deepEqual(
+    scan.scanCalls.map(normalizeCheckpointCall),
+    oracleScan.scanCalls.map(normalizeCheckpointCall),
+  );
+  assertPrimaryMainLoopPostCallbackPointerActionNextIterationCheckpointEquivalence(
+    scan.prerequisiteNextIteration,
+    oracleScan.prerequisiteNextIteration,
+    { terminal: false },
+  );
+  assert.deepEqual(report.pointerInput.receipts, [
+    oracle.execution.pointerInput.first.receipt,
+    oracle.execution.pointerInput.last.receipt,
+    ...oracleScan.prerequisiteNextIteration.actionInputEvents.map(
+      (event) => event.receipt,
+    ),
+  ]);
+  assert.equal(report.timerPacing.requests, report.timerPacing.completions);
+  assert.equal(report.timerPacing.pending, 0);
 }
 
 function validatePrimaryMainLoopPostCallbackPointerActionNextIterationInputScanBgiEquivalence(
@@ -15264,6 +15631,13 @@ function validateCreateFontA224x112BgiEquivalence(browser, oracle) {
 }
 
 function validateBgiEquivalence(browser, oracle) {
+  if (primaryMainLoopPostCallbackPointerReleaseMessageConsumptionProfile) {
+    validatePrimaryMainLoopPostCallbackPointerReleaseMessageConsumptionBgiEquivalence(
+      browser,
+      oracle,
+    );
+    return;
+  }
   if (primaryMainLoopPostCallbackPointerActionNextIterationInputScanProfile) {
     validatePrimaryMainLoopPostCallbackPointerActionNextIterationInputScanBgiEquivalence(
       browser,

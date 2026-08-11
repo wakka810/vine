@@ -18,6 +18,9 @@ const manifest = loadCurrentCheckpoint(
 assert.deepEqual(validateCurrentCheckpoint(manifest), []);
 
 const rendered = renderReadmeStatus(manifest);
+const releaseMessageConsumptionActive =
+  manifest.activeRuntimeCheckpoint.runtimeKernelCheckpoint ===
+  "primary-main-loop-post-callback-pointer-release-message-consumption-batch";
 assert.ok(rendered.startsWith(README_STATUS_START));
 assert.ok(rendered.endsWith(README_STATUS_END));
 assert.ok(rendered.includes(manifest.activeRuntimeCheckpoint.runtimeKernelCheckpoint));
@@ -30,12 +33,16 @@ assert.ok(
 assert.ok(rendered.includes(manifest.nextStructuredStop.reason));
 assert.ok(
   rendered.includes(
-    "Rust completes the WM_LBUTTONDOWN action, one full following main-loop iteration",
+    releaseMessageConsumptionActive
+      ? "pointer-release message consumption and dispatch retirement"
+      : "Rust completes the WM_LBUTTONDOWN action, one full following main-loop iteration",
   ),
 );
+const nodePrimaryEvidence =
+  manifest.activeRuntimeCheckpoint.scheduledSharedClock.nodePrimaryEvidence;
 assert.ok(
   rendered.includes(
-    "Node primary recorded 101,366 samples / 113 TIMERPROC callbacks",
+    `Node primary recorded ${nodePrimaryEvidence.clockSampleCount.toLocaleString("en-US")} samples / ${nodePrimaryEvidence.windowTimerCallbackCount} TIMERPROC callbacks`,
   ),
 );
 assert.ok(rendered.includes("| Shared clock |"));
@@ -91,6 +98,52 @@ assert.ok(
     error.includes("genericDispatcherContractCount must cover"),
   ),
 );
+
+if (releaseMessageConsumptionActive) {
+  const invalidNativeShowCursorOracle = structuredClone(manifest);
+  invalidNativeShowCursorOracle.activeRuntimeCheckpoint.latestEvidence.nativeShowCursorThreadLocalOracleObservations[0] =
+    "0,0,0,0";
+  assert.ok(
+    validateCurrentCheckpoint(invalidNativeShowCursorOracle).some((error) =>
+      error.includes("latest logical window creation evidence is invalid"),
+    ),
+  );
+
+  const browserOwnedCursorDisplayCount = structuredClone(manifest);
+  browserOwnedCursorDisplayCount.activeRuntimeCheckpoint.latestEvidence.showCursorBrowserOwnsDisplayCounter =
+    true;
+  assert.ok(
+    validateCurrentCheckpoint(browserOwnedCursorDisplayCount).some((error) =>
+      error.includes("latest logical window creation evidence is invalid"),
+    ),
+  );
+
+  const requiredPacingSpecificShowCursor = structuredClone(manifest);
+  requiredPacingSpecificShowCursor.activeRuntimeCheckpoint.latestEvidence.showCursorNodeCompletionCount =
+    1;
+  assert.ok(
+    validateCurrentCheckpoint(requiredPacingSpecificShowCursor).some((error) =>
+      error.includes("latest logical window creation evidence is invalid"),
+    ),
+  );
+
+  const missingThreadCursorPlan = structuredClone(manifest);
+  missingThreadCursorPlan.activeRuntimeCheckpoint.runtimeThreadRegistry.cursorDisplayCountPlanCommit =
+    false;
+  assert.ok(
+    validateCurrentCheckpoint(missingThreadCursorPlan).some((error) =>
+      error.includes("active runtime thread subsystem boundary is invalid"),
+    ),
+  );
+
+  const staleReleaseMessage = structuredClone(manifest);
+  staleReleaseMessage.nextStructuredStop.completion.message.id += 1;
+  assert.ok(
+    validateCurrentCheckpoint(staleReleaseMessage).some((error) =>
+      error.includes("scheduled shared clock checkpoint evidence is invalid"),
+    ),
+  );
+}
 
 const invalidScenarioStatus = structuredClone(manifest);
 invalidScenarioStatus.scenarioMilestones.milestones[0].status = "complete";

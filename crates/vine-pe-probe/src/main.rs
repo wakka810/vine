@@ -134,7 +134,7 @@ const RUNTIME_FRAME_POINTER_BUTTON_INPUT_COMPLETION: u32 = 25;
 const RUNTIME_FRAME_MAX_CONTROL_BYTES: usize = 1024 * 1024;
 const RUNTIME_FRAME_MAX_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
 const GENERIC_RUNTIME_TRAP_LIMIT: usize = 32_768;
-const GENERIC_RUNTIME_MAX_TRAP_LIMIT: usize = 393_216;
+const GENERIC_RUNTIME_MAX_TRAP_LIMIT: usize = 524_288;
 const GENERIC_RUNTIME_CALLBACK_DEPTH_LIMIT: usize = 64;
 const CONTROLLED_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 
@@ -15215,7 +15215,8 @@ fn parse_arguments() -> Result<Arguments, LoaderError> {
                 | "primary-main-loop-post-callback-pointer-message-consumption-batch"
                 | "primary-main-loop-post-callback-pointer-action-continuation-batch"
                 | "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
-                | "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch" => {
+                | "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
+                | "primary-main-loop-post-callback-pointer-release-message-consumption-batch" => {
                     GenericRuntimeCapability::D3d9EndScenePostDrawPrimitive
                 }
                 "d3d9-begin-scene" => GenericRuntimeCapability::D3d9BeginScene,

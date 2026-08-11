@@ -6444,6 +6444,7 @@ They stop 34 guest instructions later at `WINMM.dll!timeGetTime`; the guest, rat
 than User32, changes the MSG time／point fields between those boundaries. TypeScript
 imports no host message or Windows queue authority. Exact active artifact identities
 remain authoritative only in [current-checkpoint.json](current-checkpoint.json).
+
 Details are in
 [the bounded post-callback empty PeekMessageA profile](bgi-user32-peek-message-a-post-test-cooperative-level-timer-callback.md).
 
@@ -6579,4 +6580,60 @@ LastError zero, perform no guest writes, and consume only the queried Rust-owned
 pressed-since state. Execution then reaches `WINMM.dll!timeGetTime` at instruction
 3,114,597,623. The sequence and report hashes are artifact identity; semantic dispatch
 does not select on callsite, occurrence, or title fingerprint. Exact active values
+remain authoritative only in [current-checkpoint.json](current-checkpoint.json).
+
+## 202. BGI reached `ShowCursor(FALSE)` display counter
+
+A bounded continuation after the completed input scan, without injecting the queued
+pointer release, reaches `USER32.dll!ShowCursor` endpoint 167 at address
+`0x7F000A60`, IAT `0x100D1374`, with argument zero and return address `0x10088C08`.
+Windows defines a signed display counter: FALSE
+decrements it, TRUE increments it, the new count is returned, and cursor visibility
+is selected by whether that count is nonnegative. A bounded x86 native probe runs
+main-thread FALSE, worker-thread TRUE／FALSE, then main-thread TRUE. Three fresh
+processes all return `-1,1,0,0`, proving independent per-thread counters while
+restoring both to zero. Reproduce with
+`pwsh -File tools/windows/test-show-cursor-thread-local.ps1`.
+
+The logical runtime has an installed mouse and therefore starts each thread's
+counter at zero. The reached FALSE call returns `-1` while preserving LastError
+and guest memory.
+
+Immutable BGI disassembly maps the return to original VA `0x00488C08`. Its helper
+at `0x00488BD0` repeats FALSE until the signed result is negative, or repeats TRUE
+until it is nonnegative, then records the desired visibility. This caller evidence
+requires a bit-preserving signed `INT` return, not a BOOL or unsigned success value.
+`RuntimeThreads` owns each counter and uses stale-checked targeted plan／commit with
+checked signed overflow; thread termination resets it. Cursor resource identity and
+pointer position remain separate owners, and TypeScript／CSS does not become a second
+counter authority. Callsite and title fingerprint do not select the handler.
+
+## 203. BGI pointer-release message consumption and callback unwind
+
+The next bounded replay does not introduce a title-specific API handler. It reuses
+the established current-thread `PeekMessageA`, pointer `TranslateMessage`,
+`DispatchMessageA` callback gateway, and controlled `WM_LBUTTONUP`
+`DefWindowProcA` semantics. After the post-action input scan, Rust-owned process
+clock, wait, graphics, logical-window, and queue state reach message 117.
+`PeekMessageA(PM_REMOVE)` writes the complete 28-byte `MSG32` before removing the
+queue entry, translation returns false without mutation, and dispatch enters the
+recorded WndProc with `(HWND, WM_LBUTTONUP, 0, 0x01680280)`. The reached default
+processing returns zero; the callback and outer dispatch then retire before the
+next observed owned-endpoint boundary. Depending on already-due timer/message pacing,
+that diagnostic boundary can be a USER32 message-loop call, another already
+reached import such as `timeGetTime`, or a reached COM method; dispatch retirement, not the
+following endpoint identity or arguments, is the semantic completion boundary.
+
+The semantic oracle remains the existing controlled pointer-release
+`DefWindowProcA` evidence plus the reached caller consumption. Callsite,
+occurrence, report hash, and title fingerprint do not select handler behavior.
+Protocol 137 validates each ordered continuation locally. Node reaches the bounded
+injected release at the same pacing boundary as Chrome, before the independently
+reached `ShowCursor(FALSE)` path. Other valid pacing can include that call at most
+once, so the intermediate occurrence and the surrounding call count／digest are
+pacing-specific. Cross-adapter comparison covers release
+identity, queue removal, Peek／Translate／Dispatch／default-processing semantics,
+callback target／result, and authority without giving TypeScript Windows-state
+ownership. Callback frame ID and each post-retirement endpoint, instruction count,
+stack frame, and whole-memory digest remain run-local evidence. Exact active values
 remain authoritative only in [current-checkpoint.json](current-checkpoint.json).

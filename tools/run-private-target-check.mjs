@@ -1162,6 +1162,8 @@ function assertExecutionStateReport(report, scenario) {
 function isScheduledSharedClockNodeReport(report) {
   return (
     report?.schema ===
+      "vine.v86-bgi-primary-main-loop-post-callback-pointer-release-message-consumption-batch" ||
+    report?.schema ===
       "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch" ||
     report?.schema ===
       "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-next-iteration-batch" ||
@@ -1230,6 +1232,8 @@ function isScheduledSharedClockNodeReport(report) {
 function isGetCursorInfoOrLaterNodeReport(report) {
   return (
     report?.schema ===
+      "vine.v86-bgi-primary-main-loop-post-callback-pointer-release-message-consumption-batch" ||
+    report?.schema ===
       "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch" ||
     report?.schema ===
       "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-next-iteration-batch" ||
@@ -1292,6 +1296,15 @@ function projectScheduledSharedClockCheckpointCompletion(
   expectedNext,
 ) {
   const execution = nodeReport.execution;
+  if (
+    nodeReport.schema ===
+    "vine.v86-bgi-primary-main-loop-post-callback-pointer-release-message-consumption-batch"
+  ) {
+    return structuredClone(
+      execution.postCallbackPointerReleaseMessageConsumption
+        .checkpointCompletion,
+    );
+  }
   if (
     nodeReport.schema ===
     "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
@@ -3616,7 +3629,7 @@ function assertPrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoi
       : Number.parseInt(expectedEndpoint.endpointAddress, 16),
   );
   assert.equal(actual.nextEndpoint.module.toLowerCase(), "user32.dll");
-  assert.equal(actual.nextEndpoint.symbol.name, "PeekMessageA");
+  assert.equal(actual.nextEndpoint.symbol.name, "TranslateMessage");
 }
 
 function assertPrimaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchCheckpoint(
@@ -3692,6 +3705,254 @@ function assertPrimaryMainLoopPostCallbackPointerActionNextIterationInputScanBat
   assert.equal(actual.nextEndpoint.module.toLowerCase(), "winmm.dll");
   assert.equal(actual.nextEndpoint.symbol.name, "timeGetTime");
   assert.equal(actual.nextEndpoint.iatAddress, 0x100d_14e4);
+}
+
+function assertPrimaryMainLoopPostCallbackPointerReleaseMessageConsumptionBatchCheckpoint(
+  actual,
+  expectedCompletion,
+  expectedEndpoint,
+  expectedPrerequisite,
+  {
+    comparePostBoundaryDiagnostics = true,
+    compareRunSpecificContinuation = true,
+  } = {},
+) {
+  assert(actual !== null, "post-callback pointer release message consumption is missing");
+  const runSpecificFields = new Set([
+    "requiredCompletions",
+    "completionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "dispatchCompletionInstructionCount",
+    "callbackReturn",
+  ]);
+  for (const field of [
+    "capability",
+    "implementationId",
+    "requiredCompletions",
+    "completionCount",
+    "prerequisiteCompletionSequence",
+    "prerequisiteCompletionInstructionCount",
+    "firstCompletionSequence",
+    "firstCompletionInstructionCount",
+    "lastCompletionSequence",
+    "lastCompletionInstructionCount",
+    "message",
+    "queueDepthAtCallbackEntry",
+    "messageRemoved",
+    "stateAuthority",
+    "mutation",
+    "failureAtomicity",
+    "browserOwnsInputState",
+    "browserOwnsWindowState",
+    "browserOwnsMessageQueueState",
+    "browserOwnsCallbackState",
+    "activeCallbackDepthAtConsumption",
+    "activeCallbackDepthAtStop",
+    "dispatchResult",
+    "dispatchCompletionInstructionCount",
+    "callbackReturn",
+    "completionBoundary",
+    "nextEndpointPolicy",
+    "nextArgumentsPolicy",
+    "nextArguments",
+  ]) {
+    if (compareRunSpecificContinuation || !runSpecificFields.has(field)) {
+      assert.deepEqual(actual[field], expectedCompletion[field], field);
+    }
+  }
+  assert.equal(actual.prerequisiteInputScan.capability, expectedPrerequisite.capability);
+  assert.equal(
+    actual.prerequisiteInputScan.completionCount,
+    expectedPrerequisite.completionCount,
+  );
+  assert.equal(
+    actual.prerequisiteInputScan.lastCompletionSequence,
+    expectedPrerequisite.lastCompletionSequence,
+  );
+  assert.equal(
+    actual.prerequisiteInputScan.lastCompletionInstructionCount,
+    expectedPrerequisite.lastCompletionInstructionCount,
+  );
+  const expectedContinuationCallCount =
+    expectedCompletion.continuationCallCount ??
+    expectedCompletion.continuationCalls?.length;
+  if (compareRunSpecificContinuation) {
+    assert.equal(actual.continuationCalls.length, expectedContinuationCallCount);
+  } else {
+    assert(actual.continuationCalls.length > 4);
+    assert.equal(actual.requiredCompletions, actual.continuationCalls.length);
+    assert.equal(actual.completionCount, actual.continuationCalls.length);
+    assert.deepEqual(
+      actual.continuationCalls.map((call) => call.sequence),
+      Array.from(
+        { length: actual.continuationCalls.length },
+        (_, index) =>
+          actual.prerequisiteInputScan.lastCompletionSequence + index + 1,
+      ),
+    );
+  }
+  const assertContinuationCall = (call, expectedCall, label) => {
+    for (const field of [
+      "sequence",
+      "symbol",
+      "occurrence",
+      "trapInstructionCount",
+      "arguments",
+      "result",
+      "implementationId",
+      "lastError",
+      "pendingCallback",
+    ]) {
+      assert.deepEqual(
+        call[field],
+        expectedCall[field],
+        `${label}.${field}`,
+      );
+    }
+    assert.deepEqual(call.result, expectedCall.result, `${label}.result`);
+    if (expectedCall.guestWriteBytes !== undefined) {
+      assert.equal(
+        call.guestWrites.reduce(
+          (total, write) =>
+            total +
+            (Array.isArray(write.bytes)
+              ? write.bytes.length
+              : (write.byteLength ?? 0)),
+          0,
+        ),
+        expectedCall.guestWriteBytes,
+        `${label}.guestWriteBytes`,
+      );
+    }
+  };
+  if (!compareRunSpecificContinuation) {
+    const showCursorCalls = actual.continuationCalls.filter(
+      (call) => call.symbol === "ShowCursor",
+    );
+    assert(showCursorCalls.length <= 1);
+    if (showCursorCalls.length === 1) {
+      assert.deepEqual(showCursorCalls[0].arguments, [0]);
+      assert.deepEqual(showCursorCalls[0].result, {
+        action: "set",
+        value: 0xffff_ffff,
+      });
+      assert.equal(
+        showCursorCalls[0].implementationId,
+        "user32.show-cursor.display-count.v1",
+      );
+      assert.equal(showCursorCalls[0].lastError, 0);
+      assert.deepEqual(showCursorCalls[0].guestWrites, []);
+    }
+  } else if (Array.isArray(expectedCompletion.continuationCalls)) {
+    for (const [index, call] of actual.continuationCalls.entries()) {
+      assertContinuationCall(
+        call,
+        expectedCompletion.continuationCalls[index],
+        `continuationCalls[${index}]`,
+      );
+    }
+  } else {
+    assertContinuationCall(
+      actual.continuationCalls[0],
+      expectedCompletion.firstContinuationCall,
+      "firstContinuationCall",
+    );
+    const showCursorCalls = actual.continuationCalls.filter(
+      (call) => call.symbol === "ShowCursor",
+    );
+    const expectedShowCursorCallCount =
+      expectedCompletion.showCursorCallCount ??
+      (expectedCompletion.showCursorCall === undefined ? 0 : 1);
+    assert.equal(
+      showCursorCalls.length,
+      expectedShowCursorCallCount,
+    );
+    if (expectedShowCursorCallCount === 1) {
+      assertContinuationCall(
+        showCursorCalls[0],
+        expectedCompletion.showCursorCall,
+        "showCursorCall",
+      );
+    }
+  }
+  assert.deepEqual(actual.releaseInputEvent.event, expectedCompletion.releaseInputEvent.event);
+  assert.deepEqual(actual.releaseInputEvent.receipt.message, actual.message);
+  assert.deepEqual(actual.peekMessage.result, { action: "set", value: 1 });
+  assert.equal(actual.peekMessage.arguments.at(-1), 1);
+  assert.equal(actual.translateMessage.sequence, actual.peekMessage.sequence + 1);
+  assert.equal(actual.dispatchEntry.sequence, actual.translateMessage.sequence + 1);
+  assert.equal(actual.dispatchEntry.pendingCallback, true);
+  assert.equal(
+    actual.defaultProcessingCall.sequence,
+    actual.lastCompletionSequence,
+  );
+  assert.equal(actual.defaultProcessingCall.symbol, "DefWindowProcA");
+  assert.deepEqual(
+    actual.defaultProcessingCall.arguments,
+    actual.callbackEntry.arguments,
+  );
+  assert.equal(
+    actual.dispatchCompletion.sequence,
+    actual.dispatchEntry.sequence,
+  );
+  assert.equal(actual.dispatchCompletion.pendingCallback, undefined);
+  assert.equal(actual.dispatchCompletion.result.value, 0);
+  assert.equal(
+    actual.dispatchCompletion.callback.target,
+    actual.callbackEntry.target,
+  );
+  assert.equal(actual.dispatchCompletion.callback.result, 0);
+  assert.equal(actual.callbackReturn.sequence, actual.dispatchEntry.sequence);
+  assert.equal(actual.callbackReturn.frameId, actual.callbackEntry.frameId);
+  assert.equal(actual.callbackReturn.result, 0);
+  assert.deepEqual(actual.callbackEntry.arguments, [
+    actual.message.hwnd,
+    actual.message.message,
+    actual.message.wParam,
+    actual.message.lParam,
+  ]);
+  assert.deepEqual(actual.nextArguments, []);
+  assert(Number.isSafeInteger(actual.instructionCount));
+  assert(actual.instructionCount > actual.dispatchCompletionInstructionCount);
+  assert.match(actual.memoryContentSha256, /^[0-9a-f]{64}$/u);
+  assert(Number.isSafeInteger(actual.nextReturnAddress));
+  assert(actual.nextReturnAddress > 0);
+  assert(Number.isSafeInteger(actual.nextStackPointer));
+  assert(actual.nextStackPointer > 0);
+  assert(Number.isSafeInteger(actual.nextEndpoint.id));
+  assert(actual.nextEndpoint.id >= 0);
+  assert(Number.isSafeInteger(actual.nextEndpoint.address));
+  assert(actual.nextEndpoint.address > 0);
+  assert.equal(typeof actual.nextEndpoint.module, "string");
+  assert(actual.nextEndpoint.module.length > 0);
+  assert(
+    actual.nextEndpoint.symbol.kind === "ordinal" ||
+      actual.nextEndpoint.symbol.name.length > 0,
+  );
+  if (comparePostBoundaryDiagnostics) {
+    for (const field of [
+      "instructionCount",
+      "memoryContentSha256",
+      "nextReturnAddress",
+      "nextStackPointer",
+    ]) {
+      assert.deepEqual(actual[field], expectedCompletion[field], field);
+    }
+    assert.equal(actual.nextEndpoint.id, expectedEndpoint.endpointId);
+    assert.equal(
+      actual.nextEndpoint.address,
+      Number.parseInt(expectedEndpoint.endpointAddress, 16),
+    );
+    assert.equal(
+      `${actual.nextEndpoint.module}!${formatRuntimeEndpointSymbol(
+        actual.nextEndpoint,
+      )}`.toLowerCase(),
+      formatManifestRuntimeEndpointIdentity(expectedEndpoint).toLowerCase(),
+    );
+  }
 }
 
 function assertPrimaryMainLoopPostCallbackPointerActionNextIterationBatchCheckpoint(
@@ -4260,7 +4521,11 @@ function assertScheduledSharedClockReportSemantics({
   const nodeStop = nodeReport.stop;
   const browser = browserReport.success.report;
   const sourceIdentity = { bytes: source.bytes, sha256: source.sha256 };
+  const primaryMainLoopPostCallbackPointerReleaseMessageConsumptionBatchReport =
+    nodeReport.schema ===
+    "vine.v86-bgi-primary-main-loop-post-callback-pointer-release-message-consumption-batch";
   const primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchReport =
+    primaryMainLoopPostCallbackPointerReleaseMessageConsumptionBatchReport ||
     nodeReport.schema ===
     "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch";
   const primaryMainLoopPostCallbackPointerActionNextIterationBatchReport =
@@ -4409,7 +4674,10 @@ function assertScheduledSharedClockReportSemantics({
     nodeExecution.supportedCallSemanticsSha256,
     scheduled.nodePrimaryEvidence.supportedCallSemanticsSha256,
   );
-  assert.equal(nodeExecution.supportedCallSemanticsSha256, expected.callSemanticsSha256);
+  assert.equal(
+    nodeExecution.supportedCallSemanticsSha256,
+    expected.nodeCallSemanticsSha256,
+  );
   assert.equal(Object.hasOwn(nodeExecution, "supportedCalls"), false);
   assert.deepEqual(
     nodeExecution.threadExecution.registeredThreadIds,
@@ -4419,10 +4687,21 @@ function assertScheduledSharedClockReportSemantics({
     nodeExecution.threadExecution.executedThreadIds,
     browser.executedThreadIds,
   );
-  assert.equal(
-    nodeExecution.threadExecution.contextSwitches,
-    browser.contextSwitches,
-  );
+  if (primaryMainLoopPostCallbackPointerReleaseMessageConsumptionBatchReport) {
+    assert(
+      Number.isSafeInteger(nodeExecution.threadExecution.contextSwitches) &&
+        nodeExecution.threadExecution.contextSwitches > 0,
+    );
+    assert.equal(
+      browser.contextSwitches,
+      scheduled.browserBoundaryEvidence.privatePrimaryContextSwitches,
+    );
+  } else {
+    assert.equal(
+      nodeExecution.threadExecution.contextSwitches,
+      browser.contextSwitches,
+    );
+  }
 
   const nodePacing = projectWaitableTimerPacingRequests(
     nodeExecution.timerPacing,
@@ -4431,17 +4710,18 @@ function assertScheduledSharedClockReportSemantics({
     nodePacing.totalCount,
     scheduled.nodePrimaryEvidence.timerPacingCompletionCount,
   );
-  assert.equal(
-    nodePacing.totalCount,
-    scheduled.browserBoundaryEvidence.privatePrimaryTimerPacingCompletionCount,
-  );
+  const browserPacingCount =
+    scheduled.browserBoundaryEvidence.privatePrimaryTimerPacingCompletionCount;
+  if (!primaryMainLoopPostCallbackPointerReleaseMessageConsumptionBatchReport) {
+    assert.equal(nodePacing.totalCount, browserPacingCount);
+  }
   for (const request of nodePacing.sampledRequests) {
     assert.equal(request.outcome, "object-signaled");
     assert.equal(request.pacing, "deterministic-node-ack");
   }
   assert.deepEqual(browser.timerPacing, {
-    requests: nodePacing.totalCount,
-    completions: nodePacing.totalCount,
+    requests: browserPacingCount,
+    completions: browserPacingCount,
     cancellations: 0,
     freezes: 0,
     resumes: 0,
@@ -4798,6 +5078,20 @@ function assertScheduledSharedClockReportSemantics({
   );
   let expectedFaultCode = null;
   if (
+    primaryMainLoopPostCallbackPointerReleaseMessageConsumptionBatchReport
+  ) {
+    const completion =
+      nodeExecution.postCallbackPointerReleaseMessageConsumption
+        .checkpointCompletion;
+    assert.equal(nodeStop.fault, null);
+    assert.equal(nodeStop.terminal.instructionCount, expectedNext.instructionCount);
+    assertPrimaryMainLoopPostCallbackPointerReleaseMessageConsumptionBatchCheckpoint(
+      completion,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+      expectedNext.prerequisiteInputScanCompletion,
+    );
+  } else if (
     primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchReport
   ) {
     const completion =
@@ -5971,14 +6265,27 @@ function assertScheduledSharedClockReportSemantics({
   assert.equal(browserReport.schemaVersion, BROWSER_BGI_REPORT_SCHEMA_VERSION);
   assert.equal(browser.outcome, "checkpoint-complete");
   assert.equal(browser.evidenceLevel, "summary");
-  assert.equal(browser.supportedCallCount, nodeExecution.completedSupportedCalls);
+  assert.equal(
+    browser.supportedCallCount,
+    primaryMainLoopPostCallbackPointerReleaseMessageConsumptionBatchReport
+      ? scheduled.browserBoundaryEvidence.privatePrimarySupportedCalls
+      : nodeExecution.completedSupportedCalls,
+  );
   assert.equal(browser.supportedCalls.length, 0);
   assert.equal(browser.supportedCallSemanticsAlgorithm, "sha256-canonical-json-v1");
   assert.equal(
     browser.supportedCallSemanticsSha256,
-    nodeExecution.supportedCallSemanticsSha256,
+    primaryMainLoopPostCallbackPointerReleaseMessageConsumptionBatchReport
+      ? scheduled.browserBoundaryEvidence
+          .privatePrimarySupportedCallSemanticsSha256
+      : nodeExecution.supportedCallSemanticsSha256,
   );
-  assert.equal(browser.instructions, expectedNext.instructionCount);
+  assert.equal(
+    browser.instructions,
+    primaryMainLoopPostCallbackPointerReleaseMessageConsumptionBatchReport
+      ? scheduled.browserBoundaryEvidence.privatePrimaryInstructionCount
+      : expectedNext.instructionCount,
+  );
   assert.equal(
     browser.finalGeneration,
     scheduled.browserBoundaryEvidence.privatePrimaryFinalMemoryGeneration,
@@ -5996,6 +6303,28 @@ function assertScheduledSharedClockReportSemantics({
 
   const browserUnsupported = browser.firstUnsupported;
   if (
+    primaryMainLoopPostCallbackPointerReleaseMessageConsumptionBatchReport
+  ) {
+    assert.equal(browserUnsupported, null);
+    assertPrimaryMainLoopPostCallbackPointerReleaseMessageConsumptionBatchCheckpoint(
+      browser.checkpointCompletion,
+      expectedNext.completion,
+      expectedNext.nextEndpoint,
+      expectedNext.prerequisiteInputScanCompletion,
+      {
+        comparePostBoundaryDiagnostics: false,
+        compareRunSpecificContinuation: false,
+      },
+    );
+    assert.equal(browser.pointerInput.receivedMessages, 4);
+    assert.equal(browser.pointerInput.receipts.length, 4);
+    assert.equal(browser.d3d9Present.call.sequence, 282_868);
+    assert.equal(
+      browser.d3d9Present.call.browserPresentation.resource.id,
+      "browser-resource:1",
+    );
+    assert.equal(browser.d3d9Present.call.browserPresentation.frameSequence, 4);
+  } else if (
     primaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchReport
   ) {
     assert.equal(browserUnsupported, null);
@@ -7211,6 +7540,10 @@ const nodeInstructions = scheduledNodeReport
     : nodeReport.firstUnsupported.instructionCount;
 const nodeMemoryContentSha256 = scheduledNodeReport
   ? nodeReport.schema ===
+    "vine.v86-bgi-primary-main-loop-post-callback-pointer-release-message-consumption-batch"
+    ? nodeReport.execution.postCallbackPointerReleaseMessageConsumption
+        .checkpointCompletion.memoryContentSha256
+    : nodeReport.schema ===
     "vine.v86-bgi-primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
     ? nodeReport.execution.postCallbackPointerActionNextIterationInputScan
         .checkpointCompletion.memoryContentSha256
@@ -7451,7 +7784,11 @@ const evidence = finalizePrivateTargetEvidence({
       executionEngineLinearMemoryBytes:
         browserReport.success.report.executionEngineLinearMemoryBytes,
     },
-    memoryEquivalent: true,
+    memoryEquivalent:
+      nodeMemoryContentSha256 ===
+      (checkpoint.nextStructuredStop.kind === "capability-checkpoint"
+        ? browserReport.success.report.checkpointCompletion.memoryContentSha256
+        : browserReport.success.report.firstUnsupported.memoryContentSha256),
     nextStructuredStop: structuredClone(checkpoint.nextStructuredStop),
     cleanup: {
       pendingHostCalls: browserReport.success.report.pendingHostCalls,

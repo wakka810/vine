@@ -43,6 +43,9 @@ const checkpoint = loadCurrentCheckpoint(
   path.join(root, "docs", "current-checkpoint.json"),
 );
 const activeCapability = checkpoint.nextStructuredStop.completion?.capability;
+const releaseMessageConsumptionActive =
+  activeCapability ===
+  "primary-main-loop-post-callback-pointer-release-message-consumption-batch";
 const postInputScanOrScan = [
   "user32-peek-message-a-post-window-timer-callback-continuation",
   "user32-window-timer-callback-post-waitable-timer-cycle",
@@ -85,7 +88,7 @@ const artifact = (name, digest = sha("a"), bytes = 1) => ({
 });
 
 assert.equal(BROWSER_BGI_REPORT_SCHEMA, "vine.browser-bgi-runtime-worker");
-assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 101);
+assert.equal(BROWSER_BGI_REPORT_SCHEMA_VERSION, 102);
 assert.match(
   privateTargetRunner,
   /function assertUser32PeekMessageAPostTestCooperativeLevelTimerCallbackCheckpoint[\s\S]*?"queueDepthBefore"[\s\S]*?"queueDepthAfter"[\s\S]*?"browserOwnsMessageQueueState"[\s\S]*?"messageBytesPreserved"[\s\S]*?"activeCallbackDepthAtStop"/u,
@@ -206,6 +209,88 @@ assert.throws(
   /requires the SetFocus owner thread/u,
 );
 
+const releaseContinuationCalls = Array.from({ length: 5 }, (_, index) => ({
+  sequence: 10 + index,
+  symbol: index === 2 ? "ShowCursor" : `Call${index}`,
+  occurrence: 1,
+  trapInstructionCount: 100 + index,
+  arguments: index === 2 ? [0] : [],
+  result:
+    index === 2
+      ? { action: "set", value: 0xffff_ffff }
+      : { action: "set", value: 0 },
+  implementationId:
+    index === 2
+      ? "user32.show-cursor.display-count.v1"
+      : `test.call-${index}.v1`,
+  lastError: 0,
+  guestWrites: [],
+}));
+const projectedRelease = projectCapabilityCheckpointCompletion({
+  capability:
+    "primary-main-loop-post-callback-pointer-release-message-consumption-batch",
+  continuationCalls: releaseContinuationCalls,
+  defaultProcessingCall: releaseContinuationCalls.at(-1),
+  dispatchCompletion: releaseContinuationCalls[1],
+  prerequisiteInputScan: {
+    capability:
+      "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch",
+    scanCalls: Array.from({ length: 4 }, (_, index) => ({
+      sequence: index + 1,
+      symbol: "GetAsyncKeyState",
+      occurrence: index + 1,
+      trapInstructionCount: index + 1,
+      arguments: [index + 2],
+      result: { action: "set", value: 0 },
+      implementationId: "user32.get-async-key-state.v1",
+      lastError: 0,
+    })),
+  },
+});
+assert.equal(projectedRelease.continuationCallCount, 5);
+assert.equal(Object.hasOwn(projectedRelease, "continuationCalls"), false);
+assert.equal(projectedRelease.firstContinuationCall.sequence, 10);
+assert.equal(projectedRelease.showCursorCallCount, 1);
+assert.equal(projectedRelease.showCursorCall.sequence, 12);
+assert.equal(projectedRelease.showCursorCall.guestWriteBytes, 0);
+const projectedReleaseWithoutShowCursor =
+  projectCapabilityCheckpointCompletion({
+    capability:
+      "primary-main-loop-post-callback-pointer-release-message-consumption-batch",
+    continuationCalls: releaseContinuationCalls.map((call, index) =>
+      index === 2
+        ? {
+            ...call,
+            symbol: "Call2",
+            arguments: [],
+            result: { action: "set", value: 0 },
+            implementationId: "test.call-2.v1",
+          }
+        : call,
+    ),
+    defaultProcessingCall: releaseContinuationCalls.at(-1),
+    dispatchCompletion: releaseContinuationCalls[1],
+    prerequisiteInputScan: {
+      capability:
+        "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch",
+      scanCalls: Array.from({ length: 4 }, (_, index) => ({
+        sequence: index + 1,
+        symbol: "GetAsyncKeyState",
+        occurrence: index + 1,
+        trapInstructionCount: index + 1,
+        arguments: [index + 2],
+        result: { action: "set", value: 0 },
+        implementationId: "user32.get-async-key-state.v1",
+        lastError: 0,
+      })),
+    },
+  });
+assert.equal(projectedReleaseWithoutShowCursor.showCursorCallCount, 0);
+assert.equal(
+  Object.hasOwn(projectedReleaseWithoutShowCursor, "showCursorCall"),
+  false,
+);
+
 const expectedBrowserEvidence =
   projectPrivateTargetExpectedBrowserEvidence(checkpoint);
 if (
@@ -303,6 +388,19 @@ function validEvidence() {
     capabilityCheckpoint || completedCapabilityBeforeStructuredStop
     ? "checkpoint-complete"
     : "structured-stop";
+  const postCallbackPointerReleaseDiagnosticsAreRunSpecific =
+    checkpoint.nextStructuredStop.completion?.capability ===
+    "primary-main-loop-post-callback-pointer-release-message-consumption-batch";
+  const browserInstructionCount =
+    postCallbackPointerReleaseDiagnosticsAreRunSpecific
+      ? checkpoint.activeRuntimeCheckpoint.scheduledSharedClock
+          .browserBoundaryEvidence.privatePrimaryInstructionCount
+      : checkpoint.nextStructuredStop.instructionCount;
+  const browserMemoryContentSha256 =
+    postCallbackPointerReleaseDiagnosticsAreRunSpecific
+      ? checkpoint.activeRuntimeCheckpoint.scheduledSharedClock
+          .browserBoundaryEvidence.privatePrimaryTerminalMemoryContentSha256
+      : browser.memoryContentSha256;
   const checkpointCompletion = capabilityCheckpoint
     ? (() => {
         const endpointIdentity = formatManifestRuntimeEndpointIdentity(
@@ -347,6 +445,14 @@ function validEvidence() {
         };
       })()
     : null;
+  const browserCheckpointCompletion =
+    checkpointCompletion === null
+      ? null
+      : {
+          ...structuredClone(checkpointCompletion),
+          instructionCount: browserInstructionCount,
+          memoryContentSha256: browserMemoryContentSha256,
+        };
   return finalizePrivateTargetEvidence({
     schema: PRIVATE_TARGET_EVIDENCE_SCHEMA,
     schemaVersion: PRIVATE_TARGET_EVIDENCE_VERSION,
@@ -439,19 +545,24 @@ function validEvidence() {
           checkpoint.activeRuntimeCheckpoint
             .genericDispatcherCallOccurrenceCount,
         callSemanticsSha256: browser.callSemanticsSha256,
-        instructions: checkpoint.nextStructuredStop.instructionCount,
+        instructions: browserInstructionCount,
         finalGeneration: browser.finalGeneration,
-        memoryContentSha256: browser.memoryContentSha256,
-        ...(checkpointCompletion === null
+        memoryContentSha256: browserMemoryContentSha256,
+        ...(browserCheckpointCompletion === null
           ? {}
-          : { checkpointCompletion: structuredClone(checkpointCompletion) }),
+          : {
+              checkpointCompletion: structuredClone(
+                browserCheckpointCompletion,
+              ),
+            }),
         wasmBridgeCalls: 1,
         executionStateMachine: structuredClone(browser.executionStateMachine),
         executionEngine: structuredClone(executionEngineIdentity),
         executionEngineLinearMemoryBytes:
           browser.executionEngineLinearMemoryBytes,
       },
-      memoryEquivalent: true,
+      memoryEquivalent:
+        browser.memoryContentSha256 === browserMemoryContentSha256,
       nextStructuredStop: structuredClone(checkpoint.nextStructuredStop),
       cleanup: {
         pendingHostCalls: 0,
@@ -1008,7 +1119,9 @@ for (const [label, evidence, expected] of [
     mutated((value) => {
       value.semantic.browser.callSemanticsSha256 = sha("d");
     }),
-    "semantic.callSemanticsSha256",
+    releaseMessageConsumptionActive
+      ? "semantic.browser.callSemanticsSha256 checkpoint digest"
+      : "semantic.callSemanticsSha256",
   ],
   [
     "checkpoint call semantics mismatch",

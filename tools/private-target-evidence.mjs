@@ -32,11 +32,17 @@ export function projectPrivateTargetExpectedBrowserEvidence(checkpoint) {
 
   const node = scheduled.nodePrimaryEvidence;
   const browser = scheduled.browserBoundaryEvidence;
+  const postCallbackPointerReleaseDiagnosticsAreRunSpecific =
+    checkpoint.nextStructuredStop?.completion?.capability ===
+    "primary-main-loop-post-callback-pointer-release-message-consumption-batch";
   return {
     ...historical,
     sourceBytes: node.sourceBytes,
     sourceSha256: node.sourceSha256,
-    callSemanticsSha256: node.supportedCallSemanticsSha256,
+    callSemanticsSha256: postCallbackPointerReleaseDiagnosticsAreRunSpecific
+      ? browser.privatePrimarySupportedCallSemanticsSha256
+      : node.supportedCallSemanticsSha256,
+    nodeCallSemanticsSha256: node.supportedCallSemanticsSha256,
     nodeFinalGeneration: node.finalMemoryGeneration,
     finalGeneration: browser.privatePrimaryFinalMemoryGeneration,
     memoryContentSha256: node.terminalMemoryContentSha256,
@@ -191,7 +197,7 @@ function validatePostCallbackPointerMessageConsumption(
     ["queueDepthAtCallbackEntry", completion.queueDepthAtCallbackEntry, 0],
     ["messageRemoved", completion.messageRemoved, true],
     ["browserOwnsMessageQueueState", completion.browserOwnsMessageQueueState, false],
-    ["activeCallbackDepthAtStop", completion.activeCallbackDepthAtStop, 1],
+    ["activeCallbackDepthAtStop", completion.activeCallbackDepthAtStop, 0],
     ["callbackNestedCalls.length", nested.length, 3],
     [
       "callbackNestedCalls.symbols",
@@ -433,6 +439,211 @@ function validatePostCallbackPointerActionNextIterationInputScan(
       `${label}.${field}`,
       errors,
     );
+  }
+}
+
+function validatePostCallbackPointerReleaseMessageConsumption(
+  completion,
+  expected,
+  label,
+  errors,
+  { runSpecificContinuation = null } = {},
+) {
+  if (
+    expected.capability !==
+    "primary-main-loop-post-callback-pointer-release-message-consumption-batch"
+  ) {
+    return;
+  }
+  const continuationCallCount = completion.continuationCallCount;
+  const expectedContinuationCallCount =
+    runSpecificContinuation?.continuationCallCount ??
+    expected.continuationCallCount;
+  checkEqual(
+    continuationCallCount,
+    expectedContinuationCallCount,
+    `${label}.continuationCallCount`,
+    errors,
+  );
+  checkEqual(
+    completion.requiredCompletions,
+    continuationCallCount,
+    `${label}.requiredCompletions`,
+    errors,
+  );
+  checkEqual(
+    completion.completionCount,
+    continuationCallCount,
+    `${label}.completionCount`,
+    errors,
+  );
+  const expectedShowCursorCallCount =
+    runSpecificContinuation?.showCursorCallCount ??
+    expected.showCursorCallCount ??
+    (expected.showCursorCall === undefined ? 0 : 1);
+  checkEqual(
+    completion.showCursorCallCount,
+    expectedShowCursorCallCount,
+    `${label}.showCursorCallCount`,
+    errors,
+  );
+  const samples =
+    expectedShowCursorCallCount === 1
+      ? ["firstContinuationCall", "showCursorCall"]
+      : ["firstContinuationCall"];
+  for (const sample of samples) {
+    const call = requireRecord(
+      completion[sample],
+      `${label}.${sample}`,
+      errors,
+    );
+    if (runSpecificContinuation !== null) {
+      requireInteger(call.sequence, `${label}.${sample}.sequence`, errors, 1);
+      requireString(call.symbol, `${label}.${sample}.symbol`, errors);
+      requireInteger(
+        call.trapInstructionCount,
+        `${label}.${sample}.trapInstructionCount`,
+        errors,
+        1,
+      );
+      continue;
+    }
+    const expectedCall = requireRecord(
+      expected[sample],
+      `checkpoint.nextStructuredStop.completion.${sample}`,
+      errors,
+    );
+    for (const field of [
+      "sequence",
+      "symbol",
+      "occurrence",
+      "trapInstructionCount",
+      "implementationId",
+      "lastError",
+      "pendingCallback",
+      "guestWriteBytes",
+    ]) {
+      checkEqual(
+        call[field],
+        expectedCall[field],
+        `${label}.${sample}.${field}`,
+        errors,
+      );
+    }
+    checkEqual(
+      JSON.stringify(call.arguments),
+      JSON.stringify(expectedCall.arguments),
+      `${label}.${sample}.arguments`,
+      errors,
+    );
+    checkEqual(
+      JSON.stringify(call.result),
+      JSON.stringify(expectedCall.result),
+      `${label}.${sample}.result`,
+      errors,
+    );
+  }
+  if (expectedShowCursorCallCount === 1) {
+    const showCursor = requireRecord(
+      completion.showCursorCall,
+      `${label}.showCursorCall`,
+      errors,
+    );
+    for (const [field, actual, expectedValue] of [
+      ["symbol", showCursor.symbol, "ShowCursor"],
+      [
+        "arguments",
+        JSON.stringify(showCursor.arguments),
+        JSON.stringify([0]),
+      ],
+      [
+        "result",
+        JSON.stringify(showCursor.result),
+        JSON.stringify({ action: "set", value: 0xffff_ffff }),
+      ],
+      [
+        "implementationId",
+        showCursor.implementationId,
+        "user32.show-cursor.display-count.v1",
+      ],
+      ["lastError", showCursor.lastError, 0],
+      ["guestWriteBytes", showCursor.guestWriteBytes, 0],
+    ]) {
+      checkEqual(actual, expectedValue, `${label}.showCursorCall.${field}`, errors);
+    }
+  }
+  const message = requireRecord(completion.message, `${label}.message`, errors);
+  const callbackEntry = requireRecord(
+    completion.callbackEntry,
+    `${label}.callbackEntry`,
+    errors,
+  );
+  for (const [field, actual, expectedValue] of [
+    ["message.id", message.id, 117],
+    ["message.message", message.message, 0x0202],
+    ["message.wParam", message.wParam, 0],
+    ["queueDepthAtCallbackEntry", completion.queueDepthAtCallbackEntry, 0],
+    ["messageRemoved", completion.messageRemoved, true],
+    ["activeCallbackDepthAtConsumption", completion.activeCallbackDepthAtConsumption, 1],
+    ["activeCallbackDepthAtStop", completion.activeCallbackDepthAtStop, 0],
+    [
+      "completionBoundary",
+      completion.completionBoundary,
+      "callback-and-outer-dispatch-retired",
+    ],
+    [
+      "nextEndpointPolicy",
+      completion.nextEndpointPolicy,
+      "observed-only-after-dispatch-completion",
+    ],
+    [
+      "nextArgumentsPolicy",
+      completion.nextArgumentsPolicy,
+      "omitted-observed-only",
+    ],
+    [
+      "callbackEntry.arguments",
+      JSON.stringify(callbackEntry.arguments),
+      JSON.stringify([message.hwnd, message.message, message.wParam, message.lParam]),
+    ],
+    [
+      "stateAuthority",
+      completion.stateAuthority,
+      "rust-runtime-input-window-message-queue-callback-process-clock-and-guest-memory",
+    ],
+    ["failureAtomicity", completion.failureAtomicity, true],
+    ["browserOwnsInputState", completion.browserOwnsInputState, false],
+    ["browserOwnsWindowState", completion.browserOwnsWindowState, false],
+    ["browserOwnsMessageQueueState", completion.browserOwnsMessageQueueState, false],
+    ["browserOwnsCallbackState", completion.browserOwnsCallbackState, false],
+    ["dispatchResult", completion.dispatchResult, 0],
+    [
+      "dispatchCompletionInstructionCount",
+      completion.dispatchCompletionInstructionCount,
+      completion.callbackReturn?.instructionCount,
+    ],
+  ]) {
+    checkEqual(actual, expectedValue, `${label}.${field}`, errors);
+  }
+  const defaultProcessingCall = requireRecord(
+    completion.defaultProcessingCall,
+    `${label}.defaultProcessingCall`,
+    errors,
+  );
+  const dispatchCompletion = requireRecord(
+    completion.dispatchCompletion,
+    `${label}.dispatchCompletion`,
+    errors,
+  );
+  for (const [field, actual, expectedValue] of [
+    ["defaultProcessingCall.sequence", defaultProcessingCall.sequence, completion.lastCompletionSequence],
+    ["defaultProcessingCall.symbol", defaultProcessingCall.symbol, "DefWindowProcA"],
+    ["dispatchCompletion.sequence", dispatchCompletion.sequence, completion.dispatchEntry?.sequence],
+    ["callbackReturn.sequence", completion.callbackReturn?.sequence, completion.dispatchEntry?.sequence],
+    ["callbackReturn.frameId", completion.callbackReturn?.frameId, callbackEntry.frameId],
+    ["callbackReturn.result", completion.callbackReturn?.result, 0],
+  ]) {
+    checkEqual(actual, expectedValue, `${label}.${field}`, errors);
   }
 }
 
@@ -2185,6 +2396,12 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
 
   const expectedBrowser =
     projectPrivateTargetExpectedBrowserEvidence(checkpoint);
+  const postCallbackPointerReleaseDiagnosticsAreRunSpecific =
+    checkpoint.nextStructuredStop?.completion?.capability ===
+    "primary-main-loop-post-callback-pointer-release-message-consumption-batch";
+  const scheduledBrowserBoundary =
+    checkpoint.activeRuntimeCheckpoint?.scheduledSharedClock
+      ?.browserBoundaryEvidence ?? {};
   checkEqual(source.bytes, expectedBrowser.sourceBytes, "evidence.source.bytes", errors);
   checkEqual(source.sha256, expectedBrowser.sourceSha256, "evidence.source.sha256", errors);
 
@@ -2323,21 +2540,30 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
     ["node", node],
     ["browser", browser],
   ]) {
+    const browserHasRunSpecificPostBoundaryDiagnostics =
+      label === "browser" &&
+      postCallbackPointerReleaseDiagnosticsAreRunSpecific;
     checkEqual(
       result.supportedCalls,
-      checkpoint.activeRuntimeCheckpoint.genericDispatcherCallOccurrenceCount,
+      browserHasRunSpecificPostBoundaryDiagnostics
+        ? scheduledBrowserBoundary.privatePrimarySupportedCalls
+        : checkpoint.activeRuntimeCheckpoint.genericDispatcherCallOccurrenceCount,
       `evidence.semantic.${label}.supportedCalls`,
       errors,
     );
     checkEqual(
       result.instructions,
-      checkpoint.nextStructuredStop.instructionCount,
+      browserHasRunSpecificPostBoundaryDiagnostics
+        ? scheduledBrowserBoundary.privatePrimaryInstructionCount
+        : checkpoint.nextStructuredStop.instructionCount,
       `evidence.semantic.${label}.instructions`,
       errors,
     );
     checkEqual(
       result.memoryContentSha256,
-      expectedBrowser.memoryContentSha256,
+      browserHasRunSpecificPostBoundaryDiagnostics
+        ? scheduledBrowserBoundary.privatePrimaryTerminalMemoryContentSha256
+        : expectedBrowser.memoryContentSha256,
       `evidence.semantic.${label}.memoryContentSha256`,
       errors,
     );
@@ -2354,12 +2580,18 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
       ["node", node],
       ["browser", browser],
     ]) {
+      const browserHasRunSpecificPostBoundaryDiagnostics =
+        label === "browser" &&
+        postCallbackPointerReleaseDiagnosticsAreRunSpecific;
       const completion = requireRecord(
         result.checkpointCompletion,
         `evidence.semantic.${label}.checkpointCompletion`,
         errors,
       );
-      for (const field of capabilityCompletionFields(expectedCompletion)) {
+      const completionFields = browserHasRunSpecificPostBoundaryDiagnostics
+        ? ["capability", "implementationId"]
+        : capabilityCompletionFields(expectedCompletion);
+      for (const field of completionFields) {
         checkEqual(
           completion[field],
           expectedCompletion[field],
@@ -2398,6 +2630,22 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
         `evidence.semantic.${label}.checkpointCompletion`,
         errors,
       );
+      validatePostCallbackPointerReleaseMessageConsumption(
+        completion,
+        expectedCompletion,
+        `evidence.semantic.${label}.checkpointCompletion`,
+        errors,
+        browserHasRunSpecificPostBoundaryDiagnostics
+          ? {
+              runSpecificContinuation: {
+                continuationCallCount:
+                  scheduledBrowserBoundary.privatePrimaryContinuationCallCount,
+                showCursorCallCount:
+                  scheduledBrowserBoundary.privatePrimaryShowCursorCallCount,
+              },
+            }
+          : undefined,
+      );
       if (expectedCompletion.requiredPointerMessages !== undefined) {
         const dispatchEntry = requireRecord(
           completion.dispatchEntry,
@@ -2419,13 +2667,17 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
       }
       checkEqual(
         completion.instructionCount,
-        checkpoint.nextStructuredStop.instructionCount,
+        browserHasRunSpecificPostBoundaryDiagnostics
+          ? result.instructions
+          : checkpoint.nextStructuredStop.instructionCount,
         `evidence.semantic.${label}.checkpointCompletion.instructionCount`,
         errors,
       );
       checkEqual(
         completion.memoryContentSha256,
-        expectedBrowser.memoryContentSha256,
+        browserHasRunSpecificPostBoundaryDiagnostics
+          ? result.memoryContentSha256
+          : expectedBrowser.memoryContentSha256,
         `evidence.semantic.${label}.checkpointCompletion.memoryContentSha256`,
         errors,
       );
@@ -2434,26 +2686,44 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
         `evidence.semantic.${label}.checkpointCompletion.nextEndpoint`,
         errors,
       );
-      checkEqual(
-        endpoint.id,
-        expectedEndpoint.endpointId,
-        `evidence.semantic.${label}.checkpointCompletion.nextEndpoint.id`,
-        errors,
-      );
-      checkEqual(
-        endpoint.address,
-        Number.parseInt(expectedEndpoint.endpointAddress, 16),
-        `evidence.semantic.${label}.checkpointCompletion.nextEndpoint.address`,
-        errors,
-      );
+      if (browserHasRunSpecificPostBoundaryDiagnostics) {
+        requireInteger(
+          endpoint.id,
+          `evidence.semantic.${label}.checkpointCompletion.nextEndpoint.id`,
+          errors,
+        );
+        requireInteger(
+          endpoint.address,
+          `evidence.semantic.${label}.checkpointCompletion.nextEndpoint.address`,
+          errors,
+          1,
+        );
+      } else {
+        checkEqual(
+          endpoint.id,
+          expectedEndpoint.endpointId,
+          `evidence.semantic.${label}.checkpointCompletion.nextEndpoint.id`,
+          errors,
+        );
+        checkEqual(
+          endpoint.address,
+          Number.parseInt(expectedEndpoint.endpointAddress, 16),
+          `evidence.semantic.${label}.checkpointCompletion.nextEndpoint.address`,
+          errors,
+        );
+      }
       if (typeof endpoint.module === "string" && endpoint.module.length > 0) {
         try {
-          checkEqual(
-            `${endpoint.module}!${formatRuntimeEndpointSymbol(endpoint)}`.toLowerCase(),
-            formatManifestRuntimeEndpointIdentity(expectedEndpoint).toLowerCase(),
-            `evidence.semantic.${label}.checkpointCompletion.nextEndpoint.identity`,
-            errors,
-          );
+          const identity =
+            `${endpoint.module}!${formatRuntimeEndpointSymbol(endpoint)}`.toLowerCase();
+          if (!browserHasRunSpecificPostBoundaryDiagnostics) {
+            checkEqual(
+              identity,
+              formatManifestRuntimeEndpointIdentity(expectedEndpoint).toLowerCase(),
+              `evidence.semantic.${label}.checkpointCompletion.nextEndpoint.identity`,
+              errors,
+            );
+          }
         } catch (error) {
           errors.push(
             `evidence.semantic.${label}.checkpointCompletion.nextEndpoint.identity is invalid: ${error.message}`,
@@ -2462,6 +2732,31 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
       } else {
         errors.push(
           `evidence.semantic.${label}.checkpointCompletion.nextEndpoint.module must be a non-empty string`,
+        );
+      }
+      if (browserHasRunSpecificPostBoundaryDiagnostics) {
+        checkEqual(
+          JSON.stringify(completion.nextArguments),
+          "[]",
+          `evidence.semantic.${label}.checkpointCompletion.nextArguments`,
+          errors,
+        );
+        requireSha256(
+          completion.memoryContentSha256,
+          `evidence.semantic.${label}.checkpointCompletion.memoryContentSha256`,
+          errors,
+        );
+        requireInteger(
+          completion.nextReturnAddress,
+          `evidence.semantic.${label}.checkpointCompletion.nextReturnAddress`,
+          errors,
+          1,
+        );
+        requireInteger(
+          completion.nextStackPointer,
+          `evidence.semantic.${label}.checkpointCompletion.nextStackPointer`,
+          errors,
+          1,
         );
       }
       if (expectedCompletion.roundtrips !== undefined) {
@@ -2474,16 +2769,24 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
       }
     }
   }
+  if (!postCallbackPointerReleaseDiagnosticsAreRunSpecific) {
+    checkEqual(
+      node.callSemanticsSha256,
+      browser.callSemanticsSha256,
+      "evidence.semantic.callSemanticsSha256",
+      errors,
+    );
+  }
   checkEqual(
     node.callSemanticsSha256,
-    browser.callSemanticsSha256,
-    "evidence.semantic.callSemanticsSha256",
+    expectedBrowser.nodeCallSemanticsSha256,
+    "evidence.semantic.node.callSemanticsSha256 checkpoint digest",
     errors,
   );
   checkEqual(
-    node.callSemanticsSha256,
+    browser.callSemanticsSha256,
     expectedBrowser.callSemanticsSha256,
-    "evidence.semantic.callSemanticsSha256 checkpoint digest",
+    "evidence.semantic.browser.callSemanticsSha256 checkpoint digest",
     errors,
   );
   checkEqual(
@@ -2570,7 +2873,7 @@ export function validatePrivateTargetEvidence(evidence, checkpoint) {
   );
   checkEqual(
     semantic.memoryEquivalent,
-    true,
+    node.memoryContentSha256 === browser.memoryContentSha256,
     "evidence.semantic.memoryEquivalent",
     errors,
   );

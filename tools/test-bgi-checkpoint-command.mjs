@@ -100,6 +100,31 @@ assert.match(
   /`--max-old-space-size=\$\{runtimeReplayHeapLimitMiB\}`/u,
   "BGI checkpoint wrapper must apply the replay heap bound to its Node child",
 );
+assert.match(
+  genericRunner,
+  /postCallbackPointerReleaseMessageConsumptionCheckpointEnabled\s*\? 524_288/u,
+  "pointer-release consumption must cover one further bounded main-loop cycle",
+);
+assert.match(
+  genericRunner,
+  /"primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch",\s*"primary-main-loop-post-callback-pointer-release-message-consumption-batch",\s*\]\.includes\(checkpointCompletion\.capability\)/u,
+  "pointer-release completion must survive the shared-clock checkpoint filter",
+);
+const candidateReportWrite = genericRunner.indexOf(
+  "fs.writeFileSync(candidateReportPath, reportBytes);",
+);
+const releaseReportValidation = genericRunner.indexOf(
+  "validatePostCallbackPointerReleaseMessageConsumptionResult(",
+);
+const finalReportWrite = genericRunner.indexOf(
+  "fs.writeFileSync(reportPath, reportBytes);",
+);
+assert(
+  candidateReportWrite >= 0 &&
+    candidateReportWrite < releaseReportValidation &&
+    releaseReportValidation < finalReportWrite,
+  "checkpoint candidate report must be durable before release validation",
+);
 assert(
   browserRunner.includes(
     `const runtimeProtocol = "${manifest.browserCheckpoint.browserRuntimeProtocol}";`,
@@ -421,6 +446,12 @@ assert.equal(
     "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch",
   ),
   "v86-bgi-post-callback-pointer-action-next-iteration-input-scan-batch",
+);
+assert.equal(
+  bgiProfileOutputDirectory(
+    "primary-main-loop-post-callback-pointer-release-message-consumption-batch",
+  ),
+  "v86-bgi-post-callback-pointer-release-message-consumption-batch",
 );
 assert.throws(() => bgiProfileOutputDirectory("xaudio2-audio"));
 

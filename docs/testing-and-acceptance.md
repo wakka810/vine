@@ -2542,6 +2542,29 @@ Protocol v136／report schema 101でcancel／watchdog cleanupも維持し、次�
 response、full-playはこのacceptanceへ含めない。Exact artifact identityと再現commandは
 [current-checkpoint.json](current-checkpoint.json)を正とする。
 
+Post-callback pointer-release message-consumption batchは、そのinput-scan completionを
+prerequisiteに、既存clock／graphics／wait／window／message contractを通ってqueued message
+117へ進む。独立に到達したno-release continuationの`ShowCursor(FALSE)`はnative／Rust testと
+immutable caller disassemblyにより、current-thread signed counter、returned `INT == -1`、LastError
+preserve、guest write 0を固定する。Injected-release checkpointではcanonical Node／Chromeとも
+already-queued releaseを先に消費し、他の妥当なpacingでもこの中間occurrenceは最大一回のoptional evidenceとする。
+`PeekMessageA(PM_REMOVE)`の28-byte `WM_LBUTTONUP` writeとatomic remove、
+mutation-free `TranslateMessage`、`DispatchMessageA` callback entry、reached
+`DefWindowProcA` result 0、WndProc return、外側dispatch completionを一つのordered batchで
+検証し、callback depth 0かつempty queueでdispatch retirementを完了条件とする。その後に観測される
+owned endpointはUSER32 message-loop callにも`timeGetTime`等の既到達importやCOM methodにもなり得る。
+これは既にdueなtimer／message pacingに依存するdiagnostic stopであり、引数をclaimせず、semantic
+completionやNode／Chrome equivalenceの選択条件にしない。
+Protocol v137／report schema 102は各runのpost-scan completionをlocalに連続検証し、Node／Chrome間では
+release event／message identity、Peek／Translate／Dispatch／default-processing semantics、callback
+target／result、authority、cancel／watchdog cleanupを一致させる。中間call count／digest、optional
+`ShowCursor` occurrence、callback frame IDと、Dispatch retirement後のendpoint、instruction、stack、
+whole-memory digestは各runで妥当性とmanifest値を検証するが、cross-adapter equalityにはしない。
+TypeScriptはWindows input／queue／callback／clock／window stateを所有しない。Filtering、
+`PM_NOREMOVE`、capture transition、visible response、general message-loop breadth、full-playは
+このacceptanceへ含めない。Exact値とartifact identityは
+[current-checkpoint.json](current-checkpoint.json)を正とする。
+
 W3 representative browser contractは、このW2 harnessが成功後にemitする`vine.browser-present` version `1` eventをexactly 1件だけ受け取る。payloadはframe `2x2`、`rgba8` sparse pixel `(1,1) = [255,0,0,255]`である。one-shot Canvas 2D sinkはschema／version／payloadを検査して1回だけ`putImageData`し、clean temporary Chrome profileでpresent count `1`、Canvas `2x2`、`getImageData` readback `[255,0,0,255]`をassertする。これはbrowser-facing pixel boundaryの代表test 1本であり、guest execution／Worker protocol、production surface／queue／renderer、frame timing、visible monitor output、general pixel conversionを代用しない。
 
 後続のChrome Runtime Worker contractはW3とは別に、controlled PE32のguest CPUをWorker内で実行し、generic trap、

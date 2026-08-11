@@ -2,7 +2,7 @@ import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 import type { BrowserNativeStorageConfiguration } from "../storage/protocol.js";
 
-export const protocolVersion = 136 as const;
+export const protocolVersion = 137 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -53,6 +53,7 @@ export type BgiCapabilityProfile =
   | "primary-main-loop-post-callback-pointer-action-continuation-batch"
   | "primary-main-loop-post-callback-pointer-action-next-iteration-batch"
   | "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
+  | "primary-main-loop-post-callback-pointer-release-message-consumption-batch"
   | "user32-set-window-pos-repeat-activation"
   | "d3d9-recreated-textures"
   | "user32-set-window-pos-frame-change-move"
@@ -1761,6 +1762,108 @@ export interface PrimaryMainLoopPostCallbackPointerActionNextIterationInputScanB
   nextStackPointer: number;
 }
 
+export interface PrimaryMainLoopPostCallbackPointerReleaseMessageConsumptionBatchCheckpoint {
+  capability: "primary-main-loop-post-callback-pointer-release-message-consumption-batch";
+  implementationId: "runtime.primary-main-loop-post-callback-pointer-release-message-consumption-batch.v1";
+  requiredCompletions: number;
+  completionCount: number;
+  prerequisiteInputScan: PrimaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchCheckpoint;
+  prerequisiteCompletionSequence: number;
+  prerequisiteCompletionInstructionCount: number;
+  firstCompletionSequence: number;
+  firstCompletionInstructionCount: number;
+  lastCompletionSequence: number;
+  lastCompletionInstructionCount: number;
+  continuationCalls: Array<
+    RuntimeSupportedCallSnapshot & {
+      occurrence: number;
+      trapInstructionCount: number;
+    }
+  >;
+  releaseInputEvent: RuntimePointerButtonInputBoundaryEvidence;
+  message: RuntimeThreadMessageSnapshot;
+  peekMessage: RuntimeSupportedCallSnapshot & {
+    occurrence: number;
+    trapInstructionCount: number;
+  };
+  translateMessage: RuntimeSupportedCallSnapshot & {
+    occurrence: number;
+    trapInstructionCount: number;
+  };
+  dispatchEntry: {
+    sequence: number;
+    module: string;
+    symbol: "DispatchMessageA";
+    occurrence: number;
+    trapInstructionCount: number;
+    arguments: [number];
+    pendingCallback: true;
+    implementationId: "user32.dispatch-message-a.window-timer-pointer-callback.v2";
+  };
+  callbackEntry: {
+    action: "enter";
+    sequence: number;
+    frameId: number;
+    instructionCount: number;
+    target: number;
+    stackPointer: number;
+    arguments: [number, number, number, number];
+  };
+  defaultProcessingCall: RuntimeSupportedCallSnapshot & {
+    occurrence: number;
+    trapInstructionCount: number;
+  };
+  dispatchCompletion: RuntimeSupportedCallSnapshot & {
+    occurrence: number;
+    trapInstructionCount: number;
+  };
+  callbackReturn: {
+    action: "return";
+    sequence: number;
+    frameId: number;
+    instructionCount: number;
+    result: number;
+  };
+  dispatchResult: 0;
+  dispatchCompletionInstructionCount: number;
+  completionBoundary: "callback-and-outer-dispatch-retired";
+  nextEndpointPolicy: "observed-only-after-dispatch-completion";
+  nextArgumentsPolicy: "omitted-observed-only";
+  queueDepthAtCallbackEntry: 0;
+  messageRemoved: true;
+  stateAuthority: "rust-runtime-input-window-message-queue-callback-process-clock-and-guest-memory";
+  mutation: "owner-local-preflight-targeted-commits";
+  failureAtomicity: true;
+  browserOwnsInputState: false;
+  browserOwnsWindowState: false;
+  browserOwnsMessageQueueState: false;
+  browserOwnsCallbackState: false;
+  activeCallbackDepthAtConsumption: 1;
+  activeCallbackDepthAtStop: 0;
+  instructionCount: number;
+  nextEndpoint: {
+    id: number;
+    address: number;
+    module: string;
+    symbol:
+      | { kind: "name"; name: string }
+      | { kind: "ordinal"; ordinal: number };
+    disposition?:
+      | "declared-runtime-export"
+      | "declared-com-method"
+      | "observed-owned-endpoint";
+    iatAddress?: number;
+    interfaceIndex?: number;
+    vtableSlot?: number;
+    interface?: string;
+    method?: string;
+  };
+  nextArguments: [];
+  memoryContentSha256: string;
+  nextReturnAddress: number;
+  nextStackPointer: number;
+}
+
 export interface SessionReport {
   evidenceLevel: "full" | "summary";
   outcome:
@@ -2410,6 +2513,7 @@ export interface SessionReport {
     memoryContentSha256: string;
   } | null;
   checkpointCompletion:
+    | PrimaryMainLoopPostCallbackPointerReleaseMessageConsumptionBatchCheckpoint
     | PrimaryMainLoopPostCallbackPointerActionNextIterationInputScanBatchCheckpoint
     | PrimaryMainLoopPostCallbackPointerActionNextIterationBatchCheckpoint
     | PrimaryMainLoopPostCallbackPointerActionContinuationBatchCheckpoint

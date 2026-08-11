@@ -79,6 +79,73 @@ export function projectCapabilityCheckpointCompletion(completion) {
   );
   if (
     projected.capability ===
+    "primary-main-loop-post-callback-pointer-release-message-consumption-batch"
+  ) {
+    if (
+      !Array.isArray(projected.continuationCalls) ||
+      projected.continuationCalls.length <= 4
+    ) {
+      throw new TypeError(
+        "post-callback pointer release message consumption must include its continuation calls",
+      );
+    }
+    const projectContinuationCall = (call) => {
+      const value = requireRecord(
+        call,
+        "post-callback pointer release message continuation call",
+      );
+      return {
+        sequence: value.sequence,
+        symbol: value.symbol,
+        occurrence: value.occurrence,
+        trapInstructionCount: value.trapInstructionCount,
+        arguments: value.arguments,
+        result: value.result,
+        implementationId: value.implementationId,
+        lastError: value.lastError,
+        pendingCallback: value.pendingCallback,
+        guestWriteBytes: Array.isArray(value.guestWrites)
+          ? value.guestWrites.reduce(
+              (total, write) =>
+                total +
+                (Array.isArray(write?.bytes)
+                  ? write.bytes.length
+                  : (write?.byteLength ?? 0)),
+              0,
+            )
+          : 0,
+      };
+    };
+    const continuationCalls = projected.continuationCalls.map(
+      projectContinuationCall,
+    );
+    const showCursorCalls = continuationCalls.filter(
+      (call) => call.symbol === "ShowCursor",
+    );
+    if (showCursorCalls.length > 1) {
+      throw new TypeError(
+        "post-callback pointer release message consumption must include at most one ShowCursor call",
+      );
+    }
+    projected.continuationCallCount = continuationCalls.length;
+    projected.firstContinuationCall = continuationCalls[0];
+    projected.showCursorCallCount = showCursorCalls.length;
+    if (showCursorCalls[0] !== undefined) {
+      projected.showCursorCall = showCursorCalls[0];
+    }
+    delete projected.continuationCalls;
+    projected.defaultProcessingCall = projectContinuationCall(
+      projected.defaultProcessingCall,
+    );
+    projected.dispatchCompletion = projectContinuationCall(
+      projected.dispatchCompletion,
+    );
+    projected.prerequisiteInputScan = projectCapabilityCheckpointCompletion(
+      projected.prerequisiteInputScan,
+    );
+  }
+  if (
+    projected.capability ===
     "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
   ) {
     if (!Array.isArray(projected.scanCalls) || projected.scanCalls.length !== 4) {

@@ -708,6 +708,11 @@ stale-checked lifecycle planでretireする。Selection bandはversioned policy�
 browser bitmapとのassociationは明示的なnon-owning adapter stateとし、native HCURSORやbrowser
 resource IDをguest-visible identityへimportしない。
 
+Reached `ShowCursor`のsigned display counterは`RuntimeThreads`がcurrent-thread authorityとして所有する。
+各BOOL callはselected running threadの現countからincrement／decrementした`INT`を返し、overflow、stale plan、
+invalid thread／process lifecycleをmutation前に拒否する。Cursor resource identity、current pointer position、
+DOM／CSS visibilityとは別datumであり、TypeScriptはcounterを複製しない。各counterはthread terminationでzeroへ戻る。
+
 Reached `GetCursorInfo`は新しいcursor state ownerを作らず、policy-selected system-arrow sourceを
 `RuntimeUser32`のprivate source indexで解決し、screen pointを`RuntimeInput`から読むcross-subsystem
 projectionとする。Aggregateはexact x86 structure size、両ownerのliveness、GuestMemory output spanを

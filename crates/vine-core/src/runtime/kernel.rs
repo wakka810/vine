@@ -5755,6 +5755,20 @@ impl RuntimeKernel {
         self.user32.cursors()
     }
 
+    pub(crate) fn show_cursor(&mut self, show: bool) -> Result<i32, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let thread_id = self.current_thread_id();
+        let (plan, count) = self
+            .threads
+            .plan_cursor_display_count_change(thread_id, show)?;
+        self.threads.commit_cursor_display_count_change(plan)?;
+        Ok(count)
+    }
+
+    pub fn current_thread_cursor_display_count(&self) -> Result<i32, RuntimeStateError> {
+        self.threads.cursor_display_count(self.current_thread_id())
+    }
+
     pub(crate) fn register_window_class(
         &mut self,
         registration: RuntimeWindowClassRegistration,

@@ -12,8 +12,9 @@ const worker = read("browser/runtime-worker/runtime-worker.ts");
 const bridge = read("browser/runtime-worker/runtime-bridge.ts");
 const fullProbe = read("browser/runtime-worker/bgi-check.ts");
 const benchmark = read("browser/runtime-worker/bgi-benchmark.ts");
+const browserRunner = read("tools/run-browser-runtime-check.mjs");
 
-assert.match(protocol, /protocolVersion = 136 as const/u);
+assert.match(protocol, /protocolVersion = 137 as const/u);
 assert.match(protocol, /"d3d9-begin-scene-post-partial-dirty-region"/u);
 assert.match(protocol, /"d3d9-set-sampler-state-post-begin-scene"/u);
 assert.match(
@@ -88,8 +89,28 @@ assert.match(
   protocol,
   /capability: "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch";[\s\S]*?implementationId: "runtime\.primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch\.v1";[\s\S]*?scanVirtualKeys: \[2, 4, 5, 6\];[\s\S]*?stateAuthority: "rust-runtime-input";[\s\S]*?mutation: "read-and-pressed-bit-consumption-per-query";[\s\S]*?symbol: \{ kind: "name"; name: "timeGetTime" \};/u,
 );
+assert.match(
+  protocol,
+  /capability: "primary-main-loop-post-callback-pointer-release-message-consumption-batch";[\s\S]*?implementationId: "runtime\.primary-main-loop-post-callback-pointer-release-message-consumption-batch\.v1";[\s\S]*?prerequisiteInputScan:[\s\S]*?continuationCalls:[\s\S]*?dispatchCompletion:[\s\S]*?completionBoundary: "callback-and-outer-dispatch-retired";[\s\S]*?nextEndpointPolicy: "observed-only-after-dispatch-completion";[\s\S]*?nextArgumentsPolicy: "omitted-observed-only";[\s\S]*?messageRemoved: true;[\s\S]*?stateAuthority: "rust-runtime-input-window-message-queue-callback-process-clock-and-guest-memory";/u,
+);
+assert.match(
+  protocol,
+  /nextArguments: \[\];/u,
+);
 assert.match(protocol, /evidenceLevel: "full" \| "summary"/u);
 assert.match(protocol, /capabilityProfile\?: BgiCapabilityProfile/u);
+assert.match(
+  fullProbe,
+  /"primary-main-loop-post-callback-pointer-release-message-consumption-batch"\s*\? 8_000_000_000/u,
+);
+assert.match(
+  fullProbe,
+  /"primary-main-loop-post-callback-pointer-release-message-consumption-batch"\s*\? 3_600_000/u,
+);
+assert.match(
+  browserRunner,
+  /primaryMainLoopPostCallbackPointerReleaseMessageConsumptionProfile\s*\? 3_600_000/u,
+);
 assert.match(protocol, /supportedCallCount: number/u);
 assert.match(
   protocol,

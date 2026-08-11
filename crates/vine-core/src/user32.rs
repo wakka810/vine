@@ -68,6 +68,7 @@ pub const GET_CLIENT_RECT_IMPLEMENTATION: &str = "user32.get-client-rect.v1";
 pub const GET_WINDOW_RECT_IMPLEMENTATION: &str = "user32.get-window-rect.v1";
 pub const GET_CURSOR_POS_IMPLEMENTATION: &str = "user32.get-cursor-pos.v1";
 pub const GET_CURSOR_INFO_IMPLEMENTATION: &str = "user32.get-cursor-info.system-arrow.v1";
+pub const SHOW_CURSOR_IMPLEMENTATION: &str = "user32.show-cursor.display-count.v1";
 pub const PEEK_MESSAGE_A_IMPLEMENTATION: &str = "user32.peek-message-a.current-thread.v1";
 pub const TRANSLATE_MESSAGE_IMPLEMENTATION: &str =
     "user32.translate-message.window-timer-pointer-noop.v2";
@@ -1689,6 +1690,10 @@ pub fn dispatch_user32_api_with_policy(
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
         }
+        SHOW_CURSOR_IMPLEMENTATION => match handle_show_cursor(contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
         PEEK_MESSAGE_A_IMPLEMENTATION => {
             match handle_peek_message_a(policy, contract, frame, session) {
                 Ok(immediate) => ApiHandlerResult::Immediate(immediate),
@@ -2221,6 +2226,19 @@ fn handle_get_cursor_info(
     Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
         .with_last_error(preserved_last_error)
         .with_guest_write(GuestAddress(output), bytes))
+}
+
+fn handle_show_cursor(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let show = required_argument(contract, frame, 0, "show flag")? != 0;
+    let count = session
+        .runtime_mut()
+        .show_cursor(show)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::I32(count)))
 }
 
 fn handle_peek_message_a(
@@ -7456,6 +7474,7 @@ pub fn user32_contract_for_endpoint(
         "GetWindowRect" => Ok(Some(get_window_rect_contract(endpoint)?)),
         "GetCursorPos" => Ok(Some(get_cursor_pos_contract(endpoint)?)),
         "GetCursorInfo" => Ok(Some(get_cursor_info_contract(endpoint)?)),
+        "ShowCursor" => Ok(Some(show_cursor_contract(endpoint)?)),
         "PeekMessageA" => Ok(Some(peek_message_a_contract(endpoint)?)),
         "TranslateMessage" => Ok(Some(translate_message_contract(endpoint)?)),
         "DispatchMessageA" => Ok(Some(dispatch_message_a_contract(endpoint)?)),
@@ -7890,6 +7909,23 @@ pub fn get_cursor_info_contract(endpoint: ApiEndpointIdentity) -> Result<ApiCont
     })
 }
 
+pub fn show_cursor_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![bool32_argument("show")],
+            return_value: ApiReturnSchema::I32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::Preserve,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: SHOW_CURSOR_IMPLEMENTATION.to_owned(),
+    })
+}
+
 pub fn peek_message_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
     Ok(ApiContract {
         endpoint,
@@ -8284,6 +8320,14 @@ fn u32_argument(name: &str) -> ApiArgumentSchema {
         name: name.to_owned(),
         direction: ApiDirection::In,
         value: ApiValueSchema::U32,
+    }
+}
+
+fn bool32_argument(name: &str) -> ApiArgumentSchema {
+    ApiArgumentSchema {
+        name: name.to_owned(),
+        direction: ApiDirection::In,
+        value: ApiValueSchema::Bool32,
     }
 }
 
