@@ -5,30 +5,34 @@ use encoding_rs::{EncoderResult, SHIFT_JIS};
 use crate::api::{
     AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDeferredCall,
     ApiDirection, ApiDispatcher, ApiDynamicPointerConstraint, ApiEndpointIdentity, ApiFault,
-    ApiGuestWrite, ApiGuestWriteReceipt, ApiHandlerResult, ApiImmediate, ApiPointeeSchema,
-    ApiPointerConstraint, ApiReturnSchema, ApiReturnValue, ApiStringEncoding, ApiSymbol,
-    ApiValueSchema, ApiWriteRequirement, CallbackPolicy, CallingConvention, DispatchOutcome,
-    ExecutionSession, HostCompletion, LastErrorPolicy, ReentrancyPolicy, StackCleanup,
+    ApiGuestCallbackCall, ApiGuestWrite, ApiGuestWriteReceipt, ApiHandlerResult, ApiImmediate,
+    ApiPointeeSchema, ApiPointerConstraint, ApiReturnSchema, ApiReturnValue, ApiStringEncoding,
+    ApiSymbol, ApiValueSchema, ApiWriteRequirement, CallbackPolicy, CallingConvention,
+    DispatchOutcome, ExecutionSession, GuestCallbackArgument, GuestCallbackCompletionPolicy,
+    GuestCallbackRequest, HostCompletion, LastErrorPolicy, ReentrancyPolicy, StackCleanup,
 };
 use crate::dynamic_exports::DYNAMIC_EXPORT_ENDPOINT_NAMESPACE;
 use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
     LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE,
-    RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_FILE_SEARCH_NAMESPACE,
-    RUNTIME_PRIVATE_HEAP_ALIGNMENT, RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING,
+    RUNTIME_AUDIO_NOTIFICATION_LIMIT, RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE,
+    RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_EVENT_OBJECT_NAMESPACE,
+    RUNTIME_FILE_SEARCH_NAMESPACE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
+    RUNTIME_PRIVATE_HEAP_ARENA_STRIDE, RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING,
     RUNTIME_SOURCE_FILE_NAMESPACE, RUNTIME_SOURCE_READ_MAX_BYTES, RUNTIME_SOURCE_READ_SERVICE,
     RUNTIME_THREAD_OBJECT_NAMESPACE, RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
     RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE,
     RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, RUNTIME_WRITABLE_FILE_MAX_IO_BYTES,
     RUNTIME_WRITABLE_READ_SERVICE, RuntimeApiBoundaryDisposition, RuntimeCreateThreadRequest,
     RuntimeCriticalSection, RuntimeFileBacking, RuntimeFileSearchEntry, RuntimeFileSearchEntryKind,
-    RuntimeHandle, RuntimeHeapInitialization, RuntimeMutexNameA, RuntimeObjectKind,
-    RuntimePathResolution, RuntimeSourceReadHostResponse, RuntimeStateErrorClass,
-    RuntimeThreadPriority, RuntimeVirtualMemoryReserveRequest, RuntimeWaitForSingleObjectExBegin,
-    RuntimeWaitForSingleObjectExOutcome, RuntimeWaitForSingleObjectExResult,
-    RuntimeWritableCommitHostResponse, RuntimeWritableDirectoryCreateHostResponse,
-    X86_CRITICAL_SECTION_BYTE_LENGTH, X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeHandle, RuntimeHeapInitialization, RuntimeHostCompletion, RuntimeMutexNameA,
+    RuntimeObjectKind, RuntimePathResolution, RuntimeSourceReadHostResponse,
+    RuntimeStateErrorClass, RuntimeThreadPriority, RuntimeVirtualMemoryReserveRequest,
+    RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
+    RuntimeWaitForSingleObjectExResult, RuntimeWaitState, RuntimeWritableCommitHostResponse,
+    RuntimeWritableDirectoryCreateHostResponse, X86_CRITICAL_SECTION_BYTE_LENGTH,
+    X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 mod policy;
@@ -52,6 +56,9 @@ pub use policy::{
 
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
     "kernel32.get-system-time-as-file-time.v1";
+pub const GET_SYSTEM_TIME_IMPLEMENTATION: &str = "kernel32.get-system-time.v1";
+pub const RAISE_EXCEPTION_IMPLEMENTATION: &str = "kernel32.raise-exception.seh-dispatch.v1";
+pub const RTL_UNWIND_IMPLEMENTATION: &str = "kernel32.rtl-unwind.current-seh-frame.v1";
 pub const GET_CURRENT_PROCESS_ID_IMPLEMENTATION: &str = "kernel32.get-current-process-id.v1";
 pub const GET_CURRENT_THREAD_ID_IMPLEMENTATION: &str = "kernel32.get-current-thread-id.v1";
 pub const GET_CURRENT_THREAD_IMPLEMENTATION: &str = "kernel32.get-current-thread.v1";
@@ -104,6 +111,12 @@ pub const FLUSH_FILE_BUFFERS_IMPLEMENTATION: &str = "kernel32.flush-file-buffers
 pub const SET_FILE_POINTER_IMPLEMENTATION: &str = "kernel32.set-file-pointer.source.v1";
 pub const CLOSE_HANDLE_IMPLEMENTATION: &str = "kernel32.close-handle.v2";
 pub const CREATE_MUTEX_A_IMPLEMENTATION: &str = "kernel32.create-mutex-a.v1";
+pub const CREATE_EVENT_A_IMPLEMENTATION: &str = "kernel32.create-event-a.unnamed.v1";
+pub const SET_EVENT_IMPLEMENTATION: &str = "kernel32.set-event.v1";
+pub const RESET_EVENT_IMPLEMENTATION: &str = "kernel32.reset-event.v1";
+pub const WAIT_FOR_SINGLE_OBJECT_IMPLEMENTATION: &str = "kernel32.wait-for-single-object.event.v1";
+pub const WAIT_FOR_MULTIPLE_OBJECTS_IMPLEMENTATION: &str =
+    "kernel32.wait-for-multiple-objects.dsound-events.v1";
 pub const CREATE_WAITABLE_TIMER_A_IMPLEMENTATION: &str = "kernel32.create-waitable-timer-a.v1";
 pub const SET_WAITABLE_TIMER_IMPLEMENTATION: &str =
     "kernel32.set-waitable-timer.relative-one-shot.v1";
@@ -119,6 +132,7 @@ pub const GET_STARTUP_INFO_W_IMPLEMENTATION: &str = "kernel32.get-startup-info-w
 pub const HEAP_SET_INFORMATION_IMPLEMENTATION: &str = "kernel32.heap-set-information.v1";
 pub const HEAP_CREATE_IMPLEMENTATION: &str = "kernel32.heap-create.v1";
 pub const HEAP_ALLOC_IMPLEMENTATION: &str = "kernel32.heap-alloc.v2";
+pub const HEAP_REALLOC_IMPLEMENTATION: &str = "kernel32.heap-realloc.move.v1";
 pub const HEAP_FREE_IMPLEMENTATION: &str = "kernel32.heap-free.v1";
 pub const HEAP_SIZE_IMPLEMENTATION: &str = "kernel32.heap-size.v1";
 pub const LOAD_LIBRARY_A_IMPLEMENTATION: &str = "kernel32.load-library-a.runtime-system.v1";
@@ -168,6 +182,17 @@ const INVALID_HANDLE_VALUE: u32 = u32::MAX;
 const WAIT_OBJECT_0: u32 = 0;
 const WAIT_TIMEOUT: u32 = 258;
 const WAIT_FAILED: u32 = u32::MAX;
+const EXCEPTION_NONCONTINUABLE: u32 = 1;
+const EXCEPTION_UNWINDING: u32 = 2;
+const EXCEPTION_CONTINUE_EXECUTION: u32 = 0;
+const EXCEPTION_CONTINUE_SEARCH: u32 = 1;
+const EXCEPTION_NESTED_EXCEPTION: u32 = 2;
+const EXCEPTION_COLLIDED_UNWIND: u32 = 3;
+const EXCEPTION_MAXIMUM_PARAMETERS: usize = 15;
+const X86_EXCEPTION_RECORD_BYTES: usize = 80;
+const X86_CONTEXT_BYTES: usize = 716;
+const X86_CONTEXT_OFFSET: u32 = X86_EXCEPTION_RECORD_BYTES as u32;
+const X86_CONTEXT_FULL_CONTROL_INTEGER_SEGMENTS: u32 = 0x0001_0007;
 const X86_OS_VERSION_INFO_A_BASE_BYTES: u32 = 148;
 const X86_OS_VERSION_INFO_EX_A_BYTES: u32 = 156;
 const X86_WIN32_FIND_DATA_A_BYTES: usize = 320;
@@ -212,6 +237,12 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
     frame: &ApiCallFrame,
     session: &mut ExecutionSession<'_>,
 ) -> ApiHandlerResult {
+    if contract.implementation_id == RAISE_EXCEPTION_IMPLEMENTATION {
+        return handle_raise_exception(contract, frame, session);
+    }
+    if contract.implementation_id == RTL_UNWIND_IMPLEMENTATION {
+        return handle_rtl_unwind(contract, frame, session);
+    }
     if contract.implementation_id == READ_FILE_IMPLEMENTATION {
         return handle_read_file(policy, contract, frame, session);
     }
@@ -227,10 +258,14 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
     if contract.implementation_id == WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION {
         return handle_wait_for_single_object_ex(policy, contract, frame, session);
     }
+    if contract.implementation_id == WAIT_FOR_MULTIPLE_OBJECTS_IMPLEMENTATION {
+        return handle_wait_for_multiple_objects(contract, frame, session);
+    }
     let result = match contract.implementation_id.as_str() {
         GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION => {
             handle_get_system_time_as_file_time(contract, frame, session)
         }
+        GET_SYSTEM_TIME_IMPLEMENTATION => handle_get_system_time(contract, frame, session),
         GET_CURRENT_PROCESS_ID_IMPLEMENTATION => handle_get_current_process_id(session),
         GET_CURRENT_THREAD_ID_IMPLEMENTATION => handle_get_current_thread_id(session),
         GET_CURRENT_THREAD_IMPLEMENTATION => handle_get_current_thread(contract, session),
@@ -303,6 +338,12 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
             handle_set_file_pointer(policy, contract, frame, session)
         }
         CREATE_MUTEX_A_IMPLEMENTATION => handle_create_mutex_a(policy, contract, frame, session),
+        CREATE_EVENT_A_IMPLEMENTATION => handle_create_event_a(contract, frame, session),
+        SET_EVENT_IMPLEMENTATION => handle_set_event(contract, frame, session, true),
+        RESET_EVENT_IMPLEMENTATION => handle_set_event(contract, frame, session, false),
+        WAIT_FOR_SINGLE_OBJECT_IMPLEMENTATION => {
+            handle_wait_for_single_object(contract, frame, session)
+        }
         CREATE_WAITABLE_TIMER_A_IMPLEMENTATION => {
             handle_create_waitable_timer_a(policy, contract, frame, session)
         }
@@ -326,6 +367,7 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
         }
         HEAP_CREATE_IMPLEMENTATION => handle_heap_create(contract, frame, session),
         HEAP_ALLOC_IMPLEMENTATION => handle_heap_alloc(policy, contract, frame, session),
+        HEAP_REALLOC_IMPLEMENTATION => handle_heap_realloc(policy, contract, frame, session),
         HEAP_FREE_IMPLEMENTATION => handle_heap_free(policy, contract, frame, session),
         HEAP_SIZE_IMPLEMENTATION => handle_heap_size(policy, contract, frame, session),
         LOAD_LIBRARY_A_IMPLEMENTATION => handle_load_library_a(policy, contract, frame, session),
@@ -383,6 +425,9 @@ pub fn kernel32_contract_for_endpoint(
     };
     let contract = match name.as_str() {
         "GetSystemTimeAsFileTime" => get_system_time_as_file_time_contract(endpoint)?,
+        "GetSystemTime" => get_system_time_contract(endpoint)?,
+        "RaiseException" => raise_exception_contract(endpoint)?,
+        "RtlUnwind" => rtl_unwind_contract(endpoint)?,
         "GetCurrentProcessId" => get_current_process_id_contract(endpoint)?,
         "GetCurrentThreadId" => get_current_thread_id_contract(endpoint)?,
         "GetCurrentThread" => get_current_thread_contract(endpoint)?,
@@ -427,6 +472,11 @@ pub fn kernel32_contract_for_endpoint(
         "SetFilePointer" => set_file_pointer_contract(endpoint)?,
         "CloseHandle" => close_handle_contract(endpoint)?,
         "CreateMutexA" => create_mutex_a_contract(endpoint)?,
+        "CreateEventA" => create_event_a_contract(endpoint)?,
+        "SetEvent" => set_event_contract(endpoint)?,
+        "ResetEvent" => reset_event_contract(endpoint)?,
+        "WaitForSingleObject" => wait_for_single_object_contract(endpoint)?,
+        "WaitForMultipleObjects" => wait_for_multiple_objects_contract(endpoint)?,
         "CreateWaitableTimerA" => create_waitable_timer_a_contract(endpoint)?,
         "SetWaitableTimer" => set_waitable_timer_contract(endpoint)?,
         "WaitForSingleObjectEx" => wait_for_single_object_ex_contract(endpoint)?,
@@ -439,6 +489,7 @@ pub fn kernel32_contract_for_endpoint(
         "HeapSetInformation" => heap_set_information_contract(endpoint)?,
         "HeapCreate" => heap_create_contract(endpoint)?,
         "HeapAlloc" => heap_alloc_contract(endpoint)?,
+        "HeapReAlloc" => heap_realloc_contract(endpoint)?,
         "HeapFree" => heap_free_contract(endpoint)?,
         "HeapSize" => heap_size_contract(endpoint)?,
         "LoadLibraryA" => load_library_a_contract(endpoint)?,
@@ -481,6 +532,560 @@ fn handle_get_system_time_as_file_time(
             .to_le_bytes()
             .to_vec(),
     ))
+}
+
+fn handle_raise_exception(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> ApiHandlerResult {
+    match prepare_raise_exception_callback(contract, frame, session) {
+        Ok(request) => ApiHandlerResult::GuestCallback(request),
+        Err(fault) => ApiHandlerResult::Fault(fault),
+    }
+}
+
+fn handle_rtl_unwind(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> ApiHandlerResult {
+    match rtl_unwind_current_seh_frame(contract, frame, session) {
+        Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+        Err(fault) => ApiHandlerResult::Fault(fault),
+    }
+}
+
+fn rtl_unwind_current_seh_frame(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let target_frame = GuestAddress(required_argument(contract, frame, 0, "target frame")?);
+    let target_ip = GuestAddress(required_argument(contract, frame, 1, "target instruction")?);
+    let exception_record = GuestAddress(required_argument(contract, frame, 2, "exception record")?);
+    let return_value = required_argument(contract, frame, 3, "return value")?;
+    if target_frame.0 == 0 {
+        return Err(ApiFault::unsupported(
+            "win32-seh",
+            "rtl-unwind-exit-unwind-unsupported",
+            "RtlUnwind exit unwind is not implemented",
+        ));
+    }
+    if target_ip != frame.return_address {
+        return Err(ApiFault::unsupported(
+            "win32-seh",
+            "rtl-unwind-nonlocal-target-unsupported",
+            "RtlUnwind currently supports the reached continuation at the API return address",
+        ));
+    }
+    session
+        .memory()
+        .validate_access(target_ip, 1, MemoryAccess::Execute)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    if exception_record.0 == 0 {
+        return Err(ApiFault::unsupported(
+            "win32-seh",
+            "rtl-unwind-generated-exception-record-unsupported",
+            "RtlUnwind with a generated exception record is not implemented",
+        ));
+    }
+    let teb_address = session
+        .runtime()
+        .current_thread_teb_address()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let current_head = GuestAddress(read_guest_u32(session, teb_address, &contract.endpoint)?);
+    if current_head != target_frame {
+        return Err(ApiFault::unsupported(
+            "win32-seh",
+            "rtl-unwind-intermediate-frames-unsupported",
+            "RtlUnwind currently supports a target equal to the current SEH chain head",
+        ));
+    }
+    let registration = read_x86_exception_registration(session, target_frame, &contract.endpoint)?;
+    let exception_bytes = session
+        .memory()
+        .read(exception_record, X86_EXCEPTION_RECORD_BYTES)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    session
+        .memory()
+        .validate_access(
+            exception_record,
+            X86_EXCEPTION_RECORD_BYTES,
+            MemoryAccess::Write,
+        )
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let exception_flags = u32::from_le_bytes(
+        exception_bytes[4..8]
+            .try_into()
+            .expect("exception flags word"),
+    );
+    if exception_flags & !EXCEPTION_NONCONTINUABLE != 0 {
+        return Err(ApiFault::unsupported(
+            "win32-seh",
+            "rtl-unwind-exception-flags-unsupported",
+            "RtlUnwind currently supports the reached noncontinuable dispatch record",
+        ));
+    }
+    let exception_flags_address = exception_record
+        .0
+        .checked_add(4)
+        .map(GuestAddress)
+        .ok_or_else(|| {
+            ApiFault::invalid_call(
+                "win32-seh",
+                "rtl-unwind-exception-flags-address-overflow",
+                "RtlUnwind exception flags cross the x86 address limit",
+            )
+        })?;
+    let writes = [
+        ApiGuestWrite {
+            address: teb_address,
+            bytes: registration.next.0.to_le_bytes().to_vec(),
+        },
+        ApiGuestWrite {
+            address: exception_flags_address,
+            bytes: (exception_flags | EXCEPTION_UNWINDING)
+                .to_le_bytes()
+                .to_vec(),
+        },
+    ];
+    let receipts = session
+        .commit_indirect_guest_writes(&writes)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    let mut immediate = ApiImmediate::new(ApiReturnValue::Void).with_void_eax(return_value);
+    for receipt in receipts {
+        immediate = immediate.with_committed_guest_write(receipt);
+    }
+    Ok(immediate)
+}
+
+fn prepare_raise_exception_callback(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<GuestCallbackRequest, ApiFault> {
+    let exception_code = required_argument(contract, frame, 0, "exception code")?;
+    let exception_flags = required_argument(contract, frame, 1, "exception flags")?;
+    let argument_count = required_argument(contract, frame, 2, "exception argument count")?;
+    let arguments_address = required_argument(contract, frame, 3, "exception arguments")?;
+    if exception_flags != EXCEPTION_NONCONTINUABLE {
+        return Err(ApiFault::unsupported(
+            "win32-seh",
+            "raise-exception-flags-unsupported",
+            "RaiseException currently supports the reached noncontinuable exception variant",
+        ));
+    }
+    let argument_count = usize::try_from(argument_count).map_err(|_| {
+        ApiFault::resource_limit(
+            "win32-seh",
+            "exception-argument-count-unrepresentable",
+            "RaiseException argument count does not fit host accounting",
+        )
+    })?;
+    if argument_count > EXCEPTION_MAXIMUM_PARAMETERS {
+        return Err(ApiFault::invalid_call(
+            "win32-seh",
+            "exception-argument-count-invalid",
+            "RaiseException accepts at most 15 exception arguments",
+        ));
+    }
+    let argument_bytes = argument_count.checked_mul(4).ok_or_else(|| {
+        ApiFault::resource_limit(
+            "win32-seh",
+            "exception-argument-bytes-overflow",
+            "RaiseException argument bytes overflowed host accounting",
+        )
+    })?;
+    let exception_arguments = if argument_bytes == 0 {
+        Vec::new()
+    } else {
+        if arguments_address == 0 {
+            return Err(ApiFault::invalid_call(
+                "win32-seh",
+                "exception-arguments-null",
+                "RaiseException requires a readable arguments array when the count is nonzero",
+            ));
+        }
+        session
+            .memory()
+            .read(GuestAddress(arguments_address), argument_bytes)
+            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?
+            .chunks_exact(4)
+            .map(|bytes| u32::from_le_bytes(bytes.try_into().expect("four-byte chunk")))
+            .collect::<Vec<_>>()
+    };
+
+    let context = session.x86_context().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "win32-seh",
+            "x86-context-missing",
+            "RaiseException dispatch requires the authoritative x86 register snapshot",
+        )
+    })?;
+    if context.esp != frame.stack_pointer.0 || context.eip != contract.endpoint.address.0 {
+        return Err(ApiFault::invalid_call(
+            "win32-seh",
+            "x86-context-api-frame-mismatch",
+            "RaiseException register snapshot does not identify the trapped API frame",
+        ));
+    }
+    let callback_return_sentinel = session.guest_callback_return_sentinel().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "win32-seh",
+            "callback-return-sentinel-missing",
+            "RaiseException dispatch requires the process callback return sentinel",
+        )
+    })?;
+    let teb_address = session
+        .runtime()
+        .current_thread_teb_address()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let exception_list = read_guest_u32(session, teb_address, &contract.endpoint)?;
+    if exception_list == u32::MAX {
+        return Err(unhandled_exception_fault(exception_code));
+    }
+    let registration =
+        read_x86_exception_registration(session, GuestAddress(exception_list), &contract.endpoint)?;
+    let scratch = x86_exception_dispatch_scratch(
+        exception_code,
+        exception_flags,
+        &exception_arguments,
+        frame,
+        context,
+    )?;
+    let request = exception_dispatch_callback_request(
+        registration,
+        exception_flags,
+        scratch,
+        callback_return_sentinel,
+    );
+    session.preflight_guest_callback(&ApiGuestCallbackCall {
+        request: Box::new(request.clone()),
+        contract: contract.clone(),
+        frame: frame.clone(),
+    })?;
+    Ok(request)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct X86ExceptionRegistration {
+    frame: GuestAddress,
+    next: GuestAddress,
+    handler: GuestAddress,
+}
+
+fn read_x86_exception_registration(
+    session: &ExecutionSession<'_>,
+    frame: GuestAddress,
+    endpoint: &ApiEndpointIdentity,
+) -> Result<X86ExceptionRegistration, ApiFault> {
+    if frame.0 == u32::MAX || !frame.0.is_multiple_of(4) {
+        return Err(ApiFault::invalid_call(
+            "win32-seh",
+            "exception-registration-address-invalid",
+            "SEH registration frame must be aligned and may not be the chain terminator",
+        ));
+    }
+    let stack = session
+        .runtime()
+        .current_thread_state()
+        .map_err(|error| ApiFault::from_runtime(error, endpoint))?
+        .stack
+        .as_ref()
+        .ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "win32-seh",
+                "thread-stack-missing",
+                "SEH registration validation requires a registered x86 thread stack",
+            )
+        })?;
+    let frame_end = u64::from(frame.0).checked_add(8).ok_or_else(|| {
+        ApiFault::invalid_call(
+            "win32-seh",
+            "exception-registration-range-overflow",
+            "SEH registration frame crosses the x86 address limit",
+        )
+    })?;
+    if u64::from(frame.0) < u64::from(stack.committed_range.start().0)
+        || frame_end > stack.committed_range.end()
+    {
+        return Err(ApiFault::invalid_call(
+            "win32-seh",
+            "exception-registration-outside-stack",
+            "SEH registration frame is outside the current thread committed stack",
+        ));
+    }
+    let bytes = session
+        .memory()
+        .read(frame, 8)
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    let next = GuestAddress(u32::from_le_bytes(
+        bytes[0..4].try_into().expect("next word"),
+    ));
+    let handler = GuestAddress(u32::from_le_bytes(
+        bytes[4..8].try_into().expect("handler word"),
+    ));
+    if next.0 != u32::MAX {
+        let next_end = u64::from(next.0).checked_add(8).ok_or_else(|| {
+            ApiFault::invalid_call(
+                "win32-seh",
+                "exception-registration-next-overflow",
+                "next SEH registration crosses the x86 address limit",
+            )
+        })?;
+        if !next.0.is_multiple_of(4)
+            || next.0 <= frame.0
+            || u64::from(next.0) < u64::from(stack.committed_range.start().0)
+            || next_end > stack.committed_range.end()
+        {
+            return Err(ApiFault::invalid_call(
+                "win32-seh",
+                "exception-registration-next-invalid",
+                "SEH registration chain must advance monotonically within the committed stack",
+            ));
+        }
+    }
+    session
+        .memory()
+        .validate_access(handler, 1, MemoryAccess::Execute)
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    Ok(X86ExceptionRegistration {
+        frame,
+        next,
+        handler,
+    })
+}
+
+fn read_guest_u32(
+    session: &ExecutionSession<'_>,
+    address: GuestAddress,
+    endpoint: &ApiEndpointIdentity,
+) -> Result<u32, ApiFault> {
+    let bytes = session
+        .memory()
+        .read(address, 4)
+        .map_err(|error| ApiFault::from_memory(error, endpoint))?;
+    Ok(u32::from_le_bytes(
+        bytes.try_into().expect("four-byte read"),
+    ))
+}
+
+fn x86_exception_dispatch_scratch(
+    exception_code: u32,
+    exception_flags: u32,
+    exception_arguments: &[u32],
+    frame: &ApiCallFrame,
+    context: crate::api::X86CpuContext,
+) -> Result<Vec<u8>, ApiFault> {
+    let mut scratch = vec![0; X86_EXCEPTION_RECORD_BYTES + X86_CONTEXT_BYTES];
+    write_scratch_u32(&mut scratch, 0, exception_code);
+    write_scratch_u32(&mut scratch, 4, exception_flags);
+    write_scratch_u32(&mut scratch, 12, frame.return_address.0);
+    write_scratch_u32(&mut scratch, 16, exception_arguments.len() as u32);
+    for (index, value) in exception_arguments.iter().copied().enumerate() {
+        write_scratch_u32(&mut scratch, 20 + index * 4, value);
+    }
+
+    let context_offset = X86_CONTEXT_OFFSET as usize;
+    write_scratch_u32(
+        &mut scratch,
+        context_offset,
+        X86_CONTEXT_FULL_CONTROL_INTEGER_SEGMENTS,
+    );
+    write_scratch_u32(&mut scratch, context_offset + 140, context.gs);
+    write_scratch_u32(&mut scratch, context_offset + 144, context.fs);
+    write_scratch_u32(&mut scratch, context_offset + 148, context.es);
+    write_scratch_u32(&mut scratch, context_offset + 152, context.ds);
+    write_scratch_u32(&mut scratch, context_offset + 156, context.edi);
+    write_scratch_u32(&mut scratch, context_offset + 160, context.esi);
+    write_scratch_u32(&mut scratch, context_offset + 164, context.ebx);
+    write_scratch_u32(&mut scratch, context_offset + 168, context.edx);
+    write_scratch_u32(&mut scratch, context_offset + 172, context.ecx);
+    write_scratch_u32(&mut scratch, context_offset + 176, context.eax);
+    write_scratch_u32(&mut scratch, context_offset + 180, context.ebp);
+    write_scratch_u32(&mut scratch, context_offset + 184, frame.return_address.0);
+    write_scratch_u32(&mut scratch, context_offset + 188, context.cs);
+    write_scratch_u32(&mut scratch, context_offset + 192, context.eflags);
+    let continuation_esp = frame
+        .stack_pointer
+        .0
+        .checked_add(4)
+        .and_then(|value| value.checked_add(frame.argument_bytes))
+        .ok_or_else(|| {
+            ApiFault::invalid_call(
+                "win32-seh",
+                "exception-context-stack-overflow",
+                "RaiseException continuation stack crosses the x86 address limit",
+            )
+        })?;
+    write_scratch_u32(&mut scratch, context_offset + 196, continuation_esp);
+    write_scratch_u32(&mut scratch, context_offset + 200, context.ss);
+    Ok(scratch)
+}
+
+fn write_scratch_u32(scratch: &mut [u8], offset: usize, value: u32) {
+    scratch[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+fn exception_dispatch_callback_request(
+    registration: X86ExceptionRegistration,
+    exception_flags: u32,
+    scratch: Vec<u8>,
+    return_sentinel: GuestAddress,
+) -> GuestCallbackRequest {
+    GuestCallbackRequest {
+        target: registration.handler,
+        arguments: vec![
+            GuestCallbackArgument::ScratchPointer { offset: 0 },
+            GuestCallbackArgument::U32(registration.frame.0),
+            GuestCallbackArgument::ScratchPointer {
+                offset: X86_CONTEXT_OFFSET,
+            },
+            GuestCallbackArgument::U32(0),
+        ],
+        scratch,
+        scratch_pointer_relocations: Vec::new(),
+        return_sentinel,
+        completion_policy: GuestCallbackCompletionPolicy::ExceptionDispatch {
+            next_frame: registration.next,
+            exception_flags,
+        },
+    }
+}
+
+fn unhandled_exception_fault(exception_code: u32) -> ApiFault {
+    ApiFault::unsupported(
+        "win32-seh",
+        "unhandled-exception",
+        format!("guest exception {exception_code:#010x} reached the end of the SEH chain"),
+    )
+}
+
+pub(crate) fn resolve_exception_dispatch_callback(
+    call: &ApiGuestCallbackCall,
+    result: u32,
+    session: &ExecutionSession<'_>,
+) -> ApiHandlerResult {
+    let GuestCallbackCompletionPolicy::ExceptionDispatch {
+        next_frame,
+        exception_flags,
+    } = call.request.completion_policy
+    else {
+        return ApiHandlerResult::Fault(ApiFault::runtime_defect(
+            "win32-seh",
+            "exception-callback-policy-mismatch",
+            "SEH callback continuation has the wrong completion policy",
+        ));
+    };
+    match result {
+        EXCEPTION_CONTINUE_SEARCH => {
+            let exception_code = u32::from_le_bytes(
+                call.request.scratch[0..4]
+                    .try_into()
+                    .expect("validated exception record"),
+            );
+            if next_frame.0 == u32::MAX {
+                return ApiHandlerResult::Fault(unhandled_exception_fault(exception_code));
+            }
+            match read_x86_exception_registration(session, next_frame, &call.frame.endpoint) {
+                Ok(registration) => {
+                    ApiHandlerResult::GuestCallback(exception_dispatch_callback_request(
+                        registration,
+                        exception_flags,
+                        call.request.scratch.clone(),
+                        call.request.return_sentinel,
+                    ))
+                }
+                Err(fault) => ApiHandlerResult::Fault(fault),
+            }
+        }
+        EXCEPTION_CONTINUE_EXECUTION if exception_flags & EXCEPTION_NONCONTINUABLE != 0 => {
+            ApiHandlerResult::Fault(ApiFault::invalid_call(
+                "win32-seh",
+                "noncontinuable-exception-continued",
+                "guest SEH handler attempted to continue a noncontinuable exception",
+            ))
+        }
+        EXCEPTION_CONTINUE_EXECUTION => ApiHandlerResult::Fault(ApiFault::unsupported(
+            "win32-seh",
+            "continuable-exception-resume-unsupported",
+            "restoring a handler-modified x86 CONTEXT is not implemented",
+        )),
+        EXCEPTION_NESTED_EXCEPTION => ApiHandlerResult::Fault(ApiFault::unsupported(
+            "win32-seh",
+            "nested-exception-disposition-unsupported",
+            "nested SEH exception disposition is not implemented",
+        )),
+        EXCEPTION_COLLIDED_UNWIND => ApiHandlerResult::Fault(ApiFault::unsupported(
+            "win32-seh",
+            "collided-unwind-disposition-unsupported",
+            "collided SEH unwind disposition is not implemented",
+        )),
+        _ => ApiHandlerResult::Fault(ApiFault::invalid_call(
+            "win32-seh",
+            "exception-disposition-invalid",
+            format!("guest SEH handler returned invalid disposition {result}"),
+        )),
+    }
+}
+
+fn handle_get_system_time(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let output = required_argument(contract, frame, 0, "SYSTEMTIME output")?;
+    Ok(ApiImmediate::new(ApiReturnValue::Void).with_guest_write(
+        GuestAddress(output),
+        system_time_bytes(session.runtime().clock().wall_clock_file_time),
+    ))
+}
+
+fn system_time_bytes(file_time: u64) -> Vec<u8> {
+    const TICKS_PER_MILLISECOND: u64 = 10_000;
+    const MILLISECONDS_PER_DAY: u64 = 86_400_000;
+    const DAYS_FROM_1601_TO_1970: i64 = 134_774;
+
+    let milliseconds = file_time / TICKS_PER_MILLISECOND;
+    let days_since_1601 = milliseconds / MILLISECONDS_PER_DAY;
+    let milliseconds_in_day = milliseconds % MILLISECONDS_PER_DAY;
+    let days_since_1970 = days_since_1601 as i64 - DAYS_FROM_1601_TO_1970;
+    let (year, month, day) = civil_date_from_days_since_1970(days_since_1970);
+    let hour = milliseconds_in_day / 3_600_000;
+    let minute = (milliseconds_in_day % 3_600_000) / 60_000;
+    let second = (milliseconds_in_day % 60_000) / 1_000;
+    let millisecond = milliseconds_in_day % 1_000;
+    let day_of_week = (days_since_1601 + 1) % 7;
+
+    [
+        year,
+        month,
+        day_of_week,
+        day,
+        hour,
+        minute,
+        second,
+        millisecond,
+    ]
+    .into_iter()
+    .flat_map(|value| (value as u16).to_le_bytes())
+    .collect()
+}
+
+fn civil_date_from_days_since_1970(days: i64) -> (u64, u64, u64) {
+    let shifted_days = days + 719_468;
+    let era = shifted_days.div_euclid(146_097);
+    let day_of_era = shifted_days - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+    year += if month <= 2 { 1 } else { 0 };
+    (year as u64, month as u64, day as u64)
 }
 
 fn handle_get_current_process_id(session: &ExecutionSession<'_>) -> Result<ApiImmediate, ApiFault> {
@@ -2812,6 +3417,7 @@ fn handle_close_handle(
             RuntimeObjectKind::Process
                 | RuntimeObjectKind::Thread
                 | RuntimeObjectKind::Mutex
+                | RuntimeObjectKind::Event
                 | RuntimeObjectKind::WaitableTimer
                 | RuntimeObjectKind::File
         ) || session.runtime().object_for_handle(handle, kind).is_err()
@@ -2985,6 +3591,85 @@ pub fn complete_kernel32_waitable_timer_pacing(
             .runtime_mut()
             .commit_waitable_timer_pacing_completion(plan);
         (outcome, Some(result))
+    } else {
+        (outcome, None)
+    }
+}
+
+pub fn complete_kernel32_audio_notification_wait(
+    dispatcher: &ApiDispatcher,
+    call: ApiDeferredCall,
+    acknowledgement: u32,
+    session: &mut ExecutionSession<'_>,
+) -> (DispatchOutcome, Option<RuntimeHostCompletion>) {
+    if call.contract.implementation_id != WAIT_FOR_MULTIPLE_OBJECTS_IMPLEMENTATION
+        || call.request.service != RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE
+        || acknowledgement != 1
+    {
+        return (
+            DispatchOutcome::Fault(ApiFault::invalid_call(
+                "win32-wait",
+                "audio-notification-pacing-suspended-call-mismatch",
+                "audio notification pacing completion does not match its suspended API call",
+            )),
+            None,
+        );
+    }
+    let handles = match read_wait_handles(&call.contract, &call.frame, session) {
+        Ok(handles) => handles,
+        Err(fault) => return (DispatchOutcome::Fault(fault), None),
+    };
+    let timeout = call.frame.argument_u32(3).unwrap_or(0);
+    let plan = match session.runtime().plan_audio_notification_wait_completion(
+        call.request.request_id,
+        &handles,
+        timeout,
+    ) {
+        Ok(plan) => plan,
+        Err(error) => {
+            return (
+                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
+                None,
+            );
+        }
+    };
+    if call.request.payload != plan.encode_host_payload() {
+        return (
+            DispatchOutcome::Fault(ApiFault::invalid_call(
+                "win32-wait",
+                "audio-notification-pacing-payload-mismatch",
+                "audio notification host payload differs from Rust audio authority",
+            )),
+            None,
+        );
+    }
+    let expected_result_index = plan.result_index();
+    let preserved_last_error = match session.last_error() {
+        Ok(last_error) => last_error,
+        Err(error) => {
+            return (
+                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
+                None,
+            );
+        }
+    };
+    let result = expected_result_index.map_or(WAIT_TIMEOUT, |index| WAIT_OBJECT_0 + index);
+    let request_id = call.request.request_id;
+    let outcome = dispatcher.complete_deferred(
+        call,
+        HostCompletion {
+            request_id,
+            result: ApiImmediate::new(ApiReturnValue::U32(result))
+                .with_last_error(preserved_last_error),
+        },
+        session,
+    );
+    if matches!(outcome, DispatchOutcome::Immediate(_)) {
+        let (completion, committed_result_index) = session
+            .runtime_mut()
+            .commit_audio_notification_wait_completion(plan);
+        debug_assert_eq!(committed_result_index, expected_result_index);
+        (outcome, Some(completion))
     } else {
         (outcome, None)
     }
@@ -3304,6 +3989,229 @@ fn handle_create_mutex_a(
             },
         ),
     )
+}
+
+fn handle_create_event_a(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let security_attributes = required_argument(contract, frame, 0, "security attributes")?;
+    let manual_reset = required_argument(contract, frame, 1, "manual reset")? != 0;
+    let initial_state = required_argument(contract, frame, 2, "initial state")? != 0;
+    let name = required_argument(contract, frame, 3, "ANSI event name")?;
+    if security_attributes != 0 {
+        return Err(ApiFault::unsupported(
+            "win32-event",
+            "create-event-a-security-attributes-unsupported",
+            "bounded CreateEventA supports null security attributes",
+        ));
+    }
+    if name != 0 {
+        return Err(ApiFault::unsupported(
+            "win32-event",
+            "create-event-a-named-unsupported",
+            "bounded CreateEventA supports the reached unnamed event variant",
+        ));
+    }
+    let (handle, _) = session
+        .runtime_mut()
+        .create_event(manual_reset, initial_state)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+        namespace: RUNTIME_EVENT_OBJECT_NAMESPACE.to_owned(),
+        value: handle.0,
+    })
+    .with_last_error(ERROR_SUCCESS))
+}
+
+fn handle_set_event(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+    set: bool,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = RuntimeHandle(required_argument(contract, frame, 0, "event handle")?);
+    let result = if set {
+        session.runtime_mut().set_event(handle)
+    } else {
+        session.runtime_mut().reset_event(handle)
+    };
+    match result {
+        Ok(_) => Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))),
+        Err(error) if error.class != RuntimeStateErrorClass::RuntimeDefect => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(ERROR_INVALID_HANDLE))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+}
+
+fn handle_wait_for_single_object(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = RuntimeHandle(required_argument(contract, frame, 0, "wait handle")?);
+    let timeout = required_argument(contract, frame, 1, "timeout")?;
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    if handle.kind() != Ok(RuntimeObjectKind::Event)
+        || session.runtime().event_for_handle(handle).is_err()
+    {
+        return Ok(ApiImmediate::new(ApiReturnValue::U32(WAIT_FAILED))
+            .with_last_error(ERROR_INVALID_HANDLE));
+    }
+    if timeout == 0 {
+        let signaled = session
+            .runtime_mut()
+            .try_wait_event(handle)
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        return Ok(ApiImmediate::new(ApiReturnValue::U32(if signaled {
+            WAIT_OBJECT_0
+        } else {
+            WAIT_TIMEOUT
+        }))
+        .with_last_error(preserved_last_error));
+    }
+    if timeout != u32::MAX {
+        return Err(ApiFault::unsupported(
+            "win32-wait",
+            "wait-for-single-object-finite-timeout-unsupported",
+            "bounded event WaitForSingleObject supports zero or infinite timeout",
+        ));
+    }
+    let wait = session
+        .runtime_mut()
+        .wait_current_thread_on(handle)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    match wait {
+        RuntimeWaitDisposition::AlreadySignaled { .. } => {
+            Ok(ApiImmediate::new(ApiReturnValue::U32(WAIT_OBJECT_0))
+                .with_last_error(preserved_last_error))
+        }
+        RuntimeWaitDisposition::Pending { .. } => {
+            Ok(ApiImmediate::new(ApiReturnValue::U32(WAIT_OBJECT_0))
+                .with_last_error(preserved_last_error)
+                .with_execution_boundary(RuntimeApiBoundaryDisposition::BlockCurrentThread))
+        }
+        RuntimeWaitDisposition::MutexAcquired { .. } => Err(ApiFault::runtime_defect(
+            "win32-wait",
+            "event-wait-returned-mutex-acquisition",
+            "event wait unexpectedly returned a mutex acquisition",
+        )),
+    }
+}
+
+fn handle_wait_for_multiple_objects(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> ApiHandlerResult {
+    let result = (|| {
+        let wait_all = required_argument(contract, frame, 2, "wait-all")? != 0;
+        let timeout = required_argument(contract, frame, 3, "timeout")?;
+        if wait_all {
+            return Err(ApiFault::unsupported(
+                "win32-wait",
+                "wait-for-multiple-objects-wait-all-unsupported",
+                "reached DirectSound event wait requires wait-any semantics",
+            ));
+        }
+        let handles = read_wait_handles(contract, frame, session)?;
+        let preserved_last_error = session
+            .last_error()
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        for (index, &handle) in handles.iter().enumerate() {
+            let event = match session.runtime().event_for_handle(handle) {
+                Ok(event) => event,
+                Err(error) if error.class != RuntimeStateErrorClass::RuntimeDefect => {
+                    return Ok(ApiHandlerResult::Immediate(
+                        ApiImmediate::new(ApiReturnValue::U32(WAIT_FAILED))
+                            .with_last_error(ERROR_INVALID_HANDLE),
+                    ));
+                }
+                Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+            };
+            if matches!(event.wait_state, RuntimeWaitState::Signaled { .. }) {
+                session
+                    .runtime_mut()
+                    .try_wait_event(handle)
+                    .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+                return Ok(ApiHandlerResult::Immediate(
+                    ApiImmediate::new(ApiReturnValue::U32(WAIT_OBJECT_0 + index as u32))
+                        .with_last_error(preserved_last_error),
+                ));
+            }
+        }
+        if timeout == 0 {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(ApiReturnValue::U32(WAIT_TIMEOUT))
+                    .with_last_error(preserved_last_error),
+            ));
+        }
+        let begin = match session
+            .runtime_mut()
+            .begin_audio_notification_wait(&handles, timeout)
+        {
+            Ok(begin) => begin,
+            Err(error) if error.code == "audio-notification-wait-buffer-unknown" => {
+                return Err(ApiFault::unsupported(
+                    "win32-wait",
+                    "wait-for-multiple-objects-source-unsupported",
+                    "finite wait handle array is not owned by a playing DirectSound notification buffer",
+                ));
+            }
+            Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+        };
+        Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
+            request_id: begin.request.request_id,
+            service: begin.request.service,
+            payload: begin.payload,
+        }))
+    })();
+    match result {
+        Ok(outcome) => outcome,
+        Err(fault) => ApiHandlerResult::Fault(fault),
+    }
+}
+
+fn read_wait_handles(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<Vec<RuntimeHandle>, ApiFault> {
+    let count =
+        usize::try_from(required_argument(contract, frame, 0, "handle count")?).map_err(|_| {
+            ApiFault::invalid_call(
+                "win32-wait",
+                "wait-handle-count-unrepresentable",
+                "wait handle count does not fit host accounting",
+            )
+        })?;
+    let pointer = required_argument(contract, frame, 1, "handle array")?;
+    if count == 0 || count > RUNTIME_AUDIO_NOTIFICATION_LIMIT || pointer == 0 {
+        return Err(ApiFault::invalid_call(
+            "win32-wait",
+            "wait-handle-array-invalid",
+            "wait handle array must be bounded, nonempty, and nonnull",
+        ));
+    }
+    let bytes = session
+        .memory()
+        .read(GuestAddress(pointer), count * 4)
+        .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+    Ok((0..count)
+        .map(|index| {
+            let offset = index * 4;
+            RuntimeHandle(u32::from_le_bytes(
+                bytes[offset..offset + 4]
+                    .try_into()
+                    .expect("validated wait handle array byte range"),
+            ))
+        })
+        .collect())
 }
 
 fn read_nul_terminated_ansi_mutex_name(
@@ -4252,6 +5160,58 @@ fn handle_heap_alloc(
     )))
 }
 
+fn handle_heap_realloc(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let heap = required_argument(contract, frame, 0, "heap handle")?;
+    let flags = required_argument(contract, frame, 1, "heap reallocation flags")?;
+    let allocation = required_argument(contract, frame, 2, "heap allocation")?;
+    let byte_length = required_argument(contract, frame, 3, "heap reallocation byte length")?;
+    if !policy.allows_heap_allocation(flags, byte_length) {
+        return Err(ApiFault::unsupported(
+            "win32-heap",
+            "heap-realloc-variant-unsupported",
+            format!(
+                "compatibility policy {} does not enable HeapReAlloc flags {flags:#010x} and size {byte_length:#x}",
+                policy.id
+            ),
+        ));
+    }
+    let previous = session
+        .runtime()
+        .private_heap_allocation(heap, GuestAddress(allocation))
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    if previous.byte_length > RUNTIME_PRIVATE_HEAP_ARENA_STRIDE
+        || byte_length > RUNTIME_PRIVATE_HEAP_ARENA_STRIDE
+    {
+        return Err(ApiFault::unsupported(
+            "win32-heap",
+            "heap-realloc-large-allocation-unsupported",
+            "HeapReAlloc does not yet move lazy large-slot allocations",
+        ));
+    }
+    let initialization = match flags {
+        0 => RuntimeHeapInitialization::DeterministicUninitialized,
+        HEAP_ZERO_MEMORY => RuntimeHeapInitialization::Zeroed,
+        _ => {
+            return Err(ApiFault::runtime_defect(
+                "win32-heap",
+                "validated-heap-realloc-flags-unimplemented",
+                "validated HeapReAlloc policy selected flags without semantic initialization",
+            ));
+        }
+    };
+    let allocation = session
+        .reallocate_private_heap_block(heap, GuestAddress(allocation), byte_length, initialization)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
+        allocation.address.0,
+    )))
+}
+
 fn handle_heap_free(
     policy: &Kernel32CompatibilityPolicy,
     contract: &ApiContract,
@@ -4702,14 +5662,17 @@ fn handle_enter_critical_section(
         .owning_thread_id
         && owner != current_thread_id
     {
-        return Err(ApiFault::unsupported(
-            "win32-critical-section",
-            "critical-section-contention-unimplemented",
-            format!(
-                "critical section {:#010x} is owned by thread {}; scheduler blocking is not implemented",
-                address.0, owner.0
-            ),
-        ));
+        session
+            .runtime_mut()
+            .wait_current_thread_for_critical_section(address)
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        let section = session
+            .runtime()
+            .critical_section(address)
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        return Ok(ApiImmediate::new(ApiReturnValue::Void)
+            .with_guest_write(address, x86_critical_section_bytes(section))
+            .with_execution_boundary(RuntimeApiBoundaryDisposition::BlockCurrentThread));
     }
     let section = session
         .runtime_mut()
@@ -4979,6 +5942,66 @@ pub fn get_system_time_as_file_time_contract(
         ApiReturnSchema::Void,
         GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION,
     )
+}
+
+pub fn get_system_time_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "GetSystemTime",
+        vec![out_struct("systemTime", "SYSTEMTIME", 16)],
+        ApiReturnSchema::Void,
+        GET_SYSTEM_TIME_IMPLEMENTATION,
+    )
+}
+
+pub fn raise_exception_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "RaiseException",
+        vec![
+            u32_argument("exceptionCode"),
+            u32_argument("exceptionFlags"),
+            u32_argument("numberOfArguments"),
+            opaque_pointer("arguments", true, 4),
+        ],
+        ApiReturnSchema::Void,
+        RAISE_EXCEPTION_IMPLEMENTATION,
+    )?;
+    contract.reentrancy_policy = ReentrancyPolicy::Allowed;
+    contract.callback_policy = CallbackPolicy::Required;
+    Ok(contract)
+}
+
+pub fn rtl_unwind_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "RtlUnwind",
+        vec![
+            opaque_pointer("targetFrame", true, 4),
+            opaque_pointer("targetIp", true, 1),
+            ApiArgumentSchema {
+                name: "exceptionRecord".to_owned(),
+                direction: ApiDirection::InOut,
+                value: ApiValueSchema::Pointer {
+                    constraint: ApiPointerConstraint {
+                        nullable: true,
+                        alignment: 4,
+                        byte_length: X86_EXCEPTION_RECORD_BYTES as u32,
+                        pointee: ApiPointeeSchema::Struct {
+                            type_id: "EXCEPTION_RECORD".to_owned(),
+                        },
+                        write_requirement: ApiWriteRequirement::Optional,
+                    },
+                },
+            },
+            opaque_pointer("returnValue", true, 1),
+        ],
+        ApiReturnSchema::Void,
+        RTL_UNWIND_IMPLEMENTATION,
+    )?;
+    contract.reentrancy_policy = ReentrancyPolicy::Allowed;
+    contract.behavior = ApiBehavior::ImmediateWithCommittedIndirectGuestWrites;
+    Ok(contract)
 }
 
 pub fn get_current_process_id_contract(
@@ -5619,6 +6642,101 @@ pub fn create_mutex_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
     Ok(contract)
 }
 
+pub fn create_event_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "CreateEventA",
+        vec![
+            opaque_pointer("securityAttributes", true, 4),
+            u32_argument("manualReset"),
+            u32_argument("initialState"),
+            opaque_pointer("eventName", true, 1),
+        ],
+        ApiReturnSchema::LogicalHandle {
+            namespace: RUNTIME_EVENT_OBJECT_NAMESPACE.to_owned(),
+            nullable: false,
+        },
+        CREATE_EVENT_A_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn set_event_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "SetEvent",
+        vec![logical_handle(
+            "event",
+            RUNTIME_EVENT_OBJECT_NAMESPACE,
+            false,
+        )],
+        ApiReturnSchema::Bool32,
+        SET_EVENT_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn reset_event_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "ResetEvent",
+        vec![logical_handle(
+            "event",
+            RUNTIME_EVENT_OBJECT_NAMESPACE,
+            false,
+        )],
+        ApiReturnSchema::Bool32,
+        RESET_EVENT_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn wait_for_single_object_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "WaitForSingleObject",
+        vec![
+            u32_argument("waitableObject"),
+            u32_argument("timeoutMilliseconds"),
+        ],
+        ApiReturnSchema::U32,
+        WAIT_FOR_SINGLE_OBJECT_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
+pub fn wait_for_multiple_objects_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "WaitForMultipleObjects",
+        vec![
+            u32_argument("handleCount"),
+            dynamic_in_bytes(
+                "handles",
+                false,
+                4,
+                4,
+                (RUNTIME_AUDIO_NOTIFICATION_LIMIT * 4) as u32,
+            ),
+            u32_argument("waitAll"),
+            u32_argument("timeoutMilliseconds"),
+        ],
+        ApiReturnSchema::U32,
+        WAIT_FOR_MULTIPLE_OBJECTS_IMPLEMENTATION,
+    )?;
+    contract.behavior = ApiBehavior::ImmediateOrDeferred;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
+}
+
 pub fn create_waitable_timer_a_contract(
     endpoint: ApiEndpointIdentity,
 ) -> Result<ApiContract, ApiFault> {
@@ -5815,6 +6933,21 @@ pub fn heap_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract,
         ],
         ApiReturnSchema::OpaquePointer { nullable: false },
         HEAP_ALLOC_IMPLEMENTATION,
+    )
+}
+
+pub fn heap_realloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "HeapReAlloc",
+        vec![
+            logical_handle("heap", LOGICAL_PRIVATE_HEAP_NAMESPACE, false),
+            u32_argument("flags"),
+            opaque_pointer("allocation", false, RUNTIME_PRIVATE_HEAP_ALIGNMENT),
+            u32_argument("byteLength"),
+        ],
+        ApiReturnSchema::OpaquePointer { nullable: true },
+        HEAP_REALLOC_IMPLEMENTATION,
     )
 }
 
@@ -6382,5 +7515,46 @@ fn inout_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumentSchem
                 write_requirement: ApiWriteRequirement::Required,
             },
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::system_time_bytes;
+
+    #[test]
+    fn file_time_is_projected_as_utc_system_time() {
+        assert_eq!(
+            system_time_bytes(134_282_016_000_000_000),
+            [
+                2026_u16.to_le_bytes(),
+                7_u16.to_le_bytes(),
+                6_u16.to_le_bytes(),
+                11_u16.to_le_bytes(),
+                0_u16.to_le_bytes(),
+                0_u16.to_le_bytes(),
+                0_u16.to_le_bytes(),
+                0_u16.to_le_bytes(),
+            ]
+            .concat()
+        );
+    }
+
+    #[test]
+    fn file_time_projection_handles_epoch_and_leap_day_milliseconds() {
+        assert_eq!(
+            system_time_bytes(0),
+            [1601_u16, 1, 1, 1, 0, 0, 0, 0]
+                .into_iter()
+                .flat_map(u16::to_le_bytes)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            system_time_bytes(133_537_247_981_230_000),
+            [2024_u16, 2, 4, 29, 23, 59, 58, 123]
+                .into_iter()
+                .flat_map(u16::to_le_bytes)
+                .collect::<Vec<_>>()
+        );
     }
 }

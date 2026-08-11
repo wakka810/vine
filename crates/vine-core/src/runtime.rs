@@ -41,17 +41,26 @@ pub use address_space::{
 pub use audio::{
     RUNTIME_AUDIO_BUFFER_ID_NAMESPACE, RUNTIME_AUDIO_BUFFER_LIMIT,
     RUNTIME_AUDIO_DEVICE_ID_NAMESPACE, RUNTIME_AUDIO_DEVICE_LIMIT,
-    RUNTIME_AUDIO_RESOURCE_ARENA_BASE, RUNTIME_AUDIO_RESOURCE_ARENA_SIZE, RuntimeAudioBuffer,
-    RuntimeAudioBufferBacking, RuntimeAudioBufferDescriptor, RuntimeAudioBufferFormatResult,
-    RuntimeAudioBufferId, RuntimeAudioBufferKind, RuntimeAudioBufferLock,
-    RuntimeAudioBufferPlayResult, RuntimeAudioBufferSegment, RuntimeAudioBufferUnlockResult,
-    RuntimeAudioCooperativeLevel, RuntimeAudioCooperativeLevelResult, RuntimeAudioCooperativeState,
-    RuntimeAudioDevice, RuntimeAudioDeviceId, RuntimeAudioDeviceSelector, RuntimeAudioFrontend,
-    RuntimeAudioPcmFormat, RuntimeAudioPlaybackState,
+    RUNTIME_AUDIO_NOTIFICATION_LIMIT, RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE,
+    RUNTIME_AUDIO_PAN_MAX_HUNDREDTHS_DB, RUNTIME_AUDIO_PAN_MIN_HUNDREDTHS_DB,
+    RUNTIME_AUDIO_PCM_MAX_CHANNELS, RUNTIME_AUDIO_PCM_MAX_SAMPLES_PER_SECOND,
+    RUNTIME_AUDIO_PCM_MIN_SAMPLES_PER_SECOND, RUNTIME_AUDIO_PLAYBACK_FREQUENCY_MAX_HZ,
+    RUNTIME_AUDIO_PLAYBACK_FREQUENCY_MIN_HZ, RUNTIME_AUDIO_RESOURCE_ARENA_BASE,
+    RUNTIME_AUDIO_RESOURCE_ARENA_SIZE, RUNTIME_AUDIO_VOLUME_MAX_HUNDREDTHS_DB,
+    RUNTIME_AUDIO_VOLUME_MIN_HUNDREDTHS_DB, RuntimeAudioBuffer, RuntimeAudioBufferBacking,
+    RuntimeAudioBufferControlResult, RuntimeAudioBufferControls, RuntimeAudioBufferDescriptor,
+    RuntimeAudioBufferFormatResult, RuntimeAudioBufferId, RuntimeAudioBufferKind,
+    RuntimeAudioBufferLock, RuntimeAudioBufferPlayResult, RuntimeAudioBufferSegment,
+    RuntimeAudioBufferUnlockResult, RuntimeAudioCooperativeLevel,
+    RuntimeAudioCooperativeLevelResult, RuntimeAudioCooperativeState, RuntimeAudioDevice,
+    RuntimeAudioDeviceId, RuntimeAudioDeviceSelector, RuntimeAudioFrontend,
+    RuntimeAudioNotification, RuntimeAudioPcmFormat, RuntimeAudioPlaybackState,
 };
 pub(crate) use audio::{
+    RuntimeAudioBufferControlRequest, RuntimeAudioBufferControlUpdate,
     RuntimeAudioBufferCreateRequest, RuntimeAudioBufferFormatRequest,
-    RuntimeAudioBufferLockRequest, RuntimeAudioBufferPlayRequest, RuntimeAudioBufferUnlockRequest,
+    RuntimeAudioBufferLockRequest, RuntimeAudioBufferNotificationRequest,
+    RuntimeAudioBufferPlayRequest, RuntimeAudioBufferUnlockRequest,
     RuntimeAudioCooperativeLevelRequest, RuntimeAudioDeviceCreateRequest,
 };
 pub use clock::{
@@ -169,7 +178,6 @@ pub(crate) use graphics::{
     RuntimeGraphicsTextureUpdateRequest, RuntimeGraphicsVertexBufferCreateRequest,
     RuntimeGraphicsVertexBufferLockRequest,
 };
-pub(crate) use heaps::RuntimeHeapFreeBackingPlan;
 pub use heaps::{
     LOGICAL_PRIVATE_HEAP_NAMESPACE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
     RUNTIME_PRIVATE_HEAP_ARENA_BASE, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
@@ -180,6 +188,7 @@ pub use heaps::{
     RuntimeHeapInitialization, RuntimeHeapPageMaterialization, RuntimeHeapTeardown,
     RuntimeLargeHeapAllocationBacking,
 };
+pub(crate) use heaps::{RuntimeHeapFreeBackingPlan, RuntimeHeapFreePlan};
 pub use imm32::{
     LOGICAL_IME_CONTEXT_HANDLE_NAMESPACE, RUNTIME_IME_CONTEXT_HANDLE_PREFIX,
     RUNTIME_IME_CONTEXT_LIMIT, RuntimeImeAssociationResult, RuntimeImeContext,
@@ -208,10 +217,11 @@ pub use modules::{
     RuntimeSystemExportEndpoint, RuntimeSystemExportTable, RuntimeSystemModuleLoad,
 };
 pub use objects::{
-    RUNTIME_MUTEX_OBJECT_NAMESPACE, RUNTIME_PROCESS_OBJECT_NAMESPACE,
-    RUNTIME_THREAD_OBJECT_NAMESPACE, RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RuntimeHandle,
-    RuntimeHandleClosePolicy, RuntimeHandleEntry, RuntimeObjectId, RuntimeObjectKey,
-    RuntimeObjectKind, RuntimeObjectRecord, RuntimeObjectTable, RuntimeWaitState,
+    RUNTIME_EVENT_OBJECT_NAMESPACE, RUNTIME_MUTEX_OBJECT_NAMESPACE,
+    RUNTIME_PROCESS_OBJECT_NAMESPACE, RUNTIME_THREAD_OBJECT_NAMESPACE,
+    RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE, RuntimeEvent, RuntimeHandle, RuntimeHandleClosePolicy,
+    RuntimeHandleEntry, RuntimeObjectId, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord,
+    RuntimeObjectTable, RuntimeWaitState,
 };
 pub use process::{
     LOGICAL_STANDARD_HANDLE_NAMESPACE, RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING,

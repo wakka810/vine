@@ -563,7 +563,7 @@ fn paced_timer_waits_bind_host_wait_identity_and_cancel_without_partial_time() {
             .complete_host_request(pacing.request_id)
             .expect_err("timer pacing requires its atomic completion path")
             .code,
-        "waitable-timer-pacing-specialized-completion-required"
+        "specialized-pacing-completion-required"
     );
     assert_eq!(runtime, before_generic_completion);
 

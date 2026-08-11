@@ -10,6 +10,7 @@ use super::{
 pub const RUNTIME_PROCESS_OBJECT_NAMESPACE: &str = "vine.runtime-process-object.v1";
 pub const RUNTIME_THREAD_OBJECT_NAMESPACE: &str = "vine.runtime-thread-object.v1";
 pub const RUNTIME_MUTEX_OBJECT_NAMESPACE: &str = "vine.runtime-mutex-object.v1";
+pub const RUNTIME_EVENT_OBJECT_NAMESPACE: &str = "vine.runtime-event-object.v1";
 pub const RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE: &str = "vine.runtime-waitable-timer-object.v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -18,6 +19,7 @@ pub enum RuntimeObjectKind {
     Process,
     Thread,
     Mutex,
+    Event,
     WaitableTimer,
     File,
     FileSearch,
@@ -31,6 +33,7 @@ impl RuntimeObjectKind {
             Self::Process => 0x50,
             Self::Thread => 0x54,
             Self::Mutex => 0x58,
+            Self::Event => 0x45,
             Self::WaitableTimer => 0x57,
             Self::File => 0x46,
             Self::FileSearch => 0x53,
@@ -44,6 +47,7 @@ impl RuntimeObjectKind {
             0x50 => Some(Self::Process),
             0x54 => Some(Self::Thread),
             0x58 => Some(Self::Mutex),
+            0x45 => Some(Self::Event),
             0x57 => Some(Self::WaitableTimer),
             0x46 => Some(Self::File),
             0x53 => Some(Self::FileSearch),
@@ -105,6 +109,7 @@ pub enum RuntimeObjectKey {
     Process { process_id: u32 },
     Thread { thread_id: u32 },
     Mutex { mutex_id: u64 },
+    Event { event_id: u64, manual_reset: bool },
     WaitableTimer { timer_id: u64 },
     File { file_id: u64 },
     FileSearch { search_id: u64 },
@@ -118,6 +123,7 @@ impl RuntimeObjectKey {
             Self::Process { .. } => RuntimeObjectKind::Process,
             Self::Thread { .. } => RuntimeObjectKind::Thread,
             Self::Mutex { .. } => RuntimeObjectKind::Mutex,
+            Self::Event { .. } => RuntimeObjectKind::Event,
             Self::WaitableTimer { .. } => RuntimeObjectKind::WaitableTimer,
             Self::File { .. } => RuntimeObjectKind::File,
             Self::FileSearch { .. } => RuntimeObjectKind::FileSearch,
@@ -156,6 +162,14 @@ pub struct RuntimeObjectRecord {
     pub close_policy: RuntimeHandleClosePolicy,
     pub wait_state: Option<RuntimeWaitState>,
     pub open_handles: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeEvent {
+    pub event_id: u64,
+    pub manual_reset: bool,
+    pub wait_state: RuntimeWaitState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -259,6 +273,24 @@ impl Default for RuntimeObjectTable {
 }
 
 impl RuntimeObjectTable {
+    pub(super) fn plan_event_and_handle_registration(
+        &self,
+        manual_reset: bool,
+        initial_state: bool,
+    ) -> Result<RuntimeObjectRegistrationPlan, RuntimeStateError> {
+        let event_id = self.next_object_id;
+        let mut plan = self.plan_object_and_handle_registration(RuntimeObjectKey::Event {
+            event_id,
+            manual_reset,
+        })?;
+        plan.record.wait_state = Some(if initial_state {
+            RuntimeWaitState::Signaled { exit_code: 0 }
+        } else {
+            RuntimeWaitState::Nonsignaled
+        });
+        Ok(plan)
+    }
+
     pub(super) fn plan_object_and_handle_registration(
         &self,
         key: RuntimeObjectKey,
@@ -1130,12 +1162,14 @@ fn runtime_object_record(
         RuntimeObjectKind::Process
         | RuntimeObjectKind::Thread
         | RuntimeObjectKind::Mutex
+        | RuntimeObjectKind::Event
         | RuntimeObjectKind::WaitableTimer
         | RuntimeObjectKind::File => (
             match kind {
                 RuntimeObjectKind::Process => RUNTIME_PROCESS_OBJECT_NAMESPACE,
                 RuntimeObjectKind::Thread => RUNTIME_THREAD_OBJECT_NAMESPACE,
                 RuntimeObjectKind::Mutex => RUNTIME_MUTEX_OBJECT_NAMESPACE,
+                RuntimeObjectKind::Event => RUNTIME_EVENT_OBJECT_NAMESPACE,
                 RuntimeObjectKind::WaitableTimer => RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
                 RuntimeObjectKind::File => RUNTIME_SOURCE_FILE_NAMESPACE,
                 RuntimeObjectKind::FileSearch
@@ -1147,6 +1181,7 @@ fn runtime_object_record(
                 kind,
                 RuntimeObjectKind::Process
                     | RuntimeObjectKind::Thread
+                    | RuntimeObjectKind::Event
                     | RuntimeObjectKind::WaitableTimer
             )
             .then_some(RuntimeWaitState::Nonsignaled),
@@ -1184,7 +1219,10 @@ const fn runtime_handle_slot_key(kind: RuntimeObjectKind, slot: u16) -> u32 {
 const fn is_payload_close_handle_kind(kind: RuntimeObjectKind) -> bool {
     matches!(
         kind,
-        RuntimeObjectKind::Mutex | RuntimeObjectKind::WaitableTimer | RuntimeObjectKind::File
+        RuntimeObjectKind::Mutex
+            | RuntimeObjectKind::Event
+            | RuntimeObjectKind::WaitableTimer
+            | RuntimeObjectKind::File
     )
 }
 

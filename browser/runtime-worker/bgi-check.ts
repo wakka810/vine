@@ -1,6 +1,10 @@
 import { observePageLifecycle } from "./page-lifecycle.js";
 import { pointerSourceEvent } from "./keyboard-input.js";
 import {
+  BrowserPcmRenderer,
+  type BrowserAudioPlaybackReceipt,
+} from "./audio-renderer.js";
+import {
   assertProtocolVersion,
   type BgiCapabilityProfile,
   type MainToWorkerMessage,
@@ -20,6 +24,9 @@ interface BgiBrowserEvidence {
   statusMessagesObserved: number;
   statusMessagesRetained: number;
   statuses: Array<{ phase: string; detail: string }>;
+  audioPlaybackRequests: number;
+  audioPlaybacksStarted: number;
+  latestAudioPlayback: BrowserAudioPlaybackReceipt | null;
 }
 
 declare global {
@@ -38,8 +45,11 @@ const worker = new Worker(new URL("./runtime-worker.js", import.meta.url), {
 const status = requiredElement<HTMLOutputElement>("#status");
 const searchParams = new URL(location.href).searchParams;
 const scenario = parseScenario(searchParams.get("scenario"));
+const forwardDevelopment = searchParams.get("development") === "forward";
 const evidenceLevel =
-  searchParams.get("evidence") === "full" ? "full" : "summary";
+  !forwardDevelopment && searchParams.get("evidence") === "full"
+    ? "full"
+    : "summary";
 const capabilityProfile = parseCapabilityProfile(searchParams.get("profile"));
 const scheduledSharedClockSetWindowText =
   capabilityProfile ===
@@ -193,8 +203,12 @@ const pageLifecycle = observePageLifecycle((lifecycle) => {
   } satisfies MainToWorkerMessage);
 });
 const statuses: Array<{ phase: string; detail: string }> = [];
-const maximumRetainedStatuses = 4_096;
+const pcmRenderer = new BrowserPcmRenderer();
+const maximumRetainedStatuses = forwardDevelopment ? 128 : 4_096;
 let statusMessagesObserved = 0;
+let audioPlaybackRequests = 0;
+let audioPlaybacksStarted = 0;
+let latestAudioPlayback: BrowserAudioPlaybackReceipt | null = null;
 const usedJsHeapBytesBefore = performance.memory?.usedJSHeapSize ?? null;
 let heartbeatSamples = 0;
 let maximumHeartbeatGapMilliseconds = 0;
@@ -251,6 +265,20 @@ worker.addEventListener(
       );
       return;
     }
+    if (message.type === "audio-playback") {
+      audioPlaybackRequests += 1;
+      void pcmRenderer
+        .play(message)
+        .then((receipt) => {
+          audioPlaybacksStarted += 1;
+          latestAudioPlayback = receipt;
+          document.body.dataset.audioPlayback = JSON.stringify(receipt);
+        })
+        .catch((error: unknown) =>
+          fail(error instanceof Error ? error : new Error(String(error))),
+        );
+      return;
+    }
     finish(message.report);
   },
 );
@@ -266,11 +294,14 @@ const startMessage = {
     evidenceLevel,
     workload: "private-bgi",
     ...(capabilityProfile === undefined ? {} : { capabilityProfile }),
+    ...(forwardDevelopment ? { developmentMode: "forward" as const } : {}),
     executableUrl: "./private/BGI.exe",
     policyUrl: "./private/kernel32-policy.json",
     instructionBudget: scenario === "watchdog" ? 4 : 16_384,
     watchdogInstructionLimit:
-      scenario === "watchdog"
+      forwardDevelopment
+        ? 8_000_000_000
+        : scenario === "watchdog"
         ? 1
         : capabilityProfile === "user32-get-cursor-info" ||
             capabilityProfile === "d3d9-update-texture-partial-dirty-region" ||
@@ -459,7 +490,9 @@ const startMessage = {
                   ? 35_000_000
                   : 20_000_000,
     watchdogWallMilliseconds:
-      capabilityProfile ===
+      forwardDevelopment
+        ? 600_000
+        : capabilityProfile ===
         "primary-main-loop-post-callback-pointer-release-message-consumption-batch"
         ? 3_600_000
         : capabilityProfile ===
@@ -808,6 +841,40 @@ if (
 
 function finish(report: SessionReport): void {
   window.clearInterval(heartbeat);
+  if (forwardDevelopment) {
+    const accepted =
+      report.outcome === "structured-stop" ||
+      report.outcome === "checkpoint-complete" ||
+      report.outcome === "completed" ||
+      report.outcome === "fault" ||
+      report.outcome === "watchdog";
+    if (!accepted) {
+      fail(
+        new Error(report.error ?? `unexpected forward outcome ${report.outcome}`),
+      );
+      return;
+    }
+    const evidence: BgiBrowserEvidence = {
+      scenario,
+      report,
+      heartbeatSamples,
+      maximumHeartbeatGapMilliseconds,
+      usedJsHeapBytesBefore,
+      usedJsHeapBytesAfter: performance.memory?.usedJSHeapSize ?? null,
+      statusMessagesObserved,
+      statusMessagesRetained: statuses.length,
+      statuses,
+      audioPlaybackRequests,
+      audioPlaybacksStarted,
+      latestAudioPlayback,
+    };
+    window.__vineBgiCheck.result = evidence;
+    document.body.dataset.checkStatus = "passed";
+    document.body.dataset.report = JSON.stringify(evidence);
+    status.textContent = report.outcome;
+    worker.terminate();
+    return;
+  }
   const expectedOutcome =
     scenario === "success"
       ? report.checkpointCompletion === null
@@ -830,6 +897,9 @@ function finish(report: SessionReport): void {
     statusMessagesObserved,
     statusMessagesRetained: statuses.length,
     statuses,
+    audioPlaybackRequests,
+    audioPlaybacksStarted,
+    latestAudioPlayback,
   };
   window.__vineBgiCheck.result = evidence;
   document.body.dataset.checkStatus = "passed";

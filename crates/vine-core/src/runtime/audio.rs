@@ -3,18 +3,29 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Serialize;
 
 use super::{
-    ProcessAddressAllocationId, RuntimeComObjectId, RuntimeStateError, RuntimeThreadId,
-    RuntimeWindowId,
+    ProcessAddressAllocationId, RuntimeComObjectId, RuntimeHandle, RuntimeStateError,
+    RuntimeThreadId, RuntimeWindowId,
 };
 use crate::memory::{GuestAddress, GuestRange, MemoryOwnerId};
 
 pub const RUNTIME_AUDIO_DEVICE_ID_NAMESPACE: &str = "vine.logical-audio-device.v1";
 pub const RUNTIME_AUDIO_BUFFER_ID_NAMESPACE: &str = "vine.logical-audio-buffer.v1";
+pub const RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE: &str = "runtime.audio-wait-delay.v1";
 pub const RUNTIME_AUDIO_RESOURCE_ARENA_BASE: GuestAddress = GuestAddress(0x4500_0000);
 pub const RUNTIME_AUDIO_RESOURCE_ARENA_SIZE: u64 = 0x0100_0000;
+pub const RUNTIME_AUDIO_PCM_MIN_SAMPLES_PER_SECOND: u32 = 8_000;
+pub const RUNTIME_AUDIO_PCM_MAX_SAMPLES_PER_SECOND: u32 = 192_000;
+pub const RUNTIME_AUDIO_PCM_MAX_CHANNELS: u16 = 2;
+pub const RUNTIME_AUDIO_VOLUME_MIN_HUNDREDTHS_DB: i32 = -10_000;
+pub const RUNTIME_AUDIO_VOLUME_MAX_HUNDREDTHS_DB: i32 = 0;
+pub const RUNTIME_AUDIO_PAN_MIN_HUNDREDTHS_DB: i32 = -10_000;
+pub const RUNTIME_AUDIO_PAN_MAX_HUNDREDTHS_DB: i32 = 10_000;
+pub const RUNTIME_AUDIO_PLAYBACK_FREQUENCY_MIN_HZ: u32 = 100;
+pub const RUNTIME_AUDIO_PLAYBACK_FREQUENCY_MAX_HZ: u32 = 200_000;
 pub(crate) const RUNTIME_AUDIO_RESOURCE_ADDRESS_OWNER: &str = "runtime-audio-resource";
 pub const RUNTIME_AUDIO_DEVICE_LIMIT: usize = 4_096;
 pub const RUNTIME_AUDIO_BUFFER_LIMIT: usize = 16_384;
+pub const RUNTIME_AUDIO_NOTIFICATION_LIMIT: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -126,7 +137,25 @@ pub struct RuntimeAudioBufferLock {
 #[serde(rename_all = "kebab-case")]
 pub enum RuntimeAudioPlaybackState {
     Stopped,
+    PlayingOnce,
     PlayingLooping,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeAudioBufferControls {
+    pub volume_hundredths_db: i32,
+    pub pan_hundredths_db: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frequency_hz: Option<u32>,
+    pub current_position_bytes: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeAudioNotification {
+    pub offset_bytes: u32,
+    pub event_handle: RuntimeHandle,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -145,6 +174,10 @@ pub struct RuntimeAudioBuffer {
     pub active_lock: Option<RuntimeAudioBufferLock>,
     pub content_generation: u64,
     pub playback: RuntimeAudioPlaybackState,
+    pub controls: RuntimeAudioBufferControls,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notifications: Vec<RuntimeAudioNotification>,
+    pub notification_cursor: usize,
     pub generation: u64,
 }
 
@@ -173,6 +206,20 @@ pub(crate) struct RuntimeAudioBufferPlayRequest {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimeAudioBufferControlUpdate {
+    Volume(i32),
+    Pan(i32),
+    Frequency(u32),
+    CurrentPosition(u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeAudioBufferControlRequest {
+    pub buffer_com_object_id: RuntimeComObjectId,
+    pub update: RuntimeAudioBufferControlUpdate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RuntimeAudioBufferLockRequest {
     pub buffer_com_object_id: RuntimeComObjectId,
     pub offset: u32,
@@ -185,6 +232,12 @@ pub(crate) struct RuntimeAudioBufferUnlockRequest {
     pub buffer_com_object_id: RuntimeComObjectId,
     pub first_segment: RuntimeAudioBufferSegment,
     pub second_segment: Option<RuntimeAudioBufferSegment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeAudioBufferNotificationRequest {
+    pub buffer_com_object_id: RuntimeComObjectId,
+    pub notifications: Vec<RuntimeAudioNotification>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -263,6 +316,18 @@ pub(crate) struct RuntimeAudioBufferPlayPlan {
     next: RuntimeAudioPlaybackState,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeAudioBufferControlPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    buffer_id: RuntimeAudioBufferId,
+    expected_buffer_generation: u64,
+    next_buffer_generation: u64,
+    update: RuntimeAudioBufferControlUpdate,
+    previous: RuntimeAudioBufferControls,
+    next: RuntimeAudioBufferControls,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RuntimeAudioBufferBackingPlan {
     pub address_allocation_id: ProcessAddressAllocationId,
@@ -305,6 +370,71 @@ pub(crate) struct RuntimeAudioBufferUnlockPlan {
     expected_content_generation: u64,
     next_content_generation: u64,
     lock: RuntimeAudioBufferLock,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeAudioBufferNotificationPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    buffer_id: RuntimeAudioBufferId,
+    expected_buffer_generation: u64,
+    next_buffer_generation: u64,
+    previous: Vec<RuntimeAudioNotification>,
+    next: Vec<RuntimeAudioNotification>,
+    next_cursor: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimeAudioNotificationWaitPlan {
+    expected_generation: u64,
+    next_generation: u64,
+    buffer_id: RuntimeAudioBufferId,
+    expected_buffer_generation: u64,
+    next_buffer_generation: u64,
+    expected_position_bytes: u32,
+    next_position_bytes: u32,
+    expected_cursor: usize,
+    next_cursor: usize,
+    delay_milliseconds: u32,
+    result_index: Option<u32>,
+    handles: Vec<RuntimeHandle>,
+    timeout_milliseconds: u32,
+}
+
+impl RuntimeAudioNotificationWaitPlan {
+    pub(crate) const fn delay_milliseconds(&self) -> u32 {
+        self.delay_milliseconds
+    }
+
+    pub(crate) const fn result_index(&self) -> Option<u32> {
+        self.result_index
+    }
+
+    pub(crate) fn encode_host_payload(&self) -> Vec<u8> {
+        let words = [
+            1,
+            self.delay_milliseconds,
+            self.result_index.unwrap_or(u32::MAX),
+            self.buffer_id.0 as u32,
+            (self.buffer_id.0 >> 32) as u32,
+            self.expected_buffer_generation as u32,
+            (self.expected_buffer_generation >> 32) as u32,
+            self.expected_position_bytes,
+            self.next_position_bytes,
+            self.expected_cursor as u32,
+            self.next_cursor as u32,
+            self.timeout_milliseconds,
+            self.handles.len() as u32,
+        ];
+        let mut payload = Vec::with_capacity((words.len() + self.handles.len()) * 4);
+        for word in words
+            .into_iter()
+            .chain(self.handles.iter().map(|handle| handle.0))
+        {
+            payload.extend_from_slice(&word.to_le_bytes());
+        }
+        payload
+    }
 }
 
 impl RuntimeAudioBufferUnlockPlan {
@@ -356,6 +486,16 @@ pub struct RuntimeAudioBufferPlayResult {
     pub buffer_id: RuntimeAudioBufferId,
     pub previous: RuntimeAudioPlaybackState,
     pub current: RuntimeAudioPlaybackState,
+    pub changed: bool,
+    pub buffer_generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeAudioBufferControlResult {
+    pub buffer_id: RuntimeAudioBufferId,
+    pub previous: RuntimeAudioBufferControls,
+    pub current: RuntimeAudioBufferControls,
     pub changed: bool,
     pub buffer_generation: u64,
 }
@@ -673,6 +813,18 @@ impl RuntimeAudio {
             active_lock: None,
             content_generation: 0,
             playback: RuntimeAudioPlaybackState::Stopped,
+            controls: RuntimeAudioBufferControls {
+                volume_hundredths_db: 0,
+                pan_hundredths_db: 0,
+                frequency_hz: plan
+                    .request
+                    .descriptor
+                    .format
+                    .map(|format| format.samples_per_second),
+                current_position_bytes: 0,
+            },
+            notifications: Vec::new(),
+            notification_cursor: 0,
             generation: plan.next_generation,
         };
         let device = self
@@ -782,16 +934,11 @@ impl RuntimeAudio {
         backing_installation: Option<RuntimeAudioBufferBackingPlan>,
     ) -> Result<RuntimeAudioBufferLockPlan, RuntimeStateError> {
         let buffer = self.buffer_by_com_object(request.buffer_com_object_id)?;
-        if buffer.descriptor.kind != RuntimeAudioBufferKind::Secondary
-            || buffer.active_format.is_none()
-            || request.offset != 0
-            || request.byte_length != buffer.descriptor.byte_length
-            || request.flags != 0
-        {
+        if buffer.descriptor.kind != RuntimeAudioBufferKind::Secondary || request.flags != 0 {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-audio",
                 "audio-buffer-lock-variant-unsupported",
-                "bounded audio locking supports only the reached full-range secondary-buffer variant",
+                "bounded audio locking supports aligned secondary-buffer regions with no Lock flags",
             ));
         }
         if buffer.active_lock.is_some() {
@@ -824,16 +971,7 @@ impl RuntimeAudio {
                 ));
             }
         };
-        let lock = RuntimeAudioBufferLock {
-            offset: request.offset,
-            byte_length: request.byte_length,
-            flags: request.flags,
-            first_segment: RuntimeAudioBufferSegment {
-                guest_address: backing_start,
-                byte_length: request.byte_length,
-            },
-            second_segment: None,
-        };
+        let lock = derive_buffer_lock(buffer, request, backing_start)?;
         Ok(RuntimeAudioBufferLockPlan {
             expected_generation: self.generation,
             next_generation: checked_next_generation(self.generation)?,
@@ -863,12 +1001,31 @@ impl RuntimeAudio {
             (Some(current), Some(previous), None, None) => current == previous,
             (None, None, Some(backing), Some(memory_owner)) => {
                 backing.address_allocation_id.0 != 0
-                    && backing.range.start() == plan.lock.first_segment.guest_address
-                    && backing.range.byte_length() >= u64::from(plan.lock.byte_length)
+                    && backing.range.byte_length() >= u64::from(buffer.descriptor.byte_length)
                     && memory_owner.0 != 0
             }
             _ => false,
         };
+        let backing_start = plan
+            .previous_backing
+            .map(|backing| backing.range.start())
+            .or_else(|| {
+                plan.backing_installation
+                    .map(|backing| backing.range.start())
+            });
+        let expected_lock = backing_start.and_then(|backing_start| {
+            derive_buffer_lock(
+                buffer,
+                RuntimeAudioBufferLockRequest {
+                    buffer_com_object_id: buffer.com_object_id,
+                    offset: plan.lock.offset,
+                    byte_length: plan.lock.byte_length,
+                    flags: plan.lock.flags,
+                },
+                backing_start,
+            )
+            .ok()
+        });
         if self.generation != plan.expected_generation
             || buffer.generation != plan.expected_buffer_generation
             || buffer.descriptor.kind != RuntimeAudioBufferKind::Secondary
@@ -876,11 +1033,7 @@ impl RuntimeAudio {
             || buffer.active_lock.is_some()
             || buffer.backing != plan.previous_backing
             || !backing_shape_matches
-            || plan.lock.offset != 0
-            || plan.lock.byte_length != buffer.descriptor.byte_length
-            || plan.lock.flags != 0
-            || plan.lock.first_segment.byte_length != buffer.descriptor.byte_length
-            || plan.lock.second_segment.is_some()
+            || expected_lock != Some(plan.lock)
             || self.buffer_com_object_index.get(&buffer.com_object_id) != Some(&buffer.id)
             || self.generation.checked_add(1) != Some(plan.next_generation)
             || buffer.generation.checked_add(1) != Some(plan.next_buffer_generation)
@@ -998,18 +1151,224 @@ impl RuntimeAudio {
         }
     }
 
+    pub(super) fn plan_buffer_notifications(
+        &self,
+        request: RuntimeAudioBufferNotificationRequest,
+    ) -> Result<RuntimeAudioBufferNotificationPlan, RuntimeStateError> {
+        let buffer = self.buffer_by_com_object(request.buffer_com_object_id)?;
+        validate_notifications(buffer, &request.notifications)?;
+        let changed = buffer.notifications != request.notifications;
+        Ok(RuntimeAudioBufferNotificationPlan {
+            expected_generation: self.generation,
+            next_generation: if changed {
+                checked_next_generation(self.generation)?
+            } else {
+                self.generation
+            },
+            buffer_id: buffer.id,
+            expected_buffer_generation: buffer.generation,
+            next_buffer_generation: if changed {
+                checked_buffer_generation(buffer.generation)?
+            } else {
+                buffer.generation
+            },
+            previous: buffer.notifications.clone(),
+            next_cursor: first_notification_after(buffer, &request.notifications),
+            next: request.notifications,
+        })
+    }
+
+    pub(super) fn preflight_buffer_notifications(
+        &self,
+        plan: &RuntimeAudioBufferNotificationPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(buffer) = self.buffers.get(&plan.buffer_id) else {
+            return Err(stale_plan("audio-buffer-notification-plan-stale"));
+        };
+        let changed = plan.previous != plan.next;
+        if self.generation != plan.expected_generation
+            || buffer.generation != plan.expected_buffer_generation
+            || buffer.notifications != plan.previous
+            || validate_notifications(buffer, &plan.next).is_err()
+            || plan.next_cursor != first_notification_after(buffer, &plan.next)
+            || (changed
+                && (self.generation.checked_add(1) != Some(plan.next_generation)
+                    || buffer.generation.checked_add(1) != Some(plan.next_buffer_generation)))
+            || (!changed
+                && (plan.next_generation != self.generation
+                    || plan.next_buffer_generation != buffer.generation))
+        {
+            return Err(stale_plan("audio-buffer-notification-plan-stale"));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_buffer_notifications(
+        &mut self,
+        plan: RuntimeAudioBufferNotificationPlan,
+    ) -> Vec<RuntimeAudioNotification> {
+        debug_assert!(self.preflight_buffer_notifications(&plan).is_ok());
+        let changed = plan.previous != plan.next;
+        let buffer = self
+            .buffers
+            .get_mut(&plan.buffer_id)
+            .expect("preflighted audio buffer disappeared");
+        if changed {
+            buffer.notifications = plan.next;
+            buffer.notification_cursor = plan.next_cursor;
+            buffer.generation = plan.next_buffer_generation;
+            self.generation = plan.next_generation;
+        }
+        buffer.notifications.clone()
+    }
+
+    pub(super) fn plan_notification_wait(
+        &self,
+        handles: &[RuntimeHandle],
+        timeout_milliseconds: u32,
+    ) -> Result<RuntimeAudioNotificationWaitPlan, RuntimeStateError> {
+        if handles.is_empty() || handles.len() > RUNTIME_AUDIO_NOTIFICATION_LIMIT {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-audio",
+                "audio-notification-wait-count-invalid",
+                "audio notification wait requires a bounded nonempty handle array",
+            ));
+        }
+        let buffer = self
+            .buffers
+            .values()
+            .find(|buffer| {
+                buffer.playback == RuntimeAudioPlaybackState::PlayingLooping
+                    && buffer.notifications.len() == handles.len()
+                    && buffer
+                        .notifications
+                        .iter()
+                        .zip(handles)
+                        .all(|(notification, handle)| notification.event_handle == *handle)
+            })
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-audio",
+                    "audio-notification-wait-buffer-unknown",
+                    "wait handle array does not match a playing notification buffer",
+                )
+            })?;
+        let format = buffer.active_format.ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-audio",
+                "audio-notification-format-missing",
+                "playing notification buffer has no PCM format",
+            )
+        })?;
+        let notification_index = normalize_notification_cursor(buffer, buffer.notification_cursor)
+            .ok_or_else(|| {
+                RuntimeStateError::invalid_input(
+                    "runtime-audio",
+                    "audio-notification-offsets-empty",
+                    "notification wait has no playable position notification",
+                )
+            })?;
+        let notification = buffer.notifications[notification_index];
+        let position = buffer.controls.current_position_bytes;
+        let byte_length = buffer.descriptor.byte_length;
+        let distance = if notification.offset_bytes > position {
+            notification.offset_bytes - position
+        } else {
+            byte_length - position + notification.offset_bytes
+        };
+        let milliseconds_to_notification = u64::from(distance)
+            .saturating_mul(1000)
+            .div_ceil(u64::from(format.average_bytes_per_second))
+            .max(1);
+        let fires = milliseconds_to_notification <= u64::from(timeout_milliseconds);
+        let delay_milliseconds = if fires {
+            milliseconds_to_notification as u32
+        } else {
+            timeout_milliseconds
+        };
+        let advanced_bytes = if fires {
+            distance
+        } else {
+            u64::from(format.average_bytes_per_second)
+                .saturating_mul(u64::from(delay_milliseconds))
+                .checked_div(1000)
+                .unwrap_or(0) as u32
+        };
+        let next_position_bytes = if fires {
+            notification.offset_bytes
+        } else {
+            (u64::from(position) + u64::from(advanced_bytes))
+                .checked_rem(u64::from(byte_length))
+                .unwrap_or(0) as u32
+        };
+        Ok(RuntimeAudioNotificationWaitPlan {
+            expected_generation: self.generation,
+            next_generation: checked_next_generation(self.generation)?,
+            buffer_id: buffer.id,
+            expected_buffer_generation: buffer.generation,
+            next_buffer_generation: checked_buffer_generation(buffer.generation)?,
+            expected_position_bytes: position,
+            next_position_bytes,
+            expected_cursor: buffer.notification_cursor,
+            next_cursor: if fires {
+                next_playable_notification(&buffer.notifications, notification_index)
+                    .unwrap_or(notification_index)
+            } else {
+                notification_index
+            },
+            delay_milliseconds,
+            result_index: fires.then_some(notification_index as u32),
+            handles: handles.to_vec(),
+            timeout_milliseconds,
+        })
+    }
+
+    pub(super) fn preflight_notification_wait(
+        &self,
+        plan: &RuntimeAudioNotificationWaitPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(buffer) = self.buffers.get(&plan.buffer_id) else {
+            return Err(stale_plan("audio-notification-wait-plan-stale"));
+        };
+        let replanned = self.plan_notification_wait(&plan.handles, plan.timeout_milliseconds)?;
+        if self.generation != plan.expected_generation
+            || buffer.generation != plan.expected_buffer_generation
+            || buffer.controls.current_position_bytes != plan.expected_position_bytes
+            || buffer.notification_cursor != plan.expected_cursor
+            || &replanned != plan
+        {
+            return Err(stale_plan("audio-notification-wait-plan-stale"));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_notification_wait(
+        &mut self,
+        plan: RuntimeAudioNotificationWaitPlan,
+    ) -> Option<u32> {
+        debug_assert!(self.preflight_notification_wait(&plan).is_ok());
+        let buffer = self
+            .buffers
+            .get_mut(&plan.buffer_id)
+            .expect("preflighted audio notification buffer disappeared");
+        buffer.controls.current_position_bytes = plan.next_position_bytes;
+        buffer.notification_cursor = plan.next_cursor;
+        buffer.generation = plan.next_buffer_generation;
+        self.generation = plan.next_generation;
+        plan.result_index
+    }
+
     pub(super) fn plan_buffer_play(
         &self,
         request: RuntimeAudioBufferPlayRequest,
     ) -> Result<RuntimeAudioBufferPlayPlan, RuntimeStateError> {
         let buffer = self.buffer_by_com_object(request.buffer_com_object_id)?;
-        if request.playback != RuntimeAudioPlaybackState::PlayingLooping
-            || !buffer_ready_for_looping_play(buffer)
+        if request.playback == RuntimeAudioPlaybackState::Stopped || !buffer_ready_for_play(buffer)
         {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-audio",
                 "audio-buffer-play-state-invalid",
-                "logical audio playback requires an initialized unlocked buffer and looping state",
+                "logical audio playback requires an initialized unlocked buffer and a playing state",
             ));
         }
         require_priority_cooperative_state(self.device(buffer.device_id)?)?;
@@ -1045,8 +1404,8 @@ impl RuntimeAudio {
         if self.generation != plan.expected_generation
             || buffer.generation != plan.expected_buffer_generation
             || buffer.playback != plan.previous
-            || !buffer_ready_for_looping_play(buffer)
-            || plan.next != RuntimeAudioPlaybackState::PlayingLooping
+            || !buffer_ready_for_play(buffer)
+            || plan.next == RuntimeAudioPlaybackState::Stopped
             || self.buffer_com_object_index.get(&buffer.com_object_id) != Some(&buffer.id)
             || require_priority_cooperative_state(device).is_err()
             || (changed
@@ -1073,10 +1432,100 @@ impl RuntimeAudio {
             .expect("preflighted audio buffer disappeared");
         if changed {
             buffer.playback = plan.next;
+            if plan.next != RuntimeAudioPlaybackState::Stopped {
+                buffer.notification_cursor =
+                    first_notification_after(buffer, &buffer.notifications);
+            }
             buffer.generation = plan.next_buffer_generation;
             self.generation = plan.next_generation;
         }
         RuntimeAudioBufferPlayResult {
+            buffer_id: buffer.id,
+            previous: plan.previous,
+            current: plan.next,
+            changed,
+            buffer_generation: buffer.generation,
+        }
+    }
+
+    pub(super) fn plan_buffer_control(
+        &self,
+        request: RuntimeAudioBufferControlRequest,
+    ) -> Result<RuntimeAudioBufferControlPlan, RuntimeStateError> {
+        let buffer = self.buffer_by_com_object(request.buffer_com_object_id)?;
+        let next = apply_buffer_control(buffer, request.update)?;
+        require_priority_cooperative_state(self.device(buffer.device_id)?)?;
+        let changed = buffer.controls != next;
+        Ok(RuntimeAudioBufferControlPlan {
+            expected_generation: self.generation,
+            next_generation: if changed {
+                checked_next_generation(self.generation)?
+            } else {
+                self.generation
+            },
+            buffer_id: buffer.id,
+            expected_buffer_generation: buffer.generation,
+            next_buffer_generation: if changed {
+                checked_buffer_generation(buffer.generation)?
+            } else {
+                buffer.generation
+            },
+            update: request.update,
+            previous: buffer.controls,
+            next,
+        })
+    }
+
+    pub(super) fn preflight_buffer_control(
+        &self,
+        plan: &RuntimeAudioBufferControlPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let Some(buffer) = self.buffers.get(&plan.buffer_id) else {
+            return Err(stale_plan("audio-buffer-control-plan-stale"));
+        };
+        let changed = plan.previous != plan.next;
+        let device = self.device(buffer.device_id)?;
+        if self.generation != plan.expected_generation
+            || buffer.generation != plan.expected_buffer_generation
+            || buffer.controls != plan.previous
+            || apply_buffer_control(buffer, plan.update).ok() != Some(plan.next)
+            || self.buffer_com_object_index.get(&buffer.com_object_id) != Some(&buffer.id)
+            || require_priority_cooperative_state(device).is_err()
+            || (changed
+                && (self.generation.checked_add(1) != Some(plan.next_generation)
+                    || buffer.generation.checked_add(1) != Some(plan.next_buffer_generation)))
+            || (!changed
+                && (plan.next_generation != self.generation
+                    || plan.next_buffer_generation != buffer.generation))
+        {
+            return Err(stale_plan("audio-buffer-control-plan-stale"));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_buffer_control(
+        &mut self,
+        plan: RuntimeAudioBufferControlPlan,
+    ) -> RuntimeAudioBufferControlResult {
+        debug_assert!(self.preflight_buffer_control(&plan).is_ok());
+        let changed = plan.previous != plan.next;
+        let buffer = self
+            .buffers
+            .get_mut(&plan.buffer_id)
+            .expect("preflighted audio buffer disappeared");
+        if changed {
+            buffer.controls = plan.next;
+            if matches!(
+                plan.update,
+                RuntimeAudioBufferControlUpdate::CurrentPosition(_)
+            ) {
+                buffer.notification_cursor =
+                    first_notification_after(buffer, &buffer.notifications);
+            }
+            buffer.generation = plan.next_buffer_generation;
+            self.generation = plan.next_generation;
+        }
+        RuntimeAudioBufferControlResult {
             buffer_id: buffer.id,
             previous: plan.previous,
             current: plan.next,
@@ -1371,6 +1820,57 @@ impl RuntimeAudio {
     }
 }
 
+fn derive_buffer_lock(
+    buffer: &RuntimeAudioBuffer,
+    request: RuntimeAudioBufferLockRequest,
+    backing_start: GuestAddress,
+) -> Result<RuntimeAudioBufferLock, RuntimeStateError> {
+    let format = buffer.active_format.ok_or_else(|| {
+        RuntimeStateError::conflict(
+            "runtime-audio",
+            "audio-buffer-lock-format-missing",
+            "secondary audio Lock requires an initialized PCM format",
+        )
+    })?;
+    let buffer_length = buffer.descriptor.byte_length;
+    let block_align = u32::from(format.block_align);
+    if request.flags != 0
+        || request.offset >= buffer_length
+        || request.byte_length == 0
+        || request.byte_length > buffer_length
+        || !request.offset.is_multiple_of(block_align)
+        || !request.byte_length.is_multiple_of(block_align)
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-audio",
+            "audio-buffer-lock-variant-unsupported",
+            "audio Lock region must be nonempty, PCM-aligned, and no larger than the secondary buffer",
+        ));
+    }
+    let first_byte_length = request.byte_length.min(buffer_length - request.offset);
+    let second_byte_length = request.byte_length - first_byte_length;
+    let first_address = backing_start.0.checked_add(request.offset).ok_or_else(|| {
+        RuntimeStateError::resource_limit(
+            "runtime-audio",
+            "audio-buffer-lock-address-overflow",
+            "audio Lock segment overflowed the x86 guest address space",
+        )
+    })?;
+    Ok(RuntimeAudioBufferLock {
+        offset: request.offset,
+        byte_length: request.byte_length,
+        flags: request.flags,
+        first_segment: RuntimeAudioBufferSegment {
+            guest_address: GuestAddress(first_address),
+            byte_length: first_byte_length,
+        },
+        second_segment: (second_byte_length != 0).then_some(RuntimeAudioBufferSegment {
+            guest_address: backing_start,
+            byte_length: second_byte_length,
+        }),
+    })
+}
+
 fn validate_device_create_request(
     request: RuntimeAudioDeviceCreateRequest,
 ) -> Result<(), RuntimeStateError> {
@@ -1416,7 +1916,19 @@ fn validate_buffer_descriptor(
         RuntimeAudioBufferKind::Secondary
             if descriptor.byte_length != 0 && descriptor.format.is_some() =>
         {
-            validate_pcm_format(descriptor.format.expect("checked secondary format"))?;
+            let format = descriptor.format.expect("checked secondary format");
+            validate_pcm_format(format)?;
+            if u64::from(descriptor.byte_length) > RUNTIME_AUDIO_RESOURCE_ARENA_SIZE
+                || !descriptor
+                    .byte_length
+                    .is_multiple_of(u32::from(format.block_align))
+            {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-audio",
+                    "audio-buffer-byte-length-invalid",
+                    "logical secondary audio buffer must fit the audio arena and contain whole PCM frames",
+                ));
+            }
         }
         _ => {
             return Err(RuntimeStateError::invalid_input(
@@ -1436,7 +1948,112 @@ fn validate_buffer_descriptor(
     Ok(())
 }
 
-fn buffer_ready_for_looping_play(buffer: &RuntimeAudioBuffer) -> bool {
+fn validate_notifications(
+    buffer: &RuntimeAudioBuffer,
+    notifications: &[RuntimeAudioNotification],
+) -> Result<(), RuntimeStateError> {
+    if buffer.descriptor.kind != RuntimeAudioBufferKind::Secondary
+        || notifications.is_empty()
+        || notifications.len() > RUNTIME_AUDIO_NOTIFICATION_LIMIT
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-audio",
+            "audio-notification-shape-invalid",
+            "position notifications require a bounded nonempty secondary-buffer list",
+        ));
+    }
+    let block_align = u32::from(
+        buffer
+            .active_format
+            .ok_or_else(|| {
+                RuntimeStateError::conflict(
+                    "runtime-audio",
+                    "audio-notification-format-missing",
+                    "position notifications require an initialized PCM format",
+                )
+            })?
+            .block_align,
+    );
+    let mut handles = BTreeSet::new();
+    let mut stop_count = 0;
+    let mut previous_offset = None;
+    for notification in notifications {
+        if notification.event_handle.0 == 0 || !handles.insert(notification.event_handle) {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-audio",
+                "audio-notification-event-invalid",
+                "position notification event handles must be nonzero and unique",
+            ));
+        }
+        if notification.offset_bytes == u32::MAX {
+            stop_count += 1;
+            continue;
+        }
+        if notification.offset_bytes >= buffer.descriptor.byte_length
+            || !notification.offset_bytes.is_multiple_of(block_align)
+            || previous_offset.is_some_and(|previous| notification.offset_bytes <= previous)
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-audio",
+                "audio-notification-offset-invalid",
+                "position notification offsets must be aligned, unique, ascending, and inside the buffer",
+            ));
+        }
+        previous_offset = Some(notification.offset_bytes);
+    }
+    if stop_count > 1 {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-audio",
+            "audio-notification-stop-duplicate",
+            "position notifications permit at most one stop sentinel",
+        ));
+    }
+    Ok(())
+}
+
+fn first_notification_after(
+    buffer: &RuntimeAudioBuffer,
+    notifications: &[RuntimeAudioNotification],
+) -> usize {
+    notifications
+        .iter()
+        .position(|notification| {
+            notification.offset_bytes != u32::MAX
+                && notification.offset_bytes > buffer.controls.current_position_bytes
+        })
+        .or_else(|| {
+            notifications
+                .iter()
+                .position(|notification| notification.offset_bytes != u32::MAX)
+        })
+        .unwrap_or(0)
+}
+
+fn normalize_notification_cursor(buffer: &RuntimeAudioBuffer, cursor: usize) -> Option<usize> {
+    if buffer
+        .notifications
+        .get(cursor)
+        .is_some_and(|notification| notification.offset_bytes != u32::MAX)
+    {
+        Some(cursor)
+    } else {
+        buffer
+            .notifications
+            .iter()
+            .position(|notification| notification.offset_bytes != u32::MAX)
+    }
+}
+
+fn next_playable_notification(
+    notifications: &[RuntimeAudioNotification],
+    current: usize,
+) -> Option<usize> {
+    (1..=notifications.len())
+        .map(|step| (current + step) % notifications.len())
+        .find(|&index| notifications[index].offset_bytes != u32::MAX)
+}
+
+fn buffer_ready_for_play(buffer: &RuntimeAudioBuffer) -> bool {
     match buffer.descriptor.kind {
         RuntimeAudioBufferKind::Primary => buffer.active_format.is_some(),
         RuntimeAudioBufferKind::Secondary => {
@@ -1448,6 +2065,53 @@ fn buffer_ready_for_looping_play(buffer: &RuntimeAudioBuffer) -> bool {
     }
 }
 
+fn apply_buffer_control(
+    buffer: &RuntimeAudioBuffer,
+    update: RuntimeAudioBufferControlUpdate,
+) -> Result<RuntimeAudioBufferControls, RuntimeStateError> {
+    let mut next = buffer.controls;
+    match update {
+        RuntimeAudioBufferControlUpdate::Volume(value)
+            if (RUNTIME_AUDIO_VOLUME_MIN_HUNDREDTHS_DB
+                ..=RUNTIME_AUDIO_VOLUME_MAX_HUNDREDTHS_DB)
+                .contains(&value) =>
+        {
+            next.volume_hundredths_db = value;
+        }
+        RuntimeAudioBufferControlUpdate::Pan(value)
+            if (RUNTIME_AUDIO_PAN_MIN_HUNDREDTHS_DB..=RUNTIME_AUDIO_PAN_MAX_HUNDREDTHS_DB)
+                .contains(&value) =>
+        {
+            next.pan_hundredths_db = value;
+        }
+        RuntimeAudioBufferControlUpdate::Frequency(value)
+            if (RUNTIME_AUDIO_PLAYBACK_FREQUENCY_MIN_HZ
+                ..=RUNTIME_AUDIO_PLAYBACK_FREQUENCY_MAX_HZ)
+                .contains(&value)
+                && buffer.active_format.is_some() =>
+        {
+            next.frequency_hz = Some(value);
+        }
+        RuntimeAudioBufferControlUpdate::CurrentPosition(value)
+            if buffer.descriptor.kind == RuntimeAudioBufferKind::Secondary
+                && value < buffer.descriptor.byte_length
+                && buffer
+                    .active_format
+                    .is_some_and(|format| value.is_multiple_of(u32::from(format.block_align))) =>
+        {
+            next.current_position_bytes = value;
+        }
+        _ => {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-audio",
+                "audio-buffer-control-value-invalid",
+                "logical audio buffer control value is outside its bounded range",
+            ));
+        }
+    }
+    Ok(next)
+}
+
 fn validate_pcm_format(format: RuntimeAudioPcmFormat) -> Result<(), RuntimeStateError> {
     let bytes_per_sample = u32::from(format.bits_per_sample) / 8;
     let expected_block_align = u32::from(format.channels)
@@ -1456,8 +2120,10 @@ fn validate_pcm_format(format: RuntimeAudioPcmFormat) -> Result<(), RuntimeState
     let expected_average = expected_block_align
         .and_then(|block_align| format.samples_per_second.checked_mul(block_align));
     if format.channels == 0
-        || format.samples_per_second == 0
-        || format.bits_per_sample == 0
+        || format.channels > RUNTIME_AUDIO_PCM_MAX_CHANNELS
+        || !(RUNTIME_AUDIO_PCM_MIN_SAMPLES_PER_SECOND..=RUNTIME_AUDIO_PCM_MAX_SAMPLES_PER_SECOND)
+            .contains(&format.samples_per_second)
+        || !matches!(format.bits_per_sample, 8 | 16)
         || expected_block_align != Some(u32::from(format.block_align))
         || expected_average != Some(format.average_bytes_per_second)
     {
@@ -1898,6 +2564,58 @@ mod tests {
         assert!(played.changed);
         assert_eq!(played.current, RuntimeAudioPlaybackState::PlayingLooping);
 
+        let handles = [
+            RuntimeHandle::from_parts(crate::runtime::RuntimeObjectKind::Event, 1, 1).unwrap(),
+            RuntimeHandle::from_parts(crate::runtime::RuntimeObjectKind::Event, 1, 2).unwrap(),
+            RuntimeHandle::from_parts(crate::runtime::RuntimeObjectKind::Event, 1, 3).unwrap(),
+        ];
+        let notification_plan = audio
+            .plan_buffer_notifications(RuntimeAudioBufferNotificationRequest {
+                buffer_com_object_id: RuntimeComObjectId(22),
+                notifications: vec![
+                    RuntimeAudioNotification {
+                        offset_bytes: 0,
+                        event_handle: handles[0],
+                    },
+                    RuntimeAudioNotification {
+                        offset_bytes: 44_100,
+                        event_handle: handles[1],
+                    },
+                    RuntimeAudioNotification {
+                        offset_bytes: u32::MAX,
+                        event_handle: handles[2],
+                    },
+                ],
+            })
+            .unwrap();
+        audio.commit_buffer_notifications(notification_plan);
+        for expected_position in [17_640, 35_280] {
+            let wait = audio.plan_notification_wait(&handles, 100).unwrap();
+            assert_eq!(wait.delay_milliseconds(), 100);
+            assert_eq!(wait.result_index(), None);
+            assert_eq!(audio.commit_notification_wait(wait), None);
+            assert_eq!(
+                audio
+                    .buffer(RuntimeAudioBufferId(1))
+                    .unwrap()
+                    .controls
+                    .current_position_bytes,
+                expected_position
+            );
+        }
+        let wait = audio.plan_notification_wait(&handles, 100).unwrap();
+        assert_eq!(wait.delay_milliseconds(), 50);
+        assert_eq!(wait.result_index(), Some(1));
+        assert_eq!(audio.commit_notification_wait(wait), Some(1));
+        assert_eq!(
+            audio
+                .buffer(RuntimeAudioBufferId(1))
+                .unwrap()
+                .controls
+                .current_position_bytes,
+            44_100
+        );
+
         let retirements = [RuntimeComObjectId(22)].into_iter().collect();
         let retirement = audio
             .plan_com_object_retirements(&retirements)
@@ -1907,6 +2625,111 @@ mod tests {
             audio.buffer_backings_for_retirement(&retirement).unwrap(),
             vec![(installed_backing, 88_200)]
         );
+    }
+
+    #[test]
+    fn secondary_partial_and_wrapped_locks_share_the_full_buffer_backing() {
+        let mut audio = priority_audio();
+        let secondary_plan = audio
+            .plan_buffer_creation(RuntimeAudioBufferCreateRequest {
+                device_com_object_id: RuntimeComObjectId(13),
+                descriptor: secondary_descriptor(),
+            })
+            .unwrap();
+        audio.commit_buffer_creation(secondary_plan, RuntimeComObjectId(22));
+        let backing_plan = RuntimeAudioBufferBackingPlan {
+            address_allocation_id: ProcessAddressAllocationId(99),
+            range: GuestRange::new(GuestAddress(0x4500_0000), 0x1_6000).unwrap(),
+        };
+
+        let partial_plan = audio
+            .plan_buffer_lock(
+                RuntimeAudioBufferLockRequest {
+                    buffer_com_object_id: RuntimeComObjectId(22),
+                    offset: 4,
+                    byte_length: 80_000,
+                    flags: 0,
+                },
+                Some(backing_plan),
+            )
+            .unwrap();
+        audio
+            .preflight_buffer_lock(&partial_plan, Some(MemoryOwnerId(77)))
+            .unwrap();
+        let partial = audio.commit_buffer_lock(partial_plan, Some(MemoryOwnerId(77)));
+        assert_eq!(
+            partial,
+            RuntimeAudioBufferLock {
+                offset: 4,
+                byte_length: 80_000,
+                flags: 0,
+                first_segment: RuntimeAudioBufferSegment {
+                    guest_address: GuestAddress(0x4500_0004),
+                    byte_length: 80_000,
+                },
+                second_segment: None,
+            }
+        );
+        let unlock = audio
+            .plan_buffer_unlock(RuntimeAudioBufferUnlockRequest {
+                buffer_com_object_id: RuntimeComObjectId(22),
+                first_segment: partial.first_segment,
+                second_segment: partial.second_segment,
+            })
+            .unwrap();
+        audio.commit_buffer_unlock(unlock);
+
+        let wrapped_plan = audio
+            .plan_buffer_lock(
+                RuntimeAudioBufferLockRequest {
+                    buffer_com_object_id: RuntimeComObjectId(22),
+                    offset: 88_196,
+                    byte_length: 8,
+                    flags: 0,
+                },
+                None,
+            )
+            .unwrap();
+        audio.preflight_buffer_lock(&wrapped_plan, None).unwrap();
+        let wrapped = audio.commit_buffer_lock(wrapped_plan, None);
+        assert_eq!(
+            wrapped.first_segment.guest_address,
+            GuestAddress(0x4501_5884)
+        );
+        assert_eq!(wrapped.first_segment.byte_length, 4);
+        assert_eq!(
+            wrapped.second_segment,
+            Some(RuntimeAudioBufferSegment {
+                guest_address: GuestAddress(0x4500_0000),
+                byte_length: 4,
+            })
+        );
+        let unlock = audio
+            .plan_buffer_unlock(RuntimeAudioBufferUnlockRequest {
+                buffer_com_object_id: RuntimeComObjectId(22),
+                first_segment: wrapped.first_segment,
+                second_segment: wrapped.second_segment,
+            })
+            .unwrap();
+        audio.commit_buffer_unlock(unlock);
+
+        let before_invalid = audio.clone();
+        assert_eq!(
+            audio
+                .plan_buffer_lock(
+                    RuntimeAudioBufferLockRequest {
+                        buffer_com_object_id: RuntimeComObjectId(22),
+                        offset: 2,
+                        byte_length: 4,
+                        flags: 0,
+                    },
+                    None,
+                )
+                .unwrap_err()
+                .code,
+            "audio-buffer-lock-variant-unsupported"
+        );
+        assert_eq!(audio, before_invalid);
     }
 
     #[test]

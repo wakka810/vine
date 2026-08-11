@@ -56,9 +56,22 @@ export interface ExecutionCpuContext {
   byteLength: number;
   opaqueWords: Uint32Array;
   eax: number;
+  ecx: number;
+  edx: number;
+  ebx: number;
   esp: number;
+  ebp: number;
+  esi: number;
+  edi: number;
   instructionPointer: number;
   previousInstructionPointer: number;
+  eflags: number;
+  es: number;
+  cs: number;
+  ss: number;
+  ds: number;
+  fs: number;
+  gs: number;
 }
 
 export interface ExecutionSlice {

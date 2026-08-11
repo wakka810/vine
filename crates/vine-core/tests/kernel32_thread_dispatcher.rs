@@ -154,6 +154,22 @@ fn create_resume_set_priority_and_close_follow_x86_contract_and_last_error_oracl
         RuntimeThreadPriority::AboveNormal
     );
 
+    write_runtime_u32(&mut memory, GuestAddress(SET_PRIORITY_STACK.0 + 8), 15);
+    let time_critical = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &set_priority,
+        SET_PRIORITY_STACK,
+        &policy,
+    );
+    assert_eq!(time_critical.eax, RegisterUpdate::Set(1));
+    assert_eq!(time_critical.last_error, 0x5a5a);
+    assert_eq!(
+        runtime.thread_priority(RuntimeThreadId(8193)).unwrap(),
+        RuntimeThreadPriority::TimeCritical
+    );
+
     write_runtime_u32(
         &mut memory,
         GuestAddress(INVALID_PRIORITY_STACK.0 + 4),
@@ -171,7 +187,7 @@ fn create_resume_set_priority_and_close_follow_x86_contract_and_last_error_oracl
     assert_eq!(invalid_priority.last_error, 87);
     assert_eq!(
         runtime.thread_priority(RuntimeThreadId(8193)).unwrap(),
-        RuntimeThreadPriority::AboveNormal
+        RuntimeThreadPriority::TimeCritical
     );
     runtime.set_current_last_error(0x5a5a).unwrap();
 
@@ -193,7 +209,7 @@ fn create_resume_set_priority_and_close_follow_x86_contract_and_last_error_oracl
     assert_eq!(wrong_kind_priority.last_error, 6);
     assert_eq!(
         runtime.thread_priority(RuntimeThreadId(8193)).unwrap(),
-        RuntimeThreadPriority::AboveNormal
+        RuntimeThreadPriority::TimeCritical
     );
     runtime.set_current_last_error(0x5a5a).unwrap();
 
@@ -231,7 +247,7 @@ fn create_resume_set_priority_and_close_follow_x86_contract_and_last_error_oracl
     assert_eq!(closed_priority.last_error, 6);
     assert_eq!(
         runtime.thread_priority(RuntimeThreadId(8193)).unwrap(),
-        RuntimeThreadPriority::AboveNormal
+        RuntimeThreadPriority::TimeCritical
     );
 
     let invalid = dispatch(
@@ -324,7 +340,7 @@ fn thread_policy() -> Kernel32CompatibilityPolicy {
         maximum_threads: 8,
     });
     policy.thread_priority = Some(Kernel32ThreadPriorityPolicy {
-        allowed_priorities: vec![1],
+        allowed_priorities: vec![1, 15],
     });
     policy.validate().unwrap();
     policy

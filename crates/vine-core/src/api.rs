@@ -573,6 +573,8 @@ impl Serialize for ApiGuestWrite {
 #[serde(rename_all = "camelCase")]
 pub struct ApiImmediate {
     pub return_value: ApiReturnValue,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub void_eax: Option<u32>,
     pub guest_writes: Vec<ApiGuestWrite>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub committed_guest_writes: Vec<ApiGuestWriteReceipt>,
@@ -586,6 +588,7 @@ impl ApiImmediate {
     pub fn new(return_value: ApiReturnValue) -> Self {
         Self {
             return_value,
+            void_eax: None,
             guest_writes: Vec::new(),
             committed_guest_writes: Vec::new(),
             last_error: None,
@@ -595,6 +598,11 @@ impl ApiImmediate {
 
     pub fn with_guest_write(mut self, address: GuestAddress, bytes: Vec<u8>) -> Self {
         self.guest_writes.push(ApiGuestWrite { address, bytes });
+        self
+    }
+
+    pub fn with_void_eax(mut self, value: u32) -> Self {
+        self.void_eax = Some(value);
         self
     }
 
@@ -681,6 +689,10 @@ pub enum GuestCallbackCompletionPolicy {
     UpdateWindow {
         operation: RuntimeUpdateWindowOperation,
     },
+    ExceptionDispatch {
+        next_frame: GuestAddress,
+        exception_flags: u32,
+    },
 }
 
 impl GuestCallbackCompletionPolicy {
@@ -692,7 +704,8 @@ impl GuestCallbackCompletionPolicy {
             | (Self::ReturnBool32, ApiReturnSchema::Bool32)
             | (Self::ReturnBool32WithLastError { .. }, ApiReturnSchema::Bool32)
             | (Self::SetWindowPos { .. }, ApiReturnSchema::Bool32)
-            | (Self::UpdateWindow { .. }, ApiReturnSchema::Bool32) => true,
+            | (Self::UpdateWindow { .. }, ApiReturnSchema::Bool32)
+            | (Self::ExceptionDispatch { .. }, ApiReturnSchema::Void) => true,
             (
                 Self::CreateWindowExA { .. },
                 ApiReturnSchema::LogicalHandle {
@@ -718,7 +731,8 @@ impl GuestCallbackCompletionPolicy {
             Self::CreateWindowExA { .. }
             | Self::SetWindowPos { .. }
             | Self::SetWindowPosDefault { .. }
-            | Self::UpdateWindow { .. } => return None,
+            | Self::UpdateWindow { .. }
+            | Self::ExceptionDispatch { .. } => return None,
         };
         Some(ApiImmediate::new(value))
     }
@@ -1103,14 +1117,55 @@ pub enum DispatchOutcome {
     Fault(ApiFault),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct X86CpuContext {
+    pub eax: u32,
+    pub ecx: u32,
+    pub edx: u32,
+    pub ebx: u32,
+    pub esp: u32,
+    pub ebp: u32,
+    pub esi: u32,
+    pub edi: u32,
+    pub eip: u32,
+    pub eflags: u32,
+    pub es: u32,
+    pub cs: u32,
+    pub ss: u32,
+    pub ds: u32,
+    pub fs: u32,
+    pub gs: u32,
+}
+
 pub struct ExecutionSession<'a> {
     memory: &'a mut GuestMemory,
     runtime: &'a mut RuntimeState,
+    x86_context: Option<X86CpuContext>,
+    guest_callback_return_sentinel: Option<GuestAddress>,
 }
 
 impl<'a> ExecutionSession<'a> {
     pub fn new(memory: &'a mut GuestMemory, runtime: &'a mut RuntimeState) -> Self {
-        Self { memory, runtime }
+        Self {
+            memory,
+            runtime,
+            x86_context: None,
+            guest_callback_return_sentinel: None,
+        }
+    }
+
+    pub fn with_x86_context(
+        memory: &'a mut GuestMemory,
+        runtime: &'a mut RuntimeState,
+        x86_context: X86CpuContext,
+        guest_callback_return_sentinel: GuestAddress,
+    ) -> Self {
+        Self {
+            memory,
+            runtime,
+            x86_context: Some(x86_context),
+            guest_callback_return_sentinel: Some(guest_callback_return_sentinel),
+        }
     }
 
     pub fn memory(&self) -> &GuestMemory {
@@ -1123,6 +1178,31 @@ impl<'a> ExecutionSession<'a> {
 
     pub fn runtime_mut(&mut self) -> &mut RuntimeState {
         self.runtime
+    }
+
+    pub fn x86_context(&self) -> Option<X86CpuContext> {
+        self.x86_context
+    }
+
+    pub fn guest_callback_return_sentinel(&self) -> Option<GuestAddress> {
+        self.guest_callback_return_sentinel
+    }
+
+    pub(crate) fn commit_indirect_guest_writes(
+        &mut self,
+        writes: &[ApiGuestWrite],
+    ) -> Result<Vec<ApiGuestWriteReceipt>, crate::memory::GuestMemoryError> {
+        let mut transaction = self.memory.begin_transaction();
+        let mut receipts = Vec::with_capacity(writes.len());
+        for write in writes {
+            let result = transaction.write(write.address, &write.bytes)?;
+            receipts.push(ApiGuestWriteReceipt {
+                write: write.clone(),
+                result,
+            });
+        }
+        transaction.commit_transaction();
+        Ok(receipts)
     }
 
     pub fn create_guest_thread(
@@ -1463,7 +1543,8 @@ impl<'a> ExecutionSession<'a> {
             GuestCallbackCompletionPolicy::ReturnU32
             | GuestCallbackCompletionPolicy::ReturnBool32
             | GuestCallbackCompletionPolicy::ReturnBool32WithLastError { .. }
-            | GuestCallbackCompletionPolicy::ReturnConstantU32 { .. } => Ok(None),
+            | GuestCallbackCompletionPolicy::ReturnConstantU32 { .. }
+            | GuestCallbackCompletionPolicy::ExceptionDispatch { .. } => Ok(None),
             GuestCallbackCompletionPolicy::CreateWindowExA {
                 window_id,
                 window_handle,
@@ -1818,6 +1899,23 @@ impl<'a> ExecutionSession<'a> {
         address: GuestAddress,
     ) -> Result<RuntimeHeapAllocation, RuntimeStateError> {
         crate::heap::free_private_heap_block(self.memory, self.runtime, handle, address)
+    }
+
+    pub fn reallocate_private_heap_block(
+        &mut self,
+        handle: u32,
+        address: GuestAddress,
+        byte_length: u32,
+        initialization: RuntimeHeapInitialization,
+    ) -> Result<RuntimeHeapAllocation, RuntimeStateError> {
+        crate::heap::reallocate_private_heap_block(
+            self.memory,
+            self.runtime,
+            handle,
+            address,
+            byte_length,
+            initialization,
+        )
     }
 
     pub fn destroy_private_heap(
@@ -2234,6 +2332,9 @@ impl ApiDispatcher {
             }
             GuestCallbackCompletionPolicy::UpdateWindow { .. } => {
                 crate::user32::resolve_update_window_callback(&call, result, session)
+            }
+            GuestCallbackCompletionPolicy::ExceptionDispatch { .. } => {
+                crate::win32::resolve_exception_dispatch_callback(&call, result, session)
             }
             GuestCallbackCompletionPolicy::ReturnU32
             | GuestCallbackCompletionPolicy::ReturnBool32
@@ -2780,7 +2881,20 @@ fn complete_immediate_in_memory(
     frame: ApiCallFrame,
     immediate: ApiImmediate,
 ) -> Result<ApiImmediateCompletion, ApiFault> {
-    let eax = validate_return_value(contract, &immediate.return_value)?;
+    let mut eax = validate_return_value(contract, &immediate.return_value)?;
+    if let Some(value) = immediate.void_eax {
+        if contract.abi.return_value != ApiReturnSchema::Void
+            || immediate.return_value != ApiReturnValue::Void
+        {
+            return Err(ApiFault::runtime_defect(
+                "api-dispatch",
+                "void-eax-override-contract-mismatch",
+                "explicit EAX continuation value requires a void API contract and result",
+            )
+            .with_endpoint(&contract.endpoint));
+        }
+        eax = RegisterUpdate::Set(value);
+    }
     let next_last_error = match contract.last_error_policy {
         LastErrorPolicy::Preserve => {
             if immediate.last_error.is_some() {

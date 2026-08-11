@@ -9,6 +9,68 @@ use vine_core::{
 const PROCESS_ID: u32 = 4096;
 const INITIAL_THREAD_ID: RuntimeThreadId = RuntimeThreadId(8192);
 const SECOND_THREAD_ID: RuntimeThreadId = RuntimeThreadId(4097);
+const THIRD_THREAD_ID: RuntimeThreadId = RuntimeThreadId(4098);
+
+#[test]
+fn auto_reset_event_signal_wakes_one_fifo_waiter_and_is_consumed() {
+    let mut runtime = running_runtime();
+    let (event_handle, event) = runtime
+        .create_event(false, false)
+        .expect("create unnamed auto-reset event");
+    assert!(!event.manual_reset);
+    assert_eq!(event.wait_state, RuntimeWaitState::Nonsignaled);
+    runtime
+        .register_thread(SECOND_THREAD_ID, 0)
+        .expect("register second waiter");
+    runtime
+        .register_thread(THIRD_THREAD_ID, 0)
+        .expect("register signaler");
+
+    assert!(matches!(
+        runtime.wait_current_thread_on(event_handle).unwrap(),
+        RuntimeWaitDisposition::Pending { .. }
+    ));
+    runtime.select_thread(SECOND_THREAD_ID).unwrap();
+    assert!(matches!(
+        runtime.wait_current_thread_on(event_handle).unwrap(),
+        RuntimeWaitDisposition::Pending { .. }
+    ));
+    runtime.select_thread(THIRD_THREAD_ID).unwrap();
+    runtime
+        .set_event(event_handle)
+        .expect("signal first waiter");
+
+    assert_eq!(
+        runtime.event_for_handle(event_handle).unwrap().wait_state,
+        RuntimeWaitState::Nonsignaled
+    );
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(INITIAL_THREAD_ID)
+            .unwrap(),
+        SchedulerThreadState::Runnable
+    );
+    assert!(matches!(
+        runtime
+            .scheduler_state_for_thread(SECOND_THREAD_ID)
+            .unwrap(),
+        SchedulerThreadState::WaitingObject { .. }
+    ));
+
+    runtime
+        .set_event(event_handle)
+        .expect("signal second waiter");
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(SECOND_THREAD_ID)
+            .unwrap(),
+        SchedulerThreadState::Runnable
+    );
+    assert_eq!(
+        runtime.event_for_handle(event_handle).unwrap().wait_state,
+        RuntimeWaitState::Nonsignaled
+    );
+}
 
 #[test]
 fn wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit() {

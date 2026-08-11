@@ -31,6 +31,7 @@ import {
   type RuntimeGraphicsDeviceSnapshot,
   type RuntimeGraphicsTextureSnapshot,
   type RuntimeGraphicsTextureUpdateSnapshot,
+  type RuntimeAudioBufferSnapshot,
   type RuntimeBrowserPresentationReceipt,
   type RuntimeKeyboardEventReceipt,
   type RuntimeKeyboardInputEvent,
@@ -52,6 +53,7 @@ import {
   type RuntimeUpdateWindowCallbackEvent,
   type RuntimeUpdateWindowEntrySnapshot,
   type RuntimeSupportedCallSnapshot,
+  type RuntimeForwardSemanticEntry,
   type RuntimeThreadCallSnapshot,
   type RuntimeRecurringTimerCycleSummary,
   type RuntimeRecurringTimerWindowCycleSummary,
@@ -2641,6 +2643,7 @@ interface ComCompletionMetadata {
   graphicsDevice?: RuntimeGraphicsDeviceSnapshot;
   graphicsTexture?: RuntimeGraphicsTextureSnapshot;
   graphicsTextureUpdate?: RuntimeGraphicsTextureUpdateSnapshot;
+  audioBuffer?: RuntimeAudioBufferSnapshot;
   memory: { generation: number; acknowledgedGeneration: number };
 }
 
@@ -3933,8 +3936,8 @@ function ownedArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return buffer;
 }
 
-function post(message: WorkerToMainMessage): void {
-  worker.postMessage(message);
+function post(message: WorkerToMainMessage, transfer: Transferable[] = []): void {
+  worker.postMessage(message, transfer);
 }
 
 function yieldToWorkerLoop(): Promise<void> {
@@ -4299,6 +4302,8 @@ class BrowserRuntimeSession {
     criticalSectionAddress: number;
   } | null = null;
   #bgiCheckpointPending = false;
+  #forwardPrefixComplete = false;
+  #forwardTailCursor = 0;
   #user32TranslateMessagePostTestCooperativeLevelTimerPeekPrerequisite: User32TranslateMessagePostTestCooperativeLevelTimerPeekCheckpoint | null =
     null;
   #user32DispatchMessageAPostTestCooperativeLevelTimerTranslatePrerequisite: User32DispatchMessageAPostTestCooperativeLevelTimerTranslateCheckpoint | null =
@@ -4429,6 +4434,8 @@ class BrowserRuntimeSession {
     supportedCallSemanticsAlgorithm: SEMANTIC_CALL_DIGEST_ALGORITHM,
     supportedCallSemanticsSha256: null as string | null,
     supportedCalls: [] as SessionReport["supportedCalls"],
+    forwardDevelopment:
+      null as SessionReport["forwardDevelopment"],
     keyboardInput: {
       receivedMessages: 0,
       queuedBeforePrepare: 0,
@@ -4507,6 +4514,37 @@ class BrowserRuntimeSession {
     );
     this.#d3d9Renderer =
       d3d9Canvas === undefined ? null : new D3d9WebGl2Renderer(d3d9Canvas);
+    if (configuration.developmentMode === "forward") {
+      invariant(
+        configuration.workload === "private-bgi" &&
+          configuration.evidenceLevel === "summary" &&
+          configuration.capabilityProfile !== undefined,
+        "forward development requires a summary private BGI support profile",
+      );
+      this.#report.forwardDevelopment = {
+        mode: "forward",
+        supportProfile: configuration.capabilityProfile,
+        historicalCheckpointBypassed: false,
+        semanticTailCapacity: 512,
+        semanticTail: [],
+        presentCount: 0,
+        latestPresentation: null,
+        audioEventCount: 0,
+        latestAudioEvent: null,
+        currentThreadId: 0,
+        latestLastError: null,
+        input: {
+          keyboardMessages: 0,
+          pointerMessages: 0,
+          latestPointerMessage: null,
+        },
+        storage: {
+          sourceReads: 0,
+          writableCommits: 0,
+          writableDirectoryCreates: 0,
+        },
+      };
+    }
   }
 
   async run(): Promise<void> {
@@ -5717,6 +5755,9 @@ class BrowserRuntimeSession {
   }
 
   #advanceInputProgress(call: RuntimeSupportedCallSnapshot): void {
+    if (this.#forwardPrefixComplete) {
+      return;
+    }
     if (
       isScheduledSharedClockSetWindowText(
         this.#configuration.capabilityProfile,
@@ -6604,7 +6645,7 @@ class BrowserRuntimeSession {
         pending.service === "runtime.timer-delay.v1" &&
         this.#requirePrepared().workload === "private-bgi"
       ) {
-        this.#recordBgiCompletion(completion);
+        this.#recordPrivateBgiCompletion(completion);
       }
       this.#applyCpuResumeToThread(completion.threadId, completion.completion);
       this.#threadExecutionStates.set(completion.threadId, resumeState);
@@ -7297,7 +7338,7 @@ class BrowserRuntimeSession {
       "source completion resume policy mismatch",
     );
     if (this.#requirePrepared().workload === "private-bgi") {
-      this.#recordBgiCompletion(completion);
+      this.#recordPrivateBgiCompletion(completion);
     }
     this.#report.sourceReads.push(completion.sourceRead);
     this.#applyCpuResumeToThread(completion.threadId, completion.completion);
@@ -7365,7 +7406,7 @@ class BrowserRuntimeSession {
       "writable commit resume policy mismatch",
     );
     if (this.#requirePrepared().workload === "private-bgi") {
-      this.#recordBgiCompletion(completion);
+      this.#recordPrivateBgiCompletion(completion);
     }
     this.#report.writableCommits.push(completion.writableCommit);
     this.#applyCpuResumeToThread(completion.threadId, completion.completion);
@@ -7437,7 +7478,7 @@ class BrowserRuntimeSession {
       "writable directory create resume policy mismatch",
     );
     if (this.#requirePrepared().workload === "private-bgi") {
-      this.#recordBgiCompletion(completion);
+      this.#recordPrivateBgiCompletion(completion);
     }
     this.#report.writableDirectoryCreates.push(
       completion.writableDirectoryCreate,
@@ -8136,7 +8177,9 @@ class BrowserRuntimeSession {
   }
 
   async #dispatchApi(endpoint: number, stackPointer: number): Promise<void> {
+    this.#continueForwardPastHistoricalCheckpoint();
     if (
+      !this.#isForwardDevelopment() &&
       includesPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
         this.#configuration.capabilityProfile,
       ) &&
@@ -8897,12 +8940,13 @@ class BrowserRuntimeSession {
     }
     const engine = this.#requireEngine();
     const returnAddress = engine.readGuestU32(stackPointer);
+    const context = engine.saveCpuContext();
     const output = this.#requireBridge().dispatch<
       | HostRequestMetadata
       | GuestCallbackMetadata
       | CompletionMetadata
       | ApiFaultMetadata
-    >(endpoint, stackPointer, returnAddress, this.#report.instructions);
+    >(endpoint, stackPointer, returnAddress, this.#report.instructions, context);
     const metadata = output.metadata;
     switch (metadata.kind) {
       case "host-request": {
@@ -8928,7 +8972,18 @@ class BrowserRuntimeSession {
       case "guest-callback": {
         this.#takeApiResumeState();
         this.#applyRequiredDelta(output);
-        if (this.#requirePrepared().workload === "private-bgi") {
+        if (
+          this.#requirePrepared().workload === "private-bgi" &&
+          this.#forwardPrefixComplete
+        ) {
+          const sequence = this.#nextBgiCallSequence + 1;
+          invariant(
+            !this.#bgiCallbackCallSequences.has(metadata.frameId),
+            "forward callback frame reused an active call sequence",
+          );
+          this.#nextBgiCallSequence = sequence;
+          this.#bgiCallbackCallSequences.set(metadata.frameId, sequence);
+        } else if (this.#requirePrepared().workload === "private-bgi") {
           const sequence = this.#nextBgiCallSequence + 1;
           invariant(
             !this.#bgiCallbackCallSequences.has(metadata.frameId),
@@ -9857,7 +9912,7 @@ class BrowserRuntimeSession {
           this.#registerCreatedThread(metadata.createdThread);
         }
         if (this.#requirePrepared().workload === "private-bgi") {
-          this.#recordBgiCompletion(
+          this.#recordPrivateBgiCompletion(
             metadata,
             undefined,
             undefined,
@@ -9888,7 +9943,11 @@ class BrowserRuntimeSession {
       }
       case "api-fault":
         this.#takeApiResumeState();
-        this.#completeStructuredStop(metadata, output);
+        this.#completeStructuredStop(
+          metadata,
+          output,
+          this.#captureForwardCaller(stackPointer, returnAddress),
+        );
         break;
       default:
         throw new Error("runtime bridge returned an unknown dispatch outcome");
@@ -9896,6 +9955,7 @@ class BrowserRuntimeSession {
   }
 
   #dispatchCom(endpoint: number, stackPointer: number): void {
+    this.#continueForwardPastHistoricalCheckpoint();
     if (this.#bgiCheckpointPending) {
       this.#completeBgiCapabilityCheckpoint(endpoint, stackPointer);
       return;
@@ -9920,6 +9980,7 @@ class BrowserRuntimeSession {
         );
         this.#applyOptionalDelta(output);
         const browserPresentation = this.#renderD3d9Present(metadata);
+        this.#emitDsoundPlayback(metadata);
         if (this.#requirePrepared().workload === "private-bgi") {
           this.#recordBgiComCompletion(metadata, browserPresentation);
         }
@@ -9933,7 +9994,11 @@ class BrowserRuntimeSession {
       }
       case "com-fault":
         this.#takeApiResumeState();
-        this.#completeStructuredStop(metadata, output);
+        this.#completeStructuredStop(
+          metadata,
+          output,
+          this.#captureForwardCaller(stackPointer, returnAddress),
+        );
         break;
       default:
         throw new Error(
@@ -9983,10 +10048,59 @@ class BrowserRuntimeSession {
     );
   }
 
+  #emitDsoundPlayback(metadata: ComCompletionMetadata): void {
+    const frame = metadata.call.frame;
+    if (
+      frame.interface !== "IDirectSoundBuffer8" ||
+      frame.method !== "Play" ||
+      metadata.audioBuffer?.descriptor.kind !== "secondary"
+    ) {
+      return;
+    }
+    const buffer = metadata.audioBuffer;
+    const format = buffer.activeFormat ?? buffer.descriptor.format;
+    const backing = buffer.backing;
+    invariant(format !== undefined, "secondary Play omitted its PCM format");
+    invariant(backing !== undefined, "secondary Play omitted its sample backing");
+    invariant(
+      backing.range.byteLength >= buffer.descriptor.byteLength,
+      "secondary Play sample backing is shorter than its descriptor",
+    );
+    invariant(
+      buffer.playback === "playing-once" ||
+        buffer.playback === "playing-looping",
+      "secondary Play snapshot is not playing",
+    );
+    const samples = ownedArrayBuffer(
+      this.#requireEngine().readGuestBytes(
+        backing.range.start,
+        buffer.descriptor.byteLength,
+      ),
+    );
+    post(
+      {
+        type: "audio-playback",
+        protocolVersion,
+        sessionId: this.#sessionId,
+        bufferId: buffer.id,
+        contentGeneration: buffer.contentGeneration,
+        playback: buffer.playback,
+        format,
+        controls: buffer.controls,
+        samples,
+      },
+      [samples],
+    );
+  }
+
   #recordBgiComCompletion(
     metadata: ComCompletionMetadata,
     browserPresentation?: RuntimeBrowserPresentationReceipt,
   ): void {
+    if (this.#forwardPrefixComplete) {
+      this.#recordForwardComCompletion(metadata, browserPresentation);
+      return;
+    }
     const completion = metadata.call;
     const frame = completion.frame;
     const sequence = ++this.#nextBgiCallSequence;
@@ -14746,6 +14860,9 @@ class BrowserRuntimeSession {
         );
       }
     }
+    if (this.#isForwardDevelopment()) {
+      this.#captureForwardCall(call);
+    }
     this.#semanticCallDigest.update(call);
     this.#report.supportedCallCount += 1;
     this.#advanceInputProgress(call);
@@ -18742,6 +18859,228 @@ class BrowserRuntimeSession {
                                                                     : "WaitForSingleObjectEx recurring-wait checkpoint completed",
       null,
     );
+  }
+
+  #isForwardDevelopment(): boolean {
+    return this.#configuration.developmentMode === "forward";
+  }
+
+  #continueForwardPastHistoricalCheckpoint(): void {
+    if (!this.#isForwardDevelopment() || !this.#bgiCheckpointPending) {
+      return;
+    }
+    const summary = this.#report.forwardDevelopment;
+    invariant(summary !== null, "forward development summary is missing");
+    this.#bgiCheckpointPending = false;
+    this.#report.checkpointCompletion = null;
+    this.#forwardPrefixComplete = true;
+    this.#postCallbackWindowInputScanPrerequisite = null;
+    this.#postCallbackPointerActionContinuationPrerequisite = null;
+    this.#postCallbackPointerActionNextIterationPrerequisite = null;
+    this.#postCallbackPointerActionNextIterationInputScanPrerequisite = null;
+    this.#postCallbackPointerReleaseMessageConsumptionEntry = null;
+    this.#postCallbackPointerMessageConsumptionAwaitingSetFocus = false;
+    summary.historicalCheckpointBypassed = true;
+    this.#status(
+      "running",
+      "Historical capability boundary bypassed; continuing to the next real stop",
+    );
+  }
+
+  #recordPrivateBgiCompletion(
+    metadata:
+      | CompletionMetadata
+      | CallbackCompletionMetadata
+      | HostCompletionMetadata,
+    reservedSequence?: number,
+    callbackResult?: number,
+    appliedDeltaEvidence?: AppliedHostDeltaEvidence,
+  ): void {
+    if (this.#forwardPrefixComplete) {
+      this.#recordForwardApiCompletion(metadata, reservedSequence);
+      return;
+    }
+    this.#recordBgiCompletion(
+      metadata,
+      reservedSequence,
+      callbackResult,
+      appliedDeltaEvidence,
+    );
+  }
+
+  #recordForwardApiCompletion(
+    metadata:
+      | CompletionMetadata
+      | CallbackCompletionMetadata
+      | HostCompletionMetadata,
+    reservedSequence?: number,
+  ): void {
+    const endpoint = metadata.endpoint;
+    const completion = metadata.completion;
+    const frame = completion.frame;
+    invariant(
+      endpoint !== undefined && frame !== undefined,
+      "forward API completion omitted endpoint or ABI frame identity",
+    );
+    const sequence = reservedSequence ?? ++this.#nextBgiCallSequence;
+    this.#captureForwardEntry({
+      sequence,
+      instructionCount: this.#report.instructions,
+      threadId: this.#currentThreadId,
+      module: endpoint.module,
+      symbol:
+        endpoint.symbol.kind === "ordinal"
+          ? `#${endpoint.symbol.ordinal}`
+          : endpoint.symbol.name,
+      arguments: frame.arguments.flatMap(({ words }) => words).slice(0, 16),
+      argumentsTruncated:
+        frame.arguments.flatMap(({ words }) => words).length > 16,
+      result: completion.eax,
+      implementationId: completion.implementationId,
+      returnAddress: completion.instructionPointer,
+      stackPointerBefore: frame.stackPointer,
+      stackPointerAfter: completion.stackPointer,
+      lastError: completion.lastError,
+      guestWrites: (completion.guestWrites ?? []).map(({ write }) =>
+        "bytes" in write
+          ? { address: write.address, byteLength: write.bytes.length }
+          : {
+              address: write.address,
+              byteLength: write.byteLength,
+              contentSha256: write.contentSha256,
+            },
+      ),
+    });
+    this.#report.supportedCallCount += 1;
+  }
+
+  #recordForwardComCompletion(
+    metadata: ComCompletionMetadata,
+    browserPresentation?: RuntimeBrowserPresentationReceipt,
+  ): void {
+    const frame = metadata.call.frame;
+    const sequence = ++this.#nextBgiCallSequence;
+    this.#captureForwardEntry(
+      {
+        sequence,
+        instructionCount: this.#report.instructions,
+        threadId: this.#currentThreadId,
+        module: "<com>",
+        symbol: `${frame.interface}.${frame.method}`,
+        interface: frame.interface,
+        vtableSlot: frame.vtableSlot,
+        arguments: [frame.thisPointer, ...frame.explicitArguments].slice(0, 16),
+        argumentsTruncated: frame.explicitArguments.length + 1 > 16,
+        result: metadata.call.returnValue,
+        returnAddress: frame.returnAddress,
+        stackPointerBefore: frame.stackPointer,
+        stackPointerAfter: metadata.completion.stackPointer,
+        guestWrites: metadata.call.guestWrites.map(({ address, bytes }) => ({
+          address,
+          byteLength: bytes.length,
+        })),
+      },
+      browserPresentation,
+    );
+    this.#report.supportedCallCount += 1;
+  }
+
+  #captureForwardCall(call: RuntimeSupportedCallSnapshot): void {
+    const arguments_ = call.arguments.slice(0, 16);
+    this.#captureForwardEntry(
+      {
+        sequence: call.sequence,
+        instructionCount: this.#report.instructions,
+        threadId: this.#currentThreadId,
+        module: call.module,
+        symbol: call.symbol,
+        ...(call.interface === undefined ? {} : { interface: call.interface }),
+        ...(call.vtableSlot === undefined
+          ? {}
+          : { vtableSlot: call.vtableSlot }),
+        arguments: arguments_,
+        argumentsTruncated: call.arguments.length > arguments_.length,
+        result: structuredClone(call.result),
+        ...(call.implementationId === undefined
+          ? {}
+          : { implementationId: call.implementationId }),
+        returnAddress: call.returnAddress,
+        stackPointerBefore: call.stackPointerBefore,
+        stackPointerAfter: call.stackPointerAfter,
+        ...(call.lastError === undefined ? {} : { lastError: call.lastError }),
+        guestWrites: call.guestWrites.map((write) =>
+          "bytes" in write
+            ? { address: write.address, byteLength: write.bytes.length }
+            : {
+                address: write.address,
+                byteLength: write.byteLength,
+                contentSha256: write.contentSha256,
+              },
+        ),
+      },
+      call.browserPresentation,
+    );
+  }
+
+  #captureForwardEntry(
+    entry: RuntimeForwardSemanticEntry,
+    presentation?: RuntimeBrowserPresentationReceipt,
+  ): void {
+    const summary = this.#report.forwardDevelopment;
+    if (summary === null) {
+      return;
+    }
+    if (summary.semanticTail.length < summary.semanticTailCapacity) {
+      summary.semanticTail.push(entry);
+    } else {
+      summary.semanticTail[this.#forwardTailCursor] = entry;
+      this.#forwardTailCursor =
+        (this.#forwardTailCursor + 1) % summary.semanticTailCapacity;
+    }
+    summary.currentThreadId = this.#currentThreadId;
+    if (entry.lastError !== undefined) {
+      summary.latestLastError = entry.lastError;
+    }
+    if (presentation !== undefined) {
+      summary.presentCount += 1;
+      summary.latestPresentation = structuredClone(presentation);
+    }
+    const audioIdentity = `${entry.module}!${entry.symbol}`.toLowerCase();
+    if (
+      audioIdentity.includes("directsound") ||
+      audioIdentity.includes("waveout") ||
+      audioIdentity.includes("mci") ||
+      (entry.interface?.toLowerCase().includes("sound") ?? false)
+    ) {
+      summary.audioEventCount += 1;
+      summary.latestAudioEvent = structuredClone(entry);
+    }
+  }
+
+  #finalizeForwardDevelopmentSummary(): void {
+    const summary = this.#report.forwardDevelopment;
+    if (summary === null) {
+      return;
+    }
+    if (
+      summary.semanticTail.length === summary.semanticTailCapacity &&
+      this.#forwardTailCursor !== 0
+    ) {
+      summary.semanticTail = [
+        ...summary.semanticTail.slice(this.#forwardTailCursor),
+        ...summary.semanticTail.slice(0, this.#forwardTailCursor),
+      ];
+      this.#forwardTailCursor = 0;
+    }
+    summary.currentThreadId = this.#currentThreadId;
+    summary.input.keyboardMessages = this.#report.keyboardInput.receivedMessages;
+    summary.input.pointerMessages = this.#report.pointerInput.receivedMessages;
+    summary.input.latestPointerMessage =
+      this.#report.pointerInput.receipts.at(-1)?.message ?? null;
+    summary.storage.sourceReads = this.#report.sourceReads.length;
+    summary.storage.writableCommits = this.#report.writableCommits.length;
+    summary.storage.writableDirectoryCreates =
+      this.#report.writableDirectoryCreates.length;
   }
 
   #recordBgiCompletion(
@@ -26671,6 +27010,19 @@ class BrowserRuntimeSession {
   #completeStructuredStop(
     metadata: ApiFaultMetadata | ComFaultMetadata,
     output: Pick<BridgeOutput<unknown>, "control" | "payload">,
+    caller?: {
+      returnAddress: number;
+      stackPointer: number;
+      stackWords: number[];
+      currentThreadId: number;
+      lastError: number | null;
+      registers: {
+        eax: number;
+        esp: number;
+        instructionPointer: number;
+        previousInstructionPointer: number;
+      };
+    },
   ): void {
     invariant(
       this.#requirePrepared().workload === "private-bgi",
@@ -26685,6 +27037,22 @@ class BrowserRuntimeSession {
         metadata.memory.acknowledgedGeneration === Number(this.#generation),
       "unsupported BGI call changed or failed to acknowledge memory",
     );
+    if (this.#isForwardDevelopment()) {
+      this.#report.firstUnsupported = {
+        capabilityCluster: metadata.capabilityCluster,
+        endpoint: metadata.endpoint,
+        fault: metadata.fault,
+        instructionCount: this.#report.instructions,
+        memoryContentSha256: metadata.memoryContentSha256,
+        ...(caller === undefined ? {} : { caller }),
+      };
+      this.#cancelAndFinish(
+        "structured-stop",
+        "Forward development reached the next unsupported semantic boundary",
+        null,
+      );
+      return;
+    }
     if (isGetCursorInfoProfile(this.#configuration.capabilityProfile)) {
       const checkpoint = this.#report.checkpointCompletion;
       const endpoint = metadata.endpoint as {
@@ -26998,6 +27366,53 @@ class BrowserRuntimeSession {
     );
   }
 
+  #captureForwardCaller(
+    stackPointer: number,
+    returnAddress: number,
+  ):
+    | {
+        returnAddress: number;
+        stackPointer: number;
+        stackWords: number[];
+        currentThreadId: number;
+        lastError: number | null;
+        registers: {
+          eax: number;
+          esp: number;
+          instructionPointer: number;
+          previousInstructionPointer: number;
+        };
+      }
+    | undefined {
+    if (!this.#isForwardDevelopment()) {
+      return undefined;
+    }
+    const stackWords: number[] = [];
+    for (let index = 0; index < 64; index += 1) {
+      try {
+        stackWords.push(
+          this.#requireEngine().readGuestU32(stackPointer + index * 4),
+        );
+      } catch {
+        break;
+      }
+    }
+    const context = this.#requireEngine().saveCpuContext();
+    return {
+      returnAddress,
+      stackPointer,
+      stackWords,
+      currentThreadId: this.#currentThreadId,
+      lastError: this.#report.forwardDevelopment?.latestLastError ?? null,
+      registers: {
+        eax: context.eax,
+        esp: context.esp,
+        instructionPointer: context.instructionPointer,
+        previousInstructionPointer: context.previousInstructionPointer,
+      },
+    };
+  }
+
   #servicePageFault(
     stop: Extract<ExecutionStop, { kind: "fault" }>,
   ): "thread-stack-growth" | "private-heap-page-materialization" | null {
@@ -27269,6 +27684,38 @@ class BrowserRuntimeSession {
   }
 
   #completeInstructionBudgetStructuredStop(context: ExecutionCpuContext): void {
+    if (this.#isForwardDevelopment()) {
+      const reflection =
+        this.#requireBridge().currentReflection<CurrentReflectionMetadata>()
+          .metadata;
+      invariant(
+        reflection.kind === "current-reflection" &&
+          reflection.generation === Number(this.#generation) &&
+          reflection.acknowledgedGeneration === Number(this.#generation),
+        "forward instruction-budget stop memory is not acknowledged",
+      );
+      this.#report.firstUnsupported = {
+        capabilityCluster: "guest-execution-instruction-budget",
+        endpoint: null,
+        fault: {
+          class: "resource-limit",
+          stage: "guest-execution",
+          code: "instruction-budget-exhausted",
+          message: "guest execution exhausted its bounded trapless window",
+          instructionPointer: context.instructionPointer,
+          previousInstructionPointer: context.previousInstructionPointer,
+          retiredSinceOwnedStop: this.#instructionsSinceOwnedStop,
+        },
+        instructionCount: this.#report.instructions,
+        memoryContentSha256: reflection.contentSha256,
+      };
+      this.#cancelAndFinish(
+        "structured-stop",
+        "Forward development exhausted the bounded trapless window",
+        null,
+      );
+      return;
+    }
     const traplessExecutionBudget = isRuntimeTraplessExecutionBudget(
       this.#configuration.capabilityProfile,
     );
@@ -27367,7 +27814,18 @@ class BrowserRuntimeSession {
         "replacement callback omitted the retired frame identity",
       );
       this.#applyRequiredDelta(output);
-      if (prepared.workload === "private-bgi") {
+      if (prepared.workload === "private-bgi" && this.#forwardPrefixComplete) {
+        const sequence = this.#bgiCallbackCallSequences.get(
+          metadata.replacedFrameId,
+        );
+        invariant(
+          sequence !== undefined &&
+            !this.#bgiCallbackCallSequences.has(metadata.frameId),
+          "forward replacement callback lost or reused its call sequence",
+        );
+        this.#bgiCallbackCallSequences.delete(metadata.replacedFrameId);
+        this.#bgiCallbackCallSequences.set(metadata.frameId, sequence);
+      } else if (prepared.workload === "private-bgi") {
         invariant(
           this.#setWindowPosRepeatActivationCallbackEntry?.frameId !==
             metadata.replacedFrameId,
@@ -27418,7 +27876,15 @@ class BrowserRuntimeSession {
       return;
     }
     this.#applyOptionalDelta(output);
-    if (prepared.workload === "private-bgi") {
+    if (prepared.workload === "private-bgi" && this.#forwardPrefixComplete) {
+      const sequence = this.#bgiCallbackCallSequences.get(metadata.frameId);
+      invariant(
+        sequence !== undefined,
+        "forward callback completion has no reserved call sequence",
+      );
+      this.#bgiCallbackCallSequences.delete(metadata.frameId);
+      this.#recordForwardApiCompletion(metadata, sequence);
+    } else if (prepared.workload === "private-bgi") {
       const sequence = this.#bgiCallbackCallSequences.get(metadata.frameId);
       invariant(
         sequence !== undefined,
@@ -27456,7 +27922,7 @@ class BrowserRuntimeSession {
         result,
       );
       this.#bgiCallbackCallSequences.delete(metadata.frameId);
-      this.#recordBgiCompletion(metadata, sequence, result);
+      this.#recordPrivateBgiCompletion(metadata, sequence, result);
       if (
         this.#defWindowProcAPointerReleaseContinuationCompletion !== null
       ) {
@@ -27686,6 +28152,10 @@ class BrowserRuntimeSession {
       }
     }
     if (selection === undefined) {
+      invariant(
+        executionBoundary !== "block-current-thread",
+        "blocking API boundary did not select an executable owner thread",
+      );
       this.#execution.transition(callerResumeState, {
         cause:
           executionBoundary === "yield-current-thread"
@@ -27769,7 +28239,9 @@ class BrowserRuntimeSession {
       cause:
         executionBoundary === "yield-current-thread"
           ? "api-boundary-explicit-yield"
-          : "api-boundary-quantum-expired",
+          : executionBoundary === "block-current-thread"
+            ? "api-boundary-critical-section-wait"
+            : "api-boundary-quantum-expired",
       threadId: selection.threadId,
     });
     this.#activateThread(selection.threadId, selection.state);
@@ -28308,6 +28780,81 @@ class BrowserRuntimeSession {
         } else {
           this.#timerPacing.schedule(pacingRequest);
         }
+      }
+    } else if (metadata.service === "runtime.audio-wait-delay.v1") {
+      invariant(
+        metadata.arguments.length >= 14,
+        "audio notification pacing request is truncated",
+      );
+      const [
+        version,
+        delayMilliseconds,
+        resultIndex,
+        bufferLow,
+        bufferHigh,
+        generationLow,
+        generationHigh,
+        currentPosition,
+        nextPosition,
+        currentCursor,
+        nextCursor,
+        timeoutMilliseconds,
+        handleCount,
+      ] = metadata.arguments;
+      invariant(version === 1, "audio notification pacing version mismatch");
+      invariant(
+        delayMilliseconds !== undefined &&
+          delayMilliseconds > 0 &&
+          delayMilliseconds <= 100,
+        "audio notification pacing delay is outside the reached bound",
+      );
+      invariant(
+        timeoutMilliseconds !== undefined &&
+          timeoutMilliseconds > 0 &&
+          timeoutMilliseconds <= 100 &&
+          delayMilliseconds <= timeoutMilliseconds,
+        "audio notification timeout is outside the reached bound",
+      );
+      invariant(
+        handleCount !== undefined &&
+          handleCount > 0 &&
+          handleCount <= 32 &&
+          metadata.arguments.length === 13 + handleCount,
+        "audio notification handle array is inconsistent",
+      );
+      invariant(
+        bufferLow !== undefined &&
+          bufferHigh !== undefined &&
+          (bufferLow !== 0 || bufferHigh !== 0) &&
+          generationLow !== undefined &&
+          generationHigh !== undefined,
+        "audio notification buffer identity is invalid",
+      );
+      invariant(
+        currentPosition !== undefined &&
+          nextPosition !== undefined &&
+          currentCursor !== undefined &&
+          nextCursor !== undefined &&
+          resultIndex !== undefined &&
+          (resultIndex === 0xffff_ffff || resultIndex < handleCount),
+        "audio notification cursor result is invalid",
+      );
+      if (this.#configuration.mode === "success") {
+        this.#timerPacing.schedule({
+          requestId: metadata.requestId,
+          threadId: metadata.threadId,
+          delayMilliseconds,
+          complete: () => {
+            this.completeHost({
+              type: "host-completion",
+              protocolVersion,
+              sessionId: this.#sessionId,
+              requestId: metadata.requestId,
+              threadId: metadata.threadId,
+              result: 1,
+            });
+          },
+        });
       }
     } else if (metadata.service === "storage.source-read.v1") {
       if (this.#configuration.mode === "success") {
@@ -28868,6 +29415,8 @@ class BrowserRuntimeSession {
     const execution = this.#execution.snapshot();
     let completedTerminal = terminal;
     try {
+      this.#finalizeForwardDevelopmentSummary();
+      if (!this.#isForwardDevelopment()) {
       invariant(
         this.#report.supportedCallCount === this.#semanticCallDigest.count(),
         "BGI semantic call digest count diverged from completed sequence identity",
@@ -35172,6 +35721,7 @@ class BrowserRuntimeSession {
           )}`,
         );
       }
+      }
       if (this.#configuration.evidenceLevel === "full") {
         invariant(
           this.#report.supportedCalls.length ===
@@ -35337,6 +35887,7 @@ worker.addEventListener(
               supportedCallSemanticsAlgorithm: SEMANTIC_CALL_DIGEST_ALGORITHM,
               supportedCallSemanticsSha256: EMPTY_SEMANTIC_CALL_SHA256,
               supportedCalls: [],
+              forwardDevelopment: null,
               keyboardInput: {
                 receivedMessages: 0,
                 queuedBeforePrepare: 0,

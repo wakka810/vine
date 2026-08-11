@@ -1,6 +1,7 @@
 import { Cpu, createIcons, Database, Play, RotateCcw, Square, Volume2 } from "lucide";
 
 import { observePageLifecycle } from "./page-lifecycle.js";
+import { BrowserPcmRenderer } from "./audio-renderer.js";
 import {
   focusSourceEvent,
   keyboardSourceEvent,
@@ -75,6 +76,7 @@ const audioMetric = requiredElement<HTMLElement>("audio-value");
 const storageMetric = requiredElement<HTMLElement>("storage-value");
 const heartbeatMetric = requiredElement<HTMLElement>("heartbeat-value");
 const modeFromUrl = parseMode(new URL(location.href).searchParams.get("scenario"));
+const pcmRenderer = new BrowserPcmRenderer();
 canvas.tabIndex = 0;
 
 let nextSessionId = 1;
@@ -137,6 +139,14 @@ worker.addEventListener("message", (event: MessageEvent<WorkerToMainMessage>) =>
       break;
     case "host-request":
       void handleHostRequest(message);
+      break;
+    case "audio-playback":
+      void pcmRenderer
+        .play(message)
+        .then((receipt) => {
+          audioMetric.textContent = `${message.format.samplesPerSecond} Hz / ${receipt.frameCount} frames`;
+        })
+        .catch(showFatalError);
       break;
     case "session-finished":
       finishSession(message.report);

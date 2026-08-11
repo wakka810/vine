@@ -42,23 +42,65 @@ pub(crate) fn free_private_heap_block(
 ) -> Result<RuntimeHeapAllocation, RuntimeStateError> {
     let plan = runtime.plan_private_heap_free(handle, address)?;
     let mut transaction = memory.begin_transaction();
-    match &plan.backing {
-        RuntimeHeapFreeBackingPlan::Small { .. } => fill_allocation(
-            &mut transaction,
-            plan.allocation.address,
-            plan.allocation.reserved_byte_length,
-            RUNTIME_PRIVATE_HEAP_FREED_BYTE,
-        )?,
-        RuntimeHeapFreeBackingPlan::Large { backing } => {
-            transaction
-                .release_region(backing.memory_owner, backing.range.start())
-                .map_err(RuntimeStateError::from_memory)?;
-            transaction
-                .destroy_owner(backing.memory_owner)
-                .map_err(RuntimeStateError::from_memory)?;
-        }
-    }
+    prepare_free_memory(&mut transaction, &plan)?;
     let allocation = runtime.commit_private_heap_free(plan)?;
+    transaction.commit_transaction();
+    Ok(allocation)
+}
+
+pub(crate) fn reallocate_private_heap_block(
+    memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
+    handle: u32,
+    address: GuestAddress,
+    byte_length: u32,
+    initialization: RuntimeHeapInitialization,
+) -> Result<RuntimeHeapAllocation, RuntimeStateError> {
+    let previous = runtime.private_heap_allocation(handle, address)?;
+    let copy_byte_length = previous.byte_length.min(byte_length);
+    let copy_bytes = memory
+        .read(
+            previous.address,
+            usize::try_from(copy_byte_length).map_err(|_| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-heap-backing",
+                    "heap-reallocation-copy-size-not-representable",
+                    "private heap reallocation copy size does not fit host accounting",
+                )
+            })?,
+        )
+        .map_err(RuntimeStateError::from_memory)?;
+    let allocation_plan =
+        runtime.plan_private_heap_allocation(handle, byte_length, initialization)?;
+    let free_plan = runtime.plan_private_heap_free(handle, address)?;
+
+    let mut transaction = memory.begin_transaction();
+    let memory_owner = prepare_allocation_memory(&mut transaction, &allocation_plan)?;
+    if allocation_plan.backing.requires_eager_initialization() {
+        fill_allocation(
+            &mut transaction,
+            allocation_plan.allocation.address,
+            allocation_plan.allocation.reserved_byte_length,
+            initialization.fill_byte(),
+        )?;
+        transaction
+            .write(allocation_plan.allocation.address, &copy_bytes)
+            .map_err(RuntimeStateError::from_memory)?;
+    }
+    prepare_free_memory(&mut transaction, &free_plan)?;
+
+    let creates_memory_owner = allocation_plan.backing.creates_memory_owner();
+    let allocation = runtime.commit_private_heap_allocation(
+        allocation_plan,
+        creates_memory_owner.then_some(memory_owner),
+    )?;
+    let refreshed_free_plan = runtime
+        .plan_private_heap_free(handle, address)
+        .expect("preflighted HeapReAlloc source allocation disappeared after target allocation");
+    debug_assert_eq!(refreshed_free_plan.allocation, previous);
+    runtime
+        .commit_private_heap_free(refreshed_free_plan)
+        .expect("preflighted HeapReAlloc source allocation became stale before commit");
     transaction.commit_transaction();
     Ok(allocation)
 }
@@ -180,6 +222,29 @@ fn prepare_allocation_memory(
                 )
                 .map_err(RuntimeStateError::from_memory)?;
             Ok(owner)
+        }
+    }
+}
+
+fn prepare_free_memory(
+    memory: &mut GuestMemory,
+    plan: &crate::runtime::RuntimeHeapFreePlan,
+) -> Result<(), RuntimeStateError> {
+    match &plan.backing {
+        RuntimeHeapFreeBackingPlan::Small { .. } => fill_allocation(
+            memory,
+            plan.allocation.address,
+            plan.allocation.reserved_byte_length,
+            RUNTIME_PRIVATE_HEAP_FREED_BYTE,
+        ),
+        RuntimeHeapFreeBackingPlan::Large { backing } => {
+            memory
+                .release_region(backing.memory_owner, backing.range.start())
+                .map_err(RuntimeStateError::from_memory)?;
+            memory
+                .destroy_owner(backing.memory_owner)
+                .map(|_| ())
+                .map_err(RuntimeStateError::from_memory)
         }
     }
 }

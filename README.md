@@ -1,262 +1,61 @@
 # Vine
 
-Browser-native Windows userspace compatibility runtime for Windows VN/ADV
-executables. The active target is full play of `サクラノ詩/BGI.exe` on
-PE32/i386 in Chrome.
+Vine is a browser-hosted Windows userspace compatibility runtime for unmodified PE32 VN／ADV executables and their original DLLs and assets. The active target is the fingerprinted サクラノ詩 `BGI.exe` running in Chrome through readable graphics, input, audio, save／load, full scenarios, and long-run play.
 
 <!-- BEGIN GENERATED CURRENT STATUS -->
 ## Current Status
 
-This section is generated from [`docs/current-checkpoint.json`](docs/current-checkpoint.json).
-Edit the manifest and run `npm run docs:generate`; do not edit this block by hand.
+This section is generated from [`docs/current-checkpoint.json`](docs/current-checkpoint.json). Edit the compact state and run `npm run docs:generate`.
 
 | Area | Current state |
 |---|---|
-| Historical baseline | `bgi-seventeenth-win32-call`: 17 calls, 238 instructions |
-| Active scenario | `user-input-consumption` |
-| Runtime diagnostics | `primary-main-loop-post-callback-pointer-release-message-consumption-batch`: 341,667 calls across 139 endpoint contracts / 137 APIs, memory generation 444,349 |
-| Runtime architecture | `S13`: `runtime/kernel.rs::RuntimeKernel`; `RuntimeState` remains a compatibility alias |
-| Browser | `private-bgi-generic-session` passed; BGI session `semantic-equivalence-passed`; benchmark `threshold-passed` (17 sessions) |
-| Shared clock | `scheduled-shared-logical-deadline-v1`: cumulative retired guest instructions at 2,000,000/s with 1 ms resolution; API reads do not advance it; Node primary recorded 101,374 samples / 113 TIMERPROC callbacks; Chrome `vine.browser-runtime-worker.v137` boundary passed |
-| Engine evidence | v86 `go` from `fixtures/benchmarks/v86-browser-v1.json` |
-| Next structured stop | `primary-main-loop-post-callback-pointer-release-message-consumption-batch` completed pointer-release message consumption and dispatch retirement for Rust-owned message 117: the pacing-dependent ShowCursor path was not required before this release; PeekMessageA removed the queued WM_LBUTTONUP, TranslateMessage preserved it, and DispatchMessageA completed zero-result DefWindowProcA plus callback frame 149 at sequence 341667 / instruction 3145881629; verification stopped at the pacing-specific observed endpoint `USER32.dll!PeekMessageA` on instruction 3145881638 (`primary-main-loop-post-callback-pointer-release-message-consumption-batch-checkpoint-complete`) |
+| Active target | Sakura no Uta `BGI.exe` (PE32/i386) in Chrome |
+| Active milestone | `primary-visible-action-response-or-readable-frame`: A repeatable visible response to real pointer/keyboard input or a readable non-black primary frame |
+| Last completed boundary | `primary-audible-output`: The primary title created and filled a DirectSound streaming buffer, armed position notifications, entered looping playback, and delivered non-zero three-second PCM to a running Chrome Web Audio context |
+| Current forward stop | `development-boundary` / `forward-run-budget-exhausted`: After primary audio started, the scheduler passed the former PeekMessageA thread-state fault and continued through the title loop until the bounded forward watchdog; no feasibility blocker was reached |
+| Next development goal | Continue the post-audio title loop toward a visible input response or readable frame, implementing the next reached semantic family or smallest gateway slice without reviving per-API checkpoints |
 
-The active semantic report is 289,501,972 bytes with SHA-256
-`4f74f71b17fd639e34ea3e6e953e583a69d259794fb6293c32eaac7ae42ecc3e`. The hash identifies the artifact; semantic checks are the gate.
+### Subsystems
 
-### Scenario Milestones
+| Subsystem | Status | Boundary |
+|---|---|---|
+| `execution` | `partial` | PE32 loading, x86 execution mirror, checked GuestMemory synchronization, process/thread scheduling, callbacks, and reached Win32/COM dispatch |
+| `window-input` | `partial` | Logical window, message queue, timers, focus/cursor state, keyboard scan, pointer down/up dispatch |
+| `graphics` | `partial` | GDI/GDI+ reached paths and bounded D3D9 fixed-function scenes published through WebGL2; latest verified center pixel remained black |
+| `source-storage` | `partial` | Immutable source snapshot reads and a separate writable profile foundation; primary restart/load is not reached |
+| `audio` | `partial` | Reached DirectSound streaming buffers, partial and wrapping Lock/Unlock, position notifications, status/cursor control, looping Play, and non-zero primary PCM through Chrome Web Audio |
 
-| ID | Milestone | Status | Evidence boundary |
-|---|---|---|---|
-| `boot-and-process-initialization` | Boot and process initialization | `in-progress` | Primary executable reaches the current structured stop after creating and resuming one guest thread; title entry and child workload completion are not complete |
-| `logical-window-and-message-flow` | Logical window and message flow | `in-progress` | Primary logical window creation, activation, paint, owner-thread timers, and normalized primary-button flow pass. The canonical Node run completes 341,667 semantic calls and the private Chrome run completes 341,667; both atomically remove WM_LBUTTONUP message 117, validate TranslateMessage, enter and retire DispatchMessageA through the WndProc and zero-result DefWindowProcA, and finish with no active callback. The independently reached no-release continuation validates current-thread ShowCursor(FALSE); this injected release path consumes the queued message before that optional pacing-dependent call in both canonical adapters. Browser code owns no Windows cursor counter, input, window, message-queue, callback, synchronization, or guest-memory state. Visible action response, focus transitions, capture, move/wheel, filtered and cross-thread retrieval, general keyboard translation, and broader message flow remain partial. |
-| `immutable-source-asset-access` | Immutable source asset access | `in-progress` | A 48-object immutable source snapshot covers the three boot archives and all 45 reached data0????.arc archives without copying the approximately 5.9 GiB corpus into bootstrap JSON. Primary system.arc completes bounded member reads and the archive search matches the native lexical file/size sequence while BGI.gdb stays writable profile state; archive content breadth beyond reached bounded ranges is not claimed |
-| `first-present-readable-screen` | First present and readable screen | `in-progress` | Controlled Canvas pixel, public Chrome Worker, and private scheduled-clock replay pass. The primary D3D9 device has completed 32 bounded scene/draw/present cycles with synchronous reused WebGL2 publication; the same replay now consumes and fully dispatches the queued WM_LBUTTONUP with callback and outer-dispatch retirement. The exact center pixel remains black [0,0,0,255], so readable title-scene content, visible input response, resize, device loss/recovery, Reset, general stack overflow/SEH, and long-run stability remain unproven. |
-| `user-input-consumption` | User input consumption | `in-progress` | The verified primary-button path is consumed through Rust-owned cursor, current-thread display count, input, logical-window, message-queue, wait, guest-memory, process-clock, and callback-frame authorities. Node and private Chrome agree on release event and message identity, atomic PeekMessageA(PM_REMOVE), mutation-free TranslateMessage, DispatchMessageA callback entry, zero-result DefWindowProcA, and callback plus outer-dispatch retirement. Visible gameplay response, focus transitions, capture, pointer move/wheel, DirectInput keyboard/mouse devices, and general input remain unproven. |
-| `audible-output` | Audible output | `fixture-only` | Controlled 880 Hz browser pulse passes; primary DirectSound8 reaches an 88,200-byte zero-filled secondary sample backing through Lock/Unlock and accepts looping Play, while browser audio transport, audible primary output, and WinMM audio are not reached |
-| `save-browser-restart-load` | Save, browser restart, and load | `not-reached` | Rust-owned writable profile and SQLite generation/idempotency/rollback foundation pass; controlled guest browser commit, restart, and load are not demonstrated |
-| `representative-flow` | Representative scenario flow | `not-reached` | No primary representative flow is claimed |
-| `full-play-long-run` | Full play and long run | `not-reached` | No route, ending, or long-run primary acceptance is claimed |
+### Important Non-Claims
 
-### Supported API Contracts
+- No readable primary title frame or repeatable visible input response is claimed yet
+- Primary audio format breadth, suspend/resume behavior, and long-run streaming stability are not yet accepted
+- No primary save/browser-restart/load flow is claimed
+- No representative route, ending, or long-run acceptance is claimed
+- Historical per-API capability profiles are frozen and are not the active development queue
 
-- `KERNEL32.dll!GetSystemTimeAsFileTime`
-- `KERNEL32.dll!GetCurrentProcessId`
-- `KERNEL32.dll!GetCurrentThreadId`
-- `KERNEL32.dll!GetTickCount`
-- `KERNEL32.dll!QueryPerformanceCounter`
-- `KERNEL32.dll!QueryPerformanceFrequency`
-- `KERNEL32.dll!GetStartupInfoW`
-- `KERNEL32.dll!HeapSetInformation`
-- `KERNEL32.dll!HeapCreate`
-- `KERNEL32.dll!GetModuleHandleW`
-- `KERNEL32.dll!GetProcAddress`
-- `KERNEL32.dll!TlsAlloc`
-- `KERNEL32.dll!TlsSetValue`
-- `KERNEL32.dll!EncodePointer`
-- `KERNEL32.dll!DecodePointer`
-- `KERNEL32.dll!InitializeCriticalSectionAndSpinCount`
-- `KERNEL32.dll!EnterCriticalSection`
-- `KERNEL32.dll!LeaveCriticalSection`
-- `KERNEL32.dll!DeleteCriticalSection`
-- `KERNEL32.dll!FlsAlloc`
-- `KERNEL32.dll!FlsSetValue`
-- `KERNEL32.dll!HeapAlloc`
-- `KERNEL32.dll!HeapFree`
-- `KERNEL32.dll!InterlockedIncrement`
-- `KERNEL32.dll!GetStdHandle`
-- `KERNEL32.dll!GetFileType`
-- `KERNEL32.dll!SetHandleCount`
-- `KERNEL32.dll!GetCommandLineA`
-- `KERNEL32.dll!GetEnvironmentStringsW`
-- `KERNEL32.dll!FreeEnvironmentStringsW`
-- `KERNEL32.dll!WideCharToMultiByte`
-- `KERNEL32.dll!GetLastError`
-- `KERNEL32.dll!TlsGetValue`
-- `KERNEL32.dll!FlsGetValue`
-- `KERNEL32.dll!SetLastError`
-- `KERNEL32.dll!GetACP`
-- `KERNEL32.dll!GetCPInfo`
-- `KERNEL32.dll!MultiByteToWideChar`
-- `KERNEL32.dll!GetStringTypeW`
-- `KERNEL32.dll!LCMapStringW`
-- `KERNEL32.dll!InterlockedDecrement`
-- `KERNEL32.dll!GetModuleFileNameA`
-- `KERNEL32.dll!IsProcessorFeaturePresent`
-- `KERNEL32.dll!SetUnhandledExceptionFilter`
-- `KERNEL32.dll!HeapSize`
-- `KERNEL32.dll!InitializeCriticalSection`
-- `KERNEL32.dll!SetCurrentDirectoryA`
-- `KERNEL32.dll!CreateMutexA`
-- `KERNEL32.dll!GetCurrentThread`
-- `KERNEL32.dll!SetThreadAffinityMask`
-- `KERNEL32.dll!GetSystemInfo`
-- `KERNEL32.dll!VirtualAlloc`
-- `USER32.dll!EnumDisplayMonitors`
-- `OLE32.dll!CoInitialize`
-- `KERNEL32.dll!GetSystemDefaultLangID`
-- `KERNEL32.dll!GetDriveTypeA`
-- `USER32.dll!SwapMouseButton`
-- `WINMM.dll!timeGetDevCaps`
-- `WINMM.dll!timeBeginPeriod`
-- `WINMM.dll!timeEndPeriod`
-- `KERNEL32.dll!GetVersionExA`
-- `KERNEL32.dll!CreateWaitableTimerA`
-- `USER32.dll!LoadIconA`
-- `USER32.dll!LoadCursorA`
-- `USER32.dll!RegisterClassExA`
-- `USER32.dll!GetSystemMetrics`
-- `USER32.dll!CreateWindowExA`
-- `USER32.dll!DefWindowProcA`
-- `USER32.dll!GetSystemMenu`
-- `USER32.dll!EnableMenuItem`
-- `KERNEL32.dll!CreateFileA`
-- `KERNEL32.dll!GetFileSize`
-- `KERNEL32.dll!ReadFile`
-- `KERNEL32.dll!SetFilePointer`
-- `KERNEL32.dll!CloseHandle`
-- `USER32.dll!LoadImageA`
-- `USER32.dll!SendMessageA`
-- `USER32.dll!SetWindowPos`
-- `d3d9.dll!Direct3DCreate9`
-- `KERNEL32.dll!LoadLibraryA`
-- `USER32.dll!GetClientRect`
-- `USER32.dll!GetWindowRect`
-- `USER32.dll!GetCursorPos`
-- `USER32.dll!GetCursorInfo`
-- `USER32.dll!ShowCursor`
-- `USER32.dll!GetDC`
-- `GDI32.dll!GetStockObject`
-- `GDI32.dll!EnumFontFamiliesExA`
-- `GDI32.dll!CreateFontA`
-- `GDI32.dll!CreateCompatibleDC`
-- `GDI32.dll!CreateDIBSection`
-- `GDI32.dll!GetObjectA`
-- `GDI32.dll!GetOutlineTextMetricsA`
-- `GDI32.dll!TextOutA`
-- `gdiplus.dll!GdiplusStartup`
-- `gdiplus.dll!GdiplusShutdown`
-- `GDI32.dll!SelectObject`
-- `GDI32.dll!DeleteObject`
-- `GDI32.dll!DeleteDC`
-- `USER32.dll!FillRect`
-- `USER32.dll!ReleaseDC`
-- `USER32.dll!SetWindowLongA`
-- `USER32.dll!MonitorFromWindow`
-- `USER32.dll!GetMonitorInfoA`
-- `WINMM.dll!timeGetTime`
-- `USER32.dll!GetForegroundWindow`
-- `USER32.dll!GetAsyncKeyState`
-- `DINPUT8.dll!DirectInput8Create`
-- `DSOUND.dll!#11`
-- `USER32.dll!SetTimer`
-- `KERNEL32.dll!CreateThread`
-- `KERNEL32.dll!ResumeThread`
-- `KERNEL32.dll!SetThreadPriority`
-- `IMM32.dll!ImmGetDefaultIMEWnd`
-- `IMM32.dll!ImmAssociateContext`
-- `KERNEL32.dll!SetWaitableTimer`
-- `KERNEL32.dll!WaitForSingleObjectEx`
-- `KERNEL32.dll!Sleep`
-- `KERNEL32.dll!GlobalMemoryStatus`
-- `KERNEL32.dll!GetFileAttributesA`
-- `KERNEL32.dll!CreateDirectoryA`
-- `KERNEL32.dll!FindFirstFileA`
-- `KERNEL32.dll!FindNextFileA`
-- `KERNEL32.dll!FindClose`
-- `KERNEL32.dll!DeleteFileA`
-- `SHELL32.dll!DragAcceptFiles`
-- `USER32.dll!ShowWindow`
-- `USER32.dll!UpdateWindow`
-- `USER32.dll!BeginPaint`
-- `USER32.dll!EndPaint`
-- `USER32.dll!SetRect`
-- `USER32.dll!PeekMessageA`
-- `USER32.dll!IsIconic`
-- `USER32.dll!TranslateMessage`
-- `USER32.dll!DispatchMessageA`
-- `USER32.dll!SetFocus`
-- `USER32.dll!SetWindowTextA`
-
-### Reproduce Current Checkpoint
+### Commands
 
 ```sh
-npm run check:runtime:bgi
+npm run dev:target
+npm run check:fast
+npm run check:milestone
 ```
 <!-- END GENERATED CURRENT STATUS -->
 
-## Requirements
+## Development
 
-- Node.js 22 or newer
-- Rust 1.97.0; the root toolchain file pins the production workspace
-- LLVM/Clang with `wasm32` and `i686-pc-windows-msvc` targets
-- `lld-link`, `wasm-ld`, and `llvm-readobj`
-- MSYS2 `make` and `sh` on `PATH` for `npm run prepare:engine`
-- npm dependencies from the committed lockfile
-
-## Checks
+Run the private title forward in the release Chrome path:
 
 ```sh
-npm ci
-npm run check
+npm run dev:target
 ```
 
-`check:fast` validates docs and the runtime checkpoint manifest, rebuilds public
-fixtures, runs Rust format/tests/clippy with warnings denied, checks JavaScript
-syntax, runs the small v86 smoke,
-and checks the Windows trace summarizer. `check:fixture-e2e` prepares the pinned
-source adapter and runs the public entry, ABI callback/return, stack, TEB/PEB,
-process-parameters, MemoryDelta, automatic binary CPU writeback, window, and
-browser-presentation paths, including the guest CPU Runtime Worker vertical
-slice.
-`check:adapter` holds the broader adapter checks. `check:private-target` is the
-required local commit-bound BGI gate; it fails when the source is unavailable
-and writes a small evidence manifest only after Node／Chrome semantic agreement.
-`check:private-corpus` retains the historical prefix checks and treats absence
-as an explicit skip. GitHub Actions runs the two public check groups on Linux.
-Linux bootstrap checks consume fixture-hash-bound recorded Windows oracle
-evidence and label that provenance; they do not claim to execute PE32 natively.
-Generated reports are written under `.work/` and are not tracked by Git.
+The command writes a bounded diagnostic under `.work/target-forward/` and stops at the next unsupported behavior, fault, or visible milestone. Implement reached leaves in the owning Rust subsystem, run focused tests, and continue. Historical capability profiles and full Node／Chrome evidence are not part of this default loop.
 
-`npm run prepare:engine` reproduces the source adapter and its single CPU state
-round-trip contract check when the pinned v86 source build is needed.
-`npm run check:runtime:entry` then verifies the production-memory reflection
-and controlled entry-to-thunk boundary. `npm run check:runtime:cdecl` verifies
-the fixed cdecl return and callback-service ingress without invoking the
-callback. `npm run check:runtime:callback` verifies the separate Rust-owned
-return sentinel, checked frame, guest callback, and exact result `43` stop.
-`npm run check:runtime:outer-return` retires that frame, returns through the
-outer cdecl thunk, and verifies the following result write, entry result, stack
-balance, and structured unmapped-return fault.
-`npm run check:runtime:entry-return` replaces that harness return value with a
-second production-owned control sentinel and verifies exact successful entry
-completion without accepting unrelated faults.
-`npm run check:runtime:stack-bootstrap` reflects a Rust-owned initialized stack
-page and verifies the same completion with no adapter-local stack allocation.
-`npm run check:runtime:bootstrap-fs-first-stop` reruns the native FS oracle and
-verifies the exact zero-FS-base source-v86 page fault before TEB／PEB setup.
-`npm run check:runtime:bootstrap-fs` adds Rust-owned TEB／PEB pages, restores FS
-base through the CPU state ABI, and verifies exact entry completion.
-`npm run check:runtime:bootstrap-params-first-stop` compares the native
-command-line oracle with the explicit missing-pointer guest result.
-`npm run check:runtime:bootstrap-params` installs the measured Rust-owned
-parameters and UTF-16 bytes and verifies exact guest completion.
-`npm run check:runtime:memory-delta` applies one dirty data page to live v86
-mapping and verifies the updated eight-byte value from guest code.
-`npm run check:runtime:memory-writeback` runs two bounded guest slices, scans
-v86 PTE Dirty bits, and atomically returns stack／heap／surface／RWX pages to the
-Rust byte authority through binary control and payload buffers.
-`npm run check:runtime:browser-worker` builds the zero-import Rust/Wasm core and
-TypeScript application, then runs the controlled guest CPU, async completion,
-nested callback, pixel／audio／storage, cancellation, and watchdog paths in a
-clean Chrome profile. `npm run check:runtime:browser-worker:stress` adds the
-30-minute repeated lifecycle measurement.
-`npm run check:runtime:bgi` selects the current manifest profile. Historical
-frozen checkpoints use `--checkpoint <id>`; historical runtime capabilities use
-`--profile <capability>` (or `--profile baseline`). These are one generic runner
-contract rather than permanent npm aliases. Detailed evidence remains in the
-linked checkpoint documents.
+Use `npm run check:fast` for normal development. Run `npm run check:milestone` once after a readable frame、visible input response、primary audio、save／restart／load、representative flow、or another authority-changing milestone.
 
-See [docs/README.md](docs/README.md) for the current requirements,
-architecture, corpus inventory, acceptance criteria, and roadmap.
-Agents must read [AGENTS.md](AGENTS.md) before continuing development.
+## Architecture
+
+Rust owns guest-visible Windows state, including memory、process／thread、handles、COM、filesystem、graphics、audio、input、and LastError. TypeScript owns browser resources and adapters only. Source executables、DLLs、and assets are immutable; save and configuration state live in a separate writable overlay.
+
+See the [documentation index](docs/README.md), [requirements](docs/requirements.md), [architecture](docs/target-architecture.md), and [roadmap](docs/roadmap.md).

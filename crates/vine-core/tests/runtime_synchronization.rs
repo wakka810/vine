@@ -1,7 +1,7 @@
 use vine_core::{
     GuestAddress, LOGICAL_ENCODED_POINTER_NAMESPACE, ProcessAddressSpaceLayout, RuntimeBootstrap,
     RuntimeClockState, RuntimeProcessId, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 const PROCESS_ID: RuntimeProcessId = RuntimeProcessId(4096);
@@ -60,10 +60,42 @@ fn synchronization_mutates_only_after_runtime_lifecycle_and_subsystem_preflight(
     );
     assert_eq!(runtime, before_contention);
 
+    runtime
+        .wait_current_thread_for_critical_section(CRITICAL_SECTION)
+        .expect("contending thread blocks on the owned critical section");
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::WaitingCriticalSection {
+            address: CRITICAL_SECTION.0,
+        }
+    );
+    assert_eq!(
+        runtime.critical_section_waiters(CRITICAL_SECTION),
+        vec![SECOND_THREAD_ID]
+    );
+
     runtime.select_thread(INITIAL_THREAD_ID).unwrap();
+    let transferred = runtime
+        .leave_critical_section(CRITICAL_SECTION)
+        .expect("owner transfers critical section to its oldest waiter");
+    assert_eq!(transferred.owning_thread_id, Some(SECOND_THREAD_ID));
+    assert_eq!(transferred.recursion_count, 1);
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(SECOND_THREAD_ID)
+            .unwrap(),
+        SchedulerThreadState::Runnable
+    );
+    assert!(
+        runtime
+            .critical_section_waiters(CRITICAL_SECTION)
+            .is_empty()
+    );
+
+    runtime.select_thread(SECOND_THREAD_ID).unwrap();
     let released = runtime
         .leave_critical_section(CRITICAL_SECTION)
-        .expect("owner releases critical section");
+        .expect("awakened owner releases critical section");
     assert_eq!(released.owning_thread_id, None);
     assert_eq!(released.recursion_count, 0);
 

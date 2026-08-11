@@ -33,17 +33,20 @@ use super::address_space::{
     ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, RuntimeAddressRange,
 };
 use super::audio::{
-    RUNTIME_AUDIO_RESOURCE_ADDRESS_OWNER, RuntimeAudio, RuntimeAudioBuffer,
-    RuntimeAudioBufferBackingPlan, RuntimeAudioBufferCreateRequest, RuntimeAudioBufferCreationPlan,
-    RuntimeAudioBufferFormatPlan, RuntimeAudioBufferFormatRequest, RuntimeAudioBufferFormatResult,
-    RuntimeAudioBufferId, RuntimeAudioBufferLock, RuntimeAudioBufferLockPlan,
-    RuntimeAudioBufferLockRequest, RuntimeAudioBufferPlayPlan, RuntimeAudioBufferPlayRequest,
-    RuntimeAudioBufferPlayResult, RuntimeAudioBufferUnlockPlan, RuntimeAudioBufferUnlockRequest,
-    RuntimeAudioBufferUnlockResult, RuntimeAudioComRetirementPlan,
-    RuntimeAudioCooperativeLevelPlan, RuntimeAudioCooperativeLevelRequest,
-    RuntimeAudioCooperativeLevelResult, RuntimeAudioCooperativeLevelUpdateRequest,
-    RuntimeAudioDevice, RuntimeAudioDeviceCreateRequest, RuntimeAudioDeviceCreationPlan,
-    RuntimeAudioDeviceId, RuntimeAudioWindowTarget,
+    RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE, RUNTIME_AUDIO_RESOURCE_ADDRESS_OWNER, RuntimeAudio,
+    RuntimeAudioBuffer, RuntimeAudioBufferBackingPlan, RuntimeAudioBufferControlPlan,
+    RuntimeAudioBufferControlRequest, RuntimeAudioBufferControlResult,
+    RuntimeAudioBufferCreateRequest, RuntimeAudioBufferCreationPlan, RuntimeAudioBufferFormatPlan,
+    RuntimeAudioBufferFormatRequest, RuntimeAudioBufferFormatResult, RuntimeAudioBufferId,
+    RuntimeAudioBufferLock, RuntimeAudioBufferLockPlan, RuntimeAudioBufferLockRequest,
+    RuntimeAudioBufferNotificationPlan, RuntimeAudioBufferNotificationRequest,
+    RuntimeAudioBufferPlayPlan, RuntimeAudioBufferPlayRequest, RuntimeAudioBufferPlayResult,
+    RuntimeAudioBufferUnlockPlan, RuntimeAudioBufferUnlockRequest, RuntimeAudioBufferUnlockResult,
+    RuntimeAudioComRetirementPlan, RuntimeAudioCooperativeLevelPlan,
+    RuntimeAudioCooperativeLevelRequest, RuntimeAudioCooperativeLevelResult,
+    RuntimeAudioCooperativeLevelUpdateRequest, RuntimeAudioDevice, RuntimeAudioDeviceCreateRequest,
+    RuntimeAudioDeviceCreationPlan, RuntimeAudioDeviceId, RuntimeAudioNotification,
+    RuntimeAudioNotificationWaitPlan, RuntimeAudioWindowTarget,
 };
 use super::clock::{
     RuntimeClockAdvancePlan, RuntimeClockProfile, RuntimeClockState,
@@ -153,9 +156,9 @@ use super::modules::{
     RuntimeSystemModuleLoad, runtime_module_image_error, runtime_module_image_state_error,
 };
 use super::objects::{
-    RuntimeCloseHandleObjectMutationPlan, RuntimeHandle, RuntimeHandleEntry, RuntimeObjectId,
-    RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord, RuntimeObjectRegistrationPlan,
-    RuntimeObjectTable, RuntimeWaitState,
+    RuntimeCloseHandleObjectMutationPlan, RuntimeEvent, RuntimeHandle, RuntimeHandleEntry,
+    RuntimeObjectId, RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord,
+    RuntimeObjectRegistrationPlan, RuntimeObjectTable, RuntimeWaitState,
 };
 use super::process::{
     RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RUNTIME_PROCESS_IMAGE_PATH_A_MAX_BYTES,
@@ -330,6 +333,29 @@ pub(crate) struct RuntimeWaitableTimerPacingCompletionPlan {
     expiration: Option<RuntimeWaitableTimerExpirationPlan>,
     wait_updates: Option<Vec<(RuntimeObjectId, RuntimeObjectRecord)>>,
     result: RuntimeWaitForSingleObjectExResult,
+}
+
+pub(crate) struct RuntimeAudioNotificationWaitCompletionPlan {
+    scheduler: RuntimeHostCompletionPlan,
+    audio: RuntimeAudioNotificationWaitPlan,
+}
+
+impl RuntimeAudioNotificationWaitCompletionPlan {
+    pub(crate) fn encode_host_payload(&self) -> Vec<u8> {
+        self.audio.encode_host_payload()
+    }
+
+    pub(crate) const fn result_index(&self) -> Option<u32> {
+        self.audio.result_index()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeAudioNotificationWaitBegin {
+    pub request: RuntimeHostRequest,
+    pub delay_milliseconds: u32,
+    pub result_index: Option<u32>,
+    pub payload: Vec<u8>,
 }
 
 impl RuntimeWaitableTimerPacingCompletionPlan {
@@ -1028,6 +1054,7 @@ impl RuntimeKernel {
                 SchedulerThreadState::Runnable
                     | SchedulerThreadState::WaitingHost { .. }
                     | SchedulerThreadState::WaitingObject { .. }
+                    | SchedulerThreadState::WaitingCriticalSection { .. }
                     | SchedulerThreadState::WaitingMessage
                     | SchedulerThreadState::InCallback { .. }
             )
@@ -2481,6 +2508,31 @@ impl RuntimeKernel {
         self.current_thread()
     }
 
+    pub fn current_thread_teb_address(&self) -> Result<GuestAddress, RuntimeStateError> {
+        let thread = self.current_thread()?;
+        if let Some(environment) = &thread.environment {
+            return Ok(environment.teb_address);
+        }
+        if thread.guest_bootstrap.is_none() {
+            return self
+                .process
+                .environment()
+                .map(|environment| environment.initial_teb_address)
+                .ok_or_else(|| {
+                    RuntimeStateError::not_found(
+                        "runtime-thread-environment",
+                        "initial-thread-environment-not-registered",
+                        "initial runtime thread has no registered process TEB",
+                    )
+                });
+        }
+        Err(RuntimeStateError::runtime_defect(
+            "runtime-thread-environment",
+            "guest-thread-environment-missing",
+            "registered guest thread has no thread environment",
+        ))
+    }
+
     pub fn thread_stack(
         &self,
         thread_id: RuntimeThreadId,
@@ -3011,6 +3063,31 @@ impl RuntimeKernel {
                 if let Some(retirement) = retirement {
                     self.timers.commit_waitable_timer_retirement(retirement);
                 }
+                Ok(removed)
+            }
+            RuntimeObjectKind::Event => {
+                let record = self
+                    .objects
+                    .object_for_handle(handle, RuntimeObjectKind::Event)?
+                    .clone();
+                if self
+                    .scheduler
+                    .object_waiters()
+                    .get(&record.id)
+                    .is_some_and(|waiters| !waiters.is_empty())
+                {
+                    return Err(RuntimeStateError::conflict(
+                        "runtime-event",
+                        "event-close-with-pending-wait-unsupported",
+                        "bounded event handling does not close an event with a pending wait",
+                    ));
+                }
+                let retiring_key = (record.open_handles == 1).then_some(&record.key);
+                let plan = self
+                    .objects
+                    .plan_close_handle_object_close(handle, retiring_key)?;
+                let removed = plan.closed_entry();
+                self.objects.commit_close_handle_object_mutation(plan)?;
                 Ok(removed)
             }
             RuntimeObjectKind::File => {
@@ -3744,6 +3821,7 @@ impl RuntimeKernel {
             SchedulerThreadState::Runnable
             | SchedulerThreadState::WaitingHost { .. }
             | SchedulerThreadState::WaitingObject { .. }
+            | SchedulerThreadState::WaitingCriticalSection { .. }
             | SchedulerThreadState::WaitingMessage
             | SchedulerThreadState::InCallback { .. } => (0, 0, false, None),
             SchedulerThreadState::Initialized
@@ -3785,6 +3863,7 @@ impl RuntimeKernel {
                 SchedulerThreadState::Runnable
                     | SchedulerThreadState::WaitingHost { .. }
                     | SchedulerThreadState::WaitingObject { .. }
+                    | SchedulerThreadState::WaitingCriticalSection { .. }
                     | SchedulerThreadState::WaitingMessage
                     | SchedulerThreadState::InCallback { .. }
             )
@@ -3977,6 +4056,21 @@ impl RuntimeKernel {
             )
         })?;
         if matches!(wait_state, RuntimeWaitState::Signaled { .. }) {
+            if kind == RuntimeObjectKind::Event
+                && matches!(
+                    object.key,
+                    RuntimeObjectKey::Event {
+                        manual_reset: false,
+                        ..
+                    }
+                )
+            {
+                let updates = self.objects.plan_wait_state_updates(&[(
+                    object.key.clone(),
+                    RuntimeWaitState::Nonsignaled,
+                )])?;
+                self.objects.commit_wait_state_updates(updates);
+            }
             return Ok(RuntimeWaitDisposition::AlreadySignaled {
                 object_id: object.id,
                 wait_state,
@@ -4038,6 +4132,7 @@ impl RuntimeKernel {
                 SchedulerThreadState::Runnable
                     | SchedulerThreadState::WaitingHost { .. }
                     | SchedulerThreadState::WaitingObject { .. }
+                    | SchedulerThreadState::WaitingCriticalSection { .. }
                     | SchedulerThreadState::WaitingMessage
                     | SchedulerThreadState::InCallback { .. }
             )
@@ -4117,14 +4212,18 @@ impl RuntimeKernel {
         remove: bool,
         window_timer_message: Option<u32>,
     ) -> Result<(RuntimeMessagePeekDisposition, Option<GuestWriteResult>), RuntimeStateError> {
+        let scheduler_state = self.scheduler_state()?;
         if !self.process.is_running()
             || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
-            || self.scheduler_state()? != SchedulerThreadState::Runnable
+            || !scheduler_state.is_executable()
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-message",
                 "message-peek-thread-state-invalid",
-                "message peek requires a running process and runnable owner thread",
+                format!(
+                    "message peek requires a running process and executable owner thread; current thread {} is {scheduler_state:?}",
+                    self.current_thread_id().0
+                ),
             ));
         }
         let thread_id = self.current_thread_id();
@@ -4925,6 +5024,120 @@ impl RuntimeKernel {
             handle,
             already_exists,
         })
+    }
+
+    pub fn create_event(
+        &mut self,
+        manual_reset: bool,
+        initial_state: bool,
+    ) -> Result<(RuntimeHandle, RuntimeEvent), RuntimeStateError> {
+        self.require_event_operation_state()?;
+        let plan = self
+            .objects
+            .plan_event_and_handle_registration(manual_reset, initial_state)?;
+        self.objects.preflight_object_registration_commit(&plan)?;
+        let handle = plan.handle();
+        self.objects.commit_object_registration(plan);
+        Ok((handle, self.event_for_handle(handle)?))
+    }
+
+    pub fn event_for_handle(
+        &self,
+        handle: RuntimeHandle,
+    ) -> Result<RuntimeEvent, RuntimeStateError> {
+        let record = self
+            .objects
+            .object_for_handle(handle, RuntimeObjectKind::Event)?;
+        let RuntimeObjectKey::Event {
+            event_id,
+            manual_reset,
+        } = &record.key
+        else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-event",
+                "event-object-key-invalid",
+                "event handle resolved to a different object identity",
+            ));
+        };
+        let wait_state = record.wait_state.ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-event",
+                "event-object-not-waitable",
+                "event object has no wait state",
+            )
+        })?;
+        Ok(RuntimeEvent {
+            event_id: *event_id,
+            manual_reset: *manual_reset,
+            wait_state,
+        })
+    }
+
+    pub fn set_event(&mut self, handle: RuntimeHandle) -> Result<RuntimeEvent, RuntimeStateError> {
+        self.require_event_operation_state()?;
+        let record = self
+            .objects
+            .object_for_handle(handle, RuntimeObjectKind::Event)?
+            .clone();
+        let RuntimeObjectKey::Event { manual_reset, .. } = &record.key else {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-event",
+                "event-object-key-invalid",
+                "event handle resolved to a different object identity",
+            ));
+        };
+        let signaled = self.objects.plan_wait_state_updates(&[(
+            record.key.clone(),
+            RuntimeWaitState::Signaled { exit_code: 0 },
+        )])?;
+        let mut wakes = self.plan_waiter_wakes(&signaled, &[])?;
+        if !*manual_reset {
+            wakes.truncate(1);
+        }
+        let final_state = if !*manual_reset && !wakes.is_empty() {
+            self.objects
+                .plan_wait_state_updates(&[(record.key, RuntimeWaitState::Nonsignaled)])?
+        } else {
+            signaled
+        };
+        self.objects.commit_wait_state_updates(final_state);
+        self.commit_waiter_wakes(wakes);
+        self.event_for_handle(handle)
+    }
+
+    pub fn reset_event(
+        &mut self,
+        handle: RuntimeHandle,
+    ) -> Result<RuntimeEvent, RuntimeStateError> {
+        self.require_event_operation_state()?;
+        let record = self
+            .objects
+            .object_for_handle(handle, RuntimeObjectKind::Event)?
+            .clone();
+        let updates = self
+            .objects
+            .plan_wait_state_updates(&[(record.key, RuntimeWaitState::Nonsignaled)])?;
+        self.objects.commit_wait_state_updates(updates);
+        self.event_for_handle(handle)
+    }
+
+    pub fn try_wait_event(&mut self, handle: RuntimeHandle) -> Result<bool, RuntimeStateError> {
+        self.require_event_operation_state()?;
+        let event = self.event_for_handle(handle)?;
+        if !matches!(event.wait_state, RuntimeWaitState::Signaled { .. }) {
+            return Ok(false);
+        }
+        if !event.manual_reset {
+            let record = self
+                .objects
+                .object_for_handle(handle, RuntimeObjectKind::Event)?
+                .clone();
+            let updates = self
+                .objects
+                .plan_wait_state_updates(&[(record.key, RuntimeWaitState::Nonsignaled)])?;
+            self.objects.commit_wait_state_updates(updates);
+        }
+        Ok(true)
     }
 
     pub fn create_waitable_timer_a(
@@ -6996,11 +7209,12 @@ impl RuntimeKernel {
                     "initial audio Lock omitted its sample-backing installation",
                 )
             })?;
+            let buffer = self.audio.buffer(plan.audio.buffer_id())?;
             if allocation.parent_id != Some(arena.id)
                 || allocation.id != backing.address_allocation_id
                 || allocation.range.base != backing.range.start()
                 || allocation.range.byte_length != backing.range.byte_length()
-                || allocation.usable_byte_length != u64::from(plan.audio.lock().byte_length)
+                || allocation.usable_byte_length != u64::from(buffer.descriptor.byte_length)
                 || allocation.purpose != ProcessAddressAllocationPurpose::AudioResource
                 || allocation.owner != RUNTIME_AUDIO_RESOURCE_ADDRESS_OWNER
                 || allocation.classification != ProcessAddressAllocationClassification::Audio
@@ -7064,6 +7278,115 @@ impl RuntimeKernel {
         Ok(self.audio.commit_buffer_unlock(plan))
     }
 
+    pub(crate) fn plan_audio_buffer_notifications(
+        &self,
+        request: RuntimeAudioBufferNotificationRequest,
+    ) -> Result<RuntimeAudioBufferNotificationPlan, RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        for notification in &request.notifications {
+            let event = self.event_for_handle(notification.event_handle)?;
+            if event.manual_reset {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-audio",
+                    "audio-notification-manual-reset-event-unsupported",
+                    "reached DirectSound notifications require auto-reset event handles",
+                ));
+            }
+        }
+        self.audio.plan_buffer_notifications(request)
+    }
+
+    pub(crate) fn commit_audio_buffer_notifications(
+        &mut self,
+        plan: RuntimeAudioBufferNotificationPlan,
+    ) -> Result<Vec<RuntimeAudioNotification>, RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        self.audio.preflight_buffer_notifications(&plan)?;
+        Ok(self.audio.commit_buffer_notifications(plan))
+    }
+
+    pub fn begin_audio_notification_wait(
+        &mut self,
+        handles: &[RuntimeHandle],
+        timeout_milliseconds: u32,
+    ) -> Result<RuntimeAudioNotificationWaitBegin, RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        if timeout_milliseconds == 0 || timeout_milliseconds > 100 {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-audio",
+                "audio-notification-wait-timeout-unsupported",
+                "audio notification pacing supports finite waits from 1 through 100 milliseconds",
+            ));
+        }
+        self.validate_audio_notification_wait_events(handles)?;
+        let audio = self
+            .audio
+            .plan_notification_wait(handles, timeout_milliseconds)?;
+        self.audio.preflight_notification_wait(&audio)?;
+        let scheduler = self
+            .scheduler
+            .plan_host_request(RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE.to_owned())?;
+        let payload = audio.encode_host_payload();
+        let delay_milliseconds = audio.delay_milliseconds();
+        let result_index = audio.result_index();
+        let request = self.scheduler.commit_host_request(scheduler);
+        Ok(RuntimeAudioNotificationWaitBegin {
+            request,
+            delay_milliseconds,
+            result_index,
+            payload,
+        })
+    }
+
+    pub(crate) fn plan_audio_notification_wait_completion(
+        &self,
+        request_id: u64,
+        handles: &[RuntimeHandle],
+        timeout_milliseconds: u32,
+    ) -> Result<RuntimeAudioNotificationWaitCompletionPlan, RuntimeStateError> {
+        self.validate_audio_notification_wait_events(handles)?;
+        let scheduler = self.scheduler.plan_host_completion(request_id)?;
+        if scheduler.request().service != RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-audio",
+                "audio-notification-host-service-mismatch",
+                "audio notification completion does not match its pacing service",
+            ));
+        }
+        let audio = self
+            .audio
+            .plan_notification_wait(handles, timeout_milliseconds)?;
+        self.audio.preflight_notification_wait(&audio)?;
+        Ok(RuntimeAudioNotificationWaitCompletionPlan { scheduler, audio })
+    }
+
+    pub(crate) fn commit_audio_notification_wait_completion(
+        &mut self,
+        plan: RuntimeAudioNotificationWaitCompletionPlan,
+    ) -> (RuntimeHostCompletion, Option<u32>) {
+        debug_assert!(self.audio.preflight_notification_wait(&plan.audio).is_ok());
+        let result_index = self.audio.commit_notification_wait(plan.audio);
+        let completion = self.scheduler.commit_host_completion(plan.scheduler);
+        (completion, result_index)
+    }
+
+    fn validate_audio_notification_wait_events(
+        &self,
+        handles: &[RuntimeHandle],
+    ) -> Result<(), RuntimeStateError> {
+        for &handle in handles {
+            let event = self.event_for_handle(handle)?;
+            if event.manual_reset {
+                return Err(RuntimeStateError::invalid_input(
+                    "runtime-audio",
+                    "audio-notification-wait-manual-reset-event-unsupported",
+                    "reached DirectSound wait requires auto-reset event handles",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn plan_audio_buffer_play(
         &self,
         request: RuntimeAudioBufferPlayRequest,
@@ -7079,6 +7402,23 @@ impl RuntimeKernel {
         self.require_audio_operation_state()?;
         self.audio.preflight_buffer_play(&plan)?;
         Ok(self.audio.commit_buffer_play(plan))
+    }
+
+    pub(crate) fn plan_audio_buffer_control(
+        &self,
+        request: RuntimeAudioBufferControlRequest,
+    ) -> Result<RuntimeAudioBufferControlPlan, RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        self.audio.plan_buffer_control(request)
+    }
+
+    pub(crate) fn commit_audio_buffer_control(
+        &mut self,
+        plan: RuntimeAudioBufferControlPlan,
+    ) -> Result<RuntimeAudioBufferControlResult, RuntimeStateError> {
+        self.require_audio_operation_state()?;
+        self.audio.preflight_buffer_control(&plan)?;
+        Ok(self.audio.commit_buffer_control(plan))
     }
 
     pub(crate) fn plan_audio_cooperative_level(
@@ -8502,6 +8842,23 @@ impl RuntimeKernel {
         Ok(())
     }
 
+    fn require_event_operation_state(&self) -> Result<(), RuntimeStateError> {
+        if !self.process.is_running()
+            || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
+            || !matches!(
+                self.scheduler_state()?,
+                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+            )
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-event",
+                "event-operation-state-invalid",
+                "event operation requires a running process and active current thread",
+            ));
+        }
+        Ok(())
+    }
+
     fn plan_payload_object_teardown(
         &self,
         cancelling_source_reads: &BTreeSet<u64>,
@@ -8518,6 +8875,13 @@ impl RuntimeKernel {
             waitable_timer_ids
                 .iter()
                 .map(|id| RuntimeObjectKey::WaitableTimer { timer_id: id.0 }),
+        );
+        keys.extend(
+            self.objects
+                .objects()
+                .values()
+                .filter(|record| record.kind == RuntimeObjectKind::Event)
+                .map(|record| record.key.clone()),
         );
         keys.extend(
             source_file_ids
@@ -8638,6 +9002,35 @@ impl RuntimeKernel {
         self.synchronization.commit(plan)
     }
 
+    pub fn wait_current_thread_for_critical_section(
+        &mut self,
+        address: GuestAddress,
+    ) -> Result<(), RuntimeStateError> {
+        self.require_critical_section_operation_state()?;
+        let current_thread_id = self.current_thread_id();
+        if self
+            .scheduler
+            .plan_next_other_executable_selection()?
+            .is_none()
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-critical-section",
+                "critical-section-no-executable-owner",
+                "contended critical section has no other executable runtime thread",
+            ));
+        }
+        let critical_section_plan = self.synchronization.plan_wait(address, current_thread_id)?;
+        let scheduler_plan = self.scheduler.plan_transition(
+            current_thread_id,
+            SchedulerThreadState::WaitingCriticalSection { address: address.0 },
+        )?;
+        self.synchronization.preflight(&critical_section_plan)?;
+        self.scheduler.preflight_lane_commit(&scheduler_plan)?;
+        self.synchronization.commit(critical_section_plan)?;
+        self.scheduler.commit_lane(scheduler_plan);
+        Ok(())
+    }
+
     pub fn leave_critical_section(
         &mut self,
         address: GuestAddress,
@@ -8647,7 +9040,32 @@ impl RuntimeKernel {
         let plan = self
             .synchronization
             .plan_leave(address, current_thread_id)?;
-        self.synchronization.commit(plan)
+        let awakened_thread_id = plan.awakened_thread_id();
+        let scheduler_plan = awakened_thread_id
+            .map(|thread_id| {
+                if self.thread_state(thread_id)?.lifecycle != RuntimeThreadLifecycleState::Running
+                    || self.scheduler_state_for_thread(thread_id)?
+                        != (SchedulerThreadState::WaitingCriticalSection { address: address.0 })
+                {
+                    return Err(RuntimeStateError::runtime_defect(
+                        "runtime-critical-section",
+                        "critical-section-waiter-state-mismatch",
+                        "critical section waiter does not have a matching live scheduler lane",
+                    ));
+                }
+                self.scheduler
+                    .plan_transition(thread_id, SchedulerThreadState::Runnable)
+            })
+            .transpose()?;
+        self.synchronization.preflight(&plan)?;
+        if let Some(scheduler_plan) = scheduler_plan.as_ref() {
+            self.scheduler.preflight_lane_commit(scheduler_plan)?;
+        }
+        self.synchronization.commit(plan)?;
+        if let Some(scheduler_plan) = scheduler_plan {
+            self.scheduler.commit_lane(scheduler_plan);
+        }
+        self.synchronization.critical_section(address)
     }
 
     pub fn delete_critical_section(
@@ -8664,6 +9082,10 @@ impl RuntimeKernel {
         address: GuestAddress,
     ) -> Result<&RuntimeCriticalSection, RuntimeStateError> {
         self.synchronization.critical_section(address)
+    }
+
+    pub fn critical_section_waiters(&self, address: GuestAddress) -> Vec<RuntimeThreadId> {
+        self.synchronization.critical_section_waiters(address)
     }
 
     fn require_critical_section_operation_state(&self) -> Result<(), RuntimeStateError> {
@@ -8941,11 +9363,14 @@ impl RuntimeKernel {
         request_id: u64,
     ) -> Result<RuntimeHostCompletion, RuntimeStateError> {
         let plan = self.scheduler.plan_host_completion(request_id)?;
-        if plan.request().service == RUNTIME_WAITABLE_TIMER_PACING_SERVICE {
+        if matches!(
+            plan.request().service.as_str(),
+            RUNTIME_WAITABLE_TIMER_PACING_SERVICE | RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE
+        ) {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-host-service",
-                "waitable-timer-pacing-specialized-completion-required",
-                "timer pacing completion must atomically commit its clock, timer, object, wait, and scheduler state",
+                "specialized-pacing-completion-required",
+                "pacing completion must atomically commit its subsystem and scheduler state",
             ));
         }
         Ok(self.scheduler.commit_host_completion(plan))
@@ -9499,6 +9924,7 @@ impl RuntimeKernel {
             SchedulerThreadState::Runnable
                 | SchedulerThreadState::WaitingHost { .. }
                 | SchedulerThreadState::WaitingObject { .. }
+                | SchedulerThreadState::WaitingCriticalSection { .. }
                 | SchedulerThreadState::WaitingMessage
                 | SchedulerThreadState::InCallback { .. }
         ) {
@@ -10074,7 +10500,7 @@ mod tests {
     use crate::dsound::{
         DSOUND_DSBPLAY_LOOPING, DSOUND_DSBUFFERDESC_BYTES, DSOUND_DSSCL_PRIORITY,
         DSOUND_E_INVALIDARG, DSOUND_IDIRECTSOUND8_IID, DSOUND_IDIRECTSOUNDBUFFER8_IID,
-        DSOUND_PRIMARY_BUFFER_FLAGS, DSOUND_SECONDARY_BUFFER_BYTES, DSOUND_SECONDARY_BUFFER_FLAGS,
+        DSOUND_PRIMARY_BUFFER_FLAGS, DSOUND_SECONDARY_BUFFER_FORWARD_FLAGS,
         DsoundCompatibilityPolicy, direct_sound8_object_spec, dispatch_dsound_com_call,
     };
     use crate::memory::{MemoryLimits, MemoryOwnerKind};
@@ -14613,6 +15039,8 @@ mod tests {
 
     #[test]
     fn direct_sound_secondary_lock_unlock_play_commits_memory_audio_and_com_lifetime() {
+        const SECONDARY_BYTES: u32 = 16_760;
+
         let mut runtime = d3d9_fixture_runtime();
         let window = seed_created_d3d9_window(&mut runtime);
         let mut memory = d3d9_fixture_memory();
@@ -14651,7 +15079,7 @@ mod tests {
         let completion = {
             let mut session = ExecutionSession::new(&mut memory, &mut runtime);
             match dispatch_dsound_com_call(
-                &DsoundCompatibilityPolicy::controlled_v1(),
+                &DsoundCompatibilityPolicy::forward_v2(),
                 ComCallTrap {
                     endpoint_address: interface.methods[&6].endpoint,
                     stack_pointer: D3D9_FIXTURE_STACK,
@@ -14684,7 +15112,7 @@ mod tests {
             super::super::RuntimeAudioCooperativeLevel::Priority
         );
 
-        let policy = DsoundCompatibilityPolicy::controlled_v1();
+        let policy = DsoundCompatibilityPolicy::forward_v2();
         let pcm_words = [0x0002_0001, 44_100, 176_400, 0x0010_0004];
         let format_address = GuestAddress(D3D9_FIXTURE_PRESENTATION.0 + 0x40);
         let iid_address = GuestAddress(D3D9_FIXTURE_PRESENTATION.0 + 0x60);
@@ -14828,8 +15256,8 @@ mod tests {
             D3D9_FIXTURE_PRESENTATION,
             &[
                 DSOUND_DSBUFFERDESC_BYTES,
-                DSOUND_SECONDARY_BUFFER_FLAGS,
-                DSOUND_SECONDARY_BUFFER_BYTES,
+                DSOUND_SECONDARY_BUFFER_FORWARD_FLAGS,
+                SECONDARY_BYTES,
                 0,
                 format_address.0,
                 0,
@@ -14948,7 +15376,7 @@ mod tests {
                 D3D9_FIXTURE_CALL_SITE.0,
                 secondary_interface.guest_pointer.0,
                 0,
-                DSOUND_SECONDARY_BUFFER_BYTES,
+                SECONDARY_BYTES,
                 D3D9_FIXTURE_OUTPUT.0,
                 D3D9_FIXTURE_OUTPUT.0 + 4,
                 D3D9_FIXTURE_OUTPUT.0 + 8,
@@ -15005,7 +15433,7 @@ mod tests {
                 .unwrap(),
         );
         assert_eq!(data1, RUNTIME_AUDIO_RESOURCE_ARENA_BASE.0);
-        assert_eq!(bytes1, DSOUND_SECONDARY_BUFFER_BYTES);
+        assert_eq!(bytes1, SECONDARY_BYTES);
         assert_eq!((data2, bytes2), (0, 0));
         let locked_secondary = runtime
             .audio_buffer_for_com_object(secondary_interface.object_id)
@@ -15016,11 +15444,11 @@ mod tests {
             locked_secondary.active_lock.expect("active secondary Lock"),
             RuntimeAudioBufferLock {
                 offset: 0,
-                byte_length: DSOUND_SECONDARY_BUFFER_BYTES,
+                byte_length: SECONDARY_BYTES,
                 flags: 0,
                 first_segment: RuntimeAudioBufferSegment {
                     guest_address: GuestAddress(data1),
-                    byte_length: DSOUND_SECONDARY_BUFFER_BYTES,
+                    byte_length: SECONDARY_BYTES,
                 },
                 second_segment: None,
             }
@@ -15045,7 +15473,7 @@ mod tests {
                 D3D9_FIXTURE_CALL_SITE.0,
                 secondary_interface.guest_pointer.0,
                 0,
-                DSOUND_SECONDARY_BUFFER_BYTES,
+                SECONDARY_BYTES,
                 D3D9_FIXTURE_OUTPUT.0,
                 D3D9_FIXTURE_OUTPUT.0 + 4,
                 D3D9_FIXTURE_OUTPUT.0 + 8,
@@ -15120,10 +15548,7 @@ mod tests {
         assert_eq!(runtime, before_mismatched_unlock);
 
         memory
-            .write(
-                GuestAddress(data1),
-                &vec![0; DSOUND_SECONDARY_BUFFER_BYTES as usize],
-            )
+            .write(GuestAddress(data1), &vec![0; SECONDARY_BYTES as usize])
             .expect("zero writable secondary sample backing");
         acknowledge_d3d9_fixture_memory(&mut memory);
         write_d3d9_fixture_words(
@@ -15165,6 +15590,82 @@ mod tests {
         assert_eq!(unlocked_secondary.active_lock, None);
         assert_eq!(unlocked_secondary.content_generation, 1);
 
+        for (slot, value) in [
+            (15_u16, (-1_000_i32) as u32),
+            (16_u16, (-500_i32) as u32),
+            (17_u16, 22_050),
+            (13_u16, 4),
+        ] {
+            write_d3d9_fixture_words(
+                &mut memory,
+                D3D9_FIXTURE_STACK,
+                &[
+                    D3D9_FIXTURE_CALL_SITE.0,
+                    secondary_interface.guest_pointer.0,
+                    value,
+                ],
+            );
+            acknowledge_d3d9_fixture_memory(&mut memory);
+            let control = {
+                let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+                dispatch_dsound_com_call(
+                    &policy,
+                    ComCallTrap {
+                        endpoint_address: secondary_interface.methods[&slot].endpoint,
+                        stack_pointer: D3D9_FIXTURE_STACK,
+                        return_address: D3D9_FIXTURE_CALL_SITE,
+                        call_site: D3D9_FIXTURE_CALL_SITE,
+                    },
+                    &mut session,
+                )
+            };
+            let ComDispatchOutcome::Completed(control) = control else {
+                panic!("secondary control slot {slot} did not complete: {control:?}");
+            };
+            assert_eq!(control.return_value, ComReturnValue::HResult(COM_S_OK));
+        }
+        let controls = runtime
+            .audio_buffer_for_com_object(secondary_interface.object_id)
+            .expect("controlled secondary logical audio buffer")
+            .controls;
+        assert_eq!(controls.volume_hundredths_db, -1_000);
+        assert_eq!(controls.pan_hundredths_db, -500);
+        assert_eq!(controls.frequency_hz, Some(22_050));
+        assert_eq!(controls.current_position_bytes, 4);
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                D3D9_FIXTURE_CALL_SITE.0,
+                secondary_interface.guest_pointer.0,
+                1,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let before_invalid_volume = runtime.clone();
+        let invalid_volume = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatch_dsound_com_call(
+                &policy,
+                ComCallTrap {
+                    endpoint_address: secondary_interface.methods[&15].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: D3D9_FIXTURE_CALL_SITE,
+                    call_site: D3D9_FIXTURE_CALL_SITE,
+                },
+                &mut session,
+            )
+        };
+        let ComDispatchOutcome::Completed(invalid_volume) = invalid_volume else {
+            panic!("invalid secondary volume did not return HRESULT: {invalid_volume:?}");
+        };
+        assert_eq!(
+            invalid_volume.return_value,
+            ComReturnValue::HResult(DSOUND_E_INVALIDARG)
+        );
+        assert_eq!(runtime, before_invalid_volume);
+
         write_d3d9_fixture_words(
             &mut memory,
             D3D9_FIXTURE_STACK,
@@ -15173,7 +15674,7 @@ mod tests {
                 secondary_interface.guest_pointer.0,
                 0,
                 0,
-                DSOUND_DSBPLAY_LOOPING,
+                0,
             ],
         );
         acknowledge_d3d9_fixture_memory(&mut memory);
@@ -15202,7 +15703,7 @@ mod tests {
                 .audio_buffer_for_com_object(secondary_interface.object_id)
                 .unwrap()
                 .playback,
-            RuntimeAudioPlaybackState::PlayingLooping
+            RuntimeAudioPlaybackState::PlayingOnce
         );
 
         let release = dispatch_d3d9_fixture_release(

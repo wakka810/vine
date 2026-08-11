@@ -93,6 +93,10 @@ worker.addEventListener("message", (event: MessageEvent<WorkerToMainMessage>) =>
     fail(new Error(`source fixture emitted unexpected external host request ${message.service}`));
     return;
   }
+  if (message.type === "audio-playback") {
+    fail(new Error("source fixture emitted unexpected audio playback"));
+    return;
+  }
   finish(message.report);
 });
 

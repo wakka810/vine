@@ -1,11 +1,12 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 use serde::Serialize;
 
 use crate::memory::GuestAddress;
 
 use super::{
-    RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RuntimeHandle, RuntimeStateError, RuntimeThreadId,
+    RUNTIME_GUEST_THREAD_LIMIT, RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING, RuntimeHandle,
+    RuntimeStateError, RuntimeThreadId,
 };
 
 pub const RUNTIME_CRITICAL_SECTION_LIMIT: usize = 32_768;
@@ -86,6 +87,8 @@ pub struct RuntimeMutex {
 #[serde(rename_all = "camelCase")]
 pub(super) struct RuntimeSynchronization {
     critical_sections: BTreeMap<GuestAddress, RuntimeCriticalSection>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    critical_section_waiters: BTreeMap<GuestAddress, VecDeque<RuntimeThreadId>>,
     #[serde(skip)]
     critical_section_generation: u64,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -100,6 +103,7 @@ impl Default for RuntimeSynchronization {
     fn default() -> Self {
         Self {
             critical_sections: BTreeMap::new(),
+            critical_section_waiters: BTreeMap::new(),
             critical_section_generation: 0,
             mutexes: BTreeMap::new(),
             named_mutexes: BTreeMap::new(),
@@ -108,13 +112,22 @@ impl Default for RuntimeSynchronization {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeCriticalSectionPlan {
     address: GuestAddress,
     previous: Option<RuntimeCriticalSection>,
     next: RuntimeCriticalSection,
+    previous_waiters: Option<VecDeque<RuntimeThreadId>>,
+    next_waiters: Option<VecDeque<RuntimeThreadId>>,
+    awakened_thread_id: Option<RuntimeThreadId>,
     expected_generation: u64,
     next_generation: u64,
+}
+
+impl RuntimeCriticalSectionPlan {
+    pub(super) const fn awakened_thread_id(&self) -> Option<RuntimeThreadId> {
+        self.awakened_thread_id
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,6 +233,9 @@ impl RuntimeSynchronization {
                 owning_thread_id: None,
                 recursion_count: 0,
             },
+            previous_waiters: None,
+            next_waiters: None,
+            awakened_thread_id: None,
             expected_generation: self.critical_section_generation,
             next_generation: self.next_critical_section_generation()?,
         })
@@ -231,6 +247,7 @@ impl RuntimeSynchronization {
         current_thread_id: RuntimeThreadId,
     ) -> Result<RuntimeCriticalSectionPlan, RuntimeStateError> {
         let previous = *self.critical_section(address)?;
+        let previous_waiters = self.critical_section_waiters.get(&address).cloned();
         let mut next = previous;
         match next.owning_thread_id {
             None if next.recursion_count == 0 => {
@@ -268,6 +285,62 @@ impl RuntimeSynchronization {
             address,
             previous: Some(previous),
             next,
+            previous_waiters: previous_waiters.clone(),
+            next_waiters: previous_waiters,
+            awakened_thread_id: None,
+            expected_generation: self.critical_section_generation,
+            next_generation: self.next_critical_section_generation()?,
+        })
+    }
+
+    pub(super) fn plan_wait(
+        &self,
+        address: GuestAddress,
+        current_thread_id: RuntimeThreadId,
+    ) -> Result<RuntimeCriticalSectionPlan, RuntimeStateError> {
+        let previous = *self.critical_section(address)?;
+        let Some(owner) = previous.owning_thread_id else {
+            return Err(RuntimeStateError::conflict(
+                "runtime-critical-section",
+                "critical-section-wait-not-contended",
+                "critical section wait requires a live owner",
+            ));
+        };
+        if owner == current_thread_id || previous.recursion_count == 0 {
+            return Err(RuntimeStateError::conflict(
+                "runtime-critical-section",
+                "critical-section-wait-owner-invalid",
+                "critical section wait requires a different owning thread",
+            ));
+        }
+        if self
+            .critical_section_waiters
+            .values()
+            .any(|waiters| waiters.contains(&current_thread_id))
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-critical-section",
+                "critical-section-waiter-duplicate",
+                "runtime thread is already waiting for a critical section",
+            ));
+        }
+        let previous_waiters = self.critical_section_waiters.get(&address).cloned();
+        let mut next_waiters = previous_waiters.clone().unwrap_or_default();
+        if next_waiters.len() >= RUNTIME_GUEST_THREAD_LIMIT {
+            return Err(RuntimeStateError::resource_limit(
+                "runtime-critical-section",
+                "critical-section-waiter-limit-exceeded",
+                "critical section waiter count exceeds the runtime thread bound",
+            ));
+        }
+        next_waiters.push_back(current_thread_id);
+        Ok(RuntimeCriticalSectionPlan {
+            address,
+            previous: Some(previous),
+            next: previous,
+            previous_waiters,
+            next_waiters: Some(next_waiters),
+            awakened_thread_id: None,
             expected_generation: self.critical_section_generation,
             next_generation: self.next_critical_section_generation()?,
         })
@@ -289,15 +362,27 @@ impl RuntimeSynchronization {
                 ),
             ));
         }
+        let previous_waiters = self.critical_section_waiters.get(&address).cloned();
+        let mut next_waiters = previous_waiters.clone().unwrap_or_default();
         let mut next = previous;
         next.recursion_count -= 1;
+        let mut awakened_thread_id = None;
         if next.recursion_count == 0 {
-            next.owning_thread_id = None;
+            if let Some(waiter) = next_waiters.pop_front() {
+                next.owning_thread_id = Some(waiter);
+                next.recursion_count = 1;
+                awakened_thread_id = Some(waiter);
+            } else {
+                next.owning_thread_id = None;
+            }
         }
         Ok(RuntimeCriticalSectionPlan {
             address,
             previous: Some(previous),
             next,
+            previous_waiters,
+            next_waiters: (!next_waiters.is_empty()).then_some(next_waiters),
+            awakened_thread_id,
             expected_generation: self.critical_section_generation,
             next_generation: self.next_critical_section_generation()?,
         })
@@ -318,6 +403,20 @@ impl RuntimeSynchronization {
                 ),
             ));
         }
+        if self
+            .critical_section_waiters
+            .get(&address)
+            .is_some_and(|waiters| !waiters.is_empty())
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-critical-section",
+                "critical-section-delete-with-waiters",
+                format!(
+                    "critical section {:#010x} cannot be deleted while threads are waiting",
+                    address.0
+                ),
+            ));
+        }
         Ok(RuntimeCriticalSectionRetirementPlan {
             address,
             previous,
@@ -330,8 +429,30 @@ impl RuntimeSynchronization {
         &mut self,
         plan: RuntimeCriticalSectionPlan,
     ) -> Result<&RuntimeCriticalSection, RuntimeStateError> {
+        self.preflight(&plan)?;
+        self.critical_sections.insert(plan.address, plan.next);
+        match plan.next_waiters {
+            Some(waiters) => {
+                self.critical_section_waiters.insert(plan.address, waiters);
+            }
+            None => {
+                self.critical_section_waiters.remove(&plan.address);
+            }
+        }
+        self.critical_section_generation = plan.next_generation;
+        Ok(self
+            .critical_sections
+            .get(&plan.address)
+            .expect("committed critical section is missing"))
+    }
+
+    pub(super) fn preflight(
+        &self,
+        plan: &RuntimeCriticalSectionPlan,
+    ) -> Result<(), RuntimeStateError> {
         if self.critical_section_generation != plan.expected_generation
             || self.critical_sections.get(&plan.address).copied() != plan.previous
+            || self.critical_section_waiters.get(&plan.address).cloned() != plan.previous_waiters
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-critical-section",
@@ -342,12 +463,7 @@ impl RuntimeSynchronization {
                 ),
             ));
         }
-        self.critical_sections.insert(plan.address, plan.next);
-        self.critical_section_generation = plan.next_generation;
-        Ok(self
-            .critical_sections
-            .get(&plan.address)
-            .expect("committed critical section is missing"))
+        Ok(())
     }
 
     pub(super) fn commit_retirement(
@@ -356,6 +472,10 @@ impl RuntimeSynchronization {
     ) -> Result<RuntimeCriticalSection, RuntimeStateError> {
         if self.critical_section_generation != plan.expected_generation
             || self.critical_sections.get(&plan.address).copied() != Some(plan.previous)
+            || self
+                .critical_section_waiters
+                .get(&plan.address)
+                .is_some_and(|waiters| !waiters.is_empty())
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-critical-section",
@@ -378,6 +498,13 @@ impl RuntimeSynchronization {
             })?;
         self.critical_section_generation = plan.next_generation;
         Ok(retired)
+    }
+
+    pub(super) fn critical_section_waiters(&self, address: GuestAddress) -> Vec<RuntimeThreadId> {
+        self.critical_section_waiters
+            .get(&address)
+            .map(|waiters| waiters.iter().copied().collect())
+            .unwrap_or_default()
     }
 
     pub(super) fn critical_section(

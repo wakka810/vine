@@ -6,18 +6,26 @@ use crate::api::{
     ReentrancyPolicy, StackCleanup,
 };
 use crate::com::{
-    COM_S_OK, ComCallTrap, ComDispatchOutcome, ComFaultClass, ComFrontendCall, ComHResult,
-    ComInterfaceSpec, ComMethodSpec, ComObjectSpec, ComReturnValue,
+    COM_S_OK, ComCallTrap, ComDispatchOutcome, ComFaultClass, ComFrontendCall,
+    ComGuestWriteReceipt, ComHResult, ComInterfaceSpec, ComMethodSpec, ComObjectSpec,
+    ComReturnValue,
 };
 use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
-    RuntimeAudioBufferCreateRequest, RuntimeAudioBufferDescriptor, RuntimeAudioBufferFormatRequest,
-    RuntimeAudioBufferKind, RuntimeAudioBufferLockRequest, RuntimeAudioBufferPlayRequest,
+    RUNTIME_AUDIO_NOTIFICATION_LIMIT, RUNTIME_AUDIO_PAN_MAX_HUNDREDTHS_DB,
+    RUNTIME_AUDIO_PAN_MIN_HUNDREDTHS_DB, RUNTIME_AUDIO_PCM_MAX_CHANNELS,
+    RUNTIME_AUDIO_PCM_MAX_SAMPLES_PER_SECOND, RUNTIME_AUDIO_PCM_MIN_SAMPLES_PER_SECOND,
+    RUNTIME_AUDIO_PLAYBACK_FREQUENCY_MAX_HZ, RUNTIME_AUDIO_PLAYBACK_FREQUENCY_MIN_HZ,
+    RUNTIME_AUDIO_RESOURCE_ARENA_SIZE, RUNTIME_AUDIO_VOLUME_MAX_HUNDREDTHS_DB,
+    RUNTIME_AUDIO_VOLUME_MIN_HUNDREDTHS_DB, RuntimeAudioBufferControlRequest,
+    RuntimeAudioBufferControlUpdate, RuntimeAudioBufferCreateRequest, RuntimeAudioBufferDescriptor,
+    RuntimeAudioBufferFormatRequest, RuntimeAudioBufferKind, RuntimeAudioBufferLockRequest,
+    RuntimeAudioBufferNotificationRequest, RuntimeAudioBufferPlayRequest,
     RuntimeAudioBufferSegment, RuntimeAudioBufferUnlockRequest, RuntimeAudioCooperativeLevel,
     RuntimeAudioCooperativeLevelRequest, RuntimeAudioDeviceCreateRequest,
-    RuntimeAudioDeviceSelector, RuntimeAudioFrontend, RuntimeAudioPcmFormat,
-    RuntimeAudioPlaybackState, RuntimeComIid, RuntimeComReturnKind, RuntimeStateError,
-    RuntimeStateErrorClass,
+    RuntimeAudioDeviceSelector, RuntimeAudioFrontend, RuntimeAudioNotification,
+    RuntimeAudioPcmFormat, RuntimeAudioPlaybackState, RuntimeComIid, RuntimeComReturnKind,
+    RuntimeHandle, RuntimeStateError, RuntimeStateErrorClass,
 };
 use serde::Serialize;
 
@@ -37,6 +45,9 @@ pub const DSOUND_IDIRECTSOUNDBUFFER_IID: RuntimeComIid = RuntimeComIid::from_win
 pub const DSOUND_IDIRECTSOUNDBUFFER8_IID: RuntimeComIid = RuntimeComIid::from_windows_bytes([
     0x49, 0xa4, 0x25, 0x68, 0x24, 0x75, 0x82, 0x4d, 0x92, 0x0f, 0x50, 0xe3, 0x6a, 0xb3, 0xab, 0x1e,
 ]);
+pub const DSOUND_IDIRECTSOUNDNOTIFY_IID: RuntimeComIid = RuntimeComIid::from_windows_bytes([
+    0x83, 0x07, 0x21, 0xb0, 0xcd, 0x89, 0xd0, 0x11, 0xaf, 0x08, 0x00, 0xa0, 0xc9, 0x25, 0xcd, 0x16,
+]);
 pub const DSOUND_CLASS_E_NOAGGREGATION: ComHResult = ComHResult(0x8004_0110_u32 as i32);
 pub const DSOUND_E_INVALIDARG: ComHResult = ComHResult(0x8007_0057_u32 as i32);
 pub const DSOUND_DSERR_INVALIDCALL: ComHResult = ComHResult(0x8878_0032_u32 as i32);
@@ -45,14 +56,24 @@ pub const DSOUND_DSSCL_PRIORITY: u32 = 2;
 pub const DSOUND_DSSCL_EXCLUSIVE: u32 = 3;
 pub const DSOUND_DSSCL_WRITEPRIMARY: u32 = 4;
 pub const DSOUND_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.dsound-compatibility-policy";
-pub const DSOUND_COMPATIBILITY_POLICY_VERSION: u32 = 1;
+pub const DSOUND_COMPATIBILITY_POLICY_VERSION: u32 = 2;
 pub const DSOUND_DSBUFFERDESC_BYTES: u32 = 36;
 pub const DSOUND_DSBCAPS_PRIMARYBUFFER: u32 = 0x0000_0001;
+pub const DSOUND_DSBCAPS_CTRLFREQUENCY: u32 = 0x0000_0020;
+pub const DSOUND_DSBCAPS_CTRLPAN: u32 = 0x0000_0040;
+pub const DSOUND_DSBCAPS_CTRLVOLUME: u32 = 0x0000_0080;
+pub const DSOUND_DSBCAPS_CTRLPOSITIONNOTIFY: u32 = 0x0000_0100;
 pub const DSOUND_PRIMARY_BUFFER_FLAGS: u32 = DSOUND_DSBCAPS_PRIMARYBUFFER;
 pub const DSOUND_SECONDARY_BUFFER_FLAGS: u32 = 0x0000_80a8;
+pub const DSOUND_SECONDARY_BUFFER_FORWARD_FLAGS: u32 = 0x0001_81e8;
 pub const DSOUND_SECONDARY_BUFFER_BYTES: u32 = 88_200;
+pub const DSOUND_SECONDARY_BUFFER_MAX_BYTES: u32 = RUNTIME_AUDIO_RESOURCE_ARENA_SIZE as u32;
 pub const DSOUND_WAVE_FORMAT_PCM: u16 = 1;
 pub const DSOUND_DSBPLAY_LOOPING: u32 = 1;
+pub const DSOUND_DSBSTATUS_PLAYING: u32 = 0x0000_0001;
+pub const DSOUND_DSBSTATUS_LOOPING: u32 = 0x0000_0004;
+pub const DSOUND_DSBFREQUENCY_ORIGINAL: u32 = 0;
+pub const DSOUND_DSERR_CONTROLUNAVAIL: ComHResult = ComHResult(0x8878_001e_u32 as i32);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -68,8 +89,15 @@ pub struct DsoundCooperativeLevelPolicy {
 pub struct DsoundInitialBuffersPolicy {
     pub profile_id: String,
     pub primary_flags: u32,
-    pub secondary_flags: u32,
-    pub secondary_buffer_bytes: u32,
+    pub secondary_required_flags: u32,
+    pub secondary_allowed_flags: u32,
+    pub secondary_buffer_min_bytes: u32,
+    pub secondary_buffer_max_bytes: u32,
+    pub secondary_min_channels: u16,
+    pub secondary_max_channels: u16,
+    pub secondary_min_samples_per_second: u32,
+    pub secondary_max_samples_per_second: u32,
+    pub secondary_bits_per_sample: Vec<u16>,
     pub pcm_format: RuntimeAudioPcmFormat,
     pub primary_play_flags: u32,
 }
@@ -79,9 +107,9 @@ pub struct DsoundInitialBuffersPolicy {
 pub struct DsoundBufferTransferPolicy {
     pub profile_id: String,
     pub lock_offset: u32,
-    pub lock_byte_length: u32,
     pub lock_flags: u32,
     pub secondary_play_flags: u32,
+    pub allow_secondary_once: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -97,10 +125,52 @@ pub struct DsoundCompatibilityPolicy {
 
 impl DsoundCompatibilityPolicy {
     pub fn controlled_v1() -> Self {
+        Self::with_secondary_band(
+            "dsound-primary-default-device-v1",
+            "primary-stereo-pcm-and-secondary-88200-v1",
+            DSOUND_SECONDARY_BUFFER_BYTES,
+            DSOUND_SECONDARY_BUFFER_BYTES,
+            2,
+            2,
+            44_100,
+            44_100,
+            vec![16],
+            false,
+        )
+    }
+
+    pub fn forward_v2() -> Self {
+        Self::with_secondary_band(
+            "dsound-default-device-forward-v2",
+            "primary-stereo-pcm-secondary-bounded-v2",
+            1,
+            DSOUND_SECONDARY_BUFFER_MAX_BYTES,
+            1,
+            RUNTIME_AUDIO_PCM_MAX_CHANNELS,
+            RUNTIME_AUDIO_PCM_MIN_SAMPLES_PER_SECOND,
+            RUNTIME_AUDIO_PCM_MAX_SAMPLES_PER_SECOND,
+            vec![8, 16],
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn with_secondary_band(
+        id: &str,
+        buffer_profile_id: &str,
+        secondary_buffer_min_bytes: u32,
+        secondary_buffer_max_bytes: u32,
+        secondary_min_channels: u16,
+        secondary_max_channels: u16,
+        secondary_min_samples_per_second: u32,
+        secondary_max_samples_per_second: u32,
+        secondary_bits_per_sample: Vec<u16>,
+        allow_secondary_once: bool,
+    ) -> Self {
         Self {
             schema: DSOUND_COMPATIBILITY_POLICY_SCHEMA.to_owned(),
             schema_version: DSOUND_COMPATIBILITY_POLICY_VERSION,
-            id: "dsound-primary-default-device-v1".to_owned(),
+            id: id.to_owned(),
             set_cooperative_level: Some(DsoundCooperativeLevelPolicy {
                 profile_id: "primary-live-window-priority-v1".to_owned(),
                 level: DSOUND_DSSCL_PRIORITY,
@@ -108,10 +178,21 @@ impl DsoundCompatibilityPolicy {
                 require_window_owner_thread: true,
             }),
             initial_buffers: Some(DsoundInitialBuffersPolicy {
-                profile_id: "primary-stereo-pcm-and-secondary-88200-v1".to_owned(),
+                profile_id: buffer_profile_id.to_owned(),
                 primary_flags: DSOUND_PRIMARY_BUFFER_FLAGS,
-                secondary_flags: DSOUND_SECONDARY_BUFFER_FLAGS,
-                secondary_buffer_bytes: DSOUND_SECONDARY_BUFFER_BYTES,
+                secondary_required_flags: DSOUND_SECONDARY_BUFFER_FLAGS,
+                secondary_allowed_flags: if allow_secondary_once {
+                    DSOUND_SECONDARY_BUFFER_FORWARD_FLAGS
+                } else {
+                    DSOUND_SECONDARY_BUFFER_FLAGS
+                },
+                secondary_buffer_min_bytes,
+                secondary_buffer_max_bytes,
+                secondary_min_channels,
+                secondary_max_channels,
+                secondary_min_samples_per_second,
+                secondary_max_samples_per_second,
+                secondary_bits_per_sample,
                 pcm_format: RuntimeAudioPcmFormat {
                     channels: 2,
                     samples_per_second: 44_100,
@@ -122,11 +203,11 @@ impl DsoundCompatibilityPolicy {
                 primary_play_flags: DSOUND_DSBPLAY_LOOPING,
             }),
             buffer_transfer: Some(DsoundBufferTransferPolicy {
-                profile_id: "primary-secondary-full-lock-looping-play-v1".to_owned(),
+                profile_id: "secondary-bounded-lock-play-v2".to_owned(),
                 lock_offset: 0,
-                lock_byte_length: DSOUND_SECONDARY_BUFFER_BYTES,
                 lock_flags: 0,
                 secondary_play_flags: DSOUND_DSBPLAY_LOOPING,
+                allow_secondary_once,
             }),
         }
     }
@@ -157,8 +238,27 @@ impl DsoundCompatibilityPolicy {
         if let Some(buffers) = self.initial_buffers.as_ref()
             && (!valid_policy_id(&buffers.profile_id)
                 || buffers.primary_flags != DSOUND_PRIMARY_BUFFER_FLAGS
-                || buffers.secondary_flags != DSOUND_SECONDARY_BUFFER_FLAGS
-                || buffers.secondary_buffer_bytes != DSOUND_SECONDARY_BUFFER_BYTES
+                || buffers.secondary_required_flags != DSOUND_SECONDARY_BUFFER_FLAGS
+                || buffers.secondary_required_flags & !buffers.secondary_allowed_flags != 0
+                || buffers.secondary_allowed_flags & !DSOUND_SECONDARY_BUFFER_FORWARD_FLAGS != 0
+                || buffers.secondary_buffer_min_bytes == 0
+                || buffers.secondary_buffer_min_bytes > buffers.secondary_buffer_max_bytes
+                || u64::from(buffers.secondary_buffer_max_bytes)
+                    > RUNTIME_AUDIO_RESOURCE_ARENA_SIZE
+                || buffers.secondary_min_channels == 0
+                || buffers.secondary_min_channels > buffers.secondary_max_channels
+                || buffers.secondary_max_channels > RUNTIME_AUDIO_PCM_MAX_CHANNELS
+                || buffers.secondary_min_samples_per_second
+                    < RUNTIME_AUDIO_PCM_MIN_SAMPLES_PER_SECOND
+                || buffers.secondary_min_samples_per_second
+                    > buffers.secondary_max_samples_per_second
+                || buffers.secondary_max_samples_per_second
+                    > RUNTIME_AUDIO_PCM_MAX_SAMPLES_PER_SECOND
+                || buffers.secondary_bits_per_sample.is_empty()
+                || buffers
+                    .secondary_bits_per_sample
+                    .iter()
+                    .any(|bits| !matches!(bits, 8 | 16))
                 || buffers.pcm_format
                     != (RuntimeAudioPcmFormat {
                         channels: 2,
@@ -179,14 +279,13 @@ impl DsoundCompatibilityPolicy {
             && (!valid_policy_id(&transfer.profile_id)
                 || self.initial_buffers.is_none()
                 || transfer.lock_offset != 0
-                || transfer.lock_byte_length != DSOUND_SECONDARY_BUFFER_BYTES
                 || transfer.lock_flags != 0
                 || transfer.secondary_play_flags != DSOUND_DSBPLAY_LOOPING)
         {
             return Err(ApiFault::runtime_defect(
                 "dsound-compatibility-policy",
                 "dsound-buffer-transfer-profile-invalid",
-                "DirectSound buffer-transfer policy must match the evidenced full secondary Lock, Unlock, and looping Play sequence",
+                "DirectSound buffer-transfer policy must describe bounded Lock/Unlock and secondary Play",
             ));
         }
         Ok(())
@@ -233,9 +332,10 @@ fn dispatch_dsound_frontend_call(
 ) -> ComDispatchOutcome {
     let root_target = call.class_identity() == DSOUND_IDIRECTSOUND8_CLASS_IDENTITY
         && call.frame().iid == DSOUND_IDIRECTSOUND8_IID;
-    let buffer_target = call.class_identity() == DSOUND_IDIRECTSOUNDBUFFER8_CLASS_IDENTITY
-        && call.frame().iid == DSOUND_IDIRECTSOUNDBUFFER8_IID;
-    if !root_target && !buffer_target {
+    let buffer_class = call.class_identity() == DSOUND_IDIRECTSOUNDBUFFER8_CLASS_IDENTITY;
+    let notification_target = buffer_class && call.frame().iid == DSOUND_IDIRECTSOUNDNOTIFY_IID;
+    let buffer_target = buffer_class && call.frame().iid == DSOUND_IDIRECTSOUNDBUFFER8_IID;
+    if !root_target && !buffer_target && !notification_target {
         return call.fault(
             ComFaultClass::RuntimeDefect,
             "dsound-com-dispatch",
@@ -250,6 +350,25 @@ fn dispatch_dsound_frontend_call(
             fault.code,
             fault.message,
         );
+    }
+    if notification_target {
+        return match (
+            call.frame().vtable_slot,
+            call.frame().method.as_str(),
+            call.explicit_argument_words(),
+            call.frame().explicit_arguments.len(),
+            call.return_kind(),
+        ) {
+            (3, "SetNotificationPositions", 2, 2, RuntimeComReturnKind::HResult) => {
+                handle_set_notification_positions(call)
+            }
+            _ => call.fault(
+                ComFaultClass::RuntimeDefect,
+                "dsound-com-dispatch",
+                "dsound-notify-abi-mismatch",
+                "registered IDirectSoundNotify ABI does not match its method contract",
+            ),
+        };
     }
     match (
         root_target,
@@ -266,14 +385,33 @@ fn dispatch_dsound_frontend_call(
         (true, false, 6, "SetCooperativeLevel", 2, 2, RuntimeComReturnKind::HResult) => {
             handle_set_cooperative_level(policy, call)
         }
+        (false, true, 9, "GetStatus", 1, 1, RuntimeComReturnKind::HResult) => {
+            handle_buffer_get_status(call)
+        }
         (false, true, 11, "Lock", 7, 7, RuntimeComReturnKind::HResult) => {
             handle_buffer_lock(policy, call)
         }
         (false, true, 12, "Play", 3, 3, RuntimeComReturnKind::HResult) => {
             handle_buffer_play(policy, call)
         }
+        (false, true, 13, "SetCurrentPosition", 1, 1, RuntimeComReturnKind::HResult) => {
+            handle_buffer_control(call, RuntimeAudioBufferControlUpdate::CurrentPosition)
+        }
         (false, true, 14, "SetFormat", 1, 1, RuntimeComReturnKind::HResult) => {
             handle_buffer_set_format(policy, call)
+        }
+        (false, true, 15, "SetVolume", 1, 1, RuntimeComReturnKind::HResult) => {
+            handle_buffer_control(call, |value| {
+                RuntimeAudioBufferControlUpdate::Volume(value as i32)
+            })
+        }
+        (false, true, 16, "SetPan", 1, 1, RuntimeComReturnKind::HResult) => {
+            handle_buffer_control(call, |value| {
+                RuntimeAudioBufferControlUpdate::Pan(value as i32)
+            })
+        }
+        (false, true, 17, "SetFrequency", 1, 1, RuntimeComReturnKind::HResult) => {
+            handle_buffer_frequency(call)
         }
         (false, true, 19, "Unlock", 4, 4, RuntimeComReturnKind::HResult) => {
             handle_buffer_unlock(policy, call)
@@ -369,13 +507,35 @@ fn handle_create_sound_buffer(
         let Some(format) = parse_pcm_format(&format_bytes) else {
             return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
         };
-        if descriptor.flags != buffers_policy.secondary_flags
-            || descriptor.byte_length != buffers_policy.secondary_buffer_bytes
-            || format != buffers_policy.pcm_format
+        let whole_pcm_frames = descriptor
+            .byte_length
+            .is_multiple_of(u32::from(format.block_align));
+        if descriptor.flags & buffers_policy.secondary_required_flags
+            != buffers_policy.secondary_required_flags
+            || descriptor.flags & !buffers_policy.secondary_allowed_flags != 0
+            || !(buffers_policy.secondary_buffer_min_bytes
+                ..=buffers_policy.secondary_buffer_max_bytes)
+                .contains(&descriptor.byte_length)
+            || !(buffers_policy.secondary_min_channels..=buffers_policy.secondary_max_channels)
+                .contains(&format.channels)
+            || !(buffers_policy.secondary_min_samples_per_second
+                ..=buffers_policy.secondary_max_samples_per_second)
+                .contains(&format.samples_per_second)
+            || !buffers_policy
+                .secondary_bits_per_sample
+                .contains(&format.bits_per_sample)
+            || !whole_pcm_frames
         {
             return unsupported_buffer_variant(
                 call,
-                "secondary DirectSound buffer descriptor is not evidenced",
+                format!(
+                    "secondary DirectSound buffer is outside the bounded PCM band: flags={:#010x}, bytes={}, channels={}, rate={}, bits={}",
+                    descriptor.flags,
+                    descriptor.byte_length,
+                    format.channels,
+                    format.samples_per_second,
+                    format.bits_per_sample,
+                ),
             );
         }
         RuntimeAudioBufferDescriptor {
@@ -471,15 +631,20 @@ fn handle_buffer_lock(
     if [data1_output, bytes1_output, data2_output, bytes2_output].contains(&0) {
         return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
     }
-    if offset != transfer.lock_offset
-        || byte_length != transfer.lock_byte_length
-        || flags != transfer.lock_flags
+    let controlled_full_range = !transfer.allow_secondary_once
+        && call
+            .runtime()
+            .audio_buffer_for_com_object(call.frame().object_id)
+            .is_ok_and(|buffer| byte_length == buffer.descriptor.byte_length);
+    if flags != transfer.lock_flags
+        || (!transfer.allow_secondary_once
+            && (offset != transfer.lock_offset || !controlled_full_range))
     {
         return call.fault(
             ComFaultClass::Unsupported,
             "dsound-buffer-lock",
             "dsound-buffer-lock-variant-unsupported",
-            "DirectSound Lock is outside the evidenced full secondary-buffer transfer variant",
+            "DirectSound Lock is outside the active bounded secondary-buffer transfer variant",
         );
     }
     let output_addresses = [
@@ -520,6 +685,135 @@ fn handle_buffer_lock(
     }
 }
 
+fn handle_buffer_get_status(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
+    let output_pointer = call.frame().explicit_arguments[0];
+    if output_pointer == 0 {
+        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+    }
+    let buffer = match call
+        .runtime()
+        .audio_buffer_for_com_object(call.frame().object_id)
+    {
+        Ok(buffer) => buffer,
+        Err(error) => return call.runtime_fault(error),
+    };
+    let status = dsound_buffer_status(buffer.playback);
+    complete_dsound_u32_write(call, GuestAddress(output_pointer), status)
+}
+
+fn dsound_buffer_status(playback: RuntimeAudioPlaybackState) -> u32 {
+    match playback {
+        RuntimeAudioPlaybackState::Stopped => 0,
+        RuntimeAudioPlaybackState::PlayingOnce => DSOUND_DSBSTATUS_PLAYING,
+        RuntimeAudioPlaybackState::PlayingLooping => {
+            DSOUND_DSBSTATUS_PLAYING | DSOUND_DSBSTATUS_LOOPING
+        }
+    }
+}
+
+fn complete_dsound_u32_write(
+    call: ComFrontendCall<'_>,
+    output: GuestAddress,
+    value: u32,
+) -> ComDispatchOutcome {
+    if let Err(error) = call
+        .memory()
+        .validate_access(output, 4, MemoryAccess::Write)
+    {
+        return call.memory_fault(error);
+    }
+    let bytes = value.to_le_bytes().to_vec();
+    let mut call = call;
+    let mut transaction = call.memory_mut().begin_transaction();
+    let result = match transaction.write(output, &bytes) {
+        Ok(result) => result,
+        Err(error) => {
+            drop(transaction);
+            return call.memory_fault(error);
+        }
+    };
+    transaction.commit_transaction();
+    call.complete(
+        ComReturnValue::HResult(COM_S_OK),
+        vec![ComGuestWriteReceipt {
+            address: output,
+            bytes,
+            result,
+        }],
+    )
+}
+
+fn handle_set_notification_positions(mut call: ComFrontendCall<'_>) -> ComDispatchOutcome {
+    let [count, notifications_pointer] = call.frame().explicit_arguments.as_slice() else {
+        unreachable!("frontend ABI preflight fixed the notification argument count");
+    };
+    let (count, notifications_pointer) = (*count, *notifications_pointer);
+    let Ok(count) = usize::try_from(count) else {
+        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+    };
+    if count == 0 || count > RUNTIME_AUDIO_NOTIFICATION_LIMIT || notifications_pointer == 0 {
+        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+    }
+    let byte_length = match count.checked_mul(8) {
+        Some(byte_length) => byte_length,
+        None => return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new()),
+    };
+    let bytes = match call
+        .memory()
+        .read(GuestAddress(notifications_pointer), byte_length)
+    {
+        Ok(bytes) => bytes,
+        Err(error) => return call.memory_fault(error),
+    };
+    let buffer = match call
+        .runtime()
+        .audio_buffer_for_com_object(call.frame().object_id)
+    {
+        Ok(buffer) => buffer,
+        Err(error) => return call.runtime_fault(error),
+    };
+    if buffer.descriptor.flags & DSOUND_DSBCAPS_CTRLPOSITIONNOTIFY == 0 {
+        return call.complete(
+            ComReturnValue::HResult(DSOUND_DSERR_CONTROLUNAVAIL),
+            Vec::new(),
+        );
+    }
+    let mut notifications = Vec::with_capacity(count);
+    for index in 0..count {
+        let offset = index * 8;
+        let notification = RuntimeAudioNotification {
+            offset_bytes: read_u32(&bytes, offset).expect("validated notification byte range"),
+            event_handle: RuntimeHandle(
+                read_u32(&bytes, offset + 4).expect("validated notification byte range"),
+            ),
+        };
+        if call
+            .runtime()
+            .event_for_handle(notification.event_handle)
+            .is_err()
+        {
+            return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+        }
+        notifications.push(notification);
+    }
+    let plan = match call.runtime().plan_audio_buffer_notifications(
+        RuntimeAudioBufferNotificationRequest {
+            buffer_com_object_id: call.frame().object_id,
+            notifications,
+        },
+    ) {
+        Ok(plan) => plan,
+        Err(error) if error.class != RuntimeStateErrorClass::RuntimeDefect => {
+            return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+        }
+        Err(error) => return call.runtime_fault(error),
+    };
+    if let Err(error) = call.runtime_mut().commit_audio_buffer_notifications(plan) {
+        return call.runtime_fault(error);
+    }
+    call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
+}
+
 fn handle_buffer_unlock(
     policy: &DsoundCompatibilityPolicy,
     call: ComFrontendCall<'_>,
@@ -528,7 +822,7 @@ fn handle_buffer_unlock(
         unreachable!("frontend ABI preflight fixed the DirectSound argument count");
     };
     let (data1, bytes1, data2, bytes2) = (*data1, *bytes1, *data2, *bytes2);
-    let Some(transfer) = policy.buffer_transfer.as_ref() else {
+    let Some(_transfer) = policy.buffer_transfer.as_ref() else {
         return call.fault(
             ComFaultClass::Unsupported,
             "com-dispatch",
@@ -539,14 +833,13 @@ fn handle_buffer_unlock(
     if data1 == 0 {
         return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
     }
-    if bytes1 != transfer.lock_byte_length || data2 != 0 || bytes2 != 0 {
-        return call.fault(
-            ComFaultClass::Unsupported,
-            "dsound-buffer-unlock",
-            "dsound-buffer-unlock-variant-unsupported",
-            "DirectSound Unlock is outside the evidenced single-segment transfer variant",
-        );
+    if (data2 == 0) != (bytes2 == 0) {
+        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
     }
+    let second_segment = (data2 != 0).then_some(RuntimeAudioBufferSegment {
+        guest_address: GuestAddress(data2),
+        byte_length: bytes2,
+    });
     let mut call = call;
     match call.unlock_audio_buffer(RuntimeAudioBufferUnlockRequest {
         buffer_com_object_id: call.frame().object_id,
@@ -554,7 +847,7 @@ fn handle_buffer_unlock(
             guest_address: GuestAddress(data1),
             byte_length: bytes1,
         },
-        second_segment: None,
+        second_segment,
     }) {
         Ok(_result) => call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new()),
         Err(error) if error.code == "audio-buffer-not-locked" => {
@@ -630,6 +923,91 @@ fn handle_buffer_set_format(
     call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
 }
 
+fn handle_buffer_control<F>(call: ComFrontendCall<'_>, build_update: F) -> ComDispatchOutcome
+where
+    F: FnOnce(u32) -> RuntimeAudioBufferControlUpdate,
+{
+    let raw_value = call.frame().explicit_arguments[0];
+    commit_buffer_control(call, build_update(raw_value))
+}
+
+fn handle_buffer_frequency(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
+    let raw_value = call.frame().explicit_arguments[0];
+    let frequency = if raw_value == DSOUND_DSBFREQUENCY_ORIGINAL {
+        let buffer = match call
+            .runtime()
+            .audio_buffer_for_com_object(call.frame().object_id)
+        {
+            Ok(buffer) => buffer,
+            Err(error) => return call.runtime_fault(error),
+        };
+        let Some(format) = buffer.active_format else {
+            return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+        };
+        format.samples_per_second
+    } else {
+        raw_value
+    };
+    commit_buffer_control(call, RuntimeAudioBufferControlUpdate::Frequency(frequency))
+}
+
+fn commit_buffer_control(
+    call: ComFrontendCall<'_>,
+    update: RuntimeAudioBufferControlUpdate,
+) -> ComDispatchOutcome {
+    let (required_flag, value_valid) = match update {
+        RuntimeAudioBufferControlUpdate::Volume(value) => (
+            Some(DSOUND_DSBCAPS_CTRLVOLUME),
+            (RUNTIME_AUDIO_VOLUME_MIN_HUNDREDTHS_DB..=RUNTIME_AUDIO_VOLUME_MAX_HUNDREDTHS_DB)
+                .contains(&value),
+        ),
+        RuntimeAudioBufferControlUpdate::Pan(value) => (
+            Some(DSOUND_DSBCAPS_CTRLPAN),
+            (RUNTIME_AUDIO_PAN_MIN_HUNDREDTHS_DB..=RUNTIME_AUDIO_PAN_MAX_HUNDREDTHS_DB)
+                .contains(&value),
+        ),
+        RuntimeAudioBufferControlUpdate::Frequency(value) => (
+            Some(DSOUND_DSBCAPS_CTRLFREQUENCY),
+            (RUNTIME_AUDIO_PLAYBACK_FREQUENCY_MIN_HZ..=RUNTIME_AUDIO_PLAYBACK_FREQUENCY_MAX_HZ)
+                .contains(&value),
+        ),
+        RuntimeAudioBufferControlUpdate::CurrentPosition(_) => (None, true),
+    };
+    if !value_valid {
+        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+    }
+    let buffer = match call
+        .runtime()
+        .audio_buffer_for_com_object(call.frame().object_id)
+    {
+        Ok(buffer) => buffer,
+        Err(error) => return call.runtime_fault(error),
+    };
+    if required_flag.is_some_and(|flag| buffer.descriptor.flags & flag == 0) {
+        return call.complete(
+            ComReturnValue::HResult(DSOUND_DSERR_CONTROLUNAVAIL),
+            Vec::new(),
+        );
+    }
+    let plan = match call
+        .runtime()
+        .plan_audio_buffer_control(RuntimeAudioBufferControlRequest {
+            buffer_com_object_id: call.frame().object_id,
+            update,
+        }) {
+        Ok(plan) => plan,
+        Err(error) if error.code == "audio-buffer-control-value-invalid" => {
+            return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+        }
+        Err(error) => return call.runtime_fault(error),
+    };
+    let mut call = call;
+    if let Err(error) = call.runtime_mut().commit_audio_buffer_control(plan) {
+        return call.runtime_fault(error);
+    }
+    call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
+}
+
 fn handle_buffer_play(
     policy: &DsoundCompatibilityPolicy,
     call: ComFrontendCall<'_>,
@@ -656,8 +1034,13 @@ fn handle_buffer_play(
         Ok(buffer) => buffer,
         Err(error) => return call.runtime_fault(error),
     };
-    let expected_flags = match buffer.descriptor.kind {
-        RuntimeAudioBufferKind::Primary => buffers_policy.primary_play_flags,
+    let playback = match buffer.descriptor.kind {
+        RuntimeAudioBufferKind::Primary if flags == buffers_policy.primary_play_flags => {
+            RuntimeAudioPlaybackState::PlayingLooping
+        }
+        RuntimeAudioBufferKind::Primary => {
+            return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+        }
         RuntimeAudioBufferKind::Secondary => {
             let Some(transfer) = policy.buffer_transfer.as_ref() else {
                 return call.fault(
@@ -667,17 +1050,23 @@ fn handle_buffer_play(
                     "secondary DirectSound playback is disabled by the active policy",
                 );
             };
-            transfer.secondary_play_flags
+            if flags & !transfer.secondary_play_flags != 0
+                || (flags == 0 && !transfer.allow_secondary_once)
+            {
+                return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+            }
+            if flags & DSOUND_DSBPLAY_LOOPING != 0 {
+                RuntimeAudioPlaybackState::PlayingLooping
+            } else {
+                RuntimeAudioPlaybackState::PlayingOnce
+            }
         }
     };
-    if flags != expected_flags {
-        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
-    }
     let plan = match call
         .runtime()
         .plan_audio_buffer_play(RuntimeAudioBufferPlayRequest {
             buffer_com_object_id: call.frame().object_id,
-            playback: RuntimeAudioPlaybackState::PlayingLooping,
+            playback,
         }) {
         Ok(plan) => plan,
         Err(error) => return call.runtime_fault(error),
@@ -691,7 +1080,7 @@ fn handle_buffer_play(
 
 fn unsupported_buffer_variant(
     call: ComFrontendCall<'_>,
-    message: &'static str,
+    message: impl Into<String>,
 ) -> ComDispatchOutcome {
     call.fault(
         ComFaultClass::Unsupported,
@@ -934,21 +1323,31 @@ pub fn direct_sound_buffer8_object_spec() -> ComObjectSpec {
                     ComMethodSpec::unsupported_hresult("GetVolume", 1),
                     ComMethodSpec::unsupported_hresult("GetPan", 1),
                     ComMethodSpec::unsupported_hresult("GetFrequency", 1),
-                    ComMethodSpec::unsupported_hresult("GetStatus", 1),
+                    ComMethodSpec::frontend_hresult("GetStatus", 1),
                     ComMethodSpec::unsupported_hresult("Initialize", 2),
                     ComMethodSpec::frontend_hresult("Lock", 7),
                     ComMethodSpec::frontend_hresult("Play", 3),
-                    ComMethodSpec::unsupported_hresult("SetCurrentPosition", 1),
+                    ComMethodSpec::frontend_hresult("SetCurrentPosition", 1),
                     ComMethodSpec::frontend_hresult("SetFormat", 1),
-                    ComMethodSpec::unsupported_hresult("SetVolume", 1),
-                    ComMethodSpec::unsupported_hresult("SetPan", 1),
-                    ComMethodSpec::unsupported_hresult("SetFrequency", 1),
+                    ComMethodSpec::frontend_hresult("SetVolume", 1),
+                    ComMethodSpec::frontend_hresult("SetPan", 1),
+                    ComMethodSpec::frontend_hresult("SetFrequency", 1),
                     ComMethodSpec::unsupported_hresult("Stop", 0),
                     ComMethodSpec::frontend_hresult("Unlock", 4),
                     ComMethodSpec::unsupported_hresult("Restore", 0),
                     ComMethodSpec::unsupported_hresult("SetFX", 3),
                     ComMethodSpec::unsupported_hresult("AcquireResources", 3),
                     ComMethodSpec::unsupported_hresult("GetObjectInPath", 4),
+                ],
+            },
+            ComInterfaceSpec {
+                iid: DSOUND_IDIRECTSOUNDNOTIFY_IID,
+                name: "IDirectSoundNotify".to_owned(),
+                methods: vec![
+                    ComMethodSpec::query_interface(),
+                    ComMethodSpec::add_ref(),
+                    ComMethodSpec::release(),
+                    ComMethodSpec::frontend_hresult("SetNotificationPositions", 2),
                 ],
             },
         ],
@@ -1096,7 +1495,7 @@ mod tests {
             .initial_buffers
             .as_mut()
             .expect("initial-buffer policy")
-            .secondary_buffer_bytes += 1;
+            .secondary_buffer_max_bytes = 0;
         assert_eq!(
             buffers.validate().unwrap_err().code,
             "dsound-initial-buffers-profile-invalid"
@@ -1107,7 +1506,7 @@ mod tests {
             .buffer_transfer
             .as_mut()
             .expect("buffer-transfer policy")
-            .lock_byte_length += 1;
+            .lock_offset = 1;
         assert_eq!(
             transfer.validate().unwrap_err().code,
             "dsound-buffer-transfer-profile-invalid"
@@ -1134,10 +1533,15 @@ mod tests {
     }
 
     #[test]
-    fn buffer_spec_exposes_only_the_reached_extended_identity() {
+    fn buffer_spec_exposes_reached_extended_and_notification_identities() {
         let spec = direct_sound_buffer8_object_spec();
-        assert_eq!(spec.interfaces.len(), 2);
+        assert_eq!(spec.interfaces.len(), 3);
         assert_eq!(spec.interfaces[1].iid, DSOUND_IDIRECTSOUNDBUFFER8_IID);
+        assert_eq!(spec.interfaces[2].iid, DSOUND_IDIRECTSOUNDNOTIFY_IID);
+        assert_eq!(
+            spec.interfaces[2].methods[3].name,
+            "SetNotificationPositions"
+        );
         assert!(
             spec.interfaces
                 .iter()
@@ -1183,5 +1587,18 @@ mod tests {
         assert_eq!(DSOUND_E_INVALIDARG.bits(), 0x8007_0057);
         assert_eq!(DSOUND_DSERR_INVALIDCALL.bits(), 0x8878_0032);
         assert_eq!(crate::com::COM_E_NOINTERFACE.bits(), 0x8000_4002);
+    }
+
+    #[test]
+    fn buffer_status_projects_only_authoritative_playback_bits() {
+        assert_eq!(dsound_buffer_status(RuntimeAudioPlaybackState::Stopped), 0);
+        assert_eq!(
+            dsound_buffer_status(RuntimeAudioPlaybackState::PlayingOnce),
+            DSOUND_DSBSTATUS_PLAYING
+        );
+        assert_eq!(
+            dsound_buffer_status(RuntimeAudioPlaybackState::PlayingLooping),
+            DSOUND_DSBSTATUS_PLAYING | DSOUND_DSBSTATUS_LOOPING
+        );
     }
 }

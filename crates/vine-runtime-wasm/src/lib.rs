@@ -19,19 +19,20 @@ use vine_core::{
     LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, MappingOperation, MemoryDeltaBuffers,
     MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressAllocationPurpose,
     ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
-    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE,
-    RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
-    RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
-    RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeHandle,
-    RuntimeHeapInitialization, RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind,
-    RuntimeModule, RuntimeModuleId, RuntimeObjectKind, RuntimePointerButton,
-    RuntimePointerButtonSourceEvent, RuntimePointerButtonSourceEventKind, RuntimeProcessId,
-    RuntimeSchedulerEvent, RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest,
-    RuntimeStartupInfo, RuntimeState, RuntimeStateErrorClass, RuntimeThreadId,
-    RuntimeWritableCommitHostResponse, RuntimeWritableDirectoryCreateHostResponse,
-    RuntimeWritableProfileManifest, SEND_MESSAGE_A_IMPLEMENTATION, SchedulerThreadState,
-    StackCleanup, USER32_WM_IME_CONTROL, User32CompatibilityPolicy, WinmmCompatibilityPolicy,
-    bind_pe32_imports, build_pe32_load_plan, complete_kernel32_source_read,
+    RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE, RUNTIME_WAITABLE_TIMER_PACING_SERVICE,
+    RUNTIME_WRITABLE_COMMIT_SERVICE, RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, ReentrancyPolicy,
+    RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
+    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog,
+    RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization,
+    RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind, RuntimeModule, RuntimeModuleId,
+    RuntimeObjectKind, RuntimePointerButton, RuntimePointerButtonSourceEvent,
+    RuntimePointerButtonSourceEventKind, RuntimeProcessId, RuntimeSchedulerEvent,
+    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
+    RuntimeStateErrorClass, RuntimeThreadId, RuntimeWritableCommitHostResponse,
+    RuntimeWritableDirectoryCreateHostResponse, RuntimeWritableProfileManifest,
+    SEND_MESSAGE_A_IMPLEMENTATION, SchedulerThreadState, StackCleanup, USER32_WM_IME_CONTROL,
+    User32CompatibilityPolicy, WinmmCompatibilityPolicy, X86CpuContext, bind_pe32_imports,
+    build_pe32_load_plan, complete_kernel32_audio_notification_wait, complete_kernel32_source_read,
     complete_kernel32_waitable_timer_pacing, complete_kernel32_writable_commit,
     complete_kernel32_writable_directory_create, d3d9_contract_for_endpoint,
     dinput8_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api,
@@ -67,7 +68,7 @@ const MAPPING_FIXTURE_STAGE_COUNT: u32 = 7;
 const FIXTURE_MAX_PHYSICAL_PAGES: usize = 16;
 const BGI_SHA256: &str = "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1";
 const BGI_LOAD_BASE: GuestAddress = GuestAddress(0x1000_0000);
-const BGI_MAX_PHYSICAL_PAGES: usize = 24 * 1024;
+const BGI_MAX_PHYSICAL_PAGES: usize = 30 * 1024;
 const BGI_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 
 thread_local! {
@@ -812,7 +813,7 @@ impl BrowserRuntime {
         d3d9_policy.validate().map_err(api_fault_string)?;
         let dinput8_policy = Dinput8CompatibilityPolicy::controlled_v1();
         dinput8_policy.validate().map_err(api_fault_string)?;
-        let dsound_policy = DsoundCompatibilityPolicy::controlled_v1();
+        let dsound_policy = DsoundCompatibilityPolicy::forward_v2();
         dsound_policy.validate().map_err(api_fault_string)?;
         process
             .runtime
@@ -1391,6 +1392,7 @@ impl BrowserRuntime {
         stack_pointer: GuestAddress,
         return_address: GuestAddress,
         retired_instructions: u64,
+        x86_context: X86CpuContext,
     ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
         let (route_id, argument_bytes, endpoint) = self
             .routes
@@ -1456,7 +1458,12 @@ impl BrowserRuntime {
         let callback_sentinel = self.callback_sentinel;
         let target = &self.target;
         let dispatcher = &self.dispatcher;
-        let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
+        let mut session = ExecutionSession::with_x86_context(
+            &mut self.memory,
+            &mut self.runtime,
+            x86_context,
+            callback_sentinel,
+        );
         let outcome =
             dispatcher.dispatch(
                 trap,
@@ -2013,11 +2020,34 @@ impl BrowserRuntime {
                         metadata
                     }
                 };
-                if let Some(selection) = self
-                    .runtime
-                    .complete_api_execution_boundary_with_disposition(completion.execution_boundary)
-                    .map_err(error_string)?
+                let selection = if completion.execution_boundary
+                    == vine_core::RuntimeApiBoundaryDisposition::BlockCurrentThread
                 {
+                    if !matches!(
+                        self.runtime.scheduler_state().map_err(error_string)?,
+                        SchedulerThreadState::WaitingCriticalSection { .. }
+                            | SchedulerThreadState::WaitingObject { .. }
+                    ) {
+                        return Err(
+                            "blocking API completion has no matching scheduler wait".to_owned()
+                        );
+                    }
+                    Some(
+                        self.runtime
+                            .select_next_executable_thread()
+                            .map_err(error_string)?
+                            .ok_or_else(|| {
+                                "blocking API completion has no executable competitor".to_owned()
+                            })?,
+                    )
+                } else {
+                    self.runtime
+                        .complete_api_execution_boundary_with_disposition(
+                            completion.execution_boundary,
+                        )
+                        .map_err(error_string)?
+                };
+                if let Some(selection) = selection {
                     metadata["threadSelection"] = json!(selection);
                 }
                 Ok((metadata, delta))
@@ -2191,6 +2221,17 @@ impl BrowserRuntime {
                 } else {
                     None
                 };
+                let audio_buffer = if completion.frame.interface == "IDirectSoundBuffer8"
+                    && completion.frame.method == "Play"
+                {
+                    self.runtime
+                        .audio_buffers()
+                        .values()
+                        .find(|buffer| buffer.com_object_id == completion.frame.object_id)
+                        .cloned()
+                } else {
+                    None
+                };
                 let delta = self.pending_delta()?;
                 let cpu_resume = json!({
                     "instructionPointer": completion.instruction_pointer,
@@ -2216,6 +2257,9 @@ impl BrowserRuntime {
                         "source": source,
                         "destination": destination,
                     });
+                }
+                if let Some(audio_buffer) = audio_buffer {
+                    metadata["audioBuffer"] = json!(audio_buffer);
                 }
                 Ok((metadata, delta))
             }
@@ -2313,6 +2357,11 @@ impl BrowserRuntime {
             pending.call.request.service == RUNTIME_WAITABLE_TIMER_PACING_SERVICE
         }) {
             return self.complete_waitable_timer_pacing(request_id, result);
+        }
+        if self.pending_host.get(&request_id).is_some_and(|pending| {
+            pending.call.request.service == RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE
+        }) {
+            return self.complete_audio_notification_wait(request_id, result);
         }
         let pending = self
             .pending_host
@@ -2472,6 +2521,74 @@ impl BrowserRuntime {
             "completion": completion,
             "waitableTimer": waitable_timer,
             "waitableTimerPacing": wait_result,
+            "memory": self.memory.synchronization_state(),
+        }))
+    }
+
+    fn complete_audio_notification_wait(
+        &mut self,
+        request_id: u64,
+        acknowledgement: u32,
+    ) -> Result<Value, String> {
+        let pending =
+            self.pending_host.get(&request_id).cloned().ok_or_else(|| {
+                "audio notification completion has no pending API call".to_owned()
+            })?;
+        if pending.call.request.request_id != request_id
+            || pending.call.request.service != RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE
+        {
+            return Err("audio notification completion request identity is corrupt".to_owned());
+        }
+        let endpoint = pending.call.frame.endpoint.clone();
+        let previous_thread_id = self.runtime.current_thread_id();
+        let owner_thread_id = pending.thread_id;
+        if previous_thread_id != owner_thread_id {
+            self.runtime
+                .select_thread(owner_thread_id)
+                .map_err(error_string)?;
+        }
+        let (outcome, runtime_completion) = complete_kernel32_audio_notification_wait(
+            &self.dispatcher,
+            pending.call.clone(),
+            acknowledgement,
+            &mut ExecutionSession::new(&mut self.memory, &mut self.runtime),
+        );
+        let completion = match outcome {
+            DispatchOutcome::Immediate(completion) => completion,
+            DispatchOutcome::Fault(fault) => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err(api_fault_string(fault));
+            }
+            _ => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err("audio notification completion remained suspended".to_owned());
+            }
+        };
+        let runtime_completion = runtime_completion.ok_or_else(|| {
+            "audio notification API completed without committing pacing state".to_owned()
+        })?;
+        match self.runtime.pop_scheduler_event() {
+            Some(RuntimeSchedulerEvent::HostCompleted(event)) if event == runtime_completion => {}
+            _ => return Err("audio notification scheduler completion event mismatch".to_owned()),
+        }
+        self.pending_host
+            .remove(&request_id)
+            .ok_or_else(|| "audio notification pending call disappeared".to_owned())?;
+        let scheduler = self
+            .runtime
+            .scheduler_state_for_thread(owner_thread_id)
+            .map_err(error_string)?;
+        if !scheduler.is_executable() {
+            return Err("Rust scheduler did not resume the audio notification request".to_owned());
+        }
+        restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+        Ok(json!({
+            "kind": "host-complete",
+            "threadId": owner_thread_id.0,
+            "scheduler": scheduler,
+            "endpoint": endpoint,
+            "completion": completion,
+            "audioNotificationPacing": true,
             "memory": self.memory.synchronization_state(),
         }))
     }
@@ -2866,20 +2983,31 @@ impl BrowserRuntime {
                         .map_err(api_fault_string)?;
                     (prepared, semantic_action)
                 };
-                if !matches!(
-                    semantic_action,
-                    Some(
-                        vine_core::RuntimeGuestCallbackSemanticAction::WindowCreation(
-                            vine_core::RuntimeWindowCreationCallbackAction::Continue { .. }
-                        )
-                    ) | Some(vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPos(
-                        vine_core::RuntimeSetWindowPosCallbackAction::Continue { .. }
-                    )) | Some(
-                        vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPosDefault(
-                            vine_core::RuntimeSetWindowPosDefaultCallbackAction::Continue { .. },
+                let exception_continuation = semantic_action.is_none()
+                    && matches!(
+                        completion_policy,
+                        GuestCallbackCompletionPolicy::ExceptionDispatch { .. }
+                    )
+                    && matches!(
+                        next.request.completion_policy,
+                        GuestCallbackCompletionPolicy::ExceptionDispatch { .. }
+                    );
+                if !exception_continuation
+                    && !matches!(
+                        semantic_action,
+                        Some(
+                            vine_core::RuntimeGuestCallbackSemanticAction::WindowCreation(
+                                vine_core::RuntimeWindowCreationCallbackAction::Continue { .. }
+                            )
+                        ) | Some(vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPos(
+                            vine_core::RuntimeSetWindowPosCallbackAction::Continue { .. }
+                        )) | Some(
+                            vine_core::RuntimeGuestCallbackSemanticAction::SetWindowPosDefault(
+                                vine_core::RuntimeSetWindowPosDefaultCallbackAction::Continue { .. },
+                            )
                         )
                     )
-                ) {
+                {
                     return Err(
                         "replacement guest callback did not commit continuation semantics"
                             .to_owned(),
@@ -4639,6 +4767,9 @@ fn restore_selected_thread(
         && runtime
             .thread_state(previous_thread_id)
             .is_ok_and(|thread| thread.lifecycle == vine_core::RuntimeThreadLifecycleState::Running)
+        && runtime
+            .scheduler_state_for_thread(previous_thread_id)
+            .is_ok_and(SchedulerThreadState::is_executable)
     {
         runtime
             .select_thread(previous_thread_id)
@@ -4990,6 +5121,22 @@ pub extern "C" fn vine_bridge_dispatch(
     return_address: u32,
     retired_instructions_low: u32,
     retired_instructions_high: u32,
+    eax: u32,
+    ecx: u32,
+    edx: u32,
+    ebx: u32,
+    esp: u32,
+    ebp: u32,
+    esi: u32,
+    edi: u32,
+    eip: u32,
+    eflags: u32,
+    es: u32,
+    cs: u32,
+    ss: u32,
+    ds: u32,
+    fs: u32,
+    gs: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         let retired_instructions =
@@ -4999,6 +5146,24 @@ pub extern "C" fn vine_bridge_dispatch(
             GuestAddress(stack_pointer),
             GuestAddress(return_address),
             retired_instructions,
+            X86CpuContext {
+                eax,
+                ecx,
+                edx,
+                ebx,
+                esp,
+                ebp,
+                esi,
+                edi,
+                eip,
+                eflags,
+                es,
+                cs,
+                ss,
+                ds,
+                fs,
+                gs,
+            },
         )?;
         let (control, payload) = delta
             .map(|buffers| (buffers.control, buffers.page_bytes))

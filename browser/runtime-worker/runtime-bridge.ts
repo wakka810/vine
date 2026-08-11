@@ -10,6 +10,7 @@ import type {
   RuntimeKeyboardInputEvent,
   RuntimePointerButtonInputEvent,
 } from "./protocol.js";
+import type { ExecutionCpuContext } from "./execution-engine-contract.js";
 
 export type RegisterUpdate =
   | { action: "preserve" }
@@ -30,7 +31,7 @@ export interface ApiCompletion extends CpuResume {
     arguments: Array<{ words: number[] }>;
   };
   readonly lastError: number;
-  executionBoundary?: "yield-current-thread";
+  executionBoundary?: "yield-current-thread" | "block-current-thread";
   guestWrites?: Array<{
     write:
       | { address: number; bytes: number[] }
@@ -224,6 +225,22 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     returnAddress: number,
     retiredInstructionsLow: number,
     retiredInstructionsHigh: number,
+    eax: number,
+    ecx: number,
+    edx: number,
+    ebx: number,
+    esp: number,
+    ebp: number,
+    esi: number,
+    edi: number,
+    eip: number,
+    eflags: number,
+    es: number,
+    cs: number,
+    ss: number,
+    ds: number,
+    fs: number,
+    gs: number,
   ): number;
   vine_bridge_resolve_com_endpoint(endpoint: number): number;
   vine_bridge_dispatch_com(
@@ -486,6 +503,7 @@ export class RuntimeBridge {
     stackPointer: number,
     returnAddress: number,
     retiredInstructions: number,
+    context: ExecutionCpuContext,
   ): BridgeOutput<T> {
     const [retiredInstructionsLow, retiredInstructionsHigh] =
       splitRetiredInstructions(retiredInstructions);
@@ -496,6 +514,22 @@ export class RuntimeBridge {
         returnAddress,
         retiredInstructionsLow,
         retiredInstructionsHigh,
+        context.eax,
+        context.ecx,
+        context.edx,
+        context.ebx,
+        context.esp,
+        context.ebp,
+        context.esi,
+        context.edi,
+        context.instructionPointer,
+        context.eflags,
+        context.es,
+        context.cs,
+        context.ss,
+        context.ds,
+        context.fs,
+        context.gs,
       ),
     );
   }

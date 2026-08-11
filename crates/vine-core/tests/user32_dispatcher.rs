@@ -23,17 +23,17 @@ use vine_core::{
     RuntimeSetWindowPosOperation, RuntimeSetWindowPosVariant, RuntimeStartupInfo, RuntimeState,
     RuntimeSystemCursorKind, RuntimeThreadId, RuntimeUpdateWindowCallbackAction,
     RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage, RuntimeWindowGeometry,
-    RuntimeWindowLifecycle, StackCleanup, User32CompatibilityPolicy, begin_paint_contract,
-    build_pe32_load_plan, create_window_ex_a_contract, def_window_proc_a_contract,
-    dispatch_gdi32_api, dispatch_imm32_api_with_policy, dispatch_message_a_contract,
-    dispatch_user32_api_with_policy, enable_menu_item_contract, end_paint_contract,
-    enum_display_monitors_contract, fill_rect_contract, gdi32_contract_for_endpoint,
-    get_async_key_state_contract, get_client_rect_contract, get_cursor_info_contract,
-    get_cursor_pos_contract, get_dc_contract, get_foreground_window_contract,
-    get_monitor_info_a_contract, get_stock_object_contract, get_system_menu_contract,
-    get_system_metrics_contract, get_window_rect_contract, imm_associate_context_contract,
-    imm_get_default_ime_wnd_contract, is_iconic_contract, load_cursor_a_contract,
-    load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
+    RuntimeWindowLifecycle, SchedulerThreadState, StackCleanup, User32CompatibilityPolicy,
+    begin_paint_contract, build_pe32_load_plan, create_window_ex_a_contract,
+    def_window_proc_a_contract, dispatch_gdi32_api, dispatch_imm32_api_with_policy,
+    dispatch_message_a_contract, dispatch_user32_api_with_policy, enable_menu_item_contract,
+    end_paint_contract, enum_display_monitors_contract, fill_rect_contract,
+    gdi32_contract_for_endpoint, get_async_key_state_contract, get_client_rect_contract,
+    get_cursor_info_contract, get_cursor_pos_contract, get_dc_contract,
+    get_foreground_window_contract, get_monitor_info_a_contract, get_stock_object_contract,
+    get_system_menu_contract, get_system_metrics_contract, get_window_rect_contract,
+    imm_associate_context_contract, imm_get_default_ime_wnd_contract, is_iconic_contract,
+    load_cursor_a_contract, load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
     monitor_from_window_contract, peek_message_a_contract, register_class_ex_a_contract,
     release_dc_contract, send_message_a_contract, set_focus_contract, set_rect_contract,
     set_timer_contract, set_window_long_a_contract, set_window_pos_contract,
@@ -5539,6 +5539,25 @@ fn peek_message_a_preserves_empty_output_and_commits_remove_with_guest_write_ato
             .expect("read preserved empty PeekMessageA output"),
         [0xa5; 28]
     );
+
+    let callback = fixture
+        .runtime
+        .push_callback_frame(CALLBACK_TARGET, CALLBACK_SENTINEL)
+        .expect("enter callback for reentrant PeekMessageA");
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 1);
+    let callback_empty = match fixture.dispatch_peek_message_a() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected callback PeekMessageA completion, got {other:?}"),
+    };
+    assert_eq!(callback_empty.eax, RegisterUpdate::Set(0));
+    assert_eq!(
+        fixture.runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::InCallback { depth: 1 }
+    );
+    fixture
+        .runtime
+        .pop_callback_frame(callback.id)
+        .expect("leave callback after reentrant PeekMessageA");
 
     let posted = fixture
         .runtime

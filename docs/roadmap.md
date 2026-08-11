@@ -1,123 +1,86 @@
-# Vine ロードマップ
+# Vine roadmap
 
-## 1. 目的と正本
+## Planning rule
 
-この文書は、active completion targetまでに残る構造的な道筋だけを示す。API数、instruction数、
-hash、benchmark値、exact next stop、完了済みcheckpoint履歴は複製しない。
+The roadmap is scenario-first. Work is selected by the shortest path to the next user-visible boundary, not by import order、API inventory、call count、or historical checkpoint sequence. The current stop and commands are in[current-checkpoint.json](current-checkpoint.json).
 
-- 現在状態、active profile、exact structured stop、artifact identity、canonical reproduction:
-  [current-checkpoint.json](current-checkpoint.json)
-- 製品要件と完了条件: [requirements.md](requirements.md)
-- 安定したcomponent境界: [target-architecture.md](target-architecture.md)
-- testの役割と受け入れ証跡: [testing-and-acceptance.md](testing-and-acceptance.md)
-- 未解決の判断と構造的risk: [risks-and-open-questions.md](risks-and-open-questions.md)
-- 過去のcheckpoint詳細: 各subsystem evidence文書とGit履歴
+## 1. Visible action response or readable frame
 
-## 2. Active targetとscope
+Exit condition:
 
-Active targetは、fingerprint済みのサクラノ詩をimmutable source snapshotからChromeで起動し、
-boot、visible output、input、audible output、全scenario、save、browser restart、loadまで不自由なく
-実行することである。
+- primary target shows readable non-black title content, or
+- a real pointer／keyboard action causes a repeatable visible frame change
 
-Active compatibility bandはPE32/i386、到達したWin32／COM、GDI／GDI+、bounded D3D9、
-DirectInput 8、DirectSound／到達WinMM、Windows-932、file／registry persistence、Chrome backendとする。
-PE32+／x64、D3D11／DXGI、XAudio2、Unity、multi-title、第三者向け配布は、明示的に再開するまで
-deferredとする。
+Current work:
 
-## 3. 計画規則
+- continue the generic release Chrome path beyond the reached primary-audio boundary
+- implement reached semantic leaves in batches
+- preserve Rust-owned window／message／input and graphics authority
+- inspect final Present diagnostics instead of exact cumulative call totals
 
-進捗は実装API数ではなくscenario milestoneで測る。Manifestのexact next structured stopは直近の
-再現地点であり、孤立したendpoint patchを積み上げる許可ではない。
+Main unknowns:
 
-各stopは実装前に分類する。
+- whether the next title transition needs another bounded Win32 leaf or a graphics data-path extension
+- whether current black frame reflects source content timing、texture transfer、blend state、or later scenario state
 
-- **Semantic leaf**: 既存subsystem内で閉じるbounded contract。caller behavior、negative case、
-  regression evidenceを含めて閉じる。
-- **Subsystem gateway**: thread／wait、VFS、window／message、graphics、audio、storage等、新しいownerや
-  lifecycle境界を要求する最初の到達点。個別API追加前に最小vertical sliceとexit gateを定義する。
-- **Feasibility blocker**: browser capability、corpus requirement、correctness、performance／memory条件が
-  設計前提を脅かすもの。downstream実装より先にevidenceとscope判断を固定する。
+## 2. Primary audio
 
-Primary implementation checkpointは常に一件とする。後回しにすると大量の実装が推測になる
-high-impact unknownだけは、到達前でもbounded spikeを許可する。
+Reached on 2026-08-12: the primary title filled a DirectSound streaming buffer, armed position notifications, entered looping playback, and sent non-zero PCM to a running Chrome Web Audio context. Broader format coverage and long-run stability remain later acceptance work.
 
-## 4. 確立済みの基盤
+Exit condition:
 
-次は残タスクではなく、以後の計画が前提とするarchitectureである。
+- the primary title produces audible BGM or effect audio through Web Audio
+- play／stop／loop and logical cursor state remain Rust-authoritative
+- cancel and browser suspend leave no stale audio resource
 
-- Rustがguest-visible memory、process／thread、scheduler lane、object／handle、module、heap、
-  synchronization、compatibility semanticsを所有する。
-- Runtime Workerはversioned bridgeを介してexecution orchestrationとbrowser adapterを所有し、
-  Windows stateを複製しない。
-- `GuestMemory`がbyte authorityであり、execution engineはreflection／delta／writebackで同期する
-  boundedかつ交換可能なmirrorである。
-- Execution mirrorはRust提供limit内で成長し、released pageを回収し、枯渇をmutation前に拒否する。
-- Heap compatibility policyはflags／ordinary range／explicit large variantsであり、historical
-  exact-size profileは再現専用である。
-- Cooperative Worker schedulerはthreadごとのCPU contextを保存／復元し、owner threadがhost requestで
-  待機中に別guest threadを実行できる。General Win32 thread creation／wait coverageは後続gatewayである。
-- Runtimeのcollection／allocatorは各private subsystemが所有し、`RuntimeKernel`はcross-subsystem
-  preflightとtargeted commitだけを調整する。
-- Storage foundationはRust-owned source／profile manifest、path／typed handle／cursor／staged bytes／pending read／commitとsame-origin source／SQLite serviceを通り、Open／Size／Read／Write／Seek／Flush／Close、cancel／watchdog、generation／idempotency／rollback、配布source不変を検証済みである。Controlled browser save／restart／loadとkill matrixは未完了である。
+Remaining unknowns:
 
-## 5. 残る実装順序
+- format and control variants reached later in the title
+- suspend／resume and long-run scheduling stability
+- any later WinMM／MCI fallback
 
-| 順序 | Scenario milestone | 未解決の構造作業 | Exit gate |
-|---|---|---|---|
-| 1 | Primary bootを継続 | Manifest-selected semantic leafを次のsubsystem gatewayまで閉じる。caller-visible semanticsと既存authorityを維持する | Node／Chromeが同じ次stopへ到達し、cancel後にworkを残さずsource bytesを変更しない |
-| 2 | Process／loader／execution completeness | 到達したdynamic DLL load／unload、thread creation／bootstrap、per-thread stack／TEB lifecycle、wait-any／wait-all、timeout、message、synchronization blocking、corpus-required exception behavior | Controlled multi-thread fixtureとprimary pathがcreate、block、wake、callback、exitを複数CPU contextで実行し、starvation／orphan workを残さない |
-| 3 | Immutable sourceとpersistence | 実装済みbrowser-native source／OPFS gatewayの上でreal picker／permission lifecycle、primary 5.9 GiB mount、controlled guest commit、browser restart後load、kill injection、必要なregistry projection、export／migrationを一つのstorage verticalにまとめる | Assetはuser-selected immutable sourceから読み、再起動後にOPFS saveを復元できる。Kill時はlast committed generationへ戻り、EXE／DLL／assetと配布profile seedが不変 |
-| 4 | Logical windowとmessage flow | HWND／class ownership、message dispatch、paint invalidation、focus、normalized keyboard／mouse、GDI object／DC lifetime、DIB／blit／text／font、到達GDI+ image path | Browser E2Eがfirst readable presentへ到達し、semantic／visual oracle付きでinputを消費する |
-| 5 | Primary graphicsとinput | Corpus-bounded D3D9 COM／device／resource／state／present、DirectInput device／acquire／state、backend translation、device／context loss recovery | Primary first-presentとrepresentative scene／input checkpointがsilent unsupportedやunbounded growthなしで通る |
-| 6 | Primary audio | DirectSound identity／buffer semantics、guest clockとaudio clock、cursor／notification wake、browser transport、activation／suspend／resume、到達WinMM／media command | BGM／voice／effectがoffline semantics、browser lifecycle E2E、long-run underrun／drift gateを通る |
-| 7 | Save／loadとfull play | 同じfixture-first ruleで全到達gapを統合し、個人利用に必要なshell lifecycle、diagnostics、save management、recoveryを追加する | Clean profileでrepresentative flow、全route／ending、save、browser restart、loadを完了する |
+## 3. Save, browser restart, and load
 
-Graphics、audio、storage、threadingがdownstreamの成立性を脅かす場合、そのrowより前にbounded spikeを
-行ってよい。ただしparallel implementation trackを作らず、明示したstop conditionで終了する。
+Exit condition:
 
-## 6. Cross-cutting gate
+- primary title creates or updates save／configuration state in the writable overlay
+- source hashes remain unchanged
+- browser and local service restart, then title reload, restores the committed state
+- stale generation、quota failure、and cancel expose no partial commit
 
-- **Threading／async host work**: request、thread、callback depth、generation、timeout、cancellation identityを
-  検証する。Measured title workloadに必要なfairnessを持ち、waiting threadがCPU contextを独占しない。
-- **Memory／snapshot**: full-play peak memoryとsnapshot sizeをversioned limit内に収める。Limit failureは
-  guest memory、mapping、scheduler、allocator identityを部分更新しない。
-- **Source／save safety**: source module／assetはuser-selected directoryのread-only verified mount、save／registry／tombstone／metadataは別の
-  title/profile-scoped OPFS SQLite overlayとする。Rust VFSとbrowser durabilityのauthorityを分け、flush／close commitを明示する。Local serverはoracleに限定する。
-- **Graphics／audio lifecycle**: browser focus、background、device／context loss、audio suspensionを
-  host timingの推測ではなくrecoverable stateとして扱う。
-- **Diagnostics**: unsupported gatewayはprivate raw traceをGitへ入れず、owner module／thread／resourceと
-  first divergenceを報告する。
-- **Performance**: versioned workloadがthreshold未達となりprofileでbounded hot pathが示された時だけ
-  optimizeする。Boundary変更後は同じdistribution gateを再実行する。
+Main unknowns:
 
-## 7. Gap closure手順
+- exact reached file／registry operations and locking pattern
+- title close／flush semantics
 
-Primary title failureは次の順で処理する。
+## 4. Representative flow
 
-1. Canonical checkpointからfirst divergenceを再現する。
-2. State ownerと、leaf／gateway／feasibility blockerの分類を決める。
-3. Windows trace、Rust model、controlled PE、Node runner、Chrome E2Eから最小oracleを得る。
-4. 既存ownerへgeneral contractをfailure atomicに実装する。
-5. Representative positive caseとinvariant-preserving negative caseを追加する。
-6. Subsystem test、public fixture integration、関連primary／browser regressionを通す。
-7. 現在値はmanifestだけ、stable behaviorは対応subsystem文書だけを更新する。
+Exit condition:
 
-EXE／DLL／asset patch、EIP固有skip、title内部VM再実装、stateを作らないsilent successはgap closureと
-認めない。
+- a bounded real scenario covers launch、readable rendering、multiple inputs、audio、transition、save、restart、load
+- no unsupported stop occurs in that flow
+- diagnostics remain bounded and actionable
 
-## 8. Deferred branch
+Main unknowns:
 
-- DirectDraw comparisonはactive targetの未知を直接減らし、bounded stopを定義できる場合だけ開く。
-- Multi-titleはactive full-play完了後、新しいcorpusとacceptance scopeを明示してから開始する。
-- Public release hardeningと追加browser tierは別のdistribution decisionを必要とする。
-- x64と後世代DirectX／audio stackは独立したfeasibility roadmapを必要とする。
+- DirectInput breadth、font／locale variants、movie or transition effects
+- resource lifetime across longer scene changes
 
-## 9. 完了とblocker
+## 5. Full play and long run
 
-Active roadmapは、[requirements.md](requirements.md)のfull-play target、immutable source、
-restart-safe save／load、clean stop／cancel、関連regression evidence、residual-risk記録をすべて満たした時だけ
-完了する。
+Exit condition:
 
-必要なoracle／corpusがなくcorrectnessを判定できない、必要behaviorがscope外または利用不能なplatform
-capabilityに依存する、安全／authority invariantを守る設計が成立しない、または継続に新しい権限／重大な
-scope判断が必要な場合は、structured blockerとして停止する。
+- all routes、choices、ending、and long-run playback complete
+- memory／browser resources remain bounded
+- source is immutable and save data survives repeated restart/load
+- no required active-scope behavior is silently stubbed
+
+## Deferred
+
+PE32+／x64、D3D11／DXGI、XAudio2、Unity、multi-title generalization、public distribution remain deferred until the primary full-play target is complete or the user explicitly changes scope.
+
+## Stop handling
+
+- semantic leaf: implement in the correct owner, run focused checks, continue immediately
+- subsystem gateway: implement the smallest end-to-end slice, then continue
+- true blocker: record exact reproduction、first failure、known evidence、options、protected invariant、and resume condition

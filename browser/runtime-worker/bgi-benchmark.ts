@@ -160,6 +160,13 @@ worker.addEventListener(
       activeSession = null;
       return;
     }
+    if (message.type === "audio-playback") {
+      activeSession.reject(
+        new Error("BGI benchmark received audio playback outside its measured transport"),
+      );
+      activeSession = null;
+      return;
+    }
     const active = activeSession;
     activeSession = null;
     active.resolve(message.report);

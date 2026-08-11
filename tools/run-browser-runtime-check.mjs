@@ -44,13 +44,36 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const assetsRoot = path.join(root, ".work", "browser-runtime");
 const serveOnly = process.argv.includes("--serve");
 const fullEvidence = process.argv.includes("--full-evidence");
+const forwardMode = process.argv.includes("--forward");
 const bgiBenchmarkMilliseconds = Number(optionValue("--bgi-benchmark-ms") ?? 0);
 const bgiMode = process.argv.includes("--bgi") || bgiBenchmarkMilliseconds > 0;
 const bgiCpuProfile = process.argv.includes("--bgi-cpu-profile");
 const stressMilliseconds = Number(optionValue("--stress-ms") ?? 0);
-const checkpoint = loadCurrentCheckpoint(
+const currentState = loadCurrentCheckpoint(
   path.join(root, "docs", "current-checkpoint.json"),
 );
+const checkpoint =
+  currentState.schemaVersion === 5
+    ? {
+        activeRuntimeCheckpoint: {
+          runtimeKernelCheckpoint: currentState.development.runtimeProfile,
+          capabilityProfile: currentState.development.supportProfile,
+          profile: currentState.development.runtimeProfile,
+          kernel32CompatibilityPolicy: {
+            source: currentState.development.compatibilityPolicy,
+          },
+        },
+        browserCheckpoint: {
+          browserRuntimeProtocol: currentState.development.runtimeProtocol,
+          bgiRuntimeEvidence: {
+            sourceSha256: currentState.activeTarget.sourceSha256,
+          },
+          bgiBenchmarkEvidence: {
+            configuration: "fixtures/benchmarks/bgi-browser-v1.json",
+          },
+        },
+      }
+    : currentState;
 const bgiProfileOverride = optionValue("--bgi-profile");
 const bgiPolicyOverride = optionValue("--bgi-policy");
 const bgiBenchmarkConfigurationOverride = optionValue("--bgi-benchmark-config");
@@ -75,6 +98,7 @@ assert(
   !bgiCpuProfile || bgiBenchmarkMilliseconds > 0,
   "--bgi-cpu-profile requires a BGI benchmark",
 );
+assert(!forwardMode || (bgiMode && !fullEvidence), "forward mode requires summary BGI execution");
 const scheduledSharedClockSetWindowTextProfile =
   bgiProfileOverride === null &&
   checkpoint.activeRuntimeCheckpoint.runtimeKernelCheckpoint ===
@@ -478,7 +502,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v137";
+const runtimeProtocol = "vine.browser-runtime-worker.v140";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -5875,7 +5899,7 @@ function validateCreateFontA224x112BgiProbe(evidence, scenario) {
 async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
   const target = await createDebugTarget(
     browserWebSocketUrl,
-    `${baseUrl}bgi-check.html?scenario=${scenario}&profile=${encodeURIComponent(bgiProfile)}${fullEvidence ? "&evidence=full" : ""}`,
+    `${baseUrl}bgi-check.html?scenario=${scenario}&profile=${encodeURIComponent(bgiProfile)}${fullEvidence ? "&evidence=full" : ""}${forwardMode ? "&development=forward" : ""}`,
   );
   const client = await connectDevTools(target.webSocketDebuggerUrl);
   try {
@@ -5883,7 +5907,9 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     await client.send("Page.enable");
     const evidence = await waitForBgiCheckpoint(
       client,
-      scenario === "success" &&
+      forwardMode
+        ? 600_000
+        : scenario === "success" &&
         primaryMainLoopPostCallbackPointerReleaseMessageConsumptionProfile
         ? 3_600_000
         : scenario === "success" &&
@@ -5904,8 +5930,20 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     assert.equal(evidence.scenario, scenario);
     assert.equal(evidence.report.pendingHostCalls, 0);
     assert.equal(evidence.report.pendingCallbacks, 0);
-    assertExecutionStateMachine(evidence.report, scenario);
+    assertExecutionStateMachine(
+      evidence.report,
+      forwardMode && evidence.report.outcome === "watchdog"
+        ? "watchdog"
+        : scenario,
+    );
     assertExecutionEngine(evidence.report);
+    if (forwardMode) {
+      assert.equal(evidence.report.evidenceLevel, "summary");
+      assert(evidence.report.forwardDevelopment !== null);
+      assert.equal(evidence.report.supportedCalls.length, 0);
+      assert(evidence.report.forwardDevelopment.semanticTail.length <= 512);
+      return evidence;
+    }
     if (primaryMainLoopPostCallbackPointerReleaseMessageConsumptionProfile) {
       validatePrimaryMainLoopPostCallbackPointerReleaseMessageConsumptionBgiProbe(
         evidence,
@@ -20334,14 +20372,16 @@ if (bgiMode) {
     fs.existsSync(bgiPolicyPath),
     `BGI policy is missing at ${bgiPolicyPath}`,
   );
-  assert(
-    fs.existsSync(bgiOracleReportPath),
-    "Node BGI oracle report is missing",
-  );
-  assert(
-    fs.existsSync(bgiBenchmarkConfigurationPath),
-    "BGI benchmark configuration is missing",
-  );
+  if (!forwardMode) {
+    assert(
+      fs.existsSync(bgiOracleReportPath),
+      "Node BGI oracle report is missing",
+    );
+    assert(
+      fs.existsSync(bgiBenchmarkConfigurationPath),
+      "BGI benchmark configuration is missing",
+    );
+  }
   assert(
     fs.existsSync(path.join(assetsRoot, "bgi-benchmark.html")),
     "BGI browser benchmark is not built",
@@ -20477,7 +20517,8 @@ if (serveOnly) {
       "--disable-sync",
       "--enable-precise-memory-info",
       "--metrics-recording-only",
-      "--mute-audio",
+      ...(forwardMode ? ["--autoplay-policy=no-user-gesture-required"] : []),
+      ...(forwardMode ? [] : ["--mute-audio"]),
       "--no-default-browser-check",
       "--no-first-run",
       "--remote-debugging-port=0",
@@ -20487,7 +20528,115 @@ if (serveOnly) {
     ]);
     if (bgiMode) {
       const sourceBefore = await readFile(bgiPath);
-      if (bgiBenchmarkMilliseconds > 0) {
+      if (forwardMode) {
+        const success = await runBgiProbe(
+          chrome.browserWebSocketUrl,
+          url,
+          "success",
+        );
+        assertWritableProfileLeaseReleased(writableProfile);
+        const sourceAfter = await readFile(bgiPath);
+        assert.deepEqual(
+          sourceAfter,
+          sourceBefore,
+          "BGI source changed during forward development",
+        );
+        const session = success.report;
+        const forward = session.forwardDevelopment;
+        assert(forward !== null, "forward session omitted its bounded summary");
+        const boundedStop =
+          session.firstUnsupported ??
+          (session.outcome === "watchdog" || session.outcome === "cancelled"
+            ? {
+                capabilityCluster: "forward-development-budget",
+                endpoint: null,
+                fault: {
+                  class: "resource-limit",
+                  stage: "forward-development",
+                  code:
+                    session.outcome === "watchdog"
+                      ? "forward-run-budget-exhausted"
+                      : "forward-run-cancelled",
+                  message:
+                    session.error ??
+                    `forward development ended with ${session.outcome}`,
+                  watchdogContext: session.watchdogContext,
+                },
+                instructionCount: session.instructions,
+              }
+            : null);
+        const report = {
+          schema: "vine.target-forward-report",
+          schemaVersion: 1,
+          measuredAt: new Date().toISOString(),
+          command: currentState.commands.forward,
+          mode: "release-chrome-forward",
+          chromeVersion: version,
+          source: {
+            bytes: sourceBefore.byteLength,
+            sha256: hash(sourceBefore),
+            immutableAfterRun: true,
+          },
+          elapsedMilliseconds: session.elapsedMilliseconds,
+          outcome: session.outcome,
+          error: session.error,
+          stop: boundedStop,
+          instructions: session.instructions,
+          supportedCallCount: session.supportedCallCount,
+          currentThreadId: forward.currentThreadId,
+          latestLastError: forward.latestLastError,
+          semanticTail: forward.semanticTail,
+          presentation: {
+            presentCount: forward.presentCount,
+            latest: forward.latestPresentation,
+          },
+          input: forward.input,
+          audio: {
+            eventCount: forward.audioEventCount,
+            latestEvent: forward.latestAudioEvent,
+            playbackRequests: success.audioPlaybackRequests,
+            playbacksStarted: success.audioPlaybacksStarted,
+            latestPlayback: success.latestAudioPlayback,
+          },
+          storage: forward.storage,
+          pending: {
+            hostCalls: session.pendingHostCalls,
+            callbacks: session.pendingCallbacks,
+            hostRequestRecords: session.pendingHostRequestRecords,
+            timerPacing: session.timerPacing.pending,
+          },
+          execution: {
+            state: session.executionState,
+            maximumSliceMilliseconds: session.maximumSliceMilliseconds,
+            writebackBatches: session.writebackBatches,
+            writebackPages: session.writebackPages,
+            mappingDeltas: session.mappingDeltas,
+          },
+          browser: {
+            heartbeatSamples: success.heartbeatSamples,
+            maximumHeartbeatGapMilliseconds:
+              success.maximumHeartbeatGapMilliseconds,
+            statusesObserved: success.statusMessagesObserved,
+          },
+        };
+        const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
+        assert(
+          reportBytes.byteLength <= 2 * 1024 * 1024,
+          `forward report exceeds 2 MiB (${reportBytes.byteLength} bytes)`,
+        );
+        const outputDirectory = path.join(root, ".work", "target-forward");
+        fs.mkdirSync(outputDirectory, { recursive: true });
+        await writeFile(path.join(outputDirectory, "report.json"), reportBytes);
+        const endpoint = session.firstUnsupported?.endpoint ?? null;
+        console.log(
+          `target forward stopped: outcome=${session.outcome}, ` +
+            `endpoint=${JSON.stringify(endpoint)}, presents=${forward.presentCount}, ` +
+            `elapsed=${session.elapsedMilliseconds.toFixed(0)}ms, report=${reportBytes.byteLength} bytes`,
+        );
+        if (session.outcome === "fault" && session.firstUnsupported === null) {
+          throw new Error(session.error ?? "forward runtime failed without a semantic stop");
+        }
+      } else if (bgiBenchmarkMilliseconds > 0) {
         const configurationBytes = await readFile(
           bgiBenchmarkConfigurationPath,
         );

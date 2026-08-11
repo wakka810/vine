@@ -2,7 +2,7 @@ import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 import type { BrowserNativeStorageConfiguration } from "../storage/protocol.js";
 
-export const protocolVersion = 137 as const;
+export const protocolVersion = 140 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -449,13 +449,49 @@ export interface RuntimeGraphicsTextureUpdateSnapshot {
   destination: RuntimeGraphicsTextureSnapshot;
 }
 
+export interface RuntimeAudioPcmFormatSnapshot {
+  channels: number;
+  samplesPerSecond: number;
+  averageBytesPerSecond: number;
+  blockAlign: number;
+  bitsPerSample: 8 | 16;
+}
+
+export interface RuntimeAudioBufferSnapshot {
+  id: number;
+  namespace: "vine.logical-audio-buffer.v1";
+  deviceId: number;
+  comObjectId: string;
+  descriptor: {
+    kind: "primary" | "secondary";
+    flags: number;
+    byteLength: number;
+    format?: RuntimeAudioPcmFormatSnapshot;
+  };
+  backing?: {
+    addressAllocationId: number;
+    memoryOwner: number;
+    range: { start: number; byteLength: number };
+  };
+  activeFormat?: RuntimeAudioPcmFormatSnapshot;
+  contentGeneration: number;
+  playback: "stopped" | "playing-once" | "playing-looping";
+  controls: {
+    volumeHundredthsDb: number;
+    panHundredthsDb: number;
+    frequencyHz?: number;
+    currentPositionBytes: number;
+  };
+  generation: number;
+}
+
 export interface RuntimeThreadSelectionSnapshot {
   sequence: number;
   instructionCount: number;
   previousThreadId: number;
   threadId: number;
   state: { state: "runnable" } | { state: "in-callback"; depth: number };
-  executionBoundary?: "yield-current-thread";
+  executionBoundary?: "yield-current-thread" | "block-current-thread";
 }
 
 export interface RuntimeSleepZeroCallSnapshot {
@@ -923,6 +959,7 @@ export interface SessionConfiguration {
   evidenceLevel: "full" | "summary";
   workload?: SessionWorkload;
   capabilityProfile?: BgiCapabilityProfile;
+  developmentMode?: "forward";
   executableUrl?: string;
   policyUrl?: string;
   sourceManifestUrl?: string;
@@ -1006,6 +1043,18 @@ export interface HostRequestMessage {
   arguments: number[];
 }
 
+export interface AudioPlaybackMessage {
+  type: "audio-playback";
+  protocolVersion: typeof protocolVersion;
+  sessionId: number;
+  bufferId: number;
+  contentGeneration: number;
+  playback: "playing-once" | "playing-looping";
+  format: RuntimeAudioPcmFormatSnapshot;
+  controls: RuntimeAudioBufferSnapshot["controls"];
+  samples: ArrayBuffer;
+}
+
 export interface RuntimeSupportedCallSnapshot {
   sequence: number;
   occurrence?: number;
@@ -1023,7 +1072,7 @@ export interface RuntimeSupportedCallSnapshot {
   stackPointerAfter: number;
   lastError?: number;
   guestWrites: RuntimeGuestWriteSnapshot[];
-  executionBoundary?: "yield-current-thread";
+  executionBoundary?: "yield-current-thread" | "block-current-thread";
   interface?: string;
   vtableSlot?: number;
   referenceCount?: number;
@@ -1100,6 +1149,53 @@ export interface RuntimeSupportedCallSnapshot {
   graphicsTexture?: RuntimeGraphicsTextureSnapshot;
   graphicsTextureUpdate?: RuntimeGraphicsTextureUpdateSnapshot;
   browserPresentation?: RuntimeBrowserPresentationReceipt;
+}
+
+export interface RuntimeForwardSemanticEntry {
+  sequence: number;
+  instructionCount: number;
+  threadId: number;
+  module: string;
+  symbol: string;
+  interface?: string;
+  vtableSlot?: number;
+  arguments: number[];
+  argumentsTruncated: boolean;
+  result: RuntimeSupportedCallSnapshot["result"];
+  implementationId?: string;
+  returnAddress: number;
+  stackPointerBefore: number;
+  stackPointerAfter: number;
+  lastError?: number;
+  guestWrites: Array<{
+    address: number;
+    byteLength: number;
+    contentSha256?: string;
+  }>;
+}
+
+export interface RuntimeForwardDevelopmentSummary {
+  mode: "forward";
+  supportProfile: BgiCapabilityProfile;
+  historicalCheckpointBypassed: boolean;
+  semanticTailCapacity: 512;
+  semanticTail: RuntimeForwardSemanticEntry[];
+  presentCount: number;
+  latestPresentation: RuntimeBrowserPresentationReceipt | null;
+  audioEventCount: number;
+  latestAudioEvent: RuntimeForwardSemanticEntry | null;
+  currentThreadId: number;
+  latestLastError: number | null;
+  input: {
+    keyboardMessages: number;
+    pointerMessages: number;
+    latestPointerMessage: RuntimeThreadMessageSnapshot | null;
+  };
+  storage: {
+    sourceReads: number;
+    writableCommits: number;
+    writableDirectoryCreates: number;
+  };
 }
 
 export type RuntimeThreadCallSnapshot = RuntimeSupportedCallSnapshot & {
@@ -1981,6 +2077,7 @@ export interface SessionReport {
   supportedCallSemanticsAlgorithm: "sha256-canonical-json-v1";
   supportedCallSemanticsSha256: string | null;
   supportedCalls: RuntimeSupportedCallSnapshot[];
+  forwardDevelopment: RuntimeForwardDevelopmentSummary | null;
   keyboardInput: RuntimeKeyboardInputEvidence;
   pointerInput: RuntimePointerButtonInputEvidence;
   sourceReads: RuntimeSourceReadSnapshot[];
@@ -2511,6 +2608,19 @@ export interface SessionReport {
     fault: unknown;
     instructionCount: number;
     memoryContentSha256: string;
+    caller?: {
+      returnAddress: number;
+      stackPointer: number;
+      stackWords: number[];
+      currentThreadId: number;
+      lastError: number | null;
+      registers: {
+        eax: number;
+        esp: number;
+        instructionPointer: number;
+        previousInstructionPointer: number;
+      };
+    };
   } | null;
   checkpointCompletion:
     | PrimaryMainLoopPostCallbackPointerReleaseMessageConsumptionBatchCheckpoint
@@ -6247,7 +6357,10 @@ export interface SessionFinishedMessage {
 }
 
 export type WorkerToMainMessage =
-  SessionStatusMessage | HostRequestMessage | SessionFinishedMessage;
+  | SessionStatusMessage
+  | HostRequestMessage
+  | AudioPlaybackMessage
+  | SessionFinishedMessage;
 
 export function assertProtocolVersion(
   version: number,

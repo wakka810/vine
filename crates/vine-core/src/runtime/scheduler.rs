@@ -18,6 +18,7 @@ pub enum RuntimeApiBoundaryDisposition {
     #[default]
     ContinueQuantum,
     YieldCurrentThread,
+    BlockCurrentThread,
 }
 
 impl RuntimeApiBoundaryDisposition {
@@ -40,6 +41,9 @@ pub enum SchedulerThreadState {
     WaitingObject {
         registration_id: RuntimeWaitRegistrationId,
         object_id: RuntimeObjectId,
+    },
+    WaitingCriticalSection {
+        address: u32,
     },
     WaitingMessage,
     InCallback {
@@ -393,6 +397,29 @@ impl RuntimeScheduler {
         Ok(None)
     }
 
+    pub(super) fn plan_next_other_executable_selection(
+        &self,
+    ) -> Result<Option<RuntimeSchedulerSelectionPlan>, RuntimeStateError> {
+        let thread_ids = self.threads.keys().copied().collect::<Vec<_>>();
+        let current_index = thread_ids
+            .iter()
+            .position(|thread_id| *thread_id == self.current_thread_id)
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-scheduler",
+                    "current-thread-scheduler-state-missing",
+                    "current runtime thread has no scheduler lane",
+                )
+            })?;
+        for offset in 1..thread_ids.len() {
+            let thread_id = thread_ids[(current_index + offset) % thread_ids.len()];
+            if self.state(thread_id)?.is_executable() {
+                return self.plan_selection(thread_id).map(Some);
+            }
+        }
+        Ok(None)
+    }
+
     fn plan_next_other_runnable_selection(
         &self,
     ) -> Result<Option<RuntimeSchedulerSelectionPlan>, RuntimeStateError> {
@@ -420,6 +447,13 @@ impl RuntimeScheduler {
         &self,
         disposition: RuntimeApiBoundaryDisposition,
     ) -> Result<RuntimeSchedulerApiBoundaryPlan, RuntimeStateError> {
+        if disposition == RuntimeApiBoundaryDisposition::BlockCurrentThread {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-scheduler",
+                "blocking-api-boundary-already-committed",
+                "a blocking API boundary must select another executable thread directly",
+            ));
+        }
         let current_state = self.current_state()?;
         let next_revision = self.api_boundary_revision.checked_add(1).ok_or_else(|| {
             RuntimeStateError::resource_limit(

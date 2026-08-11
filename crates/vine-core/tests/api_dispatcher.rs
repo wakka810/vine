@@ -11,12 +11,12 @@ use vine_core::{
     GET_LAST_ERROR_IMPLEMENTATION, GET_STRING_TYPE_W_IMPLEMENTATION,
     GET_SYSTEM_DEFAULT_LANG_ID_IMPLEMENTATION, GET_SYSTEM_INFO_IMPLEMENTATION,
     GET_VERSION_EX_A_IMPLEMENTATION, GLOBAL_MEMORY_STATUS_IMPLEMENTATION, GUEST_PAGE_SIZE,
-    GuestAddress, GuestCallbackRequest, GuestMemory, GuestRange, HEAP_SIZE_IMPLEMENTATION,
-    HostCompletion, HostRequest, INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION,
-    IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION, ImportTarget, ImportThunk, ImportThunkDisposition,
-    ImportThunkId, Kernel32CodePageInfoPolicy, Kernel32CompatibilityPolicy,
-    Kernel32CreateMutexAPolicy, Kernel32CreateWaitableTimerAPolicy, Kernel32GetDriveTypeAPolicy,
-    Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
+    GuestAddress, GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest,
+    GuestMemory, GuestRange, HEAP_SIZE_IMPLEMENTATION, HostCompletion, HostRequest,
+    INITIALIZE_CRITICAL_SECTION_IMPLEMENTATION, IS_PROCESSOR_FEATURE_PRESENT_IMPLEMENTATION,
+    ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, Kernel32CodePageInfoPolicy,
+    Kernel32CompatibilityPolicy, Kernel32CreateMutexAPolicy, Kernel32CreateWaitableTimerAPolicy,
+    Kernel32GetDriveTypeAPolicy, Kernel32GetStringTypeWPolicy, Kernel32HeapAllocationPolicy,
     Kernel32InitializeCriticalSectionPolicy, Kernel32LcMapStringWPolicy,
     Kernel32MultiByteToWideCharPolicy, Kernel32PerformanceCounterPolicy,
     Kernel32ProcessorFeaturePolicy, Kernel32SetCurrentDirectoryAPolicy,
@@ -27,9 +27,9 @@ use vine_core::{
     LOGICAL_LOADED_MODULE_NAMESPACE, LOGICAL_PRIVATE_HEAP_NAMESPACE,
     LOGICAL_STANDARD_HANDLE_NAMESPACE, LastErrorPolicy, MULTI_BYTE_TO_WIDE_CHAR_IMPLEMENTATION,
     MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
-    PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET, PageProtection, ProcessAddressSpaceLayout,
-    QUERY_PERFORMANCE_FREQUENCY_IMPLEMENTATION, RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE,
-    RUNTIME_FLS_INDEX_LIMIT, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
+    PROCESS_PARAMETERS_ENVIRONMENT_POINTER_OFFSET, PageProtection, ProcessAddressAllocationPurpose,
+    ProcessAddressSpaceLayout, QUERY_PERFORMANCE_FREQUENCY_IMPLEMENTATION,
+    RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE, RUNTIME_FLS_INDEX_LIMIT, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
     RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RUNTIME_STANDARD_ERROR_HANDLE,
     RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_HANDLE,
     RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_HANDLE,
@@ -44,8 +44,9 @@ use vine_core::{
     SET_THREAD_AFFINITY_MASK_IMPLEMENTATION, SET_UNHANDLED_EXCEPTION_FILTER_IMPLEMENTATION,
     SET_WAITABLE_TIMER_IMPLEMENTATION, SLEEP_ZERO_IMPLEMENTATION, SchedulerThreadState,
     StackCleanup, TLS_GET_VALUE_IMPLEMENTATION, WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION,
-    complete_kernel32_waitable_timer_pacing, dispatch_kernel32_api,
-    dispatch_kernel32_api_with_policy, kernel32_contract_for_endpoint,
+    X86CpuContext, complete_kernel32_waitable_timer_pacing, dispatch_kernel32_api,
+    dispatch_kernel32_api_with_policy, install_initial_thread_stack,
+    install_runtime_return_sentinels, kernel32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -3319,9 +3320,35 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
             name_rva: Rva(0),
         },
     });
+    let realloc_endpoint_address = GuestAddress(ENDPOINT_BASE + 0x10);
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(TEST_IAT_BASE + 4),
+            &realloc_endpoint_address.0.to_le_bytes(),
+        )
+        .expect("initialize HeapReAlloc IAT");
+    let realloc_endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(2),
+        address: realloc_endpoint_address,
+        requester_owner: owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(4),
+        iat_address: GuestAddress(TEST_IAT_BASE + 4),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "HeapReAlloc".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    });
     let contract = kernel32_contract_for_endpoint(endpoint.clone())
         .expect("Kernel32 contract lookup")
         .expect("implemented HeapAlloc endpoint");
+    let realloc_contract = kernel32_contract_for_endpoint(realloc_endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("implemented HeapReAlloc endpoint");
     let frames = [
         (FRAME_BASE, vec![0x1000_0601, 0x6801_0001, 0x8, 0x214]),
         (
@@ -3339,6 +3366,14 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
             vec![0x1000_0609, 0x6801_0001, 0, 0x0100_0001],
         ),
         (FRAME_BASE + 0x120, vec![0x1000_060a, 0x6801_0001, 1, 0xbc]),
+        (
+            FRAME_BASE + 0x140,
+            vec![0x1000_060b, 0x6801_0001, 0, 0x2000_0000, 0x300],
+        ),
+        (
+            FRAME_BASE + 0x160,
+            vec![0x1000_060c, 0x6801_0001, 0, 0x2000_0008, 0x300],
+        ),
     ];
     for (address, words) in &frames {
         write_frame(&mut memory, owner, GuestAddress(*address), words);
@@ -3348,7 +3383,11 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
     memory
         .acknowledge_delta(reflection.invalidation.generation)
         .expect("acknowledge initial reflection");
-    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).expect("dispatcher");
+    let dispatcher = ApiDispatcher::new(
+        [endpoint.clone(), realloc_endpoint.clone()],
+        [contract, realloc_contract],
+    )
+    .expect("dispatcher");
     let mut runtime = controlled_runtime(controlled_startup_info());
     let heap = runtime
         .allocate_private_heap(0, 0x1000, 0)
@@ -3827,6 +3866,87 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
         assert_eq!(runtime, runtime_before_rejection);
         assert_eq!(memory.stats(), memory_before_rejection);
     }
+
+    let copied_prefix = (0..32_u8).collect::<Vec<_>>();
+    memory
+        .write(GuestAddress(0x2000_0000), &copied_prefix)
+        .expect("write HeapReAlloc source prefix");
+    acknowledge_pending_delta(&mut memory);
+    let reallocated = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &realloc_endpoint,
+        frames[10].0,
+        frames[10].1[0],
+        &bounded_heap_policy,
+    );
+    let RegisterUpdate::Set(reallocated_address) = reallocated.eax else {
+        panic!("HeapReAlloc did not return its moved allocation");
+    };
+    assert_ne!(reallocated_address, 0x2000_0000);
+    assert_eq!(reallocated.stack_pointer, GuestAddress(frames[10].0 + 20));
+    assert_eq!(reallocated.last_error, INITIAL_LAST_ERROR);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(reallocated_address), copied_prefix.len())
+            .expect("read copied HeapReAlloc prefix"),
+        copied_prefix
+    );
+    assert_eq!(
+        memory
+            .read(
+                GuestAddress(reallocated_address + 32),
+                0x214_usize - copied_prefix.len(),
+            )
+            .expect("read copied HeapReAlloc source tail"),
+        vec![0; 0x214 - 32]
+    );
+    assert_eq!(
+        memory
+            .read(GuestAddress(reallocated_address + 0x214), 0x300 - 0x214,)
+            .expect("read initialized HeapReAlloc growth tail"),
+        vec![RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE; 0x300 - 0x214]
+    );
+    assert_eq!(
+        memory
+            .read(GuestAddress(0x2000_0000), 0x218)
+            .expect("read retired HeapReAlloc source"),
+        vec![RUNTIME_PRIVATE_HEAP_FREED_BYTE; 0x218]
+    );
+    assert!(
+        runtime
+            .private_heap_allocation(0x6801_0001, GuestAddress(0x2000_0000))
+            .is_err()
+    );
+    assert_eq!(
+        runtime
+            .private_heap_allocation(0x6801_0001, GuestAddress(reallocated_address))
+            .expect("moved HeapReAlloc allocation")
+            .byte_length,
+        0x300
+    );
+    let runtime_before_invalid = runtime.clone();
+    let memory_before_invalid = memory.stats();
+    let invalid = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.dispatch_owned(
+            owned_trap(&realloc_endpoint, frames[11].0, frames[11].1[0]),
+            &mut session,
+            |contract, frame, session| {
+                dispatch_kernel32_api_with_policy(&bounded_heap_policy, contract, frame, session)
+            },
+        )
+    };
+    assert!(matches!(
+        invalid,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::InvalidCall
+                && fault.code == "heap-allocation-pointer-invalid"
+    ));
+    assert_eq!(runtime, runtime_before_invalid);
+    assert_eq!(memory.stats(), memory_before_invalid);
 }
 
 #[test]
@@ -8531,12 +8651,16 @@ fn critical_section_contract_owns_recursive_state_and_guest_bytes() {
             dispatch_kernel32_api,
         )
     };
-    assert!(matches!(
-        contention,
-        DispatchOutcome::Fault(ref fault)
-            if fault.class == ApiFaultClass::Unsupported
-                && fault.code == "critical-section-contention-unimplemented"
-    ));
+    let DispatchOutcome::Immediate(blocked_enter) = contention else {
+        panic!("expected blocking EnterCriticalSection completion, got {contention:?}");
+    };
+    assert_eq!(blocked_enter.eax, RegisterUpdate::Preserve);
+    assert_eq!(
+        blocked_enter.execution_boundary,
+        RuntimeApiBoundaryDisposition::BlockCurrentThread
+    );
+    assert_eq!(blocked_enter.guest_writes.len(), 1);
+    acknowledge_pending_delta(&mut memory);
     assert_eq!(runtime.current_last_error().unwrap(), 0x5678);
     assert_eq!(
         runtime
@@ -8544,6 +8668,16 @@ fn critical_section_contract_owns_recursive_state_and_guest_bytes() {
             .expect("contended critical section")
             .recursion_count,
         1
+    );
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::WaitingCriticalSection {
+            address: CRITICAL_SECTION_ADDRESS,
+        }
+    );
+    assert_eq!(
+        runtime.critical_section_waiters(GuestAddress(CRITICAL_SECTION_ADDRESS)),
+        vec![RuntimeThreadId(SECOND_THREAD_ID)]
     );
 
     runtime
@@ -8559,6 +8693,33 @@ fn critical_section_contract_owns_recursive_state_and_guest_bytes() {
     );
     assert_eq!(left.eax, RegisterUpdate::Preserve);
     assert_eq!(left.last_error, INITIAL_LAST_ERROR);
+    acknowledge_pending_delta(&mut memory);
+    assert_eq!(
+        memory
+            .read(GuestAddress(CRITICAL_SECTION_ADDRESS), 24)
+            .expect("transferred critical section bytes"),
+        expected_critical_section_bytes(4000, Some(SECOND_THREAD_ID), 1)
+    );
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(RuntimeThreadId(SECOND_THREAD_ID))
+            .unwrap(),
+        SchedulerThreadState::Runnable
+    );
+
+    runtime
+        .select_thread(RuntimeThreadId(SECOND_THREAD_ID))
+        .expect("select awakened critical section owner");
+    let released = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[2],
+        frames[2].0,
+        frames[2].1[0],
+    );
+    assert_eq!(released.eax, RegisterUpdate::Preserve);
+    assert_eq!(released.last_error, 0x5678);
     acknowledge_pending_delta(&mut memory);
     assert_eq!(
         memory
@@ -8589,7 +8750,7 @@ fn critical_section_contract_owns_recursive_state_and_guest_bytes() {
     );
     assert_eq!(deleted.eax, RegisterUpdate::Preserve);
     assert_eq!(deleted.stack_pointer, GuestAddress(frames[3].0 + 8));
-    assert_eq!(deleted.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(deleted.last_error, 0x5678);
     assert_eq!(deleted.guest_writes.len(), 1);
     acknowledge_pending_delta(&mut memory);
     assert_eq!(
@@ -9391,6 +9552,415 @@ fn deferred_and_guest_callback_completions_preserve_the_decoded_abi_frame() {
         GuestAddress(frames[1].0 + 4)
     );
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
+}
+
+#[test]
+fn raise_exception_dispatches_the_bounded_x86_seh_chain() {
+    const API_STACK: GuestAddress = GuestAddress(0x006f_f800);
+    const ARGUMENTS: GuestAddress = GuestAddress(0x006f_f840);
+    const REGISTRATION_ONE: GuestAddress = GuestAddress(0x006f_ff00);
+    const REGISTRATION_TWO: GuestAddress = GuestAddress(0x006f_ff20);
+    const HANDLER_PAGE: GuestAddress = GuestAddress(0x3000_0000);
+    const HANDLER_ONE: GuestAddress = GuestAddress(0x3000_0100);
+    const HANDLER_TWO: GuestAddress = GuestAddress(0x3000_0200);
+    const RETURN_ADDRESS: GuestAddress = GuestAddress(0x100a_3c74);
+    const EXCEPTION_CODE: u32 = 0xe06d_7363;
+
+    let mut memory = GuestMemory::new(MemoryLimits {
+        max_physical_pages: 32,
+        max_regions: 32,
+        max_owners: 32,
+        max_access_bytes: 0x1_0000,
+    })
+    .expect("SEH memory");
+    let api_owner = memory
+        .create_owner(MemoryOwnerKind::Runtime)
+        .expect("API owner");
+    let api_range = memory
+        .reserve_fixed(api_owner, MemoryRegionKind::Runtime, MEMORY_BASE, 0x3000)
+        .expect("API reservation");
+    memory
+        .commit(
+            api_owner,
+            api_range,
+            PageProtection {
+                read: true,
+                write: true,
+                execute: false,
+            },
+        )
+        .expect("API commit");
+
+    let raise_thunk = ImportThunk {
+        id: ImportThunkId(1),
+        address: GuestAddress(ENDPOINT_BASE),
+        requester_owner: api_owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(0),
+        iat_address: GuestAddress(IAT_BASE),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "RaiseException".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    };
+    let unwind_thunk = ImportThunk {
+        id: ImportThunkId(2),
+        address: GuestAddress(ENDPOINT_BASE + 0x10),
+        requester_owner: api_owner,
+        module: "KERNEL32.dll".to_owned(),
+        iat_rva: Rva(4),
+        iat_address: GuestAddress(IAT_BASE + 4),
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "RtlUnwind".to_owned(),
+            hint: 0,
+            name_rva: Rva(0),
+        },
+    };
+    memory
+        .write_initialization(
+            api_owner,
+            raise_thunk.iat_address,
+            &raise_thunk.address.0.to_le_bytes(),
+        )
+        .expect("RaiseException IAT");
+    memory
+        .write_initialization(
+            api_owner,
+            unwind_thunk.iat_address,
+            &unwind_thunk.address.0.to_le_bytes(),
+        )
+        .expect("RtlUnwind IAT");
+    memory.seal_owner(api_owner).expect("seal API owner");
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&raise_thunk);
+    let unwind_endpoint = ApiEndpointIdentity::from_import_thunk(&unwind_thunk);
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("RaiseException contract");
+    let unwind_contract = kernel32_contract_for_endpoint(unwind_endpoint.clone())
+        .expect("Kernel32 contract lookup")
+        .expect("RtlUnwind contract");
+    let dispatcher = ApiDispatcher::new(
+        [endpoint.clone(), unwind_endpoint.clone()],
+        [contract, unwind_contract],
+    )
+    .expect("SEH dispatcher");
+
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let callback_allocation = runtime
+        .process_address_space_allocator()
+        .allocation_for_purpose(&ProcessAddressAllocationPurpose::CallbackReturns)
+        .expect("callback return allocation")
+        .clone();
+    let sentinels = install_runtime_return_sentinels(&mut memory, &callback_allocation)
+        .expect("runtime sentinels");
+    let initial_stack = install_initial_thread_stack(
+        &mut memory,
+        &sentinels.process_entry_return,
+        0x0010_0000,
+        GUEST_PAGE_SIZE,
+    )
+    .expect("initial stack");
+    runtime
+        .register_initial_thread_stack(&initial_stack)
+        .expect("register initial stack");
+    ExecutionSession::new(&mut memory, &mut runtime)
+        .install_controlled_process_environment_with_command_line_and_ansi("seh-test.exe")
+        .expect("process environment");
+
+    let handler_owner = memory
+        .create_owner(MemoryOwnerKind::Anonymous)
+        .expect("handler owner");
+    let handler_range = memory
+        .reserve_fixed(
+            handler_owner,
+            MemoryRegionKind::Anonymous,
+            HANDLER_PAGE,
+            GUEST_PAGE_SIZE,
+        )
+        .expect("handler reservation");
+    memory
+        .commit(
+            handler_owner,
+            handler_range,
+            PageProtection {
+                read: true,
+                write: false,
+                execute: true,
+            },
+        )
+        .expect("handler commit");
+    memory
+        .write_initialization(handler_owner, HANDLER_ONE, &[0x90])
+        .expect("first handler byte");
+    memory
+        .write_initialization(handler_owner, HANDLER_TWO, &[0x90])
+        .expect("second handler byte");
+    memory
+        .seal_owner(handler_owner)
+        .expect("seal handler owner");
+
+    let teb = runtime
+        .current_thread_teb_address()
+        .expect("current thread TEB");
+    memory
+        .write(teb, &REGISTRATION_ONE.0.to_le_bytes())
+        .expect("SEH chain head");
+    memory
+        .write(
+            REGISTRATION_ONE,
+            &[
+                REGISTRATION_TWO.0.to_le_bytes(),
+                HANDLER_ONE.0.to_le_bytes(),
+            ]
+            .concat(),
+        )
+        .expect("first SEH registration");
+    memory
+        .write(
+            REGISTRATION_TWO,
+            &[u32::MAX.to_le_bytes(), HANDLER_TWO.0.to_le_bytes()].concat(),
+        )
+        .expect("second SEH registration");
+    memory
+        .write(
+            ARGUMENTS,
+            &[0x1993_0520_u32.to_le_bytes(), 0x006f_eb44_u32.to_le_bytes()].concat(),
+        )
+        .expect("exception arguments");
+    let frame_words = [RETURN_ADDRESS.0, EXCEPTION_CODE, 1, 2, ARGUMENTS.0];
+    memory
+        .write(
+            API_STACK,
+            &frame_words
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>(),
+        )
+        .expect("RaiseException frame");
+    let reflection = memory.pending_reflection().expect("SEH reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge SEH reflection");
+
+    let cpu_context = X86CpuContext {
+        eax: 0x1111_1111,
+        ecx: 0x2222_2222,
+        edx: 0x3333_3333,
+        ebx: 0x4444_4444,
+        esp: API_STACK.0,
+        ebp: 0x006f_fa00,
+        esi: 0x5555_5555,
+        edi: 0x6666_6666,
+        eip: endpoint.address.0,
+        eflags: 0x0000_0202,
+        es: 0x23,
+        cs: 0x1b,
+        ss: 0x23,
+        ds: 0x23,
+        fs: 0x3b,
+        gs: 0,
+    };
+    let dispatched = {
+        let mut session = ExecutionSession::with_x86_context(
+            &mut memory,
+            &mut runtime,
+            cpu_context,
+            sentinels.callback_return.address,
+        );
+        dispatcher.dispatch(
+            trap(&endpoint, API_STACK.0, RETURN_ADDRESS.0, 16),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    let call = match dispatched {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected SEH callback dispatch, got {other:?}"),
+    };
+    let unwind_call = call.clone();
+    assert_eq!(call.request.target, HANDLER_ONE);
+    assert_eq!(
+        call.request.arguments,
+        [
+            GuestCallbackArgument::ScratchPointer { offset: 0 },
+            GuestCallbackArgument::U32(REGISTRATION_ONE.0),
+            GuestCallbackArgument::ScratchPointer { offset: 80 },
+            GuestCallbackArgument::U32(0),
+        ]
+    );
+    assert_eq!(read_slice_u32(&call.request.scratch, 0), EXCEPTION_CODE);
+    assert_eq!(read_slice_u32(&call.request.scratch, 4), 1);
+    assert_eq!(read_slice_u32(&call.request.scratch, 12), RETURN_ADDRESS.0);
+    assert_eq!(read_slice_u32(&call.request.scratch, 16), 2);
+    assert_eq!(read_slice_u32(&call.request.scratch, 20), 0x1993_0520);
+    assert_eq!(read_slice_u32(&call.request.scratch, 24), 0x006f_eb44);
+    assert_eq!(read_slice_u32(&call.request.scratch, 80), 0x0001_0007);
+    assert_eq!(
+        read_slice_u32(&call.request.scratch, 80 + 176),
+        cpu_context.eax
+    );
+    assert_eq!(
+        read_slice_u32(&call.request.scratch, 80 + 184),
+        RETURN_ADDRESS.0
+    );
+    assert_eq!(
+        read_slice_u32(&call.request.scratch, 80 + 196),
+        API_STACK.0 + 20
+    );
+    assert!(matches!(
+        call.request.completion_policy,
+        GuestCallbackCompletionPolicy::ExceptionDispatch {
+            next_frame: REGISTRATION_TWO,
+            exception_flags: 1,
+        }
+    ));
+
+    let continued = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.complete_guest_callback_result(call, 1, &mut session)
+    };
+    let next = match continued {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected next SEH handler, got {other:?}"),
+    };
+    assert_eq!(next.request.target, HANDLER_TWO);
+    assert_eq!(
+        next.request.arguments[1],
+        GuestCallbackArgument::U32(REGISTRATION_TWO.0)
+    );
+    assert!(matches!(
+        next.request.completion_policy,
+        GuestCallbackCompletionPolicy::ExceptionDispatch {
+            next_frame: GuestAddress(u32::MAX),
+            exception_flags: 1,
+        }
+    ));
+
+    let prepared = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        session
+            .begin_guest_callback(&unwind_call)
+            .expect("materialize SEH callback")
+    };
+    let callback_delta = memory.pending_delta().expect("SEH callback delta");
+    memory
+        .acknowledge_delta(callback_delta.generation)
+        .expect("acknowledge SEH callback delta");
+    const UNWIND_STACK: GuestAddress = GuestAddress(0x006f_f700);
+    let unwind_words = [
+        HANDLER_ONE.0,
+        REGISTRATION_ONE.0,
+        HANDLER_ONE.0,
+        prepared.scratch_address.0,
+        0x1234_5678,
+    ];
+    memory
+        .write(
+            UNWIND_STACK,
+            &unwind_words
+                .into_iter()
+                .flat_map(u32::to_le_bytes)
+                .collect::<Vec<_>>(),
+        )
+        .expect("RtlUnwind frame");
+    let unwind_frame_delta = memory.pending_delta().expect("RtlUnwind frame delta");
+    memory
+        .acknowledge_delta(unwind_frame_delta.generation)
+        .expect("acknowledge RtlUnwind frame delta");
+    let unwind_context = X86CpuContext {
+        esp: UNWIND_STACK.0,
+        eip: unwind_endpoint.address.0,
+        ..cpu_context
+    };
+    let unwind = {
+        let mut session = ExecutionSession::with_x86_context(
+            &mut memory,
+            &mut runtime,
+            unwind_context,
+            sentinels.callback_return.address,
+        );
+        dispatcher.dispatch(
+            trap(&unwind_endpoint, UNWIND_STACK.0, HANDLER_ONE.0, 16),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    let unwind = match unwind {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected bounded RtlUnwind completion, got {other:?}"),
+    };
+    assert_eq!(unwind.eax, RegisterUpdate::Set(0x1234_5678));
+    assert_eq!(unwind.instruction_pointer, HANDLER_ONE);
+    assert_eq!(unwind.stack_pointer, GuestAddress(UNWIND_STACK.0 + 20));
+    assert_eq!(unwind.guest_writes.len(), 2);
+    let unwind_delta = memory.pending_delta().expect("RtlUnwind delta");
+    memory
+        .acknowledge_delta(unwind_delta.generation)
+        .expect("acknowledge RtlUnwind delta");
+    assert_eq!(
+        u32::from_le_bytes(memory.read(teb, 4).unwrap().try_into().unwrap()),
+        REGISTRATION_TWO.0
+    );
+    assert_eq!(
+        u32::from_le_bytes(
+            memory
+                .read(GuestAddress(prepared.scratch_address.0 + 4), 4)
+                .unwrap()
+                .try_into()
+                .unwrap()
+        ),
+        3
+    );
+
+    memory
+        .write(teb, &REGISTRATION_ONE.0.to_le_bytes())
+        .expect("restore SEH chain for negative case");
+    memory
+        .write(
+            GuestAddress(prepared.scratch_address.0 + 4),
+            &1_u32.to_le_bytes(),
+        )
+        .expect("restore exception flags for negative case");
+
+    memory
+        .write(GuestAddress(API_STACK.0 + 12), &16_u32.to_le_bytes())
+        .expect("invalid exception count");
+    let delta = memory.pending_delta().expect("invalid count delta");
+    memory
+        .acknowledge_delta(delta.generation)
+        .expect("acknowledge invalid count delta");
+    let runtime_before = runtime.clone();
+    let memory_before = memory.stats();
+    let invalid = {
+        let mut session = ExecutionSession::with_x86_context(
+            &mut memory,
+            &mut runtime,
+            cpu_context,
+            sentinels.callback_return.address,
+        );
+        dispatcher.dispatch(
+            trap(&endpoint, API_STACK.0, RETURN_ADDRESS.0, 16),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    assert!(matches!(
+        invalid,
+        DispatchOutcome::Fault(ref fault)
+            if fault.class == ApiFaultClass::InvalidCall
+                && fault.code == "exception-argument-count-invalid"
+    ));
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.stats(), memory_before);
+}
+
+fn read_slice_u32(bytes: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("u32 slice"))
 }
 
 fn initialized_memory() -> (GuestMemory, MemoryOwnerId) {

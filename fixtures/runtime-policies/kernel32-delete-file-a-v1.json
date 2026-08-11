@@ -166,7 +166,8 @@
   },
   "threadPriority": {
     "allowedPriorities": [
-      1
+      1,
+      15
     ]
   },
   "createThread": {
