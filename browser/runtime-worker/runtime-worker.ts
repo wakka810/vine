@@ -4303,6 +4303,8 @@ class BrowserRuntimeSession {
   } | null = null;
   #bgiCheckpointPending = false;
   #forwardPrefixComplete = false;
+  #forwardVisibleFrameSignaled = false;
+  #forwardPrimaryPointerPressSignaled = false;
   #forwardTailCursor = 0;
   #user32TranslateMessagePostTestCooperativeLevelTimerPeekPrerequisite: User32TranslateMessagePostTestCooperativeLevelTimerPeekCheckpoint | null =
     null;
@@ -5572,9 +5574,8 @@ class BrowserRuntimeSession {
       this.#report.keyboardInput.receivedMessages += 1;
       if (
         !this.#runtimePrepared ||
-        usesDeferredInputSchedule(
-          this.#configuration.capabilityProfile,
-        )
+        (usesDeferredInputSchedule(this.#configuration.capabilityProfile) &&
+          !this.#forwardPrefixComplete)
       ) {
         invariant(
           this.#pendingInputEvents.length < MAX_PENDING_INPUT_EVENTS,
@@ -5608,9 +5609,8 @@ class BrowserRuntimeSession {
       this.#report.pointerInput.receivedMessages += 1;
       if (
         !this.#runtimePrepared ||
-        usesDeferredInputSchedule(
-          this.#configuration.capabilityProfile,
-        )
+        (usesDeferredInputSchedule(this.#configuration.capabilityProfile) &&
+          !this.#forwardPrefixComplete)
       ) {
         invariant(
           this.#pendingInputEvents.length < MAX_PENDING_INPUT_EVENTS,
@@ -5633,7 +5633,8 @@ class BrowserRuntimeSession {
 
   #flushPendingInputEvents(): void {
     if (
-      usesDeferredInputSchedule(this.#configuration.capabilityProfile)
+      usesDeferredInputSchedule(this.#configuration.capabilityProfile) &&
+      !this.#forwardPrefixComplete
     ) {
       return;
     }
@@ -9980,7 +9981,7 @@ class BrowserRuntimeSession {
         );
         this.#applyOptionalDelta(output);
         const browserPresentation = this.#renderD3d9Present(metadata);
-        this.#emitDsoundPlayback(metadata);
+        this.#emitDsoundTransport(metadata);
         if (this.#requirePrepared().workload === "private-bgi") {
           this.#recordBgiComCompletion(metadata, browserPresentation);
         }
@@ -10048,16 +10049,30 @@ class BrowserRuntimeSession {
     );
   }
 
-  #emitDsoundPlayback(metadata: ComCompletionMetadata): void {
+  #emitDsoundTransport(metadata: ComCompletionMetadata): void {
     const frame = metadata.call.frame;
-    if (
-      frame.interface !== "IDirectSoundBuffer8" ||
-      frame.method !== "Play" ||
-      metadata.audioBuffer?.descriptor.kind !== "secondary"
-    ) {
+    if (frame.interface !== "IDirectSoundBuffer8") {
       return;
     }
     const buffer = metadata.audioBuffer;
+    if (frame.method === "Stop") {
+      invariant(buffer !== undefined, "DirectSound Stop omitted its Rust buffer snapshot");
+      invariant(buffer.playback === "stopped", "DirectSound Stop snapshot is still playing");
+      if (buffer.descriptor.kind === "secondary") {
+        post({
+          type: "audio-stop",
+          protocolVersion,
+          sessionId: this.#sessionId,
+          bufferId: buffer.id,
+          bufferGeneration: buffer.generation,
+          contentGeneration: buffer.contentGeneration,
+        });
+      }
+      return;
+    }
+    if (frame.method !== "Play" || buffer?.descriptor.kind !== "secondary") {
+      return;
+    }
     const format = buffer.activeFormat ?? buffer.descriptor.format;
     const backing = buffer.backing;
     invariant(format !== undefined, "secondary Play omitted its PCM format");
@@ -10083,6 +10098,7 @@ class BrowserRuntimeSession {
         protocolVersion,
         sessionId: this.#sessionId,
         bufferId: buffer.id,
+        bufferGeneration: buffer.generation,
         contentGeneration: buffer.contentGeneration,
         playback: buffer.playback,
         format,
@@ -14863,7 +14879,9 @@ class BrowserRuntimeSession {
     if (this.#isForwardDevelopment()) {
       this.#captureForwardCall(call);
     }
-    this.#semanticCallDigest.update(call);
+    if (!this.#isForwardDevelopment()) {
+      this.#semanticCallDigest.update(call);
+    }
     this.#report.supportedCallCount += 1;
     this.#advanceInputProgress(call);
     if (this.#configuration.evidenceLevel === "full") {
@@ -18881,6 +18899,7 @@ class BrowserRuntimeSession {
     this.#postCallbackPointerReleaseMessageConsumptionEntry = null;
     this.#postCallbackPointerMessageConsumptionAwaitingSetFocus = false;
     summary.historicalCheckpointBypassed = true;
+    this.#flushPendingInputEvents();
     this.#status(
       "running",
       "Historical capability boundary bypassed; continuing to the next real stop",
@@ -18986,6 +19005,22 @@ class BrowserRuntimeSession {
   }
 
   #captureForwardCall(call: RuntimeSupportedCallSnapshot): void {
+    if (
+      !this.#forwardPrimaryPointerPressSignaled &&
+      call.module.toLowerCase() === "user32.dll" &&
+      call.symbol === "GetAsyncKeyState" &&
+      call.arguments.length === 1 &&
+      call.arguments[0] === 0x01 &&
+      "action" in call.result &&
+      call.result.action === "set" &&
+      (call.result.value & 0x8000) !== 0
+    ) {
+      this.#forwardPrimaryPointerPressSignaled = true;
+      this.#status(
+        "running",
+        "Forward primary pointer press observed by guest",
+      );
+    }
     const arguments_ = call.arguments.slice(0, 16);
     this.#captureForwardEntry(
       {
@@ -19044,6 +19079,18 @@ class BrowserRuntimeSession {
     if (presentation !== undefined) {
       summary.presentCount += 1;
       summary.latestPresentation = structuredClone(presentation);
+      if (
+        !this.#forwardVisibleFrameSignaled &&
+        presentation.centerPixelRgba
+          .slice(0, 3)
+          .every((component) => component >= 248)
+      ) {
+        this.#forwardVisibleFrameSignaled = true;
+        this.#status(
+          "running",
+          "Forward visible frame observed; accepting live development input",
+        );
+      }
     }
     const audioIdentity = `${entry.module}!${entry.symbol}`.toLowerCase();
     if (

@@ -2,7 +2,7 @@ import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 import type { BrowserNativeStorageConfiguration } from "../storage/protocol.js";
 
-export const protocolVersion = 140 as const;
+export const protocolVersion = 141 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -1048,11 +1048,21 @@ export interface AudioPlaybackMessage {
   protocolVersion: typeof protocolVersion;
   sessionId: number;
   bufferId: number;
+  bufferGeneration: number;
   contentGeneration: number;
   playback: "playing-once" | "playing-looping";
   format: RuntimeAudioPcmFormatSnapshot;
   controls: RuntimeAudioBufferSnapshot["controls"];
   samples: ArrayBuffer;
+}
+
+export interface AudioStopMessage {
+  type: "audio-stop";
+  protocolVersion: typeof protocolVersion;
+  sessionId: number;
+  bufferId: number;
+  bufferGeneration: number;
+  contentGeneration: number;
 }
 
 export interface RuntimeSupportedCallSnapshot {
@@ -6360,6 +6370,7 @@ export type WorkerToMainMessage =
   | SessionStatusMessage
   | HostRequestMessage
   | AudioPlaybackMessage
+  | AudioStopMessage
   | SessionFinishedMessage;
 
 export function assertProtocolVersion(

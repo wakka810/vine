@@ -12687,10 +12687,10 @@ mod tests {
         acknowledge_d3d9_fixture_memory(&mut memory);
 
         let later_partial_rect = RuntimeRect {
-            left: 583,
-            top: 530,
-            right: 1_260,
-            bottom: 582,
+            left: 232,
+            top: 556,
+            right: 346,
+            bottom: 619,
         };
         write_d3d9_fixture_words(
             &mut memory,

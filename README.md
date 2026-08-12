@@ -11,23 +11,24 @@ This section is generated from [`docs/current-checkpoint.json`](docs/current-che
 |---|---|
 | Active target | Sakura no Uta `BGI.exe` (PE32/i386) in Chrome |
 | Active milestone | `primary-save-browser-restart-load`: The primary title commits save or configuration state to the writable overlay and restores it after browser and local service restart without changing source files |
-| Last completed boundary | `primary-visible-action-response-or-readable-frame`: The primary title advanced from a black surface to a non-black title menu with readable Start and Load entries while continuing primary Web Audio playback |
-| Current forward stop | `development-boundary` / `forward-run-budget-exhausted`: After rendering the title menu and continuing audio, the release run remained in the supported title loop until the bounded instruction watchdog; no feasibility blocker was reached |
-| Next development goal | Select Start through the existing pointer path, follow the first reached scenario and persistence behavior, and complete the smallest save/restart/load vertical slice |
+| Last completed boundary | `primary-visible-action-response-or-readable-frame`: The primary title rendered a readable Start/Load menu, accepted a real pointer press through the guest input path, and visibly highlighted Start while primary Web Audio continued |
+| Current forward stop | `semantic-leaf-implemented-pending-forward-confirmation` / `IDirect3DDevice9::UpdateTexture`: The last bounded report reached a valid (232,556)-(346,619) partial dirty region at 9,790,835,734 instructions; the v33 policy now accepts owner-validated bounded regions, but two post-fix cold runs reached the host time bound before producing a later endpoint |
+| Next development goal | Add a commit-scoped .work forward resume cache for the repeatedly measured long cold prefix, confirm the bounded UpdateTexture path, then activate Start and follow the first scenario persistence behavior into save/restart/load |
 
 ### Subsystems
 
 | Subsystem | Status | Boundary |
 |---|---|---|
 | `execution` | `partial` | PE32 loading, x86 execution mirror, checked GuestMemory synchronization, process/thread scheduling, callbacks, and reached Win32/COM dispatch |
-| `window-input` | `partial` | Logical window, message queue, timers, focus/cursor state, keyboard scan, pointer down/up dispatch |
-| `graphics` | `partial` | GDI/GDI+ reached paths and bounded D3D9 fixed-function scenes published through WebGL2; the primary title menu now renders with readable Start and Load entries |
+| `window-input` | `partial` | Logical window, message queue, timers, focus/cursor state, keyboard scan, pointer down/up dispatch, and a guest-observed primary pointer press that visibly highlights Start |
+| `graphics` | `partial` | GDI/GDI+ reached paths and bounded D3D9 fixed-function scenes published through WebGL2; readable menu rendering and owner-validated bounded UpdateTexture dirty regions are supported |
 | `source-storage` | `partial` | Immutable source reads and a separate writable overlay are active; one directory create and commit are reached, but their save/configuration role and restart/load are not yet accepted |
-| `audio` | `partial` | Reached DirectSound streaming buffers, partial and wrapping Lock/Unlock, position notifications, status/cursor control, looping Play, and non-zero primary PCM through Chrome Web Audio |
+| `audio` | `partial` | Reached DirectSound streaming buffers, partial and wrapping Lock/Unlock, notifications, status/cursor control, Play/Stop with generation-safe browser transport, and non-zero primary PCM through Chrome Web Audio |
 
 ### Important Non-Claims
 
-- Title menu rendering is reached, but selecting Start and advancing a representative scenario are not yet accepted
+- Start visibly responds to pointer input, but activating it and advancing a representative scenario are not yet accepted
+- The reached bounded UpdateTexture region is implemented, but a post-fix private run has not yet produced the following endpoint because the cold prefix exceeded the host time bound
 - Primary audio format breadth, suspend/resume behavior, and long-run streaming stability are not yet accepted
 - No primary save/browser-restart/load flow is claimed
 - No representative route, ending, or long-run acceptance is claimed

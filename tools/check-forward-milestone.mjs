@@ -58,6 +58,11 @@ switch (checkpoint.lastCompletedBoundary.id) {
   }
   case "primary-visible-action-response-or-readable-frame": {
     assertPrimaryAudio();
+    assert(report.input.pointerMessages > 0, "no primary pointer input reached the guest");
+    assert(
+      report.input.latestPointerMessage !== null,
+      "latest primary pointer diagnostic is missing",
+    );
     assert(report.presentation.presentCount > 0, "no primary Present was observed");
     const presentation = report.presentation.latest;
     assert(presentation !== null, "latest browser presentation is missing");

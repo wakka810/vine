@@ -2222,7 +2222,7 @@ impl BrowserRuntime {
                     None
                 };
                 let audio_buffer = if completion.frame.interface == "IDirectSoundBuffer8"
-                    && completion.frame.method == "Play"
+                    && matches!(completion.frame.method.as_str(), "Play" | "Stop")
                 {
                     self.runtime
                         .audio_buffers()

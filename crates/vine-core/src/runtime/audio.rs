@@ -1363,12 +1363,12 @@ impl RuntimeAudio {
         request: RuntimeAudioBufferPlayRequest,
     ) -> Result<RuntimeAudioBufferPlayPlan, RuntimeStateError> {
         let buffer = self.buffer_by_com_object(request.buffer_com_object_id)?;
-        if request.playback == RuntimeAudioPlaybackState::Stopped || !buffer_ready_for_play(buffer)
+        if request.playback != RuntimeAudioPlaybackState::Stopped && !buffer_ready_for_play(buffer)
         {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-audio",
                 "audio-buffer-play-state-invalid",
-                "logical audio playback requires an initialized unlocked buffer and a playing state",
+                "logical audio playback requires an initialized unlocked buffer",
             ));
         }
         require_priority_cooperative_state(self.device(buffer.device_id)?)?;
@@ -1404,8 +1404,7 @@ impl RuntimeAudio {
         if self.generation != plan.expected_generation
             || buffer.generation != plan.expected_buffer_generation
             || buffer.playback != plan.previous
-            || !buffer_ready_for_play(buffer)
-            || plan.next == RuntimeAudioPlaybackState::Stopped
+            || (plan.next != RuntimeAudioPlaybackState::Stopped && !buffer_ready_for_play(buffer))
             || self.buffer_com_object_index.get(&buffer.com_object_id) != Some(&buffer.id)
             || require_priority_cooperative_state(device).is_err()
             || (changed
@@ -2382,6 +2381,37 @@ mod tests {
             play_result.current,
             RuntimeAudioPlaybackState::PlayingLooping
         );
+        let stop_plan = audio
+            .plan_buffer_play(RuntimeAudioBufferPlayRequest {
+                buffer_com_object_id: RuntimeComObjectId(21),
+                playback: RuntimeAudioPlaybackState::Stopped,
+            })
+            .unwrap();
+        let stale_stop_plan = stop_plan.clone();
+        let stop_result = audio.commit_buffer_play(stop_plan);
+        assert!(stop_result.changed);
+        assert_eq!(
+            stop_result.previous,
+            RuntimeAudioPlaybackState::PlayingLooping
+        );
+        assert_eq!(stop_result.current, RuntimeAudioPlaybackState::Stopped);
+        assert_eq!(
+            audio
+                .preflight_buffer_play(&stale_stop_plan)
+                .unwrap_err()
+                .code,
+            "audio-buffer-play-plan-stale"
+        );
+        let repeated_stop = audio
+            .plan_buffer_play(RuntimeAudioBufferPlayRequest {
+                buffer_com_object_id: RuntimeComObjectId(21),
+                playback: RuntimeAudioPlaybackState::Stopped,
+            })
+            .unwrap();
+        let generation = audio.generation;
+        let repeated_stop = audio.commit_buffer_play(repeated_stop);
+        assert!(!repeated_stop.changed);
+        assert_eq!(audio.generation, generation);
 
         let secondary_plan = audio
             .plan_buffer_creation(RuntimeAudioBufferCreateRequest {

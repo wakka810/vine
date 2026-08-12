@@ -148,6 +148,13 @@ worker.addEventListener("message", (event: MessageEvent<WorkerToMainMessage>) =>
         })
         .catch(showFatalError);
       break;
+    case "audio-stop": {
+      const receipt = pcmRenderer.stop(message);
+      audioMetric.textContent = receipt.sourceStopped
+        ? `buffer ${receipt.bufferId} stopped`
+        : `buffer ${receipt.bufferId} already stopped`;
+      break;
+    }
     case "session-finished":
       finishSession(message.report);
       break;

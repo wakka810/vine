@@ -502,7 +502,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v140";
+const runtimeProtocol = "vine.browser-runtime-worker.v141";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -20638,8 +20638,16 @@ if (serveOnly) {
             playbackRequests: success.audioPlaybackRequests,
             playbacksStarted: success.audioPlaybacksStarted,
             latestPlayback: success.latestAudioPlayback,
+            stopRequests: success.audioStopRequests,
+            stopsApplied: success.audioStopsApplied,
+            latestStop: success.latestAudioStop,
           },
           storage: forward.storage,
+          storageLatest: {
+            writableCommit: session.writableCommits.at(-1) ?? null,
+            writableDirectoryCreate:
+              session.writableDirectoryCreates.at(-1) ?? null,
+          },
           pending: {
             hostCalls: session.pendingHostCalls,
             callbacks: session.pendingCallbacks,

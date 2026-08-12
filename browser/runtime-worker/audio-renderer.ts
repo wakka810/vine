@@ -1,7 +1,8 @@
-import type { AudioPlaybackMessage } from "./protocol.js";
+import type { AudioPlaybackMessage, AudioStopMessage } from "./protocol.js";
 
 export interface BrowserAudioPlaybackReceipt {
   bufferId: number;
+  bufferGeneration: number;
   contentGeneration: number;
   frameCount: number;
   durationSeconds: number;
@@ -10,9 +11,23 @@ export interface BrowserAudioPlaybackReceipt {
   contextState: AudioContextState;
 }
 
+export interface BrowserAudioStopReceipt {
+  bufferId: number;
+  bufferGeneration: number;
+  contentGeneration: number;
+  sourceStopped: boolean;
+  staleMessageIgnored: boolean;
+  contextState: AudioContextState | "uninitialized";
+}
+
+interface ActiveAudioSource {
+  bufferGeneration: number;
+  source: AudioBufferSourceNode;
+}
+
 export class BrowserPcmRenderer {
   #context: AudioContext | null = null;
-  readonly #sources = new Map<number, AudioBufferSourceNode>();
+  readonly #sources = new Map<number, ActiveAudioSource>();
 
   async play(message: AudioPlaybackMessage): Promise<BrowserAudioPlaybackReceipt> {
     const context = this.#context ?? new AudioContext({ latencyHint: "interactive" });
@@ -60,8 +75,8 @@ export class BrowserPcmRenderer {
 
     const previous = this.#sources.get(message.bufferId);
     if (previous !== undefined) {
-      previous.stop();
-      previous.disconnect();
+      previous.source.stop();
+      previous.source.disconnect();
     }
     const source = new AudioBufferSourceNode(context, {
       buffer: audioBuffer,
@@ -80,11 +95,14 @@ export class BrowserPcmRenderer {
       pan: message.controls.panHundredthsDb / 10_000,
     });
     source.connect(pan).connect(gain).connect(context.destination);
-    this.#sources.set(message.bufferId, source);
+    this.#sources.set(message.bufferId, {
+      bufferGeneration: message.bufferGeneration,
+      source,
+    });
     source.addEventListener(
       "ended",
       () => {
-        if (this.#sources.get(message.bufferId) === source) {
+        if (this.#sources.get(message.bufferId)?.source === source) {
           this.#sources.delete(message.bufferId);
         }
         source.disconnect();
@@ -101,12 +119,31 @@ export class BrowserPcmRenderer {
     await resume;
     return {
       bufferId: message.bufferId,
+      bufferGeneration: message.bufferGeneration,
       contentGeneration: message.contentGeneration,
       frameCount,
       durationSeconds: frameCount / format.samplesPerSecond,
       peakAbsoluteSample,
       playback: message.playback,
       contextState: context.state,
+    };
+  }
+
+  stop(message: AudioStopMessage): BrowserAudioStopReceipt {
+    const active = this.#sources.get(message.bufferId);
+    const staleMessageIgnored =
+      active !== undefined && message.bufferGeneration < active.bufferGeneration;
+    if (active !== undefined && !staleMessageIgnored) {
+      this.#sources.delete(message.bufferId);
+      active.source.stop();
+    }
+    return {
+      bufferId: message.bufferId,
+      bufferGeneration: message.bufferGeneration,
+      contentGeneration: message.contentGeneration,
+      sourceStopped: active !== undefined && !staleMessageIgnored,
+      staleMessageIgnored,
+      contextState: this.#context?.state ?? "uninitialized",
     };
   }
 }

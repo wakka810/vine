@@ -6,7 +6,7 @@ The roadmap is scenario-first. Work is selected by the shortest path to the next
 
 ## 1. Visible action response or readable frame
 
-Reached on 2026-08-12: release Chrome advanced the primary surface from black to a non-black title menu with readable `Start` and `Load` entries while primary audio remained active.
+Reached on 2026-08-12: release Chrome advanced the primary surface from black to a non-black title menu with readable `Start` and `Load` entries. A real pointer press then traversed the guest input path and visibly highlighted `Start` while primary audio remained active.
 
 Exit condition:
 
@@ -16,7 +16,7 @@ Exit condition:
 Remaining work:
 
 - retain the same graphics authority and bounded frame diagnostics through later scenes
-- confirm input-driven menu selection while progressing the save/restart/load scenario
+- activate the highlighted `Start` entry and progress the save/restart/load scenario
 
 ## 2. Primary audio
 
@@ -38,7 +38,9 @@ Remaining unknowns:
 
 Current work:
 
-- select `Start` through the existing pointer path and follow the first scenario transition
+- add a commit/build/source-bound `.work` resume cache now that repeated cold prefixes have exceeded 60 seconds and the 10-minute host bound
+- confirm the newly bounded `UpdateTexture` dirty-region path and activate `Start` through the existing pointer path
+- follow the first scenario transition
 - classify the already reached writable directory and commit as configuration or save behavior
 - project the next reached persistence endpoint into the bounded forward report
 

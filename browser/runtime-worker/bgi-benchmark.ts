@@ -160,9 +160,9 @@ worker.addEventListener(
       activeSession = null;
       return;
     }
-    if (message.type === "audio-playback") {
+    if (message.type === "audio-playback" || message.type === "audio-stop") {
       activeSession.reject(
-        new Error("BGI benchmark received audio playback outside its measured transport"),
+        new Error("BGI benchmark received audio transport outside its measured run"),
       );
       activeSession = null;
       return;

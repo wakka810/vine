@@ -3,6 +3,7 @@ import { pointerSourceEvent } from "./keyboard-input.js";
 import {
   BrowserPcmRenderer,
   type BrowserAudioPlaybackReceipt,
+  type BrowserAudioStopReceipt,
 } from "./audio-renderer.js";
 import {
   assertProtocolVersion,
@@ -27,6 +28,9 @@ interface BgiBrowserEvidence {
   audioPlaybackRequests: number;
   audioPlaybacksStarted: number;
   latestAudioPlayback: BrowserAudioPlaybackReceipt | null;
+  audioStopRequests: number;
+  audioStopsApplied: number;
+  latestAudioStop: BrowserAudioStopReceipt | null;
 }
 
 declare global {
@@ -209,6 +213,9 @@ let statusMessagesObserved = 0;
 let audioPlaybackRequests = 0;
 let audioPlaybacksStarted = 0;
 let latestAudioPlayback: BrowserAudioPlaybackReceipt | null = null;
+let audioStopRequests = 0;
+let audioStopsApplied = 0;
+let latestAudioStop: BrowserAudioStopReceipt | null = null;
 const usedJsHeapBytesBefore = performance.memory?.usedJSHeapSize ?? null;
 let heartbeatSamples = 0;
 let maximumHeartbeatGapMilliseconds = 0;
@@ -216,7 +223,9 @@ let lastHeartbeat = performance.now();
 let cancellationSent = false;
 let forwardPrefixComplete = false;
 let forwardAudioObserved = false;
+let forwardVisibleFrameObserved = false;
 let forwardPostAudioActionSent = false;
+let forwardPostAudioActionReleased = false;
 const heartbeat = window.setInterval(() => {
   const now = performance.now();
   maximumHeartbeatGapMilliseconds = Math.max(
@@ -234,13 +243,13 @@ function maybePostForwardAction(): void {
     !forwardDevelopment ||
     !forwardPrefixComplete ||
     !forwardAudioObserved ||
+    !forwardVisibleFrameObserved ||
     forwardPostAudioActionSent
   ) {
     return;
   }
-  const down = pointerSourceEvent(5, "button-down", 0, 0x8000, 0x8000);
-  const up = pointerSourceEvent(6, "button-up", 0, 0x8000, 0x8000);
-  if (down === null || up === null) {
+  const down = pointerSourceEvent(5, "button-down", 0, 0x3b00, 0xd200);
+  if (down === null) {
     fail(new Error("post-audio pointer action is outside the bounded source mapping"));
     return;
   }
@@ -251,6 +260,18 @@ function maybePostForwardAction(): void {
     sessionId,
     event: down,
   } satisfies MainToWorkerMessage);
+}
+
+function releaseForwardAction(): void {
+  if (!forwardPostAudioActionSent || forwardPostAudioActionReleased) {
+    return;
+  }
+  const up = pointerSourceEvent(6, "button-up", 0, 0x3b00, 0xd200);
+  if (up === null) {
+    fail(new Error("post-audio pointer release is outside the bounded source mapping"));
+    return;
+  }
+  forwardPostAudioActionReleased = true;
   worker.postMessage({
     type: "pointer-input",
     protocolVersion,
@@ -284,6 +305,22 @@ worker.addEventListener(
       ) {
         forwardPrefixComplete = true;
         maybePostForwardAction();
+      }
+      if (
+        forwardDevelopment &&
+        message.phase === "running" &&
+        message.detail ===
+          "Forward visible frame observed; accepting live development input"
+      ) {
+        forwardVisibleFrameObserved = true;
+        maybePostForwardAction();
+      }
+      if (
+        forwardDevelopment &&
+        message.phase === "running" &&
+        message.detail === "Forward primary pointer press observed by guest"
+      ) {
+        releaseForwardAction();
       }
       if (
         scenario === "cancel-pending" &&
@@ -323,6 +360,15 @@ worker.addEventListener(
         );
       return;
     }
+    if (message.type === "audio-stop") {
+      audioStopRequests += 1;
+      latestAudioStop = pcmRenderer.stop(message);
+      if (latestAudioStop.sourceStopped) {
+        audioStopsApplied += 1;
+      }
+      document.body.dataset.audioStop = JSON.stringify(latestAudioStop);
+      return;
+    }
     finish(message.report);
   },
 );
@@ -341,10 +387,11 @@ const startMessage = {
     ...(forwardDevelopment ? { developmentMode: "forward" as const } : {}),
     executableUrl: "./private/BGI.exe",
     policyUrl: "./private/kernel32-policy.json",
-    instructionBudget: scenario === "watchdog" ? 4 : 16_384,
+    instructionBudget:
+      scenario === "watchdog" ? 4 : forwardDevelopment ? 131_072 : 16_384,
     watchdogInstructionLimit:
       forwardDevelopment
-        ? 8_000_000_000
+        ? 10_300_000_000
         : scenario === "watchdog"
         ? 1
         : capabilityProfile === "user32-get-cursor-info" ||
@@ -911,6 +958,9 @@ function finish(report: SessionReport): void {
       audioPlaybackRequests,
       audioPlaybacksStarted,
       latestAudioPlayback,
+      audioStopRequests,
+      audioStopsApplied,
+      latestAudioStop,
     };
     window.__vineBgiCheck.result = evidence;
     document.body.dataset.checkStatus = "passed";
@@ -944,6 +994,9 @@ function finish(report: SessionReport): void {
     audioPlaybackRequests,
     audioPlaybacksStarted,
     latestAudioPlayback,
+    audioStopRequests,
+    audioStopsApplied,
+    latestAudioStop,
   };
   window.__vineBgiCheck.result = evidence;
   document.body.dataset.checkStatus = "passed";

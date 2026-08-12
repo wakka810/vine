@@ -413,6 +413,7 @@ fn dispatch_dsound_frontend_call(
         (false, true, 17, "SetFrequency", 1, 1, RuntimeComReturnKind::HResult) => {
             handle_buffer_frequency(call)
         }
+        (false, true, 18, "Stop", 0, 0, RuntimeComReturnKind::HResult) => handle_buffer_stop(call),
         (false, true, 19, "Unlock", 4, 4, RuntimeComReturnKind::HResult) => {
             handle_buffer_unlock(policy, call)
         }
@@ -1078,6 +1079,23 @@ fn handle_buffer_play(
     call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
 }
 
+fn handle_buffer_stop(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
+    let plan = match call
+        .runtime()
+        .plan_audio_buffer_play(RuntimeAudioBufferPlayRequest {
+            buffer_com_object_id: call.frame().object_id,
+            playback: RuntimeAudioPlaybackState::Stopped,
+        }) {
+        Ok(plan) => plan,
+        Err(error) => return call.runtime_fault(error),
+    };
+    let mut call = call;
+    if let Err(error) = call.runtime_mut().commit_audio_buffer_play(plan) {
+        return call.runtime_fault(error);
+    }
+    call.complete(ComReturnValue::HResult(COM_S_OK), Vec::new())
+}
+
 fn unsupported_buffer_variant(
     call: ComFrontendCall<'_>,
     message: impl Into<String>,
@@ -1332,7 +1350,7 @@ pub fn direct_sound_buffer8_object_spec() -> ComObjectSpec {
                     ComMethodSpec::frontend_hresult("SetVolume", 1),
                     ComMethodSpec::frontend_hresult("SetPan", 1),
                     ComMethodSpec::frontend_hresult("SetFrequency", 1),
-                    ComMethodSpec::unsupported_hresult("Stop", 0),
+                    ComMethodSpec::frontend_hresult("Stop", 0),
                     ComMethodSpec::frontend_hresult("Unlock", 4),
                     ComMethodSpec::unsupported_hresult("Restore", 0),
                     ComMethodSpec::unsupported_hresult("SetFX", 3),

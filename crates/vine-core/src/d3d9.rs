@@ -405,8 +405,7 @@ pub struct D3d9UpdateTexturePolicy {
     pub source_texture_variant_indices: Vec<u32>,
     pub destination_texture_variant_indices: Vec<u32>,
     pub partial_dirty_rect: RuntimeRect,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub additional_partial_dirty_rects: Vec<RuntimeRect>,
+    pub allow_bounded_partial_dirty_rects: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -667,7 +666,7 @@ impl D3d9CompatibilityPolicy {
                     right: 1_280,
                     bottom: 720,
                 },
-                additional_partial_dirty_rects: Vec::new(),
+                allow_bounded_partial_dirty_rects: false,
             }),
             begin_scene: Some(D3d9BeginScenePolicy {
                 profile_id: "primary-first-frame-scene-begin-v1".to_owned(),
@@ -704,13 +703,9 @@ impl D3d9CompatibilityPolicy {
             .as_mut()
             .expect("controlled D3D9 policy lost UpdateTexture");
         update.profile_id =
-            "primary-recreated-system-memory-to-static-default-texture-update-v3".to_owned();
-        update.additional_partial_dirty_rects = vec![RuntimeRect {
-            left: 583,
-            top: 530,
-            right: 1_260,
-            bottom: 582,
-        }];
+            "primary-recreated-system-memory-to-static-default-texture-bounded-update-v3"
+                .to_owned();
+        update.allow_bounded_partial_dirty_rects = true;
         policy
     }
 
@@ -755,41 +750,36 @@ impl D3d9CompatibilityPolicy {
     }
 
     pub fn validate(&self) -> Result<(), ApiFault> {
-        let update_texture_profile = self.update_texture.as_ref().map(|policy| {
-            (
-                policy.profile_id.as_str(),
-                policy.additional_partial_dirty_rects.as_slice(),
-            )
-        });
+        let update_texture_profile = self
+            .update_texture
+            .as_ref()
+            .map(|policy| policy.profile_id.as_str());
         let supported_header = match (self.schema_version, self.id.as_str()) {
             (31, "d3d9-primary-virtual-adapter-v31") => {
                 self.test_cooperative_level.is_none()
                     && matches!(
                         update_texture_profile,
-                        None | Some((
-                            "primary-recreated-system-memory-to-static-default-texture-update-v2",
-                            []
-                        ))
+                        None | Some(
+                            "primary-recreated-system-memory-to-static-default-texture-update-v2"
+                        )
                     )
             }
             (32, "d3d9-primary-virtual-adapter-v32") => {
                 self.test_cooperative_level.is_some()
                     && matches!(
                         update_texture_profile,
-                        None | Some((
-                            "primary-recreated-system-memory-to-static-default-texture-update-v2",
-                            []
-                        ))
+                        None | Some(
+                            "primary-recreated-system-memory-to-static-default-texture-update-v2"
+                        )
                     )
             }
             (D3D9_COMPATIBILITY_POLICY_VERSION, "d3d9-primary-virtual-adapter-v33") => {
                 self.test_cooperative_level.is_some()
                     && matches!(
                         update_texture_profile,
-                        None | Some((
-                            "primary-recreated-system-memory-to-static-default-texture-update-v3",
-                            [_]
-                        ))
+                        None | Some(
+                            "primary-recreated-system-memory-to-static-default-texture-bounded-update-v3"
+                        )
                     )
             }
             _ => false,
@@ -1535,16 +1525,10 @@ fn valid_update_texture_policy(
 ) -> bool {
     let valid_dirty_rect_profile = match policy.profile_id.as_str() {
         "primary-recreated-system-memory-to-static-default-texture-update-v2" => {
-            policy.additional_partial_dirty_rects.is_empty()
+            !policy.allow_bounded_partial_dirty_rects
         }
-        "primary-recreated-system-memory-to-static-default-texture-update-v3" => {
-            policy.additional_partial_dirty_rects
-                == [RuntimeRect {
-                    left: 583,
-                    top: 530,
-                    right: 1_260,
-                    bottom: 582,
-                }]
+        "primary-recreated-system-memory-to-static-default-texture-bounded-update-v3" => {
+            policy.allow_bounded_partial_dirty_rects
         }
         _ => false,
     };
@@ -3741,7 +3725,7 @@ fn dispatch_update_texture(
     }
     if matches!(source.dirty_region, RuntimeGraphicsTextureDirtyRegion::Rect(rect)
         if rect != update_policy.partial_dirty_rect
-            && !update_policy.additional_partial_dirty_rects.contains(&rect))
+            && !update_policy.allow_bounded_partial_dirty_rects)
     {
         return call.fault(
             ComFaultClass::Unsupported,
