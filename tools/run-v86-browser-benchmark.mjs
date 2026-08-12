@@ -285,6 +285,12 @@ async function chromeVersion(chrome) {
 }
 
 async function optionalBgiBenchmark() {
+  if (process.env.VINE_BENCHMARK_PRIVATE_BGI !== "1") {
+    return {
+      status: "skipped",
+      reason: "set VINE_BENCHMARK_PRIVATE_BGI=1 for the historical private replay",
+    };
+  }
   const bgi = process.env.VINE_BGI_EXE ?? "V:\\softs\\サクラノ詩\\BGI.exe";
   if (!fs.existsSync(bgi)) return { status: "skipped", reason: "primary BGI file unavailable" };
   const result = await run(

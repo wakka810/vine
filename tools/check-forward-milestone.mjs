@@ -10,33 +10,37 @@ const checkpoint = loadCurrentCheckpoint(
   path.join(root, "docs", "current-checkpoint.json"),
 );
 const reportPath = path.resolve(root, checkpoint.development.reportPath);
-const reportBytes = fs.readFileSync(reportPath);
-assert(
-  reportBytes.byteLength <= 2 * 1024 * 1024,
-  `forward report exceeds 2 MiB (${reportBytes.byteLength} bytes)`,
-);
-const report = JSON.parse(reportBytes.toString("utf8"));
+function loadBoundedReport(file) {
+  const bytes = fs.readFileSync(file);
+  assert(
+    bytes.byteLength <= 2 * 1024 * 1024,
+    `forward report exceeds 2 MiB (${bytes.byteLength} bytes)`,
+  );
+  const value = JSON.parse(bytes.toString("utf8"));
+  assert.equal(value.schema, "vine.target-forward-report");
+  assert.equal(value.schemaVersion, 1);
+  assert.equal(value.mode, "release-chrome-forward");
+  assert.equal(value.source.sha256, checkpoint.activeTarget.sourceSha256);
+  assert.equal(value.source.immutableAfterRun, true);
+  assert(
+    Number.isFinite(value.elapsedMilliseconds) &&
+      value.elapsedMilliseconds > 0 &&
+      value.elapsedMilliseconds <= checkpoint.development.maximumRunSeconds * 1000,
+    "forward run exceeded its configured development bound",
+  );
+  assert(Array.isArray(value.semanticTail), "forward semantic tail is missing");
+  assert(
+    value.semanticTail.length <= checkpoint.development.semanticTailEntries,
+    "forward semantic tail exceeds its configured bound",
+  );
+  assert.equal(value.pending.hostCalls, 0);
+  assert.equal(value.pending.callbacks, 0);
+  assert.equal(value.pending.hostRequestRecords, 0);
+  assert.equal(value.pending.timerPacing, 0);
+  return { bytes, value };
+}
 
-assert.equal(report.schema, "vine.target-forward-report");
-assert.equal(report.schemaVersion, 1);
-assert.equal(report.mode, "release-chrome-forward");
-assert.equal(report.source.sha256, checkpoint.activeTarget.sourceSha256);
-assert.equal(report.source.immutableAfterRun, true);
-assert(
-  Number.isFinite(report.elapsedMilliseconds) &&
-    report.elapsedMilliseconds > 0 &&
-    report.elapsedMilliseconds <= checkpoint.development.maximumRunSeconds * 1000,
-  "forward run exceeded its configured development bound",
-);
-assert(Array.isArray(report.semanticTail), "forward semantic tail is missing");
-assert(
-  report.semanticTail.length <= checkpoint.development.semanticTailEntries,
-  "forward semantic tail exceeds its configured bound",
-);
-assert.equal(report.pending.hostCalls, 0);
-assert.equal(report.pending.callbacks, 0);
-assert.equal(report.pending.hostRequestRecords, 0);
-assert.equal(report.pending.timerPacing, 0);
+const { bytes: reportBytes, value: report } = loadBoundedReport(reportPath);
 
 function assertPrimaryAudio() {
   assert(report.audio.playbackRequests > 0, "no browser audio request was observed");
@@ -82,6 +86,58 @@ switch (checkpoint.lastCompletedBoundary.id) {
     assert.equal(frameBytes.byteLength, frame.bytes);
     assert(frameBytes.byteLength > 0 && frameBytes.byteLength <= 2 * 1024 * 1024);
     acceptanceSummary = `${report.presentation.presentCount} Present(s), ${frameBytes.byteLength}-byte frame`;
+    break;
+  }
+  case "primary-save-browser-restart-load": {
+    const commitReportPath = path.resolve(
+      root,
+      ".work",
+      "target-forward",
+      "persistence-commit-report.json",
+    );
+    const { value: commitReport } = loadBoundedReport(commitReportPath);
+    assert(
+      Date.parse(commitReport.measuredAt) < Date.parse(report.measuredAt),
+      "persistence commit must precede the restart run",
+    );
+    const committedProfile = commitReport.storage.profile;
+    const restartProfile = report.storage.profile;
+    assert(committedProfile !== null && restartProfile !== null);
+    assert.equal(committedProfile.database, restartProfile.database);
+    assert(
+      committedProfile.database.endsWith("/forward.sqlite"),
+      "forward persistence did not use the durable development profile",
+    );
+    const committedBefore = committedProfile.before.files[0];
+    const committedAfter = committedProfile.after.files[0];
+    const commit = commitReport.storageLatest.writableCommit;
+    assert(commit !== null && commit.succeeded && commit.win32Error === 0);
+    assert.equal(commit.request.objectId, committedAfter.objectId);
+    assert.equal(commit.request.baseGeneration, committedBefore.generation);
+    assert.equal(commit.committedGeneration, committedAfter.generation);
+    assert.equal(commit.request.byteLength, committedAfter.byteLength);
+    assert.equal(commit.request.contentSha256, committedAfter.sha256);
+    assert(committedAfter.generation > committedBefore.generation);
+
+    const restartBefore = restartProfile.before.files[0];
+    const restartAfter = restartProfile.after.files[0];
+    const hydration = report.storage.latestWritableHydration;
+    assert.equal(restartBefore.generation, committedAfter.generation);
+    assert.equal(restartBefore.byteLength, committedAfter.byteLength);
+    assert.equal(restartBefore.sha256, committedAfter.sha256);
+    assert.equal(report.storage.writableHydratedObjects, 1);
+    assert.equal(report.storage.writableHydratedBytes, committedAfter.byteLength);
+    assert.deepEqual(hydration, {
+      objectId: committedAfter.objectId,
+      generation: committedAfter.generation,
+      byteLength: committedAfter.byteLength,
+      sha256: committedAfter.sha256,
+    });
+    assert.deepEqual(restartAfter, restartBefore);
+    assert(report.presentation.presentCount > 0, "restart did not resume guest presentation");
+    acceptanceSummary =
+      `generation ${committedBefore.generation}->${committedAfter.generation}, ` +
+      `${committedAfter.byteLength}-byte restart hydration`;
     break;
   }
   default:

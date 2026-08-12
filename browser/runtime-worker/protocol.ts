@@ -2,7 +2,7 @@ import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 import type { BrowserNativeStorageConfiguration } from "../storage/protocol.js";
 
-export const protocolVersion = 141 as const;
+export const protocolVersion = 142 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -1203,6 +1203,14 @@ export interface RuntimeForwardDevelopmentSummary {
   };
   storage: {
     sourceReads: number;
+    writableHydratedObjects: number;
+    writableHydratedBytes: number;
+    latestWritableHydration: {
+      objectId: number;
+      generation: number;
+      byteLength: number;
+      sha256: string;
+    } | null;
     writableCommits: number;
     writableDirectoryCreates: number;
   };
@@ -2079,6 +2087,10 @@ export interface SessionReport {
   pendingHostCalls: number;
   pendingCallbacks: number;
   maximumSliceMilliseconds: number;
+  executionTiming: {
+    guestMilliseconds: number;
+    writebackReconciliationMilliseconds: number;
+  };
   wasmBridgeCalls: number;
   runtimeCoreLinearMemoryBytes: number;
   executionEngine: ExecutionEngineIdentity | null;

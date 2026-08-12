@@ -33,6 +33,7 @@ import {
   handleWritableProfileHttp,
   openWritableProfile,
   readWritableProfile,
+  revokeWritableProfileLease,
   snapshotWritableProfile,
 } from "./writable-profile.mjs";
 import {
@@ -45,6 +46,8 @@ const assetsRoot = path.join(root, ".work", "browser-runtime");
 const serveOnly = process.argv.includes("--serve");
 const fullEvidence = process.argv.includes("--full-evidence");
 const forwardMode = process.argv.includes("--forward");
+const forwardSecondsOption = optionValue("--forward-seconds");
+const forwardSeconds = Number(forwardSecondsOption ?? 60);
 const bgiBenchmarkMilliseconds = Number(optionValue("--bgi-benchmark-ms") ?? 0);
 const bgiMode = process.argv.includes("--bgi") || bgiBenchmarkMilliseconds > 0;
 const bgiCpuProfile = process.argv.includes("--bgi-cpu-profile");
@@ -99,6 +102,14 @@ assert(
   "--bgi-cpu-profile requires a BGI benchmark",
 );
 assert(!forwardMode || (bgiMode && !fullEvidence), "forward mode requires summary BGI execution");
+assert(
+  forwardSecondsOption === null || forwardMode,
+  "--forward-seconds requires forward mode",
+);
+assert(
+  Number.isInteger(forwardSeconds) && forwardSeconds >= 1 && forwardSeconds <= 540,
+  "--forward-seconds must be an integer from 1 through 540",
+);
 const scheduledSharedClockSetWindowTextProfile =
   bgiProfileOverride === null &&
   checkpoint.activeRuntimeCheckpoint.runtimeKernelCheckpoint ===
@@ -502,7 +513,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v141";
+const runtimeProtocol = "vine.browser-runtime-worker.v142";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -1107,6 +1118,20 @@ async function waitForBgiCheckpoint(client, timeoutMs = 30_000) {
       return snapshot.result;
     }
     await wait(50);
+  }
+  if (forwardMode) {
+    await evaluate(client, `window.__vineBgiCheck?.cancel()`);
+    const cancellationDeadline = Date.now() + 30_000;
+    while (Date.now() < cancellationDeadline) {
+      snapshot = await evaluate(client, `window.__vineBgiCheck`);
+      if (snapshot?.error !== null && snapshot?.error !== undefined) {
+        throw new Error(`BGI browser runtime failed: ${snapshot.error}`);
+      }
+      if (snapshot?.result !== null && snapshot?.result !== undefined) {
+        return snapshot.result;
+      }
+      await wait(50);
+    }
   }
   const diagnostics = await evaluate(
     client,
@@ -5936,7 +5961,7 @@ function validateCreateFontA224x112BgiProbe(evidence, scenario) {
 async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
   const target = await createDebugTarget(
     browserWebSocketUrl,
-    `${baseUrl}bgi-check.html?scenario=${scenario}&profile=${encodeURIComponent(bgiProfile)}${fullEvidence ? "&evidence=full" : ""}${forwardMode ? "&development=forward" : ""}`,
+    `${baseUrl}bgi-check.html?scenario=${scenario}&profile=${encodeURIComponent(bgiProfile)}${fullEvidence ? "&evidence=full" : ""}${forwardMode ? `&development=forward&forwardSeconds=${forwardSeconds}` : ""}`,
   );
   const client = await connectDevTools(target.webSocketDebuggerUrl);
   try {
@@ -5945,7 +5970,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     const evidence = await waitForBgiCheckpoint(
       client,
       forwardMode
-        ? 600_000
+        ? forwardSeconds * 1_000 + 30_000
         : scenario === "success" &&
         primaryMainLoopPostCallbackPointerReleaseMessageConsumptionProfile
         ? 3_600_000
@@ -20284,6 +20309,25 @@ function assertWritableProfileLeaseReleased(profile) {
   assert.equal(lease?.session_key, null);
 }
 
+function revokeActiveWritableProfileLease(profile) {
+  const lease = profile.database
+    .prepare(
+      "SELECT epoch, session_key, active FROM profile_lease WHERE singleton = 1",
+    )
+    .get();
+  if (lease?.active !== 1) {
+    return false;
+  }
+  assert(Number.isSafeInteger(lease.epoch) && lease.epoch > 0);
+  assert.equal(typeof lease.session_key, "string");
+  const revoked = revokeWritableProfileLease(profile, {
+    epoch: lease.epoch,
+    sessionKey: lease.session_key,
+  });
+  assert.equal(revoked.revoked, true);
+  return true;
+}
+
 function findChrome() {
   const candidates = [
     process.env.VINE_CHROME,
@@ -20473,7 +20517,7 @@ if (writableProfileBaseDirectory !== null) {
   fs.mkdirSync(writableProfileBaseDirectory, { recursive: true });
 }
 const writableProfileRunDirectory =
-  bgiMode && createDirectoryAProfile
+  bgiMode && createDirectoryAProfile && !forwardMode
     ? await mkdtemp(
         path.join(
           writableProfileBaseDirectory,
@@ -20485,7 +20529,7 @@ const writableProfile = bgiMode
   ? openWritableProfile({
       databasePath: path.join(
         writableProfileRunDirectory ?? writableProfileBaseDirectory,
-        "default.sqlite",
+        forwardMode ? "forward.sqlite" : "default.sqlite",
       ),
       titleFingerprint:
         checkpoint.browserCheckpoint.bgiRuntimeEvidence.sourceSha256,
@@ -20509,6 +20553,8 @@ const writableProfile = bgiMode
         : [],
     })
   : null;
+const writableProfileBefore =
+  writableProfile === null ? null : snapshotWritableProfile(writableProfile);
 const { server, port } = await startServer(
   requestedPort,
   sourceRegistration,
@@ -20609,7 +20655,10 @@ if (serveOnly) {
           schema: "vine.target-forward-report",
           schemaVersion: 1,
           measuredAt: new Date().toISOString(),
-          command: currentState.commands.forward,
+          command:
+            forwardSeconds === 60
+              ? currentState.commands.forward
+              : `npm run run:target:forward:prepared -- --forward-seconds ${forwardSeconds}`,
           mode: "release-chrome-forward",
           chromeVersion: version,
           source: {
@@ -20642,7 +20691,20 @@ if (serveOnly) {
             stopsApplied: success.audioStopsApplied,
             latestStop: success.latestAudioStop,
           },
-          storage: forward.storage,
+          storage: {
+            ...forward.storage,
+            profile:
+              writableProfile === null
+                ? null
+                : {
+                    database: path
+                      .relative(root, writableProfile.databasePath)
+                      .split(path.sep)
+                      .join("/"),
+                    before: writableProfileBefore,
+                    after: snapshotWritableProfile(writableProfile),
+                  },
+          },
           storageLatest: {
             writableCommit: session.writableCommits.at(-1) ?? null,
             writableDirectoryCreate:
@@ -20657,6 +20719,9 @@ if (serveOnly) {
           execution: {
             state: session.executionState,
             maximumSliceMilliseconds: session.maximumSliceMilliseconds,
+            guestMilliseconds: session.executionTiming.guestMilliseconds,
+            writebackReconciliationMilliseconds:
+              session.executionTiming.writebackReconciliationMilliseconds,
             writebackBatches: session.writebackBatches,
             writebackPages: session.writebackPages,
             mappingDeltas: session.mappingDeltas,
@@ -21044,6 +21109,14 @@ if (serveOnly) {
     } finally {
       try {
         if (writableProfile !== null) {
+          if (
+            forwardMode &&
+            revokeActiveWritableProfileLease(writableProfile)
+          ) {
+            console.warn(
+              "forward runner revoked an active writable profile lease after Chrome stopped",
+            );
+          }
           assertWritableProfileLeaseReleased(writableProfile);
         }
       } finally {

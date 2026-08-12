@@ -10,27 +10,26 @@ This section is generated from [`docs/current-checkpoint.json`](docs/current-che
 | Area | Current state |
 |---|---|
 | Active target | Sakura no Uta `BGI.exe` (PE32/i386) in Chrome |
-| Active milestone | `primary-save-browser-restart-load`: The primary title commits save or configuration state to the writable overlay and restores it after browser and local service restart without changing source files |
-| Last completed boundary | `primary-visible-action-response-or-readable-frame`: The primary title rendered a readable Start/Load menu, accepted a real pointer press through the guest input path, and visibly highlighted Start while primary Web Audio continued |
-| Current forward stop | `semantic-leaf-implemented-pending-forward-confirmation` / `IDirect3DDevice9::UpdateTexture`: The last bounded report reached a valid (232,556)-(346,619) partial dirty region at 9,790,835,734 instructions; the v33 policy now accepts owner-validated bounded regions, but two post-fix cold runs reached the host time bound before producing a later endpoint |
-| Next development goal | Add a commit-scoped .work forward resume cache for the repeatedly measured long cold prefix, confirm the bounded UpdateTexture path, then activate Start and follow the first scenario persistence behavior into save/restart/load |
+| Active milestone | `primary-representative-flow`: A bounded real scenario covers launch, readable rendering, multiple inputs, audio, a scene transition, persistent state, restart, and restore without an unsupported stop |
+| Last completed boundary | `primary-save-browser-restart-load`: The primary title atomically committed its BGI.gdb configuration overlay from generation 1 to 2; a separate Chrome and local-service run loaded the same 123657 bytes and SHA-256 into the authoritative Rust runtime while source files remained unchanged |
+| Current forward stop | `input-transition-not-yet-observed` / `primary-title-start-action`: A 450-second generic forward run rendered the complete title artwork, observed the Start-coordinate primary down in guest GetAsyncKeyState, committed the matching up message to Rust input authority, committed the writable overlay, and reached no unsupported endpoint; the title had not entered the first scenario before the bounded run ended |
+| Next development goal | Capture the bounded guest consumption and hit-test result around the Start down/up pair, make that action enter the first scenario, then follow the first scene transition toward a representative flow |
 
 ### Subsystems
 
 | Subsystem | Status | Boundary |
 |---|---|---|
-| `execution` | `partial` | PE32 loading, x86 execution mirror, checked GuestMemory synchronization, process/thread scheduling, callbacks, and reached Win32/COM dispatch |
-| `window-input` | `partial` | Logical window, message queue, timers, focus/cursor state, keyboard scan, pointer down/up dispatch, and a guest-observed primary pointer press that visibly highlights Start |
-| `graphics` | `partial` | GDI/GDI+ reached paths and bounded D3D9 fixed-function scenes published through WebGL2; readable menu rendering and owner-validated bounded UpdateTexture dirty regions are supported |
-| `source-storage` | `partial` | Immutable source reads and a separate writable overlay are active; one directory create and commit are reached, but their save/configuration role and restart/load are not yet accepted |
+| `execution` | `partial` | PE32 loading, x86 execution mirror, checked GuestMemory synchronization, process/thread scheduling, callbacks, and generic forward capture from the first API without historical exact-checkpoint gating |
+| `window-input` | `gateway` | Logical window, message queue, timers, focus/cursor state, keyboard scan, and Start-coordinate primary down/up dispatch are active; the remaining gateway is the title engine's action consumption and scene transition |
+| `graphics` | `partial` | GDI/GDI+ reached paths and bounded D3D9 fixed-function scenes publish through WebGL2; the complete title artwork renders and owner-validated bounded UpdateTexture dirty regions are confirmed past their reached call |
+| `source-storage` | `partial` | Immutable source reads and a title-local forward.sqlite overlay are separated; BGI.gdb commit generation and content survive browser/local-service restart and are hash-checked before Rust hydration |
 | `audio` | `partial` | Reached DirectSound streaming buffers, partial and wrapping Lock/Unlock, notifications, status/cursor control, Play/Stop with generation-safe browser transport, and non-zero primary PCM through Chrome Web Audio |
 
 ### Important Non-Claims
 
-- Start visibly responds to pointer input, but activating it and advancing a representative scenario are not yet accepted
-- The reached bounded UpdateTexture region is implemented, but a post-fix private run has not yet produced the following endpoint because the cold prefix exceeded the host time bound
+- The Start-coordinate down is guest-observed and the matching up is committed to Rust input authority, but its WndProc consumption, a first-scene transition, and representative flow are not yet accepted
+- The persistence milestone covers the reached title-local BGI.gdb configuration overlay; an in-story save-slot and Load-menu roundtrip are not yet claimed
 - Primary audio format breadth, suspend/resume behavior, and long-run streaming stability are not yet accepted
-- No primary save/browser-restart/load flow is claimed
 - No representative route, ending, or long-run acceptance is claimed
 - Historical per-API capability profiles are frozen and are not the active development queue
 

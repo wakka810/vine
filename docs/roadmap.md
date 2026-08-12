@@ -16,7 +16,7 @@ Exit condition:
 Remaining work:
 
 - retain the same graphics authority and bounded frame diagnostics through later scenes
-- activate the highlighted `Start` entry and progress the save/restart/load scenario
+- make the delivered `Start` down/up pair enter the first scene
 
 ## 2. Primary audio
 
@@ -36,13 +36,7 @@ Remaining unknowns:
 
 ## 3. Save, browser restart, and load
 
-Current work:
-
-- add a commit/build/source-bound `.work` resume cache now that repeated cold prefixes have exceeded 60 seconds and the 10-minute host bound
-- confirm the newly bounded `UpdateTexture` dirty-region path and activate `Start` through the existing pointer path
-- follow the first scenario transition
-- classify the already reached writable directory and commit as configuration or save behavior
-- project the next reached persistence endpoint into the bounded forward report
+Reached on 2026-08-12: the primary title atomically committed its title-local `BGI.gdb` configuration overlay from generation 1 to 2. A separate Chrome and local-service run reopened the persistent forward profile, verified the same 123,657 bytes and SHA-256, hydrated them into the Rust runtime, and resumed guest presentation without modifying the source file.
 
 Exit condition:
 
@@ -53,10 +47,16 @@ Exit condition:
 
 Main unknowns:
 
-- exact reached file／registry operations and locking pattern
-- title close／flush semantics
+- in-story save-slot and `Load` menu behavior beyond the reached configuration database
+- later registry operations, locking patterns, and title close／flush variants
 
 ## 4. Representative flow
+
+Current work:
+
+- capture the bounded guest consumption and hit-test result for the delivered Start down/up pair
+- enter the first scene and follow its first graphics/audio transition
+- exercise later input and the first in-story persistence path without expanding diagnostics
 
 Exit condition:
 

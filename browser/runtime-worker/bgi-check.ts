@@ -35,7 +35,11 @@ interface BgiBrowserEvidence {
 
 declare global {
   interface Window {
-    __vineBgiCheck: { result: BgiBrowserEvidence | null; error: string | null };
+    __vineBgiCheck: {
+      result: BgiBrowserEvidence | null;
+      error: string | null;
+      cancel: () => void;
+    };
   }
 
   interface Performance {
@@ -50,6 +54,10 @@ const status = requiredElement<HTMLOutputElement>("#status");
 const searchParams = new URL(location.href).searchParams;
 const scenario = parseScenario(searchParams.get("scenario"));
 const forwardDevelopment = searchParams.get("development") === "forward";
+const forwardSeconds = Number(searchParams.get("forwardSeconds") ?? 60);
+if (!Number.isInteger(forwardSeconds) || forwardSeconds < 1 || forwardSeconds > 540) {
+  throw new Error("forwardSeconds must be an integer from 1 through 540");
+}
 const evidenceLevel =
   !forwardDevelopment && searchParams.get("evidence") === "full"
     ? "full"
@@ -221,7 +229,6 @@ let heartbeatSamples = 0;
 let maximumHeartbeatGapMilliseconds = 0;
 let lastHeartbeat = performance.now();
 let cancellationSent = false;
-let forwardPrefixComplete = false;
 let forwardAudioObserved = false;
 let forwardVisibleFrameObserved = false;
 let forwardPostAudioActionSent = false;
@@ -236,19 +243,32 @@ const heartbeat = window.setInterval(() => {
   heartbeatSamples += 1;
 }, 5);
 
-window.__vineBgiCheck = { result: null, error: null };
+window.__vineBgiCheck = {
+  result: null,
+  error: null,
+  cancel: () => {
+    if (cancellationSent) {
+      return;
+    }
+    cancellationSent = true;
+    worker.postMessage({
+      type: "cancel-session",
+      protocolVersion,
+      sessionId,
+    } satisfies MainToWorkerMessage);
+  },
+};
 
 function maybePostForwardAction(): void {
   if (
     !forwardDevelopment ||
-    !forwardPrefixComplete ||
     !forwardAudioObserved ||
     !forwardVisibleFrameObserved ||
     forwardPostAudioActionSent
   ) {
     return;
   }
-  const down = pointerSourceEvent(5, "button-down", 0, 0x3b00, 0xd200);
+  const down = pointerSourceEvent(1, "button-down", 0, 0x3b00, 0xd200);
   if (down === null) {
     fail(new Error("post-audio pointer action is outside the bounded source mapping"));
     return;
@@ -266,7 +286,7 @@ function releaseForwardAction(): void {
   if (!forwardPostAudioActionSent || forwardPostAudioActionReleased) {
     return;
   }
-  const up = pointerSourceEvent(6, "button-up", 0, 0x3b00, 0xd200);
+  const up = pointerSourceEvent(2, "button-up", 0, 0x3b00, 0xd200);
   if (up === null) {
     fail(new Error("post-audio pointer release is outside the bounded source mapping"));
     return;
@@ -297,15 +317,6 @@ worker.addEventListener(
         statuses[maximumRetainedStatuses - 1] = observation;
       }
       status.textContent = message.detail;
-      if (
-        forwardDevelopment &&
-        message.phase === "running" &&
-        message.detail ===
-          "Historical capability boundary bypassed; continuing to the next real stop"
-      ) {
-        forwardPrefixComplete = true;
-        maybePostForwardAction();
-      }
       if (
         forwardDevelopment &&
         message.phase === "running" &&
@@ -582,7 +593,7 @@ const startMessage = {
                   : 20_000_000,
     watchdogWallMilliseconds:
       forwardDevelopment
-        ? 600_000
+        ? forwardSeconds * 1_000
         : capabilityProfile ===
         "primary-main-loop-post-callback-pointer-release-message-consumption-batch"
         ? 3_600_000
@@ -717,7 +728,8 @@ const startMessage = {
 } satisfies MainToWorkerMessage;
 worker.postMessage(startMessage, d3d9Canvas === undefined ? [] : [d3d9Canvas]);
 if (
-  capabilityProfile === "user32-async-key-state-input" ||
+  !forwardDevelopment &&
+  (capabilityProfile === "user32-async-key-state-input" ||
   capabilityProfile === "user32-async-key-state-input-continuation" ||
   capabilityProfile === "primary-main-loop-input-progress-gateway" ||
   capabilityProfile === "primary-main-loop-action-input-progress-gateway" ||
@@ -762,7 +774,7 @@ if (
     "user32-window-timer-callback-post-waitable-timer-cycle" ||
   capabilityProfile ===
     "user32-peek-message-a-post-window-timer-callback-continuation" ||
-  scheduledSharedClockSetWindowText
+  scheduledSharedClockSetWindowText)
 ) {
   const pointerMessageInput =
     capabilityProfile === "primary-main-loop-pointer-message-action-progress-gateway" ||

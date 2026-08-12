@@ -123,6 +123,7 @@ import { sourceSnapshotManifest } from "../storage/protocol.js";
 const worker = self as DedicatedWorkerGlobalScope;
 const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
 const BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 64;
+const FORWARD_BUDGET_STATUS_INTERVAL = 4096;
 const MAX_PENDING_INPUT_EVENTS = 256;
 const RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS = 40_000_000;
 const RUNTIME_TRAPLESS_EXECUTION_BUDGET_START_INSTRUCTION = 226_703_249;
@@ -4304,7 +4305,7 @@ class BrowserRuntimeSession {
   #bgiCheckpointPending = false;
   #forwardPrefixComplete = false;
   #forwardVisibleFrameSignaled = false;
-  #forwardPrimaryPointerPressSignaled = false;
+  #forwardPrimaryPointerPressPending = false;
   #forwardTailCursor = 0;
   #user32TranslateMessagePostTestCooperativeLevelTimerPeekPrerequisite: User32TranslateMessagePostTestCooperativeLevelTimerPeekCheckpoint | null =
     null;
@@ -4432,6 +4433,10 @@ class BrowserRuntimeSession {
     initialGeneration: 0,
     initialCurrentDirectory: null as SessionReport["initialCurrentDirectory"],
     maximumSliceMilliseconds: 0,
+    executionTiming: {
+      guestMilliseconds: 0,
+      writebackReconciliationMilliseconds: 0,
+    },
     supportedCallCount: 0,
     supportedCallSemanticsAlgorithm: SEMANTIC_CALL_DIGEST_ALGORITHM,
     supportedCallSemanticsSha256: null as string | null,
@@ -4523,10 +4528,11 @@ class BrowserRuntimeSession {
           configuration.capabilityProfile !== undefined,
         "forward development requires a summary private BGI support profile",
       );
+      this.#forwardPrefixComplete = true;
       this.#report.forwardDevelopment = {
         mode: "forward",
         supportProfile: configuration.capabilityProfile,
-        historicalCheckpointBypassed: false,
+        historicalCheckpointBypassed: true,
         semanticTailCapacity: 512,
         semanticTail: [],
         presentCount: 0,
@@ -4542,6 +4548,9 @@ class BrowserRuntimeSession {
         },
         storage: {
           sourceReads: 0,
+          writableHydratedObjects: 0,
+          writableHydratedBytes: 0,
+          latestWritableHydration: null,
           writableCommits: 0,
           writableDirectoryCreates: 0,
         },
@@ -4703,6 +4712,7 @@ class BrowserRuntimeSession {
         isScheduledSharedClockSetWindowText(
           this.#configuration.capabilityProfile,
         );
+      this.#status("loading", "Preparing authoritative Rust runtime state");
       const preparedOutput =
         workload === "private-bgi"
           ? bridge.prepareBgi(
@@ -4785,6 +4795,7 @@ class BrowserRuntimeSession {
                   failInvariant("source fixture manifest is missing"),
               )
             : bridge.prepare(executable);
+      this.#status("loading", "Authoritative Rust runtime state prepared");
       invariant(
         preparedOutput.metadata.schemaVersion === 2,
         "prepared metadata schema mismatch",
@@ -5221,6 +5232,17 @@ class BrowserRuntimeSession {
           output.payload.byteLength === 0,
         "Rust writable profile hydration metadata mismatch",
       );
+      const forward = this.#report.forwardDevelopment;
+      if (forward !== null) {
+        forward.storage.writableHydratedObjects += 1;
+        forward.storage.writableHydratedBytes += file.byteLength;
+        forward.storage.latestWritableHydration = {
+          objectId: file.objectId,
+          generation: file.generation,
+          byteLength: file.byteLength,
+          sha256: file.sha256,
+        };
+      }
     }
   }
 
@@ -5626,6 +5648,14 @@ class BrowserRuntimeSession {
         return;
       }
       this.#commitPointerInput(message.event);
+      if (
+        this.#isForwardDevelopment() &&
+        this.#forwardPrefixComplete &&
+        message.event.kind === "button-down" &&
+        message.event.button === "primary"
+      ) {
+        this.#forwardPrimaryPointerPressPending = true;
+      }
     } catch (error) {
       this.#fail(error instanceof Error ? error : new Error(String(error)));
     }
@@ -7575,9 +7605,11 @@ class BrowserRuntimeSession {
           remainingTraplessInstructions,
         ),
       );
+      const sliceMilliseconds = performance.now() - sliceStartedAt;
+      this.#report.executionTiming.guestMilliseconds += sliceMilliseconds;
       this.#report.maximumSliceMilliseconds = Math.max(
         this.#report.maximumSliceMilliseconds,
-        performance.now() - sliceStartedAt,
+        sliceMilliseconds,
       );
       this.#report.instructions += slice.instructions;
       this.#instructionsSinceOwnedStop += slice.instructions;
@@ -7608,7 +7640,11 @@ class BrowserRuntimeSession {
           threadId: this.#currentThreadId,
         });
         this.#report.budgetYields += 1;
-        if (this.#report.budgetYields % 16 === 0) {
+        const statusInterval =
+          this.#configuration.developmentMode === "forward"
+            ? FORWARD_BUDGET_STATUS_INTERVAL
+            : 16;
+        if (this.#report.budgetYields % statusInterval === 0) {
           this.#status(
             "running",
             `${this.#report.instructions.toLocaleString()} guest instructions; periodic yield`,
@@ -9888,7 +9924,9 @@ class BrowserRuntimeSession {
           cause: "guest-callback-enter",
           threadId: this.#currentThreadId,
         });
-        this.#status("callback", `Guest callback depth ${metadata.depth}`);
+        if (this.#configuration.developmentMode !== "forward") {
+          this.#status("callback", `Guest callback depth ${metadata.depth}`);
+        }
         break;
       }
       case "api-complete": {
@@ -18941,19 +18979,35 @@ class BrowserRuntimeSession {
       endpoint !== undefined && frame !== undefined,
       "forward API completion omitted endpoint or ABI frame identity",
     );
+    const arguments_ = frame.arguments.flatMap(({ words }) => words);
+    const symbol =
+      endpoint.symbol.kind === "ordinal"
+        ? `#${endpoint.symbol.ordinal}`
+        : endpoint.symbol.name;
+    if (
+      this.#forwardPrimaryPointerPressPending &&
+      endpoint.module.toLowerCase() === "user32.dll" &&
+      symbol === "GetAsyncKeyState" &&
+      arguments_.length === 1 &&
+      arguments_[0] === 0x01 &&
+      completion.eax.action === "set" &&
+      (completion.eax.value & 0x8000) !== 0
+    ) {
+      this.#forwardPrimaryPointerPressPending = false;
+      this.#status(
+        "running",
+        "Forward primary pointer press observed by guest",
+      );
+    }
     const sequence = reservedSequence ?? ++this.#nextBgiCallSequence;
     this.#captureForwardEntry({
       sequence,
       instructionCount: this.#report.instructions,
       threadId: this.#currentThreadId,
       module: endpoint.module,
-      symbol:
-        endpoint.symbol.kind === "ordinal"
-          ? `#${endpoint.symbol.ordinal}`
-          : endpoint.symbol.name,
-      arguments: frame.arguments.flatMap(({ words }) => words).slice(0, 16),
-      argumentsTruncated:
-        frame.arguments.flatMap(({ words }) => words).length > 16,
+      symbol,
+      arguments: arguments_.slice(0, 16),
+      argumentsTruncated: arguments_.length > 16,
       result: completion.eax,
       implementationId: completion.implementationId,
       returnAddress: completion.instructionPointer,
@@ -19006,7 +19060,7 @@ class BrowserRuntimeSession {
 
   #captureForwardCall(call: RuntimeSupportedCallSnapshot): void {
     if (
-      !this.#forwardPrimaryPointerPressSignaled &&
+      this.#forwardPrimaryPointerPressPending &&
       call.module.toLowerCase() === "user32.dll" &&
       call.symbol === "GetAsyncKeyState" &&
       call.arguments.length === 1 &&
@@ -19015,7 +19069,7 @@ class BrowserRuntimeSession {
       call.result.action === "set" &&
       (call.result.value & 0x8000) !== 0
     ) {
-      this.#forwardPrimaryPointerPressSignaled = true;
+      this.#forwardPrimaryPointerPressPending = false;
       this.#status(
         "running",
         "Forward primary pointer press observed by guest",
@@ -19083,7 +19137,10 @@ class BrowserRuntimeSession {
         !this.#forwardVisibleFrameSignaled &&
         presentation.centerPixelRgba
           .slice(0, 3)
-          .every((component) => component >= 248)
+          .some((component) => component > 7) &&
+        presentation.centerPixelRgba
+          .slice(0, 3)
+          .some((component) => component < 248)
       ) {
         this.#forwardVisibleFrameSignaled = true;
         this.#status(
@@ -27916,10 +27973,12 @@ class BrowserRuntimeSession {
         cause: "guest-callback-replacement",
         threadId: this.#currentThreadId,
       });
-      this.#status(
-        "callback",
-        `Guest callback replaced at depth ${metadata.depth}`,
-      );
+      if (this.#configuration.developmentMode !== "forward") {
+        this.#status(
+          "callback",
+          `Guest callback replaced at depth ${metadata.depth}`,
+        );
+      }
       return;
     }
     this.#applyOptionalDelta(output);
@@ -28096,10 +28155,12 @@ class BrowserRuntimeSession {
           : "callback-stack-empty",
       threadId: this.#currentThreadId,
     });
-    this.#status(
-      "running",
-      `Callback returned; depth ${metadata.remainingDepth}`,
-    );
+    if (this.#configuration.developmentMode !== "forward") {
+      this.#status(
+        "running",
+        `Callback returned; depth ${metadata.remainingDepth}`,
+      );
+    }
   }
 
   #registerCreatedThread(created: CreatedThreadMetadata): void {
@@ -28530,8 +28591,11 @@ class BrowserRuntimeSession {
   }
 
   #reconcileDirtyPages(): void {
+    const reconciliationStartedAt = performance.now();
     const pages = this.#requireEngine().collectChangedPageViews();
     if (pages.length === 0) {
+      this.#report.executionTiming.writebackReconciliationMilliseconds +=
+        performance.now() - reconciliationStartedAt;
       return;
     }
     // The bridge copies these engine-owned views synchronously before execution can resume.
@@ -28541,6 +28605,8 @@ class BrowserRuntimeSession {
     );
     this.#report.writebackBatches += 1;
     this.#report.writebackPages += pages.length;
+    this.#report.executionTiming.writebackReconciliationMilliseconds +=
+      performance.now() - reconciliationStartedAt;
   }
 
   #applyRequiredDelta(
@@ -35817,6 +35883,7 @@ class BrowserRuntimeSession {
         executionEngine: this.#engine?.identity() ?? null,
         executionEngineLinearMemoryBytes:
           this.#engine?.linearMemoryBytes() ?? 0,
+        executionTiming: { ...this.#report.executionTiming },
         finalGeneration: Number(this.#generation),
       },
     };
@@ -35926,6 +35993,10 @@ worker.addEventListener(
               pendingHostCalls: 0,
               pendingCallbacks: 0,
               maximumSliceMilliseconds: 0,
+              executionTiming: {
+                guestMilliseconds: 0,
+                writebackReconciliationMilliseconds: 0,
+              },
               wasmBridgeCalls: 0,
               runtimeCoreLinearMemoryBytes: 0,
               executionEngine: null,
