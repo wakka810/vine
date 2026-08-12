@@ -100,6 +100,7 @@ import {
   type BridgeOutput,
   type CpuResume,
   type PreparedMetadata,
+  type PreparedEndpoint,
   type RuntimeThreadStackMetadata,
   RuntimeBridge,
 } from "./runtime-bridge.js";
@@ -3977,6 +3978,7 @@ class BrowserRuntimeSession {
   #bridge: RuntimeBridge | null = null;
   #engine: ExecutionEngine | null = null;
   #prepared: PreparedMetadata | null = null;
+  readonly #preparedEndpoints = new Map<number, PreparedEndpoint>();
   #generation = 0n;
   #terminal = false;
   #stopping = false;
@@ -4863,6 +4865,14 @@ class BrowserRuntimeSession {
       this.#engine = engine;
       this.#runtimePrepared = true;
       this.#prepared = preparedOutput.metadata;
+      this.#preparedEndpoints.clear();
+      for (const endpoint of preparedOutput.metadata.endpoints) {
+        invariant(
+          !this.#preparedEndpoints.has(endpoint.address),
+          "prepared runtime contains duplicate endpoint addresses",
+        );
+        this.#preparedEndpoints.set(endpoint.address, endpoint);
+      }
       this.#flushPendingInputEvents();
       if (profileBackedWorkload) {
         this.#validatePreparedWritableProfile(preparedOutput.metadata);
@@ -8462,8 +8472,11 @@ class BrowserRuntimeSession {
 
   async #dispatchApi(endpoint: number, stackPointer: number): Promise<void> {
     this.#continueForwardPastHistoricalCheckpoint();
+    if (this.#isForwardDevelopment()) {
+      await this.#dispatchForwardApi(endpoint, stackPointer);
+      return;
+    }
     if (
-      !this.#isForwardDevelopment() &&
       includesPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
         this.#configuration.capabilityProfile,
       ) &&
@@ -10239,6 +10252,112 @@ class BrowserRuntimeSession {
         break;
       default:
         throw new Error("runtime bridge returned an unknown dispatch outcome");
+    }
+  }
+
+  async #dispatchForwardApi(endpoint: number, stackPointer: number): Promise<void> {
+    const engine = this.#requireEngine();
+    const preparedEndpoint = this.#preparedEndpoints.get(endpoint);
+    invariant(preparedEndpoint !== undefined, "forward dispatch reached an unowned API endpoint");
+    const returnAddress = engine.readGuestU32(stackPointer);
+    const output = this.#requireBridge().dispatchForward<
+      | HostRequestMetadata
+      | GuestCallbackMetadata
+      | CompletionMetadata
+      | ApiFaultMetadata
+    >(
+      preparedEndpoint,
+      stackPointer,
+      returnAddress,
+      this.#report.instructions,
+      engine.saveCpuContext(),
+    );
+    const metadata = output.metadata;
+    switch (metadata.kind) {
+      case "host-request": {
+        invariant(
+          output.control.byteLength === 0 && output.payload.byteLength === 0,
+          "host request unexpectedly returned a delta",
+        );
+        this.#report.hostRequests += 1;
+        this.#status("waiting-host", metadata.service);
+        this.#postHost(metadata);
+        await this.#scheduleAfterBlock(
+          metadata.threadId,
+          metadata.requestId,
+          metadata.service === "runtime.timer-delay.v1" ||
+            metadata.service === "storage.source-read.v1" ||
+            metadata.service === "storage.profile-read.v1" ||
+            metadata.service === "storage.profile-commit.v1" ||
+            metadata.service === "storage.profile-directory-create.v1",
+        );
+        this.#synchronousApiBoundariesSinceYield = 0;
+        return;
+      }
+      case "guest-callback": {
+        this.#takeApiResumeState();
+        this.#applyRequiredDelta(output);
+        this.#trackForwardPointerPositionCallback(metadata, engine);
+        this.#trackForwardPointerButtonCallback(metadata, engine);
+        const sequence = this.#nextBgiCallSequence + 1;
+        invariant(
+          !this.#bgiCallbackCallSequences.has(metadata.frameId),
+          "forward callback frame reused an active call sequence",
+        );
+        this.#nextBgiCallSequence = sequence;
+        this.#bgiCallbackCallSequences.set(metadata.frameId, sequence);
+        this.#report.callbackEntries += 1;
+        this.#report.maximumCallbackDepth = Math.max(
+          this.#report.maximumCallbackDepth,
+          metadata.depth,
+        );
+        engine.enterGuestCallback(metadata.target, metadata.stackPointer);
+        this.#threadExecutionStates.set(this.#currentThreadId, "guest-callback");
+        this.#execution.transition("guest-callback", {
+          cause: "guest-callback-enter",
+          threadId: this.#currentThreadId,
+        });
+        return;
+      }
+      case "api-complete": {
+        const resumeState = this.#takeApiResumeState();
+        this.#applyOptionalDelta(output);
+        if (metadata.createdThread !== undefined) {
+          this.#registerCreatedThread(metadata.createdThread);
+        }
+        this.#recordForwardApiCompletion(metadata);
+        engine.applyCpuResume(metadata.completion);
+        this.#threadExecutionStates.set(this.#currentThreadId, resumeState);
+        const runnableThreadId =
+          metadata.createdThread?.schedulerState.state === "runnable"
+            ? metadata.createdThread.thread.id
+            : metadata.resumedThread?.schedulerState.state === "runnable" &&
+                metadata.resumedThread.previousSuspendCount > 0
+              ? metadata.resumedThread.threadId
+              : null;
+        if (runnableThreadId !== null) {
+          invariant(
+            this.#threadContexts.has(runnableThreadId),
+            "runnable API-created guest thread has no CPU context",
+          );
+        }
+        this.#completeApiExecutionBoundary(
+          resumeState,
+          metadata.threadSelection,
+          metadata.completion.executionBoundary,
+        );
+        return;
+      }
+      case "api-fault":
+        this.#takeApiResumeState();
+        this.#completeStructuredStop(
+          metadata,
+          output,
+          this.#captureForwardCaller(stackPointer, returnAddress),
+        );
+        return;
+      default:
+        throw new Error("runtime bridge returned an unknown forward dispatch outcome");
     }
   }
 

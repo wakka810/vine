@@ -162,6 +162,24 @@ export interface BridgeOutput<T = Record<string, unknown>> {
   payload: Uint8Array;
 }
 
+export type PreparedEndpoint = PreparedMetadata["endpoints"][number];
+
+interface FastApiCompletionMetadata {
+  kind: "api-complete";
+  endpoint: {
+    id: number;
+    address: number;
+    module: string;
+    symbol: { kind: "name"; name: string } | { kind: "ordinal"; ordinal: number };
+  };
+  completion: ApiCompletion;
+  threadSelection?: {
+    previousThreadId: number;
+    threadId: number;
+    state: { state: "runnable" } | { state: "in-callback"; depth: number };
+  };
+}
+
 interface RuntimeBridgeExports extends WebAssembly.Exports {
   memory: WebAssembly.Memory;
   vine_bridge_input_resize(length: number): number;
@@ -206,6 +224,8 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   ): number;
   vine_bridge_acknowledge(low: number, high: number): number;
   vine_bridge_fast_path_abi_version(): number;
+  vine_bridge_fast_dispatch_ptr_v2(): number;
+  vine_bridge_fast_dispatch_len_v2(): number;
   vine_bridge_acknowledge_fast_v1(low: number, high: number): number;
   vine_bridge_reconcile_writeback(controlLength: number, payloadLength: number): number;
   vine_bridge_reconcile_writeback_fast_v1(
@@ -221,6 +241,29 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   vine_bridge_current_memory_summary(): number;
   vine_bridge_service_page_fault(faultAddress: number, errorCode: number): number;
   vine_bridge_dispatch(
+    endpoint: number,
+    stackPointer: number,
+    returnAddress: number,
+    retiredInstructionsLow: number,
+    retiredInstructionsHigh: number,
+    eax: number,
+    ecx: number,
+    edx: number,
+    ebx: number,
+    esp: number,
+    ebp: number,
+    esi: number,
+    edi: number,
+    eip: number,
+    eflags: number,
+    es: number,
+    cs: number,
+    ss: number,
+    ds: number,
+    fs: number,
+    gs: number,
+  ): number;
+  vine_bridge_dispatch_fast_v2(
     endpoint: number,
     stackPointer: number,
     returnAddress: number,
@@ -309,6 +352,10 @@ function invariant(condition: unknown, message: string): asserts condition {
   }
 }
 
+function failFastDispatch(message: string): never {
+  throw new Error(message);
+}
+
 function splitU64(value: bigint): [number, number] {
   invariant(value >= 0n && value <= 0xffff_ffff_ffff_ffffn, "64-bit bridge value is out of range");
   return [Number(value & 0xffff_ffffn), Number((value >> 32n) & 0xffff_ffffn)];
@@ -336,7 +383,7 @@ export class RuntimeBridge {
   private constructor(exports: RuntimeBridgeExports) {
     this.#exports = exports;
     invariant(
-      this.#exports.vine_bridge_fast_path_abi_version() === 1,
+      this.#exports.vine_bridge_fast_path_abi_version() === 2,
       "unsupported runtime bridge fast-path ABI",
     );
   }
@@ -539,6 +586,69 @@ export class RuntimeBridge {
         context.gs,
       ),
     );
+  }
+
+  dispatchForward<T = Record<string, unknown>>(
+    endpoint: PreparedEndpoint,
+    stackPointer: number,
+    returnAddress: number,
+    retiredInstructions: number,
+    context: ExecutionCpuContext,
+  ): BridgeOutput<T> {
+    const [retiredInstructionsLow, retiredInstructionsHigh] =
+      splitRetiredInstructions(retiredInstructions);
+    this.#callCount += 1;
+    const status = this.#exports.vine_bridge_dispatch_fast_v2(
+      endpoint.address,
+      stackPointer,
+      returnAddress,
+      retiredInstructionsLow,
+      retiredInstructionsHigh,
+      context.eax,
+      context.ecx,
+      context.edx,
+      context.ebx,
+      context.esp,
+      context.ebp,
+      context.esi,
+      context.edi,
+      context.instructionPointer,
+      context.eflags,
+      context.es,
+      context.cs,
+      context.ss,
+      context.ds,
+      context.fs,
+      context.gs,
+    );
+    if (status !== 0) {
+      throw new Error(this.#readMetadataError());
+    }
+    const fastLength = this.#exports.vine_bridge_fast_dispatch_len_v2();
+    if (fastLength === 0) {
+      return this.#readOutput<T>();
+    }
+    invariant(fastLength === 30, "runtime bridge returned an invalid fast dispatch record length");
+    const pointer = this.#exports.vine_bridge_fast_dispatch_ptr_v2();
+    invariant(
+      pointer % Uint32Array.BYTES_PER_ELEMENT === 0 &&
+        pointer + fastLength * Uint32Array.BYTES_PER_ELEMENT <=
+          this.#exports.memory.buffer.byteLength,
+      "runtime bridge returned an invalid fast dispatch record pointer",
+    );
+    const words = new Uint32Array(this.#exports.memory.buffer, pointer, fastLength);
+    const metadata = this.#decodeFastDispatch(endpoint, words, stackPointer);
+    return {
+      metadata: metadata as T,
+      control: this.#copyOutput(
+        this.#exports.vine_bridge_control_ptr(),
+        this.#exports.vine_bridge_control_len(),
+      ),
+      payload: this.#copyOutput(
+        this.#exports.vine_bridge_payload_ptr(),
+        this.#exports.vine_bridge_payload_len(),
+      ),
+    };
   }
 
   resolveComEndpoint<T = Record<string, unknown>>(endpoint: number): BridgeOutput<T> {
@@ -788,6 +898,11 @@ export class RuntimeBridge {
       const error = metadata as { message?: unknown };
       throw new Error(typeof error.message === "string" ? error.message : "runtime bridge failed");
     }
+    return this.#readOutput<T>();
+  }
+
+  #readOutput<T>(): BridgeOutput<T> {
+    const metadata = this.#readJson<T>();
     return {
       metadata,
       control: this.#copyOutput(
@@ -798,6 +913,114 @@ export class RuntimeBridge {
         this.#exports.vine_bridge_payload_ptr(),
         this.#exports.vine_bridge_payload_len(),
       ),
+    };
+  }
+
+  #decodeFastDispatch(
+    endpoint: PreparedEndpoint,
+    words: Uint32Array,
+    expectedStackPointer?: number,
+  ): FastApiCompletionMetadata {
+    invariant(words[0] === 1, "runtime bridge fast dispatch record version mismatch");
+    const implementationId = [
+      "",
+      "user32.get-async-key-state.v1",
+      "user32.get-system-metrics.v1",
+      "user32.is-iconic.logical-window-style.v1",
+      "kernel32.enter-critical-section.v1",
+      "kernel32.leave-critical-section.v1",
+    ][words[1] ?? 0];
+    invariant(implementationId !== undefined && implementationId.length > 0, "unknown fast API implementation");
+    invariant(
+      endpoint.module !== undefined &&
+        endpoint.symbol !== undefined &&
+        words[2] === endpoint.id &&
+        words[3] === endpoint.address &&
+        (expectedStackPointer === undefined || words[5] === expectedStackPointer) &&
+        words[19] === 1,
+      "runtime bridge fast dispatch endpoint or frame mismatch",
+    );
+    const register = (action: number, value: number): RegisterUpdate => {
+      invariant(action === 0 || action === 1, "runtime bridge returned an invalid register action");
+      if (action === 0) {
+        invariant(value === 0, "preserved fast dispatch register has a value");
+        return { action: "preserve" };
+      }
+      return { action: "set", value };
+    };
+    const executionBoundary =
+      words[14] === 0
+        ? undefined
+        : words[14] === 1
+          ? "yield-current-thread" as const
+          : words[14] === 2
+            ? "block-current-thread" as const
+            : failFastDispatch("runtime bridge returned an invalid execution boundary");
+    const selectionKind = words[15] ?? 0;
+    invariant(selectionKind <= 2, "runtime bridge returned an invalid thread selection kind");
+    const threadSelection =
+      selectionKind === 0
+        ? undefined
+        : {
+            previousThreadId: words[16]!,
+            threadId: words[17]!,
+            state:
+              selectionKind === 1
+                ? { state: "runnable" as const }
+                : { state: "in-callback" as const, depth: words[18]! },
+          };
+    if (threadSelection === undefined) {
+      invariant(
+        words[16] === 0 && words[17] === 0 && words[18] === 0,
+        "empty fast dispatch thread selection retained state",
+      );
+    }
+    const writeCount = words[21] ?? 0;
+    invariant(writeCount === 0 || writeCount === 1, "invalid fast dispatch guest-write count");
+    const guestWrites = [] as NonNullable<ApiCompletion["guestWrites"]>;
+    if (writeCount === 1) {
+      invariant(words[23] === 24, "invalid fast dispatch guest-write byte length");
+      const bytes: number[] = [];
+      for (let index = 24; index < 30; index += 1) {
+        const value = words[index]!;
+        bytes.push(
+          value & 0xff,
+          (value >>> 8) & 0xff,
+          (value >>> 16) & 0xff,
+          value >>> 24,
+        );
+      }
+      guestWrites.push({ write: { address: words[22]!, bytes } });
+    } else {
+      invariant(
+        words.slice(22).every((word) => word === 0),
+        "empty fast dispatch guest-write record retained data",
+      );
+    }
+    return {
+      kind: "api-complete",
+      endpoint: {
+        id: endpoint.id,
+        address: endpoint.address,
+        module: endpoint.module,
+        symbol: endpoint.symbol,
+      },
+      completion: {
+        implementationId,
+        frame: {
+          stackPointer: words[5]!,
+          arguments: [{ words: [words[20]!] }],
+        },
+        instructionPointer: words[4]!,
+        stackPointer: words[6]!,
+        eax: register(words[8]!, words[9]!),
+        edx: register(words[10]!, words[11]!),
+        eflags: register(words[12]!, words[13]!),
+        lastError: words[7]!,
+        guestWrites,
+        ...(executionBoundary === undefined ? {} : { executionBoundary }),
+      },
+      ...(threadSelection === undefined ? {} : { threadSelection }),
     };
   }
 

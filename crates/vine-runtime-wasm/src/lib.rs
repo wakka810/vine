@@ -71,6 +71,9 @@ const BGI_SHA256: &str = "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465
 const BGI_LOAD_BASE: GuestAddress = GuestAddress(0x1000_0000);
 const BGI_MAX_PHYSICAL_PAGES: usize = 30 * 1024;
 const BGI_KERNEL32_HANDLE: u32 = 0x4d01_0001;
+const FAST_DISPATCH_RECORD_VERSION: u32 = 1;
+const FAST_DISPATCH_RECORD_WORDS: usize = 30;
+const FAST_DISPATCH_INLINE_WRITE_BYTES: usize = 24;
 
 thread_local! {
     static BRIDGE: RefCell<Bridge> = const { RefCell::new(Bridge::new()) };
@@ -82,7 +85,170 @@ struct Bridge {
     control: Vec<u8>,
     payload: Vec<u8>,
     fast_writeback_receipt: Option<CpuWritebackFastReceipt>,
+    fast_dispatch_receipt: Option<FastApiDispatchReceipt>,
     runtime: Option<BrowserRuntime>,
+}
+
+struct FastApiDispatchReceipt {
+    words: [u32; FAST_DISPATCH_RECORD_WORDS],
+}
+
+enum BrowserApiDispatchOutput {
+    Structured {
+        metadata: Value,
+        delta: Option<MemoryDeltaBuffers>,
+    },
+    Fast {
+        receipt: FastApiDispatchReceipt,
+        delta: Option<MemoryDeltaBuffers>,
+    },
+}
+
+impl BrowserApiDispatchOutput {
+    fn structured(metadata: Value, delta: Option<MemoryDeltaBuffers>) -> Self {
+        Self::Structured { metadata, delta }
+    }
+}
+
+impl FastApiDispatchReceipt {
+    fn supports(completion: &ApiImmediateCompletion) -> bool {
+        let implementation = completion.implementation_id.as_str();
+        completion.frame.arguments.len() == 1
+            && completion.frame.arguments[0].words.len() == 1
+            && fast_dispatch_implementation_code(implementation).is_some()
+            && fast_dispatch_write_shape_supported(
+                implementation,
+                completion.guest_writes.len(),
+                completion
+                    .guest_writes
+                    .first()
+                    .map(|write| write.write.bytes.len()),
+            )
+    }
+
+    fn new(
+        endpoint: &ApiEndpointIdentity,
+        completion: &ApiImmediateCompletion,
+        selection: Option<&vine_core::RuntimeThreadExecutionSelection>,
+    ) -> Result<Self, String> {
+        let implementation = fast_dispatch_implementation_code(&completion.implementation_id)
+            .ok_or_else(|| "API completion is outside the forward fast path".to_owned())?;
+        if completion.frame.arguments.len() != 1 || completion.frame.arguments[0].words.len() != 1 {
+            return Err("forward fast API completion has an unsupported frame shape".to_owned());
+        }
+        let (eax_action, eax_value) = encode_fast_register(completion.eax);
+        let (edx_action, edx_value) = encode_fast_register(completion.edx);
+        let (eflags_action, eflags_value) = encode_fast_register(completion.eflags);
+        let execution_boundary = match completion.execution_boundary {
+            vine_core::RuntimeApiBoundaryDisposition::ContinueQuantum => 0,
+            vine_core::RuntimeApiBoundaryDisposition::YieldCurrentThread => 1,
+            vine_core::RuntimeApiBoundaryDisposition::BlockCurrentThread => 2,
+        };
+        let (selection_kind, previous_thread_id, thread_id, callback_depth) = match selection {
+            None => (0, 0, 0, 0),
+            Some(selection) => match selection.state {
+                SchedulerThreadState::Runnable => {
+                    (1, selection.previous_thread_id.0, selection.thread_id.0, 0)
+                }
+                SchedulerThreadState::InCallback { depth } => (
+                    2,
+                    selection.previous_thread_id.0,
+                    selection.thread_id.0,
+                    u32::try_from(depth)
+                        .map_err(|_| "forward fast callback depth exceeds the x86 ABI")?,
+                ),
+                _ => {
+                    return Err(
+                        "forward fast dispatch selected a non-executable thread state".to_owned(),
+                    );
+                }
+            },
+        };
+        let mut words = [0; FAST_DISPATCH_RECORD_WORDS];
+        words[..21].copy_from_slice(&[
+            FAST_DISPATCH_RECORD_VERSION,
+            implementation,
+            endpoint.id.0,
+            endpoint.address.0,
+            completion.instruction_pointer.0,
+            completion.frame.stack_pointer.0,
+            completion.stack_pointer.0,
+            completion.last_error,
+            eax_action,
+            eax_value,
+            edx_action,
+            edx_value,
+            eflags_action,
+            eflags_value,
+            execution_boundary,
+            selection_kind,
+            previous_thread_id,
+            thread_id,
+            callback_depth,
+            1,
+            completion.frame.arguments[0].words[0],
+        ]);
+        match completion.guest_writes.as_slice() {
+            [] => {}
+            [write]
+                if matches!(implementation, 4 | 5)
+                    && write.write.bytes.len() == FAST_DISPATCH_INLINE_WRITE_BYTES =>
+            {
+                words[21] = 1;
+                words[22] = write.write.address.0;
+                words[23] = FAST_DISPATCH_INLINE_WRITE_BYTES as u32;
+                for (index, chunk) in write.write.bytes.chunks_exact(4).enumerate() {
+                    words[24 + index] = u32::from_le_bytes(
+                        chunk
+                            .try_into()
+                            .map_err(|_| "fast dispatch write chunk is not a u32")?,
+                    );
+                }
+            }
+            _ => {
+                return Err(
+                    "forward fast API completion has an unsupported guest-write shape".to_owned(),
+                );
+            }
+        }
+        Ok(Self { words })
+    }
+}
+
+fn fast_dispatch_implementation_code(implementation: &str) -> Option<u32> {
+    match implementation {
+        vine_core::GET_ASYNC_KEY_STATE_IMPLEMENTATION => Some(1),
+        vine_core::GET_SYSTEM_METRICS_IMPLEMENTATION => Some(2),
+        vine_core::IS_ICONIC_IMPLEMENTATION => Some(3),
+        vine_core::ENTER_CRITICAL_SECTION_IMPLEMENTATION => Some(4),
+        vine_core::LEAVE_CRITICAL_SECTION_IMPLEMENTATION => Some(5),
+        _ => None,
+    }
+}
+
+fn fast_dispatch_write_shape_supported(
+    implementation: &str,
+    write_count: usize,
+    first_write_length: Option<usize>,
+) -> bool {
+    match write_count {
+        0 => true,
+        1 => {
+            matches!(
+                implementation,
+                vine_core::ENTER_CRITICAL_SECTION_IMPLEMENTATION
+                    | vine_core::LEAVE_CRITICAL_SECTION_IMPLEMENTATION
+            ) && first_write_length == Some(FAST_DISPATCH_INLINE_WRITE_BYTES)
+        }
+        _ => false,
+    }
+}
+
+fn encode_fast_register(update: RegisterUpdate) -> (u32, u32) {
+    match update {
+        RegisterUpdate::Preserve => (0, 0),
+        RegisterUpdate::Set(value) => (1, value),
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -119,6 +285,7 @@ impl Bridge {
             control: Vec::new(),
             payload: Vec::new(),
             fast_writeback_receipt: None,
+            fast_dispatch_receipt: None,
             runtime: None,
         }
     }
@@ -128,6 +295,7 @@ impl Bridge {
         self.control.clear();
         self.payload.clear();
         self.fast_writeback_receipt = None;
+        self.fast_dispatch_receipt = None;
     }
 
     fn set_output(
@@ -1432,7 +1600,8 @@ impl BrowserRuntime {
         return_address: GuestAddress,
         retired_instructions: u64,
         x86_context: X86CpuContext,
-    ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
+        allow_fast_completion: bool,
+    ) -> Result<BrowserApiDispatchOutput, String> {
         let (route_id, argument_bytes, endpoint) = self
             .routes
             .get(&endpoint_address)
@@ -1676,11 +1845,50 @@ impl BrowserRuntime {
                     .pending_host
                     .insert(request_id, PendingHostCall { thread_id, call });
                 debug_assert!(previous.is_none());
-                Ok((metadata, None))
+                Ok(BrowserApiDispatchOutput::structured(metadata, None))
             }
-            DispatchOutcome::GuestCallback(call) => self.begin_callback(call),
+            DispatchOutcome::GuestCallback(call) => {
+                let (metadata, delta) = self.begin_callback(call)?;
+                Ok(BrowserApiDispatchOutput::structured(metadata, delta))
+            }
             DispatchOutcome::Immediate(completion) => {
                 let delta = self.pending_delta()?;
+                let fast_completion = allow_fast_completion
+                    && matches!(&self.target, BrowserRuntimeTarget::Bgi { .. })
+                    && FastApiDispatchReceipt::supports(&completion);
+                if fast_completion {
+                    let selection = if completion.execution_boundary
+                        == vine_core::RuntimeApiBoundaryDisposition::BlockCurrentThread
+                    {
+                        if !matches!(
+                            self.runtime.scheduler_state().map_err(error_string)?,
+                            SchedulerThreadState::WaitingCriticalSection { .. }
+                                | SchedulerThreadState::WaitingObject { .. }
+                        ) {
+                            return Err(
+                                "blocking API completion has no matching scheduler wait".to_owned()
+                            );
+                        }
+                        Some(
+                            self.runtime
+                                .select_next_executable_thread()
+                                .map_err(error_string)?
+                                .ok_or_else(|| {
+                                    "blocking API completion has no executable competitor"
+                                        .to_owned()
+                                })?,
+                        )
+                    } else {
+                        self.runtime
+                            .complete_api_execution_boundary_with_disposition(
+                                completion.execution_boundary,
+                            )
+                            .map_err(error_string)?
+                    };
+                    let receipt =
+                        FastApiDispatchReceipt::new(&endpoint, &completion, selection.as_ref())?;
+                    return Ok(BrowserApiDispatchOutput::Fast { receipt, delta });
+                }
                 let tick_count = if matches!(
                     completion.implementation_id.as_str(),
                     "winmm.time-get-time.v1" | "kernel32.get-tick-count.v1"
@@ -2089,14 +2297,14 @@ impl BrowserRuntime {
                 if let Some(selection) = selection {
                     metadata["threadSelection"] = json!(selection);
                 }
-                Ok((metadata, delta))
+                Ok(BrowserApiDispatchOutput::structured(metadata, delta))
             }
             DispatchOutcome::Fault(fault) => match &self.target {
                 BrowserRuntimeTarget::ControlledFixture
                 | BrowserRuntimeTarget::ControlledSourceRead { .. } => Err(api_fault_string(fault)),
                 BrowserRuntimeTarget::Bgi { .. } => {
                     let reflection = self.memory.current_reflection().map_err(error_string)?;
-                    Ok((
+                    Ok(BrowserApiDispatchOutput::structured(
                         json!({
                             "kind": "api-fault",
                             "endpoint": endpoint,
@@ -5046,7 +5254,27 @@ pub extern "C" fn vine_bridge_acknowledge(generation_low: u32, generation_high: 
 
 #[unsafe(no_mangle)]
 pub extern "C" fn vine_bridge_fast_path_abi_version() -> u32 {
-    1
+    2
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_fast_dispatch_ptr_v2() -> u32 {
+    BRIDGE.with(|cell| {
+        cell.borrow()
+            .fast_dispatch_receipt
+            .as_ref()
+            .map_or(0, |receipt| receipt.words.as_ptr() as usize as u32)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_fast_dispatch_len_v2() -> u32 {
+    BRIDGE.with(|cell| {
+        cell.borrow()
+            .fast_dispatch_receipt
+            .as_ref()
+            .map_or(0, |_| FAST_DISPATCH_RECORD_WORDS as u32)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -5180,7 +5408,7 @@ pub extern "C" fn vine_bridge_dispatch(
     run_bridge(|bridge| {
         let retired_instructions =
             u64::from(retired_instructions_low) | (u64::from(retired_instructions_high) << 32);
-        let (metadata, delta) = bridge.runtime_mut()?.dispatch(
+        let output = bridge.runtime_mut()?.dispatch(
             GuestAddress(endpoint_address),
             GuestAddress(stack_pointer),
             GuestAddress(return_address),
@@ -5203,11 +5431,87 @@ pub extern "C" fn vine_bridge_dispatch(
                 fs,
                 gs,
             },
+            false,
         )?;
+        let BrowserApiDispatchOutput::Structured { metadata, delta } = output else {
+            return Err("legacy dispatch unexpectedly produced a fast completion".to_owned());
+        };
         let (control, payload) = delta
             .map(|buffers| (buffers.control, buffers.page_bytes))
             .unwrap_or_default();
         bridge.set_output(metadata, control, payload)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_dispatch_fast_v2(
+    endpoint_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+    retired_instructions_low: u32,
+    retired_instructions_high: u32,
+    eax: u32,
+    ecx: u32,
+    edx: u32,
+    ebx: u32,
+    esp: u32,
+    ebp: u32,
+    esi: u32,
+    edi: u32,
+    eip: u32,
+    eflags: u32,
+    es: u32,
+    cs: u32,
+    ss: u32,
+    ds: u32,
+    fs: u32,
+    gs: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        let retired_instructions =
+            u64::from(retired_instructions_low) | (u64::from(retired_instructions_high) << 32);
+        let output = bridge.runtime_mut()?.dispatch(
+            GuestAddress(endpoint_address),
+            GuestAddress(stack_pointer),
+            GuestAddress(return_address),
+            retired_instructions,
+            X86CpuContext {
+                eax,
+                ecx,
+                edx,
+                ebx,
+                esp,
+                ebp,
+                esi,
+                edi,
+                eip,
+                eflags,
+                es,
+                cs,
+                ss,
+                ds,
+                fs,
+                gs,
+            },
+            true,
+        )?;
+        match output {
+            BrowserApiDispatchOutput::Fast { receipt, delta } => {
+                bridge.fast_dispatch_receipt = Some(receipt);
+                let (control, payload) = delta
+                    .map(|buffers| (buffers.control, buffers.page_bytes))
+                    .unwrap_or_default();
+                bridge.control = control;
+                bridge.payload = payload;
+                Ok(())
+            }
+            BrowserApiDispatchOutput::Structured { metadata, delta } => {
+                let (control, payload) = delta
+                    .map(|buffers| (buffers.control, buffers.page_bytes))
+                    .unwrap_or_default();
+                bridge.set_output(metadata, control, payload)
+            }
+        }
     })
 }
 
@@ -5523,6 +5827,59 @@ mod tests {
             vine_core::TRANSLATE_MESSAGE_IMPLEMENTATION,
             RegisterUpdate::Set(0),
             0,
+        ));
+    }
+
+    #[test]
+    fn fast_dispatch_is_bounded_to_reached_hot_leaf_shapes() {
+        assert_eq!(
+            fast_dispatch_implementation_code(vine_core::GET_ASYNC_KEY_STATE_IMPLEMENTATION),
+            Some(1),
+        );
+        assert_eq!(
+            fast_dispatch_implementation_code(vine_core::GET_SYSTEM_METRICS_IMPLEMENTATION),
+            Some(2),
+        );
+        assert_eq!(
+            fast_dispatch_implementation_code(vine_core::IS_ICONIC_IMPLEMENTATION),
+            Some(3),
+        );
+        assert_eq!(
+            fast_dispatch_implementation_code(vine_core::ENTER_CRITICAL_SECTION_IMPLEMENTATION),
+            Some(4),
+        );
+        assert_eq!(
+            fast_dispatch_implementation_code(vine_core::LEAVE_CRITICAL_SECTION_IMPLEMENTATION),
+            Some(5),
+        );
+        assert_eq!(
+            fast_dispatch_implementation_code("kernel32.heap-alloc.v2"),
+            None
+        );
+        assert!(fast_dispatch_write_shape_supported(
+            vine_core::GET_ASYNC_KEY_STATE_IMPLEMENTATION,
+            0,
+            None,
+        ));
+        assert!(fast_dispatch_write_shape_supported(
+            vine_core::ENTER_CRITICAL_SECTION_IMPLEMENTATION,
+            1,
+            Some(FAST_DISPATCH_INLINE_WRITE_BYTES),
+        ));
+        assert!(!fast_dispatch_write_shape_supported(
+            vine_core::GET_SYSTEM_METRICS_IMPLEMENTATION,
+            1,
+            Some(FAST_DISPATCH_INLINE_WRITE_BYTES),
+        ));
+        assert!(!fast_dispatch_write_shape_supported(
+            vine_core::LEAVE_CRITICAL_SECTION_IMPLEMENTATION,
+            1,
+            Some(FAST_DISPATCH_INLINE_WRITE_BYTES - 1),
+        ));
+        assert!(!fast_dispatch_write_shape_supported(
+            vine_core::ENTER_CRITICAL_SECTION_IMPLEMENTATION,
+            2,
+            Some(FAST_DISPATCH_INLINE_WRITE_BYTES),
         ));
     }
 }
