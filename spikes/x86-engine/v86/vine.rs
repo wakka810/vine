@@ -10,6 +10,7 @@ const ADAPTER_ABI_VERSION: u32 = 1;
 const X86_PAGE_SHIFT: u32 = 12;
 const X86_PAGE_MASK: u32 = (1 << X86_PAGE_SHIFT) - 1;
 const EXECUTE_BITMAP_BYTES: usize = 1 << (32 - X86_PAGE_SHIFT - 3);
+const DIRTY_PAGE_CAPACITY: usize = 16 * 1024;
 
 const HEADER_MAGIC: usize = 0;
 const HEADER_VERSION: usize = 1;
@@ -59,6 +60,10 @@ const XMM_BASE: usize = 124;
 static mut STATE: [u32; WORD_COUNT] = [0; WORD_COUNT];
 static mut EXECUTE_BITMAP: [u8; EXECUTE_BITMAP_BYTES] = [0; EXECUTE_BITMAP_BYTES];
 static mut EXECUTE_PROTECTION_ENABLED: bool = false;
+static mut DIRTY_PAGE_BITMAP: [u8; EXECUTE_BITMAP_BYTES] = [0; EXECUTE_BITMAP_BYTES];
+static mut DIRTY_PAGES: [u32; DIRTY_PAGE_CAPACITY] = [0; DIRTY_PAGE_CAPACITY];
+static mut DIRTY_PAGE_COUNT: usize = 0;
+static mut DIRTY_PAGE_OVERFLOWED: bool = false;
 
 unsafe fn state_ptr() -> *mut u32 { (&raw mut STATE).cast::<u32>() }
 
@@ -118,6 +123,59 @@ pub unsafe fn execute_fetch_allowed(address: u32) -> bool {
         .cast::<u8>()
         .add((page >> 3) as usize);
     byte & 1 << (page & 7) != 0
+}
+
+#[inline]
+pub unsafe fn mark_guest_page_dirty(address: u32) {
+    let page = address >> X86_PAGE_SHIFT;
+    let byte_index = (page >> 3) as usize;
+    let mask = 1 << (page & 7);
+    let byte = (&raw mut DIRTY_PAGE_BITMAP).cast::<u8>().add(byte_index);
+    if *byte & mask != 0 {
+        return;
+    }
+    *byte |= mask;
+    if DIRTY_PAGE_COUNT == DIRTY_PAGE_CAPACITY {
+        DIRTY_PAGE_OVERFLOWED = true;
+        return;
+    }
+    *(&raw mut DIRTY_PAGES)
+        .cast::<u32>()
+        .add(DIRTY_PAGE_COUNT) = page << X86_PAGE_SHIFT;
+    DIRTY_PAGE_COUNT += 1;
+}
+
+#[no_mangle]
+pub fn vine_dirty_page_tracking_version() -> u32 { 1 }
+
+#[no_mangle]
+pub unsafe fn vine_dirty_pages_ptr() -> u32 {
+    (&raw mut DIRTY_PAGES).cast::<u32>() as u32
+}
+
+#[no_mangle]
+pub unsafe fn vine_dirty_page_count() -> u32 { DIRTY_PAGE_COUNT as u32 }
+
+#[no_mangle]
+pub unsafe fn vine_dirty_pages_overflowed() -> u32 { DIRTY_PAGE_OVERFLOWED as u32 }
+
+#[no_mangle]
+pub unsafe fn vine_reset_dirty_pages() {
+    let bitmap = (&raw mut DIRTY_PAGE_BITMAP).cast::<u8>();
+    if DIRTY_PAGE_OVERFLOWED {
+        for index in 0..EXECUTE_BITMAP_BYTES {
+            *bitmap.add(index) = 0;
+        }
+    }
+    else {
+        let pages = (&raw const DIRTY_PAGES).cast::<u32>();
+        for index in 0..DIRTY_PAGE_COUNT {
+            let page = *pages.add(index) >> X86_PAGE_SHIFT;
+            *bitmap.add((page >> 3) as usize) &= !(1 << (page & 7));
+        }
+    }
+    DIRTY_PAGE_COUNT = 0;
+    DIRTY_PAGE_OVERFLOWED = false;
 }
 
 #[no_mangle]

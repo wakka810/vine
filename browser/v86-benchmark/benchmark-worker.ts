@@ -346,6 +346,7 @@ async function instructionThroughput(
     const warm = mirror.execute(100_000);
     invariant(warm.reason === v86StopReason.budget, `${id} warmup did not yield by budget`);
   }
+  await Promise.resolve();
   let instructions = 0;
   let slices = 0;
   const startedAt = performance.now();
@@ -380,6 +381,7 @@ async function sliceMatrix(integerInstructionsPerSecond: number): Promise<Record
     for (let index = 0; index < 3; index += 1) {
       mirror.execute(budget);
     }
+    await Promise.resolve();
     const startedAt = performance.now();
     let instructions = 0;
     for (let index = 0; index < slices; index += 1) {

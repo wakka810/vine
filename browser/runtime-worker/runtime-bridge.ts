@@ -9,6 +9,7 @@ import type {
   RuntimeCurrentDirectoryA,
   RuntimeKeyboardInputEvent,
   RuntimePointerButtonInputEvent,
+  RuntimePointerPositionInputEvent,
 } from "./protocol.js";
 import type { ExecutionCpuContext } from "./execution-engine-contract.js";
 
@@ -286,6 +287,12 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     sequenceHigh: number,
     kind: number,
     button: number,
+    normalizedX: number,
+    normalizedY: number,
+  ): number;
+  vine_bridge_ingest_pointer_position_event(
+    sequenceLow: number,
+    sequenceHigh: number,
     normalizedX: number,
     normalizedY: number,
   ): number;
@@ -691,6 +698,35 @@ export class RuntimeBridge {
         high,
         kind,
         button,
+        event.normalizedX,
+        event.normalizedY,
+      ),
+    );
+  }
+
+  ingestPointerPositionEvent<T = Record<string, unknown>>(
+    event: RuntimePointerPositionInputEvent,
+  ): BridgeOutput<T> {
+    invariant(
+      /^(0|[1-9][0-9]*)$/.test(event.sequence),
+      "pointer event sequence is not a canonical unsigned integer",
+    );
+    const sequence = BigInt(event.sequence);
+    const [low, high] = splitU64(sequence);
+    invariant(
+      event.kind === "pointer-move" &&
+        Number.isInteger(event.normalizedX) &&
+        event.normalizedX >= 0 &&
+        event.normalizedX <= 0xffff &&
+        Number.isInteger(event.normalizedY) &&
+        event.normalizedY >= 0 &&
+        event.normalizedY <= 0xffff,
+      "pointer position is outside the bridge ABI",
+    );
+    return this.#invoke(() =>
+      this.#exports.vine_bridge_ingest_pointer_position_event(
+        low,
+        high,
         event.normalizedX,
         event.normalizedY,
       ),

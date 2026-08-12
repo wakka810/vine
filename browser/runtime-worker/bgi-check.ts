@@ -1,5 +1,9 @@
 import { observePageLifecycle } from "./page-lifecycle.js";
-import { pointerSourceEvent } from "./keyboard-input.js";
+import {
+  keyboardSourceEvent,
+  pointerPositionSourceEvent,
+  pointerSourceEvent,
+} from "./keyboard-input.js";
 import {
   BrowserPcmRenderer,
   type BrowserAudioPlaybackReceipt,
@@ -47,14 +51,22 @@ declare global {
   }
 }
 
-const worker = new Worker(new URL("./runtime-worker.js", import.meta.url), {
+const searchParams = new URL(location.href).searchParams;
+const executionEngine = searchParams.get("engine");
+if (executionEngine !== null && executionEngine !== "interpreter") {
+  throw new Error("engine must be interpreter when specified");
+}
+const workerUrl = new URL("./runtime-worker.js", import.meta.url);
+if (executionEngine === "interpreter") {
+  workerUrl.searchParams.set("executionJit", "off");
+}
+const worker = new Worker(workerUrl, {
   type: "module",
 });
 const status = requiredElement<HTMLOutputElement>("#status");
-const searchParams = new URL(location.href).searchParams;
 const scenario = parseScenario(searchParams.get("scenario"));
 const forwardDevelopment = searchParams.get("development") === "forward";
-const forwardSeconds = Number(searchParams.get("forwardSeconds") ?? 60);
+const forwardSeconds = Number(searchParams.get("forwardSeconds") ?? 540);
 if (!Number.isInteger(forwardSeconds) || forwardSeconds < 1 || forwardSeconds > 540) {
   throw new Error("forwardSeconds must be an integer from 1 through 540");
 }
@@ -117,6 +129,7 @@ const scheduledSharedClockSetWindowText =
   capabilityProfile ===
     "primary-main-loop-post-callback-pointer-release-message-consumption-batch";
 const d3d9Canvas =
+  forwardDevelopment ||
   scheduledSharedClockSetWindowText ||
   capabilityProfile === "d3d9-first-present" ||
   capabilityProfile === "d3d9-post-present-continuation" ||
@@ -229,10 +242,33 @@ let heartbeatSamples = 0;
 let maximumHeartbeatGapMilliseconds = 0;
 let lastHeartbeat = performance.now();
 let cancellationSent = false;
-let forwardAudioObserved = false;
 let forwardVisibleFrameObserved = false;
-let forwardPostAudioActionSent = false;
-let forwardPostAudioActionReleased = false;
+let forwardPointerMoveSent = false;
+let forwardHoverPresented = false;
+let forwardActiveAction = 0;
+let forwardCompletedActions = 0;
+let forwardButtonDown = false;
+let forwardNextInputSequence = 1;
+let forwardKeyboardCampaignReady = false;
+let forwardKeyboardButtonDown = false;
+let forwardCompletedKeyboardActivations = 0;
+let forwardPrimaryActionTargetReady = false;
+let forwardCampaignPhase:
+  | "startup-pointer"
+  | "startup-keyboard"
+  | "title-start-pointer"
+  | "scenario-keyboard"
+  | "complete" = "startup-pointer";
+let forwardKeyboardActivationLimit = 2;
+const forwardStartupKeyboardActivationCount = 2;
+const forwardScenarioKeyboardActivationCount = 10;
+const forwardPointerActions = [
+  { normalizedX: 0x39a0, normalizedY: 0xd05b },
+  { normalizedX: 0x39a0, normalizedY: 0xd05b },
+  { normalizedX: 0x39a0, normalizedY: 0xd05b },
+] as const;
+const forwardStartupPointerActionCount = 2;
+const heartbeatIntervalMilliseconds = forwardDevelopment ? 50 : 5;
 const heartbeat = window.setInterval(() => {
   const now = performance.now();
   maximumHeartbeatGapMilliseconds = Math.max(
@@ -241,7 +277,7 @@ const heartbeat = window.setInterval(() => {
   );
   lastHeartbeat = now;
   heartbeatSamples += 1;
-}, 5);
+}, heartbeatIntervalMilliseconds);
 
 window.__vineBgiCheck = {
   result: null,
@@ -262,18 +298,59 @@ window.__vineBgiCheck = {
 function maybePostForwardAction(): void {
   if (
     !forwardDevelopment ||
-    !forwardAudioObserved ||
     !forwardVisibleFrameObserved ||
-    forwardPostAudioActionSent
+    (forwardCampaignPhase !== "startup-pointer" &&
+      forwardCampaignPhase !== "title-start-pointer") ||
+    forwardPointerMoveSent
   ) {
     return;
   }
-  const down = pointerSourceEvent(1, "button-down", 0, 0x3b00, 0xd200);
-  if (down === null) {
-    fail(new Error("post-audio pointer action is outside the bounded source mapping"));
+  const coordinates = forwardPointerActions[forwardCompletedActions];
+  if (coordinates === undefined) {
     return;
   }
-  forwardPostAudioActionSent = true;
+  forwardPointerMoveSent = true;
+  worker.postMessage({
+    type: "pointer-input",
+    protocolVersion,
+    sessionId,
+    event: pointerPositionSourceEvent(
+      forwardNextInputSequence++,
+      coordinates.normalizedX,
+      coordinates.normalizedY,
+    ),
+  } satisfies MainToWorkerMessage);
+}
+
+function pressForwardAction(): void {
+  if (
+    !forwardPointerMoveSent ||
+    !forwardHoverPresented ||
+    !forwardVisibleFrameObserved ||
+    (forwardCampaignPhase !== "startup-pointer" &&
+      forwardCampaignPhase !== "title-start-pointer") ||
+    forwardButtonDown ||
+    forwardCompletedActions >= forwardPointerActions.length
+  ) {
+    return;
+  }
+  forwardActiveAction = forwardCompletedActions + 1;
+  const coordinates = forwardPointerActions[forwardActiveAction - 1];
+  if (coordinates === undefined) {
+    return;
+  }
+  const down = pointerSourceEvent(
+    forwardNextInputSequence++,
+    "button-down",
+    0,
+    coordinates.normalizedX,
+    coordinates.normalizedY,
+  );
+  if (down === null) {
+    fail(new Error("forward pointer action is outside the bounded source mapping"));
+    return;
+  }
+  forwardButtonDown = true;
   worker.postMessage({
     type: "pointer-input",
     protocolVersion,
@@ -282,22 +359,142 @@ function maybePostForwardAction(): void {
   } satisfies MainToWorkerMessage);
 }
 
-function releaseForwardAction(): void {
-  if (!forwardPostAudioActionSent || forwardPostAudioActionReleased) {
+function releaseForwardAction(action: number): void {
+  if (!forwardButtonDown || action !== forwardActiveAction) {
     return;
   }
-  const up = pointerSourceEvent(2, "button-up", 0, 0x3b00, 0xd200);
+  const coordinates = forwardPointerActions[action - 1];
+  if (coordinates === undefined) {
+    return;
+  }
+  const up = pointerSourceEvent(
+    forwardNextInputSequence++,
+    "button-up",
+    0,
+    coordinates.normalizedX,
+    coordinates.normalizedY,
+  );
   if (up === null) {
-    fail(new Error("post-audio pointer release is outside the bounded source mapping"));
+    fail(new Error("forward pointer release is outside the bounded source mapping"));
     return;
   }
-  forwardPostAudioActionReleased = true;
+  forwardButtonDown = false;
   worker.postMessage({
     type: "pointer-input",
     protocolVersion,
     sessionId,
     event: up,
   } satisfies MainToWorkerMessage);
+}
+
+function scheduleNextForwardAction(action: number): void {
+  if (action !== forwardActiveAction || action <= forwardCompletedActions) {
+    return;
+  }
+  forwardCompletedActions = action;
+  if (action === forwardStartupPointerActionCount) {
+    forwardCampaignPhase = "startup-keyboard";
+    forwardKeyboardCampaignReady = true;
+    forwardKeyboardActivationLimit = forwardStartupKeyboardActivationCount;
+    scheduleForwardKeyboardActivation();
+    return;
+  }
+  if (action >= forwardPointerActions.length) {
+    forwardCampaignPhase = "scenario-keyboard";
+    forwardKeyboardCampaignReady = true;
+    forwardKeyboardActivationLimit = forwardScenarioKeyboardActivationCount;
+    scheduleForwardKeyboardActivation();
+    return;
+  }
+  forwardPointerMoveSent = false;
+  forwardHoverPresented = false;
+  maybePostForwardAction();
+}
+
+function pressForwardKeyboardActivation(): void {
+  if (
+    !forwardKeyboardCampaignReady ||
+    !forwardVisibleFrameObserved ||
+    (forwardCampaignPhase !== "startup-keyboard" &&
+      forwardCampaignPhase !== "scenario-keyboard") ||
+    forwardKeyboardButtonDown ||
+    forwardCompletedKeyboardActivations >= forwardKeyboardActivationLimit
+  ) {
+    if (
+      forwardCampaignPhase === "scenario-keyboard" &&
+      forwardCompletedKeyboardActivations >= forwardKeyboardActivationLimit
+    ) {
+      forwardCampaignPhase = "complete";
+    }
+    return;
+  }
+  const down = keyboardSourceEvent(
+    forwardNextInputSequence++,
+    "key-down",
+    "Enter",
+    false,
+  );
+  if (down === null) {
+    fail(new Error("forward Enter activation is outside the keyboard mapping"));
+    return;
+  }
+  forwardKeyboardButtonDown = true;
+  worker.postMessage({
+    type: "keyboard-input",
+    protocolVersion,
+    sessionId,
+    event: down,
+  } satisfies MainToWorkerMessage);
+}
+
+function releaseForwardKeyboardActivation(action: number): void {
+  if (!forwardKeyboardButtonDown || action !== forwardCompletedKeyboardActivations + 1) {
+    return;
+  }
+  const up = keyboardSourceEvent(
+    forwardNextInputSequence++,
+    "key-up",
+    "Enter",
+    false,
+  );
+  if (up === null) {
+    fail(new Error("forward Enter release is outside the keyboard mapping"));
+    return;
+  }
+  forwardKeyboardButtonDown = false;
+  worker.postMessage({
+    type: "keyboard-input",
+    protocolVersion,
+    sessionId,
+    event: up,
+  } satisfies MainToWorkerMessage);
+}
+
+function scheduleForwardKeyboardActivation(): void {
+  if (
+    forwardKeyboardButtonDown ||
+    forwardCompletedKeyboardActivations >= forwardKeyboardActivationLimit
+  ) {
+    return;
+  }
+  forwardKeyboardCampaignReady = true;
+  pressForwardKeyboardActivation();
+}
+
+function schedulePostStartupPointerAction(): void {
+  if (
+    forwardCompletedActions !== forwardStartupPointerActionCount ||
+      forwardCompletedKeyboardActivations !==
+      forwardStartupKeyboardActivationCount ||
+    !forwardPrimaryActionTargetReady
+  ) {
+    return;
+  }
+  forwardKeyboardCampaignReady = false;
+  forwardCampaignPhase = "title-start-pointer";
+  forwardPointerMoveSent = false;
+  forwardHoverPresented = false;
+  maybePostForwardAction();
 }
 
 worker.addEventListener(
@@ -321,17 +518,77 @@ worker.addEventListener(
         forwardDevelopment &&
         message.phase === "running" &&
         message.detail ===
-          "Forward visible frame observed; accepting live development input"
+          "Forward stable visible frame observed; accepting live development input"
       ) {
         forwardVisibleFrameObserved = true;
         maybePostForwardAction();
+        pressForwardAction();
+        if (
+          forwardCampaignPhase === "startup-keyboard" ||
+          forwardCampaignPhase === "scenario-keyboard"
+        ) {
+          pressForwardKeyboardActivation();
+        }
       }
       if (
         forwardDevelopment &&
         message.phase === "running" &&
-        message.detail === "Forward primary pointer press observed by guest"
+        message.detail === "Forward visible frame lost; waiting for stable output"
       ) {
-        releaseForwardAction();
+        forwardVisibleFrameObserved = false;
+      }
+      if (
+        forwardDevelopment &&
+        message.phase === "running" &&
+        message.detail === "Forward primary pointer hover frame presented"
+      ) {
+        forwardHoverPresented = true;
+        pressForwardAction();
+      }
+      if (
+        forwardDevelopment &&
+        message.phase === "running" &&
+        message.detail === "Forward primary action target ready"
+      ) {
+        forwardPrimaryActionTargetReady = true;
+        schedulePostStartupPointerAction();
+      }
+      if (forwardDevelopment && message.phase === "running") {
+        const presentedPress =
+          /^Forward pointer action (\d+) press frame presented$/u.exec(
+            message.detail,
+          );
+        if (presentedPress !== null) {
+          releaseForwardAction(Number(presentedPress[1]));
+        }
+        const release = /^Forward pointer action (\d+) release frame presented$/u.exec(
+          message.detail,
+        );
+        if (release !== null) {
+          scheduleNextForwardAction(Number(release[1]));
+        }
+        const activationPress =
+          /^Forward activation action (\d+) press frame presented$/u.exec(
+            message.detail,
+          );
+        if (activationPress !== null) {
+          releaseForwardKeyboardActivation(Number(activationPress[1]));
+        }
+        const activationRelease =
+          /^Forward activation action (\d+) release frame presented$/u.exec(
+            message.detail,
+        );
+        if (activationRelease !== null) {
+          forwardCompletedKeyboardActivations = Number(activationRelease[1]);
+          if (
+            forwardCompletedKeyboardActivations ===
+            forwardStartupKeyboardActivationCount
+          ) {
+            schedulePostStartupPointerAction();
+          } else {
+            scheduleForwardKeyboardActivation();
+          }
+        }
       }
       if (
         scenario === "cancel-pending" &&
@@ -357,8 +614,6 @@ worker.addEventListener(
     }
     if (message.type === "audio-playback") {
       audioPlaybackRequests += 1;
-      forwardAudioObserved = true;
-      maybePostForwardAction();
       void pcmRenderer
         .play(message)
         .then((receipt) => {
@@ -394,15 +649,17 @@ const startMessage = {
     mode: scenario,
     evidenceLevel,
     workload: "private-bgi",
-    ...(capabilityProfile === undefined ? {} : { capabilityProfile }),
+    ...(!forwardDevelopment && capabilityProfile !== undefined
+      ? { capabilityProfile }
+      : {}),
     ...(forwardDevelopment ? { developmentMode: "forward" as const } : {}),
     executableUrl: "./private/BGI.exe",
     policyUrl: "./private/kernel32-policy.json",
     instructionBudget:
-      scenario === "watchdog" ? 4 : forwardDevelopment ? 131_072 : 16_384,
+      scenario === "watchdog" ? 4 : forwardDevelopment ? 524_288 : 16_384,
     watchdogInstructionLimit:
       forwardDevelopment
-        ? 10_300_000_000
+        ? 12_000_000_000
         : scenario === "watchdog"
         ? 1
         : capabilityProfile === "user32-get-cursor-info" ||

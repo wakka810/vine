@@ -4,6 +4,7 @@ import type {
   RuntimePointerButton,
   RuntimePointerButtonInputEvent,
   RuntimePointerButtonSourceEventKind,
+  RuntimePointerPositionInputEvent,
 } from "./protocol.js";
 
 const fixedVirtualKeys = new Map<string, number>([
@@ -131,4 +132,17 @@ export function pointerSourceEvent(
         normalizedX,
         normalizedY,
       };
+}
+
+export function pointerPositionSourceEvent(
+  sequence: number,
+  normalizedX: number,
+  normalizedY: number,
+): RuntimePointerPositionInputEvent {
+  return {
+    sequence: String(sequence),
+    kind: "pointer-move",
+    normalizedX,
+    normalizedY,
+  };
 }

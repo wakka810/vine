@@ -26,7 +26,8 @@ use vine_core::{
     RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization,
     RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind, RuntimeModule, RuntimeModuleId,
     RuntimeObjectKind, RuntimePointerButton, RuntimePointerButtonSourceEvent,
-    RuntimePointerButtonSourceEventKind, RuntimeProcessId, RuntimeSchedulerEvent,
+    RuntimePointerButtonSourceEventKind, RuntimePointerPositionSourceEvent,
+    RuntimePointerPositionSourceEventKind, RuntimeProcessId, RuntimeSchedulerEvent,
     RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
     RuntimeStateErrorClass, RuntimeThreadId, RuntimeWritableCommitHostResponse,
     RuntimeWritableDirectoryCreateHostResponse, RuntimeWritableProfileManifest,
@@ -328,6 +329,14 @@ impl Bridge {
         self.set_output(metadata, Vec::new(), Vec::new())
     }
 
+    fn ingest_pointer_position_event(
+        &mut self,
+        event: RuntimePointerPositionSourceEvent,
+    ) -> Result<(), String> {
+        let metadata = self.runtime_mut()?.ingest_pointer_position_event(event)?;
+        self.set_output(metadata, Vec::new(), Vec::new())
+    }
+
     fn reconcile_writeback_input(
         &mut self,
         control_length: usize,
@@ -497,6 +506,36 @@ impl BrowserRuntime {
             .map_err(error_string)?;
         Ok(json!({
             "kind": "pointer-button-event-ingested",
+            "receipt": receipt,
+            "keyboard": self.runtime.keyboard_state(),
+            "cursor": self.runtime.cursor_position(),
+            "memory": self.memory.stats(),
+        }))
+    }
+
+    fn ingest_pointer_position_event(
+        &mut self,
+        event: RuntimePointerPositionSourceEvent,
+    ) -> Result<Value, String> {
+        let profile = match &self.target {
+            BrowserRuntimeTarget::Bgi { user32_policy, .. } => user32_policy
+                .pointer_button_messages
+                .clone()
+                .ok_or_else(|| {
+                    "active User32 policy does not enable pointer messages".to_owned()
+                })?,
+            _ => {
+                return Err(
+                    "pointer position ingestion requires the private BGI runtime".to_owned(),
+                );
+            }
+        };
+        let receipt = self
+            .runtime
+            .ingest_pointer_position_event(event, &profile)
+            .map_err(error_string)?;
+        Ok(json!({
+            "kind": "pointer-position-event-ingested",
             "receipt": receipt,
             "keyboard": self.runtime.keyboard_state(),
             "cursor": self.runtime.cursor_position(),
@@ -5342,6 +5381,25 @@ pub extern "C" fn vine_bridge_ingest_pointer_button_event(
             sequence: u64::from(sequence_low) | (u64::from(sequence_high) << 32),
             kind,
             button,
+            normalized_x: u16::try_from(normalized_x)
+                .map_err(|_| "pointer normalized x is outside the bridge ABI".to_owned())?,
+            normalized_y: u16::try_from(normalized_y)
+                .map_err(|_| "pointer normalized y is outside the bridge ABI".to_owned())?,
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_ingest_pointer_position_event(
+    sequence_low: u32,
+    sequence_high: u32,
+    normalized_x: u32,
+    normalized_y: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        bridge.ingest_pointer_position_event(RuntimePointerPositionSourceEvent {
+            sequence: u64::from(sequence_low) | (u64::from(sequence_high) << 32),
+            event_kind: RuntimePointerPositionSourceEventKind::PointerMove,
             normalized_x: u16::try_from(normalized_x)
                 .map_err(|_| "pointer normalized x is outside the bridge ABI".to_owned())?,
             normalized_y: u16::try_from(normalized_y)

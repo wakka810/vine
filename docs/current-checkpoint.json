@@ -1,6 +1,6 @@
 {
   "schema": "vine.current-state",
-  "schemaVersion": 5,
+  "schemaVersion": 6,
   "updatedAt": "2026-08-12",
   "activeTarget": {
     "title": "Sakura no Uta",
@@ -19,11 +19,11 @@
   },
   "currentForwardStop": {
     "kind": "scenario-gateway",
-    "classification": "input-transition-not-yet-observed",
+    "classification": "title-action-consumed-without-scene-transition",
     "endpoint": "primary-title-start-action",
-    "reason": "A 450-second generic forward run rendered the complete title artwork, observed the Start-coordinate primary down in guest GetAsyncKeyState, committed the matching up message to Rust input authority, committed the writable overlay, and reached no unsupported endpoint; the title had not entered the first scenario before the bounded run ended"
+    "reason": "The generic forward runner rendered the complete title artwork, waited for the Start region to stabilize, delivered its pointer move and primary down/up through WndProc and GetAsyncKeyState, held the title press across seven Present calls, completed ten Enter activations, played non-zero title audio, and reached no unsupported endpoint; the first scene transition was not observed before the bounded run ended"
   },
-  "nextDevelopmentGoal": "Capture the bounded guest consumption and hit-test result around the Start down/up pair, make that action enter the first scenario, then follow the first scene transition toward a representative flow",
+  "nextDevelopmentGoal": "Add a commit- and engine-bound development resume cache at the stable title boundary, then use fast iterations to classify the remaining title hit-test or action-state requirement and enter the first scenario",
   "supportedSubsystems": [
     {
       "id": "execution",
@@ -65,13 +65,16 @@
   },
   "development": {
     "mode": "forward",
-    "supportProfile": "primary-main-loop-post-callback-pointer-release-message-consumption-batch",
-    "runtimeProfile": "user32-peek-message-a-post-window-timer-callback-continuation",
+    "runner": "generic-forward",
     "compatibilityPolicy": "fixtures/runtime-policies/kernel32-delete-file-a-v1.json",
-    "runtimeProtocol": "vine.browser-runtime-worker.v142",
+    "runtimeProtocol": "vine.browser-runtime-worker.v143",
     "reportPath": ".work/target-forward/report.json",
     "maximumRunSeconds": 540,
     "semanticTailEntries": 512
+  },
+  "historicalAcceptance": {
+    "supportProfile": "primary-main-loop-post-callback-pointer-release-message-consumption-batch",
+    "runtimeProfile": "user32-peek-message-a-post-window-timer-callback-continuation"
   },
   "artifactReferences": [
     ".work/target-forward/report.json",

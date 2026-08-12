@@ -46,8 +46,9 @@ const assetsRoot = path.join(root, ".work", "browser-runtime");
 const serveOnly = process.argv.includes("--serve");
 const fullEvidence = process.argv.includes("--full-evidence");
 const forwardMode = process.argv.includes("--forward");
+const interpreterMode = process.argv.includes("--interpreter");
 const forwardSecondsOption = optionValue("--forward-seconds");
-const forwardSeconds = Number(forwardSecondsOption ?? 60);
+const forwardSeconds = Number(forwardSecondsOption ?? 540);
 const bgiBenchmarkMilliseconds = Number(optionValue("--bgi-benchmark-ms") ?? 0);
 const bgiMode = process.argv.includes("--bgi") || bgiBenchmarkMilliseconds > 0;
 const bgiCpuProfile = process.argv.includes("--bgi-cpu-profile");
@@ -56,12 +57,12 @@ const currentState = loadCurrentCheckpoint(
   path.join(root, "docs", "current-checkpoint.json"),
 );
 const checkpoint =
-  currentState.schemaVersion === 5
+  currentState.schemaVersion === 6
     ? {
         activeRuntimeCheckpoint: {
-          runtimeKernelCheckpoint: currentState.development.runtimeProfile,
-          capabilityProfile: currentState.development.supportProfile,
-          profile: currentState.development.runtimeProfile,
+          runtimeKernelCheckpoint: currentState.historicalAcceptance.runtimeProfile,
+          capabilityProfile: currentState.historicalAcceptance.supportProfile,
+          profile: currentState.historicalAcceptance.runtimeProfile,
           kernel32CompatibilityPolicy: {
             source: currentState.development.compatibilityPolicy,
           },
@@ -102,6 +103,7 @@ assert(
   "--bgi-cpu-profile requires a BGI benchmark",
 );
 assert(!forwardMode || (bgiMode && !fullEvidence), "forward mode requires summary BGI execution");
+assert(!interpreterMode || forwardMode, "--interpreter requires forward mode");
 assert(
   forwardSecondsOption === null || forwardMode,
   "--forward-seconds requires forward mode",
@@ -513,7 +515,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v142";
+const runtimeProtocol = "vine.browser-runtime-worker.v143";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -5961,7 +5963,7 @@ function validateCreateFontA224x112BgiProbe(evidence, scenario) {
 async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
   const target = await createDebugTarget(
     browserWebSocketUrl,
-    `${baseUrl}bgi-check.html?scenario=${scenario}&profile=${encodeURIComponent(bgiProfile)}${fullEvidence ? "&evidence=full" : ""}${forwardMode ? `&development=forward&forwardSeconds=${forwardSeconds}` : ""}`,
+    `${baseUrl}bgi-check.html?scenario=${scenario}${forwardMode ? "" : `&profile=${encodeURIComponent(bgiProfile)}`}${fullEvidence ? "&evidence=full" : ""}${forwardMode ? `&development=forward&forwardSeconds=${forwardSeconds}` : ""}${interpreterMode ? "&engine=interpreter" : ""}`,
   );
   const client = await connectDevTools(target.webSocketDebuggerUrl);
   try {
@@ -5990,8 +5992,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
             : 30_000,
     );
     assert.equal(evidence.scenario, scenario);
-    assert.equal(evidence.report.pendingHostCalls, 0);
-    assert.equal(evidence.report.pendingCallbacks, 0);
+    if (!forwardMode) {
+      assert.equal(evidence.report.pendingHostCalls, 0);
+      assert.equal(evidence.report.pendingCallbacks, 0);
+    }
     assertExecutionStateMachine(
       evidence.report,
       forwardMode && evidence.report.outcome === "watchdog"
@@ -20486,13 +20490,13 @@ assert(
 );
 const requestedPort = serveOnly ? Number(optionValue("--port") ?? 4173) : 0;
 const sourceRegistration = bgiMode
-  ? archiveSourceReadProfile
+  ? forwardMode || archiveSourceReadProfile
     ? await registerSourceSnapshot({
         manifestPath: path.join(
           root,
           "fixtures",
           "source-snapshots",
-          findFirstFileAProfile
+          forwardMode || findFirstFileAProfile
             ? "primary-game-archives-v2.json"
             : "primary-boot-archives-v1.json",
         ),
@@ -20543,7 +20547,7 @@ const writableProfile = bgiMode
           ...(bgiGdbBefore === null ? {} : { seedBytes: bgiGdbBefore }),
         },
       ],
-      directories: createDirectoryAProfile
+      directories: forwardMode || createDirectoryAProfile
         ? [
             {
               directoryId: 1,
@@ -20656,10 +20660,12 @@ if (serveOnly) {
           schemaVersion: 1,
           measuredAt: new Date().toISOString(),
           command:
-            forwardSeconds === 60
+            forwardSeconds === 540 && !interpreterMode
               ? currentState.commands.forward
-              : `npm run run:target:forward:prepared -- --forward-seconds ${forwardSeconds}`,
-          mode: "release-chrome-forward",
+              : `npm run run:target:forward:prepared -- --forward-seconds ${forwardSeconds}${interpreterMode ? " --interpreter" : ""}`,
+          mode: interpreterMode
+            ? "release-chrome-forward-interpreter-diagnostic"
+            : "release-chrome-forward",
           chromeVersion: version,
           source: {
             bytes: sourceBefore.byteLength,
@@ -20740,7 +20746,10 @@ if (serveOnly) {
         );
         const outputDirectory = path.join(root, ".work", "target-forward");
         fs.mkdirSync(outputDirectory, { recursive: true });
-        await writeFile(path.join(outputDirectory, "report.json"), reportBytes);
+        await writeFile(
+          path.join(outputDirectory, interpreterMode ? "interpreter-report.json" : "report.json"),
+          reportBytes,
+        );
         const endpoint = session.firstUnsupported?.endpoint ?? null;
         console.log(
           `target forward stopped: outcome=${session.outcome}, ` +

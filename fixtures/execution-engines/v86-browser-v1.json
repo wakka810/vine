@@ -10,13 +10,13 @@
   "artifacts": [
     {
       "hostProfile": "windows-gnu",
-      "bytes": 1857800,
-      "sha256": "99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f"
+      "bytes": 1864286,
+      "sha256": "f44a6865fb1cd4128766b1dcccd4f2af73d59923e0b1b10316cdae5dd293b163"
     },
     {
       "hostProfile": "linux-gnu",
-      "bytes": 2116017,
-      "sha256": "21b0fb4f63e9604a66e6522839c9744a4ae17f9ead1c2e201ff2e46fccff20c4"
+      "bytes": 2121800,
+      "sha256": "8fea5e55f05bae2702edd8e8a92e724a936ef2b4e94ee22a8706d97def1030e1"
     }
   ]
 }

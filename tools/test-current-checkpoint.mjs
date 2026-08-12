@@ -13,8 +13,9 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = loadCurrentCheckpoint(path.join(root, "docs", "current-checkpoint.json"));
 assert.deepEqual(validateCurrentCheckpoint(manifest), []);
-assert.equal(manifest.schemaVersion, 5);
+assert.equal(manifest.schemaVersion, 6);
 assert.equal(manifest.development.mode, "forward");
+assert.equal(manifest.development.runner, "generic-forward");
 assert(manifest.development.maximumRunSeconds <= 600);
 assert(manifest.development.semanticTailEntries >= 256);
 assert(manifest.development.semanticTailEntries <= 512);

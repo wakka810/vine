@@ -39,6 +39,7 @@ export class D3d9WebGl2Renderer {
     string,
     BrowserResourceRecord<D3d9WebGlDeviceResource>
   >();
+  readonly #probePixels = new Uint8Array(80 * 40 * 4);
 
   constructor(canvas: OffscreenCanvas) {
     invariant(
@@ -221,6 +222,53 @@ export class D3d9WebGl2Renderer {
       bindingPublishedAfterSnapshotValidation: true,
       renderedBeforeGuestResume: true,
     };
+  }
+
+  countDarkPixels(
+    left: number,
+    top: number,
+    width: 80,
+    height: 40,
+    channelLimit: number,
+  ): number {
+    invariant(
+      Number.isInteger(left) &&
+        Number.isInteger(top) &&
+        left >= 0 &&
+        top >= 0 &&
+        left + width <= PRESENT_WIDTH &&
+        top + height <= PRESENT_HEIGHT &&
+        Number.isInteger(channelLimit) &&
+        channelLimit > 0 &&
+        channelLimit <= 0xff,
+      "presentation probe is outside the bounded frame",
+    );
+    const { gl } = this.#preflightResource;
+    gl.readPixels(
+      left,
+      PRESENT_HEIGHT - top - height,
+      width,
+      height,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      this.#probePixels,
+    );
+    const webGlError = gl.getError();
+    invariant(
+      webGlError === gl.NO_ERROR,
+      `WebGL2 presentation probe failed with error ${webGlError}`,
+    );
+    let darkPixels = 0;
+    for (let offset = 0; offset < this.#probePixels.length; offset += 4) {
+      if (
+        requireByte(this.#probePixels[offset]) < channelLimit &&
+        requireByte(this.#probePixels[offset + 1]) < channelLimit &&
+        requireByte(this.#probePixels[offset + 2]) < channelLimit
+      ) {
+        darkPixels += 1;
+      }
+    }
+    return darkPixels;
   }
 
   #resourceForDevice(

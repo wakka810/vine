@@ -41,6 +41,8 @@ import {
   type RuntimePointerButtonIngressReceipt,
   type RuntimePointerButtonInputBoundaryEvidence,
   type RuntimePointerButtonInputEvent,
+  type RuntimePointerPositionIngressReceipt,
+  type RuntimePointerPositionInputEvent,
   type RuntimeCursorPositionSnapshot,
   type RuntimeThreadMessageSnapshot,
   type RuntimeSetWindowPosFrameChangeMoveCallSnapshot,
@@ -105,6 +107,9 @@ import {
   SEMANTIC_CALL_DIGEST_ALGORITHM,
   SemanticCallDigest,
 } from "./semantic-call.mjs";
+
+const disableExecutionJit =
+  new URL(import.meta.url).searchParams.get("executionJit") === "off";
 import {
   recoverableCommitHttpError,
   recoverableCommitStorageError,
@@ -123,8 +128,10 @@ import { sourceSnapshotManifest } from "../storage/protocol.js";
 const worker = self as DedicatedWorkerGlobalScope;
 const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
 const BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 64;
+const FORWARD_BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 256;
 const FORWARD_BUDGET_STATUS_INTERVAL = 4096;
 const MAX_PENDING_INPUT_EVENTS = 256;
+const WM_MOUSEMOVE = 0x0200;
 const RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS = 40_000_000;
 const RUNTIME_TRAPLESS_EXECUTION_BUDGET_START_INSTRUCTION = 226_703_249;
 const RUNTIME_TRAPLESS_EXECUTION_BUDGET_PREVIOUS_STOP = 266_703_249;
@@ -3664,9 +3671,20 @@ interface PointerButtonEventMetadata {
   memory: RuntimeMemoryStatsSnapshot;
 }
 
+interface PointerPositionEventMetadata {
+  kind: "pointer-position-event-ingested";
+  receipt: RuntimePointerPositionIngressReceipt;
+  keyboard: RuntimeKeyboardStateSnapshot;
+  cursor: RuntimeCursorPositionSnapshot;
+  memory: RuntimeMemoryStatsSnapshot;
+}
+
 type PendingRuntimeInputEvent =
   | { source: "keyboard"; event: RuntimeKeyboardInputEvent }
-  | { source: "pointer"; event: RuntimePointerButtonInputEvent };
+  | {
+      source: "pointer";
+      event: RuntimePointerButtonInputEvent | RuntimePointerPositionInputEvent;
+    };
 
 interface CallbackCompletionMetadata {
   kind: "callback-complete";
@@ -3889,8 +3907,8 @@ function validateKeyboardInputEvent(event: RuntimeKeyboardInputEvent): void {
   );
 }
 
-function validatePointerButtonInputEvent(
-  event: RuntimePointerButtonInputEvent,
+function validatePointerInputEvent(
+  event: RuntimePointerButtonInputEvent | RuntimePointerPositionInputEvent,
 ): void {
   invariant(
     typeof event.sequence === "string" &&
@@ -3899,13 +3917,17 @@ function validatePointerButtonInputEvent(
     "pointer event sequence must be a positive lossless integer",
   );
   invariant(
-    event.kind === "button-down" || event.kind === "button-up",
+    event.kind === "pointer-move" ||
+      event.kind === "button-down" ||
+      event.kind === "button-up",
     "pointer event kind is invalid",
   );
-  invariant(
-    event.button === "primary" || event.button === "secondary",
-    "pointer button is invalid",
-  );
+  if (event.kind !== "pointer-move") {
+    invariant(
+      event.button === "primary" || event.button === "secondary",
+      "pointer button is invalid",
+    );
+  }
   invariant(
     Number.isInteger(event.normalizedX) &&
       event.normalizedX >= 0 &&
@@ -4305,7 +4327,33 @@ class BrowserRuntimeSession {
   #bgiCheckpointPending = false;
   #forwardPrefixComplete = false;
   #forwardVisibleFrameSignaled = false;
-  #forwardPrimaryPointerPressPending = false;
+  #forwardVisiblePresentationStreak = 0;
+  #forwardLatestPointerMessage: RuntimeThreadMessageSnapshot | null = null;
+  #forwardPointerPositionMessage: RuntimeThreadMessageSnapshot | null = null;
+  #forwardPointerPositionCallbackFrameId: number | null = null;
+  #forwardPointerHoverAwaitingPresent = false;
+  #forwardPointerActionNumber = 0;
+  #forwardPointerButtonMessage: {
+    action: number;
+    phase: "press" | "release";
+    message: RuntimeThreadMessageSnapshot;
+  } | null = null;
+  #forwardPointerButtonCallbackFrameId: number | null = null;
+  readonly #forwardPointerButtonAwaitingPresent: Array<{
+    action: number;
+    phase: "press" | "release";
+    remainingPresentations: number;
+  }> = [];
+  #forwardPrimaryPointerPressPendingAction: number | null = null;
+  #forwardKeyboardActivationNumber = 0;
+  #forwardKeyboardActivationPendingAction: number | null = null;
+  #forwardKeyboardActivationAwaitingPresent: {
+    action: number;
+    phase: "press" | "release";
+    remainingPresentations: number;
+  } | null = null;
+  #forwardPrimaryActionTargetReadyStreak = 0;
+  #forwardPrimaryActionTargetReadySignaled = false;
   #forwardTailCursor = 0;
   #user32TranslateMessagePostTestCooperativeLevelTimerPeekPrerequisite: User32TranslateMessagePostTestCooperativeLevelTimerPeekCheckpoint | null =
     null;
@@ -4512,7 +4560,8 @@ class BrowserRuntimeSession {
       configuration.pageLifecycle,
     );
     invariant(
-      !isD3d9Present(configuration.capabilityProfile) &&
+      configuration.developmentMode !== "forward" &&
+          !isD3d9Present(configuration.capabilityProfile) &&
           !isScheduledSharedClockSetWindowText(
             configuration.capabilityProfile,
           ) ||
@@ -4525,13 +4574,13 @@ class BrowserRuntimeSession {
       invariant(
         configuration.workload === "private-bgi" &&
           configuration.evidenceLevel === "summary" &&
-          configuration.capabilityProfile !== undefined,
-        "forward development requires a summary private BGI support profile",
+          configuration.capabilityProfile === undefined,
+        "forward development requires generic summary private BGI mode",
       );
       this.#forwardPrefixComplete = true;
       this.#report.forwardDevelopment = {
         mode: "forward",
-        supportProfile: configuration.capabilityProfile,
+        supportProfile: "generic-forward",
         historicalCheckpointBypassed: true,
         semanticTailCapacity: 512,
         semanticTail: [],
@@ -4542,9 +4591,12 @@ class BrowserRuntimeSession {
         currentThreadId: 0,
         latestLastError: null,
         input: {
-          keyboardMessages: 0,
-          pointerMessages: 0,
-          latestPointerMessage: null,
+            keyboardMessages: 0,
+            pointerMessages: 0,
+            latestPointerMessage: null,
+            completedActions: 0,
+            completedKeyboardActivations: 0,
+            actionEvents: [],
         },
         storage: {
           sourceReads: 0,
@@ -4574,7 +4626,8 @@ class BrowserRuntimeSession {
       const sourceBackedWorkload =
         workload === "controlled-source-read" ||
         (workload === "private-bgi" &&
-          (isScheduledSharedClockSetWindowText(
+          (this.#isForwardDevelopment() ||
+            isScheduledSharedClockSetWindowText(
             this.#configuration.capabilityProfile,
           ) ||
             this.#configuration.capabilityProfile ===
@@ -4712,6 +4765,8 @@ class BrowserRuntimeSession {
         isScheduledSharedClockSetWindowText(
           this.#configuration.capabilityProfile,
         );
+      const fullReachedPolicy =
+        this.#isForwardDevelopment() || scheduledSharedClockSetWindowText;
       this.#status("loading", "Preparing authoritative Rust runtime state");
       const preparedOutput =
         workload === "private-bgi"
@@ -4721,68 +4776,69 @@ class BrowserRuntimeSession {
               sourceManifestBytes,
               writableProfileBytes ??
                 failInvariant("BGI writable profile is missing"),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 includesD3d9Clear(this.#configuration.capabilityProfile),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 isSetRect(this.#configuration.capabilityProfile),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 isD3d9AddDirtyRect(this.#configuration.capabilityProfile),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 isD3d9UpdateTexture(this.#configuration.capabilityProfile),
-              includesD3d9UpdateTexturePartialDirtyRegionProfile(
-                this.#configuration.capabilityProfile,
-              ),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
+                includesD3d9UpdateTexturePartialDirtyRegionProfile(
+                  this.#configuration.capabilityProfile,
+                ),
+              fullReachedPolicy ||
                 isD3d9BeginScene(this.#configuration.capabilityProfile),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 isD3d9InitialSamplerStates(
                   this.#configuration.capabilityProfile,
                 ),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 isD3d9InitialTextureStageStates(
                   this.#configuration.capabilityProfile,
                 ),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 isD3d9SetTexture(this.#configuration.capabilityProfile),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 isD3d9SetFvf(this.#configuration.capabilityProfile),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 isD3d9SetStreamSource(this.#configuration.capabilityProfile),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 isD3d9DrawPrimitive(this.#configuration.capabilityProfile),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 isD3d9EndScene(this.#configuration.capabilityProfile),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 isD3d9Present(this.#configuration.capabilityProfile),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 isUser32AsyncKeyStateInitialScan(
                   this.#configuration.capabilityProfile,
                 ),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 includesHeapAllocationEvidence(
                   this.#configuration.capabilityProfile,
                 ),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 includesPostHeapTimeGetTimeEvidence(
                   this.#configuration.capabilityProfile,
                 ),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 hasWindowTimerCallbackDelivery(
                   this.#configuration.capabilityProfile,
                 ),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 isPointerMessageActionProgressGatewayCheckpoint(
                   this.#configuration.capabilityProfile,
                 ),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 hasSetFocusActionContinuation(
                   this.#configuration.capabilityProfile,
                 ),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 hasDefWindowProcAActionContinuation(
                   this.#configuration.capabilityProfile,
                 ),
-              scheduledSharedClockSetWindowText ||
+              fullReachedPolicy ||
                 isDefWindowProcAPointerReleaseContinuationCheckpoint(
                   this.#configuration.capabilityProfile,
                 ),
@@ -4802,6 +4858,7 @@ class BrowserRuntimeSession {
       );
       const engine = engineFactory({
         maximumPhysicalPages: preparedOutput.metadata.maximumPhysicalPages,
+        disableJit: disableExecutionJit,
       });
       this.#engine = engine;
       this.#runtimePrepared = true;
@@ -4842,13 +4899,13 @@ class BrowserRuntimeSession {
         generation: preparedOutput.metadata.runtime.currentDirectoryGeneration,
       };
       if (
-        scheduledSharedClockSetWindowText ||
+        fullReachedPolicy ||
         isUser32AsyncKeyStateInitialScan(this.#configuration.capabilityProfile)
       ) {
         const cursor = preparedOutput.metadata.runtime.cursorPosition;
         invariant(
           preparedOutput.metadata.runtime.user32Policy ===
-            (scheduledSharedClockSetWindowText
+            (fullReachedPolicy
               ? "user32-single-monitor-window-timer-pointer-set-focus-def-window-proc-pointer-set-window-text-v36"
               : isDefWindowProcAPointerReleaseContinuationCheckpoint(
               this.#configuration.capabilityProfile,
@@ -5627,7 +5684,7 @@ class BrowserRuntimeSession {
       return;
     }
     try {
-      validatePointerButtonInputEvent(message.event);
+      validatePointerInputEvent(message.event);
       this.#report.pointerInput.receivedMessages += 1;
       if (
         !this.#runtimePrepared ||
@@ -5647,14 +5704,10 @@ class BrowserRuntimeSession {
         }
         return;
       }
-      this.#commitPointerInput(message.event);
-      if (
-        this.#isForwardDevelopment() &&
-        this.#forwardPrefixComplete &&
-        message.event.kind === "button-down" &&
-        message.event.button === "primary"
-      ) {
-        this.#forwardPrimaryPointerPressPending = true;
+      if (message.event.kind === "pointer-move") {
+        this.#commitPointerPositionInput(message.event);
+      } else {
+        this.#commitPointerInput(message.event);
       }
     } catch (error) {
       this.#fail(error instanceof Error ? error : new Error(String(error)));
@@ -5671,6 +5724,8 @@ class BrowserRuntimeSession {
     for (const pending of this.#pendingInputEvents.splice(0)) {
       if (pending.source === "keyboard") {
         this.#commitKeyboardInput(pending.event);
+      } else if (pending.event.kind === "pointer-move") {
+        this.#commitPointerPositionInput(pending.event);
       } else {
         this.#commitPointerInput(pending.event);
       }
@@ -5708,6 +5763,26 @@ class BrowserRuntimeSession {
       "Rust keyboard event receipt is inconsistent with the input protocol",
     );
     this.#report.keyboardInput.receipts.push(metadata.receipt);
+    if (
+      this.#isForwardDevelopment() &&
+      this.#forwardPrefixComplete &&
+      event.virtualKey === 0x0d
+    ) {
+      if (event.kind === "key-down" && !event.repeat) {
+        const action = ++this.#forwardKeyboardActivationNumber;
+        this.#forwardKeyboardActivationPendingAction = action;
+        this.#recordForwardInputAction(action, "activation-queued");
+      } else if (event.kind === "key-up") {
+        const action = this.#forwardKeyboardActivationNumber;
+        invariant(action > 0, "forward activation key-up has no matching action");
+        this.#forwardKeyboardActivationAwaitingPresent = {
+          action,
+          phase: "release",
+          remainingPresentations: 4,
+        };
+        this.#recordForwardInputAction(action, "activation-release-queued");
+      }
+    }
     return metadata;
   }
 
@@ -5782,7 +5857,175 @@ class BrowserRuntimeSession {
       "Rust pointer event receipt is inconsistent with the input protocol",
     );
     this.#report.pointerInput.receipts.push(structuredClone(receipt));
+    if (this.#isForwardDevelopment()) {
+      this.#forwardLatestPointerMessage = structuredClone(receipt.message);
+      const action =
+        event.kind === "button-down"
+          ? ++this.#forwardPointerActionNumber
+          : this.#forwardPointerActionNumber;
+      invariant(action > 0, "forward pointer release has no matching action");
+      const phase = event.kind === "button-down" ? "press" : "release";
+      this.#forwardPointerButtonMessage = {
+        action,
+        phase,
+        message: structuredClone(receipt.message),
+      };
+      if (phase === "press" && event.button === "primary") {
+        this.#forwardPrimaryPointerPressPendingAction = action;
+      }
+      this.#recordForwardInputAction(
+        action,
+        phase === "press" ? "press-queued" : "release-queued",
+      );
+    }
     return metadata;
+  }
+
+  #commitPointerPositionInput(
+    event: RuntimePointerPositionInputEvent,
+  ): PointerPositionEventMetadata {
+    const output =
+      this.#requireBridge().ingestPointerPositionEvent<PointerPositionEventMetadata>(
+        event,
+      );
+    invariant(
+      output.control.byteLength === 0 && output.payload.byteLength === 0,
+      "pointer position unexpectedly changed guest memory",
+    );
+    const metadata = output.metadata;
+    const sequence = Number(BigInt(event.sequence));
+    const receipt = metadata.receipt;
+    invariant(
+      metadata.kind === "pointer-position-event-ingested" &&
+        receipt.profileId === "normalized-primary-secondary-foreground-client-message-v1" &&
+        receipt.windowId > 0 &&
+        receipt.windowHandle !== 0 &&
+        receipt.targetThreadId > 0 &&
+        receipt.input.event.sequence === sequence &&
+        receipt.input.event.kind === "pointer-move" &&
+        receipt.input.event.normalizedX === event.normalizedX &&
+        receipt.input.event.normalizedY === event.normalizedY &&
+        receipt.input.inputGeneration === metadata.keyboard.generation &&
+        metadata.keyboard.lastEventSequence === sequence &&
+        receipt.input.cursor.profileId === metadata.cursor.profileId &&
+        receipt.input.cursor.screenX === metadata.cursor.screenX &&
+        receipt.input.cursor.screenY === metadata.cursor.screenY &&
+        receipt.input.cursor.generation === metadata.cursor.generation &&
+        receipt.message.source.kind === "pointer-input" &&
+        receipt.message.source.event_sequence === sequence &&
+        receipt.message.targetThreadId === receipt.targetThreadId &&
+        receipt.message.hwnd === receipt.windowHandle &&
+        receipt.message.message === WM_MOUSEMOVE &&
+        receipt.message.lParam ===
+          (((receipt.clientY & 0xffff) << 16) | (receipt.clientX & 0xffff)) >>> 0 &&
+        receipt.message.pointX === metadata.cursor.screenX &&
+        receipt.message.pointY === metadata.cursor.screenY &&
+        metadata.memory.generation === Number(this.#generation) &&
+        metadata.memory.acknowledgedGeneration === Number(this.#generation) &&
+        metadata.memory.dirtyPages === 0,
+      "Rust pointer position receipt is inconsistent with the input protocol",
+    );
+    if (
+      this.#isForwardDevelopment() &&
+      this.#forwardPrefixComplete &&
+      this.#forwardPointerPositionMessage === null
+    ) {
+      this.#forwardPointerPositionMessage = structuredClone(receipt.message);
+    }
+    if (this.#isForwardDevelopment()) {
+      this.#forwardLatestPointerMessage = structuredClone(receipt.message);
+      this.#recordForwardInputAction(0, "move-queued");
+    }
+    return metadata;
+  }
+
+  #trackForwardPointerPositionCallback(
+    metadata: GuestCallbackMetadata,
+    engine: ExecutionEngine,
+  ): void {
+    const message = this.#forwardPointerPositionMessage;
+    if (
+      !this.#isForwardDevelopment() ||
+      message === null ||
+      this.#forwardPointerPositionCallbackFrameId !== null
+    ) {
+      return;
+    }
+    const arguments_ = [
+      engine.readGuestU32(metadata.stackPointer + 4),
+      engine.readGuestU32(metadata.stackPointer + 8),
+      engine.readGuestU32(metadata.stackPointer + 12),
+      engine.readGuestU32(metadata.stackPointer + 16),
+    ];
+    if (
+      arguments_[0] === message.hwnd &&
+      arguments_[1] === WM_MOUSEMOVE &&
+      arguments_[2] === message.wParam &&
+      arguments_[3] === message.lParam
+    ) {
+      this.#forwardPointerPositionCallbackFrameId = metadata.frameId;
+      this.#recordForwardInputAction(0, "hover-entered");
+      this.#status("running", "Forward primary pointer hover entered guest");
+    }
+  }
+
+  #trackForwardPointerButtonCallback(
+    metadata: GuestCallbackMetadata,
+    engine: ExecutionEngine,
+  ): void {
+    const tracked = this.#forwardPointerButtonMessage;
+    if (
+      !this.#isForwardDevelopment() ||
+      tracked === null ||
+      this.#forwardPointerButtonCallbackFrameId !== null
+    ) {
+      return;
+    }
+    const message = tracked.message;
+    const arguments_ = [
+      engine.readGuestU32(metadata.stackPointer + 4),
+      engine.readGuestU32(metadata.stackPointer + 8),
+      engine.readGuestU32(metadata.stackPointer + 12),
+      engine.readGuestU32(metadata.stackPointer + 16),
+    ];
+    if (
+      arguments_[0] === message.hwnd &&
+      arguments_[1] === message.message &&
+      arguments_[2] === message.wParam &&
+      arguments_[3] === message.lParam
+    ) {
+      this.#forwardPointerButtonCallbackFrameId = metadata.frameId;
+      this.#recordForwardInputAction(
+        tracked.action,
+        tracked.phase === "press" ? "press-entered" : "release-entered",
+      );
+      this.#status(
+        "running",
+        `Forward pointer action ${tracked.action} ${tracked.phase} entered guest`,
+      );
+    }
+  }
+
+  #recordForwardInputAction(
+    action: number,
+    stage: NonNullable<SessionReport["forwardDevelopment"]>["input"]["actionEvents"][number]["stage"],
+  ): void {
+    const events = this.#report.forwardDevelopment?.input.actionEvents;
+    if (
+      events === undefined ||
+      events.some((event) => event.action === action && event.stage === stage)
+    ) {
+      return;
+    }
+    if (events.length >= 128) {
+      events.shift();
+    }
+    events.push({
+      action,
+      stage,
+      instructionCount: this.#report.instructions,
+      presentCount: this.#report.forwardDevelopment?.presentCount ?? 0,
+    });
   }
 
   #advanceInputProgress(call: RuntimeSupportedCallSnapshot): void {
@@ -8136,9 +8379,13 @@ class BrowserRuntimeSession {
       return true;
     }
     this.#synchronousApiBoundariesSinceYield += 1;
+    const yieldInterval =
+      this.#configuration.developmentMode === "forward"
+        ? FORWARD_BGI_SYNCHRONOUS_API_YIELD_INTERVAL
+        : BGI_SYNCHRONOUS_API_YIELD_INTERVAL;
     if (
       this.#synchronousApiBoundariesSinceYield <
-      BGI_SYNCHRONOUS_API_YIELD_INTERVAL
+      yieldInterval
     ) {
       return false;
     }
@@ -9006,9 +9253,11 @@ class BrowserRuntimeSession {
         this.#synchronousApiBoundariesSinceYield = 0;
         break;
       }
-      case "guest-callback": {
-        this.#takeApiResumeState();
-        this.#applyRequiredDelta(output);
+        case "guest-callback": {
+          this.#takeApiResumeState();
+          this.#applyRequiredDelta(output);
+          this.#trackForwardPointerPositionCallback(metadata, engine);
+          this.#trackForwardPointerButtonCallback(metadata, engine);
         if (
           this.#requirePrepared().workload === "private-bgi" &&
           this.#forwardPrefixComplete
@@ -10058,7 +10307,8 @@ class BrowserRuntimeSession {
       return undefined;
     }
     invariant(
-      (isD3d9Present(this.#configuration.capabilityProfile) ||
+      (this.#isForwardDevelopment() ||
+        isD3d9Present(this.#configuration.capabilityProfile) ||
         isScheduledSharedClockSetWindowText(
           this.#configuration.capabilityProfile,
         )) &&
@@ -10076,7 +10326,7 @@ class BrowserRuntimeSession {
             pixelSource.range.start,
             pixelSource.range.byteLength,
           );
-    return this.#d3d9Renderer.present(
+    const presentation = this.#d3d9Renderer.present(
       metadata.graphicsDevice,
       {
         objectId: frame.objectId,
@@ -10085,6 +10335,32 @@ class BrowserRuntimeSession {
       },
       textureBacking,
     );
+    this.#observeForwardPrimaryActionTarget();
+    return presentation;
+  }
+
+  #observeForwardPrimaryActionTarget(): void {
+    const summary = this.#report.forwardDevelopment;
+    if (
+      summary === null ||
+      this.#forwardPrimaryActionTargetReadySignaled ||
+      summary.input.completedActions < 2 ||
+      summary.input.completedKeyboardActivations < 2
+    ) {
+      return;
+    }
+    const renderer = this.#d3d9Renderer;
+    invariant(renderer !== null, "forward action probe requires its renderer");
+    const darkPixels = renderer.countDarkPixels(250, 565, 80, 40, 96);
+    this.#forwardPrimaryActionTargetReadyStreak =
+      darkPixels >= 64
+        ? this.#forwardPrimaryActionTargetReadyStreak + 1
+        : 0;
+    if (this.#forwardPrimaryActionTargetReadyStreak < 3) {
+      return;
+    }
+    this.#forwardPrimaryActionTargetReadySignaled = true;
+    this.#status("running", "Forward primary action target ready");
   }
 
   #emitDsoundTransport(metadata: ComCompletionMetadata): void {
@@ -18985,7 +19261,7 @@ class BrowserRuntimeSession {
         ? `#${endpoint.symbol.ordinal}`
         : endpoint.symbol.name;
     if (
-      this.#forwardPrimaryPointerPressPending &&
+      this.#forwardPrimaryPointerPressPendingAction !== null &&
       endpoint.module.toLowerCase() === "user32.dll" &&
       symbol === "GetAsyncKeyState" &&
       arguments_.length === 1 &&
@@ -18993,10 +19269,34 @@ class BrowserRuntimeSession {
       completion.eax.action === "set" &&
       (completion.eax.value & 0x8000) !== 0
     ) {
-      this.#forwardPrimaryPointerPressPending = false;
+      const action = this.#forwardPrimaryPointerPressPendingAction;
+      this.#forwardPrimaryPointerPressPendingAction = null;
+      this.#recordForwardInputAction(action, "press-observed");
       this.#status(
         "running",
-        "Forward primary pointer press observed by guest",
+        `Forward pointer action ${action} press observed by guest`,
+      );
+    }
+    if (
+      this.#forwardKeyboardActivationPendingAction !== null &&
+      endpoint.module.toLowerCase() === "user32.dll" &&
+      symbol === "GetAsyncKeyState" &&
+      arguments_.length === 1 &&
+      arguments_[0] === 0x0d &&
+      completion.eax.action === "set" &&
+      (completion.eax.value & 0x8000) !== 0
+    ) {
+      const action = this.#forwardKeyboardActivationPendingAction;
+      this.#forwardKeyboardActivationPendingAction = null;
+      this.#forwardKeyboardActivationAwaitingPresent = {
+        action,
+        phase: "press",
+        remainingPresentations: 1,
+      };
+      this.#recordForwardInputAction(action, "activation-observed");
+      this.#status(
+        "running",
+        `Forward activation action ${action} press observed by guest`,
       );
     }
     const sequence = reservedSequence ?? ++this.#nextBgiCallSequence;
@@ -19060,7 +19360,7 @@ class BrowserRuntimeSession {
 
   #captureForwardCall(call: RuntimeSupportedCallSnapshot): void {
     if (
-      this.#forwardPrimaryPointerPressPending &&
+      this.#forwardPrimaryPointerPressPendingAction !== null &&
       call.module.toLowerCase() === "user32.dll" &&
       call.symbol === "GetAsyncKeyState" &&
       call.arguments.length === 1 &&
@@ -19069,10 +19369,35 @@ class BrowserRuntimeSession {
       call.result.action === "set" &&
       (call.result.value & 0x8000) !== 0
     ) {
-      this.#forwardPrimaryPointerPressPending = false;
+      const action = this.#forwardPrimaryPointerPressPendingAction;
+      this.#forwardPrimaryPointerPressPendingAction = null;
+      this.#recordForwardInputAction(action, "press-observed");
       this.#status(
         "running",
-        "Forward primary pointer press observed by guest",
+        `Forward pointer action ${action} press observed by guest`,
+      );
+    }
+    if (
+      this.#forwardKeyboardActivationPendingAction !== null &&
+      call.module.toLowerCase() === "user32.dll" &&
+      call.symbol === "GetAsyncKeyState" &&
+      call.arguments.length === 1 &&
+      call.arguments[0] === 0x0d &&
+      "action" in call.result &&
+      call.result.action === "set" &&
+      (call.result.value & 0x8000) !== 0
+    ) {
+      const action = this.#forwardKeyboardActivationPendingAction;
+      this.#forwardKeyboardActivationPendingAction = null;
+      this.#forwardKeyboardActivationAwaitingPresent = {
+        action,
+        phase: "press",
+        remainingPresentations: 1,
+      };
+      this.#recordForwardInputAction(action, "activation-observed");
+      this.#status(
+        "running",
+        `Forward activation action ${action} press observed by guest`,
       );
     }
     const arguments_ = call.arguments.slice(0, 16);
@@ -19133,20 +19458,94 @@ class BrowserRuntimeSession {
     if (presentation !== undefined) {
       summary.presentCount += 1;
       summary.latestPresentation = structuredClone(presentation);
-      if (
-        !this.#forwardVisibleFrameSignaled &&
+      const visiblyPopulated =
         presentation.centerPixelRgba
           .slice(0, 3)
           .some((component) => component > 7) &&
         presentation.centerPixelRgba
           .slice(0, 3)
-          .some((component) => component < 248)
+          .some((component) => component < 248);
+      this.#forwardVisiblePresentationStreak = visiblyPopulated
+        ? this.#forwardVisiblePresentationStreak + 1
+        : 0;
+      if (!visiblyPopulated && this.#forwardVisibleFrameSignaled) {
+        this.#forwardVisibleFrameSignaled = false;
+        this.#status("running", "Forward visible frame lost; waiting for stable output");
+      }
+      if (
+        !this.#forwardVisibleFrameSignaled &&
+        this.#forwardVisiblePresentationStreak >= 8
       ) {
         this.#forwardVisibleFrameSignaled = true;
         this.#status(
           "running",
-          "Forward visible frame observed; accepting live development input",
+          "Forward stable visible frame observed; accepting live development input",
         );
+      }
+      if (
+        this.#forwardPointerHoverAwaitingPresent &&
+        this.#forwardVisibleFrameSignaled
+      ) {
+        this.#forwardPointerHoverAwaitingPresent = false;
+        this.#forwardPointerPositionMessage = null;
+        this.#recordForwardInputAction(0, "hover-presented");
+        this.#status(
+          "running",
+          "Forward primary pointer hover frame presented",
+        );
+      }
+      for (const pointerAction of this.#forwardPointerButtonAwaitingPresent) {
+        pointerAction.remainingPresentations -= 1;
+      }
+      for (
+        let index = this.#forwardPointerButtonAwaitingPresent.length - 1;
+        index >= 0;
+        index -= 1
+      ) {
+        const pointerAction = this.#forwardPointerButtonAwaitingPresent[index];
+        if (pointerAction === undefined || pointerAction.remainingPresentations !== 0) {
+          continue;
+        }
+        this.#forwardPointerButtonAwaitingPresent.splice(index, 1);
+        this.#recordForwardInputAction(
+          pointerAction.action,
+          pointerAction.phase === "press"
+            ? "press-presented"
+            : "release-presented",
+        );
+        if (pointerAction.phase === "release") {
+          summary.input.completedActions = Math.max(
+            summary.input.completedActions,
+            pointerAction.action,
+          );
+        }
+        this.#status(
+          "running",
+          `Forward pointer action ${pointerAction.action} ${pointerAction.phase} frame presented`,
+        );
+      }
+      const keyboardActivation = this.#forwardKeyboardActivationAwaitingPresent;
+      if (keyboardActivation !== null) {
+        keyboardActivation.remainingPresentations -= 1;
+        if (keyboardActivation.remainingPresentations === 0) {
+          this.#forwardKeyboardActivationAwaitingPresent = null;
+          this.#recordForwardInputAction(
+            keyboardActivation.action,
+            keyboardActivation.phase === "press"
+              ? "activation-presented"
+              : "activation-release-presented",
+          );
+          if (keyboardActivation.phase === "release") {
+            summary.input.completedKeyboardActivations = Math.max(
+              summary.input.completedKeyboardActivations,
+              keyboardActivation.action,
+            );
+          }
+          this.#status(
+            "running",
+            `Forward activation action ${keyboardActivation.action} ${keyboardActivation.phase} frame presented`,
+          );
+        }
       }
     }
     const audioIdentity = `${entry.module}!${entry.symbol}`.toLowerCase();
@@ -19180,7 +19579,7 @@ class BrowserRuntimeSession {
     summary.input.keyboardMessages = this.#report.keyboardInput.receivedMessages;
     summary.input.pointerMessages = this.#report.pointerInput.receivedMessages;
     summary.input.latestPointerMessage =
-      this.#report.pointerInput.receipts.at(-1)?.message ?? null;
+      this.#forwardLatestPointerMessage;
     summary.storage.sourceReads = this.#report.sourceReads.length;
     summary.storage.writableCommits = this.#report.writableCommits.length;
     summary.storage.writableDirectoryCreates =
@@ -27918,6 +28317,16 @@ class BrowserRuntimeSession {
         "replacement callback omitted the retired frame identity",
       );
       this.#applyRequiredDelta(output);
+      if (
+        this.#forwardPointerPositionCallbackFrameId === metadata.replacedFrameId
+      ) {
+        this.#forwardPointerPositionCallbackFrameId = metadata.frameId;
+      }
+      if (
+        this.#forwardPointerButtonCallbackFrameId === metadata.replacedFrameId
+      ) {
+        this.#forwardPointerButtonCallbackFrameId = metadata.frameId;
+      }
       if (prepared.workload === "private-bgi" && this.#forwardPrefixComplete) {
         const sequence = this.#bgiCallbackCallSequences.get(
           metadata.replacedFrameId,
@@ -27982,6 +28391,40 @@ class BrowserRuntimeSession {
       return;
     }
     this.#applyOptionalDelta(output);
+    if (this.#forwardPointerPositionCallbackFrameId === metadata.frameId) {
+      this.#forwardPointerPositionCallbackFrameId = null;
+      this.#forwardPointerHoverAwaitingPresent = true;
+      this.#recordForwardInputAction(0, "hover-consumed");
+      this.#status("running", "Forward primary pointer hover consumed by guest");
+    }
+    if (this.#forwardPointerButtonCallbackFrameId === metadata.frameId) {
+      const tracked = this.#forwardPointerButtonMessage;
+      invariant(
+        tracked !== null,
+        "forward pointer callback completed without its source message",
+      );
+      this.#forwardPointerButtonCallbackFrameId = null;
+      this.#forwardPointerButtonMessage = null;
+      invariant(
+        this.#forwardPointerButtonAwaitingPresent.length < 4,
+        "forward pointer presentation queue exceeded its bound",
+      );
+      this.#forwardPointerButtonAwaitingPresent.push({
+        action: tracked.action,
+        phase: tracked.phase,
+        remainingPresentations:
+          tracked.phase === "press" && tracked.action >= 3 ? 7 :
+            tracked.phase === "press" ? 1 : 4,
+      });
+      this.#recordForwardInputAction(
+        tracked.action,
+        tracked.phase === "press" ? "press-consumed" : "release-consumed",
+      );
+      this.#status(
+        "running",
+        `Forward pointer action ${tracked.action} ${tracked.phase} consumed by guest`,
+      );
+    }
     if (prepared.workload === "private-bgi" && this.#forwardPrefixComplete) {
       const sequence = this.#bgiCallbackCallSequences.get(metadata.frameId);
       invariant(
@@ -28228,6 +28671,7 @@ class BrowserRuntimeSession {
     executionBoundary: ApiCompletion["executionBoundary"],
   ): void {
     if (
+      !this.#isForwardDevelopment() &&
       executionBoundary === "yield-current-thread" &&
       !isScheduledSharedClockSetWindowText(
         this.#configuration.capabilityProfile,
@@ -35891,6 +36335,12 @@ class BrowserRuntimeSession {
   }
 
   #status(phase: string, detail: string): void {
+    if (
+      this.#isForwardDevelopment() &&
+      !detail.startsWith("Forward ")
+    ) {
+      return;
+    }
     if (!this.#terminal && !this.#stopping) {
       post({
         type: "session-status",

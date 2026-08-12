@@ -27,6 +27,9 @@ import {
 } from "./memory-transport.js";
 
 const defaultMaximumPhysicalPages = 16 * 1024;
+const dirtyPageCandidateCapacity = 16 * 1024;
+const jitTableOffset = 1_024;
+const jitTableSize = 900;
 const initialPhysicalPoolBytes = 64 * 1024;
 const hardMaximumPhysicalPoolBytes = 128 * 1024 * 1024;
 const excludedPhysicalRanges = [{ start: 0x000a_0000, end: 0x000c_0000 }] as const;
@@ -77,12 +80,19 @@ interface V86Exports extends WebAssembly.Exports {
   reset_cpu(): void;
   full_clear_tlb(): void;
   jit_clear_cache_js(): void;
+  set_jit_config(index: number, value: number): void;
+  codegen_finalize_finished(index: number, start: number, stateFlags: number): void;
   vine_cpu_state_ptr(): number;
   vine_cpu_state_size(): number;
   vine_cpu_state_version(): number;
   vine_cpu_state_save(): void;
   vine_cpu_state_restore(): number;
   vine_adapter_abi_version(): number;
+  vine_dirty_page_tracking_version(): number;
+  vine_dirty_pages_ptr(): number;
+  vine_dirty_page_count(): number;
+  vine_dirty_pages_overflowed(): number;
+  vine_reset_dirty_pages(): void;
   vine_execute_budget(instructions: number): number;
   vine_get_stop_error_code(): number;
   vine_instruction_counter(): number;
@@ -98,6 +108,7 @@ interface MirrorMapping {
   protection: MemoryProtection;
   physicalBase: number;
   pteAddress: number;
+  pteWordIndex: number;
 }
 
 interface MirrorReservation {
@@ -121,6 +132,7 @@ interface PreparedV86Adapter {
 export interface V86MirrorOptions {
   maximumPhysicalPages?: ExecutionEngineOptions["maximumPhysicalPages"];
   initialPhysicalPoolBytes?: number;
+  disableJit?: boolean;
 }
 
 export type V86MirrorFactory = (options?: V86MirrorOptions) => V86Mirror;
@@ -403,9 +415,14 @@ export class V86Mirror implements ExecutionEngine {
   readonly #dirtyMappingsScratch: MirrorMapping[] = [];
   readonly #borrowedDirtyPages: DirtyMirrorPage[] = [];
   readonly #borrowedDirtyPagePool: DirtyMirrorPage[] = [];
+  #dirtyPageCandidates!: Uint32Array;
+  #dirtyPagesPointer = 0;
+  #physicalBase = 0;
   #physicalMemory!: Uint8Array;
+  #physicalWords!: Uint32Array;
   #physicalView!: DataView;
   readonly #maximumPhysicalPages: number;
+  readonly #disableJit: boolean;
   readonly #initialPhysicalPoolBytes: number;
   readonly #maximumPhysicalPoolBytes: number;
   #physicalPoolBytes: number;
@@ -416,6 +433,7 @@ export class V86Mirror implements ExecutionEngine {
   #physicalPoolGrowths = 0;
   #releasedPages = 0;
   #reusedPages = 0;
+  #forceFullDirtyScan = false;
   #threadContextTemplate: Uint32Array | null = null;
   readonly #cacheEffectCounts = {
     tlbFlushes: 0,
@@ -430,6 +448,7 @@ export class V86Mirror implements ExecutionEngine {
   ) {
     this.#module = module;
     this.#identity = structuredClone(identity);
+    this.#disableJit = options.disableJit ?? false;
     this.#maximumPhysicalPages = requirePageCount(
       options.maximumPhysicalPages ?? defaultMaximumPhysicalPages,
       "maximum physical page count",
@@ -514,11 +533,14 @@ export class V86Mirror implements ExecutionEngine {
 
   static #instantiateAdapter(module: WebAssembly.Module): V86Exports {
     const imports = WebAssembly.Module.imports(module);
+    const table = new WebAssembly.Table({
+      element: "anyfunc",
+      initial: jitTableOffset + jitTableSize,
+    });
+    let wasm: V86Exports | undefined;
+    let jitImports: Record<string, WebAssembly.ImportValue> | undefined;
     const environment: Record<string, WebAssembly.ImportValue> = {
-      __indirect_function_table: new WebAssembly.Table({
-        element: "anyfunc",
-        initial: 1_924,
-      }),
+      __indirect_function_table: table,
     };
     for (const imported of imports) {
       invariant(imported.module === "env", `unexpected v86 import module ${imported.module}`);
@@ -526,12 +548,62 @@ export class V86Mirror implements ExecutionEngine {
         invariant(imported.kind === "table", `unexpected v86 import ${imported.name}`);
         continue;
       }
-      environment[imported.name] = (..._arguments: unknown[]) => {
+      environment[imported.name] = (...arguments_: unknown[]) => {
         if (imported.name === "microtick" || imported.name === "get_rand_int") {
           return 0;
         }
+        if (imported.name === "codegen_finalize") {
+          invariant(arguments_.length === 5, "v86 generated an invalid JIT compile request");
+          const [index, start, stateFlags, pointer, byteLength] = arguments_ as [
+            number,
+            number,
+            number,
+            number,
+            number,
+          ];
+          invariant(wasm !== undefined && jitImports !== undefined, "JIT host bridge is not ready");
+          invariant(
+            Number.isInteger(index) && index >= 0 && index < jitTableSize,
+            "v86 generated an invalid JIT table index",
+          );
+          invariant(
+            Number.isInteger(pointer) &&
+              Number.isInteger(byteLength) &&
+              pointer >= 0 &&
+              byteLength > 0 &&
+              pointer + byteLength <= wasm.memory.buffer.byteLength,
+            "v86 generated an invalid JIT module range",
+          );
+          const code = Uint8Array.from(
+            new Uint8Array(wasm.memory.buffer, pointer, byteLength),
+          );
+          const generated = new WebAssembly.Module(code);
+          for (const dependency of WebAssembly.Module.imports(generated)) {
+            invariant(
+              dependency.module === "e" && dependency.name in jitImports,
+              `v86 JIT module requested unsupported import ${dependency.module}.${dependency.name}`,
+            );
+          }
+          const generatedExports = new WebAssembly.Instance(generated, { e: jitImports }).exports;
+          const entry = generatedExports.f;
+          invariant(typeof entry === "function", "v86 JIT module did not export its entry point");
+          queueMicrotask(() => {
+            table.set(index + jitTableOffset, entry);
+            wasm?.codegen_finalize_finished(index, start, stateFlags);
+          });
+          return 0;
+        }
+        if (imported.name === "jit_clear_func") {
+          invariant(arguments_.length === 1, "v86 generated an invalid JIT clear request");
+          const [index] = arguments_ as [number];
+          invariant(
+            Number.isInteger(index) && index >= 0 && index < jitTableSize,
+            "v86 requested an invalid JIT table clear",
+          );
+          table.set(index + jitTableOffset, null);
+          return 0;
+        }
         if (
-          imported.name === "jit_clear_func" ||
           imported.name === "stop_idling" ||
           imported.name === "cpu_event_halt" ||
           imported.name === "run_hardware_timers"
@@ -541,7 +613,14 @@ export class V86Mirror implements ExecutionEngine {
         throw new Error(`v86 reached unsupported host import ${imported.name}`);
       };
     }
-    return new WebAssembly.Instance(module, { env: environment }).exports as V86Exports;
+    wasm = new WebAssembly.Instance(module, { env: environment }).exports as V86Exports;
+    jitImports = { m: wasm.memory };
+    for (const [name, value] of Object.entries(wasm)) {
+      if (!name.startsWith("_") && !name.startsWith("zstd") && !name.endsWith("_js")) {
+        jitImports[name] = value;
+      }
+    }
+    return wasm;
   }
 
   identity(): ExecutionEngineIdentity {
@@ -551,6 +630,9 @@ export class V86Mirror implements ExecutionEngine {
   #installFreshAdapter(poolBytes: number): void {
     const wasm = V86Mirror.#instantiateAdapter(this.#module);
     wasm.rust_init();
+    if (this.#disableJit) {
+      wasm.set_jit_config(0, 1);
+    }
     invariant(
       wasm.vine_adapter_abi_version() === adapterAbiVersion,
       "execution engine adapter ABI mismatch",
@@ -560,20 +642,30 @@ export class V86Mirror implements ExecutionEngine {
         wasm.vine_cpu_state_size() === this.#identity.cpuContextAbi.bytes,
       "execution engine CPU context ABI mismatch",
     );
+    invariant(
+      wasm.vine_dirty_page_tracking_version() === 1,
+      "execution engine dirty-page tracking ABI mismatch",
+    );
     invariant(wasm.vine_set_memory_size(poolBytes) === 0, "v86 rejected mirror memory size");
     wasm.vine_reset_execute_permissions();
     const physicalBase = wasm.allocate_memory(poolBytes);
-    this.#wasm = wasm;
-    this.#physicalMemory = new Uint8Array(wasm.memory.buffer, physicalBase, poolBytes);
-    this.#physicalView = new DataView(
-      this.#physicalMemory.buffer,
-      this.#physicalMemory.byteOffset,
-      this.#physicalMemory.byteLength,
+    const dirtyPagesPointer = wasm.vine_dirty_pages_ptr();
+    invariant(
+      dirtyPagesPointer % Uint32Array.BYTES_PER_ELEMENT === 0 &&
+        dirtyPagesPointer + dirtyPageCandidateCapacity * Uint32Array.BYTES_PER_ELEMENT <=
+          wasm.memory.buffer.byteLength,
+      "execution engine dirty-page candidate buffer is invalid",
     );
+    this.#wasm = wasm;
+    this.#dirtyPagesPointer = dirtyPagesPointer;
+    this.#physicalBase = physicalBase;
     this.#physicalPoolBytes = poolBytes;
+    this.#refreshLinearMemoryViews();
     this.#nextPhysicalPage = memoryPageSize;
     this.#freePhysicalPages.length = 0;
     this.#pageTables.clear();
+    this.#forceFullDirtyScan = false;
+    wasm.vine_reset_dirty_pages();
     wasm.zero_memory(0, poolBytes);
     this.#pageDirectory = this.#allocatePage();
   }
@@ -633,6 +725,7 @@ export class V86Mirror implements ExecutionEngine {
     this.#mappings.clear();
     this.#writableMappings.length = 0;
     this.#installFreshAdapter(poolBytes);
+    let restoredDirtyPage = false;
     for (const page of pages.sort((left, right) => left.address - right.address)) {
       this.#mapPage(
         page.address,
@@ -645,8 +738,10 @@ export class V86Mirror implements ExecutionEngine {
       if (page.dirty) {
         const pte = this.#physicalView.getUint32(mapping.pteAddress, true);
         this.#physicalView.setUint32(mapping.pteAddress, pte | pageFlags.dirty, true);
+        restoredDirtyPage = true;
       }
     }
+    this.#forceFullDirtyScan = restoredDirtyPage;
     if (cpuState !== null) {
       cpuState[stateWord.controlRegisterBase + 3] = this.#pageDirectory;
       this.#restoreState(cpuState);
@@ -680,6 +775,8 @@ export class V86Mirror implements ExecutionEngine {
     this.#nextPhysicalPage = memoryPageSize;
     this.#physicalMemory.fill(0);
     this.#wasm.vine_reset_execute_permissions();
+    this.#wasm.vine_reset_dirty_pages();
+    this.#forceFullDirtyScan = false;
     this.#pageDirectory = this.#allocatePage();
     this.#installReflectedPages(reflection);
     this.#installReservations(regions);
@@ -740,6 +837,7 @@ export class V86Mirror implements ExecutionEngine {
   execute(instructionBudget: number): SliceResult {
     const before = this.#wasm.vine_instruction_counter();
     const reason = this.#wasm.vine_execute_budget(instructionBudget);
+    this.#refreshLinearMemoryViews();
     const errorCode = this.#wasm.vine_get_stop_error_code();
     const state = this.saveState();
     const after = this.#wasm.vine_instruction_counter();
@@ -913,17 +1011,43 @@ export class V86Mirror implements ExecutionEngine {
   #collectChangedPages(copyBytes: boolean): DirtyMirrorPage[] {
     const dirtyMappings = this.#dirtyMappingsScratch;
     dirtyMappings.length = 0;
-    for (const mapping of this.#writableMappings) {
-      const pte = this.#physicalView.getUint32(mapping.pteAddress, true);
-      if ((pte & pageFlags.dirty) !== 0) {
-        dirtyMappings.push(mapping);
+    const candidateCount = this.#wasm.vine_dirty_page_count();
+    invariant(
+      Number.isInteger(candidateCount) &&
+        candidateCount >= 0 &&
+        candidateCount <= dirtyPageCandidateCapacity,
+      "execution engine returned an invalid dirty-page candidate count",
+    );
+    const scanAll =
+      this.#forceFullDirtyScan || this.#wasm.vine_dirty_pages_overflowed() !== 0;
+    this.#forceFullDirtyScan = false;
+    if (scanAll) {
+      for (const mapping of this.#writableMappings) {
+        const pte = this.#physicalWords[mapping.pteWordIndex]!;
+        if ((pte & pageFlags.dirty) !== 0) {
+          this.#physicalWords[mapping.pteWordIndex] = pte & ~pageFlags.dirty;
+          dirtyMappings.push(mapping);
+        }
+      }
+    } else {
+      for (let index = 0; index < candidateCount; index += 1) {
+        const address = this.#dirtyPageCandidates[index]!;
+        const mapping = this.#mappings.get(address);
+        if (mapping === undefined || !mapping.protection.write) {
+          continue;
+        }
+        const pte = this.#physicalWords[mapping.pteWordIndex]!;
+        if ((pte & pageFlags.dirty) !== 0) {
+          this.#physicalWords[mapping.pteWordIndex] = pte & ~pageFlags.dirty;
+          dirtyMappings.push(mapping);
+        }
       }
     }
+    this.#wasm.vine_reset_dirty_pages();
+    dirtyMappings.sort((left, right) => left.address - right.address);
     const dirty = copyBytes ? [] : this.#borrowedDirtyPages;
     dirty.length = 0;
     for (const mapping of dirtyMappings) {
-      const pte = this.#physicalView.getUint32(mapping.pteAddress, true);
-      this.#physicalView.setUint32(mapping.pteAddress, pte & ~pageFlags.dirty, true);
       const bytes = this.#physicalMemory.subarray(
         mapping.physicalBase,
         mapping.physicalBase + memoryPageSize,
@@ -1292,6 +1416,7 @@ export class V86Mirror implements ExecutionEngine {
       protection: { ...protection },
       physicalBase,
       pteAddress,
+      pteWordIndex: pteAddress >>> 2,
     };
     this.#mappings.set(address, mapping);
     if (mapping.protection.write) {
@@ -1426,6 +1551,40 @@ export class V86Mirror implements ExecutionEngine {
       this.#wasm.memory.buffer,
       this.#wasm.vine_cpu_state_ptr(),
       this.#wasm.vine_cpu_state_size() / 4,
+    );
+  }
+
+  #refreshLinearMemoryViews(): void {
+    const buffer = this.#wasm.memory.buffer;
+    if (this.#physicalMemory?.buffer === buffer) {
+      return;
+    }
+    invariant(
+      this.#dirtyPagesPointer +
+        dirtyPageCandidateCapacity * Uint32Array.BYTES_PER_ELEMENT <=
+        buffer.byteLength &&
+        this.#physicalBase + this.#physicalPoolBytes <= buffer.byteLength,
+      "execution engine memory growth invalidated its mirror ranges",
+    );
+    this.#dirtyPageCandidates = new Uint32Array(
+      buffer,
+      this.#dirtyPagesPointer,
+      dirtyPageCandidateCapacity,
+    );
+    this.#physicalMemory = new Uint8Array(
+      buffer,
+      this.#physicalBase,
+      this.#physicalPoolBytes,
+    );
+    this.#physicalWords = new Uint32Array(
+      buffer,
+      this.#physicalBase,
+      this.#physicalPoolBytes / Uint32Array.BYTES_PER_ELEMENT,
+    );
+    this.#physicalView = new DataView(
+      buffer,
+      this.#physicalBase,
+      this.#physicalPoolBytes,
     );
   }
 

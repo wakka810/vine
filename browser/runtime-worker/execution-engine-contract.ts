@@ -100,6 +100,7 @@ export interface ExecutionCacheEffectCounts {
 
 export interface ExecutionEngineOptions {
   maximumPhysicalPages: number;
+  disableJit?: boolean;
 }
 
 export interface ExecutionEngineMemoryCapacity {

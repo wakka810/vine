@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 
-const adapterAbi = Object.freeze({ imports: 22, exports: 814 });
+const adapterAbi = Object.freeze({ imports: 22, exports: 820 });
 const adapterProfiles = Object.freeze([
   Object.freeze({
     id: "windows-gnu-rust-1.97.0-llvm-22.1.8",
-    bytes: 1_857_800,
-    sha256: "99a0948c222a6ac2f21984798c9e9213dec9e43b95dff6fc5c8acf1f4dc7954f",
+    bytes: 1_864_286,
+    sha256: "f44a6865fb1cd4128766b1dcccd4f2af73d59923e0b1b10316cdae5dd293b163",
     hasCanonicalReportFingerprints: true,
   }),
   Object.freeze({
     id: "linux-gnu-rust-1.97.0-llvm-22.1.8",
-    bytes: 2_116_017,
-    sha256: "21b0fb4f63e9604a66e6522839c9744a4ae17f9ead1c2e201ff2e46fccff20c4",
+    bytes: 2_121_800,
+    sha256: "8fea5e55f05bae2702edd8e8a92e724a936ef2b4e94ee22a8706d97def1030e1",
     hasCanonicalReportFingerprints: false,
   }),
 ]);

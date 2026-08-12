@@ -6,6 +6,7 @@ import {
   focusSourceEvent,
   keyboardSourceEvent,
   pointerButtonForBrowserButton,
+  pointerPositionSourceEvent,
   pointerSourceEvent,
   virtualKeyForKeyboardCode,
 } from "./keyboard-input.js";
@@ -18,6 +19,7 @@ import {
   type SessionReport,
   type RuntimeKeyboardInputEvent,
   type RuntimePointerButtonInputEvent,
+  type RuntimePointerPositionInputEvent,
   type WorkerToMainMessage,
 } from "./protocol.js";
 
@@ -96,6 +98,8 @@ let hostServiceError: Error | null = null;
 let nextInputSequence = 1;
 let inputSourceFocused = true;
 const pressedPointerButtons = new Set<number>();
+let pendingPointerPosition: { normalizedX: number; normalizedY: number } | null = null;
+let pointerPositionTimer: number | null = null;
 const pageLifecycle = observePageLifecycle((lifecycle) => {
   if (activeSessionId !== null) {
     worker.postMessage({
@@ -124,6 +128,7 @@ window.addEventListener("blur", () => sendFocusEvent(false));
 window.addEventListener("focus", () => sendFocusEvent(true));
 canvas.addEventListener("pointerdown", (event) => handlePointerEvent(event, "button-down"));
 canvas.addEventListener("pointerup", (event) => handlePointerEvent(event, "button-up"));
+canvas.addEventListener("pointermove", handlePointerMove);
 canvas.addEventListener("pointercancel", handlePointerCancel);
 
 worker.addEventListener("message", (event: MessageEvent<WorkerToMainMessage>) => {
@@ -178,6 +183,7 @@ async function startSession(mode: SessionMode = "success"): Promise<RuntimeEvide
   nextInputSequence = 1;
   inputSourceFocused = true;
   pressedPointerButtons.clear();
+  clearPendingPointerPosition();
   pixelRgba = null;
   toneHz = null;
   persistentByte = null;
@@ -248,6 +254,25 @@ function handlePointerEvent(
   handlePointerButtonEvent(event, kind, event.button);
 }
 
+function handlePointerMove(event: PointerEvent): void {
+  if (activeSessionId === null || !inputSourceFocused) {
+    return;
+  }
+  const position = normalizedPointerPosition(event);
+  if (position === null) {
+    return;
+  }
+  pendingPointerPosition = position;
+  if (pointerPositionTimer !== null) {
+    window.clearTimeout(pointerPositionTimer);
+  }
+  pointerPositionTimer = window.setTimeout(() => {
+    pointerPositionTimer = null;
+    flushPendingPointerPosition();
+  }, 50);
+  event.preventDefault();
+}
+
 function handlePointerCancel(event: PointerEvent): void {
   for (const button of [...pressedPointerButtons]) {
     handlePointerButtonEvent(event, "button-up", button);
@@ -265,26 +290,17 @@ function handlePointerButtonEvent(
   if (pointerButtonForBrowserButton(button) === null) {
     return;
   }
-  const rect = canvas.getBoundingClientRect();
-  if (!(rect.width > 0 && rect.height > 0)) {
+  const position = normalizedPointerPosition(event);
+  if (position === null) {
     return;
   }
-  const normalizedX = normalizedPointerCoordinate(
-    event.clientX,
-    rect.left,
-    rect.width,
-  );
-  const normalizedY = normalizedPointerCoordinate(
-    event.clientY,
-    rect.top,
-    rect.height,
-  );
+  flushPendingPointerPosition();
   const input = pointerSourceEvent(
     nextInputSequence,
     kind,
     button,
-    normalizedX,
-    normalizedY,
+    position.normalizedX,
+    position.normalizedY,
   );
   if (input === null) {
     return;
@@ -300,6 +316,46 @@ function handlePointerButtonEvent(
   }
   event.preventDefault();
   sendPointerInput(input);
+}
+
+function normalizedPointerPosition(
+  event: PointerEvent,
+): { normalizedX: number; normalizedY: number } | null {
+  const rect = canvas.getBoundingClientRect();
+  if (!(rect.width > 0 && rect.height > 0)) {
+    return null;
+  }
+  return {
+    normalizedX: normalizedPointerCoordinate(event.clientX, rect.left, rect.width),
+    normalizedY: normalizedPointerCoordinate(event.clientY, rect.top, rect.height),
+  };
+}
+
+function flushPendingPointerPosition(): void {
+  if (pointerPositionTimer !== null) {
+    window.clearTimeout(pointerPositionTimer);
+    pointerPositionTimer = null;
+  }
+  const position = pendingPointerPosition;
+  pendingPointerPosition = null;
+  if (position === null || activeSessionId === null) {
+    return;
+  }
+  sendPointerInput(
+    pointerPositionSourceEvent(
+      nextInputSequence,
+      position.normalizedX,
+      position.normalizedY,
+    ),
+  );
+}
+
+function clearPendingPointerPosition(): void {
+  pendingPointerPosition = null;
+  if (pointerPositionTimer !== null) {
+    window.clearTimeout(pointerPositionTimer);
+    pointerPositionTimer = null;
+  }
 }
 
 function normalizedPointerCoordinate(
@@ -320,6 +376,7 @@ function sendFocusEvent(focused: boolean): void {
   inputSourceFocused = focused;
   if (!focused) {
     pressedPointerButtons.clear();
+    clearPendingPointerPosition();
   }
   sendKeyboardInput(focusSourceEvent(nextInputSequence, focused));
 }
@@ -337,7 +394,9 @@ function sendKeyboardInput(event: RuntimeKeyboardInputEvent): void {
   nextInputSequence += 1;
 }
 
-function sendPointerInput(event: RuntimePointerButtonInputEvent): void {
+function sendPointerInput(
+  event: RuntimePointerButtonInputEvent | RuntimePointerPositionInputEvent,
+): void {
   if (activeSessionId === null) {
     return;
   }

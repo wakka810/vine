@@ -2,7 +2,7 @@ import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 import type { BrowserNativeStorageConfiguration } from "../storage/protocol.js";
 
-export const protocolVersion = 142 as const;
+export const protocolVersion = 143 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -174,6 +174,13 @@ export interface RuntimePointerButtonInputEvent {
   normalizedY: number;
 }
 
+export interface RuntimePointerPositionInputEvent {
+  sequence: string;
+  kind: "pointer-move";
+  normalizedX: number;
+  normalizedY: number;
+}
+
 export interface RuntimePointerButtonIngressReceipt {
   profileId: string;
   windowId: number;
@@ -202,6 +209,21 @@ export interface RuntimePointerButtonIngressReceipt {
     pointX: number;
     pointY: number;
   };
+}
+
+export interface RuntimePointerPositionIngressReceipt {
+  profileId: string;
+  windowId: number;
+  windowHandle: number;
+  targetThreadId: number;
+  clientX: number;
+  clientY: number;
+  input: {
+    event: Omit<RuntimePointerPositionInputEvent, "sequence"> & { sequence: number };
+    cursor: RuntimeCursorPositionSnapshot;
+    inputGeneration: number;
+  };
+  message: RuntimeThreadMessageSnapshot;
 }
 
 export interface RuntimeThreadMessageSnapshot {
@@ -1014,7 +1036,7 @@ export interface PointerInputMessage {
   type: "pointer-input";
   protocolVersion: typeof protocolVersion;
   sessionId: number;
-  event: RuntimePointerButtonInputEvent;
+  event: RuntimePointerButtonInputEvent | RuntimePointerPositionInputEvent;
 }
 
 export type MainToWorkerMessage =
@@ -1186,7 +1208,7 @@ export interface RuntimeForwardSemanticEntry {
 
 export interface RuntimeForwardDevelopmentSummary {
   mode: "forward";
-  supportProfile: BgiCapabilityProfile;
+  supportProfile: "generic-forward";
   historicalCheckpointBypassed: boolean;
   semanticTailCapacity: 512;
   semanticTail: RuntimeForwardSemanticEntry[];
@@ -1200,6 +1222,32 @@ export interface RuntimeForwardDevelopmentSummary {
     keyboardMessages: number;
     pointerMessages: number;
     latestPointerMessage: RuntimeThreadMessageSnapshot | null;
+    completedActions: number;
+    completedKeyboardActivations: number;
+    actionEvents: Array<{
+      action: number;
+      stage:
+        | "move-queued"
+        | "hover-entered"
+        | "hover-consumed"
+        | "hover-presented"
+        | "press-queued"
+        | "press-observed"
+        | "press-entered"
+        | "press-consumed"
+        | "press-presented"
+        | "release-queued"
+        | "release-entered"
+        | "release-consumed"
+        | "release-presented"
+        | "activation-queued"
+        | "activation-observed"
+        | "activation-presented"
+        | "activation-release-queued"
+        | "activation-release-presented";
+      instructionCount: number;
+      presentCount: number;
+    }>;
   };
   storage: {
     sourceReads: number;

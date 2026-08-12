@@ -12,8 +12,8 @@ This section is generated from [`docs/current-checkpoint.json`](docs/current-che
 | Active target | Sakura no Uta `BGI.exe` (PE32/i386) in Chrome |
 | Active milestone | `primary-representative-flow`: A bounded real scenario covers launch, readable rendering, multiple inputs, audio, a scene transition, persistent state, restart, and restore without an unsupported stop |
 | Last completed boundary | `primary-save-browser-restart-load`: The primary title atomically committed its BGI.gdb configuration overlay from generation 1 to 2; a separate Chrome and local-service run loaded the same 123657 bytes and SHA-256 into the authoritative Rust runtime while source files remained unchanged |
-| Current forward stop | `input-transition-not-yet-observed` / `primary-title-start-action`: A 450-second generic forward run rendered the complete title artwork, observed the Start-coordinate primary down in guest GetAsyncKeyState, committed the matching up message to Rust input authority, committed the writable overlay, and reached no unsupported endpoint; the title had not entered the first scenario before the bounded run ended |
-| Next development goal | Capture the bounded guest consumption and hit-test result around the Start down/up pair, make that action enter the first scenario, then follow the first scene transition toward a representative flow |
+| Current forward stop | `title-action-consumed-without-scene-transition` / `primary-title-start-action`: The generic forward runner rendered the complete title artwork, waited for the Start region to stabilize, delivered its pointer move and primary down/up through WndProc and GetAsyncKeyState, held the title press across seven Present calls, completed ten Enter activations, played non-zero title audio, and reached no unsupported endpoint; the first scene transition was not observed before the bounded run ended |
+| Next development goal | Add a commit- and engine-bound development resume cache at the stable title boundary, then use fast iterations to classify the remaining title hit-test or action-state requirement and enter the first scenario |
 
 ### Subsystems
 

@@ -140,6 +140,7 @@ use super::input::{
     RuntimeKeyboardEventReceipt, RuntimeKeyboardSourceEvent, RuntimeKeyboardState,
     RuntimeMouseButtonMapping, RuntimePointerButtonEventReceipt,
     RuntimePointerButtonMessageProfile, RuntimePointerButtonSourceEvent,
+    RuntimePointerPositionEventReceipt, RuntimePointerPositionSourceEvent,
     RuntimeSwapMouseButtonResult,
 };
 use super::messages::{
@@ -218,8 +219,8 @@ use super::user32::{
     RuntimeUpdateWindowOperation, RuntimeUpdateWindowRequest, RuntimeUser32, RuntimeWindow,
     RuntimeWindowClass, RuntimeWindowClassId, RuntimeWindowClassRegistration,
     RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
-    RuntimeWindowCreationRequest, RuntimeWindowFileDropAcceptanceResult, RuntimeWindowId,
-    RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
+    RuntimeWindowCreationRequest, RuntimeWindowFileDropAcceptanceResult, RuntimeWindowGeometry,
+    RuntimeWindowId, RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
 };
 use super::virtual_memory::{RuntimeVirtualMemoryReservation, RuntimeVirtualMemoryReserveRequest};
 use super::waits::{
@@ -228,6 +229,8 @@ use super::waits::{
     RuntimeWaitForSingleObjectExResult, RuntimeWaitRegistration, RuntimeWaitRegistrationPlan,
     RuntimeWaitableTimerPacing,
 };
+
+const WM_MOUSEMOVE: u32 = 0x0200;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -254,6 +257,19 @@ pub struct RuntimePointerButtonIngressReceipt {
     pub client_x: i32,
     pub client_y: i32,
     pub input: RuntimePointerButtonEventReceipt,
+    pub message: RuntimeThreadMessage,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimePointerPositionIngressReceipt {
+    pub profile_id: String,
+    pub window_id: RuntimeWindowId,
+    pub window_handle: u32,
+    pub target_thread_id: RuntimeThreadId,
+    pub client_x: i32,
+    pub client_y: i32,
+    pub input: RuntimePointerPositionEventReceipt,
     pub message: RuntimeThreadMessage,
 }
 
@@ -530,6 +546,93 @@ fn validate_guest_thread_stack_sizes(
         ));
     }
     Ok(())
+}
+
+fn pointer_input_coordinates(
+    normalized_x: u16,
+    normalized_y: u16,
+    geometry: RuntimeWindowGeometry,
+    profile: &RuntimePointerButtonMessageProfile,
+) -> Result<(i32, i32, i32, i32, u32), RuntimeStateError> {
+    if geometry.client_width == 0
+        || geometry.client_height == 0
+        || profile.normalized_position_denominator != 65_536
+    {
+        return Err(RuntimeStateError::runtime_defect(
+            "runtime-pointer-input",
+            "pointer-input-client-geometry-invalid",
+            "pointer input requires bounded nonempty client geometry",
+        ));
+    }
+    let denominator = u64::from(profile.normalized_position_denominator);
+    let client_x = i32::try_from(
+        u64::from(normalized_x)
+            .checked_mul(u64::from(geometry.client_width))
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-pointer-input",
+                    "pointer-input-client-x-overflow",
+                    "normalized pointer x position overflowed logical client accounting",
+                )
+            })?
+            / denominator,
+    )
+    .map_err(|_| {
+        RuntimeStateError::resource_limit(
+            "runtime-pointer-input",
+            "pointer-input-client-x-unrepresentable",
+            "logical pointer x position does not fit x86 client coordinates",
+        )
+    })?;
+    let client_y = i32::try_from(
+        u64::from(normalized_y)
+            .checked_mul(u64::from(geometry.client_height))
+            .ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-pointer-input",
+                    "pointer-input-client-y-overflow",
+                    "normalized pointer y position overflowed logical client accounting",
+                )
+            })?
+            / denominator,
+    )
+    .map_err(|_| {
+        RuntimeStateError::resource_limit(
+            "runtime-pointer-input",
+            "pointer-input-client-y-unrepresentable",
+            "logical pointer y position does not fit x86 client coordinates",
+        )
+    })?;
+    let client_x_i16 = i16::try_from(client_x).map_err(|_| {
+        RuntimeStateError::invalid_input(
+            "runtime-pointer-input",
+            "pointer-input-client-x-out-of-range",
+            "logical pointer x position is outside the signed x86 LPARAM range",
+        )
+    })?;
+    let client_y_i16 = i16::try_from(client_y).map_err(|_| {
+        RuntimeStateError::invalid_input(
+            "runtime-pointer-input",
+            "pointer-input-client-y-out-of-range",
+            "logical pointer y position is outside the signed x86 LPARAM range",
+        )
+    })?;
+    let screen_x = geometry.client_x.checked_add(client_x).ok_or_else(|| {
+        RuntimeStateError::resource_limit(
+            "runtime-pointer-input",
+            "pointer-input-screen-x-overflow",
+            "logical pointer screen x position overflowed i32 accounting",
+        )
+    })?;
+    let screen_y = geometry.client_y.checked_add(client_y).ok_or_else(|| {
+        RuntimeStateError::resource_limit(
+            "runtime-pointer-input",
+            "pointer-input-screen-y-overflow",
+            "logical pointer screen y position overflowed i32 accounting",
+        )
+    })?;
+    let l_param = u32::from(client_x_i16 as u16) | (u32::from(client_y_i16 as u16) << 16);
+    Ok((client_x, client_y, screen_x, screen_y, l_param))
 }
 
 fn callback_scratch_for_depth(
@@ -996,6 +1099,142 @@ impl RuntimeKernel {
         event: RuntimePointerButtonSourceEvent,
         profile: &RuntimePointerButtonMessageProfile,
     ) -> Result<RuntimePointerButtonIngressReceipt, RuntimeStateError> {
+        let (window, target_thread_id, target_scheduler_state, geometry) =
+            self.pointer_input_target(profile)?;
+        let window_handle = window.handle;
+        let (client_x, client_y, screen_x, screen_y, l_param) =
+            pointer_input_coordinates(event.normalized_x, event.normalized_y, geometry, profile)?;
+        let input_plan = self
+            .input
+            .plan_pointer_button_event(event, screen_x, screen_y)?;
+        let (message, w_param) = input_plan.message_and_key_state(profile);
+        let message_plan = self.messages.plan_post(
+            RuntimeMessageSource::PointerInput {
+                event_sequence: event.sequence,
+            },
+            target_thread_id,
+            window_handle,
+            message,
+            w_param,
+            l_param,
+            self.process.clock().tick_count,
+            screen_x,
+            screen_y,
+            target_scheduler_state == SchedulerThreadState::WaitingMessage,
+        )?;
+        let posted = message_plan.message;
+        let scheduler_plan = message_plan
+            .wake_target
+            .then(|| {
+                self.scheduler
+                    .plan_transition(target_thread_id, SchedulerThreadState::Runnable)
+            })
+            .transpose()?;
+
+        self.input.preflight_pointer_button_event(&input_plan)?;
+        self.messages.preflight_post(&message_plan)?;
+        self.preflight_pointer_input_target(&window, target_thread_id, geometry)?;
+        let input = self
+            .input
+            .commit_preflighted_pointer_button_event(input_plan);
+        self.messages.commit_post(message_plan);
+        if let Some(scheduler_plan) = scheduler_plan {
+            self.scheduler.commit_lane(scheduler_plan);
+            self.scheduler
+                .commit_event(RuntimeSchedulerEvent::MessageReady(RuntimeMessageWake {
+                    thread_id: target_thread_id,
+                    message_id: posted.id,
+                    queue_depth: message_plan.queue_depth,
+                }));
+        }
+        Ok(RuntimePointerButtonIngressReceipt {
+            profile_id: profile.id.clone(),
+            window_id: window.id,
+            window_handle,
+            target_thread_id,
+            client_x,
+            client_y,
+            input,
+            message: posted,
+        })
+    }
+
+    pub fn ingest_pointer_position_event(
+        &mut self,
+        event: RuntimePointerPositionSourceEvent,
+        profile: &RuntimePointerButtonMessageProfile,
+    ) -> Result<RuntimePointerPositionIngressReceipt, RuntimeStateError> {
+        let (window, target_thread_id, target_scheduler_state, geometry) =
+            self.pointer_input_target(profile)?;
+        let (client_x, client_y, screen_x, screen_y, l_param) =
+            pointer_input_coordinates(event.normalized_x, event.normalized_y, geometry, profile)?;
+        let input_plan = self
+            .input
+            .plan_pointer_position_event(event, screen_x, screen_y)?;
+        let message_plan = self.messages.plan_post(
+            RuntimeMessageSource::PointerInput {
+                event_sequence: event.sequence,
+            },
+            target_thread_id,
+            window.handle,
+            WM_MOUSEMOVE,
+            input_plan.message_key_state(profile),
+            l_param,
+            self.process.clock().tick_count,
+            screen_x,
+            screen_y,
+            target_scheduler_state == SchedulerThreadState::WaitingMessage,
+        )?;
+        let posted = message_plan.message;
+        let scheduler_plan = message_plan
+            .wake_target
+            .then(|| {
+                self.scheduler
+                    .plan_transition(target_thread_id, SchedulerThreadState::Runnable)
+            })
+            .transpose()?;
+
+        self.input.preflight_pointer_position_event(&input_plan)?;
+        self.messages.preflight_post(&message_plan)?;
+        self.preflight_pointer_input_target(&window, target_thread_id, geometry)?;
+
+        let input = self
+            .input
+            .commit_preflighted_pointer_position_event(input_plan);
+        self.messages.commit_post(message_plan);
+        if let Some(scheduler_plan) = scheduler_plan {
+            self.scheduler.commit_lane(scheduler_plan);
+            self.scheduler
+                .commit_event(RuntimeSchedulerEvent::MessageReady(RuntimeMessageWake {
+                    thread_id: target_thread_id,
+                    message_id: posted.id,
+                    queue_depth: message_plan.queue_depth,
+                }));
+        }
+        Ok(RuntimePointerPositionIngressReceipt {
+            profile_id: profile.id.clone(),
+            window_id: window.id,
+            window_handle: window.handle,
+            target_thread_id,
+            client_x,
+            client_y,
+            input,
+            message: posted,
+        })
+    }
+
+    fn pointer_input_target(
+        &self,
+        profile: &RuntimePointerButtonMessageProfile,
+    ) -> Result<
+        (
+            RuntimeWindow,
+            RuntimeThreadId,
+            SchedulerThreadState,
+            RuntimeWindowGeometry,
+        ),
+        RuntimeStateError,
+    > {
         if profile.id.is_empty()
             || profile.id.len() > 128
             || !profile.id.is_ascii()
@@ -1073,108 +1312,24 @@ impl RuntimeKernel {
                 "pointer input target has an empty logical client area",
             ));
         }
-        let normalized_denominator = u64::from(profile.normalized_position_denominator);
-        let client_x_u64 = u64::from(event.normalized_x)
-            .checked_mul(u64::from(geometry.client_width))
-            .ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-pointer-input",
-                    "pointer-input-client-x-overflow",
-                    "normalized pointer x position overflowed logical client accounting",
-                )
-            })?
-            / normalized_denominator;
-        let client_y_u64 = u64::from(event.normalized_y)
-            .checked_mul(u64::from(geometry.client_height))
-            .ok_or_else(|| {
-                RuntimeStateError::resource_limit(
-                    "runtime-pointer-input",
-                    "pointer-input-client-y-overflow",
-                    "normalized pointer y position overflowed logical client accounting",
-                )
-            })?
-            / normalized_denominator;
-        let client_x = i32::try_from(client_x_u64).map_err(|_| {
-            RuntimeStateError::resource_limit(
-                "runtime-pointer-input",
-                "pointer-input-client-x-unrepresentable",
-                "logical pointer x position does not fit x86 client coordinates",
-            )
-        })?;
-        let client_y = i32::try_from(client_y_u64).map_err(|_| {
-            RuntimeStateError::resource_limit(
-                "runtime-pointer-input",
-                "pointer-input-client-y-unrepresentable",
-                "logical pointer y position does not fit x86 client coordinates",
-            )
-        })?;
-        let client_x_i16 = i16::try_from(client_x).map_err(|_| {
-            RuntimeStateError::invalid_input(
-                "runtime-pointer-input",
-                "pointer-input-client-x-out-of-range",
-                "logical pointer x position is outside the signed x86 LPARAM range",
-            )
-        })?;
-        let client_y_i16 = i16::try_from(client_y).map_err(|_| {
-            RuntimeStateError::invalid_input(
-                "runtime-pointer-input",
-                "pointer-input-client-y-out-of-range",
-                "logical pointer y position is outside the signed x86 LPARAM range",
-            )
-        })?;
-        let screen_x = geometry.client_x.checked_add(client_x).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-pointer-input",
-                "pointer-input-screen-x-overflow",
-                "logical pointer screen x position overflowed i32 accounting",
-            )
-        })?;
-        let screen_y = geometry.client_y.checked_add(client_y).ok_or_else(|| {
-            RuntimeStateError::resource_limit(
-                "runtime-pointer-input",
-                "pointer-input-screen-y-overflow",
-                "logical pointer screen y position overflowed i32 accounting",
-            )
-        })?;
-        let input_plan = self
-            .input
-            .plan_pointer_button_event(event, screen_x, screen_y)?;
-        let (message, w_param) = input_plan.message_and_key_state(profile);
-        let l_param = u32::from(client_x_i16 as u16) | (u32::from(client_y_i16 as u16) << 16);
-        let message_plan = self.messages.plan_post(
-            RuntimeMessageSource::PointerInput {
-                event_sequence: event.sequence,
-            },
-            target_thread_id,
-            window_handle,
-            message,
-            w_param,
-            l_param,
-            self.process.clock().tick_count,
-            screen_x,
-            screen_y,
-            target_scheduler_state == SchedulerThreadState::WaitingMessage,
-        )?;
-        let posted = message_plan.message;
-        let scheduler_plan = message_plan
-            .wake_target
-            .then(|| {
-                self.scheduler
-                    .plan_transition(target_thread_id, SchedulerThreadState::Runnable)
-            })
-            .transpose()?;
+        Ok((window, target_thread_id, target_scheduler_state, geometry))
+    }
 
-        self.input.preflight_pointer_button_event(&input_plan)?;
-        self.messages.preflight_post(&message_plan)?;
-        let current_window = self.user32.window(window_handle)?;
+    fn preflight_pointer_input_target(
+        &self,
+        window: &RuntimeWindow,
+        target_thread_id: RuntimeThreadId,
+        geometry: RuntimeWindowGeometry,
+    ) -> Result<(), RuntimeStateError> {
+        let current_window = self.user32.window(window.handle)?;
         if current_window.id != window.id
             || current_window.lifecycle != RuntimeWindowLifecycle::Created
             || !current_window.visible
             || current_window.creation.owner_thread_id != target_thread_id
             || current_window.creation.geometry != geometry
-            || self.user32.active_window_handle(target_thread_id)? != Some(window_handle)
-            || self.user32.focused_window_handle(target_thread_id)? != Some(window_handle)
-            || self.user32.foreground_window_handle()? != Some(window_handle)
+            || self.user32.active_window_handle(target_thread_id)? != Some(window.handle)
+            || self.user32.focused_window_handle(target_thread_id)? != Some(window.handle)
+            || self.user32.foreground_window_handle()? != Some(window.handle)
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-pointer-input",
@@ -1182,29 +1337,7 @@ impl RuntimeKernel {
                 "logical pointer target changed after input and message planning",
             ));
         }
-        let input = self
-            .input
-            .commit_preflighted_pointer_button_event(input_plan);
-        self.messages.commit_post(message_plan);
-        if let Some(scheduler_plan) = scheduler_plan {
-            self.scheduler.commit_lane(scheduler_plan);
-            self.scheduler
-                .commit_event(RuntimeSchedulerEvent::MessageReady(RuntimeMessageWake {
-                    thread_id: target_thread_id,
-                    message_id: posted.id,
-                    queue_depth: message_plan.queue_depth,
-                }));
-        }
-        Ok(RuntimePointerButtonIngressReceipt {
-            profile_id: profile.id.clone(),
-            window_id: window.id,
-            window_handle,
-            target_thread_id,
-            client_x,
-            client_y,
-            input,
-            message: posted,
-        })
+        Ok(())
     }
 
     pub fn query_async_key_state(

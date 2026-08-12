@@ -201,7 +201,8 @@ pub use input::{
     RuntimeLogicalMouseButton, RuntimeMouseButtonMapping, RuntimePointerButton,
     RuntimePointerButtonEventReceipt, RuntimePointerButtonMessageProfile,
     RuntimePointerButtonSourceEvent, RuntimePointerButtonSourceEventKind,
-    RuntimeSwapMouseButtonResult, RuntimeVirtualKeyState,
+    RuntimePointerPositionEventReceipt, RuntimePointerPositionSourceEvent,
+    RuntimePointerPositionSourceEventKind, RuntimeSwapMouseButtonResult, RuntimeVirtualKeyState,
 };
 pub use kernel::*;
 pub use messages::{

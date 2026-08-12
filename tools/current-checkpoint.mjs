@@ -22,8 +22,8 @@ export function validateCurrentCheckpoint(manifest) {
   if (manifest.schema !== "vine.current-state") {
     errors.push("schema must be vine.current-state");
   }
-  if (manifest.schemaVersion !== 5) {
-    errors.push("schemaVersion must be 5");
+  if (manifest.schemaVersion !== 6) {
+    errors.push("schemaVersion must be 6");
   }
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(manifest.updatedAt ?? "")) {
     errors.push("updatedAt must be YYYY-MM-DD");
@@ -36,6 +36,7 @@ export function validateCurrentCheckpoint(manifest) {
     ["currentForwardStop", manifest.currentForwardStop],
     ["commands", manifest.commands],
     ["development", manifest.development],
+    ["historicalAcceptance", manifest.historicalAcceptance],
   ]) {
     if (!isRecord(value)) {
       errors.push(`${label} must be an object`);
@@ -107,9 +108,20 @@ export function validateCurrentCheckpoint(manifest) {
   if (development.mode !== "forward") {
     errors.push("development.mode must be forward");
   }
-  for (const key of ["supportProfile", "runtimeProfile", "compatibilityPolicy", "runtimeProtocol", "reportPath"]) {
+  if (development.runner !== "generic-forward") {
+    errors.push("development.runner must be generic-forward");
+  }
+  for (const key of ["compatibilityPolicy", "runtimeProtocol", "reportPath"]) {
     if (!nonEmptyString(development[key])) {
       errors.push(`development.${key} must be a non-empty string`);
+    }
+  }
+  const historicalAcceptance = isRecord(manifest.historicalAcceptance)
+    ? manifest.historicalAcceptance
+    : {};
+  for (const key of ["supportProfile", "runtimeProfile"]) {
+    if (!nonEmptyString(historicalAcceptance[key])) {
+      errors.push(`historicalAcceptance.${key} must be a non-empty string`);
     }
   }
   if (!Number.isSafeInteger(development.maximumRunSeconds) || development.maximumRunSeconds < 1 || development.maximumRunSeconds > 600) {

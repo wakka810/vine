@@ -17,7 +17,8 @@ use vine_core::{
     RuntimeDisplayProfile, RuntimeGuestCallbackSemanticAction, RuntimeImeStatusWindowRequest,
     RuntimeInputProfile, RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind,
     RuntimeMessageSource, RuntimeModule, RuntimePointerButton, RuntimePointerButtonSourceEvent,
-    RuntimePointerButtonSourceEventKind, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect,
+    RuntimePointerButtonSourceEventKind, RuntimePointerPositionSourceEvent,
+    RuntimePointerPositionSourceEventKind, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeRect,
     RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
     RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
     RuntimeSetWindowPosOperation, RuntimeSetWindowPosVariant, RuntimeStartupInfo, RuntimeState,
@@ -5855,6 +5856,126 @@ fn due_window_timer_materializes_once_and_dispatches_timerproc_on_the_owner_thre
 }
 
 #[test]
+fn pointer_position_ingress_dispatches_mouse_move_and_preserves_shared_sequence() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, _) = fixture.prepare_active_window_with_small_icon();
+    fixture.policy = User32CompatibilityPolicy::controlled_v32();
+    let profile = fixture
+        .policy
+        .pointer_button_messages
+        .clone()
+        .expect("controlled pointer message profile");
+    let sentinel = 0x41aa_7263;
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed pointer move LastError");
+
+    let position = fixture
+        .runtime
+        .ingest_pointer_position_event(
+            RuntimePointerPositionSourceEvent {
+                sequence: 1,
+                event_kind: RuntimePointerPositionSourceEventKind::PointerMove,
+                normalized_x: 16_384,
+                normalized_y: 49_152,
+            },
+            &profile,
+        )
+        .expect("ingest pointer position");
+    assert_eq!(position.window_handle, window_handle);
+    assert_eq!((position.client_x, position.client_y), (200, 450));
+    assert_eq!(position.message.message, 0x0200);
+    assert_eq!(position.message.w_param, 0);
+    assert_eq!(position.message.l_param, 0x01c2_00c8);
+    assert_eq!(
+        (position.message.point_x, position.message.point_y),
+        (760, 690)
+    );
+    assert_eq!(position.input.input_generation, 1);
+    assert_eq!(
+        fixture
+            .runtime
+            .keyboard_state()
+            .unwrap()
+            .last_event_sequence,
+        1
+    );
+
+    let before_stale = fixture.runtime.clone();
+    let stale = fixture
+        .runtime
+        .ingest_pointer_position_event(
+            RuntimePointerPositionSourceEvent {
+                sequence: 1,
+                event_kind: RuntimePointerPositionSourceEventKind::PointerMove,
+                normalized_x: 0,
+                normalized_y: 0,
+            },
+            &profile,
+        )
+        .expect_err("duplicate pointer position sequence must be rejected");
+    assert_eq!(stale.code, "pointer-position-event-sequence-stale");
+    assert_eq!(fixture.runtime, before_stale);
+
+    fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 1);
+    let peek = match fixture.dispatch_peek_message_a() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected pointer-move PeekMessageA completion, got {other:?}"),
+    };
+    assert_eq!(peek.eax, RegisterUpdate::Set(1));
+    assert_eq!(peek.last_error, sentinel);
+    assert_eq!(
+        peek.guest_writes[0].write.bytes,
+        position.message.to_x86_msg_bytes()
+    );
+    fixture.acknowledge_pending_delta();
+
+    fixture.configure_translate_message(PEEK_MESSAGE_A_OUTPUT_ADDRESS);
+    let translated = match fixture.dispatch_translate_message() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected pointer-move TranslateMessage completion, got {other:?}"),
+    };
+    assert_eq!(translated.eax, RegisterUpdate::Set(0));
+    assert_eq!(translated.last_error, sentinel);
+
+    fixture.configure_dispatch_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS);
+    let call = match fixture.dispatch_dispatch_message_a() {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected pointer-move window-procedure callback, got {other:?}"),
+    };
+    assert_eq!(
+        call.request.arguments,
+        [window_handle, 0x0200, 0, position.message.l_param]
+            .into_iter()
+            .map(GuestCallbackArgument::U32)
+            .collect::<Vec<_>>()
+    );
+    let prepared = begin_fixture_callback(&mut fixture, &call);
+    let (completion, semantic_action) =
+        complete_fixture_callback(&mut fixture, call, 0x1020_3040, prepared.frame_id);
+    assert_eq!(semantic_action, None);
+    assert_eq!(completion.eax, RegisterUpdate::Set(0x1020_3040));
+    assert_eq!(completion.last_error, sentinel);
+
+    let down = fixture
+        .runtime
+        .ingest_pointer_button_event(
+            RuntimePointerButtonSourceEvent {
+                sequence: 2,
+                kind: RuntimePointerButtonSourceEventKind::ButtonDown,
+                button: RuntimePointerButton::Primary,
+                normalized_x: 16_384,
+                normalized_y: 49_152,
+            },
+            &profile,
+        )
+        .expect("button event must continue the position event sequence");
+    assert_eq!(down.message.message, 0x0201);
+    assert_eq!(down.message.w_param, 0x0001);
+}
+
+#[test]
 fn pointer_button_ingress_commits_input_queue_and_window_proc_dispatch_atomically() {
     let mut fixture = RegisterClassFixture::new();
     let (window_handle, _) = fixture.prepare_active_window_with_small_icon();
@@ -8910,6 +9031,42 @@ fn def_window_proc_pointer_down_returns_zero_without_mutating_runtime_or_memory(
     );
     assert_eq!(completion.last_error, 0x2468_1357);
     assert!(completion.guest_writes.is_empty());
+    assert_eq!(fixture.runtime, runtime_before);
+    assert_eq!(fixture.memory.stats(), memory_before);
+}
+
+#[test]
+fn def_window_proc_pointer_move_returns_zero_and_rejects_unknown_key_state() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, _) = fixture.prepare_active_window_with_small_icon();
+    fixture.policy = User32CompatibilityPolicy::controlled_v32();
+    fixture
+        .runtime
+        .set_current_last_error(0x1836_45a7)
+        .expect("seed DefWindowProcA pointer-move LastError");
+    fixture.configure_def_window_proc_args(window_handle, 0x0200, 0, 0x012c_0190);
+    let runtime_before = fixture.runtime.clone();
+    let memory_before = fixture.memory.stats();
+
+    let completion = match fixture.dispatch_configured_def_window_proc() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected pointer-move DefWindowProcA completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(0));
+    assert_eq!(completion.last_error, 0x1836_45a7);
+    assert!(completion.guest_writes.is_empty());
+    assert_eq!(fixture.runtime, runtime_before);
+    assert_eq!(fixture.memory.stats(), memory_before);
+
+    fixture.configure_def_window_proc_args(window_handle, 0x0200, 0x0010, 0x012c_0190);
+    let runtime_before = fixture.runtime.clone();
+    let memory_before = fixture.memory.stats();
+    let fault = match fixture.dispatch_configured_def_window_proc() {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected invalid pointer-move key state fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(fault.code, "def-window-proc-pointer-wparam-mismatch");
     assert_eq!(fixture.runtime, runtime_before);
     assert_eq!(fixture.memory.stats(), memory_before);
 }

@@ -55,6 +55,7 @@ const stopReason = {
 const requiredExports = [
   "allocate_memory",
   "full_clear_tlb",
+  "jit_clear_cache_js",
   "memory",
   "reset_cpu",
   "rust_init",
@@ -65,12 +66,18 @@ const requiredExports = [
   "vine_cpu_state_save",
   "vine_cpu_state_size",
   "vine_cpu_state_version",
+  "vine_dirty_page_count",
+  "vine_dirty_page_tracking_version",
+  "vine_dirty_pages_overflowed",
+  "vine_dirty_pages_ptr",
   "vine_execute_budget",
   "vine_get_stop_error_code",
   "vine_instruction_counter",
   "vine_reset_execute_permissions",
+  "vine_reset_dirty_pages",
   "vine_set_memory_size",
   "vine_set_page_executable",
+  "set_jit_config",
   "zero_memory",
 ];
 
@@ -95,19 +102,55 @@ assert(
 );
 
 const hostImportCalls = {};
+const wasmTableOffset = 1_024;
+const wasmTableSize = 900;
+const wasmTable = new WebAssembly.Table({
+  element: "anyfunc",
+  initial: wasmTableOffset + wasmTableSize,
+});
+let wasm;
+let jitImports;
 const environment = {
-  __indirect_function_table: new WebAssembly.Table({
-    element: "anyfunc",
-    initial: 1_924,
-  }),
+  __indirect_function_table: wasmTable,
 };
 
 for (const imported of imports) {
   if (imported.kind !== "function") {
     continue;
   }
-  environment[imported.name] = () => {
+  environment[imported.name] = (...arguments_) => {
     hostImportCalls[imported.name] = (hostImportCalls[imported.name] ?? 0) + 1;
+    if (imported.name === "codegen_finalize") {
+      const [index, start, stateFlags, pointer, byteLength] = arguments_;
+      assert(wasm !== undefined && jitImports !== undefined);
+      assert(Number.isInteger(index) && index >= 0 && index < wasmTableSize);
+      assert(
+        Number.isInteger(pointer) &&
+          Number.isInteger(byteLength) &&
+          pointer >= 0 &&
+          byteLength > 0 &&
+          pointer + byteLength <= wasm.memory.buffer.byteLength,
+      );
+      const code = Uint8Array.from(
+        new Uint8Array(wasm.memory.buffer, pointer, byteLength),
+      );
+      const generated = new WebAssembly.Module(code);
+      const generatedExports = new WebAssembly.Instance(generated, {
+        e: jitImports,
+      }).exports;
+      assert.equal(typeof generatedExports.f, "function");
+      queueMicrotask(() => {
+        wasmTable.set(index + wasmTableOffset, generatedExports.f);
+        wasm.codegen_finalize_finished(index, start, stateFlags);
+      });
+      return 0;
+    }
+    if (imported.name === "jit_clear_func") {
+      const [index] = arguments_;
+      assert(Number.isInteger(index) && index >= 0 && index < wasmTableSize);
+      wasmTable.set(index + wasmTableOffset, null);
+      return 0;
+    }
     if (imported.name === "run_hardware_timers") {
       return 100;
     }
@@ -116,19 +159,44 @@ for (const imported of imports) {
 }
 
 const { instance } = await WebAssembly.instantiate(bytes, { env: environment });
-const wasm = instance.exports;
+wasm = instance.exports;
+jitImports = { m: wasm.memory };
+for (const [name, value] of Object.entries(wasm)) {
+  if (!name.startsWith("_") && !name.startsWith("zstd") && !name.endsWith("_js")) {
+    jitImports[name] = value;
+  }
+}
+const jitInstructionLimit = wasm.vine_jit_instruction_limit;
+let jitInstructionLimitCalls = 0;
+jitImports.vine_jit_instruction_limit = () => {
+  const limit = jitInstructionLimit();
+  jitInstructionLimitCalls += 1;
+  return limit;
+};
 wasm.rust_init();
 assert.equal(wasm.vine_adapter_abi_version(), 1);
+assert.equal(wasm.vine_dirty_page_tracking_version(), 1);
+assert.equal(wasm.vine_dirty_page_count(), 0);
+assert.equal(wasm.vine_dirty_pages_overflowed(), 0);
 
 let state = new DataView(wasm.memory.buffer);
 assert.equal(wasm.vine_set_memory_size(guest.memorySize), 0);
 const guestMemoryBase = wasm.allocate_memory(guest.memorySize);
-state = new DataView(wasm.memory.buffer);
-const memory = new Uint8Array(
-  wasm.memory.buffer,
-  guestMemoryBase,
-  guest.memorySize,
-);
+let memory;
+
+function refreshViews() {
+  if (state.buffer === wasm.memory.buffer) {
+    return;
+  }
+  state = new DataView(wasm.memory.buffer);
+  memory = new Uint8Array(
+    wasm.memory.buffer,
+    guestMemoryBase,
+    guest.memorySize,
+  );
+}
+
+refreshViews();
 
 function configure(program, cpl) {
   wasm.zero_memory(0, guest.memorySize);
@@ -174,6 +242,7 @@ function configure(program, cpl) {
 }
 
 function currentState(reason) {
+  refreshViews();
   return {
     reason,
     errorCode: wasm.vine_get_stop_error_code(),
@@ -334,11 +403,119 @@ const cpuState = {
   sseResultBits: stateResults.getUint32(0x2008, true),
 };
 
+const dirtyProgram = Uint8Array.from([
+  0xc7, 0x05, 0x00, 0x20, 0x00, 0x00, 0x78, 0x56, 0x34, 0x12,
+  0xf4,
+]);
+configure(dirtyProgram, 0);
+const guestView = new DataView(memory.buffer, memory.byteOffset, memory.byteLength);
+guestView.setUint32(0x3000, 0x4000 | 0x07, true);
+guestView.setUint32(0x4000 + 1 * 4, 0x1000 | 0x07, true);
+guestView.setUint32(0x4000 + 2 * 4, 0x2000 | 0x07, true);
+state.setUint32(stateOffset.controlRegisters + 3 * 4, 0x3000, true);
+state.setUint32(
+  stateOffset.controlRegisters,
+  state.getUint32(stateOffset.controlRegisters, true) | 0x8000_0000,
+  true,
+);
+wasm.vine_reset_dirty_pages();
+wasm.full_clear_tlb();
+const dirtyWrite = currentState(wasm.vine_execute_budget(10));
+assert.equal(dirtyWrite.reason, stopReason.halt);
+assert.equal(guestView.getUint32(0x2000, true), 0x1234_5678);
+assert.equal(wasm.vine_dirty_page_count(), 1);
+assert.equal(wasm.vine_dirty_pages_overflowed(), 0);
+const dirtyPages = new Uint32Array(
+  wasm.memory.buffer,
+  wasm.vine_dirty_pages_ptr(),
+  wasm.vine_dirty_page_count(),
+);
+assert.deepEqual([...dirtyPages], [0x2000]);
+wasm.vine_reset_dirty_pages();
+assert.equal(wasm.vine_dirty_page_count(), 0);
+
+const jitProgram = Uint8Array.from([
+  0xb9, 0xff, 0xff, 0xff, 0x7f,
+  0xb8, 0xdf, 0x9b, 0x57, 0x13,
+  0xbb, 0xe0, 0xac, 0x68, 0x24,
+  0x01, 0xd8,
+  0x31, 0xc3,
+  0xc1, 0xc0, 0x05,
+  0x6b, 0xd8, 0x03,
+  0x49,
+  0x75, 0xf3,
+]);
+configure(jitProgram, 3);
+const jitWarmupBudget = 524_289;
+const jitWarmup = currentState(wasm.vine_execute_budget(jitWarmupBudget));
+assert.equal(jitWarmup.reason, stopReason.budget);
+assert.equal(jitWarmup.instructionCount, jitWarmupBudget);
+assert((hostImportCalls.codegen_finalize ?? 0) > 0, "hot loop did not compile");
+await Promise.resolve();
+const jitContinuationBefore = wasm.vine_instruction_counter();
+const jitContinuationBudget = 12_345;
+const jitContinuation = currentState(wasm.vine_execute_budget(jitContinuationBudget));
+assert.equal(jitContinuation.reason, stopReason.budget);
+assert.equal(
+  jitContinuation.instructionCount - jitContinuationBefore,
+  jitContinuationBudget,
+);
+assert(jitInstructionLimitCalls > 0, "compiled JIT block did not enforce its slice limit");
+
+const branchingLoopProgram = Uint8Array.from([
+  0xb9, 0xa0, 0x86, 0x01, 0x00,
+  0x31, 0xc0,
+  0xf7, 0xc1, 0x01, 0x00, 0x00, 0x00,
+  0x74, 0x05,
+  0x83, 0xc0, 0x03,
+  0xeb, 0x05,
+  0x35, 0x55, 0x00, 0x00, 0x00,
+  0xd1, 0xc0,
+  0x49,
+  0x75, 0xe9,
+  0xf4,
+]);
+
+async function runBranchingLoop(disableJit, budget) {
+  wasm.jit_clear_cache_js();
+  wasm.set_jit_config(0, disableJit ? 1 : 0);
+  configure(branchingLoopProgram, 0);
+  const compileCallsBefore = hostImportCalls.codegen_finalize ?? 0;
+  let reason = stopReason.budget;
+  let slices = 0;
+  while (reason === stopReason.budget) {
+    reason = wasm.vine_execute_budget(budget);
+    await Promise.resolve();
+    refreshViews();
+    slices += 1;
+    assert(slices < 32, "branching loop did not halt within its bounded slices");
+  }
+  assert.equal(reason, stopReason.halt);
+  return {
+    instructionCount: wasm.vine_instruction_counter(),
+    instructionPointer: state.getUint32(stateOffset.instructionPointer, true),
+    eax: state.getUint32(stateOffset.registers, true),
+    ecx: state.getUint32(stateOffset.registers + 4, true),
+    edx: state.getUint32(stateOffset.registers + 8, true),
+    ebx: state.getUint32(stateOffset.registers + 12, true),
+    slices,
+    compiled: (hostImportCalls.codegen_finalize ?? 0) > compileCallsBefore,
+  };
+}
+
+const branchingInterpreter = await runBranchingLoop(true, 1_000_000);
+const branchingJit = await runBranchingLoop(false, 65_537);
+assert.equal(branchingJit.compiled, true, "branching loop did not reach compiled execution");
+assert.deepEqual(
+  { ...branchingJit, slices: 0, compiled: false },
+  { ...branchingInterpreter, slices: 0, compiled: false },
+  "bounded JIT continuation diverged from the interpreter",
+);
+
 const forbiddenCalls = Object.keys(hostImportCalls).filter(
   (name) =>
     name.startsWith("mmap_") ||
-    name.startsWith("io_port_") ||
-    name === "codegen_finalize",
+    name.startsWith("io_port_"),
 );
 assert.deepEqual(forbiddenCalls, []);
 
@@ -375,9 +552,14 @@ const report = {
     invalidOpcode,
     divideError,
     generalProtection,
-    pageFault,
-    halt,
-    cpuState,
+      pageFault,
+      halt,
+      cpuState,
+      dirtyWrite,
+      jitWarmup,
+      jitContinuation,
+      branchingInterpreter,
+      branchingJit,
   },
   hostImportCalls,
 };
@@ -390,7 +572,8 @@ fs.writeFileSync(
 );
 
 console.log(
-  `v86 adapter spike passed: exact budgets 0/7/5, ` +
+  `v86 adapter spike passed: exact interpreter budgets 0/7/5 and JIT budgets ` +
+    `${jitWarmupBudget}/${jitContinuationBudget}, ` +
     `CPL3 #DE/#UD/#GP/#PF, state v${cpuState.version}, ` +
     `x87=${cpuState.x87Result}, SSE=0x${cpuState.sseResultBits.toString(16)}`,
 );
