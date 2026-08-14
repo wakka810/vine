@@ -146,6 +146,12 @@ pub(super) struct RuntimeClockAdvancePlan {
     next_state: RuntimeClockState,
 }
 
+impl RuntimeClockAdvancePlan {
+    pub(super) const fn timer_after(&self) -> RuntimeTimerClockState {
+        self.next_timer
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeScheduledExecutionAdvancePlan {
     previous_execution: RuntimeScheduledExecutionClockState,

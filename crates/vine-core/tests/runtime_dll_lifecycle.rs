@@ -28,6 +28,66 @@ const ENGINE_SHA256: &str = "7154f24bec58d4e080de8bb98b512f53b425a54dcde273679c1
 const MAIN_SHA256: &str = "df9553bc5c10dae44d0b6f25f0a96c2a6fcda903895b7ffecebade641bff980a";
 
 #[test]
+fn callback_free_dll_detach_preserves_a_waiting_thread_until_process_exit() {
+    let mut memory = fixture_memory();
+    let (main_loader, main_image) = materialize_fixture(
+        &mut memory,
+        "bootstrap-params.exe",
+        "50a5f27f9ce65071f3d8668213eea67f67ccef7b09dc1a72d9192100de4f0c40",
+        0x0040_0000,
+    );
+    let mut runtime = controlled_runtime();
+    load_module(&mut runtime, KERNEL32_HANDLE, "kernel32.dll", true);
+    runtime
+        .register_main_module(runtime_module(MAIN_HANDLE, "bootstrap-params.exe", false))
+        .unwrap();
+    let binding = ExecutionSession::new(&mut memory, &mut runtime)
+        .bind_guest_module_imports(
+            MAIN_HANDLE,
+            &main_loader,
+            &main_image,
+            &RuntimeExportCatalog::new(Vec::new()).unwrap(),
+        )
+        .unwrap();
+    assert!(binding.imports.is_empty());
+    ExecutionSession::new(&mut memory, &mut runtime)
+        .register_module_image(MAIN_HANDLE, &main_loader, &main_image)
+        .unwrap();
+    runtime.mark_module_ready(KERNEL32_HANDLE).unwrap();
+    runtime.mark_module_ready(MAIN_HANDLE).unwrap();
+    runtime.start_initial_thread().unwrap();
+
+    let attached = expect_completion(
+        runtime
+            .begin_dll_process_attach(CALLBACK_RETURN_ARENA_BASE)
+            .unwrap(),
+    );
+    assert_eq!(attached.phase, RuntimeDllLifecyclePhase::ProcessAttached);
+    assert!(attached.callback_order.is_empty());
+
+    let request = runtime.begin_host_request("browser.timer.wait").unwrap();
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::WaitingHost {
+            request_id: request.request_id
+        }
+    );
+    let detached = expect_completion(
+        runtime
+            .begin_dll_process_detach(CALLBACK_RETURN_ARENA_BASE)
+            .unwrap(),
+    );
+    assert_eq!(detached.phase, RuntimeDllLifecyclePhase::ProcessDetached);
+    assert!(detached.callback_order.is_empty());
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::WaitingHost {
+            request_id: request.request_id
+        }
+    );
+}
+
+#[test]
 fn guest_import_graph_drives_atomic_dll_process_lifecycle() {
     let mut memory = fixture_memory();
     let (codec_loader, codec_image) =
@@ -346,6 +406,37 @@ fn guest_import_graph_drives_atomic_dll_process_lifecycle() {
         [kernel32_id, codec_id, engine_id, main_id]
     );
     assert_eq!(attached.callback_order, [codec_id, engine_id]);
+
+    let graph_before_waiting_detach = runtime.module_graph().clone();
+    let request = runtime
+        .begin_host_request("browser.lifecycle.wait")
+        .unwrap();
+    assert_eq!(
+        runtime
+            .begin_dll_process_detach(CALLBACK_RETURN_ARENA_BASE)
+            .expect_err("detach with guest callbacks requires an active thread")
+            .code,
+        "dll-callback-thread-state-invalid"
+    );
+    assert_eq!(
+        runtime.dll_lifecycle_phase(),
+        RuntimeDllLifecyclePhase::ProcessAttached
+    );
+    assert_eq!(runtime.module_graph(), &graph_before_waiting_detach);
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::WaitingHost {
+            request_id: request.request_id
+        }
+    );
+    runtime
+        .complete_host_request(request.request_id)
+        .expect("resume after rejected detach");
+    runtime.pop_scheduler_event();
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::Runnable
+    );
 
     let outer_callback = runtime
         .push_callback_frame(GuestAddress(0x1000_1000), CALLBACK_RETURN_ARENA_BASE)

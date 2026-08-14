@@ -61,6 +61,8 @@ pub struct Kernel32CompatibilityPolicy {
     #[serde(default)]
     pub sleep_zero: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maximum_sleep_milliseconds: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub get_string_type_w: Option<Kernel32GetStringTypeWPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lc_map_string_w: Option<Kernel32LcMapStringWPolicy>,
@@ -407,6 +409,7 @@ impl Kernel32CompatibilityPolicy {
             set_waitable_timer: None,
             wait_for_single_object_ex: None,
             sleep_zero: false,
+            maximum_sleep_milliseconds: None,
             get_string_type_w: None,
             lc_map_string_w: None,
             get_module_file_name_a: None,
@@ -722,6 +725,17 @@ impl Kernel32CompatibilityPolicy {
             return Err(policy_error(
                 "kernel32-policy-sleep-zero-invalid",
                 "Sleep(0) requires the version 2 compatibility-policy boundary",
+            ));
+        }
+        if self.maximum_sleep_milliseconds.is_some_and(|maximum| {
+            self.schema_version != KERNEL32_COMPATIBILITY_POLICY_VERSION
+                || !self.sleep_zero
+                || maximum == 0
+                || maximum > 100
+        }) {
+            return Err(policy_error(
+                "kernel32-policy-sleep-interval-invalid",
+                "finite Sleep requires schema v2, Sleep(0), and a bounded nonzero interval",
             ));
         }
         if let Some(classification) = self.get_string_type_w.as_ref()
@@ -1127,6 +1141,10 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn allows_sleep_zero(&self) -> bool {
         self.sleep_zero
+    }
+
+    pub fn maximum_sleep_milliseconds(&self) -> Option<u32> {
+        self.maximum_sleep_milliseconds
     }
 
     pub fn get_string_type_w(&self) -> Option<&Kernel32GetStringTypeWPolicy> {

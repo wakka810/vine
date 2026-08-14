@@ -574,7 +574,7 @@ impl RuntimeHeaps {
             ));
         }
         let heap = self.heap(handle)?;
-        self.validate_allocation_count(heap)?;
+        self.validate_allocation_mutation_state(heap)?;
         let next_allocation_id = self.next_allocation_id(handle)?;
         if let Some(backing) = self.backing(handle) {
             validate_heap_backing_address_allocation(
@@ -582,7 +582,7 @@ impl RuntimeHeaps {
                 RuntimeHandle(handle).slot(),
                 backing,
             )?;
-            validate_runtime_heap_backing(heap, backing, next_allocation_id)?;
+            validate_runtime_heap_backing_mutation_state(heap, backing, next_allocation_id)?;
         }
         for (slot, backing) in self.extension_backings(handle) {
             if runtime_heap_backing_slot(backing) != Some(slot) {
@@ -600,7 +600,7 @@ impl RuntimeHeaps {
                 ));
             }
             validate_heap_backing_address_allocation(allocator, slot, backing)?;
-            validate_runtime_heap_backing(heap, backing, next_allocation_id)?;
+            validate_runtime_heap_backing_mutation_state(heap, backing, next_allocation_id)?;
         }
         if let Some(backing) = self
             .large_backing
@@ -969,7 +969,7 @@ impl RuntimeHeaps {
         new_memory_owner: Option<MemoryOwnerId>,
     ) -> Result<RuntimeHeapAllocation, RuntimeStateError> {
         let mut next_heap = self.heap(plan.handle)?.clone();
-        self.validate_allocation_count(&next_heap)?;
+        self.validate_allocation_mutation_state(&next_heap)?;
         if self.next_allocation_id(plan.handle)? != plan.allocation.id {
             return Err(RuntimeStateError::conflict(
                 "runtime-heap-backing",
@@ -1173,14 +1173,14 @@ impl RuntimeHeaps {
         address: GuestAddress,
     ) -> Result<RuntimeHeapFreePlan, RuntimeStateError> {
         let heap = self.heap(handle)?;
-        self.validate_allocation_count(heap)?;
+        self.validate_allocation_mutation_state(heap)?;
         let next_allocation_id = self.next_allocation_id(handle)?;
         let ordinary_backing = self.backing(handle);
         if let Some(backing) = ordinary_backing {
-            validate_runtime_heap_backing(heap, backing, next_allocation_id)?;
+            validate_runtime_heap_backing_mutation_state(heap, backing, next_allocation_id)?;
         }
         for (_, backing) in self.extension_backings(handle) {
-            validate_runtime_heap_backing(heap, backing, next_allocation_id)?;
+            validate_runtime_heap_backing_mutation_state(heap, backing, next_allocation_id)?;
         }
         let large_backing = self
             .large_backing
@@ -1227,7 +1227,7 @@ impl RuntimeHeaps {
         plan: RuntimeHeapFreePlan,
     ) -> Result<RuntimeHeapAllocation, RuntimeStateError> {
         let mut next_heap = self.heap(plan.handle)?.clone();
-        self.validate_allocation_count(&next_heap)?;
+        self.validate_allocation_mutation_state(&next_heap)?;
         if next_heap.live_allocations == 0 {
             return Err(RuntimeStateError::runtime_defect(
                 "runtime-heap-backing",
@@ -1644,6 +1644,24 @@ impl RuntimeHeaps {
     }
 
     fn validate_allocation_count(&self, heap: &RuntimeHeap) -> Result<(), RuntimeStateError> {
+        self.validate_allocation_count_metadata(heap)?;
+        self.validate_allocation_id_uniqueness(heap)
+    }
+
+    fn validate_allocation_mutation_state(
+        &self,
+        heap: &RuntimeHeap,
+    ) -> Result<(), RuntimeStateError> {
+        self.validate_allocation_count_metadata(heap)?;
+        #[cfg(debug_assertions)]
+        self.validate_allocation_id_uniqueness(heap)?;
+        Ok(())
+    }
+
+    fn validate_allocation_count_metadata(
+        &self,
+        heap: &RuntimeHeap,
+    ) -> Result<(), RuntimeStateError> {
         let primary_backing = self.backings.get(&heap.handle);
         let extension_backings = self.extension_backings.get(&heap.handle);
         if primary_backing.is_none()
@@ -1698,6 +1716,15 @@ impl RuntimeHeaps {
                 "logical heap and ordinary/large backing allocation counts disagree",
             ));
         }
+        Ok(())
+    }
+
+    fn validate_allocation_id_uniqueness(
+        &self,
+        heap: &RuntimeHeap,
+    ) -> Result<(), RuntimeStateError> {
+        let primary_backing = self.backings.get(&heap.handle);
+        let extension_backings = self.extension_backings.get(&heap.handle);
         let mut allocation_ids = BTreeSet::new();
         for backing in primary_backing.into_iter().chain(
             extension_backings
@@ -1930,6 +1957,26 @@ fn validate_runtime_heap_backing(
     backing: &RuntimeHeapBacking,
     next_allocation_id: RuntimeHeapAllocationId,
 ) -> Result<(), RuntimeStateError> {
+    validate_runtime_heap_backing_metadata(heap, backing, next_allocation_id)?;
+    validate_runtime_heap_backing_contents(backing, next_allocation_id)
+}
+
+fn validate_runtime_heap_backing_mutation_state(
+    heap: &RuntimeHeap,
+    backing: &RuntimeHeapBacking,
+    next_allocation_id: RuntimeHeapAllocationId,
+) -> Result<(), RuntimeStateError> {
+    validate_runtime_heap_backing_metadata(heap, backing, next_allocation_id)?;
+    #[cfg(debug_assertions)]
+    validate_runtime_heap_backing_contents(backing, next_allocation_id)?;
+    Ok(())
+}
+
+fn validate_runtime_heap_backing_metadata(
+    heap: &RuntimeHeap,
+    backing: &RuntimeHeapBacking,
+    next_allocation_id: RuntimeHeapAllocationId,
+) -> Result<(), RuntimeStateError> {
     let capacity = u32::try_from(backing.range.byte_length()).map_err(|_| {
         RuntimeStateError::runtime_defect(
             "runtime-heap-backing",
@@ -1969,7 +2016,13 @@ fn validate_runtime_heap_backing(
             "logical heap and backing allocation counts disagree",
         ));
     }
+    Ok(())
+}
 
+fn validate_runtime_heap_backing_contents(
+    backing: &RuntimeHeapBacking,
+    next_allocation_id: RuntimeHeapAllocationId,
+) -> Result<(), RuntimeStateError> {
     let mut intervals = Vec::with_capacity(backing.allocations.len() + backing.free_blocks.len());
     let mut allocation_ids = std::collections::BTreeSet::new();
     for (&address, allocation) in &backing.allocations {

@@ -47,8 +47,11 @@ const serveOnly = process.argv.includes("--serve");
 const fullEvidence = process.argv.includes("--full-evidence");
 const forwardMode = process.argv.includes("--forward");
 const interpreterMode = process.argv.includes("--interpreter");
+const forwardStopOption = optionValue("--forward-stop");
 const forwardSecondsOption = optionValue("--forward-seconds");
 const forwardSeconds = Number(forwardSecondsOption ?? 540);
+const forwardProfileSlotOption = optionValue("--forward-profile-slot");
+const forwardProfileSlot = forwardProfileSlotOption ?? "default";
 const bgiBenchmarkMilliseconds = Number(optionValue("--bgi-benchmark-ms") ?? 0);
 const bgiMode = process.argv.includes("--bgi") || bgiBenchmarkMilliseconds > 0;
 const bgiCpuProfile = process.argv.includes("--bgi-cpu-profile");
@@ -99,11 +102,21 @@ assert(
   "--bgi-benchmark-config requires benchmark profile and policy overrides",
 );
 assert(
-  !bgiCpuProfile || bgiBenchmarkMilliseconds > 0,
-  "--bgi-cpu-profile requires a BGI benchmark",
+  !bgiCpuProfile || bgiBenchmarkMilliseconds > 0 || forwardMode,
+  "--bgi-cpu-profile requires a BGI benchmark or forward run",
 );
 assert(!forwardMode || (bgiMode && !fullEvidence), "forward mode requires summary BGI execution");
 assert(!interpreterMode || forwardMode, "--interpreter requires forward mode");
+assert(
+  forwardStopOption === null || forwardMode,
+  "--forward-stop requires forward mode",
+);
+assert(
+  forwardStopOption === null ||
+    forwardStopOption === "title-action" ||
+    forwardStopOption === "looping-audio-update",
+  "--forward-stop must be title-action or looping-audio-update",
+);
 assert(
   forwardSecondsOption === null || forwardMode,
   "--forward-seconds requires forward mode",
@@ -111,6 +124,19 @@ assert(
 assert(
   Number.isInteger(forwardSeconds) && forwardSeconds >= 1 && forwardSeconds <= 540,
   "--forward-seconds must be an integer from 1 through 540",
+);
+assert(
+  !process.argv.includes("--forward-profile-slot") ||
+    forwardProfileSlotOption !== null,
+  "--forward-profile-slot requires a value",
+);
+assert(
+  !forwardMode || /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/u.test(forwardProfileSlot),
+  "--forward-profile-slot must start with an alphanumeric character and contain at most 64 safe characters",
+);
+assert(
+  forwardMode || forwardProfileSlot === "default",
+  "--forward-profile-slot requires forward mode",
 );
 const scheduledSharedClockSetWindowTextProfile =
   bgiProfileOverride === null &&
@@ -5961,14 +5987,84 @@ function validateCreateFontA224x112BgiProbe(evidence, scenario) {
 }
 
 async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
+  const targetUrl = `${baseUrl}bgi-check.html?scenario=${scenario}${forwardMode ? "" : `&profile=${encodeURIComponent(bgiProfile)}`}${fullEvidence ? "&evidence=full" : ""}${forwardMode ? `&development=forward&forwardSeconds=${forwardSeconds}` : ""}${forwardStopOption === null ? "" : `&forwardStop=${encodeURIComponent(forwardStopOption)}`}${interpreterMode ? "&engine=interpreter" : ""}`;
   const target = await createDebugTarget(
     browserWebSocketUrl,
-    `${baseUrl}bgi-check.html?scenario=${scenario}${forwardMode ? "" : `&profile=${encodeURIComponent(bgiProfile)}`}${fullEvidence ? "&evidence=full" : ""}${forwardMode ? `&development=forward&forwardSeconds=${forwardSeconds}` : ""}${interpreterMode ? "&engine=interpreter" : ""}`,
+    bgiCpuProfile && forwardMode ? "about:blank" : targetUrl,
   );
   const client = await connectDevTools(target.webSocketDebuggerUrl);
+  let workerSessionId = null;
+  let workerCpuProfileActive = false;
+  let workerCpuProfileCancelled = false;
+  let workerCpuProfileTask = null;
+  let releaseWorkerCpuProfileDelay = null;
   try {
+    if (bgiCpuProfile && forwardMode) {
+      client.on("Target.attachedToTarget", ({ sessionId, targetInfo }) => {
+        if (
+          targetInfo.type === "worker" &&
+          targetInfo.url.includes("/runtime-worker.js")
+        ) {
+          workerSessionId = sessionId;
+        }
+      });
+    }
     await client.send("Runtime.enable");
     await client.send("Page.enable");
+    if (bgiCpuProfile && forwardMode) {
+      await client.send("Target.setAutoAttach", {
+        autoAttach: true,
+        flatten: true,
+        waitForDebuggerOnStart: false,
+      });
+      await client.send("Page.navigate", { url: targetUrl });
+      const workerDeadline = Date.now() + 10_000;
+      while (workerSessionId === null && Date.now() < workerDeadline) {
+        await wait(20);
+      }
+      assert(
+        workerSessionId !== null,
+        "forward Runtime Worker target was not discoverable",
+      );
+      await client.sendToSession(workerSessionId, "Profiler.enable");
+      await client.sendToSession(
+        workerSessionId,
+        "Profiler.setSamplingInterval",
+        { interval: 100 },
+      );
+      await client.sendToSession(workerSessionId, "Profiler.start");
+      workerCpuProfileActive = true;
+      workerCpuProfileTask = (async () => {
+        await new Promise((resolve) => {
+          const handle = setTimeout(
+            resolve,
+            Math.max(1_000, forwardSeconds * 1_000 - 5_000),
+          );
+          releaseWorkerCpuProfileDelay = () => {
+            clearTimeout(handle);
+            releaseWorkerCpuProfileDelay = null;
+            resolve();
+          };
+        });
+        if (workerCpuProfileCancelled || !workerCpuProfileActive) {
+          return;
+        }
+        const { profile } = await client.sendToSession(
+          workerSessionId,
+          "Profiler.stop",
+          {},
+          30_000,
+        );
+        workerCpuProfileActive = false;
+        const profileDirectory = path.join(root, ".work", "target-forward");
+        fs.mkdirSync(profileDirectory, { recursive: true });
+        await writeFile(
+          path.join(profileDirectory, "cpu-profile.json"),
+          `${JSON.stringify(profile)}\n`,
+        );
+        await client.sendToSession(workerSessionId, "Profiler.disable");
+      })();
+    }
     const evidence = await waitForBgiCheckpoint(
       client,
       forwardMode
@@ -6004,6 +6100,10 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     );
     assertExecutionEngine(evidence.report);
     if (forwardMode) {
+      if (workerCpuProfileTask !== null) {
+        releaseWorkerCpuProfileDelay?.();
+        await workerCpuProfileTask;
+      }
       assert.equal(evidence.report.evidenceLevel, "summary");
       assert(evidence.report.forwardDevelopment !== null);
       assert.equal(evidence.report.supportedCalls.length, 0);
@@ -9464,6 +9564,20 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
     }
     return evidence;
   } finally {
+    workerCpuProfileCancelled = true;
+    releaseWorkerCpuProfileDelay?.();
+    if (workerSessionId !== null && workerCpuProfileActive) {
+      try {
+        await client.sendToSession(
+          workerSessionId,
+          "Profiler.stop",
+          {},
+          30_000,
+        );
+      } catch {
+        // The diagnostic worker can terminate while a failed run is unwinding.
+      }
+    }
     client.close();
   }
 }
@@ -20533,11 +20647,15 @@ const writableProfile = bgiMode
   ? openWritableProfile({
       databasePath: path.join(
         writableProfileRunDirectory ?? writableProfileBaseDirectory,
-        forwardMode ? "forward.sqlite" : "default.sqlite",
+        forwardMode
+          ? forwardProfileSlot === "default"
+            ? "forward.sqlite"
+            : `forward-${forwardProfileSlot}.sqlite`
+          : "default.sqlite",
       ),
       titleFingerprint:
         checkpoint.browserCheckpoint.bgiRuntimeEvidence.sourceSha256,
-      profileId: "default",
+      profileId: forwardMode ? forwardProfileSlot : "default",
       rootPathA: Buffer.from("C:\\Vine\0", "binary"),
       quotaBytes: 16 * 1024 * 1024,
       files: [
@@ -20660,9 +20778,12 @@ if (serveOnly) {
           schemaVersion: 1,
           measuredAt: new Date().toISOString(),
           command:
-            forwardSeconds === 540 && !interpreterMode
+            forwardSeconds === 540 &&
+            !interpreterMode &&
+            forwardStopOption === null &&
+            forwardProfileSlot === "default"
               ? currentState.commands.forward
-              : `npm run run:target:forward:prepared -- --forward-seconds ${forwardSeconds}${interpreterMode ? " --interpreter" : ""}`,
+              : `npm run run:target:forward:prepared -- --forward-seconds ${forwardSeconds}${forwardStopOption === null ? "" : ` --forward-stop ${forwardStopOption}`}${interpreterMode ? " --interpreter" : ""}${forwardProfileSlot === "default" ? "" : ` --forward-profile-slot ${forwardProfileSlot}`}`,
           mode: interpreterMode
             ? "release-chrome-forward-interpreter-diagnostic"
             : "release-chrome-forward",
@@ -20681,6 +20802,15 @@ if (serveOnly) {
           currentThreadId: forward.currentThreadId,
           latestLastError: forward.latestLastError,
           semanticTail: forward.semanticTail,
+          threads: {
+            registered: session.registeredThreadIds,
+            executed: session.executedThreadIds,
+            exits: session.threadExits,
+            contextSwitches: session.contextSwitches,
+            schedulerTransitions: session.rustSchedulerTransitions,
+            recentHostWaitExecutions: session.hostWaitExecutions.slice(-32),
+          },
+          timerPacing: session.timerPacing,
           presentation: {
             presentCount: forward.presentCount,
             latest: forward.latestPresentation,
@@ -20699,6 +20829,21 @@ if (serveOnly) {
           },
           storage: {
             ...forward.storage,
+            recentSourceReads: session.sourceReads.slice(-32).map((read) => ({
+              ...read,
+              relativePath:
+                sourceRegistration?.manifest.files.find(
+                  (file) => file.objectId === read.request.objectId,
+                )?.relativePathA === undefined
+                  ? null
+                  : new TextDecoder("shift_jis").decode(
+                      Uint8Array.from(
+                        sourceRegistration.manifest.files.find(
+                          (file) => file.objectId === read.request.objectId,
+                        ).relativePathA,
+                      ),
+                    ),
+            })),
             profile:
               writableProfile === null
                 ? null
@@ -20737,6 +20882,7 @@ if (serveOnly) {
             maximumHeartbeatGapMilliseconds:
               success.maximumHeartbeatGapMilliseconds,
             statusesObserved: success.statusMessagesObserved,
+            statusTail: success.statuses.slice(-64),
           },
         };
         const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);

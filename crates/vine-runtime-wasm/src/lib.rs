@@ -1869,15 +1869,9 @@ impl BrowserRuntime {
                                 "blocking API completion has no matching scheduler wait".to_owned()
                             );
                         }
-                        Some(
-                            self.runtime
-                                .select_next_executable_thread()
-                                .map_err(error_string)?
-                                .ok_or_else(|| {
-                                    "blocking API completion has no executable competitor"
-                                        .to_owned()
-                                })?,
-                        )
+                        self.runtime
+                            .select_next_executable_thread()
+                            .map_err(error_string)?
                     } else {
                         self.runtime
                             .complete_api_execution_boundary_with_disposition(
@@ -2279,14 +2273,9 @@ impl BrowserRuntime {
                             "blocking API completion has no matching scheduler wait".to_owned()
                         );
                     }
-                    Some(
-                        self.runtime
-                            .select_next_executable_thread()
-                            .map_err(error_string)?
-                            .ok_or_else(|| {
-                                "blocking API completion has no executable competitor".to_owned()
-                            })?,
-                    )
+                    self.runtime
+                        .select_next_executable_thread()
+                        .map_err(error_string)?
                 } else {
                     self.runtime
                         .complete_api_execution_boundary_with_disposition(
@@ -2469,7 +2458,7 @@ impl BrowserRuntime {
                     None
                 };
                 let audio_buffer = if completion.frame.interface == "IDirectSoundBuffer8"
-                    && matches!(completion.frame.method.as_str(), "Play" | "Stop")
+                    && matches!(completion.frame.method.as_str(), "Play" | "Stop" | "Unlock")
                 {
                     self.runtime
                         .audio_buffers()
@@ -2638,12 +2627,17 @@ impl BrowserRuntime {
                 .map_err(error_string)?;
         }
         let dispatcher = &self.dispatcher;
+        let sleep_delay = pending.call.request.service == vine_core::RUNTIME_SLEEP_DELAY_SERVICE;
         let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
         let completion = match dispatcher.complete_deferred(
             pending.call,
             HostCompletion {
                 request_id,
-                result: ApiImmediate::new(ApiReturnValue::U32(result)),
+                result: if sleep_delay {
+                    ApiImmediate::new(ApiReturnValue::Void)
+                } else {
+                    ApiImmediate::new(ApiReturnValue::U32(result))
+                },
             },
             &mut session,
         ) {

@@ -118,7 +118,10 @@ import {
   writableCommitSuccessControl,
   writableDirectoryCreateFailureControl,
 } from "./profile-storage.js";
-import { TaskTimerPacingDriver, TimerPacingService } from "./timer-pacing.js";
+import {
+  type TimerPacingDriver,
+  TimerPacingService,
+} from "./timer-pacing.js";
 import { D3d9WebGl2Renderer } from "./d3d9-renderer.js";
 import {
   BrowserStorageClient,
@@ -2451,14 +2454,12 @@ yieldChannel.port1.addEventListener("message", () => {
   resolve();
 });
 yieldChannel.port1.start();
-const timerPacingChannel = new MessageChannel();
-const timerPacingDriver = new TaskTimerPacingDriver({
+const timerPacingDriver: TimerPacingDriver = {
   now: () => performance.now(),
-  postTask: () => timerPacingChannel.port2.postMessage(null),
-  subscribe: (callback) =>
-    timerPacingChannel.port1.addEventListener("message", callback),
-});
-timerPacingChannel.port1.start();
+  setTimeout: (callback, delayMilliseconds) =>
+    worker.setTimeout(callback, delayMilliseconds),
+  clearTimeout: (handle) => worker.clearTimeout(handle),
+};
 
 interface HostRequestMetadata {
   kind: "host-request";
@@ -4356,6 +4357,10 @@ class BrowserRuntimeSession {
   } | null = null;
   #forwardPrimaryActionTargetReadyStreak = 0;
   #forwardPrimaryActionTargetReadySignaled = false;
+  #forwardPrimaryActionNumber: number | null = null;
+  #forwardPrimaryActionCommitted = false;
+  #forwardPrimaryActionResponseStreak = 0;
+  #forwardPrimaryActionResponseSignaled = false;
   #forwardTailCursor = 0;
   #user32TranslateMessagePostTestCooperativeLevelTimerPeekPrerequisite: User32TranslateMessagePostTestCooperativeLevelTimerPeekCheckpoint | null =
     null;
@@ -5881,6 +5886,10 @@ class BrowserRuntimeSession {
         message: structuredClone(receipt.message),
       };
       if (phase === "press" && event.button === "primary") {
+        invariant(
+          this.#forwardPrimaryPointerPressPendingAction === null,
+          "forward primary pointer press overlapped an active press",
+        );
         this.#forwardPrimaryPointerPressPendingAction = action;
       }
       this.#recordForwardInputAction(
@@ -6005,6 +6014,18 @@ class BrowserRuntimeSession {
       arguments_[3] === message.lParam
     ) {
       this.#forwardPointerButtonCallbackFrameId = metadata.frameId;
+      if (
+        tracked.phase === "press" &&
+        tracked.message.message === 0x0201 &&
+        this.#forwardPrimaryActionTargetReadySignaled &&
+        !this.#forwardPrimaryActionCommitted
+      ) {
+        invariant(
+          this.#forwardPrimaryActionNumber === null,
+          "forward primary pointer callback entered twice",
+        );
+        this.#forwardPrimaryActionNumber = tracked.action;
+      }
       this.#recordForwardInputAction(
         tracked.action,
         tracked.phase === "press" ? "press-entered" : "release-entered",
@@ -8318,7 +8339,18 @@ class BrowserRuntimeSession {
           cause: "owned-api-trap",
           threadId: this.#currentThreadId,
         });
-        await this.#dispatchApi(address, slice.context.esp);
+        if (this.#isForwardDevelopment()) {
+          const pending = this.#dispatchForwardApi(
+            address,
+            slice.context.esp,
+            slice.context,
+          );
+          if (pending !== null) {
+            await pending;
+          }
+        } else {
+          await this.#dispatchApi(address, slice.context.esp);
+        }
       } else if (address === prepared.callbackSentinel) {
         invariant(
           sliceState === "guest-callback",
@@ -8472,10 +8504,6 @@ class BrowserRuntimeSession {
 
   async #dispatchApi(endpoint: number, stackPointer: number): Promise<void> {
     this.#continueForwardPastHistoricalCheckpoint();
-    if (this.#isForwardDevelopment()) {
-      await this.#dispatchForwardApi(endpoint, stackPointer);
-      return;
-    }
     if (
       includesPrimaryMainLoopPostCallbackPointerActionNextIterationProfile(
         this.#configuration.capabilityProfile,
@@ -10235,7 +10263,7 @@ class BrowserRuntimeSession {
             "runnable API-created guest thread has no CPU context",
           );
         }
-        this.#completeApiExecutionBoundary(
+        await this.#completeApiExecutionBoundary(
           resumeState,
           metadata.threadSelection,
           metadata.completion.executionBoundary,
@@ -10255,7 +10283,11 @@ class BrowserRuntimeSession {
     }
   }
 
-  async #dispatchForwardApi(endpoint: number, stackPointer: number): Promise<void> {
+  #dispatchForwardApi(
+    endpoint: number,
+    stackPointer: number,
+    stoppedContext: ExecutionCpuContext,
+  ): Promise<void> | null {
     const engine = this.#requireEngine();
     const preparedEndpoint = this.#preparedEndpoints.get(endpoint);
     invariant(preparedEndpoint !== undefined, "forward dispatch reached an unowned API endpoint");
@@ -10270,7 +10302,7 @@ class BrowserRuntimeSession {
       stackPointer,
       returnAddress,
       this.#report.instructions,
-      engine.saveCpuContext(),
+      stoppedContext,
     );
     const metadata = output.metadata;
     switch (metadata.kind) {
@@ -10282,17 +10314,8 @@ class BrowserRuntimeSession {
         this.#report.hostRequests += 1;
         this.#status("waiting-host", metadata.service);
         this.#postHost(metadata);
-        await this.#scheduleAfterBlock(
-          metadata.threadId,
-          metadata.requestId,
-          metadata.service === "runtime.timer-delay.v1" ||
-            metadata.service === "storage.source-read.v1" ||
-            metadata.service === "storage.profile-read.v1" ||
-            metadata.service === "storage.profile-commit.v1" ||
-            metadata.service === "storage.profile-directory-create.v1",
-        );
         this.#synchronousApiBoundariesSinceYield = 0;
-        return;
+        return this.#scheduleAfterBlock(metadata.threadId, metadata.requestId);
       }
       case "guest-callback": {
         this.#takeApiResumeState();
@@ -10317,7 +10340,7 @@ class BrowserRuntimeSession {
           cause: "guest-callback-enter",
           threadId: this.#currentThreadId,
         });
-        return;
+        return null;
       }
       case "api-complete": {
         const resumeState = this.#takeApiResumeState();
@@ -10326,7 +10349,7 @@ class BrowserRuntimeSession {
           this.#registerCreatedThread(metadata.createdThread);
         }
         this.#recordForwardApiCompletion(metadata);
-        engine.applyCpuResume(metadata.completion);
+        engine.applyStoppedCpuResume(metadata.completion);
         this.#threadExecutionStates.set(this.#currentThreadId, resumeState);
         const runnableThreadId =
           metadata.createdThread?.schedulerState.state === "runnable"
@@ -10341,12 +10364,11 @@ class BrowserRuntimeSession {
             "runnable API-created guest thread has no CPU context",
           );
         }
-        this.#completeApiExecutionBoundary(
+        return this.#completeApiExecutionBoundary(
           resumeState,
           metadata.threadSelection,
           metadata.completion.executionBoundary,
         );
-        return;
       }
       case "api-fault":
         this.#takeApiResumeState();
@@ -10355,7 +10377,7 @@ class BrowserRuntimeSession {
           output,
           this.#captureForwardCaller(stackPointer, returnAddress),
         );
-        return;
+        return null;
       default:
         throw new Error("runtime bridge returned an unknown forward dispatch outcome");
     }
@@ -10460,19 +10482,41 @@ class BrowserRuntimeSession {
 
   #observeForwardPrimaryActionTarget(): void {
     const summary = this.#report.forwardDevelopment;
-    if (
-      summary === null ||
-      this.#forwardPrimaryActionTargetReadySignaled ||
-      summary.input.completedActions < 2 ||
-      summary.input.completedKeyboardActivations < 2
-    ) {
+    if (summary === null) {
       return;
     }
     const renderer = this.#d3d9Renderer;
     invariant(renderer !== null, "forward action probe requires its renderer");
     const darkPixels = renderer.countDarkPixels(250, 565, 80, 40, 96);
+    const titleBackground = renderer.readPixelRgba(50, 50);
+    const titleBlueBackground =
+      titleBackground[0] < 32 &&
+      titleBackground[1] >= 48 &&
+      titleBackground[1] <= 112 &&
+      titleBackground[2] >= 128 &&
+      titleBackground[2] <= 224;
+    if (this.#forwardPrimaryActionCommitted) {
+      this.#forwardPrimaryActionResponseStreak =
+        !titleBlueBackground
+          ? this.#forwardPrimaryActionResponseStreak + 1
+          : 0;
+      if (
+        this.#forwardPrimaryActionResponseStreak >= 1 &&
+        !this.#forwardPrimaryActionResponseSignaled
+      ) {
+        this.#forwardPrimaryActionResponseSignaled = true;
+        this.#status(
+          "running",
+          "Forward primary action visible response observed",
+        );
+      }
+      return;
+    }
+    if (this.#forwardPrimaryActionTargetReadySignaled) {
+      return;
+    }
     this.#forwardPrimaryActionTargetReadyStreak =
-      darkPixels >= 64
+      titleBlueBackground && darkPixels >= 64
         ? this.#forwardPrimaryActionTargetReadyStreak + 1
         : 0;
     if (this.#forwardPrimaryActionTargetReadyStreak < 3) {
@@ -10503,21 +10547,26 @@ class BrowserRuntimeSession {
       }
       return;
     }
-    if (frame.method !== "Play" || buffer?.descriptor.kind !== "secondary") {
+    if (
+      (frame.method !== "Play" && frame.method !== "Unlock") ||
+      buffer?.descriptor.kind !== "secondary" ||
+      metadata.call.returnValue.value !== 0 ||
+      (frame.method === "Unlock" && buffer.playback !== "playing-looping")
+    ) {
       return;
     }
     const format = buffer.activeFormat ?? buffer.descriptor.format;
     const backing = buffer.backing;
-    invariant(format !== undefined, "secondary Play omitted its PCM format");
-    invariant(backing !== undefined, "secondary Play omitted its sample backing");
+    invariant(format !== undefined, `secondary ${frame.method} omitted its PCM format`);
+    invariant(backing !== undefined, `secondary ${frame.method} omitted its sample backing`);
     invariant(
       backing.range.byteLength >= buffer.descriptor.byteLength,
-      "secondary Play sample backing is shorter than its descriptor",
+      `secondary ${frame.method} sample backing is shorter than its descriptor`,
     );
     invariant(
       buffer.playback === "playing-once" ||
         buffer.playback === "playing-looping",
-      "secondary Play snapshot is not playing",
+      `secondary ${frame.method} snapshot is not playing`,
     );
     const samples = ownedArrayBuffer(
       this.#requireEngine().readGuestBytes(
@@ -19339,6 +19388,35 @@ class BrowserRuntimeSession {
     );
   }
 
+  #observeForwardPrimaryPointerPoll(
+    module: string,
+    symbol: string,
+    arguments_: readonly number[],
+    result: number,
+  ): void {
+    if (
+      module.toLowerCase() !== "user32.dll" ||
+      symbol !== "GetAsyncKeyState" ||
+      arguments_.length !== 1 ||
+      arguments_[0] !== 0x01
+    ) {
+      return;
+    }
+
+    const pendingAction = this.#forwardPrimaryPointerPressPendingAction;
+    if (
+      pendingAction !== null &&
+      (result & 0x8001) !== 0
+    ) {
+      this.#forwardPrimaryPointerPressPendingAction = null;
+      this.#recordForwardInputAction(pendingAction, "press-observed");
+      this.#status(
+        "running",
+        `Forward pointer action ${pendingAction} press observed by guest`,
+      );
+    }
+  }
+
   #recordPrivateBgiCompletion(
     metadata:
       | CompletionMetadata
@@ -19379,21 +19457,12 @@ class BrowserRuntimeSession {
       endpoint.symbol.kind === "ordinal"
         ? `#${endpoint.symbol.ordinal}`
         : endpoint.symbol.name;
-    if (
-      this.#forwardPrimaryPointerPressPendingAction !== null &&
-      endpoint.module.toLowerCase() === "user32.dll" &&
-      symbol === "GetAsyncKeyState" &&
-      arguments_.length === 1 &&
-      arguments_[0] === 0x01 &&
-      completion.eax.action === "set" &&
-      (completion.eax.value & 0x8000) !== 0
-    ) {
-      const action = this.#forwardPrimaryPointerPressPendingAction;
-      this.#forwardPrimaryPointerPressPendingAction = null;
-      this.#recordForwardInputAction(action, "press-observed");
-      this.#status(
-        "running",
-        `Forward pointer action ${action} press observed by guest`,
+    if (completion.eax.action === "set") {
+      this.#observeForwardPrimaryPointerPoll(
+        endpoint.module,
+        symbol,
+        arguments_,
+        completion.eax.value,
       );
     }
     if (
@@ -19478,22 +19547,12 @@ class BrowserRuntimeSession {
   }
 
   #captureForwardCall(call: RuntimeSupportedCallSnapshot): void {
-    if (
-      this.#forwardPrimaryPointerPressPendingAction !== null &&
-      call.module.toLowerCase() === "user32.dll" &&
-      call.symbol === "GetAsyncKeyState" &&
-      call.arguments.length === 1 &&
-      call.arguments[0] === 0x01 &&
-      "action" in call.result &&
-      call.result.action === "set" &&
-      (call.result.value & 0x8000) !== 0
-    ) {
-      const action = this.#forwardPrimaryPointerPressPendingAction;
-      this.#forwardPrimaryPointerPressPendingAction = null;
-      this.#recordForwardInputAction(action, "press-observed");
-      this.#status(
-        "running",
-        `Forward pointer action ${action} press observed by guest`,
+    if ("action" in call.result && call.result.action === "set") {
+      this.#observeForwardPrimaryPointerPoll(
+        call.module,
+        call.symbol,
+        call.arguments,
+        call.result.value,
       );
     }
     if (
@@ -28531,14 +28590,17 @@ class BrowserRuntimeSession {
       this.#forwardPointerButtonAwaitingPresent.push({
         action: tracked.action,
         phase: tracked.phase,
-        remainingPresentations:
-          tracked.phase === "press" && tracked.action >= 3 ? 7 :
-            tracked.phase === "press" ? 1 : 4,
+        remainingPresentations: tracked.phase === "press" ? 1 : 4,
       });
       this.#recordForwardInputAction(
         tracked.action,
         tracked.phase === "press" ? "press-consumed" : "release-consumed",
       );
+      if (tracked.phase === "press" && tracked.message.message === 0x0201) {
+        if (tracked.action === this.#forwardPrimaryActionNumber) {
+          this.#forwardPrimaryActionCommitted = true;
+        }
+      }
       this.#status(
         "running",
         `Forward pointer action ${tracked.action} ${tracked.phase} consumed by guest`,
@@ -28788,7 +28850,7 @@ class BrowserRuntimeSession {
     callerResumeState: "ready" | "guest-callback",
     selection: ApiBoundaryThreadSelection | undefined,
     executionBoundary: ApiCompletion["executionBoundary"],
-  ): void {
+  ): Promise<void> | null {
     if (
       !this.#isForwardDevelopment() &&
       executionBoundary === "yield-current-thread" &&
@@ -28823,10 +28885,11 @@ class BrowserRuntimeSession {
       }
     }
     if (selection === undefined) {
-      invariant(
-        executionBoundary !== "block-current-thread",
-        "blocking API boundary did not select an executable owner thread",
-      );
+      if (executionBoundary === "block-current-thread") {
+        return this.#scheduleAfterBlock(this.#currentThreadId, null).then(() => {
+          this.#report.rustSchedulerTransitions += 1;
+        });
+      }
       this.#execution.transition(callerResumeState, {
         cause:
           executionBoundary === "yield-current-thread"
@@ -28834,7 +28897,7 @@ class BrowserRuntimeSession {
             : "synchronous-api-complete",
         threadId: this.#currentThreadId,
       });
-      return;
+      return null;
     }
     invariant(
       selection.previousThreadId === this.#currentThreadId &&
@@ -28923,6 +28986,7 @@ class BrowserRuntimeSession {
       threadId: selection.threadId,
     });
     this.#report.rustSchedulerTransitions += 1;
+    return null;
   }
 
   async #completeThread(exitCode: number): Promise<void> {
@@ -29320,7 +29384,32 @@ class BrowserRuntimeSession {
     ) {
       this.#armWatchdog();
     }
-    if (metadata.service === "runtime.timer-delay.v1") {
+    if (metadata.service === "runtime.sleep-delay.v1") {
+      invariant(
+        metadata.arguments.length === 1 &&
+          metadata.arguments[0] !== undefined &&
+          metadata.arguments[0] > 0 &&
+          metadata.arguments[0] <= 100,
+        "Sleep pacing delay is outside the reached bound",
+      );
+      if (this.#configuration.mode === "success") {
+        this.#timerPacing.schedule({
+          requestId: metadata.requestId,
+          threadId: metadata.threadId,
+          delayMilliseconds: metadata.arguments[0],
+          complete: () => {
+            this.completeHost({
+              type: "host-completion",
+              protocolVersion,
+              sessionId: this.#sessionId,
+              requestId: metadata.requestId,
+              threadId: metadata.threadId,
+              result: 0,
+            });
+          },
+        });
+      }
+    } else if (metadata.service === "runtime.timer-delay.v1") {
       invariant(
         metadata.arguments.length === 13,
         "timer pacing request must contain thirteen words",
@@ -29382,11 +29471,13 @@ class BrowserRuntimeSession {
       );
       if (this.#configuration.mode === "success") {
         const completionSequence = this.#report.supportedCallCount + 1;
-        invariant(
-          !this.#timerPacedCallSequences.has(completionSequence),
-          "timer pacing sequence is already registered",
-        );
-        this.#timerPacedCallSequences.add(completionSequence);
+        if (!this.#isForwardDevelopment()) {
+          invariant(
+            !this.#timerPacedCallSequences.has(completionSequence),
+            "timer pacing sequence is already registered",
+          );
+          this.#timerPacedCallSequences.add(completionSequence);
+        }
         if (
           includesKernel32WaitForSingleObjectExPostTestCooperativeLevelTimerArmProfile(
             this.#configuration.capabilityProfile,
@@ -29448,6 +29539,7 @@ class BrowserRuntimeSession {
           },
         };
         if (
+          this.#isForwardDevelopment() ||
           isScheduledSharedClockSetWindowText(
             this.#configuration.capabilityProfile,
           )

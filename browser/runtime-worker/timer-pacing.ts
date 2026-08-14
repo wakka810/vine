@@ -41,9 +41,9 @@ export class TaskTimerPacingDriver implements TimerPacingDriver {
     if (
       !Number.isFinite(delayMilliseconds) ||
       delayMilliseconds < 0 ||
-      delayMilliseconds > 10
+      delayMilliseconds > 100
     ) {
-      throw new Error("task timer delay is outside the bounded 0..10ms policy");
+      throw new Error("task timer delay is outside the bounded 0..100ms policy");
     }
     const handle = this.#nextHandle;
     this.#nextHandle += 1;
@@ -170,9 +170,9 @@ export class TimerPacingService {
     if (
       !Number.isInteger(request.delayMilliseconds) ||
       request.delayMilliseconds <= 0 ||
-      request.delayMilliseconds > 10
+      request.delayMilliseconds > 100
     ) {
-      throw new Error("timer pacing delay is outside the bounded 1..10ms policy");
+      throw new Error("timer pacing delay is outside the bounded 1..100ms policy");
     }
     if (this.#pending.has(request.requestId)) {
       throw new Error(`timer pacing request ${request.requestId} is already pending`);

@@ -18,6 +18,25 @@ fn sleep_zero_is_an_explicit_version_two_policy_capability() {
         .validate()
         .expect_err("legacy policy cannot enable Sleep(0)");
     assert_eq!(error.code, "kernel32-policy-sleep-zero-invalid");
+
+    let finite: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-delete-file-a-v1.json"
+    ))
+    .expect("finite Sleep policy fixture");
+    finite.validate().expect("valid finite Sleep policy");
+    assert_eq!(finite.maximum_sleep_milliseconds(), Some(50));
+    let mut without_zero = finite.clone();
+    without_zero.sleep_zero = false;
+    assert_eq!(
+        without_zero.validate().unwrap_err().code,
+        "kernel32-policy-sleep-interval-invalid"
+    );
+    let mut unbounded = finite;
+    unbounded.maximum_sleep_milliseconds = Some(101);
+    assert_eq!(
+        unbounded.validate().unwrap_err().code,
+        "kernel32-policy-sleep-interval-invalid"
+    );
 }
 
 #[test]

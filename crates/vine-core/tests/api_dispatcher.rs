@@ -7236,13 +7236,14 @@ fn sleep_zero_requests_a_scheduler_yield_and_rejects_other_intervals_before_muta
     assert_eq!(contract.abi.return_value, ApiReturnSchema::Void);
     assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
     assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
-    assert_eq!(contract.behavior, ApiBehavior::Immediate);
+    assert_eq!(contract.behavior, ApiBehavior::ImmediateOrDeferred);
     assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
 
     let frames = [
         vec![0x1000_1010, 0],
         vec![0x1000_1011, 1],
         vec![0x1000_1012, 0],
+        vec![0x1000_1013, 50],
     ];
     for (index, words) in frames.iter().enumerate() {
         write_frame(
@@ -7313,7 +7314,7 @@ fn sleep_zero_requests_a_scheduler_yield_and_rejects_other_intervals_before_muta
     assert_eq!(runtime, runtime_before_interval);
     assert_eq!(memory.stats(), memory_before_interval);
 
-    let mut disabled = policy;
+    let mut disabled = policy.clone();
     disabled.sleep_zero = false;
     disabled.validate().expect("valid disabled Sleep policy");
     let runtime_before_disabled = runtime.clone();
@@ -7327,6 +7328,61 @@ fn sleep_zero_requests_a_scheduler_yield_and_rejects_other_intervals_before_muta
     ));
     assert_eq!(runtime, runtime_before_disabled);
     assert_eq!(memory.stats(), memory_before_disabled);
+
+    let finite_policy: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-delete-file-a-v1.json"
+    ))
+    .expect("finite Sleep policy fixture");
+    assert_eq!(finite_policy.maximum_sleep_milliseconds(), Some(50));
+    let memory_before_finite = memory.stats();
+    let finite = dispatch(3, &mut memory, &mut runtime, &finite_policy);
+    let DispatchOutcome::Deferred(finite) = finite else {
+        panic!("Sleep(50) did not defer to browser pacing");
+    };
+    assert_eq!(
+        finite.request.service,
+        vine_core::RUNTIME_SLEEP_DELAY_SERVICE
+    );
+    assert_eq!(finite.request.payload, 50_u32.to_le_bytes());
+    assert_eq!(finite.frame.argument_u32(0), Some(50));
+    assert!(matches!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::WaitingHost { request_id }
+            if request_id == finite.request.request_id
+    ));
+    assert_eq!(memory.stats(), memory_before_finite);
+
+    let runtime_completion = runtime
+        .complete_host_request(finite.request.request_id)
+        .expect("complete finite Sleep owner wait");
+    assert_eq!(
+        runtime_completion.service,
+        vine_core::RUNTIME_SLEEP_DELAY_SERVICE
+    );
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::Runnable
+    );
+    let completed = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        dispatcher.complete_deferred(
+            finite,
+            HostCompletion {
+                request_id: runtime_completion.request_id,
+                result: ApiImmediate::new(ApiReturnValue::Void),
+            },
+            &mut session,
+        )
+    };
+    let DispatchOutcome::Immediate(completed) = completed else {
+        panic!("Sleep(50) completion did not restore the decoded ABI frame");
+    };
+    assert_eq!(completed.eax, RegisterUpdate::Preserve);
+    assert_eq!(
+        completed.stack_pointer,
+        GuestAddress(STACK_BASE + 3 * 0x20 + 8)
+    );
+    assert_eq!(completed.last_error, INITIAL_LAST_ERROR);
 }
 
 #[test]
@@ -7404,7 +7460,14 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
     });
     policy.validate().expect("valid bounded wait policy");
 
-    let mut runtime = controlled_runtime(controlled_startup_info());
+    let mut runtime = controlled_runtime_with_clock_profile(
+        controlled_startup_info(),
+        Some(RuntimeClockProfile::scheduled_shared_v1()),
+    );
+    let pacing_competitor = RuntimeThreadId(THREAD_ID + 1);
+    runtime
+        .register_thread(pacing_competitor, 0)
+        .expect("register timer pacing competitor");
     let manual = runtime
         .create_waitable_timer_a(true)
         .expect("create manual-reset timer");
@@ -7449,6 +7512,15 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
         }
     );
     assert_eq!(runtime.timer_clock_state().current_time_100ns, 0);
+    runtime
+        .select_thread(pacing_competitor)
+        .expect("run another guest thread while the timer owner waits");
+    runtime
+        .advance_scheduled_clock_to(20_000)
+        .expect("advance the shared clock past the pending timer deadline");
+    runtime
+        .select_thread(RuntimeThreadId(THREAD_ID))
+        .expect("restore timer pacing owner for completion");
     let runtime_before_bad_ack = runtime.clone();
     let memory_before_bad_ack = memory.stats();
     let (bad_ack, bad_ack_wait) = complete_kernel32_waitable_timer_pacing(
@@ -7487,7 +7559,7 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
     assert_eq!(satisfied.last_error, INITIAL_LAST_ERROR);
     assert!(satisfied.guest_writes.is_empty());
     assert_eq!(memory.stats(), memory_before_success);
-    assert_eq!(runtime.timer_clock_state().current_time_100ns, 5_000);
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 20_000);
     assert_eq!(runtime.timer_clock_state().generation, 1);
     assert_eq!(runtime.next_wait_registration_id(), 2);
     assert!(runtime.scheduler().wait_registrations().is_empty());
@@ -7515,7 +7587,7 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
             if completion.eax == RegisterUpdate::Set(0)
                 && completion.last_error == INITIAL_LAST_ERROR
     ));
-    assert_eq!(runtime.timer_clock_state().current_time_100ns, 5_000);
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 20_000);
     assert_eq!(runtime.next_wait_registration_id(), 2);
 
     let poll_timeout = dispatch(2, &mut memory, &mut runtime, &policy);
@@ -7525,14 +7597,14 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
             if completion.eax == RegisterUpdate::Set(258)
                 && completion.last_error == INITIAL_LAST_ERROR
     ));
-    assert_eq!(runtime.timer_clock_state().current_time_100ns, 5_000);
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 20_000);
     assert_eq!(runtime.next_wait_registration_id(), 2);
 
     let finite_timeout = dispatch(3, &mut memory, &mut runtime, &policy);
     let DispatchOutcome::Deferred(finite_timeout_call) = finite_timeout else {
         panic!("expected paced timeout, got {finite_timeout:?}");
     };
-    assert_eq!(runtime.timer_clock_state().current_time_100ns, 5_000);
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 20_000);
     let (finite_timeout, timed_out_wait) = complete_kernel32_waitable_timer_pacing(
         &dispatcher,
         finite_timeout_call,
@@ -7553,7 +7625,7 @@ fn wait_for_single_object_ex_completes_bounded_timer_waits_and_preserves_last_er
         runtime.pop_scheduler_event(),
         Some(RuntimeSchedulerEvent::HostCompleted(_))
     ));
-    assert_eq!(runtime.timer_clock_state().current_time_100ns, 105_000);
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 120_000);
     assert_eq!(runtime.timer_clock_state().generation, 2);
     assert_eq!(runtime.next_wait_registration_id(), 3);
     assert!(runtime.scheduler().wait_registrations().is_empty());

@@ -131,6 +131,7 @@ export interface ExecutionEngine {
   saveCpuContext(): ExecutionCpuContext;
   restoreCpuContext(context: ExecutionCpuContext): void;
   applyCpuResume(resume: CpuResume): void;
+  applyStoppedCpuResume(resume: CpuResume): void;
   enterGuestCallback(target: number, stackPointer: number): void;
   readGuestU32(address: number): number;
   readGuestBytes(address: number, byteLength: number): Uint8Array;

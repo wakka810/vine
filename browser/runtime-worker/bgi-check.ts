@@ -66,6 +66,19 @@ const worker = new Worker(workerUrl, {
 const status = requiredElement<HTMLOutputElement>("#status");
 const scenario = parseScenario(searchParams.get("scenario"));
 const forwardDevelopment = searchParams.get("development") === "forward";
+const forwardStop = searchParams.get("forwardStop");
+if (
+  forwardStop !== null &&
+  forwardStop !== "title-action" &&
+  forwardStop !== "looping-audio-update"
+) {
+  throw new Error(
+    "forwardStop must be title-action or looping-audio-update when specified",
+  );
+}
+const stopAfterForwardTitleAction = forwardStop === "title-action";
+const stopAfterForwardLoopingAudioUpdate =
+  forwardStop === "looping-audio-update";
 const forwardSeconds = Number(searchParams.get("forwardSeconds") ?? 540);
 if (!Number.isInteger(forwardSeconds) || forwardSeconds < 1 || forwardSeconds > 540) {
   throw new Error("forwardSeconds must be an integer from 1 through 540");
@@ -253,21 +266,27 @@ let forwardKeyboardCampaignReady = false;
 let forwardKeyboardButtonDown = false;
 let forwardCompletedKeyboardActivations = 0;
 let forwardPrimaryActionTargetReady = false;
+let forwardTitleActionDelayScheduled = false;
+let forwardTitleActionDelayElapsed = false;
 let forwardCampaignPhase:
   | "startup-pointer"
   | "startup-keyboard"
   | "title-start-pointer"
+  | "title-response"
   | "scenario-keyboard"
   | "complete" = "startup-pointer";
 let forwardKeyboardActivationLimit = 2;
-const forwardStartupKeyboardActivationCount = 2;
+const forwardStartupKeyboardActivationCount = 0;
 const forwardScenarioKeyboardActivationCount = 10;
 const forwardPointerActions = [
-  { normalizedX: 0x39a0, normalizedY: 0xd05b },
-  { normalizedX: 0x39a0, normalizedY: 0xd05b },
-  { normalizedX: 0x39a0, normalizedY: 0xd05b },
+  { normalizedX: 0x3a1a, normalizedY: 0xcfd2 },
+  { normalizedX: 0x3a1a, normalizedY: 0xcfd2 },
+  // Native title trace: client (276, 592) after moving onto Start.
+  { normalizedX: 0x374d, normalizedY: 0xd2a2 },
 ] as const;
 const forwardStartupPointerActionCount = 2;
+const forwardTitleActionDelayMilliseconds = 1_250;
+const forwardPointerHoldMilliseconds = 117;
 const heartbeatIntervalMilliseconds = forwardDevelopment ? 50 : 5;
 const heartbeat = window.setInterval(() => {
   const now = performance.now();
@@ -296,11 +315,16 @@ window.__vineBgiCheck = {
 };
 
 function maybePostForwardAction(): void {
+  const nextAction = forwardCompletedActions + 1;
+  const phaseAcceptsNextAction =
+    (forwardCampaignPhase === "startup-pointer" &&
+      nextAction <= forwardStartupPointerActionCount) ||
+    (forwardCampaignPhase === "title-start-pointer" &&
+      nextAction === forwardStartupPointerActionCount + 1);
   if (
     !forwardDevelopment ||
     !forwardVisibleFrameObserved ||
-    (forwardCampaignPhase !== "startup-pointer" &&
-      forwardCampaignPhase !== "title-start-pointer") ||
+    !phaseAcceptsNextAction ||
     forwardPointerMoveSent
   ) {
     return;
@@ -330,6 +354,7 @@ function pressForwardAction(): void {
     (forwardCampaignPhase !== "startup-pointer" &&
       forwardCampaignPhase !== "title-start-pointer") ||
     forwardButtonDown ||
+    forwardActiveAction !== forwardCompletedActions ||
     forwardCompletedActions >= forwardPointerActions.length
   ) {
     return;
@@ -392,23 +417,34 @@ function scheduleNextForwardAction(action: number): void {
     return;
   }
   forwardCompletedActions = action;
-  if (action === forwardStartupPointerActionCount) {
+  forwardPointerMoveSent = false;
+  forwardHoverPresented = false;
+  if (forwardCampaignPhase === "title-start-pointer") {
+    forwardCampaignPhase = "title-response";
+    return;
+  }
+  if (
+    forwardCampaignPhase !== "startup-pointer" ||
+    action < forwardStartupPointerActionCount
+  ) {
+    return;
+  }
+  if (forwardPrimaryActionTargetReady) {
+    schedulePostStartupPointerAction();
+    return;
+  }
+  if (
+    forwardCompletedKeyboardActivations < forwardStartupKeyboardActivationCount
+  ) {
     forwardCampaignPhase = "startup-keyboard";
     forwardKeyboardCampaignReady = true;
     forwardKeyboardActivationLimit = forwardStartupKeyboardActivationCount;
     scheduleForwardKeyboardActivation();
     return;
   }
-  if (action >= forwardPointerActions.length) {
-    forwardCampaignPhase = "scenario-keyboard";
-    forwardKeyboardCampaignReady = true;
-    forwardKeyboardActivationLimit = forwardScenarioKeyboardActivationCount;
-    scheduleForwardKeyboardActivation();
-    return;
-  }
-  forwardPointerMoveSent = false;
-  forwardHoverPresented = false;
-  maybePostForwardAction();
+  // The fingerprinted target has one click-through warning before the title.
+  // Its D3D transition can lag the release by many Presents, so wait for the
+  // title signature instead of blindly clicking the next visible frame.
 }
 
 function pressForwardKeyboardActivation(): void {
@@ -483,11 +519,27 @@ function scheduleForwardKeyboardActivation(): void {
 
 function schedulePostStartupPointerAction(): void {
   if (
+    forwardCampaignPhase !== "startup-pointer" ||
     forwardCompletedActions !== forwardStartupPointerActionCount ||
-      forwardCompletedKeyboardActivations !==
+    forwardCompletedActions !== forwardActiveAction ||
+    forwardButtonDown ||
+    forwardCompletedKeyboardActivations !==
       forwardStartupKeyboardActivationCount ||
-    !forwardPrimaryActionTargetReady
+    !forwardPrimaryActionTargetReady ||
+    forwardCompletedActions >= forwardPointerActions.length
   ) {
+    return;
+  }
+  if (!forwardTitleActionDelayElapsed) {
+    if (forwardTitleActionDelayScheduled) {
+      return;
+    }
+    forwardTitleActionDelayScheduled = true;
+    window.setTimeout(() => {
+      forwardTitleActionDelayScheduled = false;
+      forwardTitleActionDelayElapsed = true;
+      schedulePostStartupPointerAction();
+    }, forwardTitleActionDelayMilliseconds);
     return;
   }
   forwardKeyboardCampaignReady = false;
@@ -553,19 +605,42 @@ worker.addEventListener(
         forwardPrimaryActionTargetReady = true;
         schedulePostStartupPointerAction();
       }
+      if (
+        forwardDevelopment &&
+        message.phase === "running" &&
+        message.detail === "Forward primary action visible response observed"
+      ) {
+        if (stopAfterForwardTitleAction) {
+          forwardCampaignPhase = "complete";
+          window.__vineBgiCheck.cancel();
+          return;
+        }
+        // The first response can be the title's black transition frame. Wait for
+        // the worker to announce the next stable visible frame before sending
+        // scenario input.
+        forwardVisibleFrameObserved = false;
+        forwardCampaignPhase = "scenario-keyboard";
+        forwardKeyboardCampaignReady = true;
+        forwardKeyboardActivationLimit = forwardScenarioKeyboardActivationCount;
+        scheduleForwardKeyboardActivation();
+      }
       if (forwardDevelopment && message.phase === "running") {
-        const presentedPress =
-          /^Forward pointer action (\d+) press frame presented$/u.exec(
-            message.detail,
+        const enteredPress = /^Forward pointer action (\d+) press entered guest$/u.exec(
+          message.detail,
+        );
+        if (enteredPress !== null) {
+          const action = Number(enteredPress[1]);
+          window.setTimeout(
+            () => releaseForwardAction(action),
+            forwardPointerHoldMilliseconds,
           );
-        if (presentedPress !== null) {
-          releaseForwardAction(Number(presentedPress[1]));
         }
         const release = /^Forward pointer action (\d+) release frame presented$/u.exec(
           message.detail,
         );
         if (release !== null) {
-          scheduleNextForwardAction(Number(release[1]));
+          const action = Number(release[1]);
+          scheduleNextForwardAction(action);
         }
         const activationPress =
           /^Forward activation action (\d+) press frame presented$/u.exec(
@@ -617,9 +692,19 @@ worker.addEventListener(
       void pcmRenderer
         .play(message)
         .then((receipt) => {
-          audioPlaybacksStarted += 1;
+          if (!receipt.contentUpdated && !receipt.staleMessageIgnored) {
+            audioPlaybacksStarted += 1;
+          }
           latestAudioPlayback = receipt;
           document.body.dataset.audioPlayback = JSON.stringify(receipt);
+          if (
+            stopAfterForwardLoopingAudioUpdate &&
+            message.playback === "playing-looping" &&
+            receipt.contentUpdated &&
+            !receipt.staleMessageIgnored
+          ) {
+            window.__vineBgiCheck.cancel();
+          }
         })
         .catch((error: unknown) =>
           fail(error instanceof Error ? error : new Error(String(error))),
@@ -1207,7 +1292,8 @@ function finish(report: SessionReport): void {
       report.outcome === "checkpoint-complete" ||
       report.outcome === "completed" ||
       report.outcome === "fault" ||
-      report.outcome === "watchdog";
+      report.outcome === "watchdog" ||
+      (forwardStop !== null && report.outcome === "cancelled");
     if (!accepted) {
       fail(
         new Error(report.error ?? `unexpected forward outcome ${report.outcome}`),

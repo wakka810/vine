@@ -1388,6 +1388,48 @@ mod tests {
     }
 
     #[test]
+    fn completed_pointer_click_retains_pressed_since_last_query_once() {
+        let mut input = RuntimeInput::default();
+        let configuration = input.plan_configuration(profile(false)).unwrap();
+        input.commit_configuration(configuration).unwrap();
+
+        let down = input
+            .plan_pointer_button_event(
+                pointer_event(1, RuntimePointerButtonSourceEventKind::ButtonDown),
+                640,
+                810,
+            )
+            .unwrap();
+        input.commit_preflighted_pointer_button_event(down);
+        let up = input
+            .plan_pointer_button_event(
+                pointer_event(2, RuntimePointerButtonSourceEventKind::ButtonUp),
+                640,
+                810,
+            )
+            .unwrap();
+        input.commit_preflighted_pointer_button_event(up);
+
+        let clicked = input
+            .plan_async_key_state_query(u32::from(VK_LBUTTON))
+            .unwrap()
+            .unwrap();
+        let clicked = input.commit_async_key_state_query(clicked).unwrap();
+        assert!(!clicked.down);
+        assert!(clicked.pressed_since_last_query);
+        assert_eq!(clicked.value, 0x0001);
+
+        let consumed = input
+            .plan_async_key_state_query(u32::from(VK_LBUTTON))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            input.commit_async_key_state_query(consumed).unwrap().value,
+            0
+        );
+    }
+
+    #[test]
     fn modifier_events_aggregate_and_queries_consume_only_the_requested_pressed_bit() {
         let mut input = RuntimeInput::default();
         let configuration = input.plan_configuration(profile(false)).unwrap();

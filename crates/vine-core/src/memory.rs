@@ -1391,6 +1391,7 @@ pub struct GuestMemory {
     generation: u64,
     acknowledged_generation: u64,
     pending_changes: Vec<MemoryChange>,
+    dirty_pages: BTreeSet<u32>,
     offered_generations: BTreeSet<u64>,
     offered_full_reflections: BTreeSet<u64>,
     initial_reflection_acknowledged: bool,
@@ -1462,6 +1463,7 @@ impl GuestMemory {
             generation: 0,
             acknowledged_generation: 0,
             pending_changes: Vec::new(),
+            dirty_pages: BTreeSet::new(),
             offered_generations: BTreeSet::new(),
             offered_full_reflections: BTreeSet::new(),
             initial_reflection_acknowledged: false,
@@ -1508,6 +1510,11 @@ impl GuestMemory {
                 }
             }
         }
+        self.dirty_pages = self
+            .pages
+            .iter()
+            .filter_map(|(&virtual_page, page)| page.dirty_generation.map(|_| virtual_page))
+            .collect();
         for (start, before) in journal.regions {
             match before {
                 Some(region) => {
@@ -2022,6 +2029,7 @@ impl GuestMemory {
                     dirty_generation: Some(generation),
                 },
             );
+            self.dirty_pages.insert(virtual_page);
         }
         self.record_change(
             vec![MappingOperation::Commit {
@@ -2096,6 +2104,7 @@ impl GuestMemory {
                     "decommit preflight succeeded but page disappeared",
                 )
             })?;
+            self.dirty_pages.remove(&virtual_page);
             self.release_frame(page.frame)?;
         }
         self.record_change(
@@ -2148,6 +2157,7 @@ impl GuestMemory {
                     "release preflight succeeded but page disappeared",
                 )
             })?;
+            self.dirty_pages.remove(virtual_page);
             self.release_frame(page.frame)?;
         }
         self.journal_region_before(start.0);
@@ -2305,6 +2315,7 @@ impl GuestMemory {
                     dirty_generation: Some(generation),
                 },
             );
+            self.dirty_pages.insert(virtual_page);
             mapping_operations.push(MappingOperation::Commit {
                 address_allocation_id: None,
                 owner,
@@ -2457,6 +2468,7 @@ impl GuestMemory {
                 .ok_or_else(segment_bounds_error)?;
             destination.fill(0);
             page.dirty_generation = Some(generation);
+            self.dirty_pages.insert(segment.virtual_page);
         }
         let invalidation = if self.initial_reflection_acknowledged {
             Some(self.record_change(
@@ -2564,13 +2576,23 @@ impl GuestMemory {
             ));
         }
 
-        for page in self.pages.values_mut() {
-            if page
-                .dirty_generation
-                .is_some_and(|dirty_generation| dirty_generation <= generation)
-            {
-                page.dirty_generation = None;
-            }
+        let acknowledged_pages = self
+            .dirty_pages
+            .iter()
+            .filter_map(|virtual_page| {
+                self.pages
+                    .get(virtual_page)
+                    .and_then(|page| page.dirty_generation)
+                    .is_some_and(|dirty_generation| dirty_generation <= generation)
+                    .then_some(*virtual_page)
+            })
+            .collect::<Vec<_>>();
+        for virtual_page in acknowledged_pages {
+            self.pages
+                .get_mut(&virtual_page)
+                .expect("dirty-page index references a committed page")
+                .dirty_generation = None;
+            self.dirty_pages.remove(&virtual_page);
         }
         self.pending_changes
             .retain(|change| change.generation > generation);
@@ -2646,10 +2668,21 @@ impl GuestMemory {
     }
 
     fn collect_dirty_pages(&self) -> Result<Vec<DirtyPage>, GuestMemoryError> {
-        let mut dirty_pages = Vec::new();
-        for (&virtual_page, page) in &self.pages {
+        let mut dirty_pages = Vec::with_capacity(self.dirty_pages.len());
+        for &virtual_page in &self.dirty_pages {
+            let page = self.pages.get(&virtual_page).ok_or_else(|| {
+                GuestMemoryError::runtime_defect(
+                    "memory-delta",
+                    "dirty-page-index-stale",
+                    "dirty-page index references an uncommitted guest page",
+                )
+            })?;
             if page.dirty_generation.is_none() {
-                continue;
+                return Err(GuestMemoryError::runtime_defect(
+                    "memory-delta",
+                    "dirty-page-index-clean",
+                    "dirty-page index references a clean guest page",
+                ));
             }
             let address = virtual_page_address(virtual_page, "memory-delta")?;
             let owner = self.require_owner(page.owner)?;
@@ -3113,11 +3146,7 @@ impl GuestMemory {
             reserved_pages,
             committed_pages: self.pages.len(),
             physical_pages: self.frames.in_use,
-            dirty_pages: self
-                .pages
-                .values()
-                .filter(|page| page.dirty_generation.is_some())
-                .count(),
+            dirty_pages: self.dirty_pages.len(),
             generation: self.generation,
             acknowledged_generation: self.acknowledged_generation,
             pending_invalidation: self.pending_invalidation(),
@@ -3481,6 +3510,7 @@ impl GuestMemory {
                 .ok_or_else(segment_bounds_error)?;
             destination.copy_from_slice(source);
             page.dirty_generation = Some(dirty_generation);
+            self.dirty_pages.insert(segment.virtual_page);
             input_offset = input_end;
         }
         Ok(())

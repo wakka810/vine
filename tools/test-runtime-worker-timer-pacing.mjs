@@ -124,11 +124,27 @@ function request(requestId, delayMilliseconds, completed) {
   assert.deepEqual(completed, ["first"]);
   assert.equal(source.pendingTasks, 0);
   assert.throws(
-    () => driver.setTimeout(() => {}, 11),
-    /outside the bounded 0\.\.10ms policy/u,
+    () => driver.setTimeout(() => {}, 101),
+    /outside the bounded 0\.\.100ms policy/u,
   );
   assert.equal(first, 1);
   assert.equal(second, 2);
+}
+
+{
+  const driver = new FakeTimerDriver();
+  const completed = [];
+  const pacing = new TimerPacingService(driver, { state: "active", generation: 1 });
+  pacing.schedule(request("8", 50, completed));
+  driver.elapse(49);
+  assert.equal(driver.runNextDue(), false);
+  driver.elapse(1);
+  assert.equal(driver.runNextDue(), true);
+  assert.deepEqual(completed, ["8"]);
+  assert.throws(
+    () => pacing.schedule(request("9", 101, completed)),
+    /outside the bounded 1\.\.100ms policy/u,
+  );
 }
 
 {

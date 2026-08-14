@@ -112,6 +112,64 @@ fn synchronization_mutates_only_after_runtime_lifecycle_and_subsystem_preflight(
         .expect("deleted storage can be initialized again");
 }
 
+#[test]
+fn last_executable_critical_section_waiter_can_block_for_a_host_waiting_owner() {
+    let mut runtime = initialized_runtime();
+    runtime.start_initial_thread().unwrap();
+    runtime
+        .initialize_critical_section(CRITICAL_SECTION, 0)
+        .unwrap();
+    runtime.enter_critical_section(CRITICAL_SECTION).unwrap();
+    runtime
+        .begin_host_request("runtime.owner-delay.v1")
+        .expect("owner enters an authoritative host wait");
+    runtime.register_thread(SECOND_THREAD_ID, 0).unwrap();
+    runtime.select_thread(SECOND_THREAD_ID).unwrap();
+
+    runtime
+        .wait_current_thread_for_critical_section(CRITICAL_SECTION)
+        .expect("the final executable lane may wait for a host-waiting owner");
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(SECOND_THREAD_ID)
+            .unwrap(),
+        SchedulerThreadState::WaitingCriticalSection {
+            address: CRITICAL_SECTION.0,
+        }
+    );
+    assert!(runtime.select_next_executable_thread().unwrap().is_none());
+
+    let completion = runtime.complete_host_request(1).unwrap();
+    assert_eq!(completion.thread_id, INITIAL_THREAD_ID);
+    runtime.select_thread(INITIAL_THREAD_ID).unwrap();
+    runtime.leave_critical_section(CRITICAL_SECTION).unwrap();
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(SECOND_THREAD_ID)
+            .unwrap(),
+        SchedulerThreadState::Runnable
+    );
+
+    let mut deadlocked = initialized_runtime();
+    deadlocked.start_initial_thread().unwrap();
+    deadlocked
+        .initialize_critical_section(CRITICAL_SECTION, 0)
+        .unwrap();
+    deadlocked.enter_critical_section(CRITICAL_SECTION).unwrap();
+    deadlocked.register_thread(SECOND_THREAD_ID, 0).unwrap();
+    deadlocked
+        .receive_current_thread_message()
+        .expect("owner blocks without an external host completion");
+    deadlocked.select_thread(SECOND_THREAD_ID).unwrap();
+    assert_eq!(
+        deadlocked
+            .wait_current_thread_for_critical_section(CRITICAL_SECTION)
+            .unwrap_err()
+            .code,
+        "critical-section-no-executable-owner"
+    );
+}
+
 fn initialized_runtime() -> RuntimeState {
     RuntimeState::new(RuntimeBootstrap {
         process_id: PROCESS_ID,

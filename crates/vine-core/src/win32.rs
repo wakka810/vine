@@ -123,6 +123,7 @@ pub const SET_WAITABLE_TIMER_IMPLEMENTATION: &str =
 pub const WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION: &str =
     "kernel32.wait-for-single-object-ex.waitable-timer.v1";
 pub const SLEEP_ZERO_IMPLEMENTATION: &str = "kernel32.sleep-zero.yield-current-thread.v1";
+pub const RUNTIME_SLEEP_DELAY_SERVICE: &str = "runtime.sleep-delay.v1";
 pub const GET_STRING_TYPE_W_IMPLEMENTATION: &str = "kernel32.get-string-type-w.v1";
 pub const LC_MAP_STRING_W_IMPLEMENTATION: &str = "kernel32.lc-map-string-w.v1";
 pub const QUERY_PERFORMANCE_FREQUENCY_IMPLEMENTATION: &str =
@@ -261,6 +262,9 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
     if contract.implementation_id == WAIT_FOR_MULTIPLE_OBJECTS_IMPLEMENTATION {
         return handle_wait_for_multiple_objects(contract, frame, session);
     }
+    if contract.implementation_id == SLEEP_ZERO_IMPLEMENTATION {
+        return handle_sleep(policy, contract, frame, session);
+    }
     let result = match contract.implementation_id.as_str() {
         GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION => {
             handle_get_system_time_as_file_time(contract, frame, session)
@@ -350,7 +354,6 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
         SET_WAITABLE_TIMER_IMPLEMENTATION => {
             handle_set_waitable_timer(policy, contract, frame, session)
         }
-        SLEEP_ZERO_IMPLEMENTATION => handle_sleep_zero(policy, contract, frame),
         GET_STRING_TYPE_W_IMPLEMENTATION => {
             handle_get_string_type_w(policy, contract, frame, session)
         }
@@ -4504,34 +4507,57 @@ fn wait_result_immediate(
     ApiImmediate::new(ApiReturnValue::U32(value)).with_last_error(preserved_last_error)
 }
 
-fn handle_sleep_zero(
+fn handle_sleep(
     policy: &Kernel32CompatibilityPolicy,
     contract: &ApiContract,
     frame: &ApiCallFrame,
-) -> Result<ApiImmediate, ApiFault> {
-    let milliseconds = required_argument(contract, frame, 0, "sleep interval")?;
-    if !policy.allows_sleep_zero() {
-        return Err(ApiFault::unsupported(
-            "win32-thread-scheduling",
-            "sleep-zero-policy-disabled",
-            format!(
-                "compatibility policy {} does not enable Sleep(0)",
-                policy.id
-            ),
-        ));
+    session: &mut ExecutionSession<'_>,
+) -> ApiHandlerResult {
+    let result = (|| {
+        let milliseconds = required_argument(contract, frame, 0, "sleep interval")?;
+        if !policy.allows_sleep_zero() {
+            return Err(ApiFault::unsupported(
+                "win32-thread-scheduling",
+                "sleep-zero-policy-disabled",
+                format!(
+                    "compatibility policy {} does not enable Sleep(0)",
+                    policy.id
+                ),
+            ));
+        }
+        if milliseconds == 0 {
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(ApiReturnValue::Void)
+                    .with_execution_boundary(RuntimeApiBoundaryDisposition::YieldCurrentThread),
+            ));
+        }
+        if policy
+            .maximum_sleep_milliseconds()
+            .is_none_or(|maximum| milliseconds > maximum)
+        {
+            return Err(ApiFault::unsupported(
+                "win32-thread-scheduling",
+                "sleep-interval-unsupported",
+                format!(
+                    "compatibility policy {} does not enable Sleep({milliseconds})",
+                    policy.id
+                ),
+            ));
+        }
+        let request = session
+            .runtime_mut()
+            .begin_host_request(RUNTIME_SLEEP_DELAY_SERVICE)
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
+            request_id: request.request_id,
+            service: request.service,
+            payload: milliseconds.to_le_bytes().to_vec(),
+        }))
+    })();
+    match result {
+        Ok(outcome) => outcome,
+        Err(fault) => ApiHandlerResult::Fault(fault),
     }
-    if milliseconds != 0 {
-        return Err(ApiFault::unsupported(
-            "win32-thread-scheduling",
-            "sleep-interval-unsupported",
-            format!(
-                "compatibility policy {} does not enable Sleep({milliseconds})",
-                policy.id
-            ),
-        ));
-    }
-    Ok(ApiImmediate::new(ApiReturnValue::Void)
-        .with_execution_boundary(RuntimeApiBoundaryDisposition::YieldCurrentThread))
 }
 
 fn handle_get_string_type_w(
@@ -6805,13 +6831,15 @@ pub fn wait_for_single_object_ex_contract(
 }
 
 pub fn sleep_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
+    let mut contract = kernel32_contract(
         endpoint,
         "Sleep",
         vec![u32_argument("milliseconds")],
         ApiReturnSchema::Void,
         SLEEP_ZERO_IMPLEMENTATION,
-    )
+    )?;
+    contract.behavior = ApiBehavior::ImmediateOrDeferred;
+    Ok(contract)
 }
 
 pub fn get_string_type_w_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {

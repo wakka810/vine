@@ -245,6 +245,22 @@ assert.deepEqual(trap.stop, {
 });
 assert.equal(trap.context.instructionPointer, codeAddress + 10);
 
+engine.applyStoppedCpuResume({
+  instructionPointer: codeAddress,
+  stackPointer: dataAddress + pageSize - 32,
+  eax: { action: "set", value: 0xa5a5_5a5a },
+  edx: { action: "preserve" },
+  eflags: { action: "set", value: 0x202 },
+});
+const stoppedResume = engine.saveCpuContext();
+assert.equal(stoppedResume.instructionPointer, codeAddress);
+assert.equal(stoppedResume.previousInstructionPointer, codeAddress);
+assert.equal(stoppedResume.esp, dataAddress + pageSize - 32);
+assert.equal(stoppedResume.eax, 0xa5a5_5a5a);
+assert.equal(stoppedResume.edx, trap.context.edx);
+assert.equal(stoppedResume.eflags, 0x202);
+engine.restoreCpuContext(trap.context);
+
 const pageEndFirst = new Uint8Array(pageSize);
 pageEndFirst[pageSize - 1] = 0x90;
 const pageEndSecond = new Uint8Array(pageSize);

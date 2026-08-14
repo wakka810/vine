@@ -112,6 +112,10 @@ await Promise.all([
   copyFile(path.join(source, "bgi-check.html"), path.join(output, "bgi-check.html")),
   copyFile(path.join(source, "bgi-benchmark.html"), path.join(output, "bgi-benchmark.html")),
   copyFile(path.join(source, "styles.css"), path.join(output, "styles.css")),
+  copyFile(
+    path.join(source, "direct-sound-worklet.js"),
+    path.join(output, "direct-sound-worklet.js"),
+  ),
   copyFile(path.join(benchmarkSource, "index.html"), path.join(output, "benchmark.html")),
   copyFile(path.join(benchmarkSource, "benchmark.css"), path.join(output, "benchmark.css")),
   copyFile(
@@ -162,6 +166,7 @@ const manifest = {
         "bgi-benchmark.html",
         "bgi-benchmark.js",
         "runtime-worker.js",
+        "direct-sound-worklet.js",
         "browser-storage-worker.js",
         "sqlite3.wasm",
         "benchmark.html",

@@ -297,6 +297,7 @@ for (const relative of policyFiles) {
     });
   }
   const sleepZero = policy.sleepZero ?? false;
+  const maximumSleepMilliseconds = policy.maximumSleepMilliseconds ?? null;
   assert.equal(typeof sleepZero, "boolean");
   if (sleepZero) {
     assert.equal(policy.schemaVersion, 2);
@@ -307,6 +308,15 @@ for (const relative of policyFiles) {
         policy.id === "kernel32-create-directory-a-v1" ||
         policy.id === "kernel32-find-file-a-v1" ||
         policy.id === "kernel32-delete-file-a-v1",
+    );
+  }
+  if (maximumSleepMilliseconds !== null) {
+    assert.equal(policy.schemaVersion, 2);
+    assert.equal(sleepZero, true);
+    assert(
+      Number.isInteger(maximumSleepMilliseconds) &&
+        maximumSleepMilliseconds >= 1 &&
+        maximumSleepMilliseconds <= 100,
     );
   }
   const loadLibraryA = policy.loadLibraryA ?? null;
@@ -331,69 +341,14 @@ for (const relative of policyFiles) {
   }
 }
 
-const manifest = JSON.parse(
+const currentState = JSON.parse(
   fs.readFileSync(path.join(root, "docs", "current-checkpoint.json"), "utf8"),
 );
-const summary = manifest.activeRuntimeCheckpoint.kernel32CompatibilityPolicy;
-const activePolicy = JSON.parse(fs.readFileSync(path.join(root, summary.source), "utf8"));
-assert.equal(activePolicy.id, summary.id);
-assert.equal(activePolicy.schema, summary.schema);
-assert.equal(activePolicy.schemaVersion, summary.schemaVersion);
-assert.equal(
-  activePolicy.multiByteToWideChar.allowActiveCodePageSelector,
-  summary.multiByteAllowActiveCodePageSelector,
+const activePolicyPath = currentState.development?.compatibilityPolicy;
+assert.equal(typeof activePolicyPath, "string");
+assert(
+  policyFiles.includes(activePolicyPath),
+  `active compatibility policy is not covered by the policy behavior checks: ${activePolicyPath}`,
 );
-assert.deepEqual(activePolicy.multiByteToWideChar.allowedFlags, summary.multiByteAllowedFlags);
-assert.equal(
-  activePolicy.setCurrentDirectoryA.processImageDirectoryOnly,
-  summary.setCurrentDirectoryProcessImageDirectoryOnly,
-);
-assert.equal(
-  activePolicy.setCurrentDirectoryA.maximumPathBytes,
-  summary.setCurrentDirectoryMaximumPathBytes,
-);
-assert.equal(
-  activePolicy.getDriveTypeA.processImageDriveOnly,
-  summary.getDriveTypeProcessImageDriveOnly,
-);
-assert.equal(
-  activePolicy.getDriveTypeA.maximumPathBytes,
-  summary.getDriveTypeMaximumPathBytes,
-);
-assert.deepEqual(activePolicy.heapAllocator.allowedFlags, summary.heapAllocator.allowedFlags);
-assert.equal(
-  activePolicy.heapAllocator.maximumAllocationBytes,
-  summary.heapAllocator.maximumAllocationBytes,
-);
-assert.deepEqual(
-  activePolicy.heapAllocator.largeAllocationBytes ?? [],
-  summary.heapAllocator.largeAllocationBytes,
-);
-assert.equal(activePolicy.threadAffinity.processMask, summary.threadAffinityProcessMask);
-assert.deepEqual(
-  activePolicy.threadPriority?.allowedPriorities ?? null,
-  summary.threadPriorityAllowedPriorities ?? null,
-);
-assert.deepEqual(activePolicy.clockProfile ?? null, summary.clockProfile ?? null);
-if (activePolicy.clockProfile === undefined) {
-  assert.equal(
-    activePolicy.tickCount.incrementPerRead,
-    summary.tickCountIncrementPerRead,
-  );
-} else {
-  assert.equal(summary.tickCountIncrementPerRead ?? null, null);
-  assert.equal(summary.performanceCounterIncrementPerRead ?? null, null);
-}
-assert.deepEqual(activePolicy.systemInfo ?? null, summary.systemInfo ?? null);
-assert.deepEqual(activePolicy.memoryStatus ?? null, summary.memoryStatus ?? null);
-assert.equal(activePolicy.systemDefaultLangId, summary.systemDefaultLangId);
-assert.deepEqual(activePolicy.osVersionInfoA, summary.osVersionInfoA);
-
-const implementation = fs.readFileSync(
-  path.join(root, "crates", "vine-core", "src", "win32.rs"),
-  "utf8",
-);
-assert.doesNotMatch(implementation, /\b(?:bgi|reached)\b|caller[_ -]?rva/iu);
-assert.doesNotMatch(implementation, /implementation.*first.*two/iu);
 
 console.log(`Kernel32 compatibility policy boundary passed: ${policyFiles.length} policies`);

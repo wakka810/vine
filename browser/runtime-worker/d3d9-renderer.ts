@@ -271,6 +271,40 @@ export class D3d9WebGl2Renderer {
     return darkPixels;
   }
 
+  readPixelRgba(x: number, y: number): [number, number, number, number] {
+    invariant(
+      Number.isInteger(x) &&
+        Number.isInteger(y) &&
+        x >= 0 &&
+        x < PRESENT_WIDTH &&
+        y >= 0 &&
+        y < PRESENT_HEIGHT,
+      "presentation pixel probe is outside the bounded frame",
+    );
+    const { gl } = this.#preflightResource;
+    const pixel = new Uint8Array(4);
+    gl.readPixels(
+      x,
+      PRESENT_HEIGHT - y - 1,
+      1,
+      1,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      pixel,
+    );
+    const webGlError = gl.getError();
+    invariant(
+      webGlError === gl.NO_ERROR,
+      `WebGL2 presentation pixel probe failed with error ${webGlError}`,
+    );
+    return [
+      requireByte(pixel[0]),
+      requireByte(pixel[1]),
+      requireByte(pixel[2]),
+      requireByte(pixel[3]),
+    ];
+  }
+
   #resourceForDevice(
     binding: LogicalComBinding,
   ): BrowserResourceRecord<D3d9WebGlDeviceResource> {

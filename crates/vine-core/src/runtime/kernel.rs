@@ -4101,7 +4101,7 @@ impl RuntimeKernel {
         let selection = if let Some(selection) = plan.selection() {
             let thread_id = selection.next();
             let state = self.scheduler_state_for_thread(thread_id)?;
-            if state != SchedulerThreadState::Runnable
+            if !state.is_executable()
                 || self.thread_state(thread_id)?.lifecycle != RuntimeThreadLifecycleState::Running
             {
                 return Err(RuntimeStateError::runtime_defect(
@@ -4911,8 +4911,8 @@ impl RuntimeKernel {
         return_sentinel: GuestAddress,
     ) -> Result<RuntimeDllLifecycleAction, RuntimeStateError> {
         self.modules.require_process_detach_start()?;
-        self.require_dll_process_detach_thread_state()?;
         let plan = self.modules.plan_process_detach(return_sentinel)?;
+        self.require_dll_process_detach_thread_state(plan.callback_entry().is_some())?;
         self.commit_dll_lifecycle_plan(None, plan)
     }
 
@@ -4939,18 +4939,22 @@ impl RuntimeKernel {
         Ok(())
     }
 
-    fn require_dll_process_detach_thread_state(&self) -> Result<(), RuntimeStateError> {
+    fn require_dll_process_detach_thread_state(
+        &self,
+        requires_callback: bool,
+    ) -> Result<(), RuntimeStateError> {
         if !self.process.is_running()
             || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
-            || !matches!(
-                self.scheduler_state()?,
-                SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
-            )
+            || (requires_callback
+                && !matches!(
+                    self.scheduler_state()?,
+                    SchedulerThreadState::Runnable | SchedulerThreadState::InCallback { .. }
+                ))
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-dll-lifecycle",
                 "dll-callback-thread-state-invalid",
-                "DLL process detach requires a running process and active selected thread",
+                "DLL process detach requires a running process and an active selected thread when guest callbacks are pending",
             ));
         }
         Ok(())
@@ -5756,12 +5760,20 @@ impl RuntimeKernel {
         let timer_id = RuntimeWaitableTimerId(timer_id);
         if timer_id != pacing.timer_before.id
             || self.timers.waitable_timer(timer_id)? != &pacing.timer_before
-            || self.process.timer_clock_state() != pacing.timer_clock_before
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-wait",
                 "waitable-timer-pacing-generation-stale",
-                "timer arm or logical clock changed before pacing completion",
+                "timer arm changed before pacing completion",
+            ));
+        }
+        let completion_clock_before = self.process.timer_clock_state();
+        if completion_clock_before.current_time_100ns < pacing.timer_clock_before.current_time_100ns
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-wait",
+                "waitable-timer-pacing-clock-regressed",
+                "process-wide logical clock regressed while timer pacing was pending",
             ));
         }
 
@@ -5809,7 +5821,17 @@ impl RuntimeKernel {
                 None
             }
         };
-        let clock = self.process.plan_clock_advance(pacing.target_time_100ns)?;
+        // Other runnable guest threads continue to advance the process-wide
+        // scheduled clock while this thread is waiting for the browser pacing
+        // acknowledgement. A late acknowledgement therefore completes at the
+        // current clock without moving it backwards; the timer arm identity,
+        // rather than the clock generation captured at wait entry, protects
+        // the deferred wait from a stale rearm.
+        let clock = self.process.plan_clock_advance(
+            completion_clock_before
+                .current_time_100ns
+                .max(pacing.target_time_100ns),
+        )?;
         let expiration = expiration_arm
             .map(|arm| {
                 self.timers
@@ -5851,20 +5873,7 @@ impl RuntimeKernel {
             object_wait_state,
             timer: timer_after,
             timer_clock_before: pacing.timer_clock_before,
-            timer_clock_after: RuntimeTimerClockState {
-                current_time_100ns: pacing.target_time_100ns,
-                generation: pacing
-                    .timer_clock_before
-                    .generation
-                    .checked_add(1)
-                    .ok_or_else(|| {
-                        RuntimeStateError::resource_limit(
-                            "runtime-timer-clock",
-                            "timer-clock-generation-exhausted",
-                            "logical timer clock generation is exhausted",
-                        )
-                    })?,
-            },
+            timer_clock_after: clock.timer_after(),
         };
         Ok(RuntimeWaitableTimerPacingCompletionPlan {
             scheduler,
@@ -9141,15 +9150,34 @@ impl RuntimeKernel {
     ) -> Result<(), RuntimeStateError> {
         self.require_critical_section_operation_state()?;
         let current_thread_id = self.current_thread_id();
-        if self
+        let executable_competitor = self
             .scheduler
             .plan_next_other_executable_selection()?
-            .is_none()
-        {
+            .is_some();
+        let owner_thread_id = self
+            .synchronization
+            .critical_section(address)?
+            .owning_thread_id
+            .ok_or_else(|| {
+                RuntimeStateError::conflict(
+                    "runtime-critical-section",
+                    "critical-section-wait-not-contended",
+                    "critical section wait requires a live owner",
+                )
+            })?;
+        let owner_host_wait = match self.scheduler.state(owner_thread_id)? {
+            SchedulerThreadState::WaitingHost { request_id } => self
+                .scheduler
+                .host_requests()
+                .get(&request_id)
+                .is_some_and(|request| request.thread_id == owner_thread_id),
+            _ => false,
+        };
+        if !executable_competitor && !owner_host_wait {
             return Err(RuntimeStateError::conflict(
                 "runtime-critical-section",
                 "critical-section-no-executable-owner",
-                "contended critical section has no other executable runtime thread",
+                "contended critical section has neither an executable lane nor a host-waiting owner",
             ));
         }
         let critical_section_plan = self.synchronization.plan_wait(address, current_thread_id)?;

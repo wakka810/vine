@@ -935,6 +935,23 @@ export class V86Mirror implements ExecutionEngine {
 
   applyCpuResume(completion: CpuResume): void {
     const state = this.saveState().words;
+    this.#applyCpuResumeToState(state, completion);
+    this.#restoreState(state);
+  }
+
+  applyStoppedCpuResume(completion: CpuResume): void {
+    const state = this.#liveStateWords();
+    invariant(
+      state[stateWord.magic] === 0x5649_4e45 &&
+        state[stateWord.version] === adapterAbiVersion &&
+        state[stateWord.wordCount] === state.byteLength / Uint32Array.BYTES_PER_ELEMENT,
+      "stopped CPU resume requires the current saved v86 state",
+    );
+    this.#applyCpuResumeToState(state, completion);
+    invariant(this.#wasm.vine_cpu_state_restore() === 0, "v86 rejected a stopped CPU resume");
+  }
+
+  #applyCpuResumeToState(state: Uint32Array, completion: CpuResume): void {
     this.#applyRegisterUpdate(state, stateWord.eax, completion.eax);
     this.#applyRegisterUpdate(state, stateWord.edx, completion.edx);
     this.#applyRegisterUpdate(state, stateWord.flags, completion.eflags);
@@ -942,7 +959,6 @@ export class V86Mirror implements ExecutionEngine {
     state[stateWord.instructionPointer] = completion.instructionPointer >>> 0;
     state[stateWord.previousInstructionPointer] = completion.instructionPointer >>> 0;
     state[stateWord.inHalt] = 0;
-    this.#restoreState(state);
   }
 
   applyCompletion(
@@ -1083,6 +1099,29 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   applyMemoryDelta(delta: HostMemoryDelta): void {
+    if (delta.mappingOperations.length === 0) {
+      if (delta.pages.length === 1) {
+        const page = delta.pages[0]!;
+        invariant((page.address & (memoryPageSize - 1)) === 0, "host delta page is unaligned");
+        invariant(page.bytes.byteLength === memoryPageSize, "host delta page is not 4 KiB");
+        const mapping = this.#mappings.get(page.address);
+        invariant(mapping !== undefined, "host delta targets an unmapped mirror page");
+        invariant(mapping.owner === page.owner, "host delta owner does not match the mirror");
+        invariant(
+          sameProtection(mapping.protection, page.protection),
+          "host delta protection does not match the mirror",
+        );
+        this.#physicalMemory.set(page.bytes, mapping.physicalBase);
+      } else {
+        this.#preflightDeltaPages(delta.pages, this.#mappings);
+        for (const page of delta.pages) {
+          const mapping = this.#mappings.get(page.address)!;
+          this.#physicalMemory.set(page.bytes, mapping.physicalBase);
+        }
+      }
+      this.applyCacheEffects(delta.cacheEffects);
+      return;
+    }
     const capacity = this.#preflightHostDelta(delta);
     this.#ensurePhysicalCapacity(capacity);
     for (const operation of delta.mappingOperations) {

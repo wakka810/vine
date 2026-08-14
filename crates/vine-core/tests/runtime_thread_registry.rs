@@ -126,6 +126,54 @@ fn api_boundary_yield_selects_a_runnable_competitor_without_host_wait() {
 }
 
 #[test]
+fn api_boundary_round_robin_preserves_and_restores_callback_thread_lanes() {
+    let mut runtime = running_runtime();
+    runtime
+        .register_thread(SECOND_THREAD_ID, 0)
+        .expect("register second executable thread");
+    let callback = runtime
+        .push_callback_frame(GuestAddress(0x1000_1000), GuestAddress(0x7f01_0000))
+        .expect("enter callback on initial thread");
+
+    for completed in 1..RUNTIME_API_BOUNDARY_QUANTUM {
+        assert_eq!(
+            runtime.complete_api_execution_boundary().unwrap(),
+            None,
+            "callback boundary {completed} must preserve its current quantum"
+        );
+    }
+    let second = runtime
+        .complete_api_execution_boundary()
+        .expect("expire callback thread quantum")
+        .expect("select runnable worker from callback thread");
+    assert_eq!(second.previous_thread_id, INITIAL_THREAD_ID);
+    assert_eq!(second.thread_id, SECOND_THREAD_ID);
+    assert_eq!(runtime.current_thread_id(), SECOND_THREAD_ID);
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(INITIAL_THREAD_ID)
+            .unwrap(),
+        SchedulerThreadState::InCallback { depth: 1 }
+    );
+
+    let initial = runtime
+        .complete_api_execution_boundary_with_disposition(
+            RuntimeApiBoundaryDisposition::YieldCurrentThread,
+        )
+        .expect("yield worker thread")
+        .expect("restore callback thread lane");
+    assert_eq!(initial.thread_id, INITIAL_THREAD_ID);
+    assert_eq!(initial.state, SchedulerThreadState::InCallback { depth: 1 });
+    assert_eq!(
+        runtime.current_thread_state().unwrap().callback_frames,
+        vec![callback]
+    );
+    runtime
+        .pop_callback_frame(callback.id)
+        .expect("retire restored callback frame");
+}
+
+#[test]
 fn executable_selection_runs_another_thread_while_host_completion_remains_thread_owned() {
     let mut runtime = running_runtime();
     runtime

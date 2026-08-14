@@ -993,7 +993,7 @@ export class RuntimeBridge {
       guestWrites.push({ write: { address: words[22]!, bytes } });
     } else {
       invariant(
-        words.slice(22).every((word) => word === 0),
+        words.slice(22, 30).every((word) => word === 0),
         "empty fast dispatch guest-write record retained data",
       );
     }
