@@ -41,6 +41,11 @@ interface DecodedPcm {
   peakAbsoluteSample: number;
 }
 
+interface PcmRegion {
+  offsetBytes: number;
+  samples: ArrayBuffer;
+}
+
 const workletName = "vine-direct-sound-stream";
 
 export class BrowserPcmRenderer {
@@ -74,13 +79,16 @@ export class BrowserPcmRenderer {
       format.blockAlign !== (format.channels * format.bitsPerSample) / 8 ||
       format.averageBytesPerSecond !==
         format.samplesPerSecond * format.blockAlign ||
-      message.samples.byteLength === 0 ||
-      message.samples.byteLength % format.blockAlign !== 0
+      !Number.isInteger(message.bufferByteLength) ||
+      message.bufferByteLength <= 0 ||
+      message.bufferByteLength % format.blockAlign !== 0
     ) {
       throw new Error("DirectSound playback message has an invalid PCM shape");
     }
 
-    const frameCount = message.samples.byteLength / format.blockAlign;
+    const frameCount = message.bufferByteLength / format.blockAlign;
+    const regions = sampleRegions(message);
+    validatePcmRegions(regions, message.bufferByteLength, format.blockAlign);
     const context = await this.#readyContext();
     // Context/worklet initialization can yield while a stop for this buffer is
     // delivered. Re-read authoritative generations only after that boundary so
@@ -98,7 +106,6 @@ export class BrowserPcmRenderer {
       return this.#receipt(message, frameCount, 0, false, false, true, context);
     }
 
-    const decoded = decodePcm(message, frameCount);
     const canUpdate =
       previous !== undefined &&
       previous.playback === "playing-looping" &&
@@ -108,14 +115,27 @@ export class BrowserPcmRenderer {
       previous.bitsPerSample === format.bitsPerSample &&
       previous.frameCount === frameCount;
     if (canUpdate) {
+      const decoded = regions.map((region) => ({
+        offsetFrames: region.offsetBytes / format.blockAlign,
+        pcm: decodePcm(format, region.samples),
+      }));
       this.#updateControls(previous, message);
-      this.#postSamples(previous.node, "update", message, decoded.channels);
+      for (const region of decoded) {
+        this.#postSamples(
+          previous.node,
+          "update",
+          message,
+          frameCount,
+          region.offsetFrames,
+          region.pcm.channels,
+        );
+      }
       previous.bufferGeneration = message.bufferGeneration;
       previous.contentGeneration = message.contentGeneration;
       return this.#receipt(
         message,
         frameCount,
-        decoded.peakAbsoluteSample,
+        Math.max(...decoded.map((region) => region.pcm.peakAbsoluteSample)),
         false,
         true,
         false,
@@ -126,6 +146,15 @@ export class BrowserPcmRenderer {
     if (previous !== undefined) {
       this.#retire(previous);
     }
+    if (
+      message.sampleUpdate.kind !== "snapshot" ||
+      regions.length !== 1 ||
+      regions[0]?.offsetBytes !== 0 ||
+      regions[0].samples.byteLength !== message.bufferByteLength
+    ) {
+      throw new Error("DirectSound source creation requires a complete PCM snapshot");
+    }
+    const decoded = decodePcm(format, regions[0].samples);
     this.#latestStopGeneration.delete(message.bufferId);
     const gain = new GainNode(context, {
       gain: gainForVolume(message.controls.volumeHundredthsDb),
@@ -165,7 +194,7 @@ export class BrowserPcmRenderer {
       }
     });
     node.port.start();
-    this.#postSamples(node, "start", message, decoded.channels);
+    this.#postSamples(node, "start", message, frameCount, 0, decoded.channels);
     return this.#receipt(
       message,
       frameCount,
@@ -217,6 +246,8 @@ export class BrowserPcmRenderer {
     node: AudioWorkletNode,
     type: "start" | "update",
     message: AudioPlaybackMessage,
+    frameCount: number,
+    offsetFrames: number,
     channels: Float32Array[],
   ): void {
     const channelBuffers = channels.map((channel) => channel.buffer);
@@ -224,7 +255,8 @@ export class BrowserPcmRenderer {
       {
         type,
         channels: channelBuffers,
-        frameCount: channels[0]?.length ?? 0,
+        frameCount,
+        regionOffsetFrames: offsetFrames,
         sourceSamplesPerSecond: message.format.samplesPerSecond,
         frequencyHz:
           message.controls.frequencyHz ?? message.format.samplesPerSecond,
@@ -291,12 +323,44 @@ export class BrowserPcmRenderer {
   }
 }
 
+function sampleRegions(message: AudioPlaybackMessage): PcmRegion[] {
+  return message.sampleUpdate.kind === "snapshot"
+    ? [{ offsetBytes: 0, samples: message.sampleUpdate.samples }]
+    : message.sampleUpdate.regions;
+}
+
+function validatePcmRegions(
+  regions: PcmRegion[],
+  bufferByteLength: number,
+  blockAlign: number,
+): void {
+  if (regions.length < 1 || regions.length > 2) {
+    throw new Error("DirectSound PCM update has an invalid region count");
+  }
+  const ordered = [...regions].sort((left, right) => left.offsetBytes - right.offsetBytes);
+  let previousEnd = 0;
+  for (const region of ordered) {
+    if (
+      !Number.isInteger(region.offsetBytes) ||
+      region.offsetBytes < 0 ||
+      region.offsetBytes % blockAlign !== 0 ||
+      region.samples.byteLength === 0 ||
+      region.samples.byteLength % blockAlign !== 0 ||
+      region.offsetBytes < previousEnd ||
+      region.offsetBytes > bufferByteLength - region.samples.byteLength
+    ) {
+      throw new Error("DirectSound PCM update region is invalid");
+    }
+    previousEnd = region.offsetBytes + region.samples.byteLength;
+  }
+}
+
 function decodePcm(
-  message: AudioPlaybackMessage,
-  frameCount: number,
+  format: AudioPlaybackMessage["format"],
+  samples: ArrayBuffer,
 ): DecodedPcm {
-  const { format } = message;
-  const input = new DataView(message.samples);
+  const input = new DataView(samples);
+  const frameCount = samples.byteLength / format.blockAlign;
   const bytesPerSample = format.bitsPerSample / 8;
   const channels = Array.from(
     { length: format.channels },

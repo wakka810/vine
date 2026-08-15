@@ -67,7 +67,7 @@
     "mode": "forward",
     "runner": "generic-forward",
     "compatibilityPolicy": "fixtures/runtime-policies/kernel32-delete-file-a-v1.json",
-    "runtimeProtocol": "vine.browser-runtime-worker.v143",
+    "runtimeProtocol": "vine.browser-runtime-worker.v144",
     "reportPath": ".work/target-forward/report.json",
     "maximumRunSeconds": 540,
     "semanticTailEntries": 512

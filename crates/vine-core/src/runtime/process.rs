@@ -432,6 +432,15 @@ impl RuntimeProcessState {
             .plan_scheduled_execution_advance(retired_instructions)
     }
 
+    pub(super) fn plan_scheduled_host_execution_clock_advance(
+        &self,
+        retired_instructions: u64,
+        host_elapsed_time_100ns: u64,
+    ) -> Result<RuntimeScheduledExecutionAdvancePlan, RuntimeStateError> {
+        self.clock
+            .plan_scheduled_host_execution_advance(retired_instructions, host_elapsed_time_100ns)
+    }
+
     pub(super) fn preflight_scheduled_execution_clock_advance(
         &self,
         plan: &RuntimeScheduledExecutionAdvancePlan,

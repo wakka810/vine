@@ -157,6 +157,7 @@ pub(super) struct RuntimeSchedulerApiBoundaryPlan {
     previous_thread_id: RuntimeThreadId,
     previous_thread_state: SchedulerThreadState,
     runnable_competitor: Option<RuntimeThreadId>,
+    explicit_competitor: bool,
     previous_completed_boundaries: u32,
     next_completed_boundaries: u32,
     selection: Option<RuntimeSchedulerSelectionPlan>,
@@ -374,6 +375,7 @@ impl RuntimeScheduler {
         })
     }
 
+    #[cfg(test)]
     pub(super) fn plan_next_executable_selection(
         &self,
     ) -> Result<Option<RuntimeSchedulerSelectionPlan>, RuntimeStateError> {
@@ -420,9 +422,23 @@ impl RuntimeScheduler {
         Ok(None)
     }
 
+    #[cfg(test)]
     pub(super) fn plan_completed_api_boundary(
         &self,
         disposition: RuntimeApiBoundaryDisposition,
+    ) -> Result<RuntimeSchedulerApiBoundaryPlan, RuntimeStateError> {
+        let competitor = self
+            .plan_next_other_executable_selection()?
+            .map(|selection| selection.next);
+        self.plan_completed_api_boundary_with_competitor(disposition, competitor, false, false)
+    }
+
+    pub(super) fn plan_completed_api_boundary_with_competitor(
+        &self,
+        disposition: RuntimeApiBoundaryDisposition,
+        runnable_competitor: Option<RuntimeThreadId>,
+        force_competitor: bool,
+        explicit_competitor: bool,
     ) -> Result<RuntimeSchedulerApiBoundaryPlan, RuntimeStateError> {
         if disposition == RuntimeApiBoundaryDisposition::BlockCurrentThread {
             return Err(RuntimeStateError::invalid_input(
@@ -439,8 +455,6 @@ impl RuntimeScheduler {
                 "API execution boundary plan revision is exhausted",
             )
         })?;
-        let next_executable = self.plan_next_other_executable_selection()?;
-        let runnable_competitor = next_executable.map(|selection| selection.next);
         if !current_state.is_executable() {
             return Err(RuntimeStateError::conflict(
                 "runtime-scheduler",
@@ -448,6 +462,18 @@ impl RuntimeScheduler {
                 "an API execution boundary requires an executable current thread",
             ));
         }
+        let next_executable = if let Some(thread_id) = runnable_competitor {
+            if thread_id == self.current_thread_id || !self.state(thread_id)?.is_executable() {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-scheduler",
+                    "api-boundary-competitor-not-executable",
+                    "an API execution boundary competitor must be another executable thread",
+                ));
+            }
+            Some(self.plan_selection(thread_id)?)
+        } else {
+            None
+        };
         let Some(next_executable) = next_executable else {
             return Ok(RuntimeSchedulerApiBoundaryPlan {
                 disposition,
@@ -456,6 +482,7 @@ impl RuntimeScheduler {
                 previous_thread_id: self.current_thread_id,
                 previous_thread_state: current_state,
                 runnable_competitor,
+                explicit_competitor,
                 previous_completed_boundaries: self.completed_api_boundaries_in_quantum,
                 next_completed_boundaries: 0,
                 selection: None,
@@ -475,6 +502,7 @@ impl RuntimeScheduler {
                 })?
         };
         let select_competitor = disposition == RuntimeApiBoundaryDisposition::YieldCurrentThread
+            || force_competitor
             || completed >= RUNTIME_API_BOUNDARY_QUANTUM;
         Ok(RuntimeSchedulerApiBoundaryPlan {
             disposition,
@@ -483,6 +511,7 @@ impl RuntimeScheduler {
             previous_thread_id: self.current_thread_id,
             previous_thread_state: current_state,
             runnable_competitor,
+            explicit_competitor,
             previous_completed_boundaries: self.completed_api_boundaries_in_quantum,
             next_completed_boundaries: if select_competitor { 0 } else { completed },
             selection: select_competitor.then_some(next_executable),
@@ -493,9 +522,27 @@ impl RuntimeScheduler {
         &self,
         plan: &RuntimeSchedulerApiBoundaryPlan,
     ) -> Result<(), RuntimeStateError> {
-        let runnable_competitor = self
-            .plan_next_other_executable_selection()?
-            .map(|selection| selection.next);
+        let runnable_competitor = if plan.explicit_competitor {
+            match plan.runnable_competitor {
+                Some(thread_id)
+                    if thread_id != self.current_thread_id
+                        && self.state(thread_id)?.is_executable() =>
+                {
+                    Some(thread_id)
+                }
+                Some(_) => {
+                    return Err(RuntimeStateError::conflict(
+                        "runtime-scheduler",
+                        "api-boundary-selection-stale",
+                        "the selected API boundary competitor is no longer executable",
+                    ));
+                }
+                None => None,
+            }
+        } else {
+            self.plan_next_other_executable_selection()?
+                .map(|selection| selection.next)
+        };
         if self.api_boundary_revision != plan.previous_revision
             || self.current_thread_id != plan.previous_thread_id
             || self.current_state()? != plan.previous_thread_state

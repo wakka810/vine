@@ -491,6 +491,37 @@ impl RuntimeClock {
         })
     }
 
+    pub(super) fn plan_scheduled_host_execution_advance(
+        &self,
+        retired_instructions: u64,
+        host_elapsed_time_100ns: u64,
+    ) -> Result<RuntimeScheduledExecutionAdvancePlan, RuntimeStateError> {
+        if !self.uses_scheduled_shared_progression() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-clock",
+                "scheduled-host-clock-profile-inactive",
+                "host-monotonic clock synchronization requires the scheduled shared profile",
+            ));
+        }
+        if retired_instructions < self.scheduled_execution.retired_instructions {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-clock",
+                "scheduled-execution-instruction-count-regressed",
+                "retired guest instruction count cannot move backwards",
+            ));
+        }
+        let target_time_100ns = host_elapsed_time_100ns.max(self.timer.current_time_100ns);
+        Ok(RuntimeScheduledExecutionAdvancePlan {
+            previous_execution: self.scheduled_execution,
+            next_execution: RuntimeScheduledExecutionClockState {
+                retired_instructions,
+                pending_retired_instructions: 0,
+                ..self.scheduled_execution
+            },
+            clock: self.plan_advance(target_time_100ns)?,
+        })
+    }
+
     pub(super) fn preflight_scheduled_execution_advance(
         &self,
         plan: &RuntimeScheduledExecutionAdvancePlan,

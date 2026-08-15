@@ -384,6 +384,25 @@ pub struct RuntimeGraphicsRenderStates {
     pub lighting_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alpha_blend_enabled: Option<bool>,
+    #[serde(skip)]
+    pub source_blend_factor: Option<RuntimeGraphicsBlendFactor>,
+    #[serde(skip)]
+    pub destination_blend_factor: Option<RuntimeGraphicsBlendFactor>,
+    #[serde(skip)]
+    pub blend_operation: Option<RuntimeGraphicsBlendOperation>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeGraphicsBlendFactor {
+    SourceAlpha,
+    InverseSourceAlpha,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RuntimeGraphicsBlendOperation {
+    Add,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -393,6 +412,9 @@ pub enum RuntimeGraphicsRenderStateUpdate {
     DepthTestEnabled(bool),
     LightingEnabled(bool),
     AlphaBlendEnabled(bool),
+    SourceBlendFactor(RuntimeGraphicsBlendFactor),
+    DestinationBlendFactor(RuntimeGraphicsBlendFactor),
+    BlendOperation(RuntimeGraphicsBlendOperation),
 }
 
 impl RuntimeGraphicsRenderStates {
@@ -413,6 +435,15 @@ impl RuntimeGraphicsRenderStates {
             RuntimeGraphicsRenderStateUpdate::AlphaBlendEnabled(_) => self
                 .alpha_blend_enabled
                 .map(RuntimeGraphicsRenderStateUpdate::AlphaBlendEnabled),
+            RuntimeGraphicsRenderStateUpdate::SourceBlendFactor(_) => self
+                .source_blend_factor
+                .map(RuntimeGraphicsRenderStateUpdate::SourceBlendFactor),
+            RuntimeGraphicsRenderStateUpdate::DestinationBlendFactor(_) => self
+                .destination_blend_factor
+                .map(RuntimeGraphicsRenderStateUpdate::DestinationBlendFactor),
+            RuntimeGraphicsRenderStateUpdate::BlendOperation(_) => self
+                .blend_operation
+                .map(RuntimeGraphicsRenderStateUpdate::BlendOperation),
         }
     }
 
@@ -427,6 +458,15 @@ impl RuntimeGraphicsRenderStates {
             }
             RuntimeGraphicsRenderStateUpdate::AlphaBlendEnabled(value) => {
                 self.alpha_blend_enabled = Some(value);
+            }
+            RuntimeGraphicsRenderStateUpdate::SourceBlendFactor(value) => {
+                self.source_blend_factor = Some(value);
+            }
+            RuntimeGraphicsRenderStateUpdate::DestinationBlendFactor(value) => {
+                self.destination_blend_factor = Some(value);
+            }
+            RuntimeGraphicsRenderStateUpdate::BlendOperation(value) => {
+                self.blend_operation = Some(value);
             }
         }
     }
@@ -5581,6 +5621,9 @@ fn validate_supported_draw_device_state(
         depth_test_enabled: Some(false),
         lighting_enabled: Some(false),
         alpha_blend_enabled: Some(true),
+        source_blend_factor: Some(RuntimeGraphicsBlendFactor::SourceAlpha),
+        destination_blend_factor: Some(RuntimeGraphicsBlendFactor::InverseSourceAlpha),
+        blend_operation: Some(RuntimeGraphicsBlendOperation::Add),
     };
     let supported_sampler_states = RuntimeGraphicsSamplerStates {
         sampler_zero: RuntimeGraphicsSamplerState {
@@ -6131,6 +6174,9 @@ mod tests {
                 depth_test_enabled: Some(false),
                 lighting_enabled: Some(false),
                 alpha_blend_enabled: Some(true),
+                source_blend_factor: Some(RuntimeGraphicsBlendFactor::SourceAlpha),
+                destination_blend_factor: Some(RuntimeGraphicsBlendFactor::InverseSourceAlpha),
+                blend_operation: Some(RuntimeGraphicsBlendOperation::Add),
             };
             device.sampler_states = RuntimeGraphicsSamplerStates {
                 sampler_zero: RuntimeGraphicsSamplerState {
@@ -6247,6 +6293,13 @@ mod tests {
             RuntimeGraphicsRenderStateUpdate::DepthTestEnabled(false),
             RuntimeGraphicsRenderStateUpdate::LightingEnabled(false),
             RuntimeGraphicsRenderStateUpdate::AlphaBlendEnabled(true),
+            RuntimeGraphicsRenderStateUpdate::SourceBlendFactor(
+                RuntimeGraphicsBlendFactor::SourceAlpha,
+            ),
+            RuntimeGraphicsRenderStateUpdate::DestinationBlendFactor(
+                RuntimeGraphicsBlendFactor::InverseSourceAlpha,
+            ),
+            RuntimeGraphicsRenderStateUpdate::BlendOperation(RuntimeGraphicsBlendOperation::Add),
         ] {
             let plan = graphics
                 .plan_render_state_update(RuntimeGraphicsRenderStateUpdateRequest {
@@ -6276,6 +6329,18 @@ mod tests {
         assert_eq!(committed.render_states.depth_test_enabled, Some(false));
         assert_eq!(committed.render_states.lighting_enabled, Some(false));
         assert_eq!(committed.render_states.alpha_blend_enabled, Some(true));
+        assert_eq!(
+            committed.render_states.source_blend_factor,
+            Some(RuntimeGraphicsBlendFactor::SourceAlpha)
+        );
+        assert_eq!(
+            committed.render_states.destination_blend_factor,
+            Some(RuntimeGraphicsBlendFactor::InverseSourceAlpha)
+        );
+        assert_eq!(
+            committed.render_states.blend_operation,
+            Some(RuntimeGraphicsBlendOperation::Add)
+        );
 
         let before_idempotent = graphics.clone();
         let idempotent = graphics

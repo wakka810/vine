@@ -43,13 +43,33 @@ class VineDirectSoundStreamProcessor extends AudioWorkletProcessor {
       return;
     }
     const channels = message.channels.map((buffer) => new Float32Array(buffer));
-    if (channels.some((channel) => channel.length !== message.frameCount)) {
+    const regionOffsetFrames = message.regionOffsetFrames;
+    if (
+      !Number.isInteger(regionOffsetFrames) ||
+      regionOffsetFrames < 0 ||
+      channels.some((channel) => channel.length < 1) ||
+      (message.type === "start" &&
+        (regionOffsetFrames !== 0 ||
+          channels.some((channel) => channel.length !== message.frameCount))) ||
+      (message.type === "update" &&
+        (message.frameCount !== this.frameCount ||
+          channels.length !== this.channels.length ||
+          channels.some(
+            (channel) => regionOffsetFrames + channel.length > this.frameCount,
+          )))
+    ) {
       this.playback = "stopped";
       this.alive = false;
       return;
     }
-    this.channels = channels;
-    this.frameCount = message.frameCount;
+    if (message.type === "start") {
+      this.channels = channels;
+      this.frameCount = message.frameCount;
+    } else {
+      for (let channelIndex = 0; channelIndex < channels.length; channelIndex += 1) {
+        this.channels[channelIndex].set(channels[channelIndex], regionOffsetFrames);
+      }
+    }
     this.frequencyHz = message.frequencyHz;
     this.playback = message.playback;
     this.alive = true;

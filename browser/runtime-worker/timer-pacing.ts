@@ -124,6 +124,7 @@ interface PendingTimerPacing {
 export class TimerPacingService {
   readonly #driver: TimerPacingDriver;
   readonly #pending = new Map<string, PendingTimerPacing>();
+  readonly #cadenceDeadlines = new Map<string, number>();
   #lifecycle: PageLifecycleSnapshot;
   #nextToken = 1;
   #metrics: Omit<TimerPacingMetrics, "pending"> = {
@@ -148,6 +149,28 @@ export class TimerPacingService {
 
   scheduleLogicalDeadline(request: TimerPacingRequest): void {
     this.#schedule(request, "logical-deadline-task");
+  }
+
+  scheduleCadenced(request: TimerPacingRequest, cadenceId: string): void {
+    if (cadenceId.length === 0 || cadenceId.length > 64) {
+      throw new Error("timer pacing cadence identity is invalid");
+    }
+    const now = this.#driver.now();
+    const previous = this.#cadenceDeadlines.get(cadenceId);
+    const deadline =
+      previous === undefined || previous < now - 1_000 || previous > now + 100
+        ? now + request.delayMilliseconds
+        : previous + request.delayMilliseconds;
+    this.#cadenceDeadlines.set(cadenceId, deadline);
+    const remaining = deadline - now;
+    if (remaining <= 0) {
+      this.scheduleLogicalDeadline(request);
+      return;
+    }
+    this.schedule({
+      ...request,
+      delayMilliseconds: Math.max(1, Math.min(100, Math.ceil(remaining))),
+    });
   }
 
   #schedule(
@@ -234,6 +257,7 @@ export class TimerPacingService {
       record.token = this.#allocateToken();
     }
     this.#pending.clear();
+    this.#cadenceDeadlines.clear();
     this.#metrics.cancellations += pending.length;
     return pending.length;
   }

@@ -3627,6 +3627,7 @@ pub fn complete_kernel32_audio_notification_wait(
         call.request.request_id,
         &handles,
         timeout,
+        &call.request.payload,
     ) {
         Ok(plan) => plan,
         Err(error) => {

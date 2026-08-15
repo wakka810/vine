@@ -3976,6 +3976,7 @@ class BrowserRuntimeSession {
   readonly #sessionId: number;
   readonly #configuration: SessionConfiguration;
   readonly #startedAt = performance.now();
+  #forwardClockStartedAt: number | null = null;
   #bridge: RuntimeBridge | null = null;
   #engine: ExecutionEngine | null = null;
   #prepared: PreparedMetadata | null = null;
@@ -4821,11 +4822,11 @@ class BrowserRuntimeSession {
                 isUser32AsyncKeyStateInitialScan(
                   this.#configuration.capabilityProfile,
                 ),
-              fullReachedPolicy ||
+              !this.#isForwardDevelopment() &&
                 includesHeapAllocationEvidence(
                   this.#configuration.capabilityProfile,
                 ),
-              fullReachedPolicy ||
+              !this.#isForwardDevelopment() &&
                 includesPostHeapTimeGetTimeEvidence(
                   this.#configuration.capabilityProfile,
                 ),
@@ -4849,6 +4850,7 @@ class BrowserRuntimeSession {
                 isDefWindowProcAPointerReleaseContinuationCheckpoint(
                   this.#configuration.capabilityProfile,
                 ),
+              this.#isForwardDevelopment(),
             )
           : workload === "controlled-source-read"
             ? bridge.prepareSourceRead(
@@ -7889,6 +7891,14 @@ class BrowserRuntimeSession {
       this.#instructionsSinceOwnedStop += slice.instructions;
       this.#report.slices += 1;
       this.#reconcileDirtyPages();
+      if (this.#isForwardDevelopment()) {
+        const now = performance.now();
+        this.#forwardClockStartedAt ??= now;
+        this.#requireBridge().synchronizeForwardClock(
+          this.#report.instructions,
+          now - this.#forwardClockStartedAt,
+        );
+      }
       this.#checkWatchdog();
 
       if (slice.stop.kind === "budget-yield") {
@@ -10568,12 +10578,29 @@ class BrowserRuntimeSession {
         buffer.playback === "playing-looping",
       `secondary ${frame.method} snapshot is not playing`,
     );
-    const samples = ownedArrayBuffer(
-      this.#requireEngine().readGuestBytes(
-        backing.range.start,
-        buffer.descriptor.byteLength,
-      ),
-    );
+    const sampleUpdate =
+      frame.method === "Play"
+        ? {
+            kind: "snapshot" as const,
+            samples: ownedArrayBuffer(
+              this.#requireEngine().readGuestBytes(
+                backing.range.start,
+                buffer.descriptor.byteLength,
+              ),
+            ),
+          }
+        : {
+            kind: "regions" as const,
+            regions: this.#directSoundUnlockRegions(
+              frame.explicitArguments,
+              backing.range.start,
+              buffer.descriptor.byteLength,
+            ),
+          };
+    const transfers =
+      sampleUpdate.kind === "snapshot"
+        ? [sampleUpdate.samples]
+        : sampleUpdate.regions.map((region) => region.samples);
     post(
       {
         type: "audio-playback",
@@ -10585,10 +10612,57 @@ class BrowserRuntimeSession {
         playback: buffer.playback,
         format,
         controls: buffer.controls,
-        samples,
+        bufferByteLength: buffer.descriptor.byteLength,
+        sampleUpdate,
       },
-      [samples],
+      transfers,
     );
+  }
+
+  #directSoundUnlockRegions(
+    arguments_: number[],
+    backingStart: number,
+    backingByteLength: number,
+  ): Array<{ offsetBytes: number; samples: ArrayBuffer }> {
+    invariant(
+      arguments_.length >= 4,
+      "DirectSound Unlock transport omitted its reached arguments",
+    );
+    const regions: Array<{ offsetBytes: number; samples: ArrayBuffer }> = [];
+    for (const [pointerIndex, byteLengthIndex] of [
+      [0, 1],
+      [2, 3],
+    ] as const) {
+      const pointer = arguments_[pointerIndex];
+      const byteLength = arguments_[byteLengthIndex];
+      invariant(
+        Number.isSafeInteger(pointer) &&
+          Number.isSafeInteger(byteLength) &&
+          pointer !== undefined &&
+          byteLength !== undefined &&
+          pointer >= 0 &&
+          byteLength >= 0,
+        "DirectSound Unlock transport region is invalid",
+      );
+      if (byteLength === 0) {
+        invariant(pointer === 0, "empty DirectSound Unlock transport region has a pointer");
+        continue;
+      }
+      const offsetBytes = pointer - backingStart;
+      invariant(
+        offsetBytes >= 0 &&
+          offsetBytes <= backingByteLength - byteLength,
+        "DirectSound Unlock transport region is outside its checked backing",
+      );
+      regions.push({
+        offsetBytes,
+        samples: ownedArrayBuffer(
+          this.#requireEngine().readGuestBytes(pointer, byteLength),
+        ),
+      });
+    }
+    invariant(regions.length > 0, "DirectSound Unlock transport has no sample region");
+    return regions;
   }
 
   #recordBgiComCompletion(
@@ -29550,65 +29624,93 @@ class BrowserRuntimeSession {
         }
       }
     } else if (metadata.service === "runtime.audio-wait-delay.v1") {
-      invariant(
-        metadata.arguments.length >= 14,
-        "audio notification pacing request is truncated",
-      );
-      const [
-        version,
-        delayMilliseconds,
-        resultIndex,
-        bufferLow,
-        bufferHigh,
-        generationLow,
-        generationHigh,
-        currentPosition,
-        nextPosition,
-        currentCursor,
-        nextCursor,
-        timeoutMilliseconds,
-        handleCount,
-      ] = metadata.arguments;
-      invariant(version === 1, "audio notification pacing version mismatch");
-      invariant(
-        delayMilliseconds !== undefined &&
-          delayMilliseconds > 0 &&
-          delayMilliseconds <= 100,
-        "audio notification pacing delay is outside the reached bound",
-      );
-      invariant(
-        timeoutMilliseconds !== undefined &&
-          timeoutMilliseconds > 0 &&
-          timeoutMilliseconds <= 100 &&
-          delayMilliseconds <= timeoutMilliseconds,
-        "audio notification timeout is outside the reached bound",
-      );
-      invariant(
-        handleCount !== undefined &&
-          handleCount > 0 &&
-          handleCount <= 32 &&
-          metadata.arguments.length === 13 + handleCount,
-        "audio notification handle array is inconsistent",
-      );
-      invariant(
-        bufferLow !== undefined &&
-          bufferHigh !== undefined &&
-          (bufferLow !== 0 || bufferHigh !== 0) &&
-          generationLow !== undefined &&
-          generationHigh !== undefined,
-        "audio notification buffer identity is invalid",
-      );
-      invariant(
-        currentPosition !== undefined &&
-          nextPosition !== undefined &&
-          currentCursor !== undefined &&
-          nextCursor !== undefined &&
-          resultIndex !== undefined &&
-          (resultIndex === 0xffff_ffff || resultIndex < handleCount),
-        "audio notification cursor result is invalid",
-      );
+      const version = metadata.arguments[0];
+      let delayMilliseconds: number;
+      let cadenceId: string | null = null;
+      if (version === 1) {
+        invariant(
+          metadata.arguments.length >= 14,
+          "audio notification pacing request is truncated",
+        );
+        const [
+          ,
+          activeDelayMilliseconds,
+          resultIndex,
+          bufferLow,
+          bufferHigh,
+          generationLow,
+          generationHigh,
+          currentPosition,
+          nextPosition,
+          currentCursor,
+          nextCursor,
+          timeoutMilliseconds,
+          handleCount,
+        ] = metadata.arguments;
+        invariant(
+          activeDelayMilliseconds !== undefined &&
+            activeDelayMilliseconds > 0 &&
+            activeDelayMilliseconds <= 100,
+          "audio notification pacing delay is outside the reached bound",
+        );
+        invariant(
+          timeoutMilliseconds !== undefined &&
+            timeoutMilliseconds > 0 &&
+            timeoutMilliseconds <= 100 &&
+            activeDelayMilliseconds <= timeoutMilliseconds,
+          "audio notification timeout is outside the reached bound",
+        );
+        invariant(
+          handleCount !== undefined &&
+            handleCount > 0 &&
+            handleCount <= 32 &&
+            metadata.arguments.length === 13 + handleCount,
+          "audio notification handle array is inconsistent",
+        );
+        invariant(
+          bufferLow !== undefined &&
+            bufferHigh !== undefined &&
+            (bufferLow !== 0 || bufferHigh !== 0) &&
+            generationLow !== undefined &&
+            generationHigh !== undefined,
+          "audio notification buffer identity is invalid",
+        );
+        invariant(
+          currentPosition !== undefined &&
+            nextPosition !== undefined &&
+            currentCursor !== undefined &&
+            nextCursor !== undefined &&
+            resultIndex !== undefined &&
+            (resultIndex === 0xffff_ffff || resultIndex < handleCount),
+          "audio notification cursor result is invalid",
+        );
+        delayMilliseconds = activeDelayMilliseconds;
+        cadenceId = `${bufferHigh}:${bufferLow}`;
+      } else {
+        invariant(
+          version === 2,
+          "audio notification pacing version mismatch",
+        );
+        const [, inactiveDelayMilliseconds, timeoutMilliseconds, handleCount] =
+          metadata.arguments;
+        invariant(
+          inactiveDelayMilliseconds !== undefined &&
+            inactiveDelayMilliseconds > 0 &&
+            inactiveDelayMilliseconds <= 100 &&
+            timeoutMilliseconds === inactiveDelayMilliseconds,
+          "inactive audio notification timeout is outside the reached bound",
+        );
+        invariant(
+          handleCount !== undefined &&
+            handleCount > 0 &&
+            handleCount <= 32 &&
+            metadata.arguments.length === 4 + handleCount,
+          "inactive audio notification handle array is inconsistent",
+        );
+        delayMilliseconds = inactiveDelayMilliseconds;
+      }
       if (this.#configuration.mode === "success") {
-        this.#timerPacing.schedule({
+        const pacingRequest = {
           requestId: metadata.requestId,
           threadId: metadata.threadId,
           delayMilliseconds,
@@ -29622,7 +29724,12 @@ class BrowserRuntimeSession {
               result: 1,
             });
           },
-        });
+        };
+        if (cadenceId === null) {
+          this.#timerPacing.schedule(pacingRequest);
+        } else {
+          this.#timerPacing.scheduleCadenced(pacingRequest, cadenceId);
+        }
       }
     } else if (metadata.service === "storage.source-read.v1") {
       if (this.#configuration.mode === "success") {

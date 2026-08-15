@@ -14,19 +14,19 @@ use crate::com::{
 use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
     RuntimeComIid, RuntimeComReturnKind, RuntimeGraphicsBackBufferClearRequest,
-    RuntimeGraphicsColorFormat, RuntimeGraphicsCullMode, RuntimeGraphicsDeviceCreateRequest,
-    RuntimeGraphicsDrawCaptureRequest, RuntimeGraphicsFlexibleVertexFormat,
-    RuntimeGraphicsFlexibleVertexFormatUpdateRequest, RuntimeGraphicsFrontend,
-    RuntimeGraphicsPresentMode, RuntimeGraphicsPresentRequest, RuntimeGraphicsPrimitiveTopology,
-    RuntimeGraphicsRenderStateUpdate, RuntimeGraphicsRenderStateUpdateRequest,
-    RuntimeGraphicsSamplerStateUpdate, RuntimeGraphicsSamplerStateUpdateRequest,
-    RuntimeGraphicsSceneBeginRequest, RuntimeGraphicsSceneEndRequest,
-    RuntimeGraphicsStreamSourceUpdateRequest, RuntimeGraphicsSurfaceCreateRequest,
-    RuntimeGraphicsTextureArgument, RuntimeGraphicsTextureBindingUpdateRequest,
-    RuntimeGraphicsTextureCreateRequest, RuntimeGraphicsTextureDescriptor,
-    RuntimeGraphicsTextureDirtyRegion, RuntimeGraphicsTextureDirtyRegionMarkRequest,
-    RuntimeGraphicsTextureFilter, RuntimeGraphicsTextureLockRequest,
-    RuntimeGraphicsTextureOperation, RuntimeGraphicsTexturePool,
+    RuntimeGraphicsBlendFactor, RuntimeGraphicsBlendOperation, RuntimeGraphicsColorFormat,
+    RuntimeGraphicsCullMode, RuntimeGraphicsDeviceCreateRequest, RuntimeGraphicsDrawCaptureRequest,
+    RuntimeGraphicsFlexibleVertexFormat, RuntimeGraphicsFlexibleVertexFormatUpdateRequest,
+    RuntimeGraphicsFrontend, RuntimeGraphicsPresentMode, RuntimeGraphicsPresentRequest,
+    RuntimeGraphicsPrimitiveTopology, RuntimeGraphicsRenderStateUpdate,
+    RuntimeGraphicsRenderStateUpdateRequest, RuntimeGraphicsSamplerStateUpdate,
+    RuntimeGraphicsSamplerStateUpdateRequest, RuntimeGraphicsSceneBeginRequest,
+    RuntimeGraphicsSceneEndRequest, RuntimeGraphicsStreamSourceUpdateRequest,
+    RuntimeGraphicsSurfaceCreateRequest, RuntimeGraphicsTextureArgument,
+    RuntimeGraphicsTextureBindingUpdateRequest, RuntimeGraphicsTextureCreateRequest,
+    RuntimeGraphicsTextureDescriptor, RuntimeGraphicsTextureDirtyRegion,
+    RuntimeGraphicsTextureDirtyRegionMarkRequest, RuntimeGraphicsTextureFilter,
+    RuntimeGraphicsTextureLockRequest, RuntimeGraphicsTextureOperation, RuntimeGraphicsTexturePool,
     RuntimeGraphicsTextureStageStateUpdate, RuntimeGraphicsTextureStageStateUpdateRequest,
     RuntimeGraphicsTextureUpdateRequest, RuntimeGraphicsTextureUsage,
     RuntimeGraphicsVertexBufferCreateRequest, RuntimeGraphicsVertexBufferDescriptor,
@@ -59,9 +59,15 @@ pub const D3D9_D3DUSAGE_WRITEONLY: u32 = 0x0000_0008;
 pub const D3D9_D3DLOCK_NO_DIRTY_UPDATE: u32 = 0x0000_8000;
 pub const D3D9_D3DCLEAR_TARGET: u32 = 0x0000_0001;
 pub const D3D9_D3DRS_ZENABLE: u32 = 7;
+pub const D3D9_D3DRS_SRCBLEND: u32 = 19;
+pub const D3D9_D3DRS_DESTBLEND: u32 = 20;
 pub const D3D9_D3DRS_CULLMODE: u32 = 22;
 pub const D3D9_D3DRS_ALPHABLENDENABLE: u32 = 27;
 pub const D3D9_D3DRS_LIGHTING: u32 = 137;
+pub const D3D9_D3DRS_BLENDOP: u32 = 171;
+pub const D3D9_D3DBLEND_SRCALPHA: u32 = 5;
+pub const D3D9_D3DBLEND_INVSRCALPHA: u32 = 6;
+pub const D3D9_D3DBLENDOP_ADD: u32 = 1;
 pub const D3D9_D3DCULL_NONE: u32 = 1;
 pub const D3D9_D3DSAMP_MAGFILTER: u32 = 5;
 pub const D3D9_D3DSAMP_MINFILTER: u32 = 6;
@@ -293,7 +299,7 @@ pub struct D3d9RenderStateSetting {
 #[serde(rename_all = "camelCase")]
 pub struct D3d9InitialRenderStatePolicy {
     pub profile_id: String,
-    pub settings: [D3d9RenderStateSetting; 4],
+    pub settings: [D3d9RenderStateSetting; 7],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1317,7 +1323,7 @@ fn controlled_create_texture_variants() -> [D3d9CreateTextureVariant; 6] {
     ]
 }
 
-fn controlled_initial_render_state_settings() -> [D3d9RenderStateSetting; 4] {
+fn controlled_initial_render_state_settings() -> [D3d9RenderStateSetting; 7] {
     [
         D3d9RenderStateSetting {
             state: D3D9_D3DRS_CULLMODE,
@@ -1334,6 +1340,18 @@ fn controlled_initial_render_state_settings() -> [D3d9RenderStateSetting; 4] {
         D3d9RenderStateSetting {
             state: D3D9_D3DRS_ALPHABLENDENABLE,
             value: 1,
+        },
+        D3d9RenderStateSetting {
+            state: D3D9_D3DRS_SRCBLEND,
+            value: D3D9_D3DBLEND_SRCALPHA,
+        },
+        D3d9RenderStateSetting {
+            state: D3D9_D3DRS_DESTBLEND,
+            value: D3D9_D3DBLEND_INVSRCALPHA,
+        },
+        D3d9RenderStateSetting {
+            state: D3D9_D3DRS_BLENDOP,
+            value: D3D9_D3DBLENDOP_ADD,
         },
     ]
 }
@@ -2782,6 +2800,19 @@ fn dispatch_set_render_state(
         (D3D9_D3DRS_LIGHTING, 0) => RuntimeGraphicsRenderStateUpdate::LightingEnabled(false),
         (D3D9_D3DRS_ALPHABLENDENABLE, 1) => {
             RuntimeGraphicsRenderStateUpdate::AlphaBlendEnabled(true)
+        }
+        (D3D9_D3DRS_SRCBLEND, D3D9_D3DBLEND_SRCALPHA) => {
+            RuntimeGraphicsRenderStateUpdate::SourceBlendFactor(
+                RuntimeGraphicsBlendFactor::SourceAlpha,
+            )
+        }
+        (D3D9_D3DRS_DESTBLEND, D3D9_D3DBLEND_INVSRCALPHA) => {
+            RuntimeGraphicsRenderStateUpdate::DestinationBlendFactor(
+                RuntimeGraphicsBlendFactor::InverseSourceAlpha,
+            )
+        }
+        (D3D9_D3DRS_BLENDOP, D3D9_D3DBLENDOP_ADD) => {
+            RuntimeGraphicsRenderStateUpdate::BlendOperation(RuntimeGraphicsBlendOperation::Add)
         }
         _ => unreachable!("validated D3D9 render-state policy has an unknown setting"),
     };

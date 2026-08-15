@@ -275,6 +275,7 @@ struct BgiCheckpointCapabilities {
     user32_set_focus_same_window: bool,
     user32_def_window_proc_a_pointer_down: bool,
     user32_def_window_proc_a_pointer_release: bool,
+    host_monotonic_clock: bool,
 }
 
 impl Bridge {
@@ -601,6 +602,7 @@ enum BrowserRuntimeTarget {
         winmm_policy: Box<WinmmCompatibilityPolicy>,
         heap_allocation_evidence: bool,
         tick_count_evidence: bool,
+        host_monotonic_clock: bool,
     },
 }
 
@@ -1190,6 +1192,7 @@ impl BrowserRuntime {
                     winmm_policy: Box::new(winmm_policy),
                     heap_allocation_evidence: capabilities.heap_alloc_24_byte_buffer,
                     tick_count_evidence: capabilities.post_heap_time_get_time,
+                    host_monotonic_clock: capabilities.host_monotonic_clock,
                 },
             },
             metadata,
@@ -1593,6 +1596,57 @@ impl BrowserRuntime {
             .ok_or_else(|| "browser mapping fixture backing page is unavailable".to_owned())
     }
 
+    fn synchronize_forward_clock(
+        &mut self,
+        retired_instructions: u64,
+        host_elapsed_time_100ns: u64,
+    ) -> Result<(), String> {
+        if !matches!(
+            &self.target,
+            BrowserRuntimeTarget::Bgi {
+                host_monotonic_clock: true,
+                ..
+            }
+        ) {
+            return Err(
+                "host-monotonic clock synchronization requires forward BGI mode".to_owned(),
+            );
+        }
+        self.runtime
+            .synchronize_scheduled_clock_for_host_execution(
+                retired_instructions,
+                host_elapsed_time_100ns,
+            )
+            .map_err(error_string)?;
+        Ok(())
+    }
+
+    fn advance_clock_for_dispatch(&mut self, retired_instructions: u64) -> Result<(), String> {
+        if matches!(
+            &self.target,
+            BrowserRuntimeTarget::Bgi {
+                host_monotonic_clock: true,
+                ..
+            }
+        ) {
+            let synchronized = self
+                .runtime
+                .scheduled_execution_clock_state()
+                .ok_or_else(|| "forward BGI runtime has no scheduled clock state".to_owned())?;
+            if synchronized.retired_instructions != retired_instructions {
+                return Err(
+                    "forward dispatch reached Rust before its host clock synchronization"
+                        .to_owned(),
+                );
+            }
+            return Ok(());
+        }
+        self.runtime
+            .advance_scheduled_clock_for_execution(retired_instructions)
+            .map_err(error_string)?;
+        Ok(())
+    }
+
     fn dispatch(
         &mut self,
         endpoint_address: GuestAddress,
@@ -1607,9 +1661,7 @@ impl BrowserRuntime {
             .get(&endpoint_address)
             .map(|route| (route.id, route.argument_bytes, route.endpoint.clone()))
             .ok_or_else(|| format!("unowned API endpoint {:#010x}", endpoint_address.0))?;
-        self.runtime
-            .advance_scheduled_clock_for_execution(retired_instructions)
-            .map_err(error_string)?;
+        self.advance_clock_for_dispatch(retired_instructions)?;
         let trap = ApiTrap {
             endpoint_id: vine_core::ImportThunkId(route_id),
             endpoint_address,
@@ -1617,12 +1669,20 @@ impl BrowserRuntime {
             return_address,
             argument_bytes,
         };
-        let heap_free_before = if endpoint.matches(
-            "kernel32.dll",
-            &vine_core::ApiSymbol::Name {
-                name: "HeapFree".to_owned(),
-            },
-        ) {
+        let heap_allocation_evidence = matches!(
+            &self.target,
+            BrowserRuntimeTarget::Bgi {
+                heap_allocation_evidence: true,
+                ..
+            }
+        );
+        let heap_free_before = if heap_allocation_evidence
+            && endpoint.matches(
+                "kernel32.dll",
+                &vine_core::ApiSymbol::Name {
+                    name: "HeapFree".to_owned(),
+                },
+            ) {
             let read_argument = |index: u32| -> Option<u32> {
                 let byte_offset = index.checked_add(1)?.checked_mul(4)?;
                 let address = stack_pointer.0.checked_add(byte_offset).map(GuestAddress)?;
@@ -1640,13 +1700,6 @@ impl BrowserRuntime {
         } else {
             None
         };
-        let heap_allocation_evidence = matches!(
-            &self.target,
-            BrowserRuntimeTarget::Bgi {
-                heap_allocation_evidence: true,
-                ..
-            }
-        );
         let tick_count_increment = (self.runtime.clock_profile().progression
             == vine_core::RuntimeClockProgression::ApiReadIncrement)
             .then(|| match &self.target {
@@ -2330,6 +2383,7 @@ impl BrowserRuntime {
         return_address: GuestAddress,
         retired_instructions: u64,
     ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
+        self.advance_clock_for_dispatch(retired_instructions)?;
         let d3d9_policy = self.d3d9_policy.as_deref();
         let dinput8_policy = self.dinput8_policy.as_deref();
         let dsound_policy = self.dsound_policy.as_deref();
@@ -2347,9 +2401,6 @@ impl BrowserRuntime {
         let routes_to_dsound = class_identity
             .as_deref()
             .is_some_and(|identity| identity.starts_with("dsound."));
-        self.runtime
-            .advance_scheduled_clock_for_execution(retired_instructions)
-            .map_err(error_string)?;
         let outcome = {
             let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
             let trap = ComCallTrap {
@@ -5183,6 +5234,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
     user32_pointer_button_messages_enabled: u32,
     user32_set_focus_same_window_enabled: u32,
     user32_def_window_proc_a_pointer_down_enabled: u32,
+    host_monotonic_clock_enabled: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_bgi(
@@ -5217,8 +5269,27 @@ pub extern "C" fn vine_bridge_prepare_bgi(
                     != 0,
                 user32_def_window_proc_a_pointer_release:
                     user32_def_window_proc_a_pointer_down_enabled == 2,
+                host_monotonic_clock: host_monotonic_clock_enabled != 0,
             },
         )
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_synchronize_forward_clock_v1(
+    retired_instructions_low: u32,
+    retired_instructions_high: u32,
+    host_elapsed_time_100ns_low: u32,
+    host_elapsed_time_100ns_high: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        let retired_instructions =
+            u64::from(retired_instructions_low) | (u64::from(retired_instructions_high) << 32);
+        let host_elapsed_time_100ns = u64::from(host_elapsed_time_100ns_low)
+            | (u64::from(host_elapsed_time_100ns_high) << 32);
+        bridge
+            .runtime_mut()?
+            .synchronize_forward_clock(retired_instructions, host_elapsed_time_100ns)
     })
 }
 

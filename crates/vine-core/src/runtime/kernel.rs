@@ -353,16 +353,20 @@ pub(crate) struct RuntimeWaitableTimerPacingCompletionPlan {
 
 pub(crate) struct RuntimeAudioNotificationWaitCompletionPlan {
     scheduler: RuntimeHostCompletionPlan,
-    audio: RuntimeAudioNotificationWaitPlan,
+    audio: Option<RuntimeAudioNotificationWaitPlan>,
+    payload: Vec<u8>,
 }
 
 impl RuntimeAudioNotificationWaitCompletionPlan {
     pub(crate) fn encode_host_payload(&self) -> Vec<u8> {
-        self.audio.encode_host_payload()
+        self.payload.clone()
     }
 
     pub(crate) const fn result_index(&self) -> Option<u32> {
-        self.audio.result_index()
+        match self.audio.as_ref() {
+            Some(audio) => audio.result_index(),
+            None => None,
+        }
     }
 }
 
@@ -372,6 +376,26 @@ pub struct RuntimeAudioNotificationWaitBegin {
     pub delay_milliseconds: u32,
     pub result_index: Option<u32>,
     pub payload: Vec<u8>,
+}
+
+fn encode_inactive_audio_notification_wait_payload(
+    handles: &[RuntimeHandle],
+    timeout_milliseconds: u32,
+) -> Vec<u8> {
+    let words = [
+        2,
+        timeout_milliseconds,
+        timeout_milliseconds,
+        handles.len() as u32,
+    ];
+    let mut payload = Vec::with_capacity((words.len() + handles.len()) * 4);
+    for word in words
+        .into_iter()
+        .chain(handles.iter().map(|handle| handle.0))
+    {
+        payload.extend_from_slice(&word.to_le_bytes());
+    }
+    payload
 }
 
 impl RuntimeWaitableTimerPacingCompletionPlan {
@@ -3335,6 +3359,28 @@ impl RuntimeKernel {
             .map(Some)
     }
 
+    pub fn synchronize_scheduled_clock_for_host_execution(
+        &mut self,
+        retired_instructions: u64,
+        host_elapsed_time_100ns: u64,
+    ) -> Result<RuntimeTimerClockState, RuntimeStateError> {
+        self.require_timer_operation_state()?;
+        if !self.process.uses_scheduled_shared_clock() {
+            return Err(RuntimeStateError::conflict(
+                "runtime-clock",
+                "scheduled-host-clock-profile-inactive",
+                "host-monotonic clock synchronization requires the scheduled shared profile",
+            ));
+        }
+        let plan = self.process.plan_scheduled_host_execution_clock_advance(
+            retired_instructions,
+            host_elapsed_time_100ns,
+        )?;
+        self.process
+            .preflight_scheduled_execution_clock_advance(&plan)?;
+        self.process.commit_scheduled_execution_clock_advance(plan)
+    }
+
     pub fn sample_tick_count(&mut self, increment_per_read: u32) -> Result<u32, RuntimeStateError> {
         let plan = self.process.plan_tick_count_sample(increment_per_read)?;
         self.process.commit_tick_count_sample(plan)
@@ -4032,10 +4078,10 @@ impl RuntimeKernel {
                 "thread selection requires a running process",
             ));
         }
-        let Some(plan) = self.scheduler.plan_next_executable_selection()? else {
+        let Some((thread_id, _)) = self.preferred_executable_thread(true)? else {
             return Ok(None);
         };
-        let thread_id = plan.next();
+        let plan = self.scheduler.plan_selection(thread_id)?;
         let state = self.scheduler_state_for_thread(thread_id)?;
         if !state.is_executable()
             || self.thread_state(thread_id)?.lifecycle != RuntimeThreadLifecycleState::Running
@@ -4097,7 +4143,34 @@ impl RuntimeKernel {
                 "current API boundary thread has no runtime object identity",
             ));
         }
-        let plan = self.scheduler.plan_completed_api_boundary(disposition)?;
+        let preferred_competitor = self.preferred_executable_thread(false)?;
+        let current_priority = self.threads.effective_priority(self.current_thread_id())?;
+        let (competitor, force_competitor) = match (disposition, preferred_competitor) {
+            (_, None) => (None, false),
+            (RuntimeApiBoundaryDisposition::YieldCurrentThread, Some((thread_id, _))) => {
+                (Some(thread_id), false)
+            }
+            (RuntimeApiBoundaryDisposition::ContinueQuantum, Some((thread_id, priority)))
+                if priority.scheduling_rank() > current_priority.scheduling_rank() =>
+            {
+                (Some(thread_id), true)
+            }
+            (RuntimeApiBoundaryDisposition::ContinueQuantum, Some((thread_id, priority)))
+                if priority == current_priority =>
+            {
+                (Some(thread_id), false)
+            }
+            (RuntimeApiBoundaryDisposition::ContinueQuantum, Some(_)) => (None, false),
+            (RuntimeApiBoundaryDisposition::BlockCurrentThread, Some((thread_id, _))) => {
+                (Some(thread_id), false)
+            }
+        };
+        let plan = self.scheduler.plan_completed_api_boundary_with_competitor(
+            disposition,
+            competitor,
+            force_competitor,
+            true,
+        )?;
         let selection = if let Some(selection) = plan.selection() {
             let thread_id = selection.next();
             let state = self.scheduler_state_for_thread(thread_id)?;
@@ -4131,6 +4204,45 @@ impl RuntimeKernel {
         self.scheduler.preflight_completed_api_boundary(&plan)?;
         self.scheduler.commit_completed_api_boundary(plan);
         Ok(selection)
+    }
+
+    fn preferred_executable_thread(
+        &self,
+        include_current: bool,
+    ) -> Result<Option<(RuntimeThreadId, RuntimeThreadPriority)>, RuntimeStateError> {
+        let thread_ids = self
+            .scheduler
+            .thread_states()
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        let current_thread_id = self.current_thread_id();
+        let current_index = thread_ids
+            .iter()
+            .position(|thread_id| *thread_id == current_thread_id)
+            .ok_or_else(|| {
+                RuntimeStateError::runtime_defect(
+                    "runtime-scheduler",
+                    "current-thread-scheduler-state-missing",
+                    "current runtime thread has no scheduler lane",
+                )
+            })?;
+        let mut preferred = None;
+        for offset in 1..=thread_ids.len() {
+            let thread_id = thread_ids[(current_index + offset) % thread_ids.len()];
+            if (!include_current && thread_id == current_thread_id)
+                || !self.scheduler.state(thread_id)?.is_executable()
+            {
+                continue;
+            }
+            let priority = self.threads.effective_priority(thread_id)?;
+            if preferred.is_none_or(|(_, selected_priority): (_, RuntimeThreadPriority)| {
+                priority.scheduling_rank() > selected_priority.scheduling_rank()
+            }) {
+                preferred = Some((thread_id, priority));
+            }
+        }
+        Ok(preferred)
     }
 
     pub fn wait_current_thread_on(
@@ -7461,16 +7573,31 @@ impl RuntimeKernel {
             ));
         }
         self.validate_audio_notification_wait_events(handles)?;
-        let audio = self
+        let audio = match self
             .audio
-            .plan_notification_wait(handles, timeout_milliseconds)?;
-        self.audio.preflight_notification_wait(&audio)?;
+            .plan_notification_wait(handles, timeout_milliseconds)
+        {
+            Ok(audio) => {
+                self.audio.preflight_notification_wait(&audio)?;
+                Some(audio)
+            }
+            Err(error) if error.code == "audio-notification-wait-buffer-not-playing" => None,
+            Err(error) => return Err(error),
+        };
         let scheduler = self
             .scheduler
             .plan_host_request(RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE.to_owned())?;
-        let payload = audio.encode_host_payload();
-        let delay_milliseconds = audio.delay_milliseconds();
-        let result_index = audio.result_index();
+        let payload = audio.as_ref().map_or_else(
+            || encode_inactive_audio_notification_wait_payload(handles, timeout_milliseconds),
+            RuntimeAudioNotificationWaitPlan::encode_host_payload,
+        );
+        let delay_milliseconds = audio.as_ref().map_or(
+            timeout_milliseconds,
+            RuntimeAudioNotificationWaitPlan::delay_milliseconds,
+        );
+        let result_index = audio
+            .as_ref()
+            .and_then(RuntimeAudioNotificationWaitPlan::result_index);
         let request = self.scheduler.commit_host_request(scheduler);
         Ok(RuntimeAudioNotificationWaitBegin {
             request,
@@ -7485,6 +7612,7 @@ impl RuntimeKernel {
         request_id: u64,
         handles: &[RuntimeHandle],
         timeout_milliseconds: u32,
+        payload: &[u8],
     ) -> Result<RuntimeAudioNotificationWaitCompletionPlan, RuntimeStateError> {
         self.validate_audio_notification_wait_events(handles)?;
         let scheduler = self.scheduler.plan_host_completion(request_id)?;
@@ -7495,19 +7623,41 @@ impl RuntimeKernel {
                 "audio notification completion does not match its pacing service",
             ));
         }
-        let audio = self
-            .audio
-            .plan_notification_wait(handles, timeout_milliseconds)?;
-        self.audio.preflight_notification_wait(&audio)?;
-        Ok(RuntimeAudioNotificationWaitCompletionPlan { scheduler, audio })
+        let inactive_payload =
+            encode_inactive_audio_notification_wait_payload(handles, timeout_milliseconds);
+        let audio = if payload == inactive_payload {
+            None
+        } else {
+            let audio = self
+                .audio
+                .plan_notification_wait(handles, timeout_milliseconds)?;
+            self.audio.preflight_notification_wait(&audio)?;
+            Some(audio)
+        };
+        let expected_payload = audio.as_ref().map_or(
+            inactive_payload,
+            RuntimeAudioNotificationWaitPlan::encode_host_payload,
+        );
+        Ok(RuntimeAudioNotificationWaitCompletionPlan {
+            scheduler,
+            audio,
+            payload: expected_payload,
+        })
     }
 
     pub(crate) fn commit_audio_notification_wait_completion(
         &mut self,
         plan: RuntimeAudioNotificationWaitCompletionPlan,
     ) -> (RuntimeHostCompletion, Option<u32>) {
-        debug_assert!(self.audio.preflight_notification_wait(&plan.audio).is_ok());
-        let result_index = self.audio.commit_notification_wait(plan.audio);
+        debug_assert!(
+            plan.audio
+                .as_ref()
+                .is_none_or(|audio| self.audio.preflight_notification_wait(audio).is_ok())
+        );
+        let result_index = plan
+            .audio
+            .map(|audio| self.audio.commit_notification_wait(audio))
+            .unwrap_or(None);
         let completion = self.scheduler.commit_host_completion(plan.scheduler);
         (completion, result_index)
     }
@@ -10644,16 +10794,18 @@ mod tests {
         install_audio_device_com_object_with_guest_writes, install_com_object,
     };
     use crate::d3d9::{
-        D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED, D3D9_D3DCLEAR_TARGET,
-        D3D9_D3DCULL_NONE, D3D9_D3DDEVTYPE_HAL, D3D9_D3DERR_INVALIDCALL, D3D9_D3DERR_NOTAVAILABLE,
-        D3D9_D3DFMT_D16, D3D9_D3DFMT_UNKNOWN, D3D9_D3DFMT_X8R8G8B8, D3D9_D3DLOCK_NO_DIRTY_UPDATE,
+        D3D9_CREATE_HARDWARE_VERTEX_PROCESSING_MULTITHREADED, D3D9_D3DBLEND_INVSRCALPHA,
+        D3D9_D3DBLEND_SRCALPHA, D3D9_D3DBLENDOP_ADD, D3D9_D3DCLEAR_TARGET, D3D9_D3DCULL_NONE,
+        D3D9_D3DDEVTYPE_HAL, D3D9_D3DERR_INVALIDCALL, D3D9_D3DERR_NOTAVAILABLE, D3D9_D3DFMT_D16,
+        D3D9_D3DFMT_UNKNOWN, D3D9_D3DFMT_X8R8G8B8, D3D9_D3DLOCK_NO_DIRTY_UPDATE,
         D3D9_D3DMULTISAMPLE_NONE, D3D9_D3DPOOL_DEFAULT, D3D9_D3DPOOL_MANAGED,
         D3D9_D3DPOOL_SYSTEMMEM, D3D9_D3DPT_TRIANGLESTRIP, D3D9_D3DRS_ALPHABLENDENABLE,
-        D3D9_D3DRS_CULLMODE, D3D9_D3DRS_LIGHTING, D3D9_D3DRS_ZENABLE, D3D9_D3DSAMP_MAGFILTER,
-        D3D9_D3DSAMP_MINFILTER, D3D9_D3DSWAPEFFECT_DISCARD, D3D9_D3DTA_DIFFUSE, D3D9_D3DTA_TEXTURE,
-        D3D9_D3DTEXF_LINEAR, D3D9_D3DTOP_MODULATE, D3D9_D3DTOP_SELECTARG1, D3D9_D3DTSS_ALPHAARG1,
-        D3D9_D3DTSS_ALPHAARG2, D3D9_D3DTSS_ALPHAOP, D3D9_D3DTSS_COLORARG1, D3D9_D3DTSS_COLORARG2,
-        D3D9_D3DTSS_COLOROP, D3D9_D3DUSAGE_DYNAMIC, D3D9_D3DUSAGE_WRITEONLY, D3D9_IDIRECT3D9_IID,
+        D3D9_D3DRS_BLENDOP, D3D9_D3DRS_CULLMODE, D3D9_D3DRS_DESTBLEND, D3D9_D3DRS_LIGHTING,
+        D3D9_D3DRS_SRCBLEND, D3D9_D3DRS_ZENABLE, D3D9_D3DSAMP_MAGFILTER, D3D9_D3DSAMP_MINFILTER,
+        D3D9_D3DSWAPEFFECT_DISCARD, D3D9_D3DTA_DIFFUSE, D3D9_D3DTA_TEXTURE, D3D9_D3DTEXF_LINEAR,
+        D3D9_D3DTOP_MODULATE, D3D9_D3DTOP_SELECTARG1, D3D9_D3DTSS_ALPHAARG1, D3D9_D3DTSS_ALPHAARG2,
+        D3D9_D3DTSS_ALPHAOP, D3D9_D3DTSS_COLORARG1, D3D9_D3DTSS_COLORARG2, D3D9_D3DTSS_COLOROP,
+        D3D9_D3DUSAGE_DYNAMIC, D3D9_D3DUSAGE_WRITEONLY, D3D9_IDIRECT3D9_IID,
         D3D9_IDIRECT3DDEVICE9_IID, D3D9_IDIRECT3DSURFACE9_IID, D3D9_IDIRECT3DTEXTURE9_IID,
         D3D9_IDIRECT3DVERTEXBUFFER9_IID, D3d9CompatibilityPolicy, direct3d9_object_spec,
         dispatch_d3d9_com_call,
@@ -10671,12 +10823,12 @@ mod tests {
         RUNTIME_GRAPHICS_SURFACE_ID_NAMESPACE, RUNTIME_WINDOW_CLASS_NAME_A_ENCODING,
         RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES,
         RuntimeAudioBufferKind, RuntimeAudioBufferSegment, RuntimeAudioPlaybackState,
-        RuntimeGraphicsColorFormat, RuntimeGraphicsCullMode, RuntimeGraphicsFlexibleVertexFormat,
-        RuntimeGraphicsPresentMode, RuntimeGraphicsRenderStates, RuntimeGraphicsSamplerStates,
-        RuntimeGraphicsTextureArgument, RuntimeGraphicsTextureDirtyRegion,
-        RuntimeGraphicsTextureFilter, RuntimeGraphicsTextureOperation,
-        RuntimeGraphicsTexturePixelSource, RuntimeGraphicsTexturePool,
-        RuntimeGraphicsTextureStageState, RuntimeGraphicsTextureUsage,
+        RuntimeGraphicsBlendFactor, RuntimeGraphicsBlendOperation, RuntimeGraphicsColorFormat,
+        RuntimeGraphicsCullMode, RuntimeGraphicsFlexibleVertexFormat, RuntimeGraphicsPresentMode,
+        RuntimeGraphicsRenderStates, RuntimeGraphicsSamplerStates, RuntimeGraphicsTextureArgument,
+        RuntimeGraphicsTextureDirtyRegion, RuntimeGraphicsTextureFilter,
+        RuntimeGraphicsTextureOperation, RuntimeGraphicsTexturePixelSource,
+        RuntimeGraphicsTexturePool, RuntimeGraphicsTextureStageState, RuntimeGraphicsTextureUsage,
         RuntimeGraphicsVertexBufferPool, RuntimeGraphicsVertexBufferUsage,
         RuntimeWindowClassModule, RuntimeWindowClassNameA, RuntimeWindowClassReference,
         RuntimeWindowGeometry, RuntimeWindowNameA, RuntimeWindowProcedureCallingConvention,
@@ -11179,6 +11331,21 @@ mod tests {
             (GuestAddress(0x1005_ad26), D3D9_D3DRS_ZENABLE, 0),
             (GuestAddress(0x1005_ad3c), D3D9_D3DRS_LIGHTING, 0),
             (GuestAddress(0x1005_ad50), D3D9_D3DRS_ALPHABLENDENABLE, 1),
+            (
+                GuestAddress(0x1005_b1df),
+                D3D9_D3DRS_SRCBLEND,
+                D3D9_D3DBLEND_SRCALPHA,
+            ),
+            (
+                GuestAddress(0x1005_b1cb),
+                D3D9_D3DRS_DESTBLEND,
+                D3D9_D3DBLEND_INVSRCALPHA,
+            ),
+            (
+                GuestAddress(0x1005_b1b7),
+                D3D9_D3DRS_BLENDOP,
+                D3D9_D3DBLENDOP_ADD,
+            ),
         ] {
             write_d3d9_fixture_words(
                 &mut memory,
@@ -11229,8 +11396,31 @@ mod tests {
             render_state_device.render_states.alpha_blend_enabled,
             Some(true)
         );
-        assert_eq!(render_state_device.generation, graphics.generation + 4);
+        assert_eq!(
+            render_state_device.render_states.source_blend_factor,
+            Some(RuntimeGraphicsBlendFactor::SourceAlpha)
+        );
+        assert_eq!(
+            render_state_device.render_states.destination_blend_factor,
+            Some(RuntimeGraphicsBlendFactor::InverseSourceAlpha)
+        );
+        assert_eq!(
+            render_state_device.render_states.blend_operation,
+            Some(RuntimeGraphicsBlendOperation::Add)
+        );
+        assert_eq!(render_state_device.generation, graphics.generation + 7);
 
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                0x1005_ad50,
+                device_interface.guest_pointer.0,
+                D3D9_D3DRS_ALPHABLENDENABLE,
+                1,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
         let before_memory = memory.stats();
         let before_runtime = runtime.clone();
         let repeated = {

@@ -1238,8 +1238,7 @@ impl RuntimeAudio {
             .buffers
             .values()
             .find(|buffer| {
-                buffer.playback == RuntimeAudioPlaybackState::PlayingLooping
-                    && buffer.notifications.len() == handles.len()
+                buffer.notifications.len() == handles.len()
                     && buffer
                         .notifications
                         .iter()
@@ -1250,9 +1249,16 @@ impl RuntimeAudio {
                 RuntimeStateError::not_found(
                     "runtime-audio",
                     "audio-notification-wait-buffer-unknown",
-                    "wait handle array does not match a playing notification buffer",
+                    "wait handle array does not match a notification buffer",
                 )
             })?;
+        if buffer.playback != RuntimeAudioPlaybackState::PlayingLooping {
+            return Err(RuntimeStateError::conflict(
+                "runtime-audio",
+                "audio-notification-wait-buffer-not-playing",
+                "a stopped notification buffer can only produce the finite wait timeout",
+            ));
+        }
         let format = buffer.active_format.ok_or_else(|| {
             RuntimeStateError::runtime_defect(
                 "runtime-audio",
@@ -2584,16 +2590,6 @@ mod tests {
                 .code,
             "audio-buffer-unlock-plan-stale"
         );
-        let play_plan = audio
-            .plan_buffer_play(RuntimeAudioBufferPlayRequest {
-                buffer_com_object_id: RuntimeComObjectId(22),
-                playback: RuntimeAudioPlaybackState::PlayingLooping,
-            })
-            .unwrap();
-        let played = audio.commit_buffer_play(play_plan);
-        assert!(played.changed);
-        assert_eq!(played.current, RuntimeAudioPlaybackState::PlayingLooping);
-
         let handles = [
             RuntimeHandle::from_parts(crate::runtime::RuntimeObjectKind::Event, 1, 1).unwrap(),
             RuntimeHandle::from_parts(crate::runtime::RuntimeObjectKind::Event, 1, 2).unwrap(),
@@ -2619,6 +2615,22 @@ mod tests {
             })
             .unwrap();
         audio.commit_buffer_notifications(notification_plan);
+        assert_eq!(
+            audio
+                .plan_notification_wait(&handles, 100)
+                .expect_err("a stopped notification buffer can only time out")
+                .code,
+            "audio-notification-wait-buffer-not-playing"
+        );
+        let play_plan = audio
+            .plan_buffer_play(RuntimeAudioBufferPlayRequest {
+                buffer_com_object_id: RuntimeComObjectId(22),
+                playback: RuntimeAudioPlaybackState::PlayingLooping,
+            })
+            .unwrap();
+        let played = audio.commit_buffer_play(play_plan);
+        assert!(played.changed);
+        assert_eq!(played.current, RuntimeAudioPlaybackState::PlayingLooping);
         for expected_position in [17_640, 35_280] {
             let wait = audio.plan_notification_wait(&handles, 100).unwrap();
             assert_eq!(wait.delay_milliseconds(), 100);

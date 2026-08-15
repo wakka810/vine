@@ -216,6 +216,13 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     user32PointerButtonMessagesEnabled: number,
     user32SetFocusSameWindowEnabled: number,
     user32DefWindowProcAPointerDownEnabled: number,
+    hostMonotonicClockEnabled: number,
+  ): number;
+  vine_bridge_synchronize_forward_clock_v1(
+    retiredInstructionsLow: number,
+    retiredInstructionsHigh: number,
+    hostElapsedTime100nsLow: number,
+    hostElapsedTime100nsHigh: number,
   ): number;
   vine_bridge_prepare_source_read(
     executableLength: number,
@@ -428,6 +435,7 @@ export class RuntimeBridge {
     user32SetFocusSameWindowEnabled: boolean,
     user32DefWindowProcAPointerDownEnabled: boolean,
     user32DefWindowProcAPointerReleaseEnabled: boolean,
+    hostMonotonicClockEnabled: boolean,
   ): BridgeOutput<PreparedMetadata> {
     const source = sourceManifest ?? emptyBridgeOutput;
     this.#setInput([executable, policy, source, writableProfile]);
@@ -461,6 +469,27 @@ export class RuntimeBridge {
         user32DefWindowProcAPointerReleaseEnabled
           ? 2
           : Number(user32DefWindowProcAPointerDownEnabled),
+        Number(hostMonotonicClockEnabled),
+      ),
+    );
+  }
+
+  synchronizeForwardClock(retiredInstructions: number, elapsedMilliseconds: number): void {
+    invariant(
+      Number.isFinite(elapsedMilliseconds) && elapsedMilliseconds >= 0,
+      "forward clock elapsed time must be finite and nonnegative",
+    );
+    const [retiredInstructionsLow, retiredInstructionsHigh] =
+      splitRetiredInstructions(retiredInstructions);
+    const [elapsedLow, elapsedHigh] = splitU64(
+      BigInt(Math.floor(elapsedMilliseconds * 10_000)),
+    );
+    this.#checkFastResult(
+      this.#exports.vine_bridge_synchronize_forward_clock_v1(
+        retiredInstructionsLow,
+        retiredInstructionsHigh,
+        elapsedLow,
+        elapsedHigh,
       ),
     );
   }

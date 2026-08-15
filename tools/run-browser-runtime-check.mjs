@@ -46,6 +46,7 @@ const assetsRoot = path.join(root, ".work", "browser-runtime");
 const serveOnly = process.argv.includes("--serve");
 const fullEvidence = process.argv.includes("--full-evidence");
 const forwardMode = process.argv.includes("--forward");
+const forwardTitleObserve = process.argv.includes("--forward-title-observe");
 const interpreterMode = process.argv.includes("--interpreter");
 const forwardStopOption = optionValue("--forward-stop");
 const forwardSecondsOption = optionValue("--forward-seconds");
@@ -107,6 +108,10 @@ assert(
 );
 assert(!forwardMode || (bgiMode && !fullEvidence), "forward mode requires summary BGI execution");
 assert(!interpreterMode || forwardMode, "--interpreter requires forward mode");
+assert(
+  !forwardTitleObserve || forwardMode,
+  "--forward-title-observe requires forward mode",
+);
 assert(
   forwardStopOption === null || forwardMode,
   "--forward-stop requires forward mode",
@@ -541,7 +546,7 @@ const sleepZeroProfile =
   globalMemoryStatusProfile || bgiProfile === "kernel32-sleep-zero";
 const archiveSourceReadProfile =
   sleepZeroProfile || bgiProfile === "kernel32-archive-source-read";
-const runtimeProtocol = "vine.browser-runtime-worker.v143";
+const runtimeProtocol = "vine.browser-runtime-worker.v144";
 if (bgiProfileOverride === null) {
   assert.equal(
     checkpoint.browserCheckpoint.browserRuntimeProtocol,
@@ -5987,7 +5992,7 @@ function validateCreateFontA224x112BgiProbe(evidence, scenario) {
 }
 
 async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
-  const targetUrl = `${baseUrl}bgi-check.html?scenario=${scenario}${forwardMode ? "" : `&profile=${encodeURIComponent(bgiProfile)}`}${fullEvidence ? "&evidence=full" : ""}${forwardMode ? `&development=forward&forwardSeconds=${forwardSeconds}` : ""}${forwardStopOption === null ? "" : `&forwardStop=${encodeURIComponent(forwardStopOption)}`}${interpreterMode ? "&engine=interpreter" : ""}`;
+  const targetUrl = `${baseUrl}bgi-check.html?scenario=${scenario}${forwardMode ? "" : `&profile=${encodeURIComponent(bgiProfile)}`}${fullEvidence ? "&evidence=full" : ""}${forwardMode ? `&development=forward&forwardSeconds=${forwardSeconds}` : ""}${forwardTitleObserve ? "&forwardInput=title-observe" : ""}${forwardStopOption === null ? "" : `&forwardStop=${encodeURIComponent(forwardStopOption)}`}${interpreterMode ? "&engine=interpreter" : ""}`;
   const target = await createDebugTarget(
     browserWebSocketUrl,
     bgiCpuProfile && forwardMode ? "about:blank" : targetUrl,
@@ -20783,7 +20788,7 @@ if (serveOnly) {
             forwardStopOption === null &&
             forwardProfileSlot === "default"
               ? currentState.commands.forward
-              : `npm run run:target:forward:prepared -- --forward-seconds ${forwardSeconds}${forwardStopOption === null ? "" : ` --forward-stop ${forwardStopOption}`}${interpreterMode ? " --interpreter" : ""}${forwardProfileSlot === "default" ? "" : ` --forward-profile-slot ${forwardProfileSlot}`}`,
+              : `npm run run:target:forward:prepared -- --forward-seconds ${forwardSeconds}${forwardTitleObserve ? " --forward-title-observe" : ""}${forwardStopOption === null ? "" : ` --forward-stop ${forwardStopOption}`}${interpreterMode ? " --interpreter" : ""}${forwardProfileSlot === "default" ? "" : ` --forward-profile-slot ${forwardProfileSlot}`}`,
           mode: interpreterMode
             ? "release-chrome-forward-interpreter-diagnostic"
             : "release-chrome-forward",
@@ -20829,7 +20834,7 @@ if (serveOnly) {
           },
           storage: {
             ...forward.storage,
-            recentSourceReads: session.sourceReads.slice(-32).map((read) => ({
+            recentSourceReads: session.sourceReads.slice(-64).map((read) => ({
               ...read,
               relativePath:
                 sourceRegistration?.manifest.files.find(

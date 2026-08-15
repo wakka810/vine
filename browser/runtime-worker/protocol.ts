@@ -2,7 +2,7 @@ import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 import type { BrowserNativeStorageConfiguration } from "../storage/protocol.js";
 
-export const protocolVersion = 143 as const;
+export const protocolVersion = 144 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -1075,7 +1075,13 @@ export interface AudioPlaybackMessage {
   playback: "playing-once" | "playing-looping";
   format: RuntimeAudioPcmFormatSnapshot;
   controls: RuntimeAudioBufferSnapshot["controls"];
-  samples: ArrayBuffer;
+  bufferByteLength: number;
+  sampleUpdate:
+    | { kind: "snapshot"; samples: ArrayBuffer }
+    | {
+        kind: "regions";
+        regions: Array<{ offsetBytes: number; samples: ArrayBuffer }>;
+      };
 }
 
 export interface AudioStopMessage {

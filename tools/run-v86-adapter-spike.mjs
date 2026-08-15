@@ -434,6 +434,135 @@ assert.deepEqual([...dirtyPages], [0x2000]);
 wasm.vine_reset_dirty_pages();
 assert.equal(wasm.vine_dirty_page_count(), 0);
 
+const pageFaultRestartProgram = Uint8Array.from([
+  // mov dword ptr [0x2000], 0x12345678
+  0xc7, 0x05, 0x00, 0x20, 0x00, 0x00, 0x78, 0x56, 0x34, 0x12,
+  0xf4,
+]);
+configure(pageFaultRestartProgram, 0);
+const pageFaultRestartView = new DataView(
+  memory.buffer,
+  memory.byteOffset,
+  memory.byteLength,
+);
+pageFaultRestartView.setUint32(0x3000, 0x4000 | 0x07, true);
+pageFaultRestartView.setUint32(0x4000 + 1 * 4, 0x1000 | 0x07, true);
+pageFaultRestartView.setUint32(0x4000 + 2 * 4, 0, true);
+state.setUint32(stateOffset.controlRegisters + 3 * 4, 0x3000, true);
+state.setUint32(
+  stateOffset.controlRegisters,
+  state.getUint32(stateOffset.controlRegisters, true) | 0x8000_0000,
+  true,
+);
+wasm.vine_reset_dirty_pages();
+wasm.full_clear_tlb();
+const pageFaultBeforeCommit = currentState(wasm.vine_execute_budget(10));
+assert.equal(pageFaultBeforeCommit.reason, stopReason.pageFault);
+assert.equal(pageFaultBeforeCommit.errorCode, 2);
+assert.equal(
+  pageFaultBeforeCommit.instructionPointer,
+  guest.codeAddress,
+  "write page fault did not retain the faulting instruction",
+);
+memory.fill(0xa5, 0x2000, 0x3000);
+pageFaultRestartView.setUint32(0x4000 + 2 * 4, 0x2000 | 0x07, true);
+wasm.full_clear_tlb();
+const pageFaultAfterCommit = currentState(wasm.vine_execute_budget(10));
+assert.equal(pageFaultAfterCommit.reason, stopReason.halt);
+assert.equal(
+  pageFaultRestartView.getUint32(0x2000, true),
+  0x1234_5678,
+  "faulting write was not replayed after the page became present",
+);
+wasm.vine_reset_dirty_pages();
+
+const jitPageFaultRestartProgram = Uint8Array.from([
+  // mov ecx, 0x7fffffff; movups xmm0, [0x2100]
+  0xb9, 0xff, 0xff, 0xff, 0x7f,
+  0x0f, 0x10, 0x05, 0x00, 0x21, 0x00, 0x00,
+  // loop: movups [0x2ff8], xmm0; dec ecx; jnz loop; hlt
+  0x0f, 0x11, 0x05, 0xf8, 0x2f, 0x00, 0x00,
+  0x49,
+  0x75, 0xf6,
+  0xf4,
+]);
+wasm.jit_clear_cache_js();
+wasm.set_jit_config(0, 0);
+configure(jitPageFaultRestartProgram, 0);
+let jitPageFaultRestartView = new DataView(
+  memory.buffer,
+  memory.byteOffset,
+  memory.byteLength,
+);
+jitPageFaultRestartView.setUint32(0x3000, 0x4000 | 0x07, true);
+jitPageFaultRestartView.setUint32(0x4000 + 1 * 4, 0x1000 | 0x07, true);
+jitPageFaultRestartView.setUint32(0x4000 + 2 * 4, 0x2000 | 0x07, true);
+jitPageFaultRestartView.setUint32(0x4000 + 3 * 4, 0x5000 | 0x07, true);
+const jitPageFaultPattern = Uint8Array.from(
+  { length: 16 },
+  (_, index) => 0x60 + index,
+);
+memory.set(jitPageFaultPattern, 0x2100);
+state.setUint32(stateOffset.controlRegisters + 3 * 4, 0x3000, true);
+state.setUint32(
+  stateOffset.controlRegisters,
+  state.getUint32(stateOffset.controlRegisters, true) | 0x8000_0000,
+  true,
+);
+const jitPageFaultCompileCallsBefore = hostImportCalls.codegen_finalize ?? 0;
+assert.equal(
+  currentState(wasm.vine_execute_budget(524_289)).reason,
+  stopReason.budget,
+);
+await Promise.resolve();
+refreshViews();
+jitPageFaultRestartView = new DataView(
+  memory.buffer,
+  memory.byteOffset,
+  memory.byteLength,
+);
+assert(
+  (hostImportCalls.codegen_finalize ?? 0) > jitPageFaultCompileCallsBefore,
+  "page-fault restart loop did not compile",
+);
+wasm.vine_cpu_state_save();
+const jitPageFaultState = new Uint32Array(
+  wasm.memory.buffer,
+  wasm.vine_cpu_state_ptr(),
+  wasm.vine_cpu_state_size() / Uint32Array.BYTES_PER_ELEMENT,
+);
+jitPageFaultState[5] = 1;
+jitPageFaultState[12] = guest.codeAddress + 12;
+jitPageFaultState[13] = guest.codeAddress + 12;
+jitPageFaultState[24] = 0;
+assert.equal(wasm.vine_cpu_state_restore(), 0);
+memory.fill(0xa5, 0x2ff8, 0x3000);
+memory.fill(0xa5, 0x5000, 0x5008);
+jitPageFaultRestartView.setUint32(0x4000 + 3 * 4, 0, true);
+wasm.vine_reset_dirty_pages();
+wasm.full_clear_tlb();
+const jitPageFaultBeforeCommit = currentState(
+  wasm.vine_execute_budget(4096),
+);
+assert.equal(jitPageFaultBeforeCommit.reason, stopReason.pageFault);
+assert.equal(jitPageFaultBeforeCommit.errorCode, 2);
+assert.equal(
+  jitPageFaultBeforeCommit.instructionPointer,
+  guest.codeAddress + 12,
+  "compiled write page fault did not retain the faulting instruction",
+);
+jitPageFaultRestartView.setUint32(0x4000 + 3 * 4, 0x5000 | 0x07, true);
+wasm.full_clear_tlb();
+const jitPageFaultAfterCommit = currentState(wasm.vine_execute_budget(4096));
+assert.equal(jitPageFaultAfterCommit.reason, stopReason.halt);
+assert.deepEqual(
+  [...memory.subarray(0x2ff8, 0x3000), ...memory.subarray(0x5000, 0x5008)],
+  [...jitPageFaultPattern],
+  "compiled faulting write was not replayed after the page became present",
+);
+wasm.vine_reset_dirty_pages();
+
+
 const jitProgram = Uint8Array.from([
   0xb9, 0xff, 0xff, 0xff, 0x7f,
   0xb8, 0xdf, 0x9b, 0x57, 0x13,
@@ -552,14 +681,22 @@ const report = {
     invalidOpcode,
     divideError,
     generalProtection,
-      pageFault,
-      halt,
-      cpuState,
-      dirtyWrite,
-      jitWarmup,
-      jitContinuation,
-      branchingInterpreter,
-      branchingJit,
+    pageFault,
+    halt,
+    cpuState,
+    dirtyWrite,
+    pageFaultRestart: {
+      beforeCommit: pageFaultBeforeCommit,
+      afterCommit: pageFaultAfterCommit,
+    },
+    jitPageFaultRestart: {
+      beforeCommit: jitPageFaultBeforeCommit,
+      afterCommit: jitPageFaultAfterCommit,
+    },
+    jitWarmup,
+    jitContinuation,
+    branchingInterpreter,
+    branchingJit,
   },
   hostImportCalls,
 };

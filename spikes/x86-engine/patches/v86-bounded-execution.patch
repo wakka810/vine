@@ -74,16 +74,24 @@ index 19f79b0..b835438 100644
      if DEBUG {
          if js::cpu_exception_hook(code) {
              return;
-@@ -2395,6 +2446,9 @@ pub unsafe fn trigger_pagefault(addr: i32, present: bool, write: bool, user: boo
+@@ -2395,14 +2446,17 @@ pub unsafe fn trigger_pagefault(addr: i32, present: bool, write: bool, user: boo
      clear_tlb_code(page);
      tlb_data[page as usize] = 0;
      let error_code = (user as i32) << 2 | (write as i32) << 1 | present as i32;
-+    if vine_stop_exception(CPU_EXCEPTION_PF, Some(error_code)) {
-+        return;
-+    }
      if jit {
          jit_exit_reason = JitExitReason::CpuException {
              code: CPU_EXCEPTION_PF,
+             error_code: Some(error_code),
+         };
+     }
+     else {
+         *instruction_pointer = *previous_ip;
++        if vine_stop_exception(CPU_EXCEPTION_PF, Some(error_code)) {
++            return;
++        }
+         call_interrupt_vector(CPU_EXCEPTION_PF, false, Some(error_code));
+     }
+ }
 @@ -2479,6 +2533,7 @@ pub const DISABLE_EIP_TRANSLATION_OPTIMISATION: bool = false;
  
  pub unsafe fn read_imm8() -> OrPageFault<i32> {

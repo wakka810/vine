@@ -3,8 +3,8 @@ use vine_core::{
     RUNTIME_API_BOUNDARY_QUANTUM, RuntimeApiBoundaryDisposition, RuntimeBootstrap,
     RuntimeClockState, RuntimeHandle, RuntimeObjectKind, RuntimeProcessId,
     RuntimeProcessLifecycleState, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
-    RuntimeThreadLifecycleState, RuntimeTlsValue, RuntimeWaitState, SchedulerThreadState,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RuntimeThreadLifecycleState, RuntimeThreadPriority, RuntimeTlsValue, RuntimeWaitState,
+    SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 const PROCESS_ID: u32 = 4096;
@@ -77,6 +77,49 @@ fn api_boundary_quantum_starts_only_after_a_second_runnable_lane_exists() {
             .thread_id,
         SECOND_THREAD_ID
     );
+}
+
+#[test]
+fn api_boundaries_preempt_for_higher_priority_and_do_not_demote_a_running_high_priority_thread() {
+    let mut runtime = running_runtime();
+    let second_handle = runtime
+        .register_thread(SECOND_THREAD_ID, 0)
+        .expect("register second executable thread");
+    assert_eq!(
+        runtime
+            .set_thread_priority(second_handle, RuntimeThreadPriority::AboveNormal)
+            .expect("raise second thread priority"),
+        RuntimeThreadPriority::Normal
+    );
+
+    let selection = runtime
+        .complete_api_execution_boundary()
+        .expect("complete preempting boundary")
+        .expect("higher-priority runnable thread preempts at an API boundary");
+    assert_eq!(selection.previous_thread_id, INITIAL_THREAD_ID);
+    assert_eq!(selection.thread_id, SECOND_THREAD_ID);
+    assert_eq!(runtime.current_thread_id(), SECOND_THREAD_ID);
+
+    for _ in 0..(RUNTIME_API_BOUNDARY_QUANTUM * 2) {
+        assert_eq!(runtime.complete_api_execution_boundary().unwrap(), None);
+        assert_eq!(runtime.current_thread_id(), SECOND_THREAD_ID);
+    }
+
+    let yielded = runtime
+        .complete_api_execution_boundary_with_disposition(
+            RuntimeApiBoundaryDisposition::YieldCurrentThread,
+        )
+        .expect("yield higher-priority thread")
+        .expect("explicit yield selects the lower-priority competitor");
+    assert_eq!(yielded.thread_id, INITIAL_THREAD_ID);
+    assert_eq!(runtime.current_thread_id(), INITIAL_THREAD_ID);
+
+    let resumed = runtime
+        .complete_api_execution_boundary()
+        .expect("complete boundary after explicit yield")
+        .expect("higher-priority thread becomes current again");
+    assert_eq!(resumed.thread_id, SECOND_THREAD_ID);
+    assert_eq!(runtime.current_thread_id(), SECOND_THREAD_ID);
 }
 
 #[test]

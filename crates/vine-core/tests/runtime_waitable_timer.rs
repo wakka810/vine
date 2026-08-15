@@ -82,6 +82,50 @@ fn scheduled_shared_clock_commits_monotonic_cpu_execution_before_api_sampling() 
 }
 
 #[test]
+fn scheduled_shared_clock_accepts_authoritative_host_elapsed_time_without_cpu_inflation() {
+    let mut runtime = runtime(false);
+    runtime
+        .configure_clock_profile(RuntimeClockProfile::scheduled_shared_v1())
+        .expect("select scheduled shared clock before process start");
+    runtime
+        .start_initial_thread()
+        .expect("start host-synchronized clock fixture");
+
+    runtime
+        .synchronize_scheduled_clock_for_host_execution(8_000_000, 250_000)
+        .expect("commit measured host elapsed time");
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 250_000);
+    assert_eq!(runtime.clock().tick_count, 3_600_025);
+    assert_eq!(
+        runtime.scheduled_execution_clock_state(),
+        Some(vine_core::RuntimeScheduledExecutionClockState {
+            retired_instructions: 8_000_000,
+            pending_retired_instructions: 0,
+            retired_instructions_per_second: RUNTIME_SCHEDULED_RETIRED_INSTRUCTIONS_PER_SECOND,
+        })
+    );
+
+    runtime
+        .advance_scheduled_clock_to(400_000)
+        .expect("scheduler deadline may lead the sampled host clock");
+    runtime
+        .synchronize_scheduled_clock_for_host_execution(16_000_000, 300_000)
+        .expect("a lagging host sample must not regress the logical deadline");
+    assert_eq!(runtime.timer_clock_state().current_time_100ns, 400_000);
+    assert_eq!(runtime.clock().tick_count, 3_600_040);
+
+    let before_regression = runtime.clone();
+    assert_eq!(
+        runtime
+            .synchronize_scheduled_clock_for_host_execution(15_999_999, 500_000)
+            .unwrap_err()
+            .code,
+        "scheduled-execution-instruction-count-regressed"
+    );
+    assert_eq!(runtime, before_regression);
+}
+
+#[test]
 fn scheduled_shared_clock_advances_only_at_scheduler_commit_points() {
     let mut runtime = runtime(false);
     let selected = runtime

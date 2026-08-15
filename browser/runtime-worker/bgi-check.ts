@@ -66,6 +66,11 @@ const worker = new Worker(workerUrl, {
 const status = requiredElement<HTMLOutputElement>("#status");
 const scenario = parseScenario(searchParams.get("scenario"));
 const forwardDevelopment = searchParams.get("development") === "forward";
+const forwardInput = searchParams.get("forwardInput");
+if (forwardInput !== null && forwardInput !== "title-observe") {
+  throw new Error("forwardInput must be title-observe when specified");
+}
+const forwardInputMode = forwardInput === "title-observe" ? "title-observe" : "campaign";
 const forwardStop = searchParams.get("forwardStop");
 if (
   forwardStop !== null &&
@@ -319,7 +324,8 @@ function maybePostForwardAction(): void {
   const phaseAcceptsNextAction =
     (forwardCampaignPhase === "startup-pointer" &&
       nextAction <= forwardStartupPointerActionCount) ||
-    (forwardCampaignPhase === "title-start-pointer" &&
+    (forwardInputMode === "campaign" &&
+      forwardCampaignPhase === "title-start-pointer" &&
       nextAction === forwardStartupPointerActionCount + 1);
   if (
     !forwardDevelopment ||

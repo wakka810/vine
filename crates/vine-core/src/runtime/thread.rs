@@ -135,6 +135,18 @@ pub enum RuntimeThreadPriority {
 }
 
 impl RuntimeThreadPriority {
+    pub(super) const fn scheduling_rank(self) -> u8 {
+        match self {
+            Self::Idle => 0,
+            Self::Lowest => 1,
+            Self::BelowNormal => 2,
+            Self::Normal => 3,
+            Self::AboveNormal => 4,
+            Self::Highest => 5,
+            Self::TimeCritical => 6,
+        }
+    }
+
     pub const fn from_win32_value(value: i32) -> Option<Self> {
         match value {
             -15 => Some(Self::Idle),
