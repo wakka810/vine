@@ -30,6 +30,7 @@ Exit condition:
 
 Remaining unknowns:
 
+- the reported two-to-three-repeat cadence while the guest updates the streaming ring buffer
 - format and control variants reached later in the title
 - suspend／resume and long-run scheduling stability
 - any later WinMM／MCI fallback
@@ -54,9 +55,9 @@ Main unknowns:
 
 Current work:
 
-- capture the bounded guest consumption and hit-test result for the delivered Start down/up pair
-- enter the first scene and follow its first graphics/audio transition
-- exercise later input and the first in-story persistence path without expanding diagnostics
+- retain continuous DirectSound playback while the guest streaming producer and browser playback cursor run at different effective rates
+- extend the reached readable background scene and Japanese dialogue through later input
+- exercise the first in-story persistence path without expanding diagnostics
 
 Exit condition:
 
@@ -66,7 +67,7 @@ Exit condition:
 
 Main unknowns:
 
-- DirectInput breadth、font／locale variants、movie or transition effects
+- in-story save/load entry behavior、DirectInput breadth、movie or later transition effects
 - resource lifetime across longer scene changes
 
 ## 5. Full play and long run

@@ -1,22 +1,25 @@
 use vine_core::{
-    ApiDispatcher, ApiEndpointIdentity, ApiFaultClass, ApiOwnedTrap, ApiPointeeSchema,
-    ApiReturnSchema, ApiStringEncoding, ApiValueSchema, CALLBACK_SCRATCH_ARENA_BASE,
-    CallbackPolicy, DispatchOutcome, ExecutionSession, GUEST_PAGE_SIZE, Gdi32CompatibilityPolicy,
-    GuestAddress, GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestMemory, GuestRange,
-    ImportTarget, ImportThunk, ImportThunkDisposition, ImportThunkId, LastErrorPolicy,
-    MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection,
-    ProcessAddressAllocationPurpose, ProcessAddressSpaceLayout, RegisterUpdate, RuntimeBootstrap,
-    RuntimeCallbackFrameId, RuntimeClockState, RuntimeCurrentDirectoryA,
-    RuntimeDeviceContextTarget, RuntimeGdiObjectKind, RuntimeProcessId, RuntimeProcessImagePathA,
+    ApiBehavior, ApiDeferredCall, ApiDispatcher, ApiEndpointIdentity, ApiFaultClass, ApiOwnedTrap,
+    ApiPointeeSchema, ApiReturnSchema, ApiStringEncoding, ApiValueSchema,
+    CALLBACK_SCRATCH_ARENA_BASE, CallbackPolicy, DispatchOutcome, ExecutionSession,
+    GUEST_PAGE_SIZE, Gdi32CompatibilityPolicy, Gdi32TextRasterHostResponse, GuestAddress,
+    GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestMemory, GuestRange, ImportTarget,
+    ImportThunk, ImportThunkDisposition, ImportThunkId, LastErrorPolicy, MemoryLimits,
+    MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind, PageProtection,
+    ProcessAddressAllocationPurpose, ProcessAddressSpaceLayout, RUNTIME_GDI_TEXT_RASTER_SERVICE,
+    RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
+    RuntimeCurrentDirectoryA, RuntimeDeviceContextTarget, RuntimeGdiObjectKind,
+    RuntimeHostCompletion, RuntimeProcessId, RuntimeProcessImagePathA, RuntimeSchedulerEvent,
     RuntimeStartupInfo, RuntimeState, RuntimeThreadId, User32CompatibilityPolicy,
     X86_BITMAP_BYTE_LENGTH, X86_BITMAPINFOHEADER_BYTE_LENGTH, X86_DIB_BITMAPINFO_BYTE_LENGTH,
     X86_ENUMLOGFONTEXA_BYTE_LENGTH, X86_LOGFONTA_BYTE_LENGTH, X86_NEWTEXTMETRICEXA_BYTE_LENGTH,
     X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH, X86_OUTLINE_TEXT_METRIC_A_FIXED_BYTE_LENGTH,
-    create_compatible_dc_contract, create_dib_section_contract, create_font_a_contract,
-    delete_dc_contract, delete_object_contract, dispatch_gdi32_api_with_policy,
-    dispatch_user32_api_with_policy, enum_font_families_ex_a_contract, gdi32_contract_for_endpoint,
-    get_dc_contract, get_object_a_contract, get_outline_text_metrics_a_contract,
-    release_dc_contract, select_object_contract, text_out_a_contract,
+    complete_gdi32_text_raster, create_compatible_dc_contract, create_dib_section_contract,
+    create_font_a_contract, delete_dc_contract, delete_object_contract,
+    dispatch_gdi32_api_with_policy, dispatch_user32_api_with_policy,
+    enum_font_families_ex_a_contract, gdi32_contract_for_endpoint, get_dc_contract,
+    get_object_a_contract, get_outline_text_metrics_a_contract, release_dc_contract,
+    select_object_contract, text_out_a_contract,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -588,6 +591,20 @@ impl FontFixture {
         self.dispatch_endpoint(endpoint, TEXT_OUT_STACK_POINTER, TEXT_OUT_RETURN_ADDRESS)
     }
 
+    fn complete_text_raster(
+        &mut self,
+        call: ApiDeferredCall,
+        pixels: Vec<u8>,
+    ) -> (DispatchOutcome, Option<RuntimeHostCompletion>) {
+        let request_id = call.request.request_id;
+        complete_gdi32_text_raster(
+            &self.dispatcher,
+            call,
+            Gdi32TextRasterHostResponse { request_id, pixels },
+            &mut ExecutionSession::new(&mut self.memory, &mut self.runtime),
+        )
+    }
+
     fn write_words(&mut self, address: GuestAddress, words: &[u32]) {
         let bytes = words
             .iter()
@@ -725,6 +742,68 @@ fn prepare_primary_text_surface(fixture: &mut FontFixture) -> PreparedTextSurfac
         .memory
         .write(TEXT_OUT_BYTES_ADDRESS, b"a")
         .expect("install TextOutA bytes");
+    fixture.acknowledge_pending_delta();
+    PreparedTextSurface {
+        device_context,
+        dib,
+        bits,
+        backing_owner,
+        backing_range,
+    }
+}
+
+fn prepare_scenario_text_surface(fixture: &mut FontFixture) -> PreparedTextSurface {
+    let (_font, device_context, _default_font) = fixture.create_post_heap_growth_font_memory_dc();
+    fixture.install_bitmap_info(&post_create_font_bitmap_info());
+    fixture
+        .memory
+        .write(BITS_OUTPUT_ADDRESS, &0xa5a5_a5a5_u32.to_le_bytes())
+        .expect("initialize scenario text DIB bits output");
+    fixture.acknowledge_pending_delta();
+    let creation = match fixture.dispatch_create_dib_section(
+        device_context,
+        BITMAP_INFO_ADDRESS,
+        BITS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected scenario text DIB creation, got {other:?}"),
+    };
+    let dib = match creation.eax {
+        RegisterUpdate::Set(handle) => handle,
+        other => panic!("scenario CreateDIBSection did not set EAX: {other:?}"),
+    };
+    fixture.acknowledge_pending_delta();
+    let bits = GuestAddress(read_u32(
+        &fixture
+            .memory
+            .read(BITS_OUTPUT_ADDRESS, 4)
+            .expect("read scenario text DIB bits output"),
+        0,
+    ));
+    assert!(matches!(
+        fixture.dispatch_select_object(device_context, dib),
+        DispatchOutcome::Immediate(_)
+    ));
+    let (backing_owner, backing_range) = fixture
+        .runtime
+        .gdi_objects()
+        .values()
+        .find_map(|object| {
+            if object.handle != dib {
+                return None;
+            }
+            match object.object {
+                RuntimeGdiObjectKind::DibSection { backing, .. } => {
+                    Some((backing.memory_owner, backing.range))
+                }
+                _ => None,
+            }
+        })
+        .expect("scenario text DIB backing");
+    fixture
+        .memory
+        .write(TEXT_OUT_BYTES_ADDRESS, &[0x81, 0x40])
+        .expect("install scenario full-width space bytes");
     fixture.acknowledge_pending_delta();
     PreparedTextSurface {
         device_context,
@@ -1320,6 +1399,94 @@ fn post_heap_growth_font_outline_metrics_match_native_selected_font_profile() {
 }
 
 #[test]
+fn dialogue_font_dib_metrics_and_text_raster_form_one_reached_vertical_slice() {
+    let mut fixture = FontFixture::new();
+    let (_font, device_context, _default_font) =
+        fixture.create_font_memory_dc(dialogue_create_font_arguments());
+    fixture
+        .memory
+        .write(OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS, &[0xa5; 320])
+        .expect("initialize dialogue outline output");
+    fixture.acknowledge_pending_delta();
+    let outline = match fixture.dispatch_outline_text_metrics(
+        device_context,
+        X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32,
+        OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected dialogue outline metrics, got {other:?}"),
+    };
+    assert_eq!(
+        outline.eax,
+        RegisterUpdate::Set(X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32)
+    );
+    fixture.acknowledge_pending_delta();
+    let metrics = fixture
+        .memory
+        .read(
+            OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS,
+            X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH,
+        )
+        .expect("dialogue outline metrics bytes");
+    for (offset, value) in [
+        (4, 80),
+        (8, 69),
+        (12, 11),
+        (24, 40),
+        (28, 158),
+        (96, 69),
+        (100, -11),
+        (192, -5),
+    ] {
+        assert_eq!(read_i32(&metrics, offset), value);
+    }
+
+    fixture.install_bitmap_info(&dialogue_bitmap_info());
+    fixture
+        .memory
+        .write(BITS_OUTPUT_ADDRESS, &0xa5a5_a5a5_u32.to_le_bytes())
+        .expect("initialize dialogue DIB output");
+    fixture.acknowledge_pending_delta();
+    let dib = match fixture.dispatch_create_dib_section(
+        device_context,
+        BITMAP_INFO_ADDRESS,
+        BITS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => match completion.eax {
+            RegisterUpdate::Set(handle) => handle,
+            other => panic!("dialogue CreateDIBSection did not set EAX: {other:?}"),
+        },
+        other => panic!("expected dialogue DIB creation, got {other:?}"),
+    };
+    fixture.acknowledge_pending_delta();
+    let bits = GuestAddress(read_u32(
+        &fixture.memory.read(BITS_OUTPUT_ADDRESS, 4).unwrap(),
+        0,
+    ));
+    assert!(matches!(
+        fixture.dispatch_select_object(device_context, dib),
+        DispatchOutcome::Immediate(_)
+    ));
+    fixture
+        .memory
+        .write(TEXT_OUT_BYTES_ADDRESS, &[0x81, 0x40])
+        .expect("install dialogue CP932 glyph");
+    fixture.acknowledge_pending_delta();
+    let call = match fixture.dispatch_text_out(device_context, 0, 0, TEXT_OUT_BYTES_ADDRESS, 2) {
+        DispatchOutcome::Deferred(call) => call,
+        other => panic!("expected dialogue text raster request, got {other:?}"),
+    };
+    assert_eq!(read_u32(&call.request.payload, 52), 160);
+    assert_eq!(read_u32(&call.request.payload, 56) as i32, -120);
+    assert_eq!(read_u32(&call.request.payload, 64), 19_200);
+    let (outcome, runtime_completion) = fixture.complete_text_raster(call, vec![0; 19_200]);
+    assert!(matches!(outcome, DispatchOutcome::Immediate(_)));
+    assert!(runtime_completion.is_some());
+    fixture.acknowledge_pending_delta();
+    assert_eq!(fixture.memory.read(bits, 19_200).unwrap(), vec![0; 19_200]);
+}
+
+#[test]
 fn outline_text_metrics_write_failure_preserves_guest_bytes_and_gdi_state() {
     let mut fixture = FontFixture::new();
     let (_font, device_context, _default_font) = fixture.create_primary_font_memory_dc();
@@ -1401,11 +1568,15 @@ fn text_out_catalog_exposes_nullable_counted_windows_932_input() {
             if constraint.nullable
                 && constraint.alignment == 1
                 && constraint.minimum_byte_length == 1
-                && constraint.maximum_byte_length == 1
+                && constraint.maximum_byte_length == 2
                 && constraint.pointee == ApiPointeeSchema::Bytes
     ));
     assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
     assert_eq!(contract.last_error_policy, LastErrorPolicy::FromHandler);
+    assert_eq!(
+        contract.behavior,
+        ApiBehavior::ImmediateOrDeferredWithCommittedIndirectGuestWrites
+    );
     assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
 }
 
@@ -1515,6 +1686,102 @@ fn text_out_rasterizes_native_a_mask_into_selected_dib_and_zero_length_is_noop()
 }
 
 #[test]
+fn text_out_defers_reached_cp932_glyph_and_commits_browser_pixels_atomically() {
+    let mut fixture = FontFixture::new();
+    let surface = prepare_scenario_text_surface(&mut fixture);
+    let call =
+        match fixture.dispatch_text_out(surface.device_context, 0, 0, TEXT_OUT_BYTES_ADDRESS, 2) {
+            DispatchOutcome::Deferred(call) => call,
+            other => panic!("expected scenario TextOutA host request, got {other:?}"),
+        };
+    assert_eq!(call.request.service, RUNTIME_GDI_TEXT_RASTER_SERVICE);
+    assert_eq!(call.request.payload.len(), 21 * 4);
+    assert_eq!(read_u32(&call.request.payload, 0), 1);
+    assert_eq!(read_u32(&call.request.payload, 4), surface.device_context);
+    assert_eq!(read_u32(&call.request.payload, 64), 150_528);
+    assert_eq!(read_u32(&call.request.payload, 68), 2);
+    assert_eq!(read_u32(&call.request.payload, 72), 0x0000_4081);
+
+    let mut pixels = vec![0; 150_528];
+    pixels[0] = 255;
+    pixels[449] = 127;
+    let (outcome, runtime_completion) = fixture.complete_text_raster(call, pixels.clone());
+    let completion = match outcome {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected scenario TextOutA completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(1));
+    assert_eq!(completion.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(completion.guest_writes.len(), 1);
+    assert_eq!(completion.guest_writes[0].write.address, surface.bits);
+    assert_eq!(completion.guest_writes[0].write.bytes, pixels);
+    let runtime_completion = runtime_completion.expect("runtime host completion");
+    assert!(matches!(
+        fixture.runtime.pop_scheduler_event(),
+        Some(RuntimeSchedulerEvent::HostCompleted(event)) if event == runtime_completion
+    ));
+    fixture.acknowledge_pending_delta();
+    assert_eq!(
+        fixture
+            .memory
+            .read(surface.bits, 150_528)
+            .expect("committed scenario text pixels"),
+        pixels
+    );
+    let content_generation = fixture
+        .runtime
+        .gdi_objects()
+        .values()
+        .find_map(|object| {
+            if object.handle != surface.dib {
+                return None;
+            }
+            match object.object {
+                RuntimeGdiObjectKind::DibSection { backing, .. } => {
+                    Some(backing.content_generation)
+                }
+                _ => None,
+            }
+        })
+        .expect("scenario text content generation");
+    assert_eq!(content_generation, 1);
+}
+
+#[test]
+fn text_out_rejects_malformed_browser_pixels_without_partial_commit() {
+    let mut fixture = FontFixture::new();
+    let surface = prepare_scenario_text_surface(&mut fixture);
+    let call =
+        match fixture.dispatch_text_out(surface.device_context, 0, 0, TEXT_OUT_BYTES_ADDRESS, 2) {
+            DispatchOutcome::Deferred(call) => call,
+            other => panic!("expected scenario TextOutA host request, got {other:?}"),
+        };
+    let runtime_waiting = fixture.runtime.clone();
+    let memory_waiting = fixture.memory.stats();
+    let pixels_waiting = fixture
+        .memory
+        .read(surface.bits, 150_528)
+        .expect("scenario pixels before rejected completion");
+    let (outcome, runtime_completion) = fixture.complete_text_raster(call, vec![0; 1]);
+    let fault = match outcome {
+        DispatchOutcome::Fault(fault) => fault,
+        other => panic!("expected malformed text raster response fault, got {other:?}"),
+    };
+    assert_eq!(fault.class, ApiFaultClass::InvalidCall);
+    assert_eq!(fault.code, "text-raster-host-response-mismatch");
+    assert!(runtime_completion.is_none());
+    assert_eq!(fixture.runtime, runtime_waiting);
+    assert_eq!(fixture.memory.stats(), memory_waiting);
+    assert_eq!(
+        fixture
+            .memory
+            .read(surface.bits, 150_528)
+            .expect("scenario pixels after rejected completion"),
+        pixels_waiting
+    );
+}
+
+#[test]
 fn text_out_rejects_stale_selection_content_and_unwritable_backing_atomically() {
     let mut stale = FontFixture::new();
     let stale_dc = match stale.dispatch_create_compatible_dc(0) {
@@ -1583,19 +1850,18 @@ fn text_out_rejects_stale_selection_content_and_unwritable_backing_atomically() 
         .memory
         .read(wrong_text_surface.bits, 12_288)
         .unwrap();
-    let fault = match wrong_text.dispatch_text_out(
+    let deferred = match wrong_text.dispatch_text_out(
         wrong_text_surface.device_context,
         0,
         0,
         TEXT_OUT_BYTES_ADDRESS,
         1,
     ) {
-        DispatchOutcome::Fault(fault) => fault,
-        other => panic!("expected wrong-text TextOutA fault, got {other:?}"),
+        DispatchOutcome::Deferred(call) => call,
+        other => panic!("expected generic TextOutA host request, got {other:?}"),
     };
-    assert_eq!(fault.class, ApiFaultClass::Unsupported);
-    assert_eq!(fault.code, "text-out-a-text-variant-unsupported");
-    assert_eq!(wrong_text.runtime, wrong_text_runtime);
+    assert_eq!(deferred.request.service, RUNTIME_GDI_TEXT_RASTER_SERVICE);
+    assert_ne!(wrong_text.runtime, wrong_text_runtime);
     assert_eq!(
         wrong_text
             .memory
@@ -2878,6 +3144,10 @@ fn post_create_font_bitmap_info() -> Vec<u8> {
     bitmap_info_bytes(448, -336)
 }
 
+fn dialogue_bitmap_info() -> Vec<u8> {
+    bitmap_info_bytes(160, -120)
+}
+
 fn bitmap_info_bytes(width: i32, height: i32) -> Vec<u8> {
     let mut bytes = vec![0; X86_DIB_BITMAPINFO_BYTE_LENGTH];
     bytes[0..4].copy_from_slice(&X86_BITMAPINFOHEADER_BYTE_LENGTH.to_le_bytes());
@@ -2904,6 +3174,10 @@ fn primary_create_font_arguments() -> [u32; 13] {
 
 fn post_heap_growth_create_font_arguments() -> [u32; 13] {
     [224, 112, 0, 0, 100, 0, 0, 0, 128, 4, 0, 2, 0]
+}
+
+fn dialogue_create_font_arguments() -> [u32; 13] {
+    [80, 40, 0, 0, 100, 0, 0, 0, 128, 4, 0, 2, 0]
 }
 
 fn primary_face_name() -> Vec<u8> {

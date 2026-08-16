@@ -438,11 +438,20 @@ impl RuntimeAudioNotificationWaitPlan {
 
     pub(crate) fn matches_rebased_host_payload(&self, payload: &[u8]) -> bool {
         let expected = self.encode_host_payload();
-        const GENERATION_START: usize = 5 * 4;
-        const GENERATION_END: usize = 7 * 4;
+        // Multiple guest threads can wait on the same notification array at
+        // once. The browser serializes those deadlines by buffer cadence, so a
+        // preceding completion legitimately advances the Rust-owned result,
+        // generation, position, and cursor before the next completion arrives.
+        // Keep the captured service version, delay, buffer identity, timeout,
+        // and handle array fixed while rebasing only that dynamic interval.
+        const DYNAMIC_START: usize = 2 * 4;
+        const BUFFER_ID_START: usize = 3 * 4;
+        const BUFFER_ID_END: usize = 5 * 4;
+        const DYNAMIC_END: usize = 11 * 4;
         payload.len() == expected.len()
-            && payload[..GENERATION_START] == expected[..GENERATION_START]
-            && payload[GENERATION_END..] == expected[GENERATION_END..]
+            && payload[..DYNAMIC_START] == expected[..DYNAMIC_START]
+            && payload[BUFFER_ID_START..BUFFER_ID_END] == expected[BUFFER_ID_START..BUFFER_ID_END]
+            && payload[DYNAMIC_END..] == expected[DYNAMIC_END..]
     }
 }
 
@@ -2713,10 +2722,24 @@ mod tests {
         audio.commit_buffer_control(volume);
         let rebased_wait = audio.plan_notification_wait(&handles, 100).unwrap();
         assert!(rebased_wait.matches_rebased_host_payload(&pending_wait_payload));
-        let mut changed_position_payload = pending_wait_payload.clone();
-        changed_position_payload[7 * 4..8 * 4].copy_from_slice(&4u32.to_le_bytes());
-        assert!(!rebased_wait.matches_rebased_host_payload(&changed_position_payload));
-        for expected_position in [17_640, 35_280] {
+        assert_eq!(audio.commit_notification_wait(rebased_wait), None);
+        assert_eq!(
+            audio
+                .buffer(RuntimeAudioBufferId(1))
+                .unwrap()
+                .controls
+                .current_position_bytes,
+            17_640
+        );
+        let overlapped_wait = audio.plan_notification_wait(&handles, 100).unwrap();
+        assert!(overlapped_wait.matches_rebased_host_payload(&pending_wait_payload));
+        let mut changed_delay_payload = pending_wait_payload.clone();
+        changed_delay_payload[4..8].copy_from_slice(&99u32.to_le_bytes());
+        assert!(!overlapped_wait.matches_rebased_host_payload(&changed_delay_payload));
+        let mut changed_handle_payload = pending_wait_payload.clone();
+        changed_handle_payload[13 * 4..14 * 4].copy_from_slice(&0u32.to_le_bytes());
+        assert!(!overlapped_wait.matches_rebased_host_payload(&changed_handle_payload));
+        for expected_position in [35_280] {
             let wait = audio.plan_notification_wait(&handles, 100).unwrap();
             assert_eq!(wait.delay_milliseconds(), 100);
             assert_eq!(wait.result_index(), None);

@@ -1,13 +1,13 @@
 use serde::Serialize;
 
 use crate::api::{
-    AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDirection,
-    ApiDynamicPointerConstraint, ApiEndpointIdentity, ApiFault, ApiGuestWrite,
-    ApiGuestWriteReceipt, ApiHandlerResult, ApiImmediate, ApiPointeeSchema, ApiPointerConstraint,
-    ApiReturnSchema, ApiReturnValue, ApiStringEncoding, ApiSymbol, ApiValueSchema,
-    ApiWriteRequirement, CallbackPolicy, CallingConvention, ExecutionSession,
-    GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest, LastErrorPolicy,
-    ReentrancyPolicy, StackCleanup,
+    AbiSchema, ApiArgumentSchema, ApiBehavior, ApiCallFrame, ApiContract, ApiDeferredCall,
+    ApiDirection, ApiDispatcher, ApiDynamicPointerConstraint, ApiEndpointIdentity, ApiFault,
+    ApiGuestWrite, ApiGuestWriteReceipt, ApiHandlerResult, ApiImmediate, ApiPointeeSchema,
+    ApiPointerConstraint, ApiReturnSchema, ApiReturnValue, ApiStringEncoding, ApiSymbol,
+    ApiValueSchema, ApiWriteRequirement, CallbackPolicy, CallingConvention, DispatchOutcome,
+    ExecutionSession, GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest,
+    HostRequest, LastErrorPolicy, ReentrancyPolicy, StackCleanup,
 };
 use crate::memory::{GuestAddress, MemoryAccess};
 use crate::runtime::{
@@ -15,7 +15,7 @@ use crate::runtime::{
     RUNTIME_GDI_BITMAP_BYTE_LENGTH, RUNTIME_GDI_DEFAULT_BITMAP_INDEX, RUNTIME_GDI_DIB_BI_RGB,
     RUNTIME_GDI_DIB_RGB_COLORS, RUNTIME_GDI_SYSTEM_FONT_INDEX, RUNTIME_LOG_FONT_A_BYTE_LENGTH,
     RUNTIME_LOG_FONT_A_FACE_CAPACITY, RuntimeGdiDibSectionDescriptor, RuntimeGdiRgbQuad,
-    RuntimeLogFontA, RuntimeStateErrorClass,
+    RuntimeGdiTextRasterTarget, RuntimeHostCompletion, RuntimeLogFontA, RuntimeStateErrorClass,
 };
 
 pub const GDI32_COMPATIBILITY_POLICY_SCHEMA: &str = "vine.gdi32-compatibility-policy";
@@ -32,6 +32,7 @@ pub const GET_OBJECT_A_IMPLEMENTATION: &str = "gdi32.get-object-a.font-or-dib.v1
 pub const GET_OUTLINE_TEXT_METRICS_A_IMPLEMENTATION: &str =
     "gdi32.get-outline-text-metrics-a.cp932-selected-font.v1";
 pub const TEXT_OUT_A_IMPLEMENTATION: &str = "gdi32.text-out-a.cp932-8bpp-raster.v1";
+pub const RUNTIME_GDI_TEXT_RASTER_SERVICE: &str = "browser.gdi-text-raster.v1";
 pub const SELECT_OBJECT_IMPLEMENTATION: &str = "gdi32.select-object.memory-font-bitmap.v1";
 pub const DELETE_OBJECT_IMPLEMENTATION: &str = "gdi32.delete-object.font-or-dib.v1";
 pub const X86_LOGFONTA_BYTE_LENGTH: u32 = RUNTIME_LOG_FONT_A_BYTE_LENGTH as u32;
@@ -48,8 +49,10 @@ pub const X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH: usize = 269;
 const SHIFT_JIS_CHARSET: u8 = 128;
 const PRIMARY_FONT_CREATION_PROFILE_ID: &str = "primary-cp932-ms-gothic-64x32-thin-v1";
 const POST_HEAP_GROWTH_FONT_CREATION_PROFILE_ID: &str = "primary-cp932-ms-gothic-224x112-thin-v1";
+const SCENARIO_FONT_CREATION_PROFILE_ID: &str = "primary-cp932-ms-gothic-80x40-thin-v1";
 const PRIMARY_DIB_SECTION_PROFILE_ID: &str = "primary-128x-96-8bpp-reverse-grayscale-v1";
 const POST_CREATE_FONT_DIB_SECTION_PROFILE_ID: &str = "primary-448x-336-8bpp-reverse-grayscale-v1";
+const SCENARIO_DIB_SECTION_PROFILE_ID: &str = "primary-160x-120-8bpp-reverse-grayscale-v1";
 const ERROR_INVALID_HANDLE: u32 = 6;
 const ERROR_CAN_NOT_COMPLETE: u32 = 1003;
 const TRUETYPE_FONTTYPE: u32 = 0x0000_0004;
@@ -193,6 +196,148 @@ pub struct Gdi32TextOutAPolicy {
     pub foreground_pixel: u8,
     pub changed_byte_count: u32,
     pub output_pixel_plane_fnv1a32: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Gdi32TextRasterHostResponse {
+    pub request_id: u64,
+    pub pixels: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Gdi32TextRasterHostRequest {
+    device_context: u32,
+    selection_generation: u64,
+    font_id: u64,
+    dib_section_id: u64,
+    content_generation: u64,
+    font_height: i32,
+    font_width: i32,
+    font_weight: i32,
+    dib_width: i32,
+    dib_height: i32,
+    stride_bytes: u32,
+    pixel_byte_length: u32,
+    character_count: u32,
+    packed_text: u32,
+    initial_pixel: u8,
+    preserved_last_error: u32,
+}
+
+impl Gdi32TextRasterHostRequest {
+    const VERSION: u32 = 1;
+    const WORD_COUNT: usize = 21;
+
+    fn from_target(
+        target: &RuntimeGdiTextRasterTarget,
+        text: &[u8],
+        initial_pixel: u8,
+        preserved_last_error: u32,
+    ) -> Self {
+        let mut packed_text = 0_u32;
+        for (index, byte) in text.iter().copied().enumerate() {
+            packed_text |= u32::from(byte) << (index * 8);
+        }
+        Self {
+            device_context: target.device_context_handle,
+            selection_generation: target.selection_generation,
+            font_id: target.font_id.0,
+            dib_section_id: target.dib_section_id.0,
+            content_generation: target.backing.content_generation,
+            font_height: target.log_font.height,
+            font_width: target.log_font.width,
+            font_weight: target.log_font.weight,
+            dib_width: target.descriptor.width,
+            dib_height: target.descriptor.height,
+            stride_bytes: target.descriptor.stride_bytes,
+            pixel_byte_length: target.descriptor.pixel_byte_length,
+            character_count: text.len() as u32,
+            packed_text,
+            initial_pixel,
+            preserved_last_error,
+        }
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        let words = [
+            Self::VERSION,
+            self.device_context,
+            self.selection_generation as u32,
+            (self.selection_generation >> 32) as u32,
+            self.font_id as u32,
+            (self.font_id >> 32) as u32,
+            self.dib_section_id as u32,
+            (self.dib_section_id >> 32) as u32,
+            self.content_generation as u32,
+            (self.content_generation >> 32) as u32,
+            self.font_height as u32,
+            self.font_width as u32,
+            self.font_weight as u32,
+            self.dib_width as u32,
+            self.dib_height as u32,
+            self.stride_bytes,
+            self.pixel_byte_length,
+            self.character_count,
+            self.packed_text,
+            u32::from(self.initial_pixel),
+            self.preserved_last_error,
+        ];
+        words.into_iter().flat_map(u32::to_le_bytes).collect()
+    }
+
+    fn decode(bytes: &[u8]) -> Result<Self, ApiFault> {
+        if bytes.len() != Self::WORD_COUNT * 4 {
+            return Err(ApiFault::invalid_call(
+                "gdi32-text-raster",
+                "text-raster-host-payload-size-invalid",
+                "browser text raster request has an invalid bounded payload size",
+            ));
+        }
+        let words = bytes
+            .chunks_exact(4)
+            .map(|word| u32::from_le_bytes(word.try_into().expect("four-byte chunk")))
+            .collect::<Vec<_>>();
+        if words[0] != Self::VERSION || words[19] > u32::from(u8::MAX) {
+            return Err(ApiFault::invalid_call(
+                "gdi32-text-raster",
+                "text-raster-host-payload-version-invalid",
+                "browser text raster request version or pixel encoding is invalid",
+            ));
+        }
+        Ok(Self {
+            device_context: words[1],
+            selection_generation: u64::from(words[2]) | (u64::from(words[3]) << 32),
+            font_id: u64::from(words[4]) | (u64::from(words[5]) << 32),
+            dib_section_id: u64::from(words[6]) | (u64::from(words[7]) << 32),
+            content_generation: u64::from(words[8]) | (u64::from(words[9]) << 32),
+            font_height: words[10] as i32,
+            font_width: words[11] as i32,
+            font_weight: words[12] as i32,
+            dib_width: words[13] as i32,
+            dib_height: words[14] as i32,
+            stride_bytes: words[15],
+            pixel_byte_length: words[16],
+            character_count: words[17],
+            packed_text: words[18],
+            initial_pixel: words[19] as u8,
+            preserved_last_error: words[20],
+        })
+    }
+
+    fn matches_target(&self, target: &RuntimeGdiTextRasterTarget) -> bool {
+        self.device_context == target.device_context_handle
+            && self.selection_generation == target.selection_generation
+            && self.font_id == target.font_id.0
+            && self.dib_section_id == target.dib_section_id.0
+            && self.content_generation == target.backing.content_generation
+            && self.font_height == target.log_font.height
+            && self.font_width == target.log_font.width
+            && self.font_weight == target.log_font.weight
+            && self.dib_width == target.descriptor.width
+            && self.dib_height == target.descriptor.height
+            && self.stride_bytes == target.descriptor.stride_bytes
+            && self.pixel_byte_length == target.descriptor.pixel_byte_length
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -381,10 +526,7 @@ pub fn dispatch_gdi32_api_with_policy(
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
         }
-        TEXT_OUT_A_IMPLEMENTATION => match handle_text_out_a(policy, contract, frame, session) {
-            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
-            Err(fault) => ApiHandlerResult::Fault(fault),
-        },
+        TEXT_OUT_A_IMPLEMENTATION => handle_text_out_a(policy, contract, frame, session),
         ENUM_FONT_FAMILIES_EX_A_IMPLEMENTATION => handle_enum_font_families_ex_a(
             policy,
             callback_return_sentinel,
@@ -772,6 +914,247 @@ fn handle_text_out_a(
     contract: &ApiContract,
     frame: &ApiCallFrame,
     session: &mut ExecutionSession<'_>,
+) -> ApiHandlerResult {
+    let result = (|| -> Result<ApiHandlerResult, ApiFault> {
+        let text_policy = policy.text_out_a.as_ref().ok_or_else(|| {
+            ApiFault::unsupported(
+                "gdi32-text-raster",
+                "text-out-a-policy-disabled",
+                format!(
+                    "compatibility policy {} does not enable ANSI text rasterization",
+                    policy.id
+                ),
+            )
+        })?;
+        let device_context = required_argument(frame, 0, "device context")?;
+        let x = required_argument(frame, 1, "x")? as i32;
+        let y = required_argument(frame, 2, "y")? as i32;
+        let text_address = GuestAddress(required_argument(frame, 3, "ANSI text")?);
+        let character_count = required_argument(frame, 4, "character count")?;
+        let preserved_last_error = session
+            .last_error()
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        let target = match session.get_gdi_text_raster_target(device_context) {
+            Ok(target) => target,
+            Err(error)
+                if matches!(
+                    error.class,
+                    RuntimeStateErrorClass::NotFound | RuntimeStateErrorClass::Conflict
+                ) =>
+            {
+                return Ok(ApiHandlerResult::Immediate(
+                    ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(0),
+                ));
+            }
+            Err(error)
+                if error.code == "text-raster-selected-font-unsupported"
+                    || error.code == "text-raster-selected-bitmap-unsupported" =>
+            {
+                return Err(ApiFault::unsupported(
+                    "gdi32-text-raster",
+                    error.code,
+                    "TextOutA requires a supported created FontA and 8bpp DIB selection",
+                ));
+            }
+            Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+        };
+        let primary_profile = supported_text_raster_profile(policy, &target)?;
+        if character_count == 0 {
+            if text_address.0 != 0 || x != text_policy.x || y != text_policy.y {
+                return Err(ApiFault::unsupported(
+                    "gdi32-text-raster",
+                    "text-out-a-zero-length-variant-unsupported",
+                    "zero-length TextOutA supports only a NULL text pointer at the reached origin",
+                ));
+            }
+            return Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(ApiReturnValue::Bool32(true))
+                    .with_last_error(preserved_last_error),
+            ));
+        }
+        if x != text_policy.x || y != text_policy.y || !(1..=2).contains(&character_count) {
+            return Err(ApiFault::unsupported(
+                "gdi32-text-raster",
+                "text-out-a-variant-unsupported",
+                "TextOutA supports the reached one- or two-byte Windows-932 glyph at the origin",
+            ));
+        }
+        if text_address.0 == 0 {
+            return Err(ApiFault::invalid_call(
+                "gdi32-text-raster",
+                "text-out-a-text-null",
+                "TextOutA requires a readable text buffer when count is nonzero",
+            ));
+        }
+        let text = session
+            .memory()
+            .read(text_address, character_count as usize)
+            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        if !valid_windows_932_glyph(&text) {
+            return Err(ApiFault::unsupported(
+                "gdi32-text-raster",
+                "text-out-a-text-variant-unsupported",
+                "TextOutA received an unsupported Windows-932 byte sequence",
+            ));
+        }
+        let pixel_byte_length =
+            usize::try_from(target.descriptor.pixel_byte_length).map_err(|_| {
+                ApiFault::runtime_defect(
+                    "gdi32-text-raster",
+                    "text-out-a-pixel-length-unrepresentable",
+                    "selected DIB pixel length does not fit host accounting",
+                )
+            })?;
+        session
+            .memory()
+            .validate_access(
+                target.backing.range.start(),
+                pixel_byte_length,
+                MemoryAccess::Write,
+            )
+            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        let pixel_plane = session
+            .memory()
+            .read(target.backing.range.start(), pixel_byte_length)
+            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
+        if pixel_plane
+            .iter()
+            .any(|&pixel| pixel != text_policy.initial_pixel)
+        {
+            return Err(ApiFault::unsupported(
+                "gdi32-text-raster",
+                "text-out-a-initial-pixels-unsupported",
+                "TextOutA requires the caller-cleared uniform DIB pixel plane",
+            ));
+        }
+        if primary_profile
+            && target.backing.content_generation == 0
+            && text == text_policy.text_windows_932
+        {
+            return handle_primary_text_out_a(policy, contract, frame, session)
+                .map(ApiHandlerResult::Immediate);
+        }
+        let payload = Gdi32TextRasterHostRequest::from_target(
+            &target,
+            &text,
+            text_policy.initial_pixel,
+            preserved_last_error,
+        )
+        .encode();
+        let request = session
+            .runtime_mut()
+            .begin_host_request(RUNTIME_GDI_TEXT_RASTER_SERVICE)
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        Ok(ApiHandlerResult::Deferred(HostRequest {
+            request_id: request.request_id,
+            service: RUNTIME_GDI_TEXT_RASTER_SERVICE.to_owned(),
+            payload,
+        }))
+    })();
+    match result {
+        Ok(outcome) => outcome,
+        Err(fault) => ApiHandlerResult::Fault(fault),
+    }
+}
+
+fn supported_text_raster_profile(
+    policy: &Gdi32CompatibilityPolicy,
+    target: &RuntimeGdiTextRasterTarget,
+) -> Result<bool, ApiFault> {
+    let creation = policy.create_font_a.as_ref().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "gdi32-text-raster",
+            "text-out-a-font-policy-missing",
+            "TextOutA policy requires created FontA profiles",
+        )
+    })?;
+    let dib_policy = policy.create_dib_section.as_ref().ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "gdi32-text-raster",
+            "text-out-a-dib-policy-missing",
+            "TextOutA policy requires DIB section profiles",
+        )
+    })?;
+    let primary_font = font_creation_profile(creation, PRIMARY_FONT_CREATION_PROFILE_ID)
+        .ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "gdi32-text-raster",
+                "text-out-a-font-profile-missing",
+                "TextOutA policy is missing the primary font profile",
+            )
+        })?;
+    let primary_dib =
+        dib_section_profile(dib_policy, PRIMARY_DIB_SECTION_PROFILE_ID).ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "gdi32-text-raster",
+                "text-out-a-dib-profile-missing",
+                "TextOutA policy is missing the primary DIB profile",
+            )
+        })?;
+    if target.log_font == primary_font.log_font && target.descriptor == primary_dib.descriptor {
+        return Ok(true);
+    }
+    let scenario_font = font_creation_profile(creation, POST_HEAP_GROWTH_FONT_CREATION_PROFILE_ID)
+        .ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "gdi32-text-raster",
+                "text-out-a-scenario-font-profile-missing",
+                "TextOutA policy is missing the reached scenario font profile",
+            )
+        })?;
+    let scenario_dib = dib_section_profile(dib_policy, POST_CREATE_FONT_DIB_SECTION_PROFILE_ID)
+        .ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "gdi32-text-raster",
+                "text-out-a-scenario-dib-profile-missing",
+                "TextOutA policy is missing the reached scenario DIB profile",
+            )
+        })?;
+    if target.log_font == scenario_font.log_font && target.descriptor == scenario_dib.descriptor {
+        return Ok(false);
+    }
+    let dialogue_font = font_creation_profile(creation, SCENARIO_FONT_CREATION_PROFILE_ID)
+        .ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "gdi32-text-raster",
+                "text-out-a-dialogue-font-profile-missing",
+                "TextOutA policy is missing the reached dialogue font profile",
+            )
+        })?;
+    let dialogue_dib = dib_section_profile(dib_policy, SCENARIO_DIB_SECTION_PROFILE_ID)
+        .ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "gdi32-text-raster",
+                "text-out-a-dialogue-dib-profile-missing",
+                "TextOutA policy is missing the reached dialogue DIB profile",
+            )
+        })?;
+    if target.log_font == dialogue_font.log_font && target.descriptor == dialogue_dib.descriptor {
+        return Ok(false);
+    }
+    Err(ApiFault::unsupported(
+        "gdi32-text-raster",
+        "text-out-a-selection-variant-unsupported",
+        "TextOutA selected font and DIB do not match a reached raster profile pair",
+    ))
+}
+
+fn valid_windows_932_glyph(text: &[u8]) -> bool {
+    match text {
+        [byte] => matches!(*byte, 0x20..=0x7e | 0xa1..=0xdf),
+        [lead, trail] => {
+            matches!(*lead, 0x81..=0x9f | 0xe0..=0xfc)
+                && matches!(*trail, 0x40..=0x7e | 0x80..=0xfc)
+        }
+        _ => false,
+    }
+}
+
+fn handle_primary_text_out_a(
+    policy: &Gdi32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
 ) -> Result<ApiImmediate, ApiFault> {
     let text_policy = policy.text_out_a.as_ref().ok_or_else(|| {
         ApiFault::unsupported(
@@ -1062,6 +1445,114 @@ fn handle_text_out_a(
             result: write_result,
         })
         .with_last_error(0))
+}
+
+pub fn complete_gdi32_text_raster(
+    dispatcher: &ApiDispatcher,
+    call: ApiDeferredCall,
+    response: Gdi32TextRasterHostResponse,
+    session: &mut ExecutionSession<'_>,
+) -> (DispatchOutcome, Option<RuntimeHostCompletion>) {
+    if call.contract.implementation_id != TEXT_OUT_A_IMPLEMENTATION
+        || call.request.request_id != response.request_id
+        || call.request.service != RUNTIME_GDI_TEXT_RASTER_SERVICE
+    {
+        return (
+            DispatchOutcome::Fault(ApiFault::invalid_call(
+                "gdi32-text-raster",
+                "text-raster-suspended-call-mismatch",
+                "browser text raster completion does not match its suspended TextOutA call",
+            )),
+            None,
+        );
+    }
+    let request = match Gdi32TextRasterHostRequest::decode(&call.request.payload) {
+        Ok(request) => request,
+        Err(fault) => return (DispatchOutcome::Fault(fault), None),
+    };
+    let endpoint = call.contract.endpoint.clone();
+    let frame_matches = call.frame.argument_u32(0) == Some(request.device_context)
+        && call.frame.argument_u32(1) == Some(0)
+        && call.frame.argument_u32(2) == Some(0)
+        && call.frame.argument_u32(4) == Some(request.character_count);
+    let text_bytes = request.packed_text.to_le_bytes();
+    let text_length = request.character_count as usize;
+    if !frame_matches
+        || !(1..=2).contains(&request.character_count)
+        || text_bytes[text_length..].iter().any(|byte| *byte != 0)
+        || !valid_windows_932_glyph(&text_bytes[..text_length])
+        || request.initial_pixel != 0
+    {
+        return (
+            DispatchOutcome::Fault(ApiFault::invalid_call(
+                "gdi32-text-raster",
+                "text-raster-host-payload-mismatch",
+                "browser text raster payload differs from the captured TextOutA call",
+            )),
+            None,
+        );
+    }
+    let target = match session.pending_gdi_text_raster_target(
+        response.request_id,
+        RUNTIME_GDI_TEXT_RASTER_SERVICE,
+        request.device_context,
+    ) {
+        Ok(target) => target,
+        Err(error) => {
+            return (
+                DispatchOutcome::Fault(ApiFault::from_runtime(error, &endpoint)),
+                None,
+            );
+        }
+    };
+    if !request.matches_target(&target)
+        || response.pixels.len() != request.pixel_byte_length as usize
+        || response.pixels.is_empty()
+    {
+        return (
+            DispatchOutcome::Fault(ApiFault::invalid_call(
+                "gdi32-text-raster",
+                "text-raster-host-response-mismatch",
+                "browser text raster response length or Rust-owned GDI identity is stale",
+            )),
+            None,
+        );
+    }
+    let completion_plan =
+        match dispatcher.plan_deferred_completion(call, response.request_id, session) {
+            Ok(plan) => plan,
+            Err(fault) => return (DispatchOutcome::Fault(fault), None),
+        };
+    let expected_bytes = vec![request.initial_pixel; response.pixels.len()];
+    let write_address = target.backing.range.start();
+    let (raster, write_result, runtime_completion) = match session.commit_pending_gdi_text_raster(
+        response.request_id,
+        RUNTIME_GDI_TEXT_RASTER_SERVICE,
+        target,
+        0,
+        &expected_bytes,
+        &response.pixels,
+    ) {
+        Ok(result) => result,
+        Err(error) => {
+            return (
+                DispatchOutcome::Fault(ApiFault::from_runtime(error, &endpoint)),
+                None,
+            );
+        }
+    };
+    debug_assert_eq!(raster.content_generation, request.content_generation + 1);
+    let immediate = ApiImmediate::new(ApiReturnValue::Bool32(true))
+        .with_committed_guest_write(ApiGuestWriteReceipt {
+            write: ApiGuestWrite {
+                address: write_address,
+                bytes: response.pixels,
+            },
+            result: write_result,
+        })
+        .with_last_error(request.preserved_last_error);
+    let outcome = dispatcher.complete_preflighted_deferred(completion_plan, immediate, session);
+    (outcome, Some(runtime_completion))
 }
 
 fn handle_select_object(
@@ -1539,7 +2030,7 @@ pub fn text_out_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract,
                 ),
                 u32_argument("x"),
                 u32_argument("y"),
-                dynamic_in_bytes("text", true, 1, 1, 1),
+                dynamic_in_bytes("text", true, 1, 1, 2),
                 u32_argument("characterCount"),
             ],
             return_value: ApiReturnSchema::Bool32,
@@ -1547,7 +2038,7 @@ pub fn text_out_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract,
         },
         last_error_policy: LastErrorPolicy::FromHandler,
         reentrancy_policy: ReentrancyPolicy::Allowed,
-        behavior: ApiBehavior::ImmediateWithCommittedIndirectGuestWrites,
+        behavior: ApiBehavior::ImmediateOrDeferredWithCommittedIndirectGuestWrites,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: TEXT_OUT_A_IMPLEMENTATION.to_owned(),
     })
@@ -1711,6 +2202,7 @@ fn controlled_font_creation_policy() -> Gdi32FontCreationPolicy {
         profiles: vec![
             font_creation_profile_policy(PRIMARY_FONT_CREATION_PROFILE_ID, 64, 32),
             font_creation_profile_policy(POST_HEAP_GROWTH_FONT_CREATION_PROFILE_ID, 224, 112),
+            font_creation_profile_policy(SCENARIO_FONT_CREATION_PROFILE_ID, 80, 40),
         ],
     }
 }
@@ -1781,6 +2273,7 @@ fn controlled_dib_section_policy() -> Gdi32DibSectionPolicy {
                 448,
                 150_528,
             ),
+            controlled_dib_section_profile(SCENARIO_DIB_SECTION_PROFILE_ID, 160, -120, 160, 19_200),
         ],
     }
 }
@@ -1839,6 +2332,11 @@ fn controlled_outline_text_metrics_policy() -> Gdi32OutlineTextMetricsPolicy {
                 "primary-cp932-ms-gothic-224x112-outline-metrics-v1",
                 POST_HEAP_GROWTH_FONT_CREATION_PROFILE_ID,
                 controlled_outline_text_metrics_224x112_a(),
+            ),
+            controlled_outline_text_metrics_profile(
+                "primary-cp932-ms-gothic-80x40-outline-metrics-v1",
+                SCENARIO_FONT_CREATION_PROFILE_ID,
+                controlled_outline_text_metrics_80x40_a(),
             ),
         ],
     }
@@ -1961,6 +2459,51 @@ fn controlled_outline_text_metrics_224x112_a() -> Vec<u8> {
         (184, 58),
         (188, 17),
         (192, -15),
+    ])
+}
+
+fn controlled_outline_text_metrics_80x40_a() -> Vec<u8> {
+    controlled_outline_text_metrics_a(&[
+        (0, X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as i32),
+        (4, 80),
+        (8, 69),
+        (12, 11),
+        (16, 0),
+        (20, 0),
+        (24, 40),
+        (28, 158),
+        (32, 400),
+        (36, 0),
+        (40, 96),
+        (44, 96),
+        (80, 1),
+        (84, 0),
+        (88, 0),
+        (96, 69),
+        (100, -11),
+        (104, 0),
+        (108, 40),
+        (112, 20),
+        (116, -78),
+        (120, 69),
+        (124, 80),
+        (128, -11),
+        (132, 69),
+        (136, -11),
+        (140, 0),
+        (144, 25),
+        (148, 40),
+        (152, 40),
+        (156, 0),
+        (160, 29),
+        (164, 40),
+        (168, 40),
+        (172, 0),
+        (176, 69),
+        (180, 4),
+        (184, 21),
+        (188, 6),
+        (192, -5),
     ])
 }
 
@@ -2274,7 +2817,7 @@ mod tests {
             SHIFT_JIS_CHARSET
         );
         let creation = policy.create_font_a.as_ref().unwrap();
-        assert_eq!(creation.profiles.len(), 2);
+        assert_eq!(creation.profiles.len(), 3);
         let primary = &creation.profiles[0];
         assert_eq!(primary.profile_id, PRIMARY_FONT_CREATION_PROFILE_ID);
         assert_eq!(primary.log_font.height, 64);
@@ -2311,12 +2854,16 @@ mod tests {
             post_heap_growth.log_font.face_name_windows_932,
             MS_GOTHIC_WINDOWS_932
         );
+        let dialogue = &creation.profiles[2];
+        assert_eq!(dialogue.profile_id, SCENARIO_FONT_CREATION_PROFILE_ID);
+        assert_eq!(dialogue.log_font.height, 80);
+        assert_eq!(dialogue.log_font.width, 40);
         let compatible_dc = policy.create_compatible_dc.as_ref().unwrap();
         assert_eq!(compatible_dc.source_device_context, 0);
         assert_eq!(compatible_dc.initial_font_stock_index, 13);
         assert_eq!(compatible_dc.initial_bitmap_stock_index, 21);
         let dib_section = policy.create_dib_section.as_ref().unwrap();
-        assert_eq!(dib_section.profiles.len(), 2);
+        assert_eq!(dib_section.profiles.len(), 3);
         let primary_dib = &dib_section.profiles[0];
         assert_eq!(primary_dib.profile_id, PRIMARY_DIB_SECTION_PROFILE_ID);
         assert_eq!(primary_dib.bitmap_info_header_size, 40);
@@ -2359,8 +2906,14 @@ mod tests {
             post_create_font_dib.descriptor.palette,
             primary_dib.descriptor.palette
         );
+        let dialogue_dib = &dib_section.profiles[2];
+        assert_eq!(dialogue_dib.profile_id, SCENARIO_DIB_SECTION_PROFILE_ID);
+        assert_eq!(dialogue_dib.descriptor.width, 160);
+        assert_eq!(dialogue_dib.descriptor.height, -120);
+        assert_eq!(dialogue_dib.descriptor.stride_bytes, 160);
+        assert_eq!(dialogue_dib.descriptor.pixel_byte_length, 19_200);
         let outline = policy.get_outline_text_metrics_a.as_ref().unwrap();
-        assert_eq!(outline.profiles.len(), 2);
+        assert_eq!(outline.profiles.len(), 3);
         let primary_outline = &outline.profiles[0];
         assert_eq!(
             primary_outline.profile_id,
@@ -2416,6 +2969,17 @@ mod tests {
             &post_heap_growth_outline.metrics_a[212..],
             &primary_outline.metrics_a[212..]
         );
+        let dialogue_outline = &outline.profiles[2];
+        assert_eq!(
+            dialogue_outline.font_creation_profile_id,
+            SCENARIO_FONT_CREATION_PROFILE_ID
+        );
+        assert_eq!(read_i32(&dialogue_outline.metrics_a, 4), 80);
+        assert_eq!(read_i32(&dialogue_outline.metrics_a, 8), 69);
+        assert_eq!(read_i32(&dialogue_outline.metrics_a, 12), 11);
+        assert_eq!(read_i32(&dialogue_outline.metrics_a, 24), 40);
+        assert_eq!(read_i32(&dialogue_outline.metrics_a, 28), 158);
+        assert_eq!(read_i32(&dialogue_outline.metrics_a, 192), -5);
         let text_out = policy.text_out_a.as_ref().unwrap();
         assert_eq!(text_out.text_windows_932, b"a");
         assert_eq!(text_out.cell_top, 20);

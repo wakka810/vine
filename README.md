@@ -11,23 +11,23 @@ This section is generated from [`docs/current-checkpoint.json`](docs/current-che
 |---|---|
 | Active target | Sakura no Uta `BGI.exe` (PE32/i386) in Chrome |
 | Active milestone | `primary-representative-flow`: A bounded real scenario covers launch, readable rendering, multiple inputs, audio, a scene transition, persistent state, restart, and restore without an unsupported stop |
-| Last completed boundary | `primary-visible-action-response-or-readable-frame`: Chrome rendered the complete title including Config and Exit, consumed Start through the authoritative pointer path, advanced into a readable Japanese intro-poem frame, consumed and presented multiple subsequent scenario clicks, and played non-zero primary PCM while source files remained unchanged |
-| Current forward stop | `readable-intro-frame-after-scenario-pointer-campaign` / `none-within-bounded-forward-run`: The release Chrome run reached 95 Presents, completed Start plus four post-title pointer actions and consumed the next release, retained audible streaming and atomic writable state, and stopped only at the former 14.4-billion-instruction development watchdog with no unsupported API, semantic fault, pending callback, or pending host request |
-| Next development goal | Use the optimized JIT-enabled mirror path and higher wall-authoritative instruction budget to advance through the intro poem into the first dialogue or background-scene transition, implementing any reached semantic gap before considering a commit-bound cold-prefix resume cache |
+| Last completed boundary | `primary-readable-dialogue-flow`: Release Chrome rendered the complete title including Config and Exit, consumed Start and 16 subsequent scenario clicks through the authoritative input path, crossed the intro transition, and rendered a readable background scene, dialogue UI, and Japanese dialogue while streaming non-zero PCM and leaving source files unchanged |
+| Current forward stop | `readable-dialogue-after-scenario-pointer-campaign` / `none-within-bounded-forward-run`: The release Chrome run reached 348 Presents, completed all 18 configured pointer actions, rendered readable Japanese dialogue after the background-scene transition, passed the reached 80x40 font and browser-backed CP932 TextOutA path, and stopped only at the 36-billion-instruction development watchdog with no unsupported endpoint, semantic fault, pending callback, or pending host request |
+| Next development goal | Measure and remove the remaining DirectSound streaming repeat caused by guest ring-buffer updates falling behind the browser playback cursor, then extend the bounded scenario from readable dialogue to the first in-story save/load gateway |
 
 ### Subsystems
 
 | Subsystem | Status | Boundary |
 |---|---|---|
 | `execution` | `partial` | PE32 loading, JIT-enabled x86 execution, checked GuestMemory synchronization, process/thread scheduling, callbacks, and generic forward capture are active; mirror host-delta preflight and guest reads use bounded indexes without weakening atomic validation |
-| `window-input` | `partial` | Logical window, message queue, timers, focus/cursor state, keyboard scan, and primary down/up dispatch are active; Start and multiple centered post-title clicks are guest-consumed and visibly presented |
-| `graphics` | `partial` | GDI/GDI+ reached paths and bounded D3D9 fixed-function scenes publish through WebGL2; the complete title artwork and a readable Japanese intro-poem frame render with owner-validated texture updates |
+| `window-input` | `partial` | Logical window, message queue, timers, focus/cursor state, keyboard scan, and primary down/up dispatch are active; Start and all 16 centered post-title clicks in the current campaign are guest-consumed and visibly presented |
+| `graphics` | `partial` | GDI/GDI+ reached paths and bounded D3D9 fixed-function scenes publish through WebGL2; owner-validated browser-backed CP932 TextOutA rasterization and the reached 80x40 MS Gothic metrics render the complete title, intro poem, background scene, dialogue UI, and readable Japanese dialogue |
 | `source-storage` | `partial` | Immutable source reads and a title-local forward.sqlite overlay are separated; BGI.gdb commit generation and content survive browser/local-service restart and are hash-checked before Rust hydration |
-| `audio` | `partial` | Reached DirectSound streaming buffers, partial and wrapping Lock/Unlock, captured notification waits, status/cursor control, and Play/Stop publish non-zero primary PCM through generation-safe Chrome Web Audio transport |
+| `audio` | `partial` | Reached DirectSound streaming buffers, partial and wrapping Lock/Unlock, captured notification waits, status/cursor control, and Play/Stop publish non-zero primary PCM through generation-safe Chrome Web Audio transport; overlapping waits now rebase from Rust authority without a false payload fault |
 
 ### Important Non-Claims
 
-- The intro poem is readable and multiple post-title clicks are consumed, but the first dialogue/background scene transition and a representative scenario flow are not yet accepted
+- The first background scene, dialogue UI, and Japanese dialogue are readable after 16 scenario clicks, but the representative flow through an in-story save/load boundary is not yet accepted
 - The persistence milestone covers the reached title-local BGI.gdb configuration overlay; an in-story save-slot and Load-menu roundtrip are not yet claimed
 - Primary audio progresses and content updates are observed, but the reported two-to-three-repeat cadence, format breadth, suspend/resume behavior, and long-run streaming stability are not yet accepted
 - No representative route, ending, or long-run acceptance is claimed

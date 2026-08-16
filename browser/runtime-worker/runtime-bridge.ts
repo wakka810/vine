@@ -311,6 +311,11 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     controlLength: number,
     payloadLength: number,
   ): number;
+  vine_bridge_complete_gdi_text_raster(
+    low: number,
+    high: number,
+    payloadLength: number,
+  ): number;
   vine_bridge_writable_commit_payload(low: number, high: number): number;
   vine_bridge_complete_writable_commit(
     low: number,
@@ -724,6 +729,21 @@ export class RuntimeBridge {
         high,
         control.byteLength,
         payload.byteLength,
+      ),
+    );
+  }
+
+  completeGdiTextRaster<T = Record<string, unknown>>(
+    requestId: bigint,
+    pixels: Uint8Array,
+  ): BridgeOutput<T> {
+    this.#setInput([pixels]);
+    const [low, high] = splitU64(requestId);
+    return this.#invoke(() =>
+      this.#exports.vine_bridge_complete_gdi_text_raster(
+        low,
+        high,
+        pixels.byteLength,
       ),
     );
   }

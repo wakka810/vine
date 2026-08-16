@@ -32,15 +32,15 @@ use crate::runtime::{
     RuntimeGdiTextRasterResult, RuntimeGdiTextRasterTarget, RuntimeGdiplusSession,
     RuntimeGdiplusStartupRequest, RuntimeGetDcResult, RuntimeGuestImport,
     RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation,
-    RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeMessagePeekDisposition,
-    RuntimePaintSession, RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
-    RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
-    RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeState,
-    RuntimeStateError, RuntimeStateErrorClass, RuntimeUpdateWindowCallbackAction,
-    RuntimeUpdateWindowOperation, RuntimeVirtualMemoryReservation,
-    RuntimeVirtualMemoryReserveRequest, RuntimeWindowCreationCallbackAction,
-    RuntimeWindowCreationMessage, RuntimeWindowId, RuntimeWritableReadResult,
-    RuntimeWritableWriteResult,
+    RuntimeHeapInitialization, RuntimeHeapTeardown, RuntimeHostCompletion,
+    RuntimeMessagePeekDisposition, RuntimePaintSession, RuntimeSetWindowPosCallbackAction,
+    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
+    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosDefaultOperation,
+    RuntimeSetWindowPosOperation, RuntimeState, RuntimeStateError, RuntimeStateErrorClass,
+    RuntimeUpdateWindowCallbackAction, RuntimeUpdateWindowOperation,
+    RuntimeVirtualMemoryReservation, RuntimeVirtualMemoryReserveRequest,
+    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage, RuntimeWindowId,
+    RuntimeWritableReadResult, RuntimeWritableWriteResult,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -325,6 +325,7 @@ pub enum ApiBehavior {
     ImmediateWithCommittedIndirectGuestWrites,
     Deferred,
     ImmediateOrDeferred,
+    ImmediateOrDeferredWithCommittedIndirectGuestWrites,
 }
 
 impl ApiBehavior {
@@ -333,11 +334,20 @@ impl ApiBehavior {
     }
 
     fn permits_deferred(self) -> bool {
-        matches!(self, Self::Deferred | Self::ImmediateOrDeferred)
+        matches!(
+            self,
+            Self::Deferred
+                | Self::ImmediateOrDeferred
+                | Self::ImmediateOrDeferredWithCommittedIndirectGuestWrites
+        )
     }
 
     fn permits_committed_indirect_guest_writes(self) -> bool {
-        matches!(self, Self::ImmediateWithCommittedIndirectGuestWrites)
+        matches!(
+            self,
+            Self::ImmediateWithCommittedIndirectGuestWrites
+                | Self::ImmediateOrDeferredWithCommittedIndirectGuestWrites
+        )
     }
 }
 
@@ -1101,6 +1111,10 @@ pub struct ApiDeferredCall {
     pub frame: ApiCallFrame,
 }
 
+pub(crate) struct ApiDeferredCompletionPlan {
+    call: ApiDeferredCall,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiGuestCallbackCall {
@@ -1344,6 +1358,46 @@ impl<'a> ExecutionSession<'a> {
     ) -> Result<(RuntimeGdiTextRasterResult, GuestWriteResult), RuntimeStateError> {
         self.runtime.commit_gdi_text_raster(
             self.memory,
+            target,
+            byte_offset,
+            expected_bytes,
+            replacement_bytes,
+        )
+    }
+
+    pub fn pending_gdi_text_raster_target(
+        &self,
+        request_id: u64,
+        expected_service: &str,
+        device_context_handle: u32,
+    ) -> Result<RuntimeGdiTextRasterTarget, RuntimeStateError> {
+        self.runtime.pending_gdi_text_raster_target(
+            request_id,
+            expected_service,
+            device_context_handle,
+        )
+    }
+
+    pub fn commit_pending_gdi_text_raster(
+        &mut self,
+        request_id: u64,
+        expected_service: &str,
+        target: RuntimeGdiTextRasterTarget,
+        byte_offset: u32,
+        expected_bytes: &[u8],
+        replacement_bytes: &[u8],
+    ) -> Result<
+        (
+            RuntimeGdiTextRasterResult,
+            GuestWriteResult,
+            RuntimeHostCompletion,
+        ),
+        RuntimeStateError,
+    > {
+        self.runtime.commit_pending_gdi_text_raster(
+            self.memory,
+            request_id,
+            expected_service,
             target,
             byte_offset,
             expected_bytes,
@@ -2269,27 +2323,49 @@ impl ApiDispatcher {
         completion: HostCompletion,
         session: &mut ExecutionSession<'_>,
     ) -> DispatchOutcome {
-        if call.request.request_id != completion.request_id {
-            return DispatchOutcome::Fault(
-                ApiFault::invalid_call(
-                    "api-dispatch",
-                    "host-completion-request-mismatch",
-                    "host completion does not identify the suspended API request",
-                )
-                .with_endpoint(&call.frame.endpoint),
-            );
+        let plan = match self.plan_deferred_completion(call, completion.request_id, session) {
+            Ok(plan) => plan,
+            Err(fault) => return DispatchOutcome::Fault(fault),
+        };
+        self.complete_preflighted_deferred(plan, completion.result, session)
+    }
+
+    pub(crate) fn plan_deferred_completion(
+        &self,
+        call: ApiDeferredCall,
+        request_id: u64,
+        session: &ExecutionSession<'_>,
+    ) -> Result<ApiDeferredCompletionPlan, ApiFault> {
+        if call.request.request_id != request_id {
+            return Err(ApiFault::invalid_call(
+                "api-dispatch",
+                "host-completion-request-mismatch",
+                "host completion does not identify the suspended API request",
+            )
+            .with_endpoint(&call.frame.endpoint));
         }
         if !call.contract.behavior.permits_deferred() {
-            return DispatchOutcome::Fault(
-                ApiFault::runtime_defect(
-                    "api-dispatch",
-                    "deferred-completion-contract-mismatch",
-                    "suspended host call does not carry a deferred API contract",
-                )
-                .with_endpoint(&call.frame.endpoint),
-            );
+            return Err(ApiFault::runtime_defect(
+                "api-dispatch",
+                "deferred-completion-contract-mismatch",
+                "suspended host call does not carry a deferred API contract",
+            )
+            .with_endpoint(&call.frame.endpoint));
         }
-        self.complete_suspended(call.contract, call.frame, completion.result, session)
+        self.validate_suspended_call(&call.contract, &call.frame, session)?;
+        Ok(ApiDeferredCompletionPlan { call })
+    }
+
+    pub(crate) fn complete_preflighted_deferred(
+        &self,
+        plan: ApiDeferredCompletionPlan,
+        result: ApiImmediate,
+        session: &mut ExecutionSession<'_>,
+    ) -> DispatchOutcome {
+        match complete_immediate(session, &plan.call.contract, plan.call.frame, result) {
+            Ok(completion) => DispatchOutcome::Immediate(completion),
+            Err(fault) => DispatchOutcome::Fault(fault),
+        }
     }
 
     pub fn complete_guest_callback(
@@ -2401,27 +2477,34 @@ impl ApiDispatcher {
         result: ApiImmediate,
         session: &mut ExecutionSession<'_>,
     ) -> DispatchOutcome {
-        let endpoint = &frame.endpoint;
-        if self.endpoints_by_id.get(&endpoint.registry_key()) != Some(endpoint)
-            || self.endpoints_by_address.get(&endpoint.address) != Some(endpoint)
-            || self.contracts.get(&endpoint.address) != Some(&contract)
-        {
-            return DispatchOutcome::Fault(
-                ApiFault::invalid_call(
-                    "api-dispatch",
-                    "suspended-call-identity-mismatch",
-                    "suspended API metadata no longer matches the dispatcher registry",
-                )
-                .with_endpoint(endpoint),
-            );
-        }
-        if let Err(fault) = validate_bound_iat(session.memory(), endpoint) {
+        if let Err(fault) = self.validate_suspended_call(&contract, &frame, session) {
             return DispatchOutcome::Fault(fault);
         }
         match complete_immediate(session, &contract, frame, result) {
             Ok(completion) => DispatchOutcome::Immediate(completion),
             Err(fault) => DispatchOutcome::Fault(fault),
         }
+    }
+
+    fn validate_suspended_call(
+        &self,
+        contract: &ApiContract,
+        frame: &ApiCallFrame,
+        session: &ExecutionSession<'_>,
+    ) -> Result<(), ApiFault> {
+        let endpoint = &frame.endpoint;
+        if self.endpoints_by_id.get(&endpoint.registry_key()) != Some(endpoint)
+            || self.endpoints_by_address.get(&endpoint.address) != Some(endpoint)
+            || self.contracts.get(&endpoint.address) != Some(contract)
+        {
+            return Err(ApiFault::invalid_call(
+                "api-dispatch",
+                "suspended-call-identity-mismatch",
+                "suspended API metadata no longer matches the dispatcher registry",
+            )
+            .with_endpoint(endpoint));
+        }
+        validate_bound_iat(session.memory(), endpoint)
     }
 }
 
@@ -2473,7 +2556,7 @@ fn validate_contract(contract: &ApiContract) -> Result<(), ApiFault> {
         return Err(ApiFault::invalid_call(
             "api-contract",
             "indirect-guest-write-callback-policy-invalid",
-            "committed indirect guest writes require a callback-free immediate contract",
+            "committed indirect guest writes require a callback-free contract",
         )
         .with_endpoint(&contract.endpoint));
     }

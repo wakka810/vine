@@ -11,29 +11,30 @@ use vine_core::{
     CallbackPolicy, CallingConvention, ComCallTrap, ComDispatchOutcome, CpuWritebackFastReceipt,
     CpuWritebackReceipt, D3d9CompatibilityPolicy, Dinput8CompatibilityPolicy, DispatchOutcome,
     DsoundCompatibilityPolicy, ExecutionSession, ExportTarget, GUEST_PAGE_SIZE,
-    Gdi32CompatibilityPolicy, GdiplusCompatibilityPolicy, GuestAddress, GuestCallbackArgument,
-    GuestCallbackCompletionPolicy, GuestCallbackRequest, GuestMemory, GuestRange, HostCompletion,
-    HostRequest, IMM_ASSOCIATE_CONTEXT_IMPLEMENTATION, IMM_GET_DEFAULT_IME_WND_IMPLEMENTATION,
-    Imm32CompatibilityPolicy, ImportBinding, ImportTarget, InitialThreadStack,
-    Kernel32CompatibilityPolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
+    Gdi32CompatibilityPolicy, Gdi32TextRasterHostResponse, GdiplusCompatibilityPolicy,
+    GuestAddress, GuestCallbackArgument, GuestCallbackCompletionPolicy, GuestCallbackRequest,
+    GuestMemory, GuestRange, HostCompletion, HostRequest, IMM_ASSOCIATE_CONTEXT_IMPLEMENTATION,
+    IMM_GET_DEFAULT_IME_WND_IMPLEMENTATION, Imm32CompatibilityPolicy, ImportBinding, ImportTarget,
+    InitialThreadStack, Kernel32CompatibilityPolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
     LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, MappingOperation, MemoryDeltaBuffers,
     MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressAllocationPurpose,
     ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
-    RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE, RUNTIME_WAITABLE_TIMER_PACING_SERVICE,
-    RUNTIME_WRITABLE_COMMIT_SERVICE, RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, ReentrancyPolicy,
-    RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
-    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog,
-    RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization,
-    RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind, RuntimeModule, RuntimeModuleId,
-    RuntimeObjectKind, RuntimePointerButton, RuntimePointerButtonSourceEvent,
-    RuntimePointerButtonSourceEventKind, RuntimePointerPositionSourceEvent,
-    RuntimePointerPositionSourceEventKind, RuntimeProcessId, RuntimeSchedulerEvent,
-    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
-    RuntimeStateErrorClass, RuntimeThreadId, RuntimeWritableCommitHostResponse,
-    RuntimeWritableDirectoryCreateHostResponse, RuntimeWritableProfileManifest,
-    SEND_MESSAGE_A_IMPLEMENTATION, SchedulerThreadState, StackCleanup, USER32_WM_IME_CONTROL,
-    User32CompatibilityPolicy, WinmmCompatibilityPolicy, X86CpuContext, bind_pe32_imports,
-    build_pe32_load_plan, complete_kernel32_audio_notification_wait, complete_kernel32_source_read,
+    RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE, RUNTIME_GDI_TEXT_RASTER_SERVICE,
+    RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE,
+    RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
+    RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
+    RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeHandle,
+    RuntimeHeapInitialization, RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind,
+    RuntimeModule, RuntimeModuleId, RuntimeObjectKind, RuntimePointerButton,
+    RuntimePointerButtonSourceEvent, RuntimePointerButtonSourceEventKind,
+    RuntimePointerPositionSourceEvent, RuntimePointerPositionSourceEventKind, RuntimeProcessId,
+    RuntimeSchedulerEvent, RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest,
+    RuntimeStartupInfo, RuntimeState, RuntimeStateErrorClass, RuntimeThreadId,
+    RuntimeWritableCommitHostResponse, RuntimeWritableDirectoryCreateHostResponse,
+    RuntimeWritableProfileManifest, SEND_MESSAGE_A_IMPLEMENTATION, SchedulerThreadState,
+    StackCleanup, USER32_WM_IME_CONTROL, User32CompatibilityPolicy, WinmmCompatibilityPolicy,
+    X86CpuContext, bind_pe32_imports, build_pe32_load_plan, complete_gdi32_text_raster,
+    complete_kernel32_audio_notification_wait, complete_kernel32_source_read,
     complete_kernel32_waitable_timer_pacing, complete_kernel32_writable_commit,
     complete_kernel32_writable_directory_create, d3d9_contract_for_endpoint,
     dinput8_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api,
@@ -422,6 +423,24 @@ impl Bridge {
         let response = RuntimeSourceReadHostResponse::decode_binary(request_id, control, payload)
             .map_err(error_string)?;
         let (metadata, delta) = self.runtime_mut()?.complete_source_read(response)?;
+        let (control, payload) = delta
+            .map(|buffers| (buffers.control, buffers.page_bytes))
+            .unwrap_or_default();
+        self.set_output(metadata, control, payload)
+    }
+
+    fn complete_gdi_text_raster(
+        &mut self,
+        request_id: u64,
+        payload_length: usize,
+    ) -> Result<(), String> {
+        let pixels = self
+            .input
+            .get(..payload_length)
+            .ok_or_else(|| "text raster payload length exceeds the bridge buffer".to_owned())?
+            .to_vec();
+        let response = Gdi32TextRasterHostResponse { request_id, pixels };
+        let (metadata, delta) = self.runtime_mut()?.complete_gdi_text_raster(response)?;
         let (control, payload) = delta
             .map(|buffers| (buffers.control, buffers.page_bytes))
             .unwrap_or_default();
@@ -2990,6 +3009,85 @@ impl BrowserRuntime {
             }),
             delta,
         ))
+    }
+
+    fn complete_gdi_text_raster(
+        &mut self,
+        response: Gdi32TextRasterHostResponse,
+    ) -> Result<(Value, Option<MemoryDeltaBuffers>), String> {
+        let request_id = response.request_id;
+        let pending = self
+            .pending_host
+            .get(&request_id)
+            .cloned()
+            .ok_or_else(|| "text raster completion has no pending API call".to_owned())?;
+        if pending.call.request.request_id != request_id
+            || pending.call.request.service != RUNTIME_GDI_TEXT_RASTER_SERVICE
+        {
+            return Err("text raster completion request identity is corrupt".to_owned());
+        }
+        let endpoint = pending.call.frame.endpoint.clone();
+        let previous_thread_id = self.runtime.current_thread_id();
+        let owner_thread_id = pending.thread_id;
+        if previous_thread_id != owner_thread_id {
+            self.runtime
+                .select_thread(owner_thread_id)
+                .map_err(error_string)?;
+        }
+        let (outcome, runtime_completion) = complete_gdi32_text_raster(
+            &self.dispatcher,
+            pending.call.clone(),
+            response,
+            &mut ExecutionSession::new(&mut self.memory, &mut self.runtime),
+        );
+        let completion = match outcome {
+            DispatchOutcome::Immediate(completion) => completion,
+            DispatchOutcome::Fault(fault) => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err(api_fault_string(fault));
+            }
+            _ => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err("text raster completion remained suspended".to_owned());
+            }
+        };
+        let runtime_completion = runtime_completion.ok_or_else(|| {
+            "TextOutA completed without committing its GDI and scheduler state".to_owned()
+        })?;
+        match self.runtime.pop_scheduler_event() {
+            Some(RuntimeSchedulerEvent::HostCompleted(event)) if event == runtime_completion => {}
+            _ => return Err("text raster scheduler completion event mismatch".to_owned()),
+        }
+        self.pending_host
+            .remove(&request_id)
+            .ok_or_else(|| "text raster pending call disappeared before commit".to_owned())?;
+        let scheduler = self
+            .runtime
+            .scheduler_state_for_thread(owner_thread_id)
+            .map_err(error_string)?;
+        if !scheduler.is_executable() {
+            return Err("Rust scheduler did not resume the text raster request".to_owned());
+        }
+        let gdi = match &self.target {
+            BrowserRuntimeTarget::Bgi { gdi32_policy, .. } => {
+                bgi_gdi_completion_metadata(&completion, &self.runtime, gdi32_policy)?
+            }
+            _ => None,
+        };
+        restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+        let delta = self.pending_delta()?;
+        let mut metadata = json!({
+            "kind": "host-complete",
+            "threadId": owner_thread_id.0,
+            "scheduler": scheduler,
+            "endpoint": endpoint,
+            "completion": completion,
+            "memory": self.memory.synchronization_state(),
+        });
+        if let Some(gdi) = gdi {
+            metadata["gdi"] = gdi;
+        }
+        Ok((metadata, delta))
     }
 
     fn writable_commit_payload(&self, request_id: u64) -> Result<(Value, Vec<u8>), String> {
@@ -5668,6 +5766,18 @@ pub extern "C" fn vine_bridge_complete_source_read(
     run_bridge(|bridge| {
         let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
         bridge.complete_source_read(request_id, control_length as usize, payload_length as usize)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_complete_gdi_text_raster(
+    request_low: u32,
+    request_high: u32,
+    payload_length: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
+        bridge.complete_gdi_text_raster(request_id, payload_length as usize)
     })
 }
 

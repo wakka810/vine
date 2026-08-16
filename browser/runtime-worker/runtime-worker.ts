@@ -104,6 +104,7 @@ import {
   type RuntimeThreadStackMetadata,
   RuntimeBridge,
 } from "./runtime-bridge.js";
+import { rasterizeGdiText } from "./gdi-text-raster.js";
 import {
   SEMANTIC_CALL_DIGEST_ALGORITHM,
   SemanticCallDigest,
@@ -7613,6 +7614,70 @@ class BrowserRuntimeSession {
         directory.generation = completion.committedGeneration;
       }
     });
+  }
+
+  #completeGdiTextRaster(
+    request: HostRequestMetadata,
+    pixels: Uint8Array,
+  ): void {
+    if (this.#terminal) {
+      return;
+    }
+    const pending = this.#pendingHostRequests.complete(
+      request.requestId,
+      request.threadId,
+      1,
+    );
+    const output =
+      this.#requireBridge().completeGdiTextRaster<HostCompletionMetadata>(
+        BigInt(pending.requestId),
+        pixels,
+      );
+    const completion = output.metadata;
+    invariant(
+      completion.kind === "host-complete" &&
+        completion.threadId === pending.threadId &&
+        completion.gdi?.action === "text-raster-written",
+      "invalid GDI text raster completion metadata",
+    );
+    this.#applyRequiredDelta(output);
+    const resumeState =
+      completion.scheduler.state === "in-callback" ? "guest-callback" : "ready";
+    const expectedResumeState =
+      pending.completionPolicy === "resume-callback"
+        ? "guest-callback"
+        : "ready";
+    invariant(
+      resumeState === expectedResumeState,
+      "GDI text raster completion resume policy mismatch",
+    );
+    if (this.#requirePrepared().workload === "private-bgi") {
+      this.#recordPrivateBgiCompletion(completion);
+    }
+    this.#applyCpuResumeToThread(completion.threadId, completion.completion);
+    this.#threadExecutionStates.set(completion.threadId, resumeState);
+    if (this.#hostBarrierRequestId === pending.requestId) {
+      invariant(
+        this.#hostBarrierResume === null,
+        "host completion barrier retained an unconsumed owner resume",
+      );
+      this.#hostBarrierResume = {
+        requestId: pending.requestId,
+        threadId: completion.threadId,
+        scheduler: completion.scheduler,
+      };
+    }
+    this.#report.rustSchedulerTransitions += 1;
+    pending.resolve({ result: 1, completionPolicy: pending.completionPolicy });
+    if (this.#execution.state() === "waiting-host") {
+      this.#execution.transition("host-completion", {
+        cause: "gdi-text-raster-completion",
+        threadId: pending.threadId,
+        requestId: pending.requestId,
+      });
+      this.#signalRunnable();
+    }
+    this.#status("running", `${pending.service} completed`);
   }
 
   #completeSourceRead(
@@ -29544,7 +29609,25 @@ class BrowserRuntimeSession {
     ) {
       this.#armWatchdog();
     }
-    if (metadata.service === "runtime.sleep-delay.v1") {
+    if (metadata.service === "browser.gdi-text-raster.v1") {
+      if (this.#configuration.mode === "success") {
+        queueMicrotask(() => {
+          if (this.#terminal || this.#stopping) {
+            return;
+          }
+          try {
+            const pixels = rasterizeGdiText(metadata.arguments);
+            this.#deliverInIssueOrder(metadata.requestId, () =>
+              this.#completeGdiTextRaster(metadata, pixels),
+            );
+          } catch (error: unknown) {
+            this.#fail(
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+        });
+      }
+    } else if (metadata.service === "runtime.sleep-delay.v1") {
       invariant(
         metadata.arguments.length === 1 &&
           metadata.arguments[0] !== undefined &&

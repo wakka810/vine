@@ -285,6 +285,7 @@ let forwardCampaignPhase:
   | "complete" = "startup-pointer";
 let forwardKeyboardActivationLimit = 2;
 const forwardStartupKeyboardActivationCount = 0;
+const forwardScenarioPointerActionCount = 16;
 const forwardPointerActions = [
   { normalizedX: 0x3a1a, normalizedY: 0xcfd2 },
   // Native title trace: client (276, 592) after moving onto Start.
@@ -292,17 +293,13 @@ const forwardPointerActions = [
   // The scenario action binding uses the primary pointer button. Advance from
   // the center of the viewport so the development campaign does not target a
   // title/menu control that may remain under the cursor during a transition.
-  { normalizedX: 0x8000, normalizedY: 0x8000 },
-  { normalizedX: 0x8000, normalizedY: 0x8000 },
-  { normalizedX: 0x8000, normalizedY: 0x8000 },
-  { normalizedX: 0x8000, normalizedY: 0x8000 },
+  ...Array.from({ length: forwardScenarioPointerActionCount }, () => ({
+    normalizedX: 0x8000,
+    normalizedY: 0x8000,
+  })),
 ] as const;
 const forwardStartupPointerActionCount = 1;
 const forwardTitlePointerActionCount = 1;
-const forwardScenarioPointerActionCount =
-  forwardPointerActions.length -
-  forwardStartupPointerActionCount -
-  forwardTitlePointerActionCount;
 const forwardTitleActionDelayMilliseconds = 1_250;
 const forwardPointerHoldMilliseconds = 117;
 const heartbeatIntervalMilliseconds = forwardDevelopment ? 50 : 5;
