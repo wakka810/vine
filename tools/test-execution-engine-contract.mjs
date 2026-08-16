@@ -297,6 +297,11 @@ const crossingDeniedEngine = await initializeBoundaryEngine({
   secondPage: crossingSecond,
   secondExecutable: false,
 });
+assert.equal(
+  crossingDeniedEngine.readGuestU32(dataAddress - 2),
+  0x3456_78b8,
+  "guest u32 read did not preserve a readable cross-page range",
+);
 const crossingStackBefore = crossingDeniedEngine.readGuestU32(0x3000);
 const crossingDenied = crossingDeniedEngine.executeBudget(1);
 assert.deepEqual(crossingDenied.stop, {

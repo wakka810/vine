@@ -66,12 +66,61 @@ assert.deepEqual(
   "incremental ring-buffer update rewound playback or replaced untouched frames",
 );
 
-const wrapped = new Float32Array(3);
-assert.equal(processor.process([], [[wrapped]]), true);
-assert.deepEqual([...wrapped], [6, 7, 0]);
+const endOfInitialLap = new Float32Array(2);
+assert.equal(processor.process([], [[endOfInitialLap]]), true);
+assert.deepEqual([...endOfInitialLap], [6, 7]);
+
+const staleReplay = new Float32Array(3);
+assert.equal(processor.process([], [[staleReplay]]), true);
+assert.deepEqual(
+  [...staleReplay],
+  [0, 0, 0],
+  "streaming buffer replayed stale frames after the producer fell behind",
+);
+assert.deepEqual(processor.port.messages.at(-1), {
+  type: "stream-underrun",
+  staleReplayPreventedFrames: 3,
+});
+
+const resumed = Float32Array.from([80, 90]);
+processor.receive({
+  type: "update",
+  channels: [resumed.buffer],
+  frameCount: initial.length,
+  regionOffsetFrames: 0,
+  frequencyHz: 48_000,
+  playback: "playing-looping",
+  startFrame: 0,
+});
+const afterResume = new Float32Array(3);
+assert.equal(processor.process([], [[afterResume]]), true);
+assert.deepEqual(
+  [...afterResume],
+  [80, 90, 0],
+  "streaming buffer did not resume at the newly supplied region",
+);
+
+const staticProcessor = new Processor();
+const staticLoop = Float32Array.from([10, 20, 30]);
+staticProcessor.receive({
+  type: "start",
+  channels: [staticLoop.buffer],
+  frameCount: staticLoop.length,
+  regionOffsetFrames: 0,
+  frequencyHz: 48_000,
+  playback: "playing-looping",
+  startFrame: 0,
+});
+const staticOutput = new Float32Array(5);
+assert.equal(staticProcessor.process([], [[staticOutput]]), true);
+assert.deepEqual(
+  [...staticOutput],
+  [10, 20, 30, 10, 20],
+  "static looping buffer stopped repeating without incremental updates",
+);
 
 delete globalThis.registerProcessor;
 delete globalThis.AudioWorkletProcessor;
 delete globalThis.sampleRate;
 
-console.log("DirectSound worklet incremental ring-buffer contract passed");
+console.log("DirectSound worklet streaming underrun contract passed");

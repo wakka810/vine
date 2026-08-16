@@ -6,6 +6,7 @@ import {
 } from "./keyboard-input.js";
 import {
   BrowserPcmRenderer,
+  type BrowserAudioPacingSnapshot,
   type BrowserAudioPlaybackReceipt,
   type BrowserAudioStopReceipt,
 } from "./audio-renderer.js";
@@ -35,6 +36,7 @@ interface BgiBrowserEvidence {
   audioStopRequests: number;
   audioStopsApplied: number;
   latestAudioStop: BrowserAudioStopReceipt | null;
+  audioPacing: BrowserAudioPacingSnapshot;
 }
 
 declare global {
@@ -1396,6 +1398,7 @@ function finish(report: SessionReport): void {
       audioStopRequests,
       audioStopsApplied,
       latestAudioStop,
+      audioPacing: pcmRenderer.pacingSnapshot(),
     };
     window.__vineBgiCheck.result = evidence;
     document.body.dataset.checkStatus = "passed";
@@ -1432,6 +1435,7 @@ function finish(report: SessionReport): void {
     audioStopRequests,
     audioStopsApplied,
     latestAudioStop,
+    audioPacing: pcmRenderer.pacingSnapshot(),
   };
   window.__vineBgiCheck.result = evidence;
   document.body.dataset.checkStatus = "passed";

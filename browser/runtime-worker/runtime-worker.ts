@@ -28532,7 +28532,7 @@ class BrowserRuntimeSession {
       "invalid memory digest",
     );
     const stackWords: number[] = [];
-    for (let index = 0; index < 32; index += 1) {
+    for (let index = 0; index < 64; index += 1) {
       try {
         stackWords.push(
           this.#requireEngine().readGuestU32(context.esp + index * 4),

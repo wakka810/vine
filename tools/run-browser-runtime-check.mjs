@@ -20831,6 +20831,7 @@ if (serveOnly) {
             stopRequests: success.audioStopRequests,
             stopsApplied: success.audioStopsApplied,
             latestStop: success.latestAudioStop,
+            pacing: success.audioPacing,
           },
           storage: {
             ...forward.storage,
@@ -20884,6 +20885,8 @@ if (serveOnly) {
             writebackBatches: session.writebackBatches,
             writebackPages: session.writebackPages,
             mappingDeltas: session.mappingDeltas,
+            mappingDirtyPages: session.mappingDirtyPages,
+            mappingOperations: session.mappingOperations,
           },
           largeHeapLifecycle: forward.largeHeapLifecycle,
           browser: {

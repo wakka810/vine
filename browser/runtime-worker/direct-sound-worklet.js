@@ -9,6 +9,13 @@ class VineDirectSoundStreamProcessor extends AudioWorkletProcessor {
     this.playback = "stopped";
     this.position = 0;
     this.ended = false;
+    this.streaming = false;
+    this.writeVersions = new Uint32Array(0);
+    this.consumedVersions = new Uint32Array(0);
+    this.nextWriteVersion = 1;
+    this.staleReplayPreventedFrames = 0;
+    this.lastReportedPreventedFrames = 0;
+    this.underrunActive = false;
     // AudioWorklet may render before the main thread's first start message.
     // Keep the processor alive through that initial silent quantum.
     this.alive = true;
@@ -48,6 +55,7 @@ class VineDirectSoundStreamProcessor extends AudioWorkletProcessor {
       !Number.isInteger(regionOffsetFrames) ||
       regionOffsetFrames < 0 ||
       channels.some((channel) => channel.length < 1) ||
+      channels.some((channel) => channel.length !== channels[0].length) ||
       (message.type === "start" &&
         (regionOffsetFrames !== 0 ||
           channels.some((channel) => channel.length !== message.frameCount))) ||
@@ -65,10 +73,25 @@ class VineDirectSoundStreamProcessor extends AudioWorkletProcessor {
     if (message.type === "start") {
       this.channels = channels;
       this.frameCount = message.frameCount;
+      this.streaming = false;
+      this.writeVersions = new Uint32Array(this.frameCount);
+      this.writeVersions.fill(1);
+      this.consumedVersions = new Uint32Array(this.frameCount);
+      this.nextWriteVersion = 1;
+      this.staleReplayPreventedFrames = 0;
+      this.lastReportedPreventedFrames = 0;
+      this.underrunActive = false;
     } else {
+      this.streaming = true;
+      this.nextWriteVersion += 1;
       for (let channelIndex = 0; channelIndex < channels.length; channelIndex += 1) {
         this.channels[channelIndex].set(channels[channelIndex], regionOffsetFrames);
       }
+      this.writeVersions.fill(
+        this.nextWriteVersion,
+        regionOffsetFrames,
+        regionOffsetFrames + channels[0].length,
+      );
     }
     this.frequencyHz = message.frequencyHz;
     this.playback = message.playback;
@@ -101,8 +124,21 @@ class VineDirectSoundStreamProcessor extends AudioWorkletProcessor {
 
     const renderedFrames = output[0]?.length ?? 0;
     const step = this.frequencyHz / sampleRate;
+    let staleReplayPreventedFrames = 0;
     for (let outputFrame = 0; outputFrame < renderedFrames; outputFrame += 1) {
       const sourceFrame = Math.floor(this.position);
+      // An incrementally updated looping buffer is a stream. Replaying a frame
+      // that Rust has not refreshed turns producer underrun into a short audio
+      // loop, so hold the browser cursor in silence until a new version arrives.
+      // Static looping buffers never enter this path.
+      if (
+        this.streaming &&
+        this.writeVersions[sourceFrame] ===
+          this.consumedVersions[sourceFrame]
+      ) {
+        staleReplayPreventedFrames += 1;
+        continue;
+      }
       const fraction = this.position - sourceFrame;
       const nextFrame =
         sourceFrame + 1 < this.frameCount
@@ -116,10 +152,17 @@ class VineDirectSoundStreamProcessor extends AudioWorkletProcessor {
           continue;
         }
         const first = source[sourceFrame] ?? 0;
-        const second = source[nextFrame] ?? first;
+        const nextFrameFresh =
+          !this.streaming ||
+          nextFrame === sourceFrame ||
+          this.writeVersions[nextFrame] !== this.consumedVersions[nextFrame];
+        const second = nextFrameFresh ? (source[nextFrame] ?? first) : first;
         output[channelIndex][outputFrame] = first + (second - first) * fraction;
       }
       this.position += step;
+      if (Math.floor(this.position) !== sourceFrame) {
+        this.consumedVersions[sourceFrame] = this.writeVersions[sourceFrame];
+      }
       if (this.position < this.frameCount) {
         continue;
       }
@@ -135,7 +178,36 @@ class VineDirectSoundStreamProcessor extends AudioWorkletProcessor {
       }
       return false;
     }
+    this.reportStreamPacing(staleReplayPreventedFrames);
     return true;
+  }
+
+  reportStreamPacing(preventedFrames) {
+    if (preventedFrames > 0) {
+      this.staleReplayPreventedFrames += preventedFrames;
+      const reportInterval = Math.max(128, Math.floor(sampleRate / 4));
+      if (
+        !this.underrunActive ||
+        this.staleReplayPreventedFrames - this.lastReportedPreventedFrames >=
+          reportInterval
+      ) {
+        this.underrunActive = true;
+        this.lastReportedPreventedFrames = this.staleReplayPreventedFrames;
+        this.port.postMessage({
+          type: "stream-underrun",
+          staleReplayPreventedFrames: this.staleReplayPreventedFrames,
+        });
+      }
+      return;
+    }
+    if (this.underrunActive) {
+      this.underrunActive = false;
+      this.lastReportedPreventedFrames = this.staleReplayPreventedFrames;
+      this.port.postMessage({
+        type: "stream-recovered",
+        staleReplayPreventedFrames: this.staleReplayPreventedFrames,
+      });
+    }
   }
 }
 

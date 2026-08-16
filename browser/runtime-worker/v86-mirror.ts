@@ -986,8 +986,30 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   readGuestU32(address: number): number {
-    const bytes = this.readGuestBytes(address, 4);
-    return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true);
+    invariant(
+      Number.isSafeInteger(address) && address > 0 && address <= 0xffff_fffc,
+      "guest mirror u32 read requires a valid x86 range",
+    );
+    const pageOffset = address & (memoryPageSize - 1);
+    if (pageOffset > memoryPageSize - 4) {
+      const bytes = this.readGuestBytes(address, 4);
+      return (
+        bytes[0]! |
+        (bytes[1]! << 8) |
+        (bytes[2]! << 16) |
+        (bytes[3]! << 24)
+      ) >>> 0;
+    }
+    const mapping = this.#mappingFor(address);
+    if (!mapping.protection.read) {
+      throw new ExecutionMemoryAccessFault(
+        "execution-read-protection",
+        address,
+        `guest mirror read targets unreadable address 0x${address.toString(16)}`,
+      );
+    }
+    const physicalAddress = mapping.physicalBase + pageOffset;
+    return this.#physicalView.getUint32(physicalAddress, true);
   }
 
   readGuestBytes(address: number, byteLength: number): Uint8Array {

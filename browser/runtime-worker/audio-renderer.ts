@@ -12,6 +12,26 @@ export interface BrowserAudioPlaybackReceipt {
   contentUpdated: boolean;
   staleMessageIgnored: boolean;
   contextState: AudioContextState;
+  updatedAudioMilliseconds: number;
+  updateIntervalMilliseconds: number | null;
+}
+
+export interface BrowserAudioPacingSnapshot {
+  buffers: Array<{
+    bufferId: number;
+    starts: number;
+    updates: number;
+    measuredIntervals: number;
+    suppliedAudioMilliseconds: number;
+    measuredAudioMilliseconds: number;
+    wallIntervalMilliseconds: number;
+    meanSupplyRatio: number | null;
+    maximumUpdateIntervalMilliseconds: number;
+    lateIntervals: number;
+    cumulativeDeficitMilliseconds: number;
+    underrunEvents: number;
+    staleReplayPreventedMilliseconds: number;
+  }>;
 }
 
 export interface BrowserAudioStopReceipt {
@@ -34,6 +54,7 @@ interface ActiveAudioSource {
   node: AudioWorkletNode;
   gain: GainNode;
   pan: StereoPannerNode;
+  staleReplayPreventedFrames: number;
 }
 
 interface DecodedPcm {
@@ -46,6 +67,27 @@ interface PcmRegion {
   samples: ArrayBuffer;
 }
 
+interface AudioPacingAccumulator {
+  bufferId: number;
+  starts: number;
+  updates: number;
+  measuredIntervals: number;
+  suppliedAudioMilliseconds: number;
+  measuredAudioMilliseconds: number;
+  wallIntervalMilliseconds: number;
+  maximumUpdateIntervalMilliseconds: number;
+  lateIntervals: number;
+  cumulativeDeficitMilliseconds: number;
+  lastUpdateAtMilliseconds: number | null;
+  underrunEvents: number;
+  staleReplayPreventedMilliseconds: number;
+}
+
+interface AudioUpdatePacing {
+  updatedAudioMilliseconds: number;
+  updateIntervalMilliseconds: number | null;
+}
+
 const workletName = "vine-direct-sound-stream";
 
 export class BrowserPcmRenderer {
@@ -54,6 +96,35 @@ export class BrowserPcmRenderer {
   #operationTail: Promise<void> = Promise.resolve();
   readonly #sources = new Map<number, ActiveAudioSource>();
   readonly #latestStopGeneration = new Map<number, number>();
+  readonly #pacing = new Map<number, AudioPacingAccumulator>();
+
+  pacingSnapshot(): BrowserAudioPacingSnapshot {
+    return {
+      buffers: [...this.#pacing.values()]
+        .sort((left, right) => left.bufferId - right.bufferId)
+        .map((record) => ({
+          bufferId: record.bufferId,
+          starts: record.starts,
+          updates: record.updates,
+          measuredIntervals: record.measuredIntervals,
+          suppliedAudioMilliseconds: record.suppliedAudioMilliseconds,
+          measuredAudioMilliseconds: record.measuredAudioMilliseconds,
+          wallIntervalMilliseconds: record.wallIntervalMilliseconds,
+          meanSupplyRatio:
+            record.measuredAudioMilliseconds === 0
+              ? null
+              : record.wallIntervalMilliseconds /
+                record.measuredAudioMilliseconds,
+          maximumUpdateIntervalMilliseconds:
+            record.maximumUpdateIntervalMilliseconds,
+          lateIntervals: record.lateIntervals,
+          cumulativeDeficitMilliseconds: record.cumulativeDeficitMilliseconds,
+          underrunEvents: record.underrunEvents,
+          staleReplayPreventedMilliseconds:
+            record.staleReplayPreventedMilliseconds,
+        })),
+    };
+  }
 
   play(message: AudioPlaybackMessage): Promise<BrowserAudioPlaybackReceipt> {
     const operation = this.#operationTail.then(() => this.#play(message));
@@ -103,7 +174,16 @@ export class BrowserPcmRenderer {
           (message.bufferGeneration === previous.bufferGeneration &&
             message.contentGeneration <= previous.contentGeneration)));
     if (staleMessageIgnored) {
-      return this.#receipt(message, frameCount, 0, false, false, true, context);
+      return this.#receipt(
+        message,
+        frameCount,
+        0,
+        false,
+        false,
+        true,
+        context,
+        { updatedAudioMilliseconds: 0, updateIntervalMilliseconds: null },
+      );
     }
 
     const canUpdate =
@@ -132,6 +212,7 @@ export class BrowserPcmRenderer {
       }
       previous.bufferGeneration = message.bufferGeneration;
       previous.contentGeneration = message.contentGeneration;
+      const pacing = this.#observeUpdatePacing(message, regions);
       return this.#receipt(
         message,
         frameCount,
@@ -140,6 +221,7 @@ export class BrowserPcmRenderer {
         true,
         false,
         context,
+        pacing,
       );
     }
 
@@ -182,9 +264,30 @@ export class BrowserPcmRenderer {
       node,
       gain,
       pan,
+      staleReplayPreventedFrames: 0,
     };
     this.#sources.set(message.bufferId, active);
+    this.#observePlaybackStart(message.bufferId);
     node.port.addEventListener("message", (event: MessageEvent<unknown>) => {
+      if (isStreamPacingMessage(event.data)) {
+        const current = this.#sources.get(message.bufferId);
+        if (current?.node !== node) {
+          return;
+        }
+        const nextFrames = event.data.staleReplayPreventedFrames;
+        const addedFrames = Math.max(
+          0,
+          nextFrames - current.staleReplayPreventedFrames,
+        );
+        current.staleReplayPreventedFrames = nextFrames;
+        const pacing = this.#pacingRecord(message.bufferId);
+        pacing.staleReplayPreventedMilliseconds +=
+          (addedFrames / current.samplesPerSecond) * 1_000;
+        if (event.data.type === "stream-underrun") {
+          pacing.underrunEvents += 1;
+        }
+        return;
+      }
       if (
         isEndedMessage(event.data) &&
         this.#sources.get(message.bufferId)?.node === node
@@ -203,6 +306,7 @@ export class BrowserPcmRenderer {
       false,
       false,
       context,
+      { updatedAudioMilliseconds: 0, updateIntervalMilliseconds: null },
     );
   }
 
@@ -217,6 +321,10 @@ export class BrowserPcmRenderer {
     if (active !== undefined && !staleMessageIgnored) {
       this.#sources.delete(message.bufferId);
       this.#retire(active);
+      const pacing = this.#pacing.get(message.bufferId);
+      if (pacing !== undefined) {
+        pacing.lastUpdateAtMilliseconds = null;
+      }
     }
     return {
       bufferId: message.bufferId,
@@ -306,6 +414,7 @@ export class BrowserPcmRenderer {
     contentUpdated: boolean,
     staleMessageIgnored: boolean,
     context: AudioContext,
+    pacing: AudioUpdatePacing,
   ): BrowserAudioPlaybackReceipt {
     return {
       bufferId: message.bufferId,
@@ -319,7 +428,72 @@ export class BrowserPcmRenderer {
       contentUpdated,
       staleMessageIgnored,
       contextState: context.state,
+      ...pacing,
     };
+  }
+
+  #observePlaybackStart(bufferId: number): void {
+    const record = this.#pacingRecord(bufferId);
+    record.starts += 1;
+    record.lastUpdateAtMilliseconds = null;
+  }
+
+  #observeUpdatePacing(
+    message: AudioPlaybackMessage,
+    regions: PcmRegion[],
+  ): AudioUpdatePacing {
+    const now = performance.now();
+    const updatedAudioMilliseconds =
+      (regions.reduce((bytes, region) => bytes + region.samples.byteLength, 0) /
+        message.format.averageBytesPerSecond) *
+      1_000;
+    const record = this.#pacingRecord(message.bufferId);
+    const updateIntervalMilliseconds =
+      record.lastUpdateAtMilliseconds === null
+        ? null
+        : now - record.lastUpdateAtMilliseconds;
+    record.lastUpdateAtMilliseconds = now;
+    record.updates += 1;
+    record.suppliedAudioMilliseconds += updatedAudioMilliseconds;
+    if (updateIntervalMilliseconds !== null) {
+      record.measuredIntervals += 1;
+      record.measuredAudioMilliseconds += updatedAudioMilliseconds;
+      record.wallIntervalMilliseconds += updateIntervalMilliseconds;
+      record.maximumUpdateIntervalMilliseconds = Math.max(
+        record.maximumUpdateIntervalMilliseconds,
+        updateIntervalMilliseconds,
+      );
+      const deficit = updateIntervalMilliseconds - updatedAudioMilliseconds;
+      if (deficit > Math.max(5, updatedAudioMilliseconds * 0.25)) {
+        record.lateIntervals += 1;
+      }
+      record.cumulativeDeficitMilliseconds += Math.max(0, deficit);
+    }
+    return { updatedAudioMilliseconds, updateIntervalMilliseconds };
+  }
+
+  #pacingRecord(bufferId: number): AudioPacingAccumulator {
+    const existing = this.#pacing.get(bufferId);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const created: AudioPacingAccumulator = {
+      bufferId,
+      starts: 0,
+      updates: 0,
+      measuredIntervals: 0,
+      suppliedAudioMilliseconds: 0,
+      measuredAudioMilliseconds: 0,
+      wallIntervalMilliseconds: 0,
+      maximumUpdateIntervalMilliseconds: 0,
+      lateIntervals: 0,
+      cumulativeDeficitMilliseconds: 0,
+      lastUpdateAtMilliseconds: null,
+      underrunEvents: 0,
+      staleReplayPreventedMilliseconds: 0,
+    };
+    this.#pacing.set(bufferId, created);
+    return created;
   }
 }
 
@@ -401,5 +575,23 @@ function isEndedMessage(value: unknown): value is { type: "ended" } {
     value !== null &&
     "type" in value &&
     value.type === "ended"
+  );
+}
+
+function isStreamPacingMessage(
+  value: unknown,
+): value is {
+  type: "stream-underrun" | "stream-recovered";
+  staleReplayPreventedFrames: number;
+} {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    (candidate.type === "stream-underrun" ||
+      candidate.type === "stream-recovered") &&
+    Number.isSafeInteger(candidate.staleReplayPreventedFrames) &&
+    (candidate.staleReplayPreventedFrames as number) >= 0
   );
 }
