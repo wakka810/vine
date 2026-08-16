@@ -69,7 +69,10 @@ const MAPPING_FIXTURE_STAGE_COUNT: u32 = 7;
 const FIXTURE_MAX_PHYSICAL_PAGES: usize = 16;
 const BGI_SHA256: &str = "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1";
 const BGI_LOAD_BASE: GuestAddress = GuestAddress(0x1000_0000);
-const BGI_MAX_PHYSICAL_PAGES: usize = 30 * 1024;
+// The first 1280x720 scenario image pushes the measured live set just beyond
+// 30K pages. Keep a bounded 192 MiB guest working set so image decode can
+// finish without committing any reserved-but-untouched heap pages eagerly.
+const BGI_MAX_PHYSICAL_PAGES: usize = 48 * 1024;
 const BGI_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 const FAST_DISPATCH_RECORD_VERSION: u32 = 1;
 const FAST_DISPATCH_RECORD_WORDS: usize = 30;
@@ -143,6 +146,7 @@ impl FastApiDispatchReceipt {
             vine_core::RuntimeApiBoundaryDisposition::ContinueQuantum => 0,
             vine_core::RuntimeApiBoundaryDisposition::YieldCurrentThread => 1,
             vine_core::RuntimeApiBoundaryDisposition::BlockCurrentThread => 2,
+            vine_core::RuntimeApiBoundaryDisposition::TerminateCurrentThread => 3,
         };
         let (selection_kind, previous_thread_id, thread_id, callback_depth) = match selection {
             None => (0, 0, 0, 0),
@@ -1546,12 +1550,31 @@ impl BrowserRuntime {
             Ok(resolution) => resolution,
             Err(error) => {
                 let stats = self.memory.stats();
+                let fault_region = self.memory.region_snapshots().into_iter().find(|region| {
+                    let address = u64::from(fault_address.0);
+                    address >= u64::from(region.range.start().0) && address < region.range.end()
+                });
+                let large_heap_allocation =
+                    self.runtime.large_heap_allocation_backing().map(|backing| {
+                        json!({
+                            "handle": backing.handle,
+                            "memoryOwner": backing.memory_owner,
+                            "addressAllocationId": backing.address_allocation_id,
+                            "range": backing.range,
+                            "allocation": backing.allocation,
+                            "materializedPageCount": backing.materialized_pages.len(),
+                            "firstMaterializedPage": backing.materialized_pages.first(),
+                            "lastMaterializedPage": backing.materialized_pages.last(),
+                        })
+                    });
                 return Ok((
                     json!({
                         "kind": "page-fault-rejected",
                         "faultAddress": fault_address.0,
                         "pageFaultErrorCode": page_fault_error_code,
                         "error": error,
+                        "largeHeapAllocation": large_heap_allocation,
+                        "faultRegion": fault_region,
                         "memory": stats,
                     }),
                     None,
@@ -1911,6 +1934,10 @@ impl BrowserRuntime {
                     && FastApiDispatchReceipt::supports(&completion);
                 if fast_completion {
                     let selection = if completion.execution_boundary
+                        == vine_core::RuntimeApiBoundaryDisposition::TerminateCurrentThread
+                    {
+                        None
+                    } else if completion.execution_boundary
                         == vine_core::RuntimeApiBoundaryDisposition::BlockCurrentThread
                     {
                         if !matches!(
@@ -2315,6 +2342,10 @@ impl BrowserRuntime {
                     }
                 };
                 let selection = if completion.execution_boundary
+                    == vine_core::RuntimeApiBoundaryDisposition::TerminateCurrentThread
+                {
+                    None
+                } else if completion.execution_boundary
                     == vine_core::RuntimeApiBoundaryDisposition::BlockCurrentThread
                 {
                     if !matches!(

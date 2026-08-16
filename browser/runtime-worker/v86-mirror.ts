@@ -31,7 +31,9 @@ const dirtyPageCandidateCapacity = 16 * 1024;
 const jitTableOffset = 1_024;
 const jitTableSize = 900;
 const initialPhysicalPoolBytes = 64 * 1024;
-const hardMaximumPhysicalPoolBytes = 128 * 1024 * 1024;
+// The BGI runtime currently permits a bounded 192 MiB live guest set. Leave
+// room for its page directory/tables while retaining an explicit mirror cap.
+const hardMaximumPhysicalPoolBytes = 256 * 1024 * 1024;
 const excludedPhysicalRanges = [{ start: 0x000a_0000, end: 0x000c_0000 }] as const;
 const pageFlags = { present: 1, writable: 2, user: 4, dirty: 0x40 } as const;
 const adapterAbiVersion = 1;
@@ -412,6 +414,7 @@ export class V86Mirror implements ExecutionEngine {
   readonly #mappings = new Map<number, MirrorMapping>();
   readonly #writableMappings: MirrorMapping[] = [];
   readonly #reservations = new Map<number, MirrorReservation>();
+  readonly #directoryMappingCounts = new Map<number, number>();
   readonly #dirtyMappingsScratch: MirrorMapping[] = [];
   readonly #borrowedDirtyPages: DirtyMirrorPage[] = [];
   readonly #borrowedDirtyPagePool: DirtyMirrorPage[] = [];
@@ -664,6 +667,7 @@ export class V86Mirror implements ExecutionEngine {
     this.#nextPhysicalPage = memoryPageSize;
     this.#freePhysicalPages.length = 0;
     this.#pageTables.clear();
+    this.#directoryMappingCounts.clear();
     this.#forceFullDirtyScan = false;
     wasm.vine_reset_dirty_pages();
     wasm.zero_memory(0, poolBytes);
@@ -771,6 +775,7 @@ export class V86Mirror implements ExecutionEngine {
     this.#writableMappings.length = 0;
     this.#reservations.clear();
     this.#pageTables.clear();
+    this.#directoryMappingCounts.clear();
     this.#freePhysicalPages.length = 0;
     this.#nextPhysicalPage = memoryPageSize;
     this.#physicalMemory.fill(0);
@@ -997,8 +1002,9 @@ export class V86Mirror implements ExecutionEngine {
       "guest mirror byte read wrapped the address space",
     );
     const bytes = new Uint8Array(byteLength);
-    for (let index = 0; index < bytes.length; index += 1) {
-      const current = address + index;
+    let offset = 0;
+    while (offset < bytes.length) {
+      const current = address + offset;
       const mapping = this.#mappingFor(current);
       if (!mapping.protection.read) {
         throw new ExecutionMemoryAccessFault(
@@ -1007,7 +1013,16 @@ export class V86Mirror implements ExecutionEngine {
           `guest mirror read targets unreadable address 0x${current.toString(16)}`,
         );
       }
-      bytes[index] = this.#physicalMemory[mapping.physicalBase + (current & 0xfff)] ?? 0;
+      const pageOffset = current & (memoryPageSize - 1);
+      const chunkLength = Math.min(bytes.length - offset, memoryPageSize - pageOffset);
+      bytes.set(
+        this.#physicalMemory.subarray(
+          mapping.physicalBase + pageOffset,
+          mapping.physicalBase + pageOffset + chunkLength,
+        ),
+        offset,
+      );
+      offset += chunkLength;
     }
     return bytes;
   }
@@ -1144,33 +1159,59 @@ export class V86Mirror implements ExecutionEngine {
       return this.#capacityRequirement(this.#mappings.size, this.#pageTables.size);
     }
 
-    const mappings = new Map<number, PlannedMapping>(
-      [...this.#mappings].map(([address, mapping]) => [
-        address,
-        {
-          ...(mapping.addressAllocationId === undefined
-            ? {}
-            : { addressAllocationId: mapping.addressAllocationId }),
-          owner: mapping.owner,
-          protection: { ...mapping.protection },
-        },
-      ]),
+    invariant(
+      this.#directoryMappingCounts.size === this.#pageTables.size,
+      "mirror page-table population index is inconsistent",
     );
-    const reservations = new Map<number, MirrorReservation>(
-      [...this.#reservations].map(([address, reservation]) => [
-        address,
-        {
-          ...(reservation.addressAllocationId === undefined
-            ? {}
-            : { addressAllocationId: reservation.addressAllocationId }),
-          owner: reservation.owner,
-          kind: reservation.kind,
-          range: { ...reservation.range },
-        },
-      ]),
+    const mappingChanges = new Map<number, PlannedMapping | null>();
+    const plannedMapping = (address: number): PlannedMapping | undefined => {
+      if (mappingChanges.has(address)) {
+        return mappingChanges.get(address) ?? undefined;
+      }
+      return this.#mappings.get(address);
+    };
+    const reservations = new Map(this.#reservations);
+    const directoryMappingCounts = new Map(this.#directoryMappingCounts);
+    let mappingCount = this.#mappings.size;
+    let capacity = this.#capacityRequirement(
+      mappingCount,
+      directoryMappingCounts.size,
     );
-    let directoryIndices = new Set(this.#pageTables.keys());
-    let capacity = this.#capacityRequirement(mappings.size, directoryIndices.size);
+
+    const addMapping = (address: number, mapping: PlannedMapping): void => {
+      invariant(
+        plannedMapping(address) === undefined,
+        "commit operation targets a committed mirror page",
+      );
+      mappingChanges.set(address, mapping);
+      mappingCount += 1;
+      const directoryIndex = address >>> 22;
+      directoryMappingCounts.set(
+        directoryIndex,
+        (directoryMappingCounts.get(directoryIndex) ?? 0) + 1,
+      );
+    };
+    const removeMapping = (address: number): PlannedMapping => {
+      const mapping = plannedMapping(address);
+      invariant(
+        mapping !== undefined,
+        "mapping removal targets an unmapped mirror page",
+      );
+      mappingChanges.set(address, null);
+      mappingCount -= 1;
+      const directoryIndex = address >>> 22;
+      const directoryMappingCount = directoryMappingCounts.get(directoryIndex);
+      invariant(
+        directoryMappingCount !== undefined && directoryMappingCount > 0,
+        "planned mirror page has no directory population count",
+      );
+      if (directoryMappingCount === 1) {
+        directoryMappingCounts.delete(directoryIndex);
+      } else {
+        directoryMappingCounts.set(directoryIndex, directoryMappingCount - 1);
+      }
+      return mapping;
+    };
 
     for (const operation of delta.mappingOperations) {
       switch (operation.operation) {
@@ -1182,10 +1223,8 @@ export class V86Mirror implements ExecutionEngine {
             "reserve operation overlaps a mirror reservation",
           );
           invariant(
-            ![...mappings.keys()].some(
-              (address) =>
-                address < rangeEnd(operation.range) &&
-                operation.range.base < address + memoryPageSize,
+            pageAddresses(operation.range).every(
+              (address) => plannedMapping(address) === undefined,
             ),
             "reserve operation overlaps a committed mirror page",
           );
@@ -1214,42 +1253,48 @@ export class V86Mirror implements ExecutionEngine {
             "commit operation is outside its mirror reservation",
           );
           for (const address of pageAddresses(operation.range)) {
-            invariant(!mappings.has(address), "commit operation targets a committed mirror page");
-            mappings.set(address, {
+            addMapping(address, {
               ...(operation.addressAllocationId === undefined
                 ? {}
                 : { addressAllocationId: operation.addressAllocationId }),
               owner: operation.owner,
               protection: { ...operation.protection },
             });
-            directoryIndices.add(address >>> 22);
           }
           break;
         }
         case "protect":
           for (const address of pageAddresses(operation.range)) {
-            const mapping = mappings.get(address);
+            const mapping = plannedMapping(address);
             invariant(mapping !== undefined, "protect operation targets an unmapped mirror page");
             invariant(mapping.owner === operation.owner, "protect operation owner mismatch");
             invariant(
               mapping.addressAllocationId === operation.addressAllocationId,
               "protect operation address allocation mismatch",
             );
-            mapping.protection = { ...operation.protection };
+            mappingChanges.set(address, {
+              ...(mapping.addressAllocationId === undefined
+                ? {}
+                : { addressAllocationId: mapping.addressAllocationId }),
+              owner: mapping.owner,
+              protection: { ...operation.protection },
+            });
           }
           break;
         case "decommit":
           for (const address of pageAddresses(operation.range)) {
-            const mapping = mappings.get(address);
-            invariant(mapping !== undefined, "decommit operation targets an unmapped mirror page");
+            const mapping = plannedMapping(address);
+            invariant(
+              mapping !== undefined,
+              "decommit operation targets an unmapped mirror page",
+            );
             invariant(mapping.owner === operation.owner, "decommit operation owner mismatch");
             invariant(
               mapping.addressAllocationId === operation.addressAllocationId,
               "decommit operation address allocation mismatch",
             );
-            mappings.delete(address);
+            removeMapping(address);
           }
-          directoryIndices = new Set([...mappings.keys()].map((address) => address >>> 22));
           break;
         case "release": {
           const overlapping = [...reservations.values()].filter((reservation) =>
@@ -1268,8 +1313,9 @@ export class V86Mirror implements ExecutionEngine {
             invariant(overlapping.length === 0, "release operation partially overlaps a reservation");
           }
           let matched = reservation !== undefined;
-          for (const [address, mapping] of [...mappings]) {
-            if (address < operation.range.base || address >= rangeEnd(operation.range)) {
+          for (const address of pageAddresses(operation.range)) {
+            const mapping = plannedMapping(address);
+            if (mapping === undefined) {
               continue;
             }
             invariant(mapping.owner === operation.owner, "release operation owner mismatch");
@@ -1277,21 +1323,23 @@ export class V86Mirror implements ExecutionEngine {
               mapping.addressAllocationId === operation.addressAllocationId,
               "release operation address allocation mismatch",
             );
-            mappings.delete(address);
+            removeMapping(address);
             matched = true;
           }
           invariant(matched, "release operation targets an unknown mirror range");
-          directoryIndices = new Set([...mappings.keys()].map((address) => address >>> 22));
           break;
         }
       }
-      const nextCapacity = this.#capacityRequirement(mappings.size, directoryIndices.size);
+      const nextCapacity = this.#capacityRequirement(
+        mappingCount,
+        directoryMappingCounts.size,
+      );
       if (nextCapacity.bytes > capacity.bytes) {
         capacity = nextCapacity;
       }
     }
 
-    this.#preflightDeltaPages(delta.pages, mappings);
+    this.#preflightDeltaPagesWithLookup(delta.pages, plannedMapping);
     return capacity;
   }
 
@@ -1299,13 +1347,20 @@ export class V86Mirror implements ExecutionEngine {
     pages: HostMemoryDelta["pages"],
     mappings: ReadonlyMap<number, PlannedMapping>,
   ): void {
+    this.#preflightDeltaPagesWithLookup(pages, (address) => mappings.get(address));
+  }
+
+  #preflightDeltaPagesWithLookup(
+    pages: HostMemoryDelta["pages"],
+    mappingForAddress: (address: number) => PlannedMapping | undefined,
+  ): void {
     const dirtyAddresses = new Set<number>();
     for (const page of pages) {
       invariant((page.address & (memoryPageSize - 1)) === 0, "host delta page is unaligned");
       invariant(page.bytes.byteLength === memoryPageSize, "host delta page is not 4 KiB");
       invariant(!dirtyAddresses.has(page.address), "host delta repeats a dirty page");
       dirtyAddresses.add(page.address);
-      const mapping = mappings.get(page.address);
+      const mapping = mappingForAddress(page.address);
       invariant(mapping !== undefined, "host delta targets an unmapped mirror page");
       invariant(mapping.owner === page.owner, "host delta owner does not match the mirror");
       invariant(
@@ -1458,6 +1513,11 @@ export class V86Mirror implements ExecutionEngine {
       pteWordIndex: pteAddress >>> 2,
     };
     this.#mappings.set(address, mapping);
+    const directoryIndex = address >>> 22;
+    this.#directoryMappingCounts.set(
+      directoryIndex,
+      (this.#directoryMappingCounts.get(directoryIndex) ?? 0) + 1,
+    );
     if (mapping.protection.write) {
       this.#trackWritableMapping(mapping);
     }
@@ -1509,12 +1569,20 @@ export class V86Mirror implements ExecutionEngine {
     this.#mappings.delete(address);
     this.#releasePage(mapping.physicalBase);
     const directoryIndex = address >>> 22;
-    if (![...this.#mappings.keys()].some((candidate) => candidate >>> 22 === directoryIndex)) {
+    const directoryMappingCount = this.#directoryMappingCounts.get(directoryIndex);
+    invariant(
+      directoryMappingCount !== undefined && directoryMappingCount > 0,
+      "mapped mirror page has no directory population count",
+    );
+    if (directoryMappingCount === 1) {
+      this.#directoryMappingCounts.delete(directoryIndex);
       const table = this.#pageTables.get(directoryIndex);
       invariant(table !== undefined, "empty mirror directory has no page table");
       this.#physicalView.setUint32(this.#pageDirectory + directoryIndex * 4, 0, true);
       this.#pageTables.delete(directoryIndex);
       this.#releasePage(table);
+    } else {
+      this.#directoryMappingCounts.set(directoryIndex, directoryMappingCount - 1);
     }
   }
 

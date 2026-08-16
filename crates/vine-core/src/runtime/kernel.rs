@@ -33,20 +33,21 @@ use super::address_space::{
     ProcessAddressSpaceAllocator, ProcessAddressSpaceLayout, RuntimeAddressRange,
 };
 use super::audio::{
-    RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE, RUNTIME_AUDIO_RESOURCE_ADDRESS_OWNER, RuntimeAudio,
-    RuntimeAudioBuffer, RuntimeAudioBufferBackingPlan, RuntimeAudioBufferControlPlan,
-    RuntimeAudioBufferControlRequest, RuntimeAudioBufferControlResult,
-    RuntimeAudioBufferCreateRequest, RuntimeAudioBufferCreationPlan, RuntimeAudioBufferFormatPlan,
-    RuntimeAudioBufferFormatRequest, RuntimeAudioBufferFormatResult, RuntimeAudioBufferId,
-    RuntimeAudioBufferLock, RuntimeAudioBufferLockPlan, RuntimeAudioBufferLockRequest,
-    RuntimeAudioBufferNotificationPlan, RuntimeAudioBufferNotificationRequest,
-    RuntimeAudioBufferPlayPlan, RuntimeAudioBufferPlayRequest, RuntimeAudioBufferPlayResult,
-    RuntimeAudioBufferUnlockPlan, RuntimeAudioBufferUnlockRequest, RuntimeAudioBufferUnlockResult,
-    RuntimeAudioComRetirementPlan, RuntimeAudioCooperativeLevelPlan,
-    RuntimeAudioCooperativeLevelRequest, RuntimeAudioCooperativeLevelResult,
-    RuntimeAudioCooperativeLevelUpdateRequest, RuntimeAudioDevice, RuntimeAudioDeviceCreateRequest,
-    RuntimeAudioDeviceCreationPlan, RuntimeAudioDeviceId, RuntimeAudioNotification,
-    RuntimeAudioNotificationWaitPlan, RuntimeAudioWindowTarget,
+    RUNTIME_AUDIO_NOTIFICATION_LIMIT, RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE,
+    RUNTIME_AUDIO_RESOURCE_ADDRESS_OWNER, RuntimeAudio, RuntimeAudioBuffer,
+    RuntimeAudioBufferBackingPlan, RuntimeAudioBufferControlPlan, RuntimeAudioBufferControlRequest,
+    RuntimeAudioBufferControlResult, RuntimeAudioBufferCreateRequest,
+    RuntimeAudioBufferCreationPlan, RuntimeAudioBufferFormatPlan, RuntimeAudioBufferFormatRequest,
+    RuntimeAudioBufferFormatResult, RuntimeAudioBufferId, RuntimeAudioBufferLock,
+    RuntimeAudioBufferLockPlan, RuntimeAudioBufferLockRequest, RuntimeAudioBufferNotificationPlan,
+    RuntimeAudioBufferNotificationRequest, RuntimeAudioBufferPlayPlan,
+    RuntimeAudioBufferPlayRequest, RuntimeAudioBufferPlayResult, RuntimeAudioBufferUnlockPlan,
+    RuntimeAudioBufferUnlockRequest, RuntimeAudioBufferUnlockResult, RuntimeAudioComRetirementPlan,
+    RuntimeAudioCooperativeLevelPlan, RuntimeAudioCooperativeLevelRequest,
+    RuntimeAudioCooperativeLevelResult, RuntimeAudioCooperativeLevelUpdateRequest,
+    RuntimeAudioDevice, RuntimeAudioDeviceCreateRequest, RuntimeAudioDeviceCreationPlan,
+    RuntimeAudioDeviceId, RuntimeAudioNotification, RuntimeAudioNotificationWaitPlan,
+    RuntimeAudioWindowTarget,
 };
 use super::clock::{
     RuntimeClockAdvancePlan, RuntimeClockProfile, RuntimeClockState,
@@ -354,6 +355,7 @@ pub(crate) struct RuntimeWaitableTimerPacingCompletionPlan {
 pub(crate) struct RuntimeAudioNotificationWaitCompletionPlan {
     scheduler: RuntimeHostCompletionPlan,
     audio: Option<RuntimeAudioNotificationWaitPlan>,
+    result_index: Option<u32>,
     payload: Vec<u8>,
 }
 
@@ -363,9 +365,13 @@ impl RuntimeAudioNotificationWaitCompletionPlan {
     }
 
     pub(crate) const fn result_index(&self) -> Option<u32> {
+        self.result_index
+    }
+
+    pub(crate) fn accepts_host_payload(&self, payload: &[u8]) -> bool {
         match self.audio.as_ref() {
-            Some(audio) => audio.result_index(),
-            None => None,
+            Some(audio) => audio.matches_rebased_host_payload(payload),
+            None => self.encode_host_payload() == payload,
         }
     }
 }
@@ -396,6 +402,51 @@ fn encode_inactive_audio_notification_wait_payload(
         payload.extend_from_slice(&word.to_le_bytes());
     }
     payload
+}
+
+fn decode_audio_notification_wait_handles(
+    payload: &[u8],
+    timeout_milliseconds: u32,
+) -> Result<Vec<RuntimeHandle>, RuntimeStateError> {
+    if !payload.len().is_multiple_of(4) {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-audio",
+            "audio-notification-wait-payload-invalid",
+            "audio notification wait payload is not DWORD aligned",
+        ));
+    }
+    let words = payload
+        .chunks_exact(4)
+        .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
+        .collect::<Vec<_>>();
+    let (payload_timeout, handle_count, handles_start) = match words.first() {
+        Some(1) => (words.get(11), words.get(12), 13),
+        Some(2) => (words.get(2), words.get(3), 4),
+        _ => {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-audio",
+                "audio-notification-wait-payload-invalid",
+                "audio notification wait payload has an unknown version",
+            ));
+        }
+    };
+    let handle_count = handle_count.copied().unwrap_or(0) as usize;
+    if payload_timeout != Some(&timeout_milliseconds)
+        || handle_count == 0
+        || handle_count > RUNTIME_AUDIO_NOTIFICATION_LIMIT
+        || words.len() != handles_start + handle_count
+    {
+        return Err(RuntimeStateError::invalid_input(
+            "runtime-audio",
+            "audio-notification-wait-payload-invalid",
+            "audio notification wait payload has inconsistent timeout or handle bounds",
+        ));
+    }
+    Ok(words[handles_start..]
+        .iter()
+        .copied()
+        .map(RuntimeHandle)
+        .collect())
 }
 
 impl RuntimeWaitableTimerPacingCompletionPlan {
@@ -4123,6 +4174,13 @@ impl RuntimeKernel {
         &mut self,
         disposition: RuntimeApiBoundaryDisposition,
     ) -> Result<Option<RuntimeThreadExecutionSelection>, RuntimeStateError> {
+        if disposition == RuntimeApiBoundaryDisposition::TerminateCurrentThread {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-thread-registry",
+                "terminating-api-boundary-requires-thread-exit",
+                "a terminating API boundary must commit through the thread lifecycle owner",
+            ));
+        }
         if !self.process.is_running()
             || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
             || !self.scheduler_state()?.is_executable()
@@ -4164,6 +4222,7 @@ impl RuntimeKernel {
             (RuntimeApiBoundaryDisposition::BlockCurrentThread, Some((thread_id, _))) => {
                 (Some(thread_id), false)
             }
+            (RuntimeApiBoundaryDisposition::TerminateCurrentThread, _) => unreachable!(),
         };
         let plan = self.scheduler.plan_completed_api_boundary_with_competitor(
             disposition,
@@ -7610,11 +7669,14 @@ impl RuntimeKernel {
     pub(crate) fn plan_audio_notification_wait_completion(
         &self,
         request_id: u64,
-        handles: &[RuntimeHandle],
         timeout_milliseconds: u32,
         payload: &[u8],
     ) -> Result<RuntimeAudioNotificationWaitCompletionPlan, RuntimeStateError> {
-        self.validate_audio_notification_wait_events(handles)?;
+        // WaitForMultipleObjects captures its handle array when the call begins.
+        // The guest may reuse or clear the source array while another thread runs,
+        // so completion must use the bounded Rust-owned request payload instead of
+        // rereading mutable guest memory.
+        let handles = decode_audio_notification_wait_handles(payload, timeout_milliseconds)?;
         let scheduler = self.scheduler.plan_host_completion(request_id)?;
         if scheduler.request().service != RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE {
             return Err(RuntimeStateError::invalid_input(
@@ -7624,23 +7686,35 @@ impl RuntimeKernel {
             ));
         }
         let inactive_payload =
-            encode_inactive_audio_notification_wait_payload(handles, timeout_milliseconds);
-        let audio = if payload == inactive_payload {
-            None
+            encode_inactive_audio_notification_wait_payload(&handles, timeout_milliseconds);
+        let (audio, result_index, expected_payload) = if payload == inactive_payload {
+            (None, None, inactive_payload)
         } else {
-            let audio = self
+            match self
                 .audio
-                .plan_notification_wait(handles, timeout_milliseconds)?;
-            self.audio.preflight_notification_wait(&audio)?;
-            Some(audio)
+                .plan_notification_wait(&handles, timeout_milliseconds)
+            {
+                Ok(audio) => {
+                    self.audio.preflight_notification_wait(&audio)?;
+                    let result_index = audio.result_index();
+                    let expected_payload = audio.encode_host_payload();
+                    (Some(audio), result_index, expected_payload)
+                }
+                Err(error) if error.code == "audio-notification-wait-buffer-not-playing" => {
+                    let result_index = self.audio.stopped_notification_result(
+                        &handles,
+                        timeout_milliseconds,
+                        payload,
+                    )?;
+                    (None, Some(result_index), payload.to_vec())
+                }
+                Err(error) => return Err(error),
+            }
         };
-        let expected_payload = audio.as_ref().map_or(
-            inactive_payload,
-            RuntimeAudioNotificationWaitPlan::encode_host_payload,
-        );
         Ok(RuntimeAudioNotificationWaitCompletionPlan {
             scheduler,
             audio,
+            result_index,
             payload: expected_payload,
         })
     }
@@ -7654,10 +7728,11 @@ impl RuntimeKernel {
                 .as_ref()
                 .is_none_or(|audio| self.audio.preflight_notification_wait(audio).is_ok())
         );
+        let planned_result_index = plan.result_index;
         let result_index = plan
             .audio
             .map(|audio| self.audio.commit_notification_wait(audio))
-            .unwrap_or(None);
+            .unwrap_or(planned_result_index);
         let completion = self.scheduler.commit_host_completion(plan.scheduler);
         (completion, result_index)
     }
@@ -10848,6 +10923,70 @@ mod tests {
     const D3D9_FIXTURE_RASTER_STATUS: GuestAddress =
         GuestAddress(D3D9_FIXTURE_MEMORY_BASE.0 + 0x910);
     const D3D9_FIXTURE_CALL_SITE: GuestAddress = GuestAddress(0x1005_aca5);
+
+    #[test]
+    fn callback_scratch_arena_bounds_reached_deep_seh_nesting() {
+        let deepest = callback_scratch_for_depth(64, 1)
+            .unwrap()
+            .expect("nonempty callback scratch");
+        assert_eq!(deepest.slot, 63);
+        assert_eq!(
+            deepest.address,
+            GuestAddress(CALLBACK_SCRATCH_ARENA_BASE.0 + 63 * CALLBACK_SCRATCH_SLOT_SIZE)
+        );
+        assert_eq!(
+            callback_scratch_for_depth(65, 1).unwrap_err().code,
+            "callback-scratch-depth-limit-exceeded"
+        );
+    }
+
+    #[test]
+    fn audio_notification_wait_payload_retains_captured_handles() {
+        let handles = [
+            RuntimeHandle::from_parts(RuntimeObjectKind::Event, 1, 1).unwrap(),
+            RuntimeHandle::from_parts(RuntimeObjectKind::Event, 1, 2).unwrap(),
+        ];
+        let inactive = encode_inactive_audio_notification_wait_payload(&handles, 100);
+        assert_eq!(
+            decode_audio_notification_wait_handles(&inactive, 100).unwrap(),
+            handles
+        );
+
+        let active_words = [
+            1,
+            25,
+            0,
+            7,
+            0,
+            9,
+            0,
+            100,
+            200,
+            0,
+            1,
+            100,
+            handles.len() as u32,
+        ];
+        let mut active = Vec::new();
+        for word in active_words
+            .into_iter()
+            .chain(handles.iter().map(|handle| handle.0))
+        {
+            active.extend_from_slice(&word.to_le_bytes());
+        }
+        assert_eq!(
+            decode_audio_notification_wait_handles(&active, 100).unwrap(),
+            handles
+        );
+
+        active[12 * 4..13 * 4].copy_from_slice(&3u32.to_le_bytes());
+        assert_eq!(
+            decode_audio_notification_wait_handles(&active, 100)
+                .unwrap_err()
+                .code,
+            "audio-notification-wait-payload-invalid"
+        );
+    }
 
     #[test]
     fn failed_private_heap_registration_preserves_the_slot_allocator() {

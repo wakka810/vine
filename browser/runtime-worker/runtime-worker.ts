@@ -3781,6 +3781,8 @@ interface PageFaultRejectedMetadata {
   faultAddress: number;
   pageFaultErrorCode: number;
   error: { code: string };
+  largeHeapAllocation: unknown | null;
+  faultRegion: unknown | null;
   memory: { generation: number; acknowledgedGeneration: number };
 }
 
@@ -3991,6 +3993,7 @@ class BrowserRuntimeSession {
   #currentThreadId = 0;
   #liveThreadId: number | null = null;
   #instructionsSinceOwnedStop = 0;
+  #latestPageFaultRejection: PageFaultRejectedMetadata | null = null;
   readonly #threadContexts = new Map<number, ExecutionCpuContext>();
   readonly #threadStacks = new Map<number, RuntimeThreadStackMetadata>();
   readonly #threadResumeStates = new Map<number, "ready" | "guest-callback">();
@@ -4592,6 +4595,7 @@ class BrowserRuntimeSession {
         historicalCheckpointBypassed: true,
         semanticTailCapacity: 512,
         semanticTail: [],
+        largeHeapLifecycle: [],
         presentCount: 0,
         latestPresentation: null,
         audioEventCount: 0,
@@ -5893,6 +5897,16 @@ class BrowserRuntimeSession {
           "forward primary pointer press overlapped an active press",
         );
         this.#forwardPrimaryPointerPressPendingAction = action;
+      } else if (
+        phase === "release" &&
+        event.button === "primary" &&
+        this.#forwardPrimaryPointerPressPendingAction === action
+      ) {
+        // Some target states consume WM_LBUTTONDOWN without polling
+        // GetAsyncKeyState(VK_LBUTTON). The pending poll is diagnostic-only;
+        // retire it when the matching physical press ends so a later action is
+        // never attributed to the previous click.
+        this.#forwardPrimaryPointerPressPendingAction = null;
       }
       this.#recordForwardInputAction(
         action,
@@ -10529,7 +10543,7 @@ class BrowserRuntimeSession {
       titleBlueBackground && darkPixels >= 64
         ? this.#forwardPrimaryActionTargetReadyStreak + 1
         : 0;
-    if (this.#forwardPrimaryActionTargetReadyStreak < 3) {
+    if (this.#forwardPrimaryActionTargetReadyStreak < 1) {
       return;
     }
     this.#forwardPrimaryActionTargetReadySignaled = true;
@@ -19703,6 +19717,44 @@ class BrowserRuntimeSession {
       this.#forwardTailCursor =
         (this.#forwardTailCursor + 1) % summary.semanticTailCapacity;
     }
+    const module = entry.module.toLowerCase();
+    if (
+      module === "kernel32.dll" &&
+      entry.symbol === "HeapAlloc" &&
+      entry.arguments[2] === 0x0400_0000 &&
+      "action" in entry.result &&
+      entry.result.action === "set"
+    ) {
+      summary.largeHeapLifecycle.push({
+        action: "allocate",
+        sequence: entry.sequence,
+        instructionCount: entry.instructionCount,
+        threadId: entry.threadId,
+        heapHandle: entry.arguments[0] ?? 0,
+        address: entry.result.value,
+        byteLength: entry.arguments[2],
+      });
+    } else if (
+      module === "kernel32.dll" &&
+      entry.symbol === "HeapFree" &&
+      entry.arguments[2] === 0x4000_0000
+    ) {
+      summary.largeHeapLifecycle.push({
+        action: "free",
+        sequence: entry.sequence,
+        instructionCount: entry.instructionCount,
+        threadId: entry.threadId,
+        heapHandle: entry.arguments[0] ?? 0,
+        address: entry.arguments[2],
+        byteLength: 0x0400_0000,
+      });
+    }
+    if (summary.largeHeapLifecycle.length > 16) {
+      summary.largeHeapLifecycle.splice(
+        0,
+        summary.largeHeapLifecycle.length - 16,
+      );
+    }
     summary.currentThreadId = this.#currentThreadId;
     if (entry.lastError !== undefined) {
       summary.latestLastError = entry.lastError;
@@ -28179,6 +28231,7 @@ class BrowserRuntimeSession {
       stop.faultAddress !== undefined,
       "page fault omitted its address",
     );
+    this.#latestPageFaultRejection = null;
     const output = this.#requireBridge().servicePageFault<
       PageFaultResolvedMetadata | PageFaultRejectedMetadata
     >(stop.faultAddress, stop.errorCode);
@@ -28201,6 +28254,7 @@ class BrowserRuntimeSession {
           metadata.memory.acknowledgedGeneration === Number(this.#generation),
         "rejected page fault changed memory",
       );
+      this.#latestPageFaultRejection = structuredClone(metadata);
       return null;
     }
 
@@ -28412,6 +28466,16 @@ class BrowserRuntimeSession {
       /^[0-9a-f]{64}$/.test(reflection.contentSha256),
       "invalid memory digest",
     );
+    const stackWords: number[] = [];
+    for (let index = 0; index < 32; index += 1) {
+      try {
+        stackWords.push(
+          this.#requireEngine().readGuestU32(context.esp + index * 4),
+        );
+      } catch {
+        break;
+      }
+    }
     this.#report.firstUnsupported = {
       capabilityCluster,
       endpoint: null,
@@ -28426,6 +28490,19 @@ class BrowserRuntimeSession {
         previousInstructionPointer: context.previousInstructionPointer,
         faultAddress: stop.faultAddress,
         pageFaultErrorCode: stop.errorCode,
+        pageFaultRejection: this.#latestPageFaultRejection,
+        registers: {
+          eax: context.eax,
+          ecx: context.ecx,
+          edx: context.edx,
+          ebx: context.ebx,
+          esp: context.esp,
+          ebp: context.ebp,
+          esi: context.esi,
+          edi: context.edi,
+          eflags: context.eflags,
+        },
+        stackWords,
       },
       instructionCount: this.#report.instructions,
       memoryContentSha256: reflection.contentSha256,
@@ -28925,6 +29002,15 @@ class BrowserRuntimeSession {
     selection: ApiBoundaryThreadSelection | undefined,
     executionBoundary: ApiCompletion["executionBoundary"],
   ): Promise<void> | null {
+    if (executionBoundary === "terminate-current-thread") {
+      invariant(
+        selection === undefined && callerResumeState === "ready",
+        "terminating API boundary retained a selection or callback frame",
+      );
+      return this.#completeThread(
+        this.#requireEngine().saveCpuContext().eax >>> 0,
+      );
+    }
     if (
       !this.#isForwardDevelopment() &&
       executionBoundary === "yield-current-thread" &&

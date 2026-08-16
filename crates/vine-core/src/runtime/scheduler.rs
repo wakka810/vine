@@ -19,6 +19,7 @@ pub enum RuntimeApiBoundaryDisposition {
     ContinueQuantum,
     YieldCurrentThread,
     BlockCurrentThread,
+    TerminateCurrentThread,
 }
 
 impl RuntimeApiBoundaryDisposition {
@@ -445,6 +446,13 @@ impl RuntimeScheduler {
                 "runtime-scheduler",
                 "blocking-api-boundary-already-committed",
                 "a blocking API boundary must select another executable thread directly",
+            ));
+        }
+        if disposition == RuntimeApiBoundaryDisposition::TerminateCurrentThread {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-scheduler",
+                "terminating-api-boundary-requires-thread-exit",
+                "a terminating API boundary must commit through the thread lifecycle owner",
             ));
         }
         let current_state = self.current_state()?;

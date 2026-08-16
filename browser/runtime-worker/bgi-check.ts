@@ -70,7 +70,8 @@ const forwardInput = searchParams.get("forwardInput");
 if (forwardInput !== null && forwardInput !== "title-observe") {
   throw new Error("forwardInput must be title-observe when specified");
 }
-const forwardInputMode = forwardInput === "title-observe" ? "title-observe" : "campaign";
+const forwardInputMode =
+  forwardInput === "title-observe" ? "title-observe" : "campaign";
 const forwardStop = searchParams.get("forwardStop");
 if (
   forwardStop !== null &&
@@ -85,7 +86,11 @@ const stopAfterForwardTitleAction = forwardStop === "title-action";
 const stopAfterForwardLoopingAudioUpdate =
   forwardStop === "looping-audio-update";
 const forwardSeconds = Number(searchParams.get("forwardSeconds") ?? 540);
-if (!Number.isInteger(forwardSeconds) || forwardSeconds < 1 || forwardSeconds > 540) {
+if (
+  !Number.isInteger(forwardSeconds) ||
+  forwardSeconds < 1 ||
+  forwardSeconds > 540
+) {
   throw new Error("forwardSeconds must be an integer from 1 through 540");
 }
 const evidenceLevel =
@@ -189,10 +194,8 @@ const d3d9Canvas =
     "primary-main-loop-pointer-message-action-progress-gateway" ||
   capabilityProfile === "user32-set-focus-action-continuation" ||
   capabilityProfile === "winmm-time-get-time-action-continuation" ||
-  capabilityProfile ===
-    "user32-def-window-proc-a-action-continuation" ||
-  capabilityProfile ===
-    "user32-peek-message-a-pointer-release-continuation" ||
+  capabilityProfile === "user32-def-window-proc-a-action-continuation" ||
+  capabilityProfile === "user32-peek-message-a-pointer-release-continuation" ||
   capabilityProfile ===
     "user32-translate-message-pointer-release-continuation" ||
   capabilityProfile ===
@@ -278,18 +281,28 @@ let forwardCampaignPhase:
   | "startup-keyboard"
   | "title-start-pointer"
   | "title-response"
-  | "scenario-keyboard"
+  | "scenario-pointer"
   | "complete" = "startup-pointer";
 let forwardKeyboardActivationLimit = 2;
 const forwardStartupKeyboardActivationCount = 0;
-const forwardScenarioKeyboardActivationCount = 10;
 const forwardPointerActions = [
-  { normalizedX: 0x3a1a, normalizedY: 0xcfd2 },
   { normalizedX: 0x3a1a, normalizedY: 0xcfd2 },
   // Native title trace: client (276, 592) after moving onto Start.
   { normalizedX: 0x374d, normalizedY: 0xd2a2 },
+  // The scenario action binding uses the primary pointer button. Advance from
+  // the center of the viewport so the development campaign does not target a
+  // title/menu control that may remain under the cursor during a transition.
+  { normalizedX: 0x8000, normalizedY: 0x8000 },
+  { normalizedX: 0x8000, normalizedY: 0x8000 },
+  { normalizedX: 0x8000, normalizedY: 0x8000 },
+  { normalizedX: 0x8000, normalizedY: 0x8000 },
 ] as const;
-const forwardStartupPointerActionCount = 2;
+const forwardStartupPointerActionCount = 1;
+const forwardTitlePointerActionCount = 1;
+const forwardScenarioPointerActionCount =
+  forwardPointerActions.length -
+  forwardStartupPointerActionCount -
+  forwardTitlePointerActionCount;
 const forwardTitleActionDelayMilliseconds = 1_250;
 const forwardPointerHoldMilliseconds = 117;
 const heartbeatIntervalMilliseconds = forwardDevelopment ? 50 : 5;
@@ -326,7 +339,11 @@ function maybePostForwardAction(): void {
       nextAction <= forwardStartupPointerActionCount) ||
     (forwardInputMode === "campaign" &&
       forwardCampaignPhase === "title-start-pointer" &&
-      nextAction === forwardStartupPointerActionCount + 1);
+      nextAction ===
+        forwardStartupPointerActionCount + forwardTitlePointerActionCount) ||
+    (forwardInputMode === "campaign" &&
+      forwardCampaignPhase === "scenario-pointer" &&
+      nextAction <= forwardPointerActions.length);
   if (
     !forwardDevelopment ||
     !forwardVisibleFrameObserved ||
@@ -358,7 +375,8 @@ function pressForwardAction(): void {
     !forwardHoverPresented ||
     !forwardVisibleFrameObserved ||
     (forwardCampaignPhase !== "startup-pointer" &&
-      forwardCampaignPhase !== "title-start-pointer") ||
+      forwardCampaignPhase !== "title-start-pointer" &&
+      forwardCampaignPhase !== "scenario-pointer") ||
     forwardButtonDown ||
     forwardActiveAction !== forwardCompletedActions ||
     forwardCompletedActions >= forwardPointerActions.length
@@ -378,7 +396,9 @@ function pressForwardAction(): void {
     coordinates.normalizedY,
   );
   if (down === null) {
-    fail(new Error("forward pointer action is outside the bounded source mapping"));
+    fail(
+      new Error("forward pointer action is outside the bounded source mapping"),
+    );
     return;
   }
   forwardButtonDown = true;
@@ -406,7 +426,11 @@ function releaseForwardAction(action: number): void {
     coordinates.normalizedY,
   );
   if (up === null) {
-    fail(new Error("forward pointer release is outside the bounded source mapping"));
+    fail(
+      new Error(
+        "forward pointer release is outside the bounded source mapping",
+      ),
+    );
     return;
   }
   forwardButtonDown = false;
@@ -427,6 +451,18 @@ function scheduleNextForwardAction(action: number): void {
   forwardHoverPresented = false;
   if (forwardCampaignPhase === "title-start-pointer") {
     forwardCampaignPhase = "title-response";
+    return;
+  }
+  if (forwardCampaignPhase === "scenario-pointer") {
+    const completedScenarioActions =
+      action -
+      forwardStartupPointerActionCount -
+      forwardTitlePointerActionCount;
+    if (completedScenarioActions >= forwardScenarioPointerActionCount) {
+      forwardCampaignPhase = "complete";
+      return;
+    }
+    maybePostForwardAction();
     return;
   }
   if (
@@ -457,17 +493,10 @@ function pressForwardKeyboardActivation(): void {
   if (
     !forwardKeyboardCampaignReady ||
     !forwardVisibleFrameObserved ||
-    (forwardCampaignPhase !== "startup-keyboard" &&
-      forwardCampaignPhase !== "scenario-keyboard") ||
+    forwardCampaignPhase !== "startup-keyboard" ||
     forwardKeyboardButtonDown ||
     forwardCompletedKeyboardActivations >= forwardKeyboardActivationLimit
   ) {
-    if (
-      forwardCampaignPhase === "scenario-keyboard" &&
-      forwardCompletedKeyboardActivations >= forwardKeyboardActivationLimit
-    ) {
-      forwardCampaignPhase = "complete";
-    }
     return;
   }
   const down = keyboardSourceEvent(
@@ -490,7 +519,10 @@ function pressForwardKeyboardActivation(): void {
 }
 
 function releaseForwardKeyboardActivation(action: number): void {
-  if (!forwardKeyboardButtonDown || action !== forwardCompletedKeyboardActivations + 1) {
+  if (
+    !forwardKeyboardButtonDown ||
+    action !== forwardCompletedKeyboardActivations + 1
+  ) {
     return;
   }
   const up = keyboardSourceEvent(
@@ -581,17 +613,15 @@ worker.addEventListener(
         forwardVisibleFrameObserved = true;
         maybePostForwardAction();
         pressForwardAction();
-        if (
-          forwardCampaignPhase === "startup-keyboard" ||
-          forwardCampaignPhase === "scenario-keyboard"
-        ) {
+        if (forwardCampaignPhase === "startup-keyboard") {
           pressForwardKeyboardActivation();
         }
       }
       if (
         forwardDevelopment &&
         message.phase === "running" &&
-        message.detail === "Forward visible frame lost; waiting for stable output"
+        message.detail ===
+          "Forward visible frame lost; waiting for stable output"
       ) {
         forwardVisibleFrameObserved = false;
       }
@@ -606,8 +636,25 @@ worker.addEventListener(
       if (
         forwardDevelopment &&
         message.phase === "running" &&
+        message.detail === "Forward primary pointer hover consumed by guest" &&
+        forwardCampaignPhase === "title-start-pointer"
+      ) {
+        // The static title does not necessarily Present after a hover-only
+        // update. Its strong title signature plus guest-consumed mouse move is
+        // sufficient to deliver the primary button without deadlocking on a
+        // cosmetic hover frame.
+        forwardHoverPresented = true;
+        pressForwardAction();
+      }
+      if (
+        forwardDevelopment &&
+        message.phase === "running" &&
         message.detail === "Forward primary action target ready"
       ) {
+        // The title-specific signature is stronger than the generic populated-
+        // frame streak, so it is safe to accept input without waiting for eight
+        // additional Presents on the slow private-target main loop.
+        forwardVisibleFrameObserved = true;
         forwardPrimaryActionTargetReady = true;
         schedulePostStartupPointerAction();
       }
@@ -625,15 +672,15 @@ worker.addEventListener(
         // the worker to announce the next stable visible frame before sending
         // scenario input.
         forwardVisibleFrameObserved = false;
-        forwardCampaignPhase = "scenario-keyboard";
-        forwardKeyboardCampaignReady = true;
-        forwardKeyboardActivationLimit = forwardScenarioKeyboardActivationCount;
-        scheduleForwardKeyboardActivation();
+        forwardCampaignPhase = "scenario-pointer";
+        forwardKeyboardCampaignReady = false;
+        maybePostForwardAction();
       }
       if (forwardDevelopment && message.phase === "running") {
-        const enteredPress = /^Forward pointer action (\d+) press entered guest$/u.exec(
-          message.detail,
-        );
+        const enteredPress =
+          /^Forward pointer action (\d+) press entered guest$/u.exec(
+            message.detail,
+          );
         if (enteredPress !== null) {
           const action = Number(enteredPress[1]);
           window.setTimeout(
@@ -641,9 +688,10 @@ worker.addEventListener(
             forwardPointerHoldMilliseconds,
           );
         }
-        const release = /^Forward pointer action (\d+) release frame presented$/u.exec(
-          message.detail,
-        );
+        const release =
+          /^Forward pointer action (\d+) release frame presented$/u.exec(
+            message.detail,
+          );
         if (release !== null) {
           const action = Number(release[1]);
           scheduleNextForwardAction(action);
@@ -658,7 +706,7 @@ worker.addEventListener(
         const activationRelease =
           /^Forward activation action (\d+) release frame presented$/u.exec(
             message.detail,
-        );
+          );
         if (activationRelease !== null) {
           forwardCompletedKeyboardActivations = Number(activationRelease[1]);
           if (
@@ -748,14 +796,16 @@ const startMessage = {
     policyUrl: "./private/kernel32-policy.json",
     instructionBudget:
       scenario === "watchdog" ? 4 : forwardDevelopment ? 524_288 : 16_384,
-    watchdogInstructionLimit:
-      forwardDevelopment
-        ? 12_000_000_000
-        : scenario === "watchdog"
+    // The release JIT sustains more than 80M guest instructions/second on the
+    // private target. Keep the wall deadline authoritative for forward runs.
+    watchdogInstructionLimit: forwardDevelopment
+      ? Math.max(12_000_000_000, forwardSeconds * 100_000_000)
+      : scenario === "watchdog"
         ? 1
         : capabilityProfile === "user32-get-cursor-info" ||
             capabilityProfile === "d3d9-update-texture-partial-dirty-region" ||
-            capabilityProfile === "d3d9-begin-scene-post-partial-dirty-region" ||
+            capabilityProfile ===
+              "d3d9-begin-scene-post-partial-dirty-region" ||
             capabilityProfile === "d3d9-set-sampler-state-post-begin-scene" ||
             capabilityProfile ===
               "d3d9-set-texture-stage-state-post-sampler-state" ||
@@ -788,88 +838,194 @@ const startMessage = {
             capabilityProfile ===
               "user32-get-window-rect-post-test-cooperative-level-timer-callback-time-get-time"
           ? 405_000_000
-        : capabilityProfile ===
-              "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect" ||
-            capabilityProfile ===
-              "primary-main-loop-post-callback-pointer-message-consumption-batch" ||
-            capabilityProfile ===
-              "primary-main-loop-post-callback-pointer-action-continuation-batch"
-          ? 455_000_000
-        : capabilityProfile ===
-            "primary-main-loop-post-callback-pointer-release-message-consumption-batch"
-          ? 8_000_000_000
+          : capabilityProfile ===
+                "user32-get-cursor-pos-post-test-cooperative-level-timer-callback-time-get-time-window-rect" ||
+              capabilityProfile ===
+                "primary-main-loop-post-callback-pointer-message-consumption-batch" ||
+              capabilityProfile ===
+                "primary-main-loop-post-callback-pointer-action-continuation-batch"
+            ? 455_000_000
+            : capabilityProfile ===
+                "primary-main-loop-post-callback-pointer-release-message-consumption-batch"
+              ? 8_000_000_000
+              : capabilityProfile ===
+                    "primary-main-loop-post-callback-pointer-action-next-iteration-batch" ||
+                  capabilityProfile ===
+                    "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
+                ? 3_200_000_000
+                : capabilityProfile === "gdi-outline-text-metrics-224x112"
+                  ? 385_000_000
+                  : capabilityProfile === "kernel32-delete-file-a" ||
+                      capabilityProfile ===
+                        "kernel32-private-heap-ordinary-segment-growth" ||
+                      capabilityProfile === "gdi-create-font-a-224x112" ||
+                      capabilityProfile === "gdi-create-dib-section-448x336"
+                    ? 350_000_000
+                    : scheduledSharedClockSetWindowText
+                      ? 340_000_000
+                      : capabilityProfile ===
+                            "primary-main-loop-presentation-progress-gateway" ||
+                          capabilityProfile ===
+                            "primary-main-loop-input-progress-gateway" ||
+                          capabilityProfile ===
+                            "primary-main-loop-action-input-progress-gateway" ||
+                          capabilityProfile ===
+                            "primary-main-loop-window-timer-callback-delivery-gateway" ||
+                          capabilityProfile ===
+                            "primary-main-loop-window-timer-callback-recurring-batch" ||
+                          capabilityProfile ===
+                            "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
+                          capabilityProfile ===
+                            "primary-main-loop-pointer-message-action-progress-gateway" ||
+                          capabilityProfile ===
+                            "user32-set-focus-action-continuation" ||
+                          capabilityProfile ===
+                            "winmm-time-get-time-action-continuation" ||
+                          capabilityProfile ===
+                            "user32-def-window-proc-a-action-continuation" ||
+                          capabilityProfile ===
+                            "user32-peek-message-a-pointer-release-continuation" ||
+                          capabilityProfile ===
+                            "user32-translate-message-pointer-release-continuation" ||
+                          capabilityProfile ===
+                            "user32-dispatch-message-a-pointer-release-continuation" ||
+                          capabilityProfile ===
+                            "user32-def-window-proc-a-pointer-release-continuation" ||
+                          capabilityProfile ===
+                            "user32-peek-message-a-post-pointer-release-continuation" ||
+                          capabilityProfile ===
+                            "winmm-time-get-time-post-pointer-release-continuation" ||
+                          capabilityProfile ===
+                            "winmm-time-get-time-post-pointer-release-repeat-batch" ||
+                          capabilityProfile ===
+                            "user32-get-window-rect-post-pointer-release-continuation" ||
+                          capabilityProfile ===
+                            "user32-get-cursor-pos-post-pointer-release-continuation" ||
+                          capabilityProfile ===
+                            "user32-get-system-metrics-post-pointer-release-continuation" ||
+                          capabilityProfile ===
+                            "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
+                          capabilityProfile ===
+                            "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+                          capabilityProfile ===
+                            "user32-is-iconic-post-pointer-release-continuation" ||
+                          capabilityProfile ===
+                            "winmm-time-get-time-post-is-iconic-continuation" ||
+                          capabilityProfile ===
+                            "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
+                          capabilityProfile ===
+                            "d3d9-test-cooperative-level-post-input-scan-continuation" ||
+                          capabilityProfile ===
+                            "d3d9-post-input-scan-waitable-timer-cycle" ||
+                          capabilityProfile ===
+                            "user32-window-timer-callback-post-waitable-timer-cycle" ||
+                          capabilityProfile ===
+                            "user32-peek-message-a-post-window-timer-callback-continuation"
+                        ? 340_000_000
+                        : capabilityProfile ===
+                              "runtime-trapless-execution-budget" ||
+                            capabilityProfile ===
+                              "kernel32-heap-free-large-buffer" ||
+                            capabilityProfile ===
+                              "kernel32-heap-alloc-24-byte-buffer" ||
+                            capabilityProfile ===
+                              "winmm-time-get-time-post-heap-reuse" ||
+                            capabilityProfile ===
+                              "kernel32-enter-critical-section-post-clock" ||
+                            capabilityProfile ===
+                              "kernel32-enter-critical-section-post-wait" ||
+                            capabilityProfile ===
+                              "kernel32-enter-critical-section-post-timer-wait-batch" ||
+                            capabilityProfile ===
+                              "kernel32-enter-critical-section-post-timer-rearm-wait-batch" ||
+                            capabilityProfile ===
+                              "kernel32-set-waitable-timer-post-critical-section-batch" ||
+                            capabilityProfile ===
+                              "kernel32-set-waitable-timer-post-timer-wait-batch" ||
+                            capabilityProfile ===
+                              "kernel32-set-waitable-timer-post-timer-rearm-wait-batch" ||
+                            capabilityProfile ===
+                              "primary-main-loop-recurring-timer-cycle-batch" ||
+                            capabilityProfile ===
+                              "primary-main-loop-recurring-timer-multi-cycle-batch" ||
+                            capabilityProfile ===
+                              "primary-main-loop-recurring-timer-window-batch" ||
+                            capabilityProfile ===
+                              "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
+                            capabilityProfile ===
+                              "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
+                            capabilityProfile ===
+                              "kernel32-wait-for-single-object-ex-post-critical-section"
+                          ? 320_000_000
+                          : capabilityProfile === "runtime-thread-stack-growth"
+                            ? 300_000_000
+                            : capabilityProfile ===
+                                  "user32-async-key-state-initial-scan" ||
+                                capabilityProfile ===
+                                  "user32-async-key-state-initial-scan-continuation" ||
+                                capabilityProfile === "user32-peek-message-a" ||
+                                capabilityProfile === "user32-is-iconic"
+                              ? 180_000_000
+                              : capabilityProfile ===
+                                    "kernel32-create-directory-a" ||
+                                  capabilityProfile ===
+                                    "user32-set-window-pos-repeat-activation" ||
+                                  capabilityProfile ===
+                                    "d3d9-recreated-textures" ||
+                                  capabilityProfile ===
+                                    "user32-set-window-pos-frame-change-move" ||
+                                  capabilityProfile ===
+                                    "user32-show-window-normal" ||
+                                  capabilityProfile ===
+                                    "user32-update-window" ||
+                                  capabilityProfile === "d3d9-clear" ||
+                                  capabilityProfile === "user32-set-rect" ||
+                                  capabilityProfile === "d3d9-add-dirty-rect" ||
+                                  capabilityProfile === "d3d9-update-texture" ||
+                                  capabilityProfile === "d3d9-begin-scene" ||
+                                  capabilityProfile ===
+                                    "d3d9-initial-sampler-states" ||
+                                  capabilityProfile ===
+                                    "d3d9-initial-texture-stage-states" ||
+                                  capabilityProfile === "d3d9-set-texture" ||
+                                  capabilityProfile === "d3d9-set-fvf" ||
+                                  capabilityProfile ===
+                                    "d3d9-set-stream-source" ||
+                                  capabilityProfile === "d3d9-draw-primitive" ||
+                                  capabilityProfile === "d3d9-end-scene" ||
+                                  capabilityProfile ===
+                                    "d3d9-post-end-scene-raster-status" ||
+                                  capabilityProfile ===
+                                    "d3d9-post-raster-status-waitable-timer" ||
+                                  capabilityProfile ===
+                                    "d3d9-post-scene-present-gateway" ||
+                                  capabilityProfile === "d3d9-first-present" ||
+                                  capabilityProfile ===
+                                    "d3d9-post-present-continuation" ||
+                                  capabilityProfile ===
+                                    "user32-async-key-state-input" ||
+                                  capabilityProfile ===
+                                    "user32-async-key-state-input-continuation"
+                                ? 35_000_000
+                                : 20_000_000,
+    watchdogWallMilliseconds: forwardDevelopment
+      ? forwardSeconds * 1_000
+      : capabilityProfile ===
+          "primary-main-loop-post-callback-pointer-release-message-consumption-batch"
+        ? 3_600_000
         : capabilityProfile ===
               "primary-main-loop-post-callback-pointer-action-next-iteration-batch" ||
             capabilityProfile ===
               "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
-          ? 3_200_000_000
-        : capabilityProfile === "gdi-outline-text-metrics-224x112"
-          ? 385_000_000
-        : capabilityProfile === "kernel32-delete-file-a" ||
-            capabilityProfile ===
-              "kernel32-private-heap-ordinary-segment-growth" ||
-            capabilityProfile === "gdi-create-font-a-224x112" ||
-            capabilityProfile === "gdi-create-dib-section-448x336"
-          ? 350_000_000
-        : scheduledSharedClockSetWindowText
-          ? 340_000_000
-          : capabilityProfile ===
-              "primary-main-loop-presentation-progress-gateway" ||
-            capabilityProfile === "primary-main-loop-input-progress-gateway" ||
-            capabilityProfile ===
-              "primary-main-loop-action-input-progress-gateway" ||
-            capabilityProfile ===
-              "primary-main-loop-window-timer-callback-delivery-gateway" ||
-            capabilityProfile ===
-              "primary-main-loop-window-timer-callback-recurring-batch" ||
-            capabilityProfile ===
-              "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
-            capabilityProfile ===
-              "primary-main-loop-pointer-message-action-progress-gateway" ||
-            capabilityProfile === "user32-set-focus-action-continuation" ||
-            capabilityProfile === "winmm-time-get-time-action-continuation" ||
-            capabilityProfile ===
-              "user32-def-window-proc-a-action-continuation" ||
-            capabilityProfile ===
-              "user32-peek-message-a-pointer-release-continuation" ||
-            capabilityProfile ===
-              "user32-translate-message-pointer-release-continuation" ||
-            capabilityProfile ===
-              "user32-dispatch-message-a-pointer-release-continuation" ||
-            capabilityProfile ===
-              "user32-def-window-proc-a-pointer-release-continuation" ||
-            capabilityProfile ===
-              "user32-peek-message-a-post-pointer-release-continuation" ||
-            capabilityProfile ===
-              "winmm-time-get-time-post-pointer-release-continuation" ||
-            capabilityProfile ===
-              "winmm-time-get-time-post-pointer-release-repeat-batch" ||
-            capabilityProfile ===
-              "user32-get-window-rect-post-pointer-release-continuation" ||
-            capabilityProfile ===
-              "user32-get-cursor-pos-post-pointer-release-continuation" ||
-            capabilityProfile ===
-              "user32-get-system-metrics-post-pointer-release-continuation" ||
-            capabilityProfile ===
-              "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
-            capabilityProfile ===
-              "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
-            capabilityProfile ===
-              "user32-is-iconic-post-pointer-release-continuation" ||
-            capabilityProfile ===
-              "winmm-time-get-time-post-is-iconic-continuation" ||
-            capabilityProfile ===
-              "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
-            capabilityProfile ===
-              "d3d9-test-cooperative-level-post-input-scan-continuation" ||
-            capabilityProfile ===
-              "d3d9-post-input-scan-waitable-timer-cycle" ||
-            capabilityProfile ===
-              "user32-window-timer-callback-post-waitable-timer-cycle" ||
-            capabilityProfile ===
-              "user32-peek-message-a-post-window-timer-callback-continuation"
-          ? 340_000_000
-          : capabilityProfile === "runtime-trapless-execution-budget" ||
+          ? 1_800_000
+          : scheduledSharedClockSetWindowText ||
+              capabilityProfile === "user32-async-key-state-initial-scan" ||
+              capabilityProfile ===
+                "user32-async-key-state-initial-scan-continuation" ||
+              capabilityProfile === "user32-peek-message-a" ||
+              capabilityProfile === "user32-is-iconic" ||
+              capabilityProfile === "runtime-thread-stack-growth" ||
+              capabilityProfile === "runtime-trapless-execution-budget" ||
               capabilityProfile === "kernel32-heap-free-large-buffer" ||
               capabilityProfile === "kernel32-heap-alloc-24-byte-buffer" ||
               capabilityProfile === "winmm-time-get-time-post-heap-reuse" ||
@@ -894,182 +1050,105 @@ const startMessage = {
               capabilityProfile ===
                 "primary-main-loop-recurring-timer-window-batch" ||
               capabilityProfile ===
+                "primary-main-loop-presentation-progress-gateway" ||
+              capabilityProfile ===
+                "primary-main-loop-input-progress-gateway" ||
+              capabilityProfile ===
+                "primary-main-loop-action-input-progress-gateway" ||
+              capabilityProfile ===
+                "primary-main-loop-window-timer-callback-delivery-gateway" ||
+              capabilityProfile ===
+                "primary-main-loop-window-timer-callback-recurring-batch" ||
+              capabilityProfile ===
+                "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
+              capabilityProfile ===
+                "primary-main-loop-pointer-message-action-progress-gateway" ||
+              capabilityProfile === "user32-set-focus-action-continuation" ||
+              capabilityProfile === "winmm-time-get-time-action-continuation" ||
+              capabilityProfile ===
+                "user32-def-window-proc-a-action-continuation" ||
+              capabilityProfile ===
+                "user32-peek-message-a-pointer-release-continuation" ||
+              capabilityProfile ===
+                "user32-translate-message-pointer-release-continuation" ||
+              capabilityProfile ===
+                "user32-dispatch-message-a-pointer-release-continuation" ||
+              capabilityProfile ===
+                "user32-def-window-proc-a-pointer-release-continuation" ||
+              capabilityProfile ===
+                "user32-peek-message-a-post-pointer-release-continuation" ||
+              capabilityProfile ===
+                "winmm-time-get-time-post-pointer-release-continuation" ||
+              capabilityProfile ===
+                "winmm-time-get-time-post-pointer-release-repeat-batch" ||
+              capabilityProfile ===
+                "user32-get-window-rect-post-pointer-release-continuation" ||
+              capabilityProfile ===
+                "user32-get-cursor-pos-post-pointer-release-continuation" ||
+              capabilityProfile ===
+                "user32-get-system-metrics-post-pointer-release-continuation" ||
+              capabilityProfile ===
+                "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
+              capabilityProfile ===
+                "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+              capabilityProfile ===
+                "user32-is-iconic-post-pointer-release-continuation" ||
+              capabilityProfile ===
+                "winmm-time-get-time-post-is-iconic-continuation" ||
+              capabilityProfile ===
+                "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
+              capabilityProfile ===
+                "d3d9-test-cooperative-level-post-input-scan-continuation" ||
+              capabilityProfile ===
+                "d3d9-post-input-scan-waitable-timer-cycle" ||
+              capabilityProfile ===
+                "user32-window-timer-callback-post-waitable-timer-cycle" ||
+              capabilityProfile ===
+                "user32-peek-message-a-post-window-timer-callback-continuation" ||
+              capabilityProfile ===
                 "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
               capabilityProfile ===
                 "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
               capabilityProfile ===
                 "kernel32-wait-for-single-object-ex-post-critical-section"
-            ? 320_000_000
-            : capabilityProfile === "runtime-thread-stack-growth"
-              ? 300_000_000
-              : capabilityProfile === "user32-async-key-state-initial-scan" ||
-                  capabilityProfile ===
-                    "user32-async-key-state-initial-scan-continuation" ||
-                  capabilityProfile === "user32-peek-message-a" ||
-                  capabilityProfile === "user32-is-iconic"
-                ? 180_000_000
-                : capabilityProfile === "kernel32-create-directory-a" ||
-                    capabilityProfile ===
-                      "user32-set-window-pos-repeat-activation" ||
-                    capabilityProfile === "d3d9-recreated-textures" ||
-                    capabilityProfile ===
-                      "user32-set-window-pos-frame-change-move" ||
-                    capabilityProfile === "user32-show-window-normal" ||
-                    capabilityProfile === "user32-update-window" ||
-                    capabilityProfile === "d3d9-clear" ||
-                    capabilityProfile === "user32-set-rect" ||
-                    capabilityProfile === "d3d9-add-dirty-rect" ||
-                    capabilityProfile === "d3d9-update-texture" ||
-                    capabilityProfile === "d3d9-begin-scene" ||
-                    capabilityProfile === "d3d9-initial-sampler-states" ||
-                    capabilityProfile === "d3d9-initial-texture-stage-states" ||
-                    capabilityProfile === "d3d9-set-texture" ||
-                    capabilityProfile === "d3d9-set-fvf" ||
-                    capabilityProfile === "d3d9-set-stream-source" ||
-                    capabilityProfile === "d3d9-draw-primitive" ||
-                    capabilityProfile === "d3d9-end-scene" ||
-                    capabilityProfile === "d3d9-post-end-scene-raster-status" ||
-                    capabilityProfile ===
-                      "d3d9-post-raster-status-waitable-timer" ||
-                    capabilityProfile === "d3d9-post-scene-present-gateway" ||
-                    capabilityProfile === "d3d9-first-present" ||
-                    capabilityProfile === "d3d9-post-present-continuation" ||
-                    capabilityProfile === "user32-async-key-state-input" ||
-                    capabilityProfile ===
-                      "user32-async-key-state-input-continuation"
-                  ? 35_000_000
-                  : 20_000_000,
-    watchdogWallMilliseconds:
-      forwardDevelopment
-        ? forwardSeconds * 1_000
-        : capabilityProfile ===
-        "primary-main-loop-post-callback-pointer-release-message-consumption-batch"
-        ? 3_600_000
-        : capabilityProfile ===
-        "primary-main-loop-post-callback-pointer-action-next-iteration-batch" ||
-      capabilityProfile ===
-        "primary-main-loop-post-callback-pointer-action-next-iteration-input-scan-batch"
-        ? 1_800_000
-        : scheduledSharedClockSetWindowText ||
-      capabilityProfile === "user32-async-key-state-initial-scan" ||
-      capabilityProfile ===
-        "user32-async-key-state-initial-scan-continuation" ||
-      capabilityProfile === "user32-peek-message-a" ||
-      capabilityProfile === "user32-is-iconic" ||
-      capabilityProfile === "runtime-thread-stack-growth" ||
-      capabilityProfile === "runtime-trapless-execution-budget" ||
-      capabilityProfile === "kernel32-heap-free-large-buffer" ||
-      capabilityProfile === "kernel32-heap-alloc-24-byte-buffer" ||
-      capabilityProfile === "winmm-time-get-time-post-heap-reuse" ||
-      capabilityProfile === "kernel32-enter-critical-section-post-clock" ||
-      capabilityProfile === "kernel32-enter-critical-section-post-wait" ||
-      capabilityProfile ===
-        "kernel32-enter-critical-section-post-timer-wait-batch" ||
-      capabilityProfile ===
-        "kernel32-enter-critical-section-post-timer-rearm-wait-batch" ||
-      capabilityProfile ===
-        "kernel32-set-waitable-timer-post-critical-section-batch" ||
-      capabilityProfile ===
-        "kernel32-set-waitable-timer-post-timer-wait-batch" ||
-      capabilityProfile ===
-        "kernel32-set-waitable-timer-post-timer-rearm-wait-batch" ||
-      capabilityProfile === "primary-main-loop-recurring-timer-cycle-batch" ||
-      capabilityProfile ===
-        "primary-main-loop-recurring-timer-multi-cycle-batch" ||
-      capabilityProfile === "primary-main-loop-recurring-timer-window-batch" ||
-      capabilityProfile === "primary-main-loop-presentation-progress-gateway" ||
-      capabilityProfile === "primary-main-loop-input-progress-gateway" ||
-      capabilityProfile ===
-        "primary-main-loop-action-input-progress-gateway" ||
-      capabilityProfile ===
-        "primary-main-loop-window-timer-callback-delivery-gateway" ||
-      capabilityProfile ===
-        "primary-main-loop-window-timer-callback-recurring-batch" ||
-      capabilityProfile ===
-        "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
-      capabilityProfile ===
-        "primary-main-loop-pointer-message-action-progress-gateway" ||
-      capabilityProfile === "user32-set-focus-action-continuation" ||
-      capabilityProfile === "winmm-time-get-time-action-continuation" ||
-      capabilityProfile ===
-        "user32-def-window-proc-a-action-continuation" ||
-      capabilityProfile ===
-        "user32-peek-message-a-pointer-release-continuation" ||
-      capabilityProfile ===
-        "user32-translate-message-pointer-release-continuation" ||
-      capabilityProfile ===
-        "user32-dispatch-message-a-pointer-release-continuation" ||
-      capabilityProfile ===
-        "user32-def-window-proc-a-pointer-release-continuation" ||
-      capabilityProfile ===
-        "user32-peek-message-a-post-pointer-release-continuation" ||
-      capabilityProfile ===
-        "winmm-time-get-time-post-pointer-release-continuation" ||
-      capabilityProfile ===
-        "winmm-time-get-time-post-pointer-release-repeat-batch" ||
-      capabilityProfile ===
-        "user32-get-window-rect-post-pointer-release-continuation" ||
-      capabilityProfile ===
-        "user32-get-cursor-pos-post-pointer-release-continuation" ||
-      capabilityProfile ===
-        "user32-get-system-metrics-post-pointer-release-continuation" ||
-      capabilityProfile ===
-        "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
-      capabilityProfile ===
-        "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
-      capabilityProfile ===
-        "user32-is-iconic-post-pointer-release-continuation" ||
-      capabilityProfile ===
-        "winmm-time-get-time-post-is-iconic-continuation" ||
-      capabilityProfile ===
-        "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
-      capabilityProfile ===
-        "d3d9-test-cooperative-level-post-input-scan-continuation" ||
-      capabilityProfile === "d3d9-post-input-scan-waitable-timer-cycle" ||
-      capabilityProfile ===
-        "user32-window-timer-callback-post-waitable-timer-cycle" ||
-      capabilityProfile ===
-        "user32-peek-message-a-post-window-timer-callback-continuation" ||
-      capabilityProfile ===
-        "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
-      capabilityProfile ===
-        "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
-      capabilityProfile ===
-        "kernel32-wait-for-single-object-ex-post-critical-section"
-        ? 600_000
-        : capabilityProfile === "kernel32-sleep-zero" ||
-            capabilityProfile === "kernel32-global-memory-status" ||
-            capabilityProfile === "kernel32-get-file-attributes-a" ||
-            capabilityProfile === "kernel32-create-directory-a" ||
-            capabilityProfile === "user32-set-window-pos-repeat-activation" ||
-            capabilityProfile === "d3d9-recreated-textures" ||
-            capabilityProfile === "user32-set-window-pos-frame-change-move" ||
-            capabilityProfile === "user32-show-window-normal" ||
-            capabilityProfile === "user32-update-window" ||
-            capabilityProfile === "d3d9-clear" ||
-            capabilityProfile === "user32-set-rect" ||
-            capabilityProfile === "d3d9-add-dirty-rect" ||
-            capabilityProfile === "d3d9-update-texture" ||
-            capabilityProfile === "d3d9-begin-scene" ||
-            capabilityProfile === "d3d9-initial-sampler-states" ||
-            capabilityProfile === "d3d9-initial-texture-stage-states" ||
-            capabilityProfile === "d3d9-set-texture" ||
-            capabilityProfile === "d3d9-set-fvf" ||
-            capabilityProfile === "d3d9-set-stream-source" ||
-            capabilityProfile === "d3d9-draw-primitive" ||
-            capabilityProfile === "d3d9-end-scene" ||
-            capabilityProfile === "d3d9-post-end-scene-raster-status" ||
-            capabilityProfile === "d3d9-post-raster-status-waitable-timer" ||
-            capabilityProfile === "d3d9-post-scene-present-gateway" ||
-            capabilityProfile === "d3d9-first-present" ||
-            capabilityProfile === "d3d9-post-present-continuation" ||
-            capabilityProfile === "user32-async-key-state-input" ||
-            capabilityProfile === "user32-async-key-state-input-continuation"
-          ? 300_000
-          : capabilityProfile === "shell32-drag-accept-files" ||
-              capabilityProfile === "kernel32-archive-source-read"
-            ? 180_000
-            : 20_000,
+            ? 600_000
+            : capabilityProfile === "kernel32-sleep-zero" ||
+                capabilityProfile === "kernel32-global-memory-status" ||
+                capabilityProfile === "kernel32-get-file-attributes-a" ||
+                capabilityProfile === "kernel32-create-directory-a" ||
+                capabilityProfile ===
+                  "user32-set-window-pos-repeat-activation" ||
+                capabilityProfile === "d3d9-recreated-textures" ||
+                capabilityProfile ===
+                  "user32-set-window-pos-frame-change-move" ||
+                capabilityProfile === "user32-show-window-normal" ||
+                capabilityProfile === "user32-update-window" ||
+                capabilityProfile === "d3d9-clear" ||
+                capabilityProfile === "user32-set-rect" ||
+                capabilityProfile === "d3d9-add-dirty-rect" ||
+                capabilityProfile === "d3d9-update-texture" ||
+                capabilityProfile === "d3d9-begin-scene" ||
+                capabilityProfile === "d3d9-initial-sampler-states" ||
+                capabilityProfile === "d3d9-initial-texture-stage-states" ||
+                capabilityProfile === "d3d9-set-texture" ||
+                capabilityProfile === "d3d9-set-fvf" ||
+                capabilityProfile === "d3d9-set-stream-source" ||
+                capabilityProfile === "d3d9-draw-primitive" ||
+                capabilityProfile === "d3d9-end-scene" ||
+                capabilityProfile === "d3d9-post-end-scene-raster-status" ||
+                capabilityProfile ===
+                  "d3d9-post-raster-status-waitable-timer" ||
+                capabilityProfile === "d3d9-post-scene-present-gateway" ||
+                capabilityProfile === "d3d9-first-present" ||
+                capabilityProfile === "d3d9-post-present-continuation" ||
+                capabilityProfile === "user32-async-key-state-input" ||
+                capabilityProfile ===
+                  "user32-async-key-state-input-continuation"
+              ? 300_000
+              : capabilityProfile === "shell32-drag-accept-files" ||
+                  capabilityProfile === "kernel32-archive-source-read"
+                ? 180_000
+                : 20_000,
     pageLifecycle: pageLifecycle.snapshot(),
   },
   ...(d3d9Canvas === undefined ? {} : { d3d9Canvas }),
@@ -1078,54 +1157,13 @@ worker.postMessage(startMessage, d3d9Canvas === undefined ? [] : [d3d9Canvas]);
 if (
   !forwardDevelopment &&
   (capabilityProfile === "user32-async-key-state-input" ||
-  capabilityProfile === "user32-async-key-state-input-continuation" ||
-  capabilityProfile === "primary-main-loop-input-progress-gateway" ||
-  capabilityProfile === "primary-main-loop-action-input-progress-gateway" ||
-  capabilityProfile ===
-    "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
-  capabilityProfile === "primary-main-loop-pointer-message-action-progress-gateway" ||
-  capabilityProfile === "user32-set-focus-action-continuation" ||
-  capabilityProfile === "winmm-time-get-time-action-continuation" ||
-  capabilityProfile === "user32-def-window-proc-a-action-continuation" ||
-  capabilityProfile ===
-    "user32-peek-message-a-pointer-release-continuation" ||
-  capabilityProfile ===
-    "user32-translate-message-pointer-release-continuation" ||
-  capabilityProfile ===
-    "user32-dispatch-message-a-pointer-release-continuation" ||
-  capabilityProfile ===
-    "user32-def-window-proc-a-pointer-release-continuation" ||
-  capabilityProfile ===
-    "user32-peek-message-a-post-pointer-release-continuation" ||
-  capabilityProfile ===
-    "winmm-time-get-time-post-pointer-release-continuation" ||
-  capabilityProfile ===
-    "winmm-time-get-time-post-pointer-release-repeat-batch" ||
-  capabilityProfile ===
-    "user32-get-window-rect-post-pointer-release-continuation" ||
-  capabilityProfile ===
-    "user32-get-cursor-pos-post-pointer-release-continuation" ||
-  capabilityProfile ===
-    "user32-get-system-metrics-post-pointer-release-continuation" ||
-  capabilityProfile ===
-    "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
-  capabilityProfile ===
-    "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
-  capabilityProfile === "user32-is-iconic-post-pointer-release-continuation" ||
-  capabilityProfile === "winmm-time-get-time-post-is-iconic-continuation" ||
-  capabilityProfile ===
-    "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
-  capabilityProfile ===
-    "d3d9-test-cooperative-level-post-input-scan-continuation" ||
-  capabilityProfile === "d3d9-post-input-scan-waitable-timer-cycle" ||
-  capabilityProfile ===
-    "user32-window-timer-callback-post-waitable-timer-cycle" ||
-  capabilityProfile ===
-    "user32-peek-message-a-post-window-timer-callback-continuation" ||
-  scheduledSharedClockSetWindowText)
-) {
-  const pointerMessageInput =
-    capabilityProfile === "primary-main-loop-pointer-message-action-progress-gateway" ||
+    capabilityProfile === "user32-async-key-state-input-continuation" ||
+    capabilityProfile === "primary-main-loop-input-progress-gateway" ||
+    capabilityProfile === "primary-main-loop-action-input-progress-gateway" ||
+    capabilityProfile ===
+      "primary-main-loop-window-timer-callback-action-input-progress-gateway" ||
+    capabilityProfile ===
+      "primary-main-loop-pointer-message-action-progress-gateway" ||
     capabilityProfile === "user32-set-focus-action-continuation" ||
     capabilityProfile === "winmm-time-get-time-action-continuation" ||
     capabilityProfile === "user32-def-window-proc-a-action-continuation" ||
@@ -1153,7 +1191,52 @@ if (
       "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
     capabilityProfile ===
       "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
-    capabilityProfile === "user32-is-iconic-post-pointer-release-continuation" ||
+    capabilityProfile ===
+      "user32-is-iconic-post-pointer-release-continuation" ||
+    capabilityProfile === "winmm-time-get-time-post-is-iconic-continuation" ||
+    capabilityProfile ===
+      "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
+    capabilityProfile ===
+      "d3d9-test-cooperative-level-post-input-scan-continuation" ||
+    capabilityProfile === "d3d9-post-input-scan-waitable-timer-cycle" ||
+    capabilityProfile ===
+      "user32-window-timer-callback-post-waitable-timer-cycle" ||
+    capabilityProfile ===
+      "user32-peek-message-a-post-window-timer-callback-continuation" ||
+    scheduledSharedClockSetWindowText)
+) {
+  const pointerMessageInput =
+    capabilityProfile ===
+      "primary-main-loop-pointer-message-action-progress-gateway" ||
+    capabilityProfile === "user32-set-focus-action-continuation" ||
+    capabilityProfile === "winmm-time-get-time-action-continuation" ||
+    capabilityProfile === "user32-def-window-proc-a-action-continuation" ||
+    capabilityProfile ===
+      "user32-peek-message-a-pointer-release-continuation" ||
+    capabilityProfile ===
+      "user32-translate-message-pointer-release-continuation" ||
+    capabilityProfile ===
+      "user32-dispatch-message-a-pointer-release-continuation" ||
+    capabilityProfile ===
+      "user32-def-window-proc-a-pointer-release-continuation" ||
+    capabilityProfile ===
+      "user32-peek-message-a-post-pointer-release-continuation" ||
+    capabilityProfile ===
+      "winmm-time-get-time-post-pointer-release-continuation" ||
+    capabilityProfile ===
+      "winmm-time-get-time-post-pointer-release-repeat-batch" ||
+    capabilityProfile ===
+      "user32-get-window-rect-post-pointer-release-continuation" ||
+    capabilityProfile ===
+      "user32-get-cursor-pos-post-pointer-release-continuation" ||
+    capabilityProfile ===
+      "user32-get-system-metrics-post-pointer-release-continuation" ||
+    capabilityProfile ===
+      "user32-get-system-metrics-caption-post-pointer-release-continuation" ||
+    capabilityProfile ===
+      "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
+    capabilityProfile ===
+      "user32-is-iconic-post-pointer-release-continuation" ||
     capabilityProfile === "winmm-time-get-time-post-is-iconic-continuation" ||
     capabilityProfile ===
       "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
@@ -1170,22 +1253,12 @@ if (
     capabilityProfile ===
       "primary-main-loop-window-timer-callback-action-input-progress-gateway";
   if (pointerMessageInput) {
-    const downEvent = pointerSourceEvent(
-      1,
-      "button-down",
-      0,
-      0x8000,
-      0x8000,
-    );
-    const upEvent = pointerSourceEvent(
-      2,
-      "button-up",
-      0,
-      0x8000,
-      0x8000,
-    );
+    const downEvent = pointerSourceEvent(1, "button-down", 0, 0x8000, 0x8000);
+    const upEvent = pointerSourceEvent(2, "button-up", 0, 0x8000, 0x8000);
     if (downEvent === null || upEvent === null) {
-      throw new Error("primary pointer button is outside the bounded source mapping");
+      throw new Error(
+        "primary pointer button is outside the bounded source mapping",
+      );
     }
     worker.postMessage({
       type: "pointer-input",
@@ -1221,7 +1294,9 @@ if (
         0x8000,
       );
       if (actionDownEvent === null) {
-        throw new Error("primary action pointer button is outside the bounded source mapping");
+        throw new Error(
+          "primary action pointer button is outside the bounded source mapping",
+        );
       }
       worker.postMessage({
         type: "pointer-input",
@@ -1302,7 +1377,9 @@ function finish(report: SessionReport): void {
       (forwardStop !== null && report.outcome === "cancelled");
     if (!accepted) {
       fail(
-        new Error(report.error ?? `unexpected forward outcome ${report.outcome}`),
+        new Error(
+          report.error ?? `unexpected forward outcome ${report.outcome}`,
+        ),
       );
       return;
     }
@@ -1382,8 +1459,7 @@ function parseScenario(value: string | null): SessionMode {
 function parseCapabilityProfile(
   value: string | null,
 ): BgiCapabilityProfile | undefined {
-  return value ===
-    "user32-set-window-text-a-post-scheduled-shared-clock" ||
+  return value === "user32-set-window-text-a-post-scheduled-shared-clock" ||
     value === "kernel32-find-first-file-a" ||
     value === "kernel32-delete-file-a" ||
     value === "kernel32-private-heap-ordinary-segment-growth" ||
@@ -1407,8 +1483,7 @@ function parseCapabilityProfile(
     value === "kernel32-set-waitable-timer-post-test-cooperative-level" ||
     value ===
       "kernel32-wait-for-single-object-ex-post-test-cooperative-level-timer-arm" ||
-    value ===
-      "user32-peek-message-a-post-test-cooperative-level-timer-wait" ||
+    value === "user32-peek-message-a-post-test-cooperative-level-timer-wait" ||
     value ===
       "user32-translate-message-post-test-cooperative-level-timer-peek" ||
     value ===
@@ -1515,14 +1590,11 @@ function parseCapabilityProfile(
       "user32-get-system-metrics-fixed-frame-height-post-pointer-release-continuation" ||
     value === "user32-is-iconic-post-pointer-release-continuation" ||
     value === "winmm-time-get-time-post-is-iconic-continuation" ||
-    value ===
-      "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
+    value === "user32-get-async-key-state-post-is-iconic-clock-continuation" ||
     value === "d3d9-test-cooperative-level-post-input-scan-continuation" ||
     value === "d3d9-post-input-scan-waitable-timer-cycle" ||
-    value ===
-      "user32-window-timer-callback-post-waitable-timer-cycle" ||
-    value ===
-      "user32-peek-message-a-post-window-timer-callback-continuation" ||
+    value === "user32-window-timer-callback-post-waitable-timer-cycle" ||
+    value === "user32-peek-message-a-post-window-timer-callback-continuation" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-arm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-timer-rearm-batch" ||
     value === "kernel32-wait-for-single-object-ex-post-critical-section"

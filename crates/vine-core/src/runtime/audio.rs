@@ -435,6 +435,15 @@ impl RuntimeAudioNotificationWaitPlan {
         }
         payload
     }
+
+    pub(crate) fn matches_rebased_host_payload(&self, payload: &[u8]) -> bool {
+        let expected = self.encode_host_payload();
+        const GENERATION_START: usize = 5 * 4;
+        const GENERATION_END: usize = 7 * 4;
+        payload.len() == expected.len()
+            && payload[..GENERATION_START] == expected[..GENERATION_START]
+            && payload[GENERATION_END..] == expected[GENERATION_END..]
+    }
 }
 
 impl RuntimeAudioBufferUnlockPlan {
@@ -1327,6 +1336,66 @@ impl RuntimeAudio {
             handles: handles.to_vec(),
             timeout_milliseconds,
         })
+    }
+
+    pub(super) fn stopped_notification_result(
+        &self,
+        handles: &[RuntimeHandle],
+        timeout_milliseconds: u32,
+        active_payload: &[u8],
+    ) -> Result<u32, RuntimeStateError> {
+        let buffer = self
+            .buffers
+            .values()
+            .find(|buffer| {
+                buffer.notifications.len() == handles.len()
+                    && buffer
+                        .notifications
+                        .iter()
+                        .zip(handles)
+                        .all(|(notification, handle)| notification.event_handle == *handle)
+            })
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-audio",
+                    "audio-notification-wait-buffer-unknown",
+                    "wait handle array does not match a notification buffer",
+                )
+            })?;
+        let words = active_payload
+            .chunks_exact(4)
+            .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
+            .collect::<Vec<_>>();
+        let payload_handles = words.get(13..).unwrap_or_default();
+        let payload_buffer_id = words
+            .get(3..5)
+            .map(|parts| u64::from(parts[0]) | (u64::from(parts[1]) << 32));
+        if buffer.playback != RuntimeAudioPlaybackState::Stopped
+            || !active_payload.len().is_multiple_of(4)
+            || words.first() != Some(&1)
+            || payload_buffer_id != Some(buffer.id.0)
+            || words.get(11) != Some(&timeout_milliseconds)
+            || words.get(12) != Some(&(handles.len() as u32))
+            || payload_handles != handles.iter().map(|handle| handle.0).collect::<Vec<_>>()
+        {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-audio",
+                "audio-notification-stopped-payload-invalid",
+                "stopped notification completion does not match its active wait contract",
+            ));
+        }
+        buffer
+            .notifications
+            .iter()
+            .position(|notification| notification.offset_bytes == u32::MAX)
+            .and_then(|index| u32::try_from(index).ok())
+            .ok_or_else(|| {
+                RuntimeStateError::conflict(
+                    "runtime-audio",
+                    "audio-notification-stop-sentinel-missing",
+                    "stopped notification buffer has no DSBPN_OFFSETSTOP event",
+                )
+            })
     }
 
     pub(super) fn preflight_notification_wait(
@@ -2631,6 +2700,22 @@ mod tests {
         let played = audio.commit_buffer_play(play_plan);
         assert!(played.changed);
         assert_eq!(played.current, RuntimeAudioPlaybackState::PlayingLooping);
+        let pending_wait_payload = audio
+            .plan_notification_wait(&handles, 100)
+            .unwrap()
+            .encode_host_payload();
+        let volume = audio
+            .plan_buffer_control(RuntimeAudioBufferControlRequest {
+                buffer_com_object_id: RuntimeComObjectId(22),
+                update: RuntimeAudioBufferControlUpdate::Volume(-1_900),
+            })
+            .unwrap();
+        audio.commit_buffer_control(volume);
+        let rebased_wait = audio.plan_notification_wait(&handles, 100).unwrap();
+        assert!(rebased_wait.matches_rebased_host_payload(&pending_wait_payload));
+        let mut changed_position_payload = pending_wait_payload.clone();
+        changed_position_payload[7 * 4..8 * 4].copy_from_slice(&4u32.to_le_bytes());
+        assert!(!rebased_wait.matches_rebased_host_payload(&changed_position_payload));
         for expected_position in [17_640, 35_280] {
             let wait = audio.plan_notification_wait(&handles, 100).unwrap();
             assert_eq!(wait.delay_milliseconds(), 100);
@@ -2656,6 +2741,33 @@ mod tests {
                 .controls
                 .current_position_bytes,
             44_100
+        );
+
+        let stopped_wait_payload = audio
+            .plan_notification_wait(&handles, 100)
+            .unwrap()
+            .encode_host_payload();
+        let stop = audio
+            .plan_buffer_play(RuntimeAudioBufferPlayRequest {
+                buffer_com_object_id: RuntimeComObjectId(22),
+                playback: RuntimeAudioPlaybackState::Stopped,
+            })
+            .unwrap();
+        audio.commit_buffer_play(stop);
+        assert_eq!(
+            audio
+                .stopped_notification_result(&handles, 100, &stopped_wait_payload)
+                .unwrap(),
+            2
+        );
+        let mut wrong_handles_payload = stopped_wait_payload;
+        wrong_handles_payload[13 * 4..14 * 4].copy_from_slice(&0u32.to_le_bytes());
+        assert_eq!(
+            audio
+                .stopped_notification_result(&handles, 100, &wrong_handles_payload)
+                .unwrap_err()
+                .code,
+            "audio-notification-stopped-payload-invalid"
         );
 
         let retirements = [RuntimeComObjectId(22)].into_iter().collect();

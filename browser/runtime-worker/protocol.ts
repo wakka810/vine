@@ -2,7 +2,7 @@ import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 import type { BrowserNativeStorageConfiguration } from "../storage/protocol.js";
 
-export const protocolVersion = 144 as const;
+export const protocolVersion = 145 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -1110,7 +1110,10 @@ export interface RuntimeSupportedCallSnapshot {
   stackPointerAfter: number;
   lastError?: number;
   guestWrites: RuntimeGuestWriteSnapshot[];
-  executionBoundary?: "yield-current-thread" | "block-current-thread";
+  executionBoundary?:
+    | "yield-current-thread"
+    | "block-current-thread"
+    | "terminate-current-thread";
   interface?: string;
   vtableSlot?: number;
   referenceCount?: number;
@@ -1218,6 +1221,15 @@ export interface RuntimeForwardDevelopmentSummary {
   historicalCheckpointBypassed: boolean;
   semanticTailCapacity: 512;
   semanticTail: RuntimeForwardSemanticEntry[];
+  largeHeapLifecycle: Array<{
+    action: "allocate" | "free";
+    sequence: number;
+    instructionCount: number;
+    threadId: number;
+    heapHandle: number;
+    address: number;
+    byteLength: number;
+  }>;
   presentCount: number;
   latestPresentation: RuntimeBrowserPresentationReceipt | null;
   audioEventCount: number;

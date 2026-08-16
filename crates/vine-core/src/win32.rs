@@ -62,6 +62,7 @@ pub const RTL_UNWIND_IMPLEMENTATION: &str = "kernel32.rtl-unwind.current-seh-fra
 pub const GET_CURRENT_PROCESS_ID_IMPLEMENTATION: &str = "kernel32.get-current-process-id.v1";
 pub const GET_CURRENT_THREAD_ID_IMPLEMENTATION: &str = "kernel32.get-current-thread-id.v1";
 pub const GET_CURRENT_THREAD_IMPLEMENTATION: &str = "kernel32.get-current-thread.v1";
+pub const EXIT_THREAD_IMPLEMENTATION: &str = "kernel32.exit-thread.dynamic-thread.v1";
 pub const SET_THREAD_AFFINITY_MASK_IMPLEMENTATION: &str = "kernel32.set-thread-affinity-mask.v1";
 pub const SET_THREAD_PRIORITY_IMPLEMENTATION: &str = "kernel32.set-thread-priority.v1";
 pub const CREATE_THREAD_IMPLEMENTATION: &str = "kernel32.create-thread.v1";
@@ -273,6 +274,7 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
         GET_CURRENT_PROCESS_ID_IMPLEMENTATION => handle_get_current_process_id(session),
         GET_CURRENT_THREAD_ID_IMPLEMENTATION => handle_get_current_thread_id(session),
         GET_CURRENT_THREAD_IMPLEMENTATION => handle_get_current_thread(contract, session),
+        EXIT_THREAD_IMPLEMENTATION => handle_exit_thread(contract, frame, session),
         SET_THREAD_AFFINITY_MASK_IMPLEMENTATION => {
             handle_set_thread_affinity_mask(policy, contract, frame, session)
         }
@@ -434,6 +436,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetCurrentProcessId" => get_current_process_id_contract(endpoint)?,
         "GetCurrentThreadId" => get_current_thread_id_contract(endpoint)?,
         "GetCurrentThread" => get_current_thread_contract(endpoint)?,
+        "ExitThread" => exit_thread_contract(endpoint)?,
         "SetThreadAffinityMask" => set_thread_affinity_mask_contract(endpoint)?,
         "SetThreadPriority" => set_thread_priority_contract(endpoint)?,
         "CreateThread" => create_thread_contract(endpoint)?,
@@ -1112,6 +1115,36 @@ fn handle_get_current_thread(
         .resolve_current_thread_pseudo_handle()
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     Ok(ApiImmediate::new(ApiReturnValue::U32(resolution.value)))
+}
+
+fn handle_exit_thread(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let exit_code = required_argument(contract, frame, 0, "exit code")?;
+    let thread_id = session.runtime().current_thread_id();
+    let thread = session
+        .runtime()
+        .thread_state(thread_id)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    if thread.guest_bootstrap.is_none() {
+        return Err(ApiFault::unsupported(
+            "win32-thread-lifecycle",
+            "exit-thread-initial-thread-unsupported",
+            "bounded ExitThread currently supports dynamically created guest threads",
+        ));
+    }
+    if !thread.callback_frames.is_empty() {
+        return Err(ApiFault::unsupported(
+            "win32-thread-lifecycle",
+            "exit-thread-callback-unwind-unsupported",
+            "bounded ExitThread requires no active guest callback frames",
+        ));
+    }
+    Ok(ApiImmediate::new(ApiReturnValue::Void)
+        .with_void_eax(exit_code)
+        .with_execution_boundary(RuntimeApiBoundaryDisposition::TerminateCurrentThread))
 }
 
 fn handle_virtual_alloc(
@@ -3618,14 +3651,9 @@ pub fn complete_kernel32_audio_notification_wait(
             None,
         );
     }
-    let handles = match read_wait_handles(&call.contract, &call.frame, session) {
-        Ok(handles) => handles,
-        Err(fault) => return (DispatchOutcome::Fault(fault), None),
-    };
     let timeout = call.frame.argument_u32(3).unwrap_or(0);
     let plan = match session.runtime().plan_audio_notification_wait_completion(
         call.request.request_id,
-        &handles,
         timeout,
         &call.request.payload,
     ) {
@@ -3637,7 +3665,7 @@ pub fn complete_kernel32_audio_notification_wait(
             );
         }
     };
-    if call.request.payload != plan.encode_host_payload() {
+    if !plan.accepts_host_payload(&call.request.payload) {
         return (
             DispatchOutcome::Fault(ApiFault::invalid_call(
                 "win32-wait",
@@ -6062,6 +6090,16 @@ pub fn get_current_thread_contract(endpoint: ApiEndpointIdentity) -> Result<ApiC
         Vec::new(),
         ApiReturnSchema::U32,
         GET_CURRENT_THREAD_IMPLEMENTATION,
+    )
+}
+
+pub fn exit_thread_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "ExitThread",
+        vec![u32_argument("exitCode")],
+        ApiReturnSchema::Void,
+        EXIT_THREAD_IMPLEMENTATION,
     )
 }
 

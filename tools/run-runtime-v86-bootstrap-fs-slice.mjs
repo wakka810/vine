@@ -1182,7 +1182,10 @@ function executeFirstStop(offer, context) {
   };
   assert.equal(result.errorCode, 4);
   assert.equal(result.faultAddress, guest.fsSelfOffset);
-  assert.equal(result.instructionPointer, activeFixture.entry + 7);
+  // A page fault is restartable: EIP identifies the faulting FS load rather
+  // than the following instruction. The bounded adapter now preserves that
+  // architectural boundary in both interpreter and generated execution.
+  assert.equal(result.instructionPointer, activeFixture.entry);
   assert.equal(result.previousInstructionPointer, activeFixture.entry);
   assert.equal(result.esp, expected.stack.initialEsp);
   assert.equal(result.edx, 0);

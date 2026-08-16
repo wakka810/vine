@@ -6,13 +6,13 @@ const adapterProfiles = Object.freeze([
   Object.freeze({
     id: "windows-gnu-rust-1.97.0-llvm-22.1.8",
     bytes: 1_864_286,
-    sha256: "f44a6865fb1cd4128766b1dcccd4f2af73d59923e0b1b10316cdae5dd293b163",
+    sha256: "290f9c5fab90ced4ec3c2a019d189890e9aca45ba8139c9dd056558a0bc2b8d0",
     hasCanonicalReportFingerprints: true,
   }),
   Object.freeze({
     id: "linux-gnu-rust-1.97.0-llvm-22.1.8",
-    bytes: 2_121_800,
-    sha256: "8fea5e55f05bae2702edd8e8a92e724a936ef2b4e94ee22a8706d97def1030e1",
+    bytes: 2_122_503,
+    sha256: "a982eff1af67448e4d49cb1b0c4ff00c16a006517cb26287299ba185f8da6734",
     hasCanonicalReportFingerprints: false,
   }),
 ]);

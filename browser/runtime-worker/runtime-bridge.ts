@@ -32,7 +32,10 @@ export interface ApiCompletion extends CpuResume {
     arguments: Array<{ words: number[] }>;
   };
   readonly lastError: number;
-  executionBoundary?: "yield-current-thread" | "block-current-thread";
+  executionBoundary?:
+    | "yield-current-thread"
+    | "block-current-thread"
+    | "terminate-current-thread";
   guestWrites?: Array<{
     write:
       | { address: number; bytes: number[] }

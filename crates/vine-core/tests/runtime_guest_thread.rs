@@ -1,17 +1,125 @@
 use vine_core::{
-    ExecutionSession, GUEST_PAGE_SIZE, GuestAddress, GuestMemory, MappingOperation, MemoryLimits,
-    MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressAllocationPurpose,
-    ProcessAddressSpaceLayout, RuntimeBootstrap, RuntimeClockState, RuntimeCreateThreadRequest,
+    ApiBehavior, ApiDispatcher, ApiEndpointBinding, ApiEndpointIdentity, ApiOwnedTrap,
+    ApiReturnSchema, ApiSymbol, DispatchOutcome, EXIT_THREAD_IMPLEMENTATION, ExecutionSession,
+    GUEST_PAGE_SIZE, GuestAddress, GuestMemory, ImportThunkDisposition, ImportThunkId,
+    MappingOperation, MemoryLimits, MemoryOwnerKind, MemoryRegionKind, PageProtection,
+    ProcessAddressAllocationPurpose, ProcessAddressSpaceLayout, RegisterUpdate,
+    RuntimeApiBoundaryDisposition, RuntimeBootstrap, RuntimeClockState, RuntimeCreateThreadRequest,
     RuntimeCurrentDirectoryA, RuntimeHandle, RuntimeObjectKind, RuntimePageFaultResolution,
     RuntimeProcessId, RuntimeProcessImagePathA, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
-    RuntimeThreadPriority, RuntimeWaitState, SchedulerThreadState, X86_STARTUP_INFO_W_BYTE_LENGTH,
-    install_initial_thread_stack, install_runtime_return_sentinels,
+    RuntimeThreadPriority, RuntimeWaitState, SchedulerThreadState, StackCleanup,
+    X86_STARTUP_INFO_W_BYTE_LENGTH, dispatch_kernel32_api, install_initial_thread_stack,
+    install_runtime_return_sentinels, kernel32_contract_for_endpoint,
 };
 
 const PROCESS_ID: u32 = 4096;
 const INITIAL_THREAD_ID: RuntimeThreadId = RuntimeThreadId(8192);
 const ENTRY: GuestAddress = GuestAddress(0x1000_0000);
 const OUTPUT: GuestAddress = GuestAddress(0x2000_0000);
+
+#[test]
+fn exit_thread_api_terminates_dynamic_guest_thread() {
+    const EXIT_CODE: u32 = 0x1357_9bdf;
+    const RETURN_ADDRESS: GuestAddress = GuestAddress(0x1000_0040);
+    const ENDPOINT: GuestAddress = GuestAddress(0x7f00_1010);
+    const FRAME: GuestAddress = GuestAddress(0x2000_0100);
+    const IAT: GuestAddress = GuestAddress(0x2000_0200);
+
+    let (mut memory, mut runtime) = prepared_runtime();
+    let created = runtime
+        .create_guest_thread(
+            &mut memory,
+            RuntimeCreateThreadRequest {
+                stack_reserve_bytes: 0x0010_0000,
+                stack_commit_bytes: GUEST_PAGE_SIZE,
+                entry_point: ENTRY,
+                parameter: OUTPUT.0,
+                thread_id_output: None,
+                initial_suspend_count: 0,
+            },
+        )
+        .expect("create runnable guest thread");
+    acknowledge_pending_delta(&mut memory);
+    while runtime.pop_scheduler_event().is_some() {}
+    runtime
+        .select_thread(created.thread_id)
+        .expect("select dynamic guest thread");
+
+    let frame_bytes = [RETURN_ADDRESS.0, EXIT_CODE]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect::<Vec<_>>();
+    let mut transaction = memory.begin_transaction();
+    transaction.write(FRAME, &frame_bytes).unwrap();
+    transaction.write(IAT, &ENDPOINT.0.to_le_bytes()).unwrap();
+    transaction.commit_transaction();
+    acknowledge_pending_delta(&mut memory);
+
+    let endpoint = ApiEndpointIdentity {
+        id: ImportThunkId(1),
+        address: ENDPOINT,
+        module: "kernel32.dll".to_owned(),
+        symbol: ApiSymbol::Name {
+            name: "ExitThread".to_owned(),
+        },
+        iat_address: Some(IAT),
+        disposition: Some(ImportThunkDisposition::DeclaredRuntimeExport),
+        binding: ApiEndpointBinding::ImportAddressTable,
+    };
+    let contract = kernel32_contract_for_endpoint(endpoint.clone())
+        .unwrap()
+        .expect("ExitThread contract");
+    assert_eq!(contract.implementation_id, EXIT_THREAD_IMPLEMENTATION);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Void);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.behavior, ApiBehavior::Immediate);
+    let dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).unwrap();
+    let before_dispatch = runtime.clone();
+    let outcome = dispatcher.dispatch_owned(
+        ApiOwnedTrap {
+            endpoint_id: endpoint.id,
+            endpoint_address: endpoint.address,
+            stack_pointer: FRAME,
+            return_address: RETURN_ADDRESS,
+        },
+        &mut ExecutionSession::new(&mut memory, &mut runtime),
+        dispatch_kernel32_api,
+    );
+    let DispatchOutcome::Immediate(completion) = outcome else {
+        panic!("ExitThread did not produce a terminating completion: {outcome:?}");
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(EXIT_CODE));
+    assert_eq!(completion.stack_pointer, GuestAddress(FRAME.0 + 8));
+    assert_eq!(
+        completion.execution_boundary,
+        RuntimeApiBoundaryDisposition::TerminateCurrentThread
+    );
+    assert_eq!(runtime, before_dispatch);
+
+    let cancellation = runtime.request_current_thread_exit(EXIT_CODE).unwrap();
+    assert_eq!(cancellation.host_requests_cancelled, 0);
+    assert_eq!(cancellation.callback_frames_cancelled, 0);
+    assert_eq!(cancellation.wait_registrations_cancelled, 0);
+    runtime
+        .complete_current_guest_thread_exit(&mut memory)
+        .unwrap();
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(created.thread_id)
+            .unwrap(),
+        SchedulerThreadState::Terminated {
+            exit_code: EXIT_CODE
+        }
+    );
+    assert_eq!(
+        runtime
+            .object_wait_state(created.handle, RuntimeObjectKind::Thread)
+            .unwrap(),
+        RuntimeWaitState::Signaled {
+            exit_code: EXIT_CODE
+        }
+    );
+}
 
 #[test]
 fn suspended_guest_thread_materializes_stack_teb_handle_and_resumes() {
@@ -502,6 +610,11 @@ fn install_page(memory: &mut GuestMemory, address: GuestAddress, protection: Pag
 
 fn read_u32(memory: &GuestMemory, address: GuestAddress) -> u32 {
     u32::from_le_bytes(memory.read(address, 4).unwrap().try_into().unwrap())
+}
+
+fn acknowledge_pending_delta(memory: &mut GuestMemory) {
+    let generation = memory.pending_delta().unwrap().generation;
+    memory.acknowledge_delta(generation).unwrap();
 }
 
 fn runtime_bootstrap() -> RuntimeBootstrap {
