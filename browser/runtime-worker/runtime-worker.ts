@@ -10576,7 +10576,9 @@ class BrowserRuntimeSession {
     }
     const renderer = this.#d3d9Renderer;
     invariant(renderer !== null, "forward action probe requires its renderer");
-    const darkPixels = renderer.countDarkPixels(250, 565, 80, 40, 96);
+    const startDarkPixels = renderer.countDarkPixels(250, 565, 80, 40, 96);
+    const configDarkPixels = renderer.countDarkPixels(700, 565, 80, 40, 96);
+    const exitDarkPixels = renderer.countDarkPixels(950, 565, 80, 40, 96);
     const titleBackground = renderer.readPixelRgba(50, 50);
     const titleBlueBackground =
       titleBackground[0] < 32 &&
@@ -10605,7 +10607,10 @@ class BrowserRuntimeSession {
       return;
     }
     this.#forwardPrimaryActionTargetReadyStreak =
-      titleBlueBackground && darkPixels >= 64
+      titleBlueBackground &&
+      startDarkPixels >= 64 &&
+      configDarkPixels >= 256 &&
+      exitDarkPixels >= 128
         ? this.#forwardPrimaryActionTargetReadyStreak + 1
         : 0;
     if (this.#forwardPrimaryActionTargetReadyStreak < 1) {
@@ -28806,7 +28811,9 @@ class BrowserRuntimeSession {
       this.#forwardPointerButtonAwaitingPresent.push({
         action: tracked.action,
         phase: tracked.phase,
-        remainingPresentations: tracked.phase === "press" ? 1 : 4,
+        // Forward input needs one guest-produced frame after the callback, not
+        // the four-frame observation window retained by historical evidence.
+        remainingPresentations: 1,
       });
       this.#recordForwardInputAction(
         tracked.action,

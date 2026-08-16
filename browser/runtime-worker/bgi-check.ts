@@ -287,7 +287,10 @@ let forwardCampaignPhase:
   | "complete" = "startup-pointer";
 let forwardKeyboardActivationLimit = 2;
 const forwardStartupKeyboardActivationCount = 0;
-const forwardScenarioPointerActionCount = 16;
+// Keep advancing dialogue for the whole bounded forward run. The event and
+// semantic reports are independently ring-bounded, so this is only a safety
+// ceiling and not a checkpoint endpoint.
+const forwardScenarioPointerActionCount = 256;
 const forwardPointerActions = [
   { normalizedX: 0x3a1a, normalizedY: 0xcfd2 },
   // Native title trace: client (276, 592) after moving onto Start.

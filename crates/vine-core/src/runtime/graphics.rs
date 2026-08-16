@@ -5856,13 +5856,12 @@ fn validate_partial_texture_update_lineage(
     })?;
     if pixel_source.source_texture_id != source.id
         || previous_update.source_texture_id != source.id
-        || previous_update.source_content_generation.checked_add(1)
-            != Some(source.content.content_generation)
+        || previous_update.source_content_generation >= source.content.content_generation
     {
         return Err(RuntimeStateError::invalid_input(
             "runtime-graphics",
             "graphics-texture-update-partial-destination-lineage-invalid",
-            "partial logical texture update destination does not contain the immediately preceding source generation",
+            "partial logical texture update destination does not contain an earlier generation of the same source",
         ));
     }
     Ok(())
@@ -8500,6 +8499,56 @@ mod tests {
                 .source_content_generation,
             2
         );
+
+        // D3DLOCK_NO_DIRTY_UPDATE leaves dirty-region authority with the caller.
+        // Multiple guest writes may therefore advance the source generation
+        // before AddDirtyRect describes the accumulated transfer region.
+        for _ in 0..2 {
+            let relock = graphics.plan_texture_lock(lock_request, None).unwrap();
+            graphics.preflight_texture_lock(&relock, None).unwrap();
+            graphics.commit_texture_lock(relock, None);
+            let reunlock = graphics.plan_texture_unlock(RuntimeComObjectId(2)).unwrap();
+            graphics.preflight_texture_unlock(&reunlock).unwrap();
+            graphics.commit_texture_unlock(reunlock);
+        }
+        assert_eq!(
+            graphics
+                .texture(source.id)
+                .unwrap()
+                .content
+                .content_generation,
+            4
+        );
+        let mark = graphics
+            .plan_texture_dirty_region_mark(RuntimeGraphicsTextureDirtyRegionMarkRequest {
+                texture_com_object_id: RuntimeComObjectId(2),
+                rect: Some(partial_rect),
+            })
+            .unwrap();
+        graphics.commit_texture_dirty_region_mark(mark);
+        let multi_unlock_partial = graphics.plan_texture_update(request).unwrap();
+        graphics
+            .preflight_texture_update(&multi_unlock_partial)
+            .unwrap();
+        let multi_unlock_partial = graphics.commit_texture_update(multi_unlock_partial);
+        assert!(multi_unlock_partial.transferred);
+        assert_eq!(
+            multi_unlock_partial
+                .update
+                .unwrap()
+                .source_content_generation,
+            4
+        );
+        assert_eq!(
+            graphics
+                .texture(destination.id)
+                .unwrap()
+                .content
+                .last_update
+                .unwrap()
+                .source_content_generation,
+            4
+        );
         let before_source_only_retirement = graphics.clone();
         assert_eq!(
             graphics
@@ -8556,7 +8605,7 @@ mod tests {
         );
         assert_eq!(graphics, before_missing_lineage);
         assert_eq!(graphics.device(device.id).unwrap().id, device.id);
-        assert_eq!(graphics.next_texture_update_sequence, 3);
+        assert_eq!(graphics.next_texture_update_sequence, 4);
         assert_eq!(surface.texture_id, source.id);
     }
 }

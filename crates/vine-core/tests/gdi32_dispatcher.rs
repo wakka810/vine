@@ -1487,6 +1487,100 @@ fn dialogue_font_dib_metrics_and_text_raster_form_one_reached_vertical_slice() {
 }
 
 #[test]
+fn large_scenario_font_dib_metrics_and_text_raster_form_one_reached_vertical_slice() {
+    let mut fixture = FontFixture::new();
+    let (_font, device_context, _default_font) =
+        fixture.create_font_memory_dc(large_scenario_create_font_arguments());
+    fixture
+        .memory
+        .write(OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS, &[0xa5; 320])
+        .expect("initialize large scenario outline output");
+    fixture.acknowledge_pending_delta();
+    let outline = match fixture.dispatch_outline_text_metrics(
+        device_context,
+        X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32,
+        OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected large scenario outline metrics, got {other:?}"),
+    };
+    assert_eq!(
+        outline.eax,
+        RegisterUpdate::Set(X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32)
+    );
+    fixture.acknowledge_pending_delta();
+    let metrics = fixture
+        .memory
+        .read(
+            OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS,
+            X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH,
+        )
+        .expect("large scenario outline metrics bytes");
+    for (offset, value) in [
+        (4, 192),
+        (8, 165),
+        (12, 27),
+        (24, 96),
+        (28, 379),
+        (96, 165),
+        (100, -27),
+        (192, -13),
+    ] {
+        assert_eq!(read_i32(&metrics, offset), value);
+    }
+
+    fixture.install_bitmap_info(&large_scenario_bitmap_info());
+    fixture
+        .memory
+        .write(BITS_OUTPUT_ADDRESS, &0xa5a5_a5a5_u32.to_le_bytes())
+        .expect("initialize large scenario DIB output");
+    fixture.acknowledge_pending_delta();
+    let dib = match fixture.dispatch_create_dib_section(
+        device_context,
+        BITMAP_INFO_ADDRESS,
+        BITS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => match completion.eax {
+            RegisterUpdate::Set(handle) => handle,
+            other => panic!("large scenario CreateDIBSection did not set EAX: {other:?}"),
+        },
+        other => panic!("expected large scenario DIB creation, got {other:?}"),
+    };
+    fixture.acknowledge_pending_delta();
+    let bits = GuestAddress(read_u32(
+        &fixture.memory.read(BITS_OUTPUT_ADDRESS, 4).unwrap(),
+        0,
+    ));
+    assert!(matches!(
+        fixture.dispatch_select_object(device_context, dib),
+        DispatchOutcome::Immediate(_)
+    ));
+    fixture
+        .memory
+        .write(TEXT_OUT_BYTES_ADDRESS, &[0x81, 0x40])
+        .expect("install large scenario CP932 glyph");
+    fixture.acknowledge_pending_delta();
+    let call = match fixture.dispatch_text_out(device_context, 0, 0, TEXT_OUT_BYTES_ADDRESS, 2) {
+        DispatchOutcome::Deferred(call) => call,
+        other => panic!("expected large scenario text raster request, got {other:?}"),
+    };
+    assert_eq!(read_u32(&call.request.payload, 40), 192);
+    assert_eq!(read_u32(&call.request.payload, 44), 96);
+    assert_eq!(read_u32(&call.request.payload, 52), 384);
+    assert_eq!(read_u32(&call.request.payload, 56) as i32, -288);
+    assert_eq!(read_u32(&call.request.payload, 60), 384);
+    assert_eq!(read_u32(&call.request.payload, 64), 110_592);
+    let (outcome, runtime_completion) = fixture.complete_text_raster(call, vec![0; 110_592]);
+    assert!(matches!(outcome, DispatchOutcome::Immediate(_)));
+    assert!(runtime_completion.is_some());
+    fixture.acknowledge_pending_delta();
+    assert_eq!(
+        fixture.memory.read(bits, 110_592).unwrap(),
+        vec![0; 110_592]
+    );
+}
+
+#[test]
 fn outline_text_metrics_write_failure_preserves_guest_bytes_and_gdi_state() {
     let mut fixture = FontFixture::new();
     let (_font, device_context, _default_font) = fixture.create_primary_font_memory_dc();
@@ -3148,6 +3242,10 @@ fn dialogue_bitmap_info() -> Vec<u8> {
     bitmap_info_bytes(160, -120)
 }
 
+fn large_scenario_bitmap_info() -> Vec<u8> {
+    bitmap_info_bytes(384, -288)
+}
+
 fn bitmap_info_bytes(width: i32, height: i32) -> Vec<u8> {
     let mut bytes = vec![0; X86_DIB_BITMAPINFO_BYTE_LENGTH];
     bytes[0..4].copy_from_slice(&X86_BITMAPINFOHEADER_BYTE_LENGTH.to_le_bytes());
@@ -3178,6 +3276,10 @@ fn post_heap_growth_create_font_arguments() -> [u32; 13] {
 
 fn dialogue_create_font_arguments() -> [u32; 13] {
     [80, 40, 0, 0, 100, 0, 0, 0, 128, 4, 0, 2, 0]
+}
+
+fn large_scenario_create_font_arguments() -> [u32; 13] {
+    [192, 96, 0, 0, 100, 0, 0, 0, 128, 4, 0, 2, 0]
 }
 
 fn primary_face_name() -> Vec<u8> {

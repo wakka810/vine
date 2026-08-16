@@ -70,7 +70,13 @@ function decodeRequest(arguments_: readonly number[]): TextRasterRequest {
           request.dibWidth === 160 &&
           request.dibHeight === -120 &&
           request.strideBytes === 160 &&
-          request.pixelByteLength === 19_200)),
+          request.pixelByteLength === 19_200) ||
+        (request.fontHeight === 192 &&
+          request.fontWidth === 96 &&
+          request.dibWidth === 384 &&
+          request.dibHeight === -288 &&
+          request.strideBytes === 384 &&
+          request.pixelByteLength === 110_592)),
     "GDI text raster request is outside the reached font/DIB profile pairs",
   );
   invariant(
