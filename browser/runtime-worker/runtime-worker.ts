@@ -135,6 +135,7 @@ const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
 const BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 64;
 const FORWARD_BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 256;
 const FORWARD_BUDGET_STATUS_INTERVAL = 4096;
+const FORWARD_GUEST_TIME_SLICE_MILLISECONDS = 10;
 const MAX_PENDING_INPUT_EVENTS = 256;
 const WM_MOUSEMOVE = 0x0200;
 const RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS = 40_000_000;
@@ -3994,14 +3995,11 @@ class BrowserRuntimeSession {
   #currentThreadId = 0;
   #liveThreadId: number | null = null;
   #instructionsSinceOwnedStop = 0;
+  #forwardGuestTimeSliceStartedAt: number | null = null;
   #latestPageFaultRejection: PageFaultRejectedMetadata | null = null;
   readonly #threadContexts = new Map<number, ExecutionCpuContext>();
   readonly #threadStacks = new Map<number, RuntimeThreadStackMetadata>();
   readonly #threadResumeStates = new Map<number, "ready" | "guest-callback">();
-  readonly #threadExecutionStates = new Map<
-    number,
-    "ready" | "guest-callback"
-  >();
   readonly #runnableResolvers: Array<() => void> = [];
   readonly #execution = new ExecutionStateMachine();
   readonly #pendingHostRequests = new PendingHostRequestTable();
@@ -5030,7 +5028,6 @@ class BrowserRuntimeSession {
       engine.initialize(reflection, preparedOutput.metadata);
       this.#liveThreadId = this.#initialThreadId;
       this.#threadContexts.set(this.#initialThreadId, engine.saveCpuContext());
-      this.#threadExecutionStates.set(this.#initialThreadId, "ready");
       this.#report.registeredThreadIds.push(this.#initialThreadId);
       for (const thread of preparedOutput.metadata.additionalThreads ?? []) {
         invariant(
@@ -5052,7 +5049,6 @@ class BrowserRuntimeSession {
             fsBase: thread.fsBase,
           }),
         );
-        this.#threadExecutionStates.set(thread.threadId, "ready");
         this.#report.registeredThreadIds.push(thread.threadId);
       }
       bridge.acknowledge(reflection.generation);
@@ -6970,7 +6966,6 @@ class BrowserRuntimeSession {
         this.#recordPrivateBgiCompletion(completion);
       }
       this.#applyCpuResumeToThread(completion.threadId, completion.completion);
-      this.#threadExecutionStates.set(completion.threadId, resumeState);
       if (this.#hostBarrierRequestId === pending.requestId) {
         invariant(
           this.#hostBarrierResume === null,
@@ -7655,7 +7650,6 @@ class BrowserRuntimeSession {
       this.#recordPrivateBgiCompletion(completion);
     }
     this.#applyCpuResumeToThread(completion.threadId, completion.completion);
-    this.#threadExecutionStates.set(completion.threadId, resumeState);
     if (this.#hostBarrierRequestId === pending.requestId) {
       invariant(
         this.#hostBarrierResume === null,
@@ -7728,7 +7722,6 @@ class BrowserRuntimeSession {
     }
     this.#report.sourceReads.push(completion.sourceRead);
     this.#applyCpuResumeToThread(completion.threadId, completion.completion);
-    this.#threadExecutionStates.set(completion.threadId, resumeState);
     if (this.#hostBarrierRequestId === pending.requestId) {
       invariant(
         this.#hostBarrierResume === null,
@@ -7796,7 +7789,6 @@ class BrowserRuntimeSession {
     }
     this.#report.writableCommits.push(completion.writableCommit);
     this.#applyCpuResumeToThread(completion.threadId, completion.completion);
-    this.#threadExecutionStates.set(completion.threadId, resumeState);
     if (this.#hostBarrierRequestId === pending.requestId) {
       invariant(
         this.#hostBarrierResume === null,
@@ -7870,7 +7862,6 @@ class BrowserRuntimeSession {
       completion.writableDirectoryCreate,
     );
     this.#applyCpuResumeToThread(completion.threadId, completion.completion);
-    this.#threadExecutionStates.set(completion.threadId, resumeState);
     if (this.#hostBarrierRequestId === pending.requestId) {
       invariant(
         this.#hostBarrierResume === null,
@@ -8018,10 +8009,7 @@ class BrowserRuntimeSession {
         if (this.#terminal || this.#stopping) {
           throw new SessionStopped("session ended during a budget yield");
         }
-        this.#execution.transition(resumeState, {
-          cause: "worker-yield-complete",
-          threadId: this.#currentThreadId,
-        });
+        this.#resumeAfterBudgetYield(resumeState);
         continue;
       }
       this.#instructionsSinceOwnedStop = 0;
@@ -10295,10 +10283,6 @@ class BrowserRuntimeSession {
           metadata.depth,
         );
         engine.enterGuestCallback(metadata.target, metadata.stackPointer);
-        this.#threadExecutionStates.set(
-          this.#currentThreadId,
-          "guest-callback",
-        );
         this.#execution.transition("guest-callback", {
           cause: "guest-callback-enter",
           threadId: this.#currentThreadId,
@@ -10338,7 +10322,6 @@ class BrowserRuntimeSession {
           );
         }
         engine.applyCpuResume(metadata.completion);
-        this.#threadExecutionStates.set(this.#currentThreadId, resumeState);
         const runnableThreadId =
           metadata.createdThread?.schedulerState.state === "runnable"
             ? metadata.createdThread.thread.id
@@ -10424,7 +10407,6 @@ class BrowserRuntimeSession {
           metadata.depth,
         );
         engine.enterGuestCallback(metadata.target, metadata.stackPointer);
-        this.#threadExecutionStates.set(this.#currentThreadId, "guest-callback");
         this.#execution.transition("guest-callback", {
           cause: "guest-callback-enter",
           threadId: this.#currentThreadId,
@@ -10439,7 +10421,6 @@ class BrowserRuntimeSession {
         }
         this.#recordForwardApiCompletion(metadata);
         engine.applyStoppedCpuResume(metadata.completion);
-        this.#threadExecutionStates.set(this.#currentThreadId, resumeState);
         const runnableThreadId =
           metadata.createdThread?.schedulerState.state === "runnable"
             ? metadata.createdThread.thread.id
@@ -10503,7 +10484,6 @@ class BrowserRuntimeSession {
           this.#recordBgiComCompletion(metadata, browserPresentation);
         }
         engine.applyCpuResume(metadata.completion);
-        this.#threadExecutionStates.set(this.#currentThreadId, resumeState);
         this.#execution.transition(resumeState, {
           cause: "synchronous-com-complete",
           threadId: this.#currentThreadId,
@@ -28776,7 +28756,6 @@ class BrowserRuntimeSession {
         metadata.target,
         metadata.stackPointer,
       );
-      this.#threadExecutionStates.set(this.#currentThreadId, "guest-callback");
       this.#execution.transition("guest-callback", {
         cause: "guest-callback-replacement",
         threadId: this.#currentThreadId,
@@ -28994,7 +28973,6 @@ class BrowserRuntimeSession {
     this.#requireEngine().applyCpuResume(metadata.completion);
     const resumeState =
       metadata.remainingDepth > 0 ? "guest-callback" : "ready";
-    this.#threadExecutionStates.set(this.#currentThreadId, resumeState);
     this.#execution.transition(resumeState, {
       cause:
         metadata.remainingDepth > 0
@@ -29065,7 +29043,6 @@ class BrowserRuntimeSession {
       }),
     );
     this.#threadStacks.set(thread.id, structuredClone(stack));
-    this.#threadExecutionStates.set(thread.id, "ready");
     this.#report.registeredThreadIds.push(thread.id);
   }
 
@@ -29274,7 +29251,6 @@ class BrowserRuntimeSession {
     this.#threadContexts.delete(threadId);
     this.#threadStacks.delete(threadId);
     this.#threadResumeStates.delete(threadId);
-    this.#threadExecutionStates.delete(threadId);
     this.#liveThreadId = null;
     await this.#scheduleAfterBlock(threadId, null);
   }
@@ -30112,6 +30088,60 @@ class BrowserRuntimeSession {
     }
   }
 
+  #resumeAfterBudgetYield(resumeState: "ready" | "guest-callback"): void {
+    const now = performance.now();
+    const timeSliceStartedAt = this.#forwardGuestTimeSliceStartedAt;
+    if (
+      !this.#isForwardDevelopment() ||
+      timeSliceStartedAt === null ||
+      now - timeSliceStartedAt < FORWARD_GUEST_TIME_SLICE_MILLISECONDS
+    ) {
+      if (this.#isForwardDevelopment() && timeSliceStartedAt === null) {
+        this.#forwardGuestTimeSliceStartedAt = now;
+      }
+      this.#execution.transition(resumeState, {
+        cause: "worker-yield-complete",
+        threadId: this.#currentThreadId,
+      });
+      return;
+    }
+
+    this.#saveLiveThreadContext();
+    const metadata = this.#requireBridge().scheduleNextThread<
+      ThreadScheduledMetadata | SchedulerIdleMetadata
+    >().metadata;
+    invariant(
+      metadata.kind === "thread-scheduled" &&
+        metadata.previousThreadId === this.#currentThreadId,
+      "preemptive budget yield did not retain an executable guest thread",
+    );
+    const scheduledResumeState =
+      metadata.scheduler.state === "in-callback" ? "guest-callback" : "ready";
+    if (metadata.threadId === this.#currentThreadId) {
+      invariant(
+        scheduledResumeState === resumeState,
+        "preemptive budget yield changed the current guest thread state",
+      );
+      this.#forwardGuestTimeSliceStartedAt = now;
+      this.#execution.transition(resumeState, {
+        cause: "worker-yield-complete",
+        threadId: this.#currentThreadId,
+      });
+      return;
+    }
+
+    this.#execution.transition("thread-switch", {
+      cause: "instruction-timeslice-expired",
+      threadId: metadata.threadId,
+    });
+    this.#activateThread(metadata.threadId, metadata.scheduler);
+    this.#execution.transition(scheduledResumeState, {
+      cause: "preemptive-thread-context-restored",
+      threadId: metadata.threadId,
+    });
+    this.#report.rustSchedulerTransitions += 1;
+  }
+
   #saveLiveThreadContext(): void {
     if (this.#liveThreadId === null) {
       return;
@@ -30137,16 +30167,15 @@ class BrowserRuntimeSession {
     );
     const executionState =
       scheduler.state === "in-callback" ? "guest-callback" : "ready";
-    invariant(
-      this.#threadExecutionStates.get(threadId) === executionState,
-      `Rust scheduler state for thread ${threadId} disagrees with its suspended execution state`,
-    );
     const previousThreadId = this.#currentThreadId;
     this.#requireEngine().restoreCpuContext(context);
     this.#currentThreadId = threadId;
     this.#liveThreadId = threadId;
     if (previousThreadId !== threadId) {
       this.#report.contextSwitches += 1;
+      if (this.#isForwardDevelopment()) {
+        this.#forwardGuestTimeSliceStartedAt = performance.now();
+      }
     }
   }
 

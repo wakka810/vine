@@ -32,7 +32,7 @@ const allowedTransitions: Readonly<Record<ExecutionState, ReadonlySet<ExecutionS
   ready: new Set(["running", "stopping"]),
   running: new Set(["budget-yield", "api-trap", "memory-fault", "thread-exit", "stopping"]),
   "memory-fault": new Set(["ready", "guest-callback", "stopping"]),
-  "budget-yield": new Set(["ready", "guest-callback", "stopping"]),
+  "budget-yield": new Set(["ready", "thread-switch", "guest-callback", "stopping"]),
   "api-trap": new Set([
     "ready",
     "thread-switch",

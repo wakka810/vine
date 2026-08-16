@@ -48,6 +48,26 @@ assert.throws(
 );
 assert.deepEqual(normal.snapshot(), beforeIllegal);
 
+const preempted = new ExecutionStateMachine();
+preempted.transition("running", { cause: "slice", threadId: 8192 });
+preempted.transition("budget-yield", { cause: "budget", threadId: 8192 });
+preempted.transition("thread-switch", {
+  cause: "instruction-timeslice-expired",
+  threadId: 8193,
+});
+preempted.transition("ready", {
+  cause: "preemptive-thread-context-restored",
+  threadId: 8193,
+});
+assert.deepEqual(preempted.snapshot().lastTransition, {
+  sequence: 4,
+  from: "thread-switch",
+  to: "ready",
+  cause: "preemptive-thread-context-restored",
+  threadId: 8193,
+  requestId: null,
+});
+
 const memoryFault = new ExecutionStateMachine();
 memoryFault.transition("running", { cause: "slice", threadId: 8192 });
 memoryFault.transition("memory-fault", { cause: "page-fault", threadId: 8192 });
