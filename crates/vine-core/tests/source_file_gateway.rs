@@ -1499,6 +1499,7 @@ fn endpoint(id: u32, name: &str) -> ApiEndpointIdentity {
         address: GuestAddress(0x7f00_1000 + id * 0x10),
         module: "kernel32.dll".to_owned(),
         name: name.to_owned(),
+        ordinal: None,
         lifetime: "test-process".to_owned(),
     })
 }
@@ -1560,7 +1561,7 @@ fn controlled_runtime() -> RuntimeState {
             encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
         },
         encoded_pointer_namespace: vine_core::LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
-        encoded_pointer_token_prefix: 0xec01_0000,
+        encoded_pointer_cookie: 0xec01_9d3b,
     })
     .expect("runtime state");
     runtime

@@ -13,11 +13,12 @@ use crate::api::{
 use crate::memory::{GuestAddress, GuestMemory, MemoryAccess};
 use crate::pe32::{ResourceDataEntryPlan, ResourceIdentifier};
 use crate::runtime::{
-    LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE, LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE,
-    LOGICAL_MENU_HANDLE_NAMESPACE, LOGICAL_MONITOR_HANDLE_NAMESPACE,
-    LOGICAL_WINDOW_HANDLE_NAMESPACE, RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID,
-    RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS, RUNTIME_WINDOW_CLASS_NAME_A_ENCODING,
-    RUNTIME_WINDOW_CLASS_NAME_A_LIMIT, RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
+    LOGICAL_CURSOR_HANDLE_NAMESPACE, LOGICAL_DEVICE_CONTEXT_HANDLE_NAMESPACE,
+    LOGICAL_GDI_OBJECT_HANDLE_NAMESPACE, LOGICAL_MENU_HANDLE_NAMESPACE,
+    LOGICAL_MONITOR_HANDLE_NAMESPACE, LOGICAL_WINDOW_HANDLE_NAMESPACE,
+    RUNTIME_SYSTEM_CURSOR_ARROW_RESOURCE_ID, RUNTIME_USER_TIMER_MINIMUM_MILLISECONDS,
+    RUNTIME_WINDOW_CLASS_NAME_A_ENCODING, RUNTIME_WINDOW_CLASS_NAME_A_LIMIT,
+    RUNTIME_WINDOW_NAME_A_ENCODING, RUNTIME_WINDOW_NAME_A_LIMIT,
     RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES, RUNTIME_WINDOW_STYLE_MINIMIZED,
     RUNTIME_WINDOW_STYLE_VISIBLE, RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH, RuntimeBeginPaintRequest,
     RuntimeCursorPositionProfile, RuntimeCursorResource, RuntimeCursorSource,
@@ -67,7 +68,8 @@ pub const GET_SYSTEM_METRICS_IMPLEMENTATION: &str = "user32.get-system-metrics.v
 pub const GET_CLIENT_RECT_IMPLEMENTATION: &str = "user32.get-client-rect.v1";
 pub const GET_WINDOW_RECT_IMPLEMENTATION: &str = "user32.get-window-rect.v1";
 pub const GET_CURSOR_POS_IMPLEMENTATION: &str = "user32.get-cursor-pos.v1";
-pub const GET_CURSOR_INFO_IMPLEMENTATION: &str = "user32.get-cursor-info.system-arrow.v1";
+pub const SET_CURSOR_IMPLEMENTATION: &str = "user32.set-cursor.current-selection.v1";
+pub const GET_CURSOR_INFO_IMPLEMENTATION: &str = "user32.get-cursor-info.current-cursor.v2";
 pub const SHOW_CURSOR_IMPLEMENTATION: &str = "user32.show-cursor.display-count.v1";
 pub const PEEK_MESSAGE_A_IMPLEMENTATION: &str = "user32.peek-message-a.current-thread.v1";
 pub const TRANSLATE_MESSAGE_IMPLEMENTATION: &str =
@@ -1685,12 +1687,14 @@ pub fn dispatch_user32_api_with_policy(
             Ok(immediate) => ApiHandlerResult::Immediate(immediate),
             Err(fault) => ApiHandlerResult::Fault(fault),
         },
-        GET_CURSOR_INFO_IMPLEMENTATION => {
-            match handle_get_cursor_info(policy, contract, frame, session) {
-                Ok(immediate) => ApiHandlerResult::Immediate(immediate),
-                Err(fault) => ApiHandlerResult::Fault(fault),
-            }
-        }
+        SET_CURSOR_IMPLEMENTATION => match handle_set_cursor(contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
+        GET_CURSOR_INFO_IMPLEMENTATION => match handle_get_cursor_info(contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
         SHOW_CURSOR_IMPLEMENTATION => match handle_show_cursor(contract, frame, session) {
             Ok(immediate) => ApiHandlerResult::Immediate(immediate),
             Err(fault) => ApiHandlerResult::Fault(fault),
@@ -2163,8 +2167,31 @@ fn handle_get_cursor_pos(
         .with_guest_write(GuestAddress(output), bytes))
 }
 
+fn handle_set_cursor(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = required_argument(contract, frame, 0, "cursor handle")?;
+    match session
+        .runtime_mut()
+        .set_current_cursor((handle != 0).then_some(handle))
+    {
+        Ok(previous) => Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+            namespace: LOGICAL_CURSOR_HANDLE_NAMESPACE.to_owned(),
+            value: previous,
+        })),
+        Err(error) if error.code == "cursor-handle-unknown" => {
+            Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+                namespace: LOGICAL_CURSOR_HANDLE_NAMESPACE.to_owned(),
+                value: 0,
+            }))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+}
+
 fn handle_get_cursor_info(
-    policy: &User32CompatibilityPolicy,
     contract: &ApiContract,
     frame: &ApiCallFrame,
     session: &mut ExecutionSession<'_>,
@@ -2188,22 +2215,11 @@ fn handle_get_cursor_info(
         return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
             .with_last_error(ERROR_INVALID_PARAMETER));
     }
-    let cursor_policy = policy.load_cursor_a.as_ref().ok_or_else(|| {
-        ApiFault::unsupported(
-            "user32-input",
-            "get-cursor-info-cursor-policy-disabled",
-            "GetCursorInfo requires the bounded logical system-arrow cursor policy",
-        )
-    })?;
-    let source = RuntimeCursorSource::SystemPredefined {
-        resource_id: cursor_policy.arrow_resource_id,
-        cursor: RuntimeSystemCursorKind::Arrow,
-    };
-    let cursor_handle = session
+    let current_cursor = session
         .runtime()
-        .cursor_for_source(&source)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
-        .handle;
+        .current_cursor()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let cursor_handle = current_cursor.map_or(0, |cursor| cursor.handle);
     let (screen_x, screen_y) = session
         .runtime()
         .cursor_position()
@@ -2215,12 +2231,24 @@ fn handle_get_cursor_info(
                 "logical cursor position must be configured before GetCursorInfo is queried",
             )
         })?;
+    // ShowCursor keeps a per-thread display count; the cursor is visible only while it is
+    // non-negative, so the reported flags must follow that authority instead of a constant.
+    let display_count = session
+        .runtime()
+        .current_thread_cursor_display_count()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let flags = if display_count >= 0 && current_cursor.is_some() {
+        CURSOR_SHOWING
+    } else {
+        0
+    };
     let preserved_last_error = session
         .last_error()
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     let mut bytes = Vec::with_capacity(CURSORINFO_BYTE_LENGTH as usize);
-    bytes.extend_from_slice(&0_u32.to_le_bytes());
-    bytes.extend_from_slice(&CURSOR_SHOWING.to_le_bytes());
+    // cbSize is an input the caller owns; echo the validated length rather than clearing it.
+    bytes.extend_from_slice(&CURSORINFO_BYTE_LENGTH.to_le_bytes());
+    bytes.extend_from_slice(&flags.to_le_bytes());
     bytes.extend_from_slice(&cursor_handle.to_le_bytes());
     bytes.extend_from_slice(&screen_x.to_le_bytes());
     bytes.extend_from_slice(&screen_y.to_le_bytes());
@@ -3342,24 +3370,22 @@ fn handle_set_window_text_a(
         }
         Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
     };
-    let title = read_bounded_window_title_a(
-        session.memory(),
-        title_address,
-        usize::try_from(profile.maximum_title_bytes).map_err(|_| {
-            ApiFault::runtime_defect(
-                "user32-windows",
-                "set-window-text-a-title-limit-invalid",
-                "validated SetWindowTextA title bound does not fit host accounting",
-            )
-        })?,
-        contract,
-    )?;
-    if title.value.is_empty() {
-        return Err(ApiFault::unsupported(
-            "user32-windows",
-            "set-window-text-a-empty-title-unsupported",
-            "SetWindowTextA currently supports the reached nonempty Windows-932 title",
-        ));
+    // lpString is optional and an empty title is an ordinary request; both are simply the text
+    // the window procedure receives through WM_SETTEXT. A present pointer is still validated
+    // against the reached title bound before it reaches the guest procedure.
+    if title_address.0 != 0 {
+        read_bounded_window_title_a(
+            session.memory(),
+            title_address,
+            usize::try_from(profile.maximum_title_bytes).map_err(|_| {
+                ApiFault::runtime_defect(
+                    "user32-windows",
+                    "set-window-text-a-title-limit-invalid",
+                    "validated SetWindowTextA title bound does not fit host accounting",
+                )
+            })?,
+            contract,
+        )?;
     }
     let request = GuestCallbackRequest {
         target: window_procedure.address,
@@ -6291,25 +6317,25 @@ fn handle_def_window_proc_a_immediate(
                     "validated WM_SETTEXT default processing has no window-title profile",
                 )
             })?;
-            let title = read_bounded_window_title_a(
-                session.memory(),
-                GuestAddress(l_param),
-                usize::try_from(profile.maximum_title_bytes).map_err(|_| {
-                    ApiFault::runtime_defect(
-                        "user32-windows",
-                        "def-window-proc-a-window-title-limit-invalid",
-                        "validated DefWindowProcA title bound does not fit host accounting",
-                    )
-                })?,
-                contract,
-            )?;
-            if title.value.is_empty() {
-                return Err(ApiFault::unsupported(
-                    "user32-windows",
-                    "def-window-proc-a-empty-title-unsupported",
-                    "DefWindowProcA WM_SETTEXT currently supports the reached nonempty title",
-                ));
-            }
+            let title = if l_param == 0 {
+                RuntimeWindowNameA {
+                    value: String::new(),
+                    encoding: RUNTIME_WINDOW_NAME_A_ENCODING.to_owned(),
+                }
+            } else {
+                read_bounded_window_title_a(
+                    session.memory(),
+                    GuestAddress(l_param),
+                    usize::try_from(profile.maximum_title_bytes).map_err(|_| {
+                        ApiFault::runtime_defect(
+                            "user32-windows",
+                            "def-window-proc-a-window-title-limit-invalid",
+                            "validated DefWindowProcA title bound does not fit host accounting",
+                        )
+                    })?,
+                    contract,
+                )?
+            };
             session
                 .runtime_mut()
                 .set_window_title(handle, title)
@@ -7499,6 +7525,7 @@ pub fn user32_contract_for_endpoint(
         "GetClientRect" => Ok(Some(get_client_rect_contract(endpoint)?)),
         "GetWindowRect" => Ok(Some(get_window_rect_contract(endpoint)?)),
         "GetCursorPos" => Ok(Some(get_cursor_pos_contract(endpoint)?)),
+        "SetCursor" => Ok(Some(set_cursor_contract(endpoint)?)),
         "GetCursorInfo" => Ok(Some(get_cursor_info_contract(endpoint)?)),
         "ShowCursor" => Ok(Some(show_cursor_contract(endpoint)?)),
         "PeekMessageA" => Ok(Some(peek_message_a_contract(endpoint)?)),
@@ -7634,7 +7661,7 @@ pub fn set_window_text_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiCo
             calling_convention: CallingConvention::Stdcall,
             arguments: vec![
                 logical_window_handle_argument("window", false),
-                windows_932_input_string("windowTitle", 512),
+                windows_932_input_string("windowTitle", 512, true),
             ],
             return_value: ApiReturnSchema::Bool32,
             stack_cleanup: StackCleanup::Callee,
@@ -7910,6 +7937,30 @@ pub fn get_cursor_pos_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: GET_CURSOR_POS_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn set_cursor_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![logical_handle_argument(
+                "cursor",
+                LOGICAL_CURSOR_HANDLE_NAMESPACE,
+                true,
+            )],
+            return_value: ApiReturnSchema::LogicalHandle {
+                namespace: LOGICAL_CURSOR_HANDLE_NAMESPACE.to_owned(),
+                nullable: true,
+            },
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::Preserve,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: SET_CURSOR_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -8368,13 +8419,17 @@ fn windows_932_name_or_ordinal(name: &str, maximum_code_units: u32) -> ApiArgume
     }
 }
 
-fn windows_932_input_string(name: &str, maximum_code_units: u32) -> ApiArgumentSchema {
+fn windows_932_input_string(
+    name: &str,
+    maximum_code_units: u32,
+    nullable: bool,
+) -> ApiArgumentSchema {
     ApiArgumentSchema {
         name: name.to_owned(),
         direction: ApiDirection::In,
         value: ApiValueSchema::Pointer {
             constraint: ApiPointerConstraint {
-                nullable: false,
+                nullable,
                 alignment: 1,
                 byte_length: 1,
                 pointee: ApiPointeeSchema::String {

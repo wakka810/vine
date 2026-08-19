@@ -326,13 +326,14 @@ impl Bridge {
         .unwrap_or_else(|_| b"{\"kind\":\"error\",\"message\":\"serialization failed\"}".to_vec());
     }
 
-    fn prepare(&mut self, input_length: usize) -> Result<(), String> {
+    fn prepare(&mut self, input_length: usize, encoded_pointer_cookie: u32) -> Result<(), String> {
         let fixture = self
             .input
             .get(..input_length)
             .ok_or_else(|| "fixture input length exceeds the bridge buffer".to_owned())?
             .to_vec();
-        let (runtime, metadata, reflection) = BrowserRuntime::prepare(fixture)?;
+        let (runtime, metadata, reflection) =
+            BrowserRuntime::prepare(fixture, encoded_pointer_cookie)?;
         self.runtime = Some(runtime);
         self.set_output(metadata, reflection.control, reflection.page_bytes)
     }
@@ -344,6 +345,7 @@ impl Bridge {
         source_manifest_length: usize,
         writable_profile_length: usize,
         capabilities: BgiCheckpointCapabilities,
+        encoded_pointer_cookie: u32,
     ) -> Result<(), String> {
         let total_length = executable_length
             .checked_add(policy_length)
@@ -374,6 +376,7 @@ impl Bridge {
             source_manifest,
             writable_profile,
             capabilities,
+            encoded_pointer_cookie,
         )?;
         self.runtime = Some(runtime);
         self.set_output(metadata, reflection.control, reflection.page_bytes)
@@ -384,6 +387,7 @@ impl Bridge {
         executable_length: usize,
         policy_length: usize,
         source_manifest_length: usize,
+        encoded_pointer_cookie: u32,
     ) -> Result<(), String> {
         let total_length = executable_length
             .checked_add(policy_length)
@@ -400,8 +404,12 @@ impl Bridge {
         policy.validate().map_err(error_string)?;
         let source_manifest: RuntimeSourceSnapshotManifest =
             serde_json::from_slice(source_manifest).map_err(|error| error.to_string())?;
-        let (runtime, metadata, reflection) =
-            BrowserRuntime::prepare_source_read(executable.to_vec(), policy, source_manifest)?;
+        let (runtime, metadata, reflection) = BrowserRuntime::prepare_source_read(
+            executable.to_vec(),
+            policy,
+            source_manifest,
+            encoded_pointer_cookie,
+        )?;
         self.runtime = Some(runtime);
         self.set_output(metadata, reflection.control, reflection.page_bytes)
     }
@@ -762,6 +770,7 @@ impl BrowserRuntime {
 
     fn prepare(
         fixture: Vec<u8>,
+        encoded_pointer_cookie: u32,
     ) -> Result<(Self, Value, vine_core::MemoryReflectionBuffers), String> {
         let loader_limits = Pe32Limits::default();
         let snapshot = ModuleSnapshot::from_bytes(fixture, &loader_limits).map_err(error_string)?;
@@ -778,7 +787,7 @@ impl BrowserRuntime {
             .map_err(error_string)?;
         let second_thread_entry = direct_fixture_export_address(&plan, "fixture_thread_entry")?;
         let second_thread_marker = direct_fixture_export_address(&plan, "fixture_thread_marker")?;
-        let mut runtime = controlled_runtime_state()?;
+        let mut runtime = controlled_runtime_state(encoded_pointer_cookie)?;
         let user32_policy = User32CompatibilityPolicy::controlled_v30();
         user32_policy.validate().map_err(api_fault_string)?;
         runtime
@@ -928,6 +937,7 @@ impl BrowserRuntime {
         source_manifest: Option<RuntimeSourceSnapshotManifest>,
         writable_profile: RuntimeWritableProfileManifest,
         capabilities: BgiCheckpointCapabilities,
+        encoded_pointer_cookie: u32,
     ) -> Result<(Self, Value, vine_core::MemoryReflectionBuffers), String> {
         let loader_limits = Pe32Limits::default();
         let snapshot =
@@ -966,6 +976,7 @@ impl BrowserRuntime {
             &materialization,
             &runtime_catalog,
             kernel32_policy.clock_profile().cloned(),
+            encoded_pointer_cookie,
         )?;
         if let Some(source_manifest) = source_manifest {
             process
@@ -1227,6 +1238,7 @@ impl BrowserRuntime {
         executable: Vec<u8>,
         kernel32_policy: Kernel32CompatibilityPolicy,
         source_manifest: RuntimeSourceSnapshotManifest,
+        encoded_pointer_cookie: u32,
     ) -> Result<(Self, Value, vine_core::MemoryReflectionBuffers), String> {
         let loader_limits = Pe32Limits::default();
         let snapshot =
@@ -1249,8 +1261,10 @@ impl BrowserRuntime {
         .map_err(error_string)?;
         let materialization = materialize_pe32_image(&mut memory, &snapshot, &plan, LOAD_BASE)
             .map_err(error_string)?;
-        let mut runtime =
-            controlled_runtime_state_with_clock_profile(kernel32_policy.clock_profile().cloned())?;
+        let mut runtime = controlled_runtime_state_with_clock_profile(
+            kernel32_policy.clock_profile().cloned(),
+            encoded_pointer_cookie,
+        )?;
         runtime
             .register_source_snapshot(source_manifest)
             .map_err(error_string)?;
@@ -3743,8 +3757,9 @@ fn prepare_bgi_runtime_process(
     materialization: &vine_core::ImageMaterialization,
     runtime_catalog: &RuntimeExportCatalog,
     clock_profile: Option<vine_core::RuntimeClockProfile>,
+    encoded_pointer_cookie: u32,
 ) -> Result<BgiRuntimeProcess, String> {
-    let mut runtime = controlled_bgi_runtime_state(clock_profile)?;
+    let mut runtime = controlled_bgi_runtime_state(clock_profile, encoded_pointer_cookie)?;
     let mut module_handles = vec![BGI_KERNEL32_HANDLE];
     let mut canonical_modules = BTreeSet::from(["kernel32.dll".to_owned()]);
     let mut next_module_slot = 2_u16;
@@ -3799,6 +3814,7 @@ fn prepare_bgi_runtime_process(
 
 fn controlled_bgi_runtime_state(
     clock_profile: Option<vine_core::RuntimeClockProfile>,
+    encoded_pointer_cookie: u32,
 ) -> Result<RuntimeState, String> {
     let mut startup_info = vec![0; 68];
     startup_info[..4].copy_from_slice(&68_u32.to_le_bytes());
@@ -3828,7 +3844,7 @@ fn controlled_bgi_runtime_state(
             encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
         },
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
-        encoded_pointer_token_prefix: 0xec01_0000,
+        encoded_pointer_cookie,
     })
     .map_err(error_string)?;
     if let Some(clock_profile) = clock_profile {
@@ -4214,12 +4230,13 @@ fn callback_argument(name: &str) -> ApiArgumentSchema {
     }
 }
 
-fn controlled_runtime_state() -> Result<RuntimeState, String> {
-    controlled_runtime_state_with_clock_profile(None)
+fn controlled_runtime_state(encoded_pointer_cookie: u32) -> Result<RuntimeState, String> {
+    controlled_runtime_state_with_clock_profile(None, encoded_pointer_cookie)
 }
 
 fn controlled_runtime_state_with_clock_profile(
     clock_profile: Option<vine_core::RuntimeClockProfile>,
+    encoded_pointer_cookie: u32,
 ) -> Result<RuntimeState, String> {
     let mut startup_info = vec![0; 68];
     startup_info[..4].copy_from_slice(&68_u32.to_le_bytes());
@@ -4249,7 +4266,7 @@ fn controlled_runtime_state_with_clock_profile(
             encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
         },
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
-        encoded_pointer_token_prefix: 0xec02_0000,
+        encoded_pointer_cookie,
     })
     .map_err(error_string)?;
     if let Some(clock_profile) = clock_profile {
@@ -5333,8 +5350,8 @@ pub extern "C" fn vine_bridge_payload_len() -> u32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_prepare(input_length: u32) -> u32 {
-    run_bridge(|bridge| bridge.prepare(input_length as usize))
+pub extern "C" fn vine_bridge_prepare(input_length: u32, encoded_pointer_cookie: u32) -> u32 {
+    run_bridge(|bridge| bridge.prepare(input_length as usize, encoded_pointer_cookie))
 }
 
 #[unsafe(no_mangle)]
@@ -5364,6 +5381,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
     user32_set_focus_same_window_enabled: u32,
     user32_def_window_proc_a_pointer_down_enabled: u32,
     host_monotonic_clock_enabled: u32,
+    encoded_pointer_cookie: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_bgi(
@@ -5400,6 +5418,7 @@ pub extern "C" fn vine_bridge_prepare_bgi(
                     user32_def_window_proc_a_pointer_down_enabled == 2,
                 host_monotonic_clock: host_monotonic_clock_enabled != 0,
             },
+            encoded_pointer_cookie,
         )
     })
 }
@@ -5427,12 +5446,14 @@ pub extern "C" fn vine_bridge_prepare_source_read(
     executable_length: u32,
     policy_length: u32,
     source_manifest_length: u32,
+    encoded_pointer_cookie: u32,
 ) -> u32 {
     run_bridge(|bridge| {
         bridge.prepare_source_read(
             executable_length as usize,
             policy_length as usize,
             source_manifest_length as usize,
+            encoded_pointer_cookie,
         )
     })
 }

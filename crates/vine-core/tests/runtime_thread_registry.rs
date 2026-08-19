@@ -550,7 +550,7 @@ fn running_runtime() -> RuntimeState {
             encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
         },
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
-        encoded_pointer_token_prefix: 0xec01_0000,
+        encoded_pointer_cookie: 0xec01_9d3b,
     })
     .expect("initialized controlled runtime");
     runtime

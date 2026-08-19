@@ -11,8 +11,8 @@ use crate::api::{
     DispatchOutcome, ExecutionSession, GuestCallbackArgument, GuestCallbackCompletionPolicy,
     GuestCallbackRequest, HostCompletion, LastErrorPolicy, ReentrancyPolicy, StackCleanup,
 };
-use crate::dynamic_exports::DYNAMIC_EXPORT_ENDPOINT_NAMESPACE;
 use crate::memory::{GuestAddress, MemoryAccess};
+use crate::pe32::ExportLookup;
 use crate::runtime::{
     LOGICAL_ENCODED_POINTER_NAMESPACE, LOGICAL_LOADED_MODULE_NAMESPACE,
     LOGICAL_PRIVATE_HEAP_NAMESPACE, LOGICAL_STANDARD_HANDLE_NAMESPACE,
@@ -27,7 +27,7 @@ use crate::runtime::{
     RUNTIME_WRITABLE_READ_SERVICE, RuntimeApiBoundaryDisposition, RuntimeCreateThreadRequest,
     RuntimeCriticalSection, RuntimeFileBacking, RuntimeFileSearchEntry, RuntimeFileSearchEntryKind,
     RuntimeHandle, RuntimeHeapInitialization, RuntimeHostCompletion, RuntimeMutexNameA,
-    RuntimeObjectKind, RuntimePathResolution, RuntimeSourceReadHostResponse,
+    RuntimeObjectKind, RuntimePathResolution, RuntimeSourceReadHostResponse, RuntimeStateError,
     RuntimeStateErrorClass, RuntimeThreadPriority, RuntimeVirtualMemoryReserveRequest,
     RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
     RuntimeWaitForSingleObjectExResult, RuntimeWaitState, RuntimeWritableCommitHostResponse,
@@ -178,6 +178,7 @@ const ERROR_INVALID_PARAMETER: u32 = 87;
 const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
 const ERROR_INVALID_NAME: u32 = 123;
 const ERROR_MOD_NOT_FOUND: u32 = 126;
+const ERROR_PROC_NOT_FOUND: u32 = 127;
 const ERROR_ALREADY_EXISTS: u32 = 183;
 const ERROR_NEGATIVE_SEEK: u32 = 131;
 const INVALID_HANDLE_VALUE: u32 = u32::MAX;
@@ -1278,20 +1279,18 @@ fn handle_set_thread_priority(
             ),
         ));
     }
-    if thread_handle == RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE {
-        return Err(ApiFault::unsupported(
-            "win32-thread-priority",
-            "set-thread-priority-pseudo-handle-unsupported",
-            "SetThreadPriority currently requires a typed logical thread handle",
-        ));
-    }
     let preserved_last_error = session
         .last_error()
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    match session
-        .runtime_mut()
-        .set_thread_priority(RuntimeHandle(thread_handle), priority)
-    {
+    // GetCurrentThread() returns a pseudo handle that always designates the calling thread.
+    let outcome = if thread_handle == RUNTIME_CURRENT_THREAD_PSEUDO_HANDLE {
+        session.runtime_mut().set_current_thread_priority(priority)
+    } else {
+        session
+            .runtime_mut()
+            .set_thread_priority(RuntimeHandle(thread_handle), priority)
+    };
+    match outcome {
         Ok(_) => {
             Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
                 .with_last_error(preserved_last_error))
@@ -1808,13 +1807,9 @@ fn handle_set_unhandled_exception_filter(
     session: &mut ExecutionSession<'_>,
 ) -> Result<ApiImmediate, ApiFault> {
     let filter_value = required_argument(contract, frame, 0, "unhandled exception filter")?;
+    // Registration only records the filter; Windows validates nothing until an unhandled
+    // exception actually dispatches to it, so an address that is not executable yet is legal.
     let filter = (filter_value != 0).then_some(GuestAddress(filter_value));
-    if let Some(address) = filter {
-        session
-            .memory()
-            .validate_access(address, 1, MemoryAccess::Execute)
-            .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
-    }
     let previous = session
         .runtime_mut()
         .set_unhandled_exception_filter(filter)
@@ -5422,20 +5417,41 @@ fn handle_get_module_handle_w(
     session: &ExecutionSession<'_>,
 ) -> Result<ApiImmediate, ApiFault> {
     let name_address = required_argument(contract, frame, 0, "module name")?;
-    let name = read_utf16_nul(
-        contract,
-        session,
-        GuestAddress(name_address),
-        MAX_MODULE_NAME_CODE_UNITS,
-    )?;
-    let module = session
-        .runtime()
-        .module_by_name(&name)
+    let preserved_last_error = session
+        .last_error()
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
-        namespace: module.namespace.clone(),
-        value: module.handle,
-    }))
+    // A null module name is the documented request for the module handle of the file used to
+    // create the calling process.
+    let module = if name_address == 0 {
+        session.runtime().main_module()
+    } else {
+        let name = read_utf16_nul(
+            contract,
+            session,
+            GuestAddress(name_address),
+            MAX_MODULE_NAME_CODE_UNITS,
+        )?;
+        session.runtime().module_by_name(&name)
+    };
+    match module {
+        Ok(module) => Ok(ApiImmediate::new(ApiReturnValue::LogicalHandle {
+            namespace: module.namespace.clone(),
+            value: module.handle,
+        })
+        .with_last_error(preserved_last_error)),
+        Err(error) if resolvable_lookup_failure(&error) => {
+            Ok(get_module_handle_w_failure(ERROR_MOD_NOT_FOUND))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
+}
+
+fn get_module_handle_w_failure(last_error: u32) -> ApiImmediate {
+    ApiImmediate::new(ApiReturnValue::LogicalHandle {
+        namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+        value: 0,
+    })
+    .with_last_error(last_error)
 }
 
 fn handle_get_proc_address(
@@ -5445,31 +5461,68 @@ fn handle_get_proc_address(
 ) -> Result<ApiImmediate, ApiFault> {
     let module_handle = required_argument(contract, frame, 0, "module handle")?;
     let name_address = required_argument(contract, frame, 1, "procedure name")?;
-    if name_address <= u32::from(u16::MAX) {
-        return Err(ApiFault::unsupported(
-            "win32-export",
-            "get-proc-address-ordinal-unsupported",
-            "ordinal export lookup is not implemented",
-        ));
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let module = match session.runtime().module(module_handle) {
+        Ok(module) => module,
+        Err(error) if resolvable_lookup_failure(&error) => {
+            return Ok(get_proc_address_failure(ERROR_MOD_NOT_FOUND));
+        }
+        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    };
+    // A procedure name whose high-order word is zero is an ordinal, not a string address.
+    let lookup = if name_address <= u32::from(u16::MAX) {
+        ExportLookup::Ordinal {
+            ordinal: name_address,
+        }
+    } else {
+        let name = read_ascii_nul(
+            contract,
+            session,
+            GuestAddress(name_address),
+            MAX_EXPORT_NAME_BYTES,
+        )?;
+        ExportLookup::Name { name }
+    };
+    let export_address = if module.runtime_system_module {
+        match lookup {
+            ExportLookup::Name { name } => session
+                .runtime()
+                .dynamic_endpoint_by_name(&module.canonical_name, &name)
+                .map(|export| export.address),
+            ExportLookup::Ordinal { ordinal } => session
+                .runtime()
+                .dynamic_endpoint_by_ordinal(&module.canonical_name, ordinal)
+                .map(|export| export.address),
+        }
+    } else {
+        session
+            .runtime()
+            .resolve_guest_export_state(&module.canonical_name, lookup)
+            .map(|export| export.address)
+    };
+    match export_address {
+        Ok(address) => Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(address.0))
+            .with_last_error(preserved_last_error)),
+        Err(error) if resolvable_lookup_failure(&error) => {
+            Ok(get_proc_address_failure(ERROR_PROC_NOT_FOUND))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
     }
-    let name = read_ascii_nul(
-        contract,
-        session,
-        GuestAddress(name_address),
-        MAX_EXPORT_NAME_BYTES,
-    )?;
-    let module = session
-        .runtime()
-        .module(module_handle)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    let endpoint = session
-        .runtime()
-        .dynamic_endpoint_by_name(&module.canonical_name, &name)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::LogicalPointer {
-        namespace: endpoint.namespace.clone(),
-        value: endpoint.address.0,
-    }))
+}
+
+fn get_proc_address_failure(last_error: u32) -> ApiImmediate {
+    ApiImmediate::new(ApiReturnValue::OpaquePointer(0)).with_last_error(last_error)
+}
+
+/// Reports whether a runtime lookup failure is a documented Win32 "not found" outcome rather
+/// than a runtime defect that must surface as a fault.
+fn resolvable_lookup_failure(error: &RuntimeStateError) -> bool {
+    matches!(
+        error.class,
+        RuntimeStateErrorClass::NotFound | RuntimeStateErrorClass::InvalidInput
+    )
 }
 
 fn handle_tls_alloc(
@@ -5509,11 +5562,20 @@ fn handle_tls_set_value(
 ) -> Result<ApiImmediate, ApiFault> {
     let index = required_argument(contract, frame, 0, "TLS index")?;
     let value = required_argument(contract, frame, 1, "TLS value")?;
-    session
-        .runtime_mut()
-        .set_tls_value(index, value)
+    let preserved_last_error = session
+        .last_error()
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)))
+    match session.runtime_mut().set_tls_value(index, value) {
+        Ok(()) => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+                .with_last_error(preserved_last_error))
+        }
+        Err(error) if error.code == "tls-index-unallocated" => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(ERROR_INVALID_PARAMETER))
+        }
+        Err(error) => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    }
 }
 
 fn handle_encode_pointer(
@@ -5542,8 +5604,7 @@ fn handle_decode_pointer(
     let source = session
         .runtime()
         .decode_pointer(token)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
-        .source;
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(source)))
 }
 
@@ -5598,11 +5659,33 @@ fn handle_fls_set_value(
 ) -> Result<ApiImmediate, ApiFault> {
     let index = required_argument(contract, frame, 0, "FLS index")?;
     let value = required_argument(contract, frame, 1, "FLS value")?;
-    session
-        .runtime_mut()
-        .set_fls_value(index, value)
+    let preserved_last_error = session
+        .last_error()
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)))
+    match session.runtime_mut().set_fls_value(index, value) {
+        Ok(_) => {
+            Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+                .with_last_error(preserved_last_error))
+        }
+        Err(error) => match fls_set_value_failure_last_error(&error) {
+            Some(last_error) => {
+                Ok(ApiImmediate::new(ApiReturnValue::Bool32(false)).with_last_error(last_error))
+            }
+            None => Err(ApiFault::from_runtime(error, &contract.endpoint)),
+        },
+    }
+}
+
+fn fls_set_value_failure_last_error(error: &RuntimeStateError) -> Option<u32> {
+    if error.code == "fls-index-unallocated" {
+        Some(ERROR_INVALID_PARAMETER)
+    } else if error.code == "fls-thread-storage-uninitialized"
+        || error.class == RuntimeStateErrorClass::ResourceLimit
+    {
+        Some(ERROR_NOT_ENOUGH_MEMORY)
+    } else {
+        None
+    }
 }
 
 fn handle_interlocked_increment(
@@ -7072,10 +7155,10 @@ pub fn load_library_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
 pub fn get_module_handle_w_contract(
     endpoint: ApiEndpointIdentity,
 ) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
+    let mut contract = kernel32_contract(
         endpoint,
         "GetModuleHandleW",
-        vec![input_string(
+        vec![nullable_input_string(
             "moduleName",
             ApiStringEncoding::Utf16Le,
             2,
@@ -7084,30 +7167,31 @@ pub fn get_module_handle_w_contract(
         )],
         ApiReturnSchema::LogicalHandle {
             namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
-            nullable: false,
+            nullable: true,
         },
         GET_MODULE_HANDLE_W_IMPLEMENTATION,
-    )
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
 }
 
 pub fn get_proc_address_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
+    let mut contract = kernel32_contract(
         endpoint,
         "GetProcAddress",
         vec![
-            logical_handle("module", LOGICAL_LOADED_MODULE_NAMESPACE, false),
+            logical_handle("module", LOGICAL_LOADED_MODULE_NAMESPACE, true),
             name_or_ordinal(
                 "procedureName",
                 ApiStringEncoding::Windows1252,
                 MAX_EXPORT_NAME_BYTES as u32,
             ),
         ],
-        ApiReturnSchema::LogicalPointer {
-            namespace: DYNAMIC_EXPORT_ENDPOINT_NAMESPACE.to_owned(),
-            nullable: false,
-        },
+        ApiReturnSchema::OpaquePointer { nullable: true },
         GET_PROC_ADDRESS_IMPLEMENTATION,
-    )
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
 }
 
 pub fn tls_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
@@ -7133,13 +7217,15 @@ pub fn tls_get_value_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContra
 }
 
 pub fn tls_set_value_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
+    let mut contract = kernel32_contract(
         endpoint,
         "TlsSetValue",
         vec![u32_argument("tlsIndex"), opaque_pointer("value", true, 1)],
         ApiReturnSchema::Bool32,
         TLS_SET_VALUE_IMPLEMENTATION,
-    )
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
 }
 
 pub fn encode_pointer_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
@@ -7147,9 +7233,11 @@ pub fn encode_pointer_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
         endpoint,
         "EncodePointer",
         vec![opaque_pointer("pointer", true, 1)],
+        // The cookie transform is a bijection over the whole 32-bit space, so a zero token is a
+        // legitimate encoding rather than a failure.
         ApiReturnSchema::LogicalPointer {
             namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
-            nullable: false,
+            nullable: true,
         },
         ENCODE_POINTER_IMPLEMENTATION,
     )
@@ -7159,7 +7247,7 @@ pub fn decode_pointer_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
     kernel32_contract(
         endpoint,
         "DecodePointer",
-        vec![opaque_pointer("encodedPointer", false, 1)],
+        vec![opaque_pointer("encodedPointer", true, 1)],
         ApiReturnSchema::OpaquePointer { nullable: true },
         DECODE_POINTER_IMPLEMENTATION,
     )
@@ -7188,13 +7276,15 @@ pub fn fls_get_value_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContra
 }
 
 pub fn fls_set_value_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
-    kernel32_contract(
+    let mut contract = kernel32_contract(
         endpoint,
         "FlsSetValue",
         vec![u32_argument("flsIndex"), opaque_pointer("value", true, 1)],
         ApiReturnSchema::Bool32,
         FLS_SET_VALUE_IMPLEMENTATION,
-    )
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
 }
 
 pub fn interlocked_increment_contract(

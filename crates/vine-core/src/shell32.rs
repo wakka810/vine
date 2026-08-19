@@ -129,6 +129,7 @@ mod tests {
             address: crate::memory::GuestAddress(0x7f00_1000),
             module: "SHELL32.dll".to_owned(),
             name: "DragAcceptFiles".to_owned(),
+            ordinal: None,
             lifetime: "test".to_owned(),
         });
         let contract = shell32_contract_for_endpoint(endpoint)

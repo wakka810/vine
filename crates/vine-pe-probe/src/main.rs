@@ -2365,8 +2365,10 @@ struct X86LogicalEncodedPointer {
 
 impl X86LogicalEncodedPointer {
     const NAMESPACE: &str = "vine.logical-encoded-pointer.v1";
-    const ENCODED_NULL: u32 = 0xec01_0001;
-    const ENCODED_PROCESS_INITIALIZER: u32 = 0xec01_0002;
+    /// `EncodePointer(NULL)` under the controlled process cookie 0xec01_9d3b.
+    const ENCODED_NULL: u32 = 0xd478_04a0;
+    /// `EncodePointer(0x100a_9608)`, the controlled process-initializer function, under the same cookie.
+    const ENCODED_PROCESS_INITIALIZER: u32 = 0x06b9_c3a7;
 }
 
 #[derive(Serialize)]
@@ -12757,7 +12759,7 @@ fn controlled_runtime_state_with_clock_profile(
     const TICK_COUNT: u32 = 3_600_000;
     const PERFORMANCE_COUNTER: u64 = 12_345_678_901;
     const PERFORMANCE_FREQUENCY: u64 = 10_000_000;
-    const ENCODED_POINTER_TOKEN_PREFIX: u32 = 0xec01_0000;
+    const ENCODED_POINTER_COOKIE: u32 = 0xec01_9d3b;
 
     let startup_info = X86StartupInfoW::controlled();
     let mut runtime = RuntimeState::new(RuntimeBootstrap {
@@ -12786,7 +12788,7 @@ fn controlled_runtime_state_with_clock_profile(
             encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
         },
         encoded_pointer_namespace: X86LogicalEncodedPointer::NAMESPACE.to_owned(),
-        encoded_pointer_token_prefix: ENCODED_POINTER_TOKEN_PREFIX,
+        encoded_pointer_cookie: ENCODED_POINTER_COOKIE,
     })
     .map_err(runtime_state_error)?;
     if let Some(clock_profile) = clock_profile {

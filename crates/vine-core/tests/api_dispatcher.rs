@@ -57,6 +57,12 @@ const ENDPOINT_BASE: u32 = 0x7f00_1000;
 const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
 const INITIAL_LAST_ERROR: u32 = 0x1234;
+/// `EncodePointer(NULL)` under the controlled process cookie 0xec01_9d3b.
+const ENCODED_NULL_TOKEN: u32 = 0xd478_04a0;
+/// `EncodePointer(0x7f02_0000)` under the same cookie.
+const ENCODED_ENDPOINT_TOKEN: u32 = 0xb4b8_04b0;
+/// `EncodePointer(0x100a_9608)` under the same cookie.
+const ENCODED_FUNCTION_TOKEN: u32 = 0x06b9_c3a7;
 const PERFORMANCE_COUNTER: u64 = 12_345_678_901;
 const PERFORMANCE_FREQUENCY: u64 = 10_000_000;
 
@@ -74,6 +80,7 @@ fn runtime_state_drives_five_api_shapes_and_nested_scheduler_state() {
             address: GuestAddress(0x7f02_0010),
             module: "kernel32.dll".to_owned(),
             name: "FlsGetValue".to_owned(),
+            ordinal: None,
             lifetime: "process-runtime".to_owned(),
         })
         .expect("register dynamic endpoint");
@@ -185,7 +192,7 @@ fn runtime_state_drives_five_api_shapes_and_nested_scheduler_state() {
         4,
     );
     assert_eq!(encoded_null.frame.argument_u32(0), Some(0));
-    assert_eq!(encoded_null.eax, RegisterUpdate::Set(0xec01_0001));
+    assert_eq!(encoded_null.eax, RegisterUpdate::Set(ENCODED_NULL_TOKEN));
 
     let encoded_function = dispatch(
         &dispatcher,
@@ -196,7 +203,10 @@ fn runtime_state_drives_five_api_shapes_and_nested_scheduler_state() {
         frames[6].1[0],
         4,
     );
-    assert_eq!(encoded_function.eax, RegisterUpdate::Set(0xec01_0002));
+    assert_eq!(
+        encoded_function.eax,
+        RegisterUpdate::Set(ENCODED_FUNCTION_TOKEN)
+    );
     assert_eq!(
         runtime
             .encoded_pointer_for_source(0)
@@ -456,6 +466,7 @@ fn query_performance_frequency_uses_the_validated_clock_authority_atomically() {
         address: GuestAddress(ENDPOINT_BASE + 0x800),
         module: "kernel32.dll".to_owned(),
         name: "QueryPerformanceFrequency".to_owned(),
+        ordinal: None,
         lifetime: "process-runtime".to_owned(),
     });
     let contract = kernel32_contract_for_endpoint(endpoint.clone())
@@ -825,23 +836,25 @@ fn fls_set_value_contract_owns_current_thread_values() {
         runtime.fls_value(0).expect("retained initial FLS value"),
         0x2000_0000
     );
-    let runtime_before_rejection = runtime.clone();
-    let rejected = {
-        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
-        dispatcher.dispatch_owned(
-            owned_trap(&endpoint, frames[2].0, frames[2].1[0]),
-            &mut session,
-            dispatch_kernel32_api,
-        )
-    };
-    assert!(matches!(
-        rejected,
-        DispatchOutcome::Fault(ref fault)
-            if fault.class == ApiFaultClass::InvalidCall
-                && fault.code == "fls-index-unallocated"
-    ));
-    assert_eq!(runtime, runtime_before_rejection);
-    assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
+    let fls_slots_before_rejection = runtime.fls_slots().clone();
+    let rejected = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[2].0,
+        frames[2].1[0],
+    );
+    // An unallocated index is the documented FALSE plus ERROR_INVALID_PARAMETER outcome, not a
+    // fault, and it leaves every allocated lane untouched.
+    assert_eq!(rejected.eax, RegisterUpdate::Set(0));
+    assert_eq!(rejected.last_error, 87);
+    assert_eq!(runtime.fls_slots(), &fls_slots_before_rejection);
+    assert_eq!(
+        runtime.fls_value(0).expect("retained initial FLS value"),
+        0x2000_0000
+    );
+    assert_eq!(runtime.current_last_error().unwrap(), 87);
     assert_eq!(memory.stats(), memory_before);
 }
 
@@ -864,6 +877,7 @@ fn fls_get_value_models_thread_storage_and_win32_last_error() {
         address: GuestAddress(0x7f02_0010),
         module: "kernel32.dll".to_owned(),
         name: "FlsGetValue".to_owned(),
+        ordinal: None,
         lifetime: "process-runtime".to_owned(),
     };
     let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(&dynamic);
@@ -2946,7 +2960,7 @@ fn processor_feature_query_returns_only_explicit_policy_values_without_mutation(
 }
 
 #[test]
-fn unhandled_exception_filter_replacement_is_process_owned_and_fails_before_mutation() {
+fn unhandled_exception_filter_replacement_is_process_owned_and_records_unvalidated_filters() {
     const FILTER_A: u32 = OUTPUT_BASE + 0x100;
     const FILTER_B: u32 = OUTPUT_BASE + 0x200;
 
@@ -3072,20 +3086,24 @@ fn unhandled_exception_filter_replacement_is_process_owned_and_fails_before_muta
     assert_eq!(runtime.unhandled_exception_filter(), None);
     assert_eq!(memory.stats(), memory_before);
 
-    let runtime_before_rejection = runtime.clone();
-    let rejected = {
-        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
-        dispatcher.dispatch_owned(
-            owned_trap(&endpoint, frames[3].0, frames[3].1[0]),
-            &mut session,
-            dispatch_kernel32_api,
-        )
-    };
-    assert!(matches!(
-        rejected,
-        DispatchOutcome::Fault(ref fault) if fault.class == ApiFaultClass::InvalidCall
-    ));
-    assert_eq!(runtime, runtime_before_rejection);
+    // Registration only records the pointer. Windows never inspects the target at this point, so
+    // an address that is not mapped executable today is still stored and still returns the
+    // previous filter; only an actual unhandled exception would ever dispatch to it.
+    let unvalidated = dispatch_owned(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[3].0,
+        frames[3].1[0],
+    );
+    assert_eq!(unvalidated.eax, RegisterUpdate::Set(0));
+    assert_eq!(unvalidated.last_error, 87);
+    assert!(unvalidated.guest_writes.is_empty());
+    assert_eq!(
+        runtime.unhandled_exception_filter(),
+        Some(GuestAddress(0x3000_0000))
+    );
     assert_eq!(memory.stats(), memory_before);
 
     let reinstall = dispatch_owned(
@@ -3096,7 +3114,7 @@ fn unhandled_exception_filter_replacement_is_process_owned_and_fails_before_muta
         frames[4].0,
         frames[4].1[0],
     );
-    assert_eq!(reinstall.eax, RegisterUpdate::Set(0));
+    assert_eq!(reinstall.eax, RegisterUpdate::Set(0x3000_0000));
     assert_eq!(
         runtime.unhandled_exception_filter(),
         Some(GuestAddress(FILTER_A))
@@ -3168,6 +3186,7 @@ fn tls_get_value_reads_only_the_selected_thread_and_sets_win32_last_error() {
             address: GuestAddress(0x7f02_0010),
             module: "kernel32.dll".to_owned(),
             name: "FlsGetValue".to_owned(),
+            ordinal: None,
             lifetime: "process-runtime".to_owned(),
         })
         .expect("register controlled TLS endpoint value");
@@ -8548,7 +8567,7 @@ fn interlocked_decrement_contract_models_reached_results_and_fails_before_mutati
 }
 
 #[test]
-fn pointer_encoding_contract_round_trips_only_process_owned_tokens() {
+fn pointer_encoding_contract_round_trips_the_process_keyed_permutation() {
     let (mut memory, owner) = initialized_memory();
     let (dispatcher, endpoints, frames) = pointer_encoding_dispatcher_fixture(&mut memory, owner);
     let mut runtime = controlled_runtime(controlled_startup_info());
@@ -8570,8 +8589,13 @@ fn pointer_encoding_contract_round_trips_only_process_owned_tokens() {
         frames[1].0,
         frames[1].1[0],
     );
-    assert_eq!(encoded_null.eax, RegisterUpdate::Set(0xec01_0001));
-    assert_eq!(encoded_endpoint.eax, RegisterUpdate::Set(0xec01_0002));
+    // Tokens come from the process cookie transform, so they carry no shared prefix and no
+    // sequence: two adjacent sources land far apart and neither reveals the allocator state.
+    assert_eq!(encoded_null.eax, RegisterUpdate::Set(ENCODED_NULL_TOKEN));
+    assert_eq!(
+        encoded_endpoint.eax,
+        RegisterUpdate::Set(ENCODED_ENDPOINT_TOKEN)
+    );
 
     for frame in [&frames[2], &frames[3]] {
         let decoded = dispatch_owned(
@@ -8597,30 +8621,29 @@ fn pointer_encoding_contract_round_trips_only_process_owned_tokens() {
     assert_eq!(decoded_endpoint.last_error, INITIAL_LAST_ERROR);
     assert_eq!(
         runtime
-            .decode_pointer(0xec01_0002)
-            .expect("registered endpoint token")
-            .source,
+            .decode_pointer(ENCODED_ENDPOINT_TOKEN)
+            .expect("decode endpoint token"),
         0x7f02_0000
     );
 
+    // DecodePointer applies the inverse to every 32-bit value; it does not require a prior
+    // EncodePointer call and does not mutate the diagnostic registry.
     let encoded_pointers_before = runtime.registries().encoded_pointers().clone();
-    for (frame, expected_code) in [
-        (&frames[5], "encoded-pointer-token-unknown"),
-        (&frames[6], "encoded-pointer-token-invalid"),
-    ] {
-        let rejected = {
-            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
-            dispatcher.dispatch_owned(
-                owned_trap(&endpoints[1], frame.0, frame.1[0]),
-                &mut session,
-                dispatch_kernel32_api,
-            )
-        };
-        assert!(matches!(
-            rejected,
-            DispatchOutcome::Fault(ref fault)
-                if fault.class == ApiFaultClass::InvalidCall && fault.code == expected_code
-        ));
+    for frame in [&frames[5], &frames[6]] {
+        let token = frame.1[1];
+        let expected = runtime
+            .decode_pointer(token)
+            .expect("decode arbitrary token");
+        let decoded = dispatch_owned(
+            &dispatcher,
+            &mut memory,
+            &mut runtime,
+            &endpoints[1],
+            frame.0,
+            frame.1[0],
+        );
+        assert_eq!(decoded.eax, RegisterUpdate::Set(expected));
+        assert_eq!(decoded.last_error, INITIAL_LAST_ERROR);
     }
     assert_eq!(
         runtime.registries().encoded_pointers(),
@@ -9128,6 +9151,7 @@ fn remaining_kernel32_calls_share_the_generic_dispatcher() {
             address: GuestAddress(0x7f02_0000),
             module: "kernel32.dll".to_owned(),
             name: "FlsAlloc".to_owned(),
+            ordinal: Some(7),
             lifetime: "process-runtime".to_owned(),
         })
         .expect("register dynamic endpoint");
@@ -9256,20 +9280,124 @@ fn remaining_kernel32_calls_share_the_generic_dispatcher() {
     assert!(runtime.allocated_tls_indices().contains(&0));
     assert_eq!(runtime.current_last_error().unwrap(), INITIAL_LAST_ERROR);
 
-    let ordinal = {
-        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
-        dispatcher.dispatch(
-            trap(&endpoints[6], frames[8].0, frames[8].1[0], 8),
-            &mut session,
-            dispatch_kernel32_api,
-        )
-    };
-    assert!(matches!(
-        ordinal,
-        DispatchOutcome::Fault(ref fault)
-            if fault.class == ApiFaultClass::Unsupported
-                && fault.code == "get-proc-address-ordinal-unsupported"
-    ));
+    // Synthetic modules resolve only the ordinal explicitly declared by their export table.
+    let ordinal = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[6],
+        frames[8].0,
+        frames[8].1[0],
+        8,
+    );
+    assert_eq!(ordinal.eax, RegisterUpdate::Set(0x7f02_0000));
+    assert_eq!(ordinal.last_error, INITIAL_LAST_ERROR);
+
+    // A missing export is the documented NULL plus ERROR_PROC_NOT_FOUND, not a fault.
+    let missing_ordinal = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[6],
+        frames[9].0,
+        frames[9].1[0],
+        8,
+    );
+    assert_eq!(missing_ordinal.eax, RegisterUpdate::Set(0));
+    assert_eq!(missing_ordinal.last_error, 127);
+
+    // A missing export named by string takes the same documented NULL + ERROR_PROC_NOT_FOUND path.
+    let missing_name = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[6],
+        frames[12].0,
+        frames[12].1[0],
+        8,
+    );
+    assert_eq!(missing_name.eax, RegisterUpdate::Set(0));
+    assert_eq!(missing_name.last_error, 127);
+
+    // GetModuleHandleW(NULL) returns the handle of the file used to create the calling process.
+    runtime
+        .register_main_module(RuntimeModule {
+            owner: "test-runtime".to_owned(),
+            variant_id: "main-executable".to_owned(),
+            namespace: LOGICAL_LOADED_MODULE_NAMESPACE.to_owned(),
+            handle: 0x4d01_0002,
+            requested_name: "BGI.exe".to_owned(),
+            canonical_name: "bgi.exe".to_owned(),
+            runtime_system_module: false,
+        })
+        .expect("register main executable module");
+    runtime
+        .set_current_last_error(INITIAL_LAST_ERROR)
+        .expect("restore the LastError oracle after the not-found paths");
+    let calling_process = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[5],
+        frames[10].0,
+        frames[10].1[0],
+        4,
+    );
+    assert_eq!(calling_process.eax, RegisterUpdate::Set(0x4d01_0002));
+    assert_eq!(calling_process.last_error, INITIAL_LAST_ERROR);
+
+    // An unloaded module is NULL plus ERROR_MOD_NOT_FOUND, not a Vine fault.
+    let missing_module = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[5],
+        frames[11].0,
+        frames[11].1[0],
+        4,
+    );
+    assert_eq!(missing_module.eax, RegisterUpdate::Set(0));
+    assert_eq!(missing_module.last_error, 126);
+
+    // TlsSetValue deliberately performs only minimal validation for the guaranteed low-index
+    // range, even if the caller did not obtain that index from TlsAlloc.
+    runtime
+        .set_current_last_error(INITIAL_LAST_ERROR)
+        .expect("restore LastError before TLS validation");
+    let low_unallocated_tls = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[8],
+        frames[13].0,
+        frames[13].1[0],
+        8,
+    );
+    assert_eq!(low_unallocated_tls.eax, RegisterUpdate::Set(1));
+    assert_eq!(low_unallocated_tls.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(
+        runtime.tls_value(7),
+        Ok(&RuntimeTlsValue::Raw { value: 0x1234_5678 })
+    );
+
+    // An unallocated index above TLS_MINIMUM_AVAILABLE is FALSE plus
+    // ERROR_INVALID_PARAMETER, not a Vine fault.
+    let tls_values_before = runtime.current_thread_state().unwrap().tls_values.clone();
+    let invalid_tls = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoints[8],
+        frames[14].0,
+        frames[14].1[0],
+        8,
+    );
+    assert_eq!(invalid_tls.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_tls.last_error, 87);
+    assert_eq!(
+        runtime.current_thread_state().unwrap().tls_values,
+        tls_values_before
+    );
 }
 
 #[test]
@@ -9390,6 +9518,7 @@ fn load_library_a_registers_one_attached_runtime_module_before_returning_its_han
             address: GuestAddress(0x7f02_0040),
             module: "d3dx9_43.dll".to_owned(),
             name: "D3DXCreateEffect".to_owned(),
+            ordinal: None,
             lifetime: "process-runtime".to_owned(),
         })
         .unwrap();
@@ -10189,7 +10318,10 @@ fn remaining_dispatcher_fixture(
     owner: MemoryOwnerId,
     module_name_address: u32,
     export_name_address: u32,
-) -> (ApiDispatcher, Vec<ApiEndpointIdentity>, [FrameWords; 9]) {
+) -> (ApiDispatcher, Vec<ApiEndpointIdentity>, [FrameWords; 15]) {
+    const MISSING_MODULE_NAME_ADDRESS: u32 = OUTPUT_BASE + 0x280;
+    const MISSING_EXPORT_NAME_ADDRESS: u32 = OUTPUT_BASE + 0x380;
+
     let names = [
         "GetSystemTimeAsFileTime",
         "GetCurrentThreadId",
@@ -10199,6 +10331,7 @@ fn remaining_dispatcher_fixture(
         "GetModuleHandleW",
         "GetProcAddress",
         "TlsAlloc",
+        "TlsSetValue",
     ];
     let thunks = names
         .into_iter()
@@ -10252,22 +10385,46 @@ fn remaining_dispatcher_fixture(
             vec![0x1000_0107, 0x4d01_0001, export_name_address],
         ),
         (STACK_BASE + 0xe0, vec![0x1000_0108]),
-        (STACK_BASE + 0x100, vec![0x1000_0109, 0x4d01_0001, 1]),
+        (STACK_BASE + 0x100, vec![0x1000_0109, 0x4d01_0001, 7]),
+        (STACK_BASE + 0x120, vec![0x1000_010a, 0x4d01_0001, 2]),
+        (STACK_BASE + 0x140, vec![0x1000_010b, 0]),
+        (
+            STACK_BASE + 0x160,
+            vec![0x1000_010c, MISSING_MODULE_NAME_ADDRESS],
+        ),
+        (
+            STACK_BASE + 0x180,
+            vec![0x1000_010d, 0x4d01_0001, MISSING_EXPORT_NAME_ADDRESS],
+        ),
+        (STACK_BASE + 0x1a0, vec![0x1000_010e, 7, 0x1234_5678]),
+        (STACK_BASE + 0x1c0, vec![0x1000_010f, 64, 0x8765_4321]),
     ];
     for (address, words) in &frames {
         write_frame(memory, owner, GuestAddress(*address), words);
     }
-    let module_name = "KERNEL32.DLL"
-        .encode_utf16()
-        .chain([0])
-        .flat_map(u16::to_le_bytes)
-        .collect::<Vec<_>>();
-    memory
-        .write_initialization(owner, GuestAddress(module_name_address), &module_name)
-        .expect("initialize module name");
+    for (address, name) in [
+        (module_name_address, "KERNEL32.DLL"),
+        (MISSING_MODULE_NAME_ADDRESS, "MISSING.DLL"),
+    ] {
+        let bytes = name
+            .encode_utf16()
+            .chain([0])
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>();
+        memory
+            .write_initialization(owner, GuestAddress(address), &bytes)
+            .expect("initialize module name");
+    }
     memory
         .write_initialization(owner, GuestAddress(export_name_address), b"FlsAlloc\0")
         .expect("initialize export name");
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(MISSING_EXPORT_NAME_ADDRESS),
+            b"NotAnExport\0",
+        )
+        .expect("initialize missing export name");
     memory.seal_owner(owner).expect("seal runtime owner");
     let reflection = memory.pending_reflection().expect("initial reflection");
     memory
@@ -10415,10 +10572,16 @@ fn pointer_encoding_dispatcher_fixture(
     let frames = [
         (STACK_BASE + 0x180, vec![0x1000_0401, 0]),
         (STACK_BASE + 0x1a0, vec![0x1000_0402, 0x7f02_0000]),
-        (STACK_BASE + 0x1c0, vec![0x1000_0403, 0xec01_0001]),
-        (STACK_BASE + 0x1e0, vec![0x1000_0404, 0xec01_0001]),
-        (STACK_BASE + 0x200, vec![0x1000_0405, 0xec01_0002]),
-        (STACK_BASE + 0x220, vec![0x1000_0406, 0xec01_00ff]),
+        (STACK_BASE + 0x1c0, vec![0x1000_0403, ENCODED_NULL_TOKEN]),
+        (STACK_BASE + 0x1e0, vec![0x1000_0404, ENCODED_NULL_TOKEN]),
+        (
+            STACK_BASE + 0x200,
+            vec![0x1000_0405, ENCODED_ENDPOINT_TOKEN],
+        ),
+        (
+            STACK_BASE + 0x220,
+            vec![0x1000_0406, ENCODED_NULL_TOKEN ^ 1],
+        ),
         (STACK_BASE + 0x240, vec![0x1000_0407, 0x1234_5678]),
     ];
     for (address, words) in &frames {
@@ -10459,6 +10622,7 @@ fn fls_allocation_dispatcher_fixture(
         address: GuestAddress(0x7f02_0000),
         module: "kernel32.dll".to_owned(),
         name: "FlsAlloc".to_owned(),
+        ordinal: None,
         lifetime: "process-runtime".to_owned(),
     };
     let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(&dynamic);
@@ -10520,6 +10684,7 @@ fn fls_set_value_dispatcher_fixture(
         address: GuestAddress(0x7f02_0020),
         module: "kernel32.dll".to_owned(),
         name: "FlsSetValue".to_owned(),
+        ordinal: None,
         lifetime: "process-runtime".to_owned(),
     };
     let endpoint = ApiEndpointIdentity::from_dynamic_endpoint(&dynamic);
@@ -10684,7 +10849,7 @@ fn controlled_runtime_with_clock_profile(
             encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
         },
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
-        encoded_pointer_token_prefix: 0xec01_0000,
+        encoded_pointer_cookie: 0xec01_9d3b,
     })
     .expect("runtime state");
     if let Some(clock_profile) = clock_profile {

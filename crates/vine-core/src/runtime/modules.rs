@@ -1067,6 +1067,20 @@ impl RuntimeModules {
             .map_err(runtime_module_graph_error)
     }
 
+    pub(super) fn main_module_handle(&self) -> Result<u32, RuntimeStateError> {
+        let id = self.module_graph.main_module().ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-module-graph",
+                "main-module-missing",
+                "the process has no registered main executable module",
+            )
+        })?;
+        self.module_graph
+            .module(id)
+            .map(|module| module.handle)
+            .map_err(runtime_module_graph_error)
+    }
+
     pub(super) fn module_id_by_handle(
         &self,
         handle: u32,

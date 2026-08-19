@@ -9,6 +9,7 @@ pub const LOGICAL_TLS_INDEX_NAMESPACE: &str = "vine.logical-tls-index.v1";
 pub const LOGICAL_FLS_INDEX_NAMESPACE: &str = "vine.logical-fls-index.v1";
 pub const TLS_OUT_OF_INDEXES: u32 = u32::MAX;
 pub const FLS_OUT_OF_INDEXES: u32 = u32::MAX;
+pub const RUNTIME_TLS_MINIMUM_AVAILABLE: u32 = 64;
 pub const RUNTIME_FLS_INDEX_LIMIT: u32 = 128;
 pub const RUNTIME_GUEST_THREAD_LIMIT: usize = 256;
 pub const RUNTIME_GUEST_THREAD_STACK_ARENA_BASE: GuestAddress = GuestAddress(0x5000_0000);
@@ -508,12 +509,18 @@ impl RuntimeThreads {
         debug_assert_eq!(self.next_tls_index, plan.previous_next_index);
         let inserted = self.allocated_tls_indices.insert(plan.index);
         debug_assert!(inserted);
+        // TlsSetValue performs only minimal validation for the guaranteed low-index range, so a
+        // caller may have populated this slot before TlsAlloc formally assigns it. Allocation
+        // initializes the slot to NULL for every thread.
+        for thread in self.states.values_mut() {
+            thread.tls_values.remove(&plan.index);
+        }
         self.next_tls_index = plan.next_index;
         plan.index
     }
 
     pub(super) fn require_tls_index(&self, index: u32) -> Result<(), RuntimeStateError> {
-        if !self.allocated_tls_indices.contains(&index) {
+        if index >= RUNTIME_TLS_MINIMUM_AVAILABLE && !self.allocated_tls_indices.contains(&index) {
             return Err(RuntimeStateError::not_found(
                 "runtime-tls",
                 "tls-index-unallocated",
@@ -1945,12 +1952,18 @@ mod tests {
         let start = threads.plan_start(INITIAL).unwrap();
         threads.commit(start);
 
+        let low_slot = threads
+            .plan_tls_value(INITIAL, 0, RuntimeTlsValue::Raw { value: 0x1234 })
+            .unwrap();
+        threads.commit(low_slot);
+        assert!(threads.state(INITIAL).unwrap().tls_values.contains_key(&0));
         let tls = threads.plan_tls_index_allocation().unwrap();
         assert!(threads.allocated_tls_indices().is_empty());
         assert_eq!(threads.next_tls_index(), 0);
         assert_eq!(threads.commit_tls_index_allocation(tls), 0);
         assert_eq!(threads.allocated_tls_indices(), &BTreeSet::from([0]));
         assert_eq!(threads.next_tls_index(), 1);
+        assert!(!threads.state(INITIAL).unwrap().tls_values.contains_key(&0));
 
         let fls = threads
             .plan_fls_slot_allocation(Some(GuestAddress(0x1000_2000)))

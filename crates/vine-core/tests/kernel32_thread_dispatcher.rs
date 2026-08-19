@@ -22,6 +22,9 @@ const INVALID_PRIORITY_STACK: GuestAddress = GuestAddress(0x2000_0180);
 const CLOSE_STACK: GuestAddress = GuestAddress(0x2000_01a0);
 const CLOSED_PRIORITY_STACK: GuestAddress = GuestAddress(0x2000_01c0);
 const INVALID_RESUME_STACK: GuestAddress = GuestAddress(0x2000_01e0);
+const PSEUDO_PRIORITY_STACK: GuestAddress = GuestAddress(0x2000_0200);
+/// The value `GetCurrentThread()` returns; it always designates the calling thread.
+const CURRENT_THREAD_PSEUDO_HANDLE: u32 = 0xffff_fffe;
 
 #[test]
 fn create_resume_set_priority_and_close_follow_x86_contract_and_last_error_oracle() {
@@ -47,7 +50,7 @@ fn create_resume_set_priority_and_close_follow_x86_contract_and_last_error_oracl
         &[0x401000, 0, 0, ENTRY.0, 0x1234_5678, 4, DATA.0],
     );
     write_words(&mut memory, owner, RESUME_STACK, &[0x401100, 0]);
-    write_words(&mut memory, owner, SET_PRIORITY_STACK, &[0x401200, 0, 1]);
+    write_words(&mut memory, owner, SET_PRIORITY_STACK, &[0x401200, 0, 2]);
     write_words(
         &mut memory,
         owner,
@@ -151,7 +154,7 @@ fn create_resume_set_priority_and_close_follow_x86_contract_and_last_error_oracl
     assert_eq!(priority.last_error, 0x5a5a);
     assert_eq!(
         runtime.thread_priority(RuntimeThreadId(8193)).unwrap(),
-        RuntimeThreadPriority::AboveNormal
+        RuntimeThreadPriority::Highest
     );
 
     write_runtime_u32(&mut memory, GuestAddress(SET_PRIORITY_STACK.0 + 8), 15);
@@ -262,6 +265,73 @@ fn create_resume_set_priority_and_close_follow_x86_contract_and_last_error_oracl
     assert_eq!(invalid.last_error, 6);
 }
 
+#[test]
+fn set_thread_priority_accepts_the_current_thread_pseudo_handle() {
+    let (mut memory, mut runtime, owner) = prepared_runtime();
+    let set_priority = endpoint(owner, 3, 0x7f00_0330, 0x2000_0808, "SetThreadPriority");
+    memory
+        .write_initialization(
+            owner,
+            GuestAddress(0x2000_0808),
+            &set_priority.address.0.to_le_bytes(),
+        )
+        .unwrap();
+    write_words(
+        &mut memory,
+        owner,
+        PSEUDO_PRIORITY_STACK,
+        &[0x401700, CURRENT_THREAD_PSEUDO_HANDLE, 2],
+    );
+    memory.seal_owner(owner).unwrap();
+    let reflection = memory.pending_reflection().unwrap();
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .unwrap();
+
+    let contract = kernel32_contract_for_endpoint(set_priority.clone())
+        .unwrap()
+        .unwrap();
+    let dispatcher = ApiDispatcher::new([set_priority.clone()], [contract]).unwrap();
+    let policy = thread_policy();
+
+    // GetCurrentThread() hands the guest 0xfffffffe, not a real handle; SetThreadPriority must
+    // resolve it to the calling thread rather than rejecting it as an unknown handle.
+    let raised = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &set_priority,
+        PSEUDO_PRIORITY_STACK,
+        &policy,
+    );
+    assert_eq!(raised.eax, RegisterUpdate::Set(1));
+    assert_eq!(
+        raised.stack_pointer,
+        GuestAddress(PSEUDO_PRIORITY_STACK.0 + 12)
+    );
+    assert_eq!(raised.last_error, 0x5a5a);
+    assert_eq!(
+        runtime.thread_priority(INITIAL_THREAD_ID).unwrap(),
+        RuntimeThreadPriority::Highest
+    );
+
+    write_runtime_u32(&mut memory, GuestAddress(PSEUDO_PRIORITY_STACK.0 + 8), 1);
+    let lowered = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &set_priority,
+        PSEUDO_PRIORITY_STACK,
+        &policy,
+    );
+    assert_eq!(lowered.eax, RegisterUpdate::Set(1));
+    assert_eq!(lowered.last_error, 0x5a5a);
+    assert_eq!(
+        runtime.thread_priority(INITIAL_THREAD_ID).unwrap(),
+        RuntimeThreadPriority::AboveNormal
+    );
+}
+
 fn dispatch(
     dispatcher: &ApiDispatcher,
     memory: &mut GuestMemory,
@@ -340,7 +410,7 @@ fn thread_policy() -> Kernel32CompatibilityPolicy {
         maximum_threads: 8,
     });
     policy.thread_priority = Some(Kernel32ThreadPriorityPolicy {
-        allowed_priorities: vec![1, 15],
+        allowed_priorities: vec![1, 2, 15],
     });
     policy.validate().unwrap();
     policy
@@ -472,6 +542,6 @@ fn runtime_bootstrap() -> RuntimeBootstrap {
             encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
         },
         encoded_pointer_namespace: vine_core::LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
-        encoded_pointer_token_prefix: 0xec01_0000,
+        encoded_pointer_cookie: 0xec01_9d3b,
     }
 }

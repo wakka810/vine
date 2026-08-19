@@ -14,6 +14,7 @@ fn registry_plans_preserve_cross_subsystem_state_and_serialization_shape() {
         address: GuestAddress(0x7f02_0010),
         module: "kernel32.dll".to_owned(),
         name: "FlsGetValue".to_owned(),
+        ordinal: Some(18),
         lifetime: "process-runtime".to_owned(),
     };
     runtime
@@ -55,15 +56,15 @@ fn registry_plans_preserve_cross_subsystem_state_and_serialization_shape() {
     );
     assert_eq!(runtime, before_reuse);
 
+    // DecodePointer is the inverse process transform and does not depend on a diagnostic
+    // registration having been created by EncodePointer first.
     let before_invalid_decode = runtime.clone();
-    assert_eq!(
-        runtime
-            .decode_pointer(0xec02_0001)
-            .expect_err("foreign token prefix must be rejected")
-            .code,
-        "encoded-pointer-token-invalid"
-    );
+    let decoded_unregistered = runtime
+        .decode_pointer(first.token ^ 1)
+        .expect("decode unregistered process token");
     assert_eq!(runtime, before_invalid_decode);
+    assert_ne!(decoded_unregistered, endpoint.address.0);
+    assert_eq!(runtime.decode_pointer(first.token), Ok(endpoint.address.0));
 
     let serialized = serde_json::to_value(&runtime).expect("serialize registry compatibility view");
     assert_eq!(
@@ -79,8 +80,8 @@ fn registry_plans_preserve_cross_subsystem_state_and_serialization_shape() {
         serde_json::json!(LOGICAL_ENCODED_POINTER_NAMESPACE)
     );
     assert_eq!(
-        serialized["encodedPointerTokenPrefix"],
-        serde_json::json!(0xec01_0000_u32)
+        serialized["encodedPointerCookie"],
+        serde_json::json!(0xec01_9d3b_u32)
     );
     assert_eq!(
         serialized["encodedPointerSources"][endpoint.address.0.to_string()],
@@ -126,7 +127,7 @@ fn running_runtime() -> RuntimeState {
             encoding: vine_core::RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
         },
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
-        encoded_pointer_token_prefix: 0xec01_0000,
+        encoded_pointer_cookie: 0xec01_9d3b,
     })
     .expect("controlled runtime");
     runtime

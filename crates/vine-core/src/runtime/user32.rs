@@ -838,6 +838,15 @@ pub(super) struct RuntimeCursorLoadPlan {
     disposition: RuntimeCursorLoadDisposition,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RuntimeCursorSelectionPlan {
+    expected_generation: u64,
+    previous: Option<RuntimeCursorId>,
+    next: Option<RuntimeCursorId>,
+    previous_handle: u32,
+    next_generation: Option<u64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeWindowClassRegistrationPlan {
     expected_generation: u64,
@@ -962,6 +971,7 @@ pub(super) struct RuntimeUser32TeardownPlan {
     next_menu_generation: u64,
     retired_icons: usize,
     retired_cursors: usize,
+    expected_current_cursor: Option<RuntimeCursorId>,
     retired_window_classes: usize,
     retired_windows: usize,
     retired_paint_sessions: usize,
@@ -988,6 +998,8 @@ pub(super) struct RuntimeUser32 {
     cursor_source_index: BTreeMap<RuntimeCursorSource, RuntimeCursorId>,
     #[serde(skip)]
     cursor_handle_index: BTreeMap<u32, RuntimeCursorId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_cursor: Option<RuntimeCursorId>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     window_classes: BTreeMap<RuntimeWindowClassId, RuntimeWindowClass>,
     #[serde(skip)]
@@ -1042,6 +1054,7 @@ impl Default for RuntimeUser32 {
             cursors: BTreeMap::new(),
             cursor_source_index: BTreeMap::new(),
             cursor_handle_index: BTreeMap::new(),
+            current_cursor: None,
             window_classes: BTreeMap::new(),
             window_class_name_index: BTreeMap::new(),
             window_class_atom_index: BTreeMap::new(),
@@ -1374,6 +1387,14 @@ impl RuntimeUser32 {
                 next_cursor_handle,
                 next_generation,
             } => {
+                let initialize_current_cursor = self.current_cursor.is_none()
+                    && matches!(
+                        &cursor.source,
+                        RuntimeCursorSource::SystemPredefined {
+                            cursor: RuntimeSystemCursorKind::Arrow,
+                            ..
+                        }
+                    );
                 let result = RuntimeLoadCursorAResult {
                     cursor_id: cursor.id,
                     handle: cursor.handle,
@@ -1390,9 +1411,71 @@ impl RuntimeUser32 {
                 debug_assert!(previous_source.is_none());
                 debug_assert!(previous_handle.is_none());
                 debug_assert!(previous_cursor.is_none());
+                if initialize_current_cursor {
+                    self.current_cursor = Some(result.cursor_id);
+                }
                 Ok(result)
             }
         }
+    }
+
+    pub(super) fn plan_cursor_selection(
+        &self,
+        handle: Option<u32>,
+    ) -> Result<RuntimeCursorSelectionPlan, RuntimeStateError> {
+        let previous = self.current_cursor;
+        let previous_handle = self.current_cursor()?.map_or(0, |cursor| cursor.handle);
+        let next = handle
+            .map(|handle| self.cursor(handle).map(|cursor| cursor.id))
+            .transpose()?;
+        Ok(RuntimeCursorSelectionPlan {
+            expected_generation: self.generation,
+            previous,
+            next,
+            previous_handle,
+            next_generation: (next != previous)
+                .then(|| self.next_generation())
+                .transpose()?,
+        })
+    }
+
+    pub(super) fn preflight_cursor_selection(
+        &self,
+        plan: &RuntimeCursorSelectionPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.generation != plan.expected_generation || self.current_cursor != plan.previous {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "cursor-selection-plan-stale",
+                "current cursor identity changed after selection planning",
+            ));
+        }
+        if self.current_cursor()?.map_or(0, |cursor| cursor.handle) != plan.previous_handle
+            || plan.next.map_or(false, |id| {
+                self.cursors
+                    .get(&id)
+                    .is_none_or(|cursor| self.cursor_handle_index.get(&cursor.handle) != Some(&id))
+            })
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-user32",
+                "cursor-selection-plan-stale",
+                "selected cursor no longer resolves to the planned live handle",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_cursor_selection(
+        &mut self,
+        plan: RuntimeCursorSelectionPlan,
+    ) -> Result<u32, RuntimeStateError> {
+        self.preflight_cursor_selection(&plan)?;
+        self.current_cursor = plan.next;
+        if let Some(next_generation) = plan.next_generation {
+            self.generation = next_generation;
+        }
+        Ok(plan.previous_handle)
     }
 
     pub(super) fn plan_window_class_registration(
@@ -2435,6 +2518,7 @@ impl RuntimeUser32 {
     ) -> Result<Option<RuntimeUser32TeardownPlan>, RuntimeStateError> {
         if self.icons.is_empty()
             && self.cursors.is_empty()
+            && self.current_cursor.is_none()
             && self.window_classes.is_empty()
             && self.windows.is_empty()
             && self.paint_sessions.is_empty()
@@ -2458,6 +2542,7 @@ impl RuntimeUser32 {
             },
             retired_icons: self.icons.len(),
             retired_cursors: self.cursors.len(),
+            expected_current_cursor: self.current_cursor,
             retired_window_classes: self.window_classes.len(),
             retired_windows: self.windows.len(),
             retired_paint_sessions: self.paint_sessions.len(),
@@ -2482,6 +2567,7 @@ impl RuntimeUser32 {
             || self.cursors.len() != plan.retired_cursors
             || self.cursor_source_index.len() != plan.retired_cursors
             || self.cursor_handle_index.len() != plan.retired_cursors
+            || self.current_cursor != plan.expected_current_cursor
             || self.window_classes.len() != plan.retired_window_classes
             || self.window_class_name_index.len() != plan.retired_window_classes
             || self.window_class_atom_index.len() != plan.retired_window_classes
@@ -2530,6 +2616,7 @@ impl RuntimeUser32 {
         self.cursors.clear();
         self.cursor_source_index.clear();
         self.cursor_handle_index.clear();
+        self.current_cursor = None;
         self.generation = plan.next_generation;
         self.menu_generation = plan.next_menu_generation;
     }
@@ -2574,6 +2661,27 @@ impl RuntimeUser32 {
                 "logical HCURSOR index does not resolve to a live cursor",
             )
         })
+    }
+
+    pub(super) fn current_cursor(&self) -> Result<Option<&RuntimeCursor>, RuntimeStateError> {
+        let Some(id) = self.current_cursor else {
+            return Ok(None);
+        };
+        let cursor = self.cursors.get(&id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-user32",
+                "current-cursor-dangling",
+                "current cursor identity does not resolve to a live cursor",
+            )
+        })?;
+        if self.cursor_handle_index.get(&cursor.handle) != Some(&id) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-user32",
+                "current-cursor-handle-index-mismatch",
+                "current cursor identity does not match its handle index",
+            ));
+        }
+        Ok(Some(cursor))
     }
 
     pub(super) fn cursor_for_source(
@@ -2982,13 +3090,6 @@ impl RuntimeUser32 {
     ) -> Result<RuntimeWindowTitlePlan, RuntimeStateError> {
         let previous = self.window(window_handle)?.clone();
         self.validate_created_window_owner(&previous, owner_thread_id)?;
-        if title.value.is_empty() {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-user32",
-                "window-title-empty-unsupported",
-                "the active logical window-title profile requires nonempty text",
-            ));
-        }
         title.windows_932_bytes()?;
         let disposition = if previous.creation.name == title {
             RuntimeWindowTitleDisposition::Unchanged { window: previous }
@@ -4760,6 +4861,7 @@ impl RuntimeUser32 {
     pub(super) fn is_empty(&self) -> bool {
         self.icons.is_empty()
             && self.cursors.is_empty()
+            && self.current_cursor.is_none()
             && self.window_classes.is_empty()
             && self.windows.is_empty()
             && self.paint_sessions.is_empty()
@@ -5218,6 +5320,10 @@ mod tests {
         assert_eq!(first.cursor_id, RuntimeCursorId(1));
         assert_eq!(first.handle, RUNTIME_CURSOR_HANDLE_BASE);
         assert!(!first.already_loaded);
+        assert_eq!(
+            user32.current_cursor().unwrap().map(|cursor| cursor.id),
+            Some(first.cursor_id)
+        );
         let repeated_plan = user32.plan_shared_cursor_load(arrow_cursor()).unwrap();
         let repeated = user32.commit_shared_cursor_load(repeated_plan).unwrap();
         assert_eq!(repeated.cursor_id, first.cursor_id);
@@ -5243,6 +5349,43 @@ mod tests {
         assert_eq!(repeated_module.handle, module.handle);
         assert!(repeated_module.already_loaded);
         assert_eq!(user32.cursors().len(), 2);
+        assert_eq!(
+            user32.current_cursor().unwrap().map(|cursor| cursor.id),
+            Some(first.cursor_id)
+        );
+
+        let select_module = user32.plan_cursor_selection(Some(module.handle)).unwrap();
+        assert_eq!(
+            user32.commit_cursor_selection(select_module).unwrap(),
+            first.handle
+        );
+        assert_eq!(
+            user32.current_cursor().unwrap().map(|cursor| cursor.id),
+            Some(module.cursor_id)
+        );
+        let clear = user32.plan_cursor_selection(None).unwrap();
+        assert_eq!(
+            user32.commit_cursor_selection(clear).unwrap(),
+            module.handle
+        );
+        assert_eq!(user32.current_cursor().unwrap(), None);
+
+        let before_invalid_handle = user32.clone();
+        assert_eq!(
+            user32
+                .plan_cursor_selection(Some(RUNTIME_CURSOR_HANDLE_BASE + 99))
+                .unwrap_err()
+                .code,
+            "cursor-handle-unknown"
+        );
+        assert_eq!(user32, before_invalid_handle);
+
+        // Re-loading an existing arrow is a resource lookup, not an implicit SetCursor call.
+        let repeated_after_clear = user32
+            .commit_shared_cursor_load(user32.plan_shared_cursor_load(arrow_cursor()).unwrap())
+            .unwrap();
+        assert!(repeated_after_clear.already_loaded);
+        assert_eq!(user32.current_cursor().unwrap(), None);
 
         let invalid = RuntimeCursorSource::SystemPredefined {
             resource_id: 0x7f01,
@@ -5262,6 +5405,7 @@ mod tests {
         assert!(user32.cursors().is_empty());
         assert!(user32.cursor_source_index.is_empty());
         assert!(user32.cursor_handle_index.is_empty());
+        assert_eq!(user32.current_cursor().unwrap(), None);
     }
 
     #[test]

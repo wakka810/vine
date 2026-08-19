@@ -193,7 +193,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   vine_bridge_control_len(): number;
   vine_bridge_payload_ptr(): number;
   vine_bridge_payload_len(): number;
-  vine_bridge_prepare(length: number): number;
+  vine_bridge_prepare(length: number, encodedPointerCookie: number): number;
   vine_bridge_prepare_bgi(
     executableLength: number,
     policyLength: number,
@@ -220,6 +220,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     user32SetFocusSameWindowEnabled: number,
     user32DefWindowProcAPointerDownEnabled: number,
     hostMonotonicClockEnabled: number,
+    encodedPointerCookie: number,
   ): number;
   vine_bridge_synchronize_forward_clock_v1(
     retiredInstructionsLow: number,
@@ -231,6 +232,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     executableLength: number,
     policyLength: number,
     sourceManifestLength: number,
+    encodedPointerCookie: number,
   ): number;
   vine_bridge_acknowledge(low: number, high: number): number;
   vine_bridge_fast_path_abi_version(): number;
@@ -390,6 +392,16 @@ function combineU64(low: number, high: number): bigint {
 
 const emptyBridgeOutput = new Uint8Array(0);
 
+function createEncodedPointerCookie(): number {
+  const words = new Uint32Array(1);
+  let cookie = 0;
+  do {
+    globalThis.crypto.getRandomValues(words);
+    cookie = words[0] ?? 0;
+  } while (cookie === 0);
+  return cookie >>> 0;
+}
+
 export class RuntimeBridge {
   readonly #exports: RuntimeBridgeExports;
   readonly #metadataDecoder = new TextDecoder();
@@ -413,7 +425,10 @@ export class RuntimeBridge {
 
   prepare(fixture: Uint8Array): BridgeOutput<PreparedMetadata> {
     this.#setInput([fixture]);
-    return this.#invoke(() => this.#exports.vine_bridge_prepare(fixture.byteLength));
+    const encodedPointerCookie = createEncodedPointerCookie();
+    return this.#invoke(() =>
+      this.#exports.vine_bridge_prepare(fixture.byteLength, encodedPointerCookie),
+    );
   }
 
   prepareBgi(
@@ -447,6 +462,7 @@ export class RuntimeBridge {
   ): BridgeOutput<PreparedMetadata> {
     const source = sourceManifest ?? emptyBridgeOutput;
     this.#setInput([executable, policy, source, writableProfile]);
+    const encodedPointerCookie = createEncodedPointerCookie();
     return this.#invoke(() =>
       this.#exports.vine_bridge_prepare_bgi(
         executable.byteLength,
@@ -478,6 +494,7 @@ export class RuntimeBridge {
           ? 2
           : Number(user32DefWindowProcAPointerDownEnabled),
         Number(hostMonotonicClockEnabled),
+        encodedPointerCookie,
       ),
     );
   }
@@ -508,11 +525,13 @@ export class RuntimeBridge {
     sourceManifest: Uint8Array,
   ): BridgeOutput<PreparedMetadata> {
     this.#setInput([executable, policy, sourceManifest]);
+    const encodedPointerCookie = createEncodedPointerCookie();
     return this.#invoke(() =>
       this.#exports.vine_bridge_prepare_source_read(
         executable.byteLength,
         policy.byteLength,
         sourceManifest.byteLength,
+        encodedPointerCookie,
       ),
     );
   }

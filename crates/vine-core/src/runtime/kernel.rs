@@ -245,7 +245,7 @@ pub struct RuntimeBootstrap {
     pub process_image_path_a: RuntimeProcessImagePathA,
     pub initial_current_directory_a: RuntimeCurrentDirectoryA,
     pub encoded_pointer_namespace: String,
-    pub encoded_pointer_token_prefix: u32,
+    pub encoded_pointer_cookie: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -927,9 +927,9 @@ struct RuntimeStateSnapshot<'a> {
     modules: &'a RuntimeModules,
     registries: RuntimeRegistriesSnapshot<'a>,
     encoded_pointer_namespace: &'a str,
-    encoded_pointer_token_prefix: u32,
+    encoded_pointer_cookie: u32,
     encoded_pointer_sources: &'a BTreeMap<u32, u32>,
-    next_encoded_pointer_id: u16,
+    next_encoded_pointer_id: u64,
     next_private_heap_slot: u16,
     next_tls_index: u32,
     next_fls_index: u32,
@@ -983,7 +983,7 @@ impl Serialize for RuntimeKernel {
                 host_requests: self.scheduler.host_requests(),
             },
             encoded_pointer_namespace: self.registries.encoded_pointer_namespace(),
-            encoded_pointer_token_prefix: self.registries.encoded_pointer_token_prefix(),
+            encoded_pointer_cookie: self.registries.encoded_pointer_cookie(),
             encoded_pointer_sources: self.registries.encoded_pointer_sources(),
             next_encoded_pointer_id: self.registries.next_encoded_pointer_id(),
             next_private_heap_slot: self.heaps.next_private_heap_slot(),
@@ -1061,7 +1061,7 @@ impl RuntimeKernel {
         )?;
         let registries = RuntimeRegistries::new(
             bootstrap.encoded_pointer_namespace,
-            bootstrap.encoded_pointer_token_prefix,
+            bootstrap.encoded_pointer_cookie,
         )?;
 
         let process_key = RuntimeObjectKey::Process {
@@ -3058,6 +3058,16 @@ impl RuntimeKernel {
         self.modules.resolve(module, symbol)
     }
 
+    pub fn resolve_guest_export_state(
+        &self,
+        module: &str,
+        symbol: ExportLookup,
+    ) -> Result<RuntimeResolvedExport, RuntimeStateError> {
+        self.modules
+            .resolve(module, symbol)
+            .map_err(runtime_module_image_error)
+    }
+
     pub fn module_image_by_load_base(
         &self,
         load_base: GuestAddress,
@@ -3533,6 +3543,17 @@ impl RuntimeKernel {
             ));
         };
         let thread_id = RuntimeThreadId(thread_id);
+        let (plan, previous_priority) =
+            self.threads.plan_priority(thread_id, requested_priority)?;
+        self.threads.commit_priority(plan)?;
+        Ok(previous_priority)
+    }
+
+    pub fn set_current_thread_priority(
+        &mut self,
+        requested_priority: RuntimeThreadPriority,
+    ) -> Result<RuntimeThreadPriority, RuntimeStateError> {
+        let thread_id = self.current_thread_id();
         let (plan, previous_priority) =
             self.threads.plan_priority(thread_id, requested_priority)?;
         self.threads.commit_priority(plan)?;
@@ -5011,6 +5032,11 @@ impl RuntimeKernel {
         self.module(handle)
     }
 
+    pub fn main_module(&self) -> Result<&RuntimeModule, RuntimeStateError> {
+        let handle = self.modules.main_module_handle()?;
+        self.module(handle)
+    }
+
     pub fn add_module_dependency(
         &mut self,
         requester_handle: u32,
@@ -5187,6 +5213,14 @@ impl RuntimeKernel {
         name: &str,
     ) -> Result<&RuntimeDynamicEndpoint, RuntimeStateError> {
         self.registries.dynamic_endpoint_by_name(module, name)
+    }
+
+    pub fn dynamic_endpoint_by_ordinal(
+        &self,
+        module: &str,
+        ordinal: u32,
+    ) -> Result<&RuntimeDynamicEndpoint, RuntimeStateError> {
+        self.registries.dynamic_endpoint_by_ordinal(module, ordinal)
     }
 
     pub fn allocate_tls_index(&mut self) -> Result<u32, RuntimeStateError> {
@@ -6268,6 +6302,19 @@ impl RuntimeKernel {
 
     pub fn cursor(&self, handle: u32) -> Result<&RuntimeCursor, RuntimeStateError> {
         self.user32.cursor(handle)
+    }
+
+    pub fn current_cursor(&self) -> Result<Option<&RuntimeCursor>, RuntimeStateError> {
+        self.user32.current_cursor()
+    }
+
+    pub(crate) fn set_current_cursor(
+        &mut self,
+        handle: Option<u32>,
+    ) -> Result<u32, RuntimeStateError> {
+        self.require_user32_operation_state()?;
+        let plan = self.user32.plan_cursor_selection(handle)?;
+        self.user32.commit_cursor_selection(plan)
     }
 
     pub fn cursor_for_source(
@@ -9639,7 +9686,7 @@ impl RuntimeKernel {
         self.registries.encoded_pointer_for_source(source)
     }
 
-    pub fn decode_pointer(&self, token: u32) -> Result<&RuntimeEncodedPointer, RuntimeStateError> {
+    pub fn decode_pointer(&self, token: u32) -> Result<u32, RuntimeStateError> {
         self.registries.decode_pointer(token)
     }
 
@@ -11145,7 +11192,7 @@ mod tests {
                 encoding: RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
             },
             encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
-            encoded_pointer_token_prefix: 0xec01_0000,
+            encoded_pointer_cookie: 0xec01_9d3b,
         })
         .expect("controlled runtime");
         let handle = 0x6801_0001;
@@ -11194,7 +11241,7 @@ mod tests {
                 encoding: RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
             },
             encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
-            encoded_pointer_token_prefix: 0xec01_0000,
+            encoded_pointer_cookie: 0xec01_9d3b,
         })
         .unwrap();
         runtime.start_initial_thread().unwrap();
@@ -11280,7 +11327,7 @@ mod tests {
                 encoding: RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
             },
             encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
-            encoded_pointer_token_prefix: 0xec01_0000,
+            encoded_pointer_cookie: 0xec01_9d3b,
         })
         .expect("controlled runtime");
         runtime.start_initial_thread().unwrap();
@@ -16497,7 +16544,7 @@ mod tests {
                 encoding: RUNTIME_PROCESS_IMAGE_PATH_A_ENCODING.to_owned(),
             },
             encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
-            encoded_pointer_token_prefix: 0xec01_0000,
+            encoded_pointer_cookie: 0xec01_9d3b,
         })
         .expect("D3D9 transaction runtime");
         runtime

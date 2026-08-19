@@ -585,7 +585,7 @@ fn controlled_runtime() -> RuntimeState {
             encoding: "windows-932-v1".to_owned(),
         },
         encoded_pointer_namespace: LOGICAL_ENCODED_POINTER_NAMESPACE.to_owned(),
-        encoded_pointer_token_prefix: 0xec01_0000,
+        encoded_pointer_cookie: 0xec01_9d3b,
     })
     .expect("controlled DirectSound runtime");
     runtime
