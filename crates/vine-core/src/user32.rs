@@ -53,6 +53,7 @@ pub const SWAP_MOUSE_BUTTON_IMPLEMENTATION: &str = "user32.swap-mouse-button.v1"
 pub const LOAD_ICON_A_IMPLEMENTATION: &str = "user32.load-icon-a.v1";
 pub const LOAD_IMAGE_A_IMPLEMENTATION: &str = "user32.load-image-a.v1";
 pub const SEND_MESSAGE_A_IMPLEMENTATION: &str = "user32.send-message-a.v1";
+pub const MESSAGE_BOX_A_IMPLEMENTATION: &str = "user32.message-box-a.ok.v1";
 pub const SET_WINDOW_TEXT_A_IMPLEMENTATION: &str =
     "user32.set-window-text-a.same-thread-wm-settext.v1";
 pub const SET_WINDOW_POS_IMPLEMENTATION: &str = "user32.set-window-pos.v5";
@@ -123,6 +124,9 @@ const MK_LBUTTON: u32 = 0x0001;
 const MK_RBUTTON: u32 = 0x0002;
 const MK_SHIFT: u32 = 0x0004;
 const MK_CONTROL: u32 = 0x0008;
+const MB_TYPEMASK: u32 = 0x000f;
+const MB_OK: u32 = 0;
+const IDOK: i32 = 1;
 pub const USER32_WM_IME_CONTROL: u32 = 0x0283;
 pub const USER32_IMC_CLOSESTATUSWINDOW: u32 = 0x0021;
 pub const USER32_IMC_OPENSTATUSWINDOW: u32 = 0x0022;
@@ -1598,6 +1602,10 @@ pub fn dispatch_user32_api_with_policy(
                 Err(fault) => ApiHandlerResult::Fault(fault),
             }
         }
+        MESSAGE_BOX_A_IMPLEMENTATION => match handle_message_box_a(contract, frame) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
         SET_WINDOW_TEXT_A_IMPLEMENTATION => {
             match handle_set_window_text_a(
                 policy,
@@ -1801,6 +1809,31 @@ pub fn dispatch_user32_api_with_policy(
             format!("User32 implementation {implementation_id} is not registered"),
         )),
     }
+}
+
+fn handle_message_box_a(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+) -> Result<ApiImmediate, ApiFault> {
+    let style = required_argument(contract, frame, 3, "type")?;
+    Ok(ApiImmediate::new(ApiReturnValue::I32(
+        message_box_a_result(style)?,
+    )))
+}
+
+fn message_box_a_result(style: u32) -> Result<i32, ApiFault> {
+    if style & MB_TYPEMASK != MB_OK {
+        return Err(ApiFault::unsupported(
+            "user32-dialogs",
+            "message-box-a-buttons-unsupported",
+            format!(
+                "MessageBoxA button style {:#x} requires user input",
+                style & MB_TYPEMASK
+            ),
+        ));
+    }
+    // ponytail: auto-ack OK-only boxes; add browser dialog transport when a reached box needs a choice.
+    Ok(IDOK)
 }
 
 fn handle_get_system_menu(
@@ -7511,6 +7544,7 @@ pub fn user32_contract_for_endpoint(
         "LoadIconA" => Ok(Some(load_icon_a_contract(endpoint)?)),
         "LoadImageA" => Ok(Some(load_image_a_contract(endpoint)?)),
         "SendMessageA" => Ok(Some(send_message_a_contract(endpoint)?)),
+        "MessageBoxA" => Ok(Some(message_box_a_contract(endpoint)?)),
         "SetWindowTextA" => Ok(Some(set_window_text_a_contract(endpoint)?)),
         "SetWindowPos" => Ok(Some(set_window_pos_contract(endpoint)?)),
         "ShowWindow" => Ok(Some(show_window_contract(endpoint)?)),
@@ -7651,6 +7685,28 @@ pub fn send_message_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Optional,
         implementation_id: SEND_MESSAGE_A_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn message_box_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![
+                logical_window_handle_argument("ownerWindow", true),
+                windows_932_input_string("text", 4096, true),
+                windows_932_input_string("caption", 4096, true),
+                u32_argument("type"),
+            ],
+            return_value: ApiReturnSchema::I32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::Preserve,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: MESSAGE_BOX_A_IMPLEMENTATION.to_owned(),
     })
 }
 
@@ -8623,6 +8679,15 @@ fn nullable_inout_dynamic_struct(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn message_box_a_auto_acknowledges_only_ok_boxes() {
+        assert_eq!(message_box_a_result(0x1040).unwrap(), IDOK);
+        assert_eq!(
+            message_box_a_result(4).unwrap_err().code,
+            "message-box-a-buttons-unsupported"
+        );
+    }
 
     #[test]
     fn controlled_policy_is_host_independent_and_bounded() {

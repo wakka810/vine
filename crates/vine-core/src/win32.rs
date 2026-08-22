@@ -62,6 +62,7 @@ pub const RTL_UNWIND_IMPLEMENTATION: &str = "kernel32.rtl-unwind.current-seh-fra
 pub const GET_CURRENT_PROCESS_ID_IMPLEMENTATION: &str = "kernel32.get-current-process-id.v1";
 pub const GET_CURRENT_THREAD_ID_IMPLEMENTATION: &str = "kernel32.get-current-thread-id.v1";
 pub const GET_CURRENT_THREAD_IMPLEMENTATION: &str = "kernel32.get-current-thread.v1";
+pub const GET_EXIT_CODE_THREAD_IMPLEMENTATION: &str = "kernel32.get-exit-code-thread.v1";
 pub const EXIT_THREAD_IMPLEMENTATION: &str = "kernel32.exit-thread.dynamic-thread.v1";
 pub const SET_THREAD_AFFINITY_MASK_IMPLEMENTATION: &str = "kernel32.set-thread-affinity-mask.v1";
 pub const SET_THREAD_PRIORITY_IMPLEMENTATION: &str = "kernel32.set-thread-priority.v1";
@@ -184,6 +185,7 @@ const ERROR_NEGATIVE_SEEK: u32 = 131;
 const INVALID_HANDLE_VALUE: u32 = u32::MAX;
 const WAIT_OBJECT_0: u32 = 0;
 const WAIT_TIMEOUT: u32 = 258;
+const STILL_ACTIVE: u32 = 259;
 const WAIT_FAILED: u32 = u32::MAX;
 const EXCEPTION_NONCONTINUABLE: u32 = 1;
 const EXCEPTION_UNWINDING: u32 = 2;
@@ -275,6 +277,9 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
         GET_CURRENT_PROCESS_ID_IMPLEMENTATION => handle_get_current_process_id(session),
         GET_CURRENT_THREAD_ID_IMPLEMENTATION => handle_get_current_thread_id(session),
         GET_CURRENT_THREAD_IMPLEMENTATION => handle_get_current_thread(contract, session),
+        GET_EXIT_CODE_THREAD_IMPLEMENTATION => {
+            handle_get_exit_code_thread(contract, frame, session)
+        }
         EXIT_THREAD_IMPLEMENTATION => handle_exit_thread(contract, frame, session),
         SET_THREAD_AFFINITY_MASK_IMPLEMENTATION => {
             handle_set_thread_affinity_mask(policy, contract, frame, session)
@@ -437,6 +442,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetCurrentProcessId" => get_current_process_id_contract(endpoint)?,
         "GetCurrentThreadId" => get_current_thread_id_contract(endpoint)?,
         "GetCurrentThread" => get_current_thread_contract(endpoint)?,
+        "GetExitCodeThread" => get_exit_code_thread_contract(endpoint)?,
         "ExitThread" => exit_thread_contract(endpoint)?,
         "SetThreadAffinityMask" => set_thread_affinity_mask_contract(endpoint)?,
         "SetThreadPriority" => set_thread_priority_contract(endpoint)?,
@@ -1116,6 +1122,40 @@ fn handle_get_current_thread(
         .resolve_current_thread_pseudo_handle()
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     Ok(ApiImmediate::new(ApiReturnValue::U32(resolution.value)))
+}
+
+fn handle_get_exit_code_thread(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let handle = RuntimeHandle(required_argument(contract, frame, 0, "thread handle")?);
+    let output = GuestAddress(required_argument(contract, frame, 1, "exit code output")?);
+    let exit_code = match session
+        .runtime()
+        .object_wait_state(handle, RuntimeObjectKind::Thread)
+    {
+        Ok(RuntimeWaitState::Nonsignaled) => STILL_ACTIVE,
+        Ok(RuntimeWaitState::Signaled { exit_code }) => exit_code,
+        Err(error)
+            if matches!(
+                error.class,
+                RuntimeStateErrorClass::InvalidInput
+                    | RuntimeStateErrorClass::NotFound
+                    | RuntimeStateErrorClass::Conflict
+            ) =>
+        {
+            return Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
+                .with_last_error(ERROR_INVALID_HANDLE));
+        }
+        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    };
+    let preserved_last_error = session
+        .last_error()
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true))
+        .with_last_error(preserved_last_error)
+        .with_guest_write(output, exit_code.to_le_bytes().to_vec()))
 }
 
 fn handle_exit_thread(
@@ -6174,6 +6214,23 @@ pub fn get_current_thread_contract(endpoint: ApiEndpointIdentity) -> Result<ApiC
         ApiReturnSchema::U32,
         GET_CURRENT_THREAD_IMPLEMENTATION,
     )
+}
+
+pub fn get_exit_code_thread_contract(
+    endpoint: ApiEndpointIdentity,
+) -> Result<ApiContract, ApiFault> {
+    let mut contract = kernel32_contract(
+        endpoint,
+        "GetExitCodeThread",
+        vec![
+            logical_handle("threadHandle", RUNTIME_THREAD_OBJECT_NAMESPACE, false),
+            fallible_out_struct("exitCode", "DWORD", 4),
+        ],
+        ApiReturnSchema::Bool32,
+        GET_EXIT_CODE_THREAD_IMPLEMENTATION,
+    )?;
+    contract.last_error_policy = LastErrorPolicy::FromHandler;
+    Ok(contract)
 }
 
 pub fn exit_thread_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {

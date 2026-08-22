@@ -23,6 +23,7 @@ const CLOSE_STACK: GuestAddress = GuestAddress(0x2000_01a0);
 const CLOSED_PRIORITY_STACK: GuestAddress = GuestAddress(0x2000_01c0);
 const INVALID_RESUME_STACK: GuestAddress = GuestAddress(0x2000_01e0);
 const PSEUDO_PRIORITY_STACK: GuestAddress = GuestAddress(0x2000_0200);
+const GET_EXIT_CODE_STACK: GuestAddress = GuestAddress(0x2000_0220);
 /// The value `GetCurrentThread()` returns; it always designates the calling thread.
 const CURRENT_THREAD_PSEUDO_HANDLE: u32 = 0xffff_fffe;
 
@@ -33,11 +34,13 @@ fn create_resume_set_priority_and_close_follow_x86_contract_and_last_error_oracl
     let resume = endpoint(owner, 2, 0x7f00_0320, 0x2000_0804, "ResumeThread");
     let set_priority = endpoint(owner, 3, 0x7f00_0330, 0x2000_0808, "SetThreadPriority");
     let close = endpoint(owner, 4, 0x7f00_0340, 0x2000_080c, "CloseHandle");
+    let get_exit_code = endpoint(owner, 5, 0x7f00_0350, 0x2000_0810, "GetExitCodeThread");
     for (iat, address) in [
         (0x2000_0800, create.address.0),
         (0x2000_0804, resume.address.0),
         (0x2000_0808, set_priority.address.0),
         (0x2000_080c, close.address.0),
+        (0x2000_0810, get_exit_code.address.0),
     ] {
         memory
             .write_initialization(owner, GuestAddress(iat), &address.to_le_bytes())
@@ -65,13 +68,19 @@ fn create_resume_set_priority_and_close_follow_x86_contract_and_last_error_oracl
         INVALID_RESUME_STACK,
         &[0x401600, u32::MAX],
     );
+    write_words(
+        &mut memory,
+        owner,
+        GET_EXIT_CODE_STACK,
+        &[0x401800, 0, DATA.0 + 4],
+    );
     memory.seal_owner(owner).unwrap();
     let reflection = memory.pending_reflection().unwrap();
     memory
         .acknowledge_delta(reflection.invalidation.generation)
         .unwrap();
 
-    let contracts = [&create, &resume, &set_priority, &close]
+    let contracts = [&create, &resume, &set_priority, &close, &get_exit_code]
         .into_iter()
         .map(|endpoint| {
             kernel32_contract_for_endpoint(endpoint.clone())
@@ -85,6 +94,7 @@ fn create_resume_set_priority_and_close_follow_x86_contract_and_last_error_oracl
             resume.clone(),
             set_priority.clone(),
             close.clone(),
+            get_exit_code.clone(),
         ],
         contracts,
     )
@@ -111,6 +121,20 @@ fn create_resume_set_priority_and_close_follow_x86_contract_and_last_error_oracl
     assert_eq!(creation.guest_writes[0].write.bytes, 8193_u32.to_le_bytes());
     acknowledge(&mut memory);
     assert_eq!(read_u32(&memory, DATA), 8193);
+
+    write_runtime_u32(&mut memory, GuestAddress(GET_EXIT_CODE_STACK.0 + 4), handle);
+    let running = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &get_exit_code,
+        GET_EXIT_CODE_STACK,
+        &policy,
+    );
+    assert_eq!(running.eax, RegisterUpdate::Set(1));
+    assert_eq!(running.last_error, 0x5a5a);
+    acknowledge(&mut memory);
+    assert_eq!(read_u32(&memory, GuestAddress(DATA.0 + 4)), 259);
     assert_eq!(
         runtime
             .scheduler_state_for_thread(RuntimeThreadId(8193))
@@ -232,6 +256,18 @@ fn create_resume_set_priority_and_close_follow_x86_contract_and_last_error_oracl
             .object_for_handle(vine_core::RuntimeHandle(handle), RuntimeObjectKind::Thread)
             .is_err()
     );
+
+    let invalid_exit_code = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &get_exit_code,
+        GET_EXIT_CODE_STACK,
+        &policy,
+    );
+    assert_eq!(invalid_exit_code.eax, RegisterUpdate::Set(0));
+    assert_eq!(invalid_exit_code.last_error, 6);
+    assert_eq!(read_u32(&memory, GuestAddress(DATA.0 + 4)), 259);
 
     write_runtime_u32(
         &mut memory,
