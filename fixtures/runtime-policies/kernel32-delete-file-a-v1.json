@@ -71,7 +71,8 @@
       "maximumMatches": 4096
     },
     "deleteFileA": {
-      "missingFileOnly": true
+      "missingFileOnly": true,
+      "allowWritableProfileFile": true
     }
   },
   "loadLibraryA": {

@@ -194,6 +194,8 @@ pub struct Kernel32FindFileAPolicy {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Kernel32DeleteFileAPolicy {
     pub missing_file_only: bool,
+    #[serde(default)]
+    pub allow_writable_profile_file: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

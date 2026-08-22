@@ -253,7 +253,10 @@ for (const relative of policyFiles) {
     }
     const deleteFileA = sourceFiles.deleteFileA ?? null;
     if (deleteFileA !== null) {
-      assert.deepEqual(deleteFileA, { missingFileOnly: true });
+      assert.deepEqual(deleteFileA, {
+        missingFileOnly: true,
+        allowWritableProfileFile: true,
+      });
     }
   }
   const driveType = policy.getDriveTypeA ?? null;

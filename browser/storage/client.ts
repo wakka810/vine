@@ -135,6 +135,7 @@ export class BrowserStorageClient {
     baseGeneration: number;
     contentSha256: string;
     bytes: Uint8Array;
+    deleteFile?: boolean;
     signal?: AbortSignal;
   }): Promise<{
     objectId: number;
@@ -151,6 +152,7 @@ export class BrowserStorageClient {
         baseGeneration: input.baseGeneration,
         contentSha256: input.contentSha256,
         bytes,
+        ...(input.deleteFile === true ? { deleteFile: true } : {}),
       }),
       [bytes.buffer],
       input.signal,

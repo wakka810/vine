@@ -324,6 +324,11 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     high: number,
     controlLength: number,
   ): number;
+  vine_bridge_complete_writable_delete(
+    low: number,
+    high: number,
+    controlLength: number,
+  ): number;
   vine_bridge_complete_writable_directory_create(
     low: number,
     high: number,
@@ -782,6 +787,17 @@ export class RuntimeBridge {
     const [low, high] = splitU64(requestId);
     return this.#invoke(() =>
       this.#exports.vine_bridge_complete_writable_commit(low, high, control.byteLength),
+    );
+  }
+
+  completeWritableDelete<T = Record<string, unknown>>(
+    requestId: bigint,
+    control: Uint8Array,
+  ): BridgeOutput<T> {
+    this.#setInput([control]);
+    const [low, high] = splitU64(requestId);
+    return this.#invoke(() =>
+      this.#exports.vine_bridge_complete_writable_delete(low, high, control.byteLength),
     );
   }
 

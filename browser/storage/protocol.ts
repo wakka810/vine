@@ -126,6 +126,7 @@ export type BrowserStorageRequest =
       baseGeneration: number;
       contentSha256: string;
       bytes: Uint8Array;
+      deleteFile?: boolean;
       testDropResponse?: boolean;
     })
   | (SessionRequestEnvelope & {

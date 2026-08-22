@@ -7,6 +7,7 @@ export const writableProfileSchema = "vine.writable-profile-snapshot";
 export const writableProfileSchemaVersion = 3;
 export const writableProfileReadService = "storage.profile-read.v1";
 export const writableProfileCommitService = "storage.profile-commit.v1";
+export const writableProfileDeleteService = "storage.profile-delete.v1";
 export const writableProfileDirectoryCreateService = "storage.profile-directory-create.v1";
 export const writableProfileMaximumBytes = 16 * 1024 * 1024;
 export const writableProfileMaximumIoBytes = 1024 * 1024;
@@ -17,6 +18,7 @@ const errorWriteFault = 29;
 const errorLockViolation = 33;
 const errorDiskFull = 112;
 const errorOperationAborted = 995;
+export const writableProfileDeleteMarkerSha256 = "0".repeat(64);
 
 export function openWritableProfile({
   databasePath,
@@ -331,8 +333,13 @@ export function readWritableProfile(profile, request) {
   };
 }
 
-export function commitWritableProfile(profile, request, content, { failpoint = null } = {}) {
-  const normalized = normalizeCommitRequest(profile, request, content);
+export function commitWritableProfile(
+  profile,
+  request,
+  content,
+  { failpoint = null, deleteFile = false } = {},
+) {
+  const normalized = normalizeCommitRequest(profile, request, content, deleteFile);
   if (failpoint === "before-transaction") {
     throw profileError("writable-profile-failpoint", "injected failure before transaction");
   }
@@ -363,7 +370,7 @@ export function commitWritableProfile(profile, request, content, { failpoint = n
       .prepare("SELECT generation FROM files WHERE object_id = ?")
       .get(normalized.objectId);
     const currentGeneration = current?.generation ?? 0;
-    if (currentGeneration !== normalized.baseGeneration) {
+    if ((deleteFile && current === undefined) || currentGeneration !== normalized.baseGeneration) {
       throw profileError(
         "writable-profile-generation-stale",
         `commit base generation ${normalized.baseGeneration} does not match ${currentGeneration}`,
@@ -385,23 +392,27 @@ export function commitWritableProfile(profile, request, content, { failpoint = n
         "writable profile generation exceeds lossless host accounting",
       );
     }
-    database
-      .prepare(`
-        INSERT INTO files(object_id, generation, byte_length, sha256, content)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(object_id) DO UPDATE SET
-          generation = excluded.generation,
-          byte_length = excluded.byte_length,
-          sha256 = excluded.sha256,
-          content = excluded.content
-      `)
-      .run(
-        normalized.objectId,
-        committedGeneration,
-        normalized.byteLength,
-        normalized.sha256,
-        normalized.content,
-      );
+    if (deleteFile) {
+      database.prepare("DELETE FROM files WHERE object_id = ?").run(normalized.objectId);
+    } else {
+      database
+        .prepare(`
+          INSERT INTO files(object_id, generation, byte_length, sha256, content)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(object_id) DO UPDATE SET
+            generation = excluded.generation,
+            byte_length = excluded.byte_length,
+            sha256 = excluded.sha256,
+            content = excluded.content
+        `)
+        .run(
+          normalized.objectId,
+          committedGeneration,
+          normalized.byteLength,
+          normalized.sha256,
+          normalized.content,
+        );
+    }
     database
       .prepare(`
         INSERT INTO commits(
@@ -436,6 +447,19 @@ export function commitWritableProfile(profile, request, content, { failpoint = n
       database.exec("ROLLBACK");
     }
   }
+}
+
+export function deleteWritableProfile(profile, request, options = {}) {
+  return commitWritableProfile(
+    profile,
+    {
+      ...request,
+      byteLength: 0,
+      sha256: writableProfileDeleteMarkerSha256,
+    },
+    Buffer.alloc(0),
+    { ...options, deleteFile: true },
+  );
 }
 
 export function commitWritableDirectory(profile, request, { failpoint = null } = {}) {
@@ -761,7 +785,24 @@ export async function handleWritableProfileHttp(request, response, profile) {
         "commit content hash is not lowercase SHA-256",
       );
     }
+    const deleteHeader = request.headers["x-vine-delete"];
+    if (deleteHeader !== undefined && deleteHeader !== "1") {
+      throw profileError(
+        "writable-profile-delete-header-invalid",
+        "delete marker header is invalid",
+      );
+    }
+    const deleteFile = deleteHeader === "1";
     const content = await readRequestBytes(request, profile.quotaBytes);
+    if (
+      deleteFile &&
+      (byteLength !== 0 || contentSha256 !== writableProfileDeleteMarkerSha256)
+    ) {
+      throw profileError(
+        "writable-profile-delete-metadata-invalid",
+        "delete mutation requires an empty body and the deletion marker hash",
+      );
+    }
     if (content.length !== byteLength) {
       throw profileError(
         "writable-profile-commit-length-mismatch",
@@ -772,21 +813,20 @@ export async function handleWritableProfileHttp(request, response, profile) {
     let storageErrorCode = null;
     let result;
     try {
-      result = commitWritableProfile(
-        profile,
-        {
-          requestKey,
-          titleFingerprint,
-          profileId,
-          objectId,
-          relativePathA: configured.relativePathA,
-          baseGeneration,
-          byteLength,
-          sha256: contentSha256,
-          ...lease,
-        },
-        content,
-      );
+      const mutation = {
+        requestKey,
+        titleFingerprint,
+        profileId,
+        objectId,
+        relativePathA: configured.relativePathA,
+        baseGeneration,
+        byteLength,
+        sha256: contentSha256,
+        ...lease,
+      };
+      result = deleteFile
+        ? deleteWritableProfile(profile, mutation)
+        : commitWritableProfile(profile, mutation, content);
     } catch (error) {
       const win32Error = writableCommitWin32Error(error);
       if (win32Error === null) {
@@ -810,6 +850,7 @@ export async function handleWritableProfileHttp(request, response, profile) {
       "X-Vine-Base-Generation": String(baseGeneration),
       "X-Vine-Committed-Generation": String(result.committedGeneration),
       "X-Vine-Content-Sha256": contentSha256,
+      "X-Vine-Delete": String(deleteFile),
       "X-Vine-Duplicate": String(result.duplicate),
       "X-Vine-Session-Epoch": String(lease.sessionEpoch),
       ...(storageErrorCode === null
@@ -978,7 +1019,7 @@ function windowsPathIdentity(bytes) {
   ).toString("base64");
 }
 
-function normalizeCommitRequest(profile, request, content) {
+function normalizeCommitRequest(profile, request, content, deleteFile = false) {
   assertText(request.requestKey, "commit request key", 256);
   if (
     request.titleFingerprint !== profile.titleFingerprint ||
@@ -1015,7 +1056,13 @@ function normalizeCommitRequest(profile, request, content) {
     );
   }
   const bytes = boundedBytes(content, "commit content", profile.quotaBytes);
-  if (bytes.length !== request.byteLength || !isSha256(request.sha256) || sha256(bytes) !== request.sha256) {
+  if (
+    bytes.length !== request.byteLength ||
+    !isSha256(request.sha256) ||
+    (deleteFile
+      ? bytes.length !== 0 || request.sha256 !== writableProfileDeleteMarkerSha256
+      : sha256(bytes) !== request.sha256)
+  ) {
     throw profileError(
       "writable-profile-commit-content-mismatch",
       "commit bytes do not match the declared length and SHA-256",

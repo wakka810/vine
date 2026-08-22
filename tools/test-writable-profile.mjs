@@ -14,6 +14,7 @@ import {
   openWritableProfile,
   readWritableProfile,
   snapshotWritableProfile,
+  writableProfileDeleteMarkerSha256,
 } from "./writable-profile.mjs";
 
 const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "vine-writable-profile-"));
@@ -399,6 +400,46 @@ try {
     assert.equal(staleAfterNext.status, 200);
     assert.equal(decodeCommitResponse(await staleAfterNext.arrayBuffer()).win32Error, 995);
     assert.equal(snapshotWritableProfile(profile).files[0].generation, 3);
+
+    const deleteHeaders = {
+      "Content-Type": "application/octet-stream",
+      "X-Vine-Request-Key": "next-session:delete:1",
+      "X-Vine-Base-Generation": "3",
+      "X-Vine-Byte-Length": "0",
+      "X-Vine-Content-Sha256": writableProfileDeleteMarkerSha256,
+      "X-Vine-Delete": "1",
+      "X-Vine-Session-Key": "next-session",
+      "X-Vine-Session-Epoch": nextEpoch,
+    };
+    const deleteResponse = await fetch(commitUrl, {
+      method: "POST",
+      headers: deleteHeaders,
+    });
+    assert.equal(deleteResponse.status, 200);
+    assert.deepEqual(decodeCommitResponse(await deleteResponse.arrayBuffer()), {
+      version: 1,
+      objectId: 1,
+      baseGeneration: 3,
+      committedGeneration: 4,
+      win32Error: 0,
+      reserved: 0,
+    });
+    assert.equal(deleteResponse.headers.get("x-vine-delete"), "true");
+    const duplicateDelete = await fetch(commitUrl, {
+      method: "POST",
+      headers: deleteHeaders,
+    });
+    assert.equal(duplicateDelete.status, 200);
+    assert.equal(duplicateDelete.headers.get("x-vine-duplicate"), "true");
+    assert.deepEqual(
+      (({ exists, generation, byteLength, sha256 }) => ({
+        exists,
+        generation,
+        byteLength,
+        sha256,
+      }))(snapshotWritableProfile(profile).files[0]),
+      { exists: false, generation: 0, byteLength: 0, sha256: null },
+    );
   } finally {
     await close(server);
   }
@@ -410,16 +451,8 @@ try {
   );
   profile = openWritableProfile(configuration);
   const httpRestarted = snapshotWritableProfile(profile).files[0];
-  assert.equal(httpRestarted.generation, 3);
-  assert.deepEqual(
-    readWritableProfile(profile, {
-      sourceId: 0,
-      objectId: 1,
-      offset: 0n,
-      requestedBytes: httpRestarted.byteLength,
-    }).bytes,
-    Buffer.from("http commit", "ascii"),
-  );
+  assert.equal(httpRestarted.exists, false);
+  assert.equal(httpRestarted.generation, 0);
   assert.deepEqual(
     snapshotWritableProfile(profile).directories.map(({ exists, generation }) => ({
       exists,

@@ -60,7 +60,7 @@ use super::com::{
 };
 use super::displays::{RuntimeDisplayProfile, RuntimeDisplays, RuntimeLogicalMonitor};
 use super::files::{
-    RUNTIME_SOURCE_READ_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE,
+    RUNTIME_SOURCE_READ_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE, RUNTIME_WRITABLE_DELETE_SERVICE,
     RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, RUNTIME_WRITABLE_READ_SERVICE, RuntimeFileSearch,
     RuntimeFileSearchAdvancePlan, RuntimeFileSearchEntry, RuntimeFileSearchId,
     RuntimeFileSearchOpenPlan, RuntimeFileSearchRetirementPlan, RuntimeFiles,
@@ -70,7 +70,9 @@ use super::files::{
     RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest, RuntimeWritableCommitBeginPlan,
     RuntimeWritableCommitCancellationPlan, RuntimeWritableCommitCompletion,
     RuntimeWritableCommitCompletionPlan, RuntimeWritableCommitHostResponse,
-    RuntimeWritableCommitRequest, RuntimeWritableDirectoryCreateBeginPlan,
+    RuntimeWritableCommitRequest, RuntimeWritableDeleteCancellationPlan,
+    RuntimeWritableDeleteCompletion, RuntimeWritableDeleteCompletionPlan,
+    RuntimeWritableDeleteRequest, RuntimeWritableDirectoryCreateBeginPlan,
     RuntimeWritableDirectoryCreateCancellationPlan, RuntimeWritableDirectoryCreateCompletion,
     RuntimeWritableDirectoryCreateCompletionPlan, RuntimeWritableDirectoryCreateHostResponse,
     RuntimeWritableDirectoryCreateRequest, RuntimeWritableProfile, RuntimeWritableProfileManifest,
@@ -293,6 +295,7 @@ struct RuntimeThreadExitRequestPlan {
     host_request_cancellation: RuntimeHostRequestCancellationPlan,
     source_read_cancellation: RuntimeSourceReadCancellationPlan,
     writable_commit_cancellation: RuntimeWritableCommitCancellationPlan,
+    writable_delete_cancellation: RuntimeWritableDeleteCancellationPlan,
     writable_directory_create_cancellation: RuntimeWritableDirectoryCreateCancellationPlan,
     message_clear: RuntimeMessageClearPlan,
     cancellation: RuntimeCancellation,
@@ -336,6 +339,11 @@ pub(crate) struct RuntimeWritableCommitAggregateCompletionPlan {
     writable_commit: RuntimeWritableCommitCompletionPlan,
     object: Option<RuntimeCloseHandleObjectMutationPlan>,
     retirement: Option<RuntimeSourceFileRetirementPlan>,
+}
+
+pub(crate) struct RuntimeWritableDeleteAggregateCompletionPlan {
+    scheduler: super::scheduler::RuntimeHostCompletionPlan,
+    writable_delete: RuntimeWritableDeleteCompletionPlan,
 }
 
 pub(crate) struct RuntimeWritableDirectoryCreateAggregateCompletionPlan {
@@ -458,6 +466,12 @@ impl RuntimeWaitableTimerPacingCompletionPlan {
 impl RuntimeWritableCommitAggregateCompletionPlan {
     pub(crate) fn completion(&self) -> &RuntimeWritableCommitCompletion {
         self.writable_commit.completion()
+    }
+}
+
+impl RuntimeWritableDeleteAggregateCompletionPlan {
+    pub(crate) fn completion(&self) -> &RuntimeWritableDeleteCompletion {
+        self.writable_delete.completion()
     }
 }
 
@@ -1578,6 +1592,74 @@ impl RuntimeKernel {
             requested_path,
             &self.process.current_directory_a().bytes_with_nul,
         )
+    }
+
+    pub fn begin_writable_file_delete(
+        &mut self,
+        requested_path: &[u8],
+    ) -> Result<RuntimeWritableDeleteRequest, RuntimeStateError> {
+        self.require_source_file_operation_state()?;
+        let current_directory = self.process.current_directory_a().bytes_with_nul.clone();
+        let scheduler = self
+            .scheduler
+            .plan_host_request(RUNTIME_WRITABLE_DELETE_SERVICE.to_owned())?;
+        let writable = self.files.plan_writable_delete(
+            requested_path,
+            &current_directory,
+            scheduler.request().request_id,
+        )?;
+        self.files.preflight_writable_delete(&writable)?;
+        let runtime_request = self.scheduler.commit_host_request(scheduler);
+        let request = self.files.commit_writable_delete_begin(writable);
+        debug_assert_eq!(runtime_request.request_id, request.request_id);
+        debug_assert_eq!(runtime_request.service, RUNTIME_WRITABLE_DELETE_SERVICE);
+        Ok(request)
+    }
+
+    pub fn writable_file_delete_request(
+        &self,
+        request_id: u64,
+    ) -> Result<&RuntimeWritableDeleteRequest, RuntimeStateError> {
+        self.files.writable_delete_request(request_id)
+    }
+
+    pub(crate) fn plan_writable_file_delete_completion(
+        &self,
+        response: RuntimeWritableCommitHostResponse,
+    ) -> Result<RuntimeWritableDeleteAggregateCompletionPlan, RuntimeStateError> {
+        let scheduler = self.scheduler.plan_host_completion(response.request_id)?;
+        if scheduler.request().service != RUNTIME_WRITABLE_DELETE_SERVICE {
+            return Err(RuntimeStateError::invalid_input(
+                "runtime-vfs",
+                "writable-file-delete-host-service-mismatch",
+                "file delete completion belongs to another host service",
+            ));
+        }
+        let writable_delete = self.files.plan_writable_delete_completion(response)?;
+        self.files
+            .preflight_writable_delete_completion(&writable_delete)?;
+        Ok(RuntimeWritableDeleteAggregateCompletionPlan {
+            scheduler,
+            writable_delete,
+        })
+    }
+
+    pub(crate) fn commit_writable_file_delete_completion(
+        &mut self,
+        plan: RuntimeWritableDeleteAggregateCompletionPlan,
+    ) -> RuntimeWritableDeleteCompletion {
+        debug_assert!(
+            self.files
+                .preflight_writable_delete_completion(&plan.writable_delete)
+                .is_ok()
+        );
+        let scheduler_completion = self.scheduler.commit_host_completion(plan.scheduler);
+        debug_assert_eq!(
+            scheduler_completion.request_id,
+            plan.writable_delete.completion().request.request_id
+        );
+        self.files
+            .commit_writable_delete_completion(plan.writable_delete)
     }
 
     pub fn begin_writable_directory_create(
@@ -10507,6 +10589,9 @@ impl RuntimeKernel {
         let writable_commit_cancellation = self
             .files
             .plan_writable_commit_cancellation(host_request_cancellation.request_ids());
+        let writable_delete_cancellation = self
+            .files
+            .plan_writable_delete_cancellation(host_request_cancellation.request_ids());
         let writable_directory_create_cancellation = self
             .files
             .plan_writable_directory_create_cancellation(host_request_cancellation.request_ids());
@@ -10522,6 +10607,7 @@ impl RuntimeKernel {
             host_request_cancellation,
             source_read_cancellation,
             writable_commit_cancellation,
+            writable_delete_cancellation,
             writable_directory_create_cancellation,
             message_clear,
             cancellation: RuntimeCancellation {
@@ -10542,6 +10628,8 @@ impl RuntimeKernel {
             .commit_read_cancellation(plan.source_read_cancellation);
         self.files
             .commit_writable_commit_cancellation(plan.writable_commit_cancellation);
+        self.files
+            .commit_writable_delete_cancellation(plan.writable_delete_cancellation);
         self.files.commit_writable_directory_create_cancellation(
             plan.writable_directory_create_cancellation,
         );

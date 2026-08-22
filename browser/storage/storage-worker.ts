@@ -35,6 +35,7 @@ const maximumGeneration = Number.MAX_SAFE_INTEGER;
 const identityPattern = /^[a-zA-Z0-9:._-]{1,128}$/u;
 const simpleIdentityPattern = /^[a-zA-Z0-9._-]{1,128}$/u;
 const sha256Pattern = /^[0-9a-f]{64}$/u;
+const writableDeleteMarkerSha256 = "0".repeat(64);
 const requestKeyPattern = /^[\x21-\x7e]{1,256}$/u;
 
 type SqliteStatic = Awaited<ReturnType<typeof sqlite3InitModule>>;
@@ -652,7 +653,13 @@ function profileCommit(
   const profile = requireProfile(active);
   validateCommitInput(request);
   const digest = hex(sha256(request.bytes));
-  if (digest !== request.contentSha256) {
+  const deleteFile = request.deleteFile === true;
+  if (
+    deleteFile
+      ? request.bytes.byteLength !== 0 ||
+        request.contentSha256 !== writableDeleteMarkerSha256
+      : digest !== request.contentSha256
+  ) {
     throw new StorageFault(
       "writable-profile-commit-content-mismatch",
       "writable profile commit hash differs from its bytes",
@@ -686,7 +693,7 @@ function profileCommit(
       };
     }
     const file = profile.database.selectObject(
-      `SELECT generation, byte_length FROM overlay_files WHERE object_id = ?`,
+      `SELECT is_present, generation, byte_length FROM overlay_files WHERE object_id = ?`,
       [request.objectId],
     );
     if (file === undefined) {
@@ -696,7 +703,10 @@ function profileCommit(
       );
     }
     const currentGeneration = integerValue(file.generation);
-    if (currentGeneration !== request.baseGeneration) {
+    if (
+      (deleteFile && integerValue(file.is_present) !== 1) ||
+      currentGeneration !== request.baseGeneration
+    ) {
       throw new StorageFault(
         "writable-profile-generation-stale",
         "writable profile base generation is stale",
@@ -720,19 +730,29 @@ function profileCommit(
       );
     }
     const committedGeneration = currentGeneration + 1;
-    execute(
-      profile.database,
-      `UPDATE overlay_files
-       SET is_present = 1, generation = ?, byte_length = ?, sha256 = ?, content = ?
-       WHERE object_id = ?`,
-      [
-        committedGeneration,
-        request.bytes.byteLength,
-        request.contentSha256,
-        request.bytes,
-        request.objectId,
-      ],
-    );
+    if (deleteFile) {
+      execute(
+        profile.database,
+        `UPDATE overlay_files
+         SET is_present = 0, generation = 0, byte_length = 0, sha256 = NULL, content = NULL
+         WHERE object_id = ?`,
+        [request.objectId],
+      );
+    } else {
+      execute(
+        profile.database,
+        `UPDATE overlay_files
+         SET is_present = 1, generation = ?, byte_length = ?, sha256 = ?, content = ?
+         WHERE object_id = ?`,
+        [
+          committedGeneration,
+          request.bytes.byteLength,
+          request.contentSha256,
+          request.bytes,
+          request.objectId,
+        ],
+      );
+    }
     execute(
       profile.database,
       `INSERT INTO commit_ledger(
@@ -1195,7 +1215,8 @@ function validateCommitInput(
     !Number.isInteger(request.objectId) ||
     request.objectId <= 0 ||
     !(request.bytes instanceof Uint8Array) ||
-    !sha256Pattern.test(request.contentSha256)
+    !sha256Pattern.test(request.contentSha256) ||
+    (request.deleteFile !== undefined && typeof request.deleteFile !== "boolean")
   ) {
     throw new StorageFault(
       "writable-profile-commit-invalid",

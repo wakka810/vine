@@ -30,6 +30,9 @@ pub const RUNTIME_WRITABLE_COMMIT_SERVICE: &str = "storage.profile-commit.v1";
 pub const RUNTIME_WRITABLE_COMMIT_TRANSPORT_VERSION: u32 = 1;
 pub const RUNTIME_WRITABLE_COMMIT_REQUEST_BYTES: usize = 28;
 pub const RUNTIME_WRITABLE_COMMIT_RESPONSE_BYTES: usize = 32;
+pub const RUNTIME_WRITABLE_DELETE_SERVICE: &str = "storage.profile-delete.v1";
+pub const RUNTIME_WRITABLE_DELETE_TRANSPORT_VERSION: u32 = 1;
+pub const RUNTIME_WRITABLE_DELETE_REQUEST_BYTES: usize = 16;
 pub const RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE: &str = "storage.profile-directory-create.v1";
 pub const RUNTIME_WRITABLE_DIRECTORY_CREATE_TRANSPORT_VERSION: u32 = 1;
 pub const RUNTIME_WRITABLE_DIRECTORY_CREATE_REQUEST_BYTES: usize = 16;
@@ -349,6 +352,40 @@ pub struct RuntimeWritableCommitCompletion {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RuntimeWritableDeleteRequest {
+    pub request_id: u64,
+    pub object_id: u32,
+    pub relative_path_a: Vec<u8>,
+    pub base_generation: u64,
+}
+
+impl RuntimeWritableDeleteRequest {
+    pub fn encode_host_payload(&self) -> [u8; RUNTIME_WRITABLE_DELETE_REQUEST_BYTES] {
+        let words = [
+            RUNTIME_WRITABLE_DELETE_TRANSPORT_VERSION,
+            self.object_id,
+            self.base_generation as u32,
+            (self.base_generation >> 32) as u32,
+        ];
+        let mut payload = [0; RUNTIME_WRITABLE_DELETE_REQUEST_BYTES];
+        for (word, destination) in words.into_iter().zip(payload.chunks_exact_mut(4)) {
+            destination.copy_from_slice(&word.to_le_bytes());
+        }
+        payload
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeWritableDeleteCompletion {
+    pub request: RuntimeWritableDeleteRequest,
+    pub succeeded: bool,
+    pub committed_generation: u64,
+    pub win32_error: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RuntimeWritableDirectoryCreateRequest {
     pub request_id: u64,
     pub directory_id: u32,
@@ -542,6 +579,7 @@ pub(super) struct RuntimeFiles {
     open_files: BTreeMap<RuntimeSourceFileId, RuntimeSourceFile>,
     pending_reads: BTreeMap<u64, RuntimePendingSourceRead>,
     pending_commits: BTreeMap<u64, RuntimePendingWritableCommit>,
+    pending_deletes: BTreeMap<u64, RuntimePendingWritableDelete>,
     pending_directory_creates: BTreeMap<u64, RuntimePendingWritableDirectoryCreate>,
     searches: BTreeMap<RuntimeFileSearchId, RuntimeFileSearch>,
     next_file_id: u64,
@@ -557,6 +595,7 @@ impl Default for RuntimeFiles {
             open_files: BTreeMap::new(),
             pending_reads: BTreeMap::new(),
             pending_commits: BTreeMap::new(),
+            pending_deletes: BTreeMap::new(),
             pending_directory_creates: BTreeMap::new(),
             searches: BTreeMap::new(),
             next_file_id: 1,
@@ -714,6 +753,12 @@ struct RuntimePendingWritableCommit {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimePendingWritableDelete {
+    request: RuntimeWritableDeleteRequest,
+    expected_revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct RuntimePendingWritableDirectoryCreate {
     request: RuntimeWritableDirectoryCreateRequest,
     expected_revision: u64,
@@ -730,6 +775,27 @@ pub(super) struct RuntimeWritableCommitCompletionPlan {
     previous_writable: RuntimeWritableFile,
     next_writable: RuntimeWritableFile,
     completion: RuntimeWritableCommitCompletion,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeWritableDeleteBeginPlan {
+    pending: RuntimePendingWritableDelete,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeWritableDeleteCompletionPlan {
+    pending: RuntimePendingWritableDelete,
+    previous_writable: RuntimeWritableFile,
+    next_writable: RuntimeWritableFile,
+    completion: RuntimeWritableDeleteCompletion,
+    expected_catalog_revision: u64,
+    next_catalog_revision: u64,
+}
+
+impl RuntimeWritableDeleteCompletionPlan {
+    pub(super) fn completion(&self) -> &RuntimeWritableDeleteCompletion {
+        &self.completion
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -815,6 +881,11 @@ pub(super) struct RuntimeSourceReadCancellationPlan {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RuntimeWritableCommitCancellationPlan {
     requests: Vec<RuntimePendingWritableCommit>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeWritableDeleteCancellationPlan {
+    requests: Vec<RuntimePendingWritableDelete>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1089,6 +1160,266 @@ impl RuntimeFiles {
             entries.push(candidate);
         }
         Ok(entries)
+    }
+
+    pub(super) fn plan_writable_delete(
+        &self,
+        requested_path: &[u8],
+        current_directory: &[u8],
+        request_id: u64,
+    ) -> Result<RuntimeWritableDeleteBeginPlan, RuntimeStateError> {
+        let normalized = resolve_path(requested_path, current_directory)?;
+        let profile = self.writable_profile.as_ref().ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-vfs",
+                "writable-profile-missing",
+                "file deletion requires a registered writable profile",
+            )
+        })?;
+        let relative = relative_to_mount(&normalized.identity, &profile.root_identity)?;
+        let object_id = profile.path_index.get(relative).copied().ok_or_else(|| {
+            RuntimeStateError::not_found(
+                "runtime-vfs",
+                "writable-file-delete-unregistered",
+                "file deletion path is outside the writable profile allowlist",
+            )
+        })?;
+        let writable = profile.files.get(&object_id).ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-vfs",
+                "writable-file-path-index-corrupt",
+                "writable file path index points to a missing identity",
+            )
+        })?;
+        if !writable.exists {
+            return Err(RuntimeStateError::not_found(
+                "runtime-vfs",
+                "writable-file-delete-missing",
+                "the writable file does not exist",
+            ));
+        }
+        if writable.dirty
+            || self.open_files.values().any(|file| {
+                matches!(
+                    file.backing,
+                    RuntimeFileBacking::WritableProfile { object_id: open_id }
+                        if open_id == object_id
+                )
+            })
+            || self
+                .pending_commits
+                .values()
+                .any(|pending| pending.request.object_id == object_id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "writable-file-delete-sharing-violation",
+                "the writable file is open or owns a pending operation",
+            ));
+        }
+        if self
+            .pending_deletes
+            .values()
+            .any(|pending| pending.request.object_id == object_id)
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "writable-file-delete-pending",
+                "the writable file already owns a pending durable deletion",
+            ));
+        }
+        Ok(RuntimeWritableDeleteBeginPlan {
+            pending: RuntimePendingWritableDelete {
+                request: RuntimeWritableDeleteRequest {
+                    request_id,
+                    object_id,
+                    relative_path_a: writable.relative_path_a.clone(),
+                    base_generation: writable.generation,
+                },
+                expected_revision: writable.revision,
+            },
+        })
+    }
+
+    pub(super) fn preflight_writable_delete(
+        &self,
+        plan: &RuntimeWritableDeleteBeginPlan,
+    ) -> Result<(), RuntimeStateError> {
+        let pending = &plan.pending;
+        let writable = self.writable_file(pending.request.object_id)?;
+        if !writable.exists
+            || writable.dirty
+            || writable.generation != pending.request.base_generation
+            || writable.revision != pending.expected_revision
+            || writable.relative_path_a != pending.request.relative_path_a
+            || self
+                .pending_deletes
+                .contains_key(&pending.request.request_id)
+            || self
+                .pending_deletes
+                .values()
+                .any(|existing| existing.request.object_id == pending.request.object_id)
+            || self.open_files.values().any(|file| {
+                matches!(
+                    file.backing,
+                    RuntimeFileBacking::WritableProfile { object_id }
+                        if object_id == pending.request.object_id
+                )
+            })
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "writable-file-delete-plan-stale",
+                "writable file state changed after delete planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_writable_delete_begin(
+        &mut self,
+        plan: RuntimeWritableDeleteBeginPlan,
+    ) -> RuntimeWritableDeleteRequest {
+        debug_assert!(self.preflight_writable_delete(&plan).is_ok());
+        let request = plan.pending.request.clone();
+        let previous = self
+            .pending_deletes
+            .insert(request.request_id, plan.pending);
+        debug_assert!(previous.is_none());
+        request
+    }
+
+    pub(super) fn writable_delete_request(
+        &self,
+        request_id: u64,
+    ) -> Result<&RuntimeWritableDeleteRequest, RuntimeStateError> {
+        self.pending_deletes
+            .get(&request_id)
+            .map(|pending| &pending.request)
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-vfs",
+                    "writable-file-delete-request-unknown",
+                    "file delete metadata does not identify a pending request",
+                )
+            })
+    }
+
+    pub(super) fn plan_writable_delete_completion(
+        &self,
+        response: RuntimeWritableCommitHostResponse,
+    ) -> Result<RuntimeWritableDeleteCompletionPlan, RuntimeStateError> {
+        let pending = self
+            .pending_deletes
+            .get(&response.request_id)
+            .ok_or_else(|| {
+                RuntimeStateError::not_found(
+                    "runtime-vfs",
+                    "writable-file-delete-request-unknown",
+                    "file delete completion does not identify a pending request",
+                )
+            })?
+            .clone();
+        let previous_writable = self.writable_file(pending.request.object_id)?.clone();
+        if response.object_id != pending.request.object_id
+            || response.base_generation != pending.request.base_generation
+            || !previous_writable.exists
+            || previous_writable.dirty
+            || previous_writable.generation != pending.request.base_generation
+            || previous_writable.revision != pending.expected_revision
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "writable-file-delete-completion-identity-mismatch",
+                "file delete completion identity or generation is stale",
+            ));
+        }
+        let succeeded = response.win32_error == 0;
+        let expected_generation = response.base_generation.checked_add(1).ok_or_else(|| {
+            RuntimeStateError::resource_limit(
+                "runtime-vfs",
+                "writable-generation-exhausted",
+                "writable profile generation space is exhausted",
+            )
+        })?;
+        if (succeeded && response.committed_generation != expected_generation)
+            || (!succeeded && response.committed_generation != response.base_generation)
+        {
+            return Err(vfs_invalid(
+                "writable-file-delete-completion-generation-invalid",
+                "file delete response generation does not match success or failure semantics",
+            ));
+        }
+        let mut next_writable = previous_writable.clone();
+        if succeeded {
+            next_writable.exists = false;
+            next_writable.generation = 0;
+            next_writable.byte_length = 0;
+            next_writable.sha256 = None;
+            next_writable.dirty = false;
+            next_writable.content_loaded = true;
+            next_writable.committed_bytes.clear();
+            next_writable.working_bytes.clear();
+            next_writable.dirty_base_generation = None;
+            next_writable.revision = next_writable.revision.checked_add(1).ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-vfs",
+                    "writable-file-revision-exhausted",
+                    "writable file revision space is exhausted",
+                )
+            })?;
+        }
+        let (expected_catalog_revision, next_catalog_revision) = if succeeded {
+            self.plan_catalog_change()?
+        } else {
+            (self.catalog_revision, self.catalog_revision)
+        };
+        Ok(RuntimeWritableDeleteCompletionPlan {
+            pending: pending.clone(),
+            previous_writable,
+            next_writable,
+            completion: RuntimeWritableDeleteCompletion {
+                request: pending.request,
+                succeeded,
+                committed_generation: response.committed_generation,
+                win32_error: response.win32_error,
+            },
+            expected_catalog_revision,
+            next_catalog_revision,
+        })
+    }
+
+    pub(super) fn preflight_writable_delete_completion(
+        &self,
+        plan: &RuntimeWritableDeleteCompletionPlan,
+    ) -> Result<(), RuntimeStateError> {
+        if self.pending_deletes.get(&plan.pending.request.request_id) != Some(&plan.pending)
+            || self.catalog_revision != plan.expected_catalog_revision
+            || self.writable_file(plan.previous_writable.object_id)? != &plan.previous_writable
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-vfs",
+                "writable-file-delete-completion-plan-stale",
+                "writable file state changed after delete completion planning",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_writable_delete_completion(
+        &mut self,
+        plan: RuntimeWritableDeleteCompletionPlan,
+    ) -> RuntimeWritableDeleteCompletion {
+        debug_assert!(self.preflight_writable_delete_completion(&plan).is_ok());
+        self.pending_deletes
+            .remove(&plan.pending.request.request_id);
+        self.catalog_revision = plan.next_catalog_revision;
+        self.writable_profile
+            .as_mut()
+            .expect("validated writable delete profile")
+            .files
+            .insert(plan.next_writable.object_id, plan.next_writable);
+        plan.completion
     }
 
     pub(super) fn plan_writable_directory_create(
@@ -1554,6 +1885,7 @@ impl RuntimeFiles {
             || !self.open_files.is_empty()
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
+            || !self.pending_deletes.is_empty()
             || !self.pending_directory_creates.is_empty()
             || !self.searches.is_empty()
         {
@@ -1636,6 +1968,7 @@ impl RuntimeFiles {
             || !self.open_files.is_empty()
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
+            || !self.pending_deletes.is_empty()
             || !self.pending_directory_creates.is_empty()
             || !self.searches.is_empty()
             || self.catalog_revision != plan.expected_catalog_revision
@@ -1659,6 +1992,7 @@ impl RuntimeFiles {
             || !self.open_files.is_empty()
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
+            || !self.pending_deletes.is_empty()
             || !self.pending_directory_creates.is_empty()
             || !self.searches.is_empty()
         {
@@ -1809,6 +2143,7 @@ impl RuntimeFiles {
             || !self.open_files.is_empty()
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
+            || !self.pending_deletes.is_empty()
             || !self.pending_directory_creates.is_empty()
             || !self.searches.is_empty()
             || self.catalog_revision != plan.expected_catalog_revision
@@ -1834,6 +2169,7 @@ impl RuntimeFiles {
         if !self.open_files.is_empty()
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
+            || !self.pending_deletes.is_empty()
             || !self.pending_directory_creates.is_empty()
             || !self.searches.is_empty()
         {
@@ -1874,6 +2210,7 @@ impl RuntimeFiles {
         if !self.open_files.is_empty()
             || !self.pending_reads.is_empty()
             || !self.pending_commits.is_empty()
+            || !self.pending_deletes.is_empty()
             || !self.pending_directory_creates.is_empty()
             || !self.searches.is_empty()
             || self
@@ -1980,6 +2317,17 @@ impl RuntimeFiles {
                     "runtime-vfs",
                     "writable-file-commit-pending",
                     "writable file cannot open while its durable commit is pending",
+                ));
+            }
+            if self
+                .pending_deletes
+                .values()
+                .any(|pending| pending.request.object_id == object_id)
+            {
+                return Err(RuntimeStateError::conflict(
+                    "runtime-vfs",
+                    "writable-file-delete-pending",
+                    "writable file cannot open while its durable deletion is pending",
                 ));
             }
             let existed = previous.exists;
@@ -3112,6 +3460,32 @@ impl RuntimeFiles {
     ) {
         for pending in plan.requests {
             let removed = self.pending_commits.remove(&pending.request.request_id);
+            debug_assert_eq!(removed, Some(pending));
+        }
+    }
+
+    pub(super) fn plan_writable_delete_cancellation(
+        &self,
+        request_ids: &[u64],
+    ) -> RuntimeWritableDeleteCancellationPlan {
+        let selected = request_ids.iter().copied().collect::<BTreeSet<_>>();
+        RuntimeWritableDeleteCancellationPlan {
+            requests: self
+                .pending_deletes
+                .iter()
+                .filter_map(|(request_id, pending)| {
+                    selected.contains(request_id).then_some(pending.clone())
+                })
+                .collect(),
+        }
+    }
+
+    pub(super) fn commit_writable_delete_cancellation(
+        &mut self,
+        plan: RuntimeWritableDeleteCancellationPlan,
+    ) {
+        for pending in plan.requests {
+            let removed = self.pending_deletes.remove(&pending.request.request_id);
             debug_assert_eq!(removed, Some(pending));
         }
     }

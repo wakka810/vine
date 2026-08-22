@@ -28,16 +28,17 @@ use vine_core::{
     ProcessAddressAllocationPurpose, ProcessAddressAllocationRecord, ProcessAddressSpaceAllocator,
     ProcessAddressSpaceLayout, ProcessEntryReturnSentinel, RESUME_THREAD_IMPLEMENTATION,
     RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE,
-    RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, RegisterUpdate, RuntimeBootstrap,
-    RuntimeCallbackFrameId, RuntimeClockState, RuntimeComApartmentState, RuntimeComMethodTarget,
-    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeDynamicEndpoint, RuntimeExport,
-    RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeGuestImportResolution, RuntimeHandle,
-    RuntimeHeapAllocation, RuntimeImeContext, RuntimeImeContextAssociation, RuntimeImeWindow,
-    RuntimeKeyboardEventReceipt, RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind,
-    RuntimeKeyboardState, RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId,
-    RuntimeModuleImageError, RuntimeModuleImageErrorClass, RuntimeModuleNode, RuntimeMutex,
-    RuntimeObjectKey, RuntimeObjectKind, RuntimeObjectRecord, RuntimePageFaultResolution,
-    RuntimePointerButton, RuntimePointerButtonIngressReceipt, RuntimePointerButtonSourceEvent,
+    RUNTIME_WRITABLE_DELETE_SERVICE, RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, RegisterUpdate,
+    RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState, RuntimeComApartmentState,
+    RuntimeComMethodTarget, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
+    RuntimeDynamicEndpoint, RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding,
+    RuntimeGuestImportResolution, RuntimeHandle, RuntimeHeapAllocation, RuntimeImeContext,
+    RuntimeImeContextAssociation, RuntimeImeWindow, RuntimeKeyboardEventReceipt,
+    RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind, RuntimeKeyboardState,
+    RuntimeLogicalMonitor, RuntimeModule, RuntimeModuleId, RuntimeModuleImageError,
+    RuntimeModuleImageErrorClass, RuntimeModuleNode, RuntimeMutex, RuntimeObjectKey,
+    RuntimeObjectKind, RuntimeObjectRecord, RuntimePageFaultResolution, RuntimePointerButton,
+    RuntimePointerButtonIngressReceipt, RuntimePointerButtonSourceEvent,
     RuntimePointerButtonSourceEventKind, RuntimeProcessId, RuntimeProcessLifecycleState,
     RuntimeSchedulerEvent, RuntimeSourceReadCompletion, RuntimeSourceReadHostResponse,
     RuntimeSourceSnapshot, RuntimeSourceSnapshotManifest, RuntimeStandardHandle,
@@ -47,18 +48,20 @@ use vine_core::{
     RuntimeTimerResolutionState, RuntimeTlsValue, RuntimeWaitableTimer, RuntimeWindowId,
     RuntimeWindowTimer, RuntimeWindowTimerDeliveryState, RuntimeWindowTimerId,
     RuntimeWritableCommitCompletion, RuntimeWritableCommitHostResponse,
-    RuntimeWritableDirectoryCreateCompletion, RuntimeWritableDirectoryCreateHostResponse,
-    RuntimeWritableProfile, RuntimeWritableProfileManifest, SEND_MESSAGE_A_IMPLEMENTATION,
+    RuntimeWritableDeleteCompletion, RuntimeWritableDirectoryCreateCompletion,
+    RuntimeWritableDirectoryCreateHostResponse, RuntimeWritableProfile,
+    RuntimeWritableProfileManifest, SEND_MESSAGE_A_IMPLEMENTATION,
     SET_THREAD_PRIORITY_IMPLEMENTATION, SET_TIMER_IMPLEMENTATION, SET_WINDOW_LONG_A_IMPLEMENTATION,
     SchedulerThreadState, TIME_BEGIN_PERIOD_IMPLEMENTATION, TIME_END_PERIOD_IMPLEMENTATION,
     TIME_GET_TIME_IMPLEMENTATION, TRANSLATE_MESSAGE_IMPLEMENTATION, USER32_WM_IME_CONTROL,
     UnsupportedPoint, User32CompatibilityPolicy, VIRTUAL_ALLOC_IMPLEMENTATION,
     WinmmCompatibilityPolicy, bind_pe32_imports, bind_pe32_imports_with_unsupported_traps,
     build_pe32_load_plan, complete_kernel32_source_read, complete_kernel32_waitable_timer_pacing,
-    complete_kernel32_writable_commit, complete_kernel32_writable_directory_create,
-    d3d9_contract_for_endpoint, dinput8_contract_for_endpoint, dispatch_d3d9_api,
-    dispatch_d3d9_com_call, dispatch_dinput8_api, dispatch_dinput8_com_call, dispatch_dsound_api,
-    dispatch_dsound_com_call, dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
+    complete_kernel32_writable_commit, complete_kernel32_writable_delete,
+    complete_kernel32_writable_directory_create, d3d9_contract_for_endpoint,
+    dinput8_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api,
+    dispatch_dinput8_com_call, dispatch_dsound_api, dispatch_dsound_com_call,
+    dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
     dispatch_imm32_api_with_policy, dispatch_kernel32_api, dispatch_kernel32_api_with_policy,
     dispatch_ole32_api, dispatch_shell32_api, dispatch_user32_api_with_policy,
     dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, encode_pointer_contract,
@@ -781,6 +784,8 @@ struct GenericRuntimeCompletion {
     source_read: Option<RuntimeSourceReadCompletion>,
     #[serde(skip_serializing_if = "Option::is_none")]
     writable_commit: Option<RuntimeWritableCommitCompletion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    writable_delete: Option<RuntimeWritableDeleteCompletion>,
     #[serde(skip_serializing_if = "Option::is_none")]
     writable_directory_create: Option<RuntimeWritableDirectoryCreateCompletion>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -5593,6 +5598,7 @@ fn run_v86_generic_runtime_session(
                             timer_resolution: None,
                             source_read: None,
                             writable_commit: None,
+                            writable_delete: None,
                             writable_directory_create: None,
                             runtime_module: None,
                             gdi,
@@ -6639,6 +6645,7 @@ fn run_v86_generic_runtime_session(
                                 timer_resolution,
                                 source_read: None,
                                 writable_commit: None,
+                                writable_delete: None,
                                 writable_directory_create: None,
                                 runtime_module,
                                 gdi,
@@ -6788,6 +6795,7 @@ fn run_v86_generic_runtime_session(
                             outcome,
                             source_read,
                             writable_commit,
+                            writable_delete,
                             writable_directory_create,
                             waitable_timer_pacing,
                         ) = if timer_pacing {
@@ -6809,7 +6817,7 @@ fn run_v86_generic_runtime_session(
                                 acknowledgement,
                                 &mut session,
                             );
-                            (outcome, None, None, None, completion)
+                            (outcome, None, None, None, None, completion)
                         } else if call.request.service == RUNTIME_WRITABLE_COMMIT_SERVICE {
                             if !response_frame.payload.is_empty() {
                                 return Err(LoaderError::invalid_input(
@@ -6829,7 +6837,27 @@ fn run_v86_generic_runtime_session(
                                 response,
                                 &mut session,
                             );
-                            (outcome, None, completion, None, None)
+                            (outcome, None, completion, None, None, None)
+                        } else if call.request.service == RUNTIME_WRITABLE_DELETE_SERVICE {
+                            if !response_frame.payload.is_empty() {
+                                return Err(LoaderError::invalid_input(
+                                    "runtime-reentry",
+                                    "writable-delete-completion-payload-invalid",
+                                    "writable delete completion must not contain a payload",
+                                ));
+                            }
+                            let response = RuntimeWritableCommitHostResponse::decode_binary(
+                                request_id,
+                                &response_frame.control[8..],
+                            )
+                            .map_err(runtime_state_error)?;
+                            let (outcome, completion) = complete_kernel32_writable_delete(
+                                &dispatcher,
+                                call,
+                                response,
+                                &mut session,
+                            );
+                            (outcome, None, None, completion, None, None)
                         } else if call.request.service == RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE
                         {
                             if !response_frame.payload.is_empty() {
@@ -6851,7 +6879,7 @@ fn run_v86_generic_runtime_session(
                                 response,
                                 &mut session,
                             );
-                            (outcome, None, None, completion, None)
+                            (outcome, None, None, None, completion, None)
                         } else {
                             let response = RuntimeSourceReadHostResponse::decode_binary(
                                 request_id,
@@ -6865,7 +6893,7 @@ fn run_v86_generic_runtime_session(
                                 response,
                                 &mut session,
                             );
-                            (outcome, completion, None, None, None)
+                            (outcome, completion, None, None, None, None)
                         };
                         let completion = match outcome {
                             DispatchOutcome::Immediate(completion) => completion,
@@ -6888,6 +6916,7 @@ fn run_v86_generic_runtime_session(
                         if [
                             source_read.is_some(),
                             writable_commit.is_some(),
+                            writable_delete.is_some(),
                             writable_directory_create.is_some(),
                             waitable_timer_pacing.is_some(),
                         ]
@@ -6906,6 +6935,9 @@ fn run_v86_generic_runtime_session(
                             .as_ref()
                             .is_some_and(|completion| completion.request.request_id != request_id)
                             || writable_commit.as_ref().is_some_and(|completion| {
+                                completion.request.request_id != request_id
+                            })
+                            || writable_delete.as_ref().is_some_and(|completion| {
                                 completion.request.request_id != request_id
                             })
                             || writable_directory_create
@@ -7003,6 +7035,7 @@ fn run_v86_generic_runtime_session(
                                 timer_resolution: None,
                                 source_read,
                                 writable_commit,
+                                writable_delete,
                                 writable_directory_create,
                                 runtime_module: None,
                                 gdi: None,
@@ -7126,6 +7159,7 @@ fn run_v86_generic_runtime_session(
                                 timer_resolution: None,
                                 source_read: None,
                                 writable_commit: None,
+                                writable_delete: None,
                                 writable_directory_create: None,
                                 runtime_module: None,
                                 gdi: None,

@@ -2,7 +2,7 @@ import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 import type { BrowserNativeStorageConfiguration } from "../storage/protocol.js";
 
-export const protocolVersion = 145 as const;
+export const protocolVersion = 146 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -1130,6 +1130,7 @@ export interface RuntimeSupportedCallSnapshot {
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
   writableCommit?: RuntimeWritableCommitSnapshot;
+  writableDelete?: RuntimeWritableDeleteSnapshot;
   writableDirectoryCreate?: RuntimeWritableDirectoryCreateSnapshot;
   gdi?: RuntimeGdiSnapshot;
   gdiplus?: RuntimeGdiplusSnapshot;
@@ -1278,6 +1279,7 @@ export interface RuntimeForwardDevelopmentSummary {
       sha256: string;
     } | null;
     writableCommits: number;
+    writableDeletes: number;
     writableDirectoryCreates: number;
   };
 }
@@ -2170,6 +2172,7 @@ export interface SessionReport {
   pointerInput: RuntimePointerButtonInputEvidence;
   sourceReads: RuntimeSourceReadSnapshot[];
   writableCommits: RuntimeWritableCommitSnapshot[];
+  writableDeletes: RuntimeWritableDeleteSnapshot[];
   writableDirectoryCreates: RuntimeWritableDirectoryCreateSnapshot[];
   dragAcceptFiles: {
     call: {
@@ -6031,6 +6034,18 @@ export interface RuntimeWritableCommitSnapshot {
     byteLength: number;
     contentSha256: string;
     closeAfterCommit: boolean;
+  };
+  succeeded: boolean;
+  committedGeneration: number;
+  win32Error: number;
+}
+
+export interface RuntimeWritableDeleteSnapshot {
+  request: {
+    requestId: number;
+    objectId: number;
+    relativePathA: number[];
+    baseGeneration: number;
   };
   succeeded: boolean;
   committedGeneration: number;

@@ -23,6 +23,7 @@ import {
   type RuntimeWindowSnapshot,
   type RuntimeSourceReadSnapshot,
   type RuntimeWritableCommitSnapshot,
+  type RuntimeWritableDeleteSnapshot,
   type RuntimeWritableDirectoryCreateSnapshot,
   type RuntimeGdiSnapshot,
   type RuntimeGdiplusSnapshot,
@@ -2593,6 +2594,7 @@ interface CompletionMetadata {
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
   writableCommit?: RuntimeWritableCommitSnapshot;
+  writableDelete?: RuntimeWritableDeleteSnapshot;
   writableDirectoryCreate?: RuntimeWritableDirectoryCreateSnapshot;
   gdi?: RuntimeGdiSnapshot;
   gdiplus?: RuntimeGdiplusSnapshot;
@@ -2687,6 +2689,7 @@ interface HostCompletionMetadata {
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
   writableCommit?: RuntimeWritableCommitSnapshot;
+  writableDelete?: RuntimeWritableDeleteSnapshot;
   writableDirectoryCreate?: RuntimeWritableDirectoryCreateSnapshot;
   gdi?: RuntimeGdiSnapshot;
   gdiplus?: RuntimeGdiplusSnapshot;
@@ -3715,6 +3718,7 @@ interface CallbackCompletionMetadata {
   comApartment?: RuntimeComApartmentSnapshot;
   sourceRead?: RuntimeSourceReadSnapshot;
   writableCommit?: RuntimeWritableCommitSnapshot;
+  writableDelete?: RuntimeWritableDeleteSnapshot;
   writableDirectoryCreate?: RuntimeWritableDirectoryCreateSnapshot;
   gdi?: RuntimeGdiSnapshot;
   gdiplus?: RuntimeGdiplusSnapshot;
@@ -4513,6 +4517,7 @@ class BrowserRuntimeSession {
     },
     sourceReads: [] as SessionReport["sourceReads"],
     writableCommits: [] as SessionReport["writableCommits"],
+    writableDeletes: [] as SessionReport["writableDeletes"],
     writableDirectoryCreates: [] as SessionReport["writableDirectoryCreates"],
     dragAcceptFiles: null as SessionReport["dragAcceptFiles"],
     sleepZero: null as SessionReport["sleepZero"],
@@ -4615,6 +4620,7 @@ class BrowserRuntimeSession {
           writableHydratedBytes: 0,
           latestWritableHydration: null,
           writableCommits: 0,
+          writableDeletes: 0,
           writableDirectoryCreates: 0,
         },
       };
@@ -7449,6 +7455,164 @@ class BrowserRuntimeSession {
     });
   }
 
+  async #serviceWritableDelete(metadata: HostRequestMetadata): Promise<void> {
+    const profile =
+      this.#writableProfile ??
+      failInvariant("writable delete has no registered profile");
+    invariant(
+      metadata.service === "storage.profile-delete.v1",
+      "unexpected writable delete service",
+    );
+    invariant(
+      metadata.arguments.length === 4,
+      "writable delete request must contain four words",
+    );
+    const [version, objectId, baseLow, baseHigh] = metadata.arguments;
+    invariant(version === 1, "writable delete request version mismatch");
+    const baseGeneration =
+      BigInt(baseLow ?? 0) | (BigInt(baseHigh ?? 0) << 32n);
+    invariant(
+      baseGeneration > 0n &&
+        baseGeneration <= BigInt(Number.MAX_SAFE_INTEGER),
+      "writable delete generation exceeds the profile bound",
+    );
+    const file = profile.files.find(
+      (candidate) => candidate.objectId === objectId,
+    );
+    invariant(
+      file !== undefined &&
+        file.exists &&
+        BigInt(file.generation) === baseGeneration,
+      "writable delete base state differs from the browser snapshot",
+    );
+    const requestKey = `${this.#profileSessionKey}:${metadata.requestId}`;
+    const contentSha256 = "0".repeat(64);
+    const browserStorage = this.#browserStorage;
+    if (browserStorage !== null) {
+      let committedGeneration: number;
+      try {
+        const result = await browserStorage.profileCommit({
+          requestKey,
+          objectId: objectId ?? 0,
+          baseGeneration: Number(baseGeneration),
+          contentSha256,
+          bytes: new Uint8Array(),
+          deleteFile: true,
+        });
+        invariant(
+          result.objectId === objectId &&
+            result.baseGeneration === Number(baseGeneration) &&
+            result.committedGeneration > result.baseGeneration,
+          "browser-native writable delete response identity mismatch",
+        );
+        committedGeneration = result.committedGeneration;
+      } catch (error) {
+        if (error instanceof BrowserStorageError) {
+          const win32Error = recoverableCommitStorageError(error.code);
+          invariant(
+            win32Error !== null,
+            `browser-native writable delete failed with ${error.code}`,
+          );
+          this.#completeWritableDelete(
+            metadata,
+            writableCommitFailureControl(
+              objectId ?? 0,
+              baseGeneration,
+              win32Error,
+            ),
+          );
+          return;
+        }
+        throw error;
+      }
+      const control = writableCommitSuccessControl(
+        objectId ?? 0,
+        baseGeneration,
+        BigInt(committedGeneration),
+      );
+      this.#deliverInIssueOrder(metadata.requestId, () => {
+        const completion = this.#completeWritableDelete(metadata, control);
+        invariant(
+          completion.succeeded,
+          "browser-native writable delete completed as a failure",
+        );
+        file.exists = false;
+        file.generation = 0;
+        file.byteLength = 0;
+        file.sha256 = null;
+      });
+      return;
+    }
+    const url = this.#profileObjectUrl(objectId ?? 0);
+    url.pathname += "/commits";
+    let response: Response | null = null;
+    for (let attempt = 0; attempt < 2 && response === null; attempt += 1) {
+      try {
+        const candidate = await fetch(url, {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "X-Vine-Request-Key": requestKey,
+            "X-Vine-Base-Generation": baseGeneration.toString(),
+            "X-Vine-Byte-Length": "0",
+            "X-Vine-Content-Sha256": contentSha256,
+            "X-Vine-Delete": "1",
+            ...this.#profileLeaseHeaders(),
+          },
+        });
+        if (candidate.status >= 500 && attempt === 0) {
+          continue;
+        }
+        response = candidate;
+      } catch {}
+    }
+    if (response === null) {
+      throw new Error(
+        "writable delete transport ended with an unknown publication outcome",
+      );
+    }
+    if (response.status !== 200) {
+      const win32Error = recoverableCommitHttpError(
+        response.status,
+        response.headers.get("x-vine-error-code"),
+      );
+      invariant(
+        win32Error !== null,
+        `writable delete failed with ${response.status}`,
+      );
+      this.#completeWritableDelete(
+        metadata,
+        writableCommitFailureControl(objectId ?? 0, baseGeneration, win32Error),
+      );
+      return;
+    }
+    invariant(
+      response.headers.get("x-vine-title-fingerprint") ===
+        profile.titleFingerprint &&
+        response.headers.get("x-vine-profile-id") === profile.profileId &&
+        response.headers.get("x-vine-object-id") === String(objectId) &&
+        response.headers.get("x-vine-base-generation") ===
+          baseGeneration.toString() &&
+        response.headers.get("x-vine-content-sha256") === contentSha256 &&
+        response.headers.get("x-vine-delete") === "true" &&
+        response.headers.get("x-vine-session-epoch") ===
+          String(this.#requireProfileLease().epoch),
+      "writable delete response identity mismatch",
+    );
+    const control = new Uint8Array(await response.arrayBuffer());
+    invariant(control.byteLength === 32, "writable delete response size mismatch");
+    this.#deliverInIssueOrder(metadata.requestId, () => {
+      const completion = this.#completeWritableDelete(metadata, control);
+      if (completion.succeeded) {
+        file.exists = false;
+        file.generation = 0;
+        file.byteLength = 0;
+        file.sha256 = null;
+      }
+    });
+  }
+
   async #serviceWritableDirectoryCreate(
     metadata: HostRequestMetadata,
   ): Promise<void> {
@@ -7815,6 +7979,77 @@ class BrowserRuntimeSession {
     }
     this.#status("running", `${pending.service} completed`);
     return completion.writableCommit;
+  }
+
+  #completeWritableDelete(
+    request: HostRequestMetadata,
+    control: Uint8Array,
+  ): RuntimeWritableDeleteSnapshot {
+    if (this.#terminal) {
+      throw new SessionStopped(
+        "writable delete completed after the session stopped",
+      );
+    }
+    const pending = this.#pendingHostRequests.complete(
+      request.requestId,
+      request.threadId,
+      1,
+    );
+    const output =
+      this.#requireBridge().completeWritableDelete<HostCompletionMetadata>(
+        BigInt(pending.requestId),
+        control,
+      );
+    const completion = output.metadata;
+    invariant(
+      completion.kind === "host-complete" &&
+        completion.threadId === pending.threadId &&
+        completion.writableDelete !== undefined &&
+        output.control.byteLength === 0 &&
+        output.payload.byteLength === 0,
+      "invalid writable delete completion metadata",
+    );
+    const resumeState =
+      completion.scheduler.state === "in-callback" ? "guest-callback" : "ready";
+    const expectedResumeState =
+      pending.completionPolicy === "resume-callback"
+        ? "guest-callback"
+        : "ready";
+    invariant(
+      resumeState === expectedResumeState,
+      "writable delete resume policy mismatch",
+    );
+    if (this.#requirePrepared().workload === "private-bgi") {
+      this.#recordPrivateBgiCompletion(completion);
+    }
+    this.#report.writableDeletes.push(completion.writableDelete);
+    this.#applyCpuResumeToThread(completion.threadId, completion.completion);
+    if (this.#hostBarrierRequestId === pending.requestId) {
+      invariant(
+        this.#hostBarrierResume === null,
+        "host completion barrier retained an unconsumed owner resume",
+      );
+      this.#hostBarrierResume = {
+        requestId: pending.requestId,
+        threadId: completion.threadId,
+        scheduler: completion.scheduler,
+      };
+    }
+    this.#report.rustSchedulerTransitions += 1;
+    pending.resolve({
+      result: completion.writableDelete.succeeded ? 1 : 0,
+      completionPolicy: pending.completionPolicy,
+    });
+    if (this.#execution.state() === "waiting-host") {
+      this.#execution.transition("host-completion", {
+        cause: "writable-delete-completion",
+        threadId: pending.threadId,
+        requestId: pending.requestId,
+      });
+      this.#signalRunnable();
+    }
+    this.#status("running", `${pending.service} completed`);
+    return completion.writableDelete;
   }
 
   #completeWritableDirectoryCreate(
@@ -9366,6 +9601,7 @@ class BrowserRuntimeSession {
             metadata.service === "storage.source-read.v1" ||
             metadata.service === "storage.profile-read.v1" ||
             metadata.service === "storage.profile-commit.v1" ||
+            metadata.service === "storage.profile-delete.v1" ||
             metadata.service === "storage.profile-directory-create.v1",
         );
         this.#synchronousApiBoundariesSinceYield = 0;
@@ -19936,6 +20172,7 @@ class BrowserRuntimeSession {
       this.#forwardLatestPointerMessage;
     summary.storage.sourceReads = this.#report.sourceReads.length;
     summary.storage.writableCommits = this.#report.writableCommits.length;
+    summary.storage.writableDeletes = this.#report.writableDeletes.length;
     summary.storage.writableDirectoryCreates =
       this.#report.writableDirectoryCreates.length;
   }
@@ -19987,6 +20224,14 @@ class BrowserRuntimeSession {
       isWritableDirectoryCreate ===
         (metadata.writableDirectoryCreate !== undefined),
       "BGI writable directory completion metadata mismatch",
+    );
+    const isWritableDelete =
+      completion.implementationId ===
+      "kernel32.delete-file-a.missing-runtime-vfs.v1" &&
+      metadata.kind === "host-complete";
+    invariant(
+      isWritableDelete === (metadata.writableDelete !== undefined),
+      "BGI writable delete completion metadata mismatch",
     );
     const isWaitableTimerMutation =
       completion.implementationId === "kernel32.create-waitable-timer-a.v1" ||
@@ -20359,6 +20604,9 @@ class BrowserRuntimeSession {
       ...(metadata.writableCommit === undefined
         ? {}
         : { writableCommit: metadata.writableCommit }),
+      ...(metadata.writableDelete === undefined
+        ? {}
+        : { writableDelete: metadata.writableDelete }),
       ...(metadata.writableDirectoryCreate === undefined
         ? {}
         : { writableDirectoryCreate: metadata.writableDirectoryCreate }),
@@ -29921,6 +30169,24 @@ class BrowserRuntimeSession {
           },
         );
       }
+    } else if (metadata.service === "storage.profile-delete.v1") {
+      if (this.#configuration.mode === "success") {
+        const task = this.#serviceWritableDelete(metadata);
+        this.#writableMutationTasks.add(task);
+        void task.then(
+          () => {
+            this.#writableMutationTasks.delete(task);
+          },
+          (error: unknown) => {
+            this.#writableMutationTasks.delete(task);
+            if (!this.#terminal && !this.#stopping) {
+              this.#fail(
+                error instanceof Error ? error : new Error(String(error)),
+              );
+            }
+          },
+        );
+      }
     } else if (metadata.service === "storage.profile-directory-create.v1") {
       if (this.#configuration.mode === "success") {
         const task = this.#serviceWritableDirectoryCreate(metadata);
@@ -36991,6 +37257,7 @@ worker.addEventListener(
               },
               sourceReads: [],
               writableCommits: [],
+              writableDeletes: [],
               writableDirectoryCreates: [],
               dragAcceptFiles: null,
               sleepZero: null,

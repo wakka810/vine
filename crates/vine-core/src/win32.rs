@@ -23,11 +23,12 @@ use crate::runtime::{
     RUNTIME_SOURCE_FILE_NAMESPACE, RUNTIME_SOURCE_READ_MAX_BYTES, RUNTIME_SOURCE_READ_SERVICE,
     RUNTIME_THREAD_OBJECT_NAMESPACE, RUNTIME_WAITABLE_TIMER_OBJECT_NAMESPACE,
     RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE,
-    RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, RUNTIME_WRITABLE_FILE_MAX_IO_BYTES,
-    RUNTIME_WRITABLE_READ_SERVICE, RuntimeApiBoundaryDisposition, RuntimeCreateThreadRequest,
-    RuntimeCriticalSection, RuntimeFileBacking, RuntimeFileSearchEntry, RuntimeFileSearchEntryKind,
-    RuntimeHandle, RuntimeHeapInitialization, RuntimeHostCompletion, RuntimeMutexNameA,
-    RuntimeObjectKind, RuntimePathResolution, RuntimeSourceReadHostResponse, RuntimeStateError,
+    RUNTIME_WRITABLE_DELETE_SERVICE, RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE,
+    RUNTIME_WRITABLE_FILE_MAX_IO_BYTES, RUNTIME_WRITABLE_READ_SERVICE,
+    RuntimeApiBoundaryDisposition, RuntimeCreateThreadRequest, RuntimeCriticalSection,
+    RuntimeFileBacking, RuntimeFileSearchEntry, RuntimeFileSearchEntryKind, RuntimeHandle,
+    RuntimeHeapInitialization, RuntimeHostCompletion, RuntimeMutexNameA, RuntimeObjectKind,
+    RuntimePathResolution, RuntimeSourceReadHostResponse, RuntimeStateError,
     RuntimeStateErrorClass, RuntimeThreadPriority, RuntimeVirtualMemoryReserveRequest,
     RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
     RuntimeWaitForSingleObjectExResult, RuntimeWaitState, RuntimeWritableCommitHostResponse,
@@ -257,6 +258,9 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
     if contract.implementation_id == CREATE_DIRECTORY_A_IMPLEMENTATION {
         return handle_create_directory_a(policy, contract, frame, session);
     }
+    if contract.implementation_id == DELETE_FILE_A_IMPLEMENTATION {
+        return handle_delete_file_a(policy, contract, frame, session);
+    }
     if contract.implementation_id == CLOSE_HANDLE_IMPLEMENTATION {
         return handle_close_handle(policy, contract, frame, session);
     }
@@ -342,7 +346,6 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
             handle_find_next_file_a(policy, contract, frame, session)
         }
         FIND_CLOSE_IMPLEMENTATION => handle_find_close(policy, contract, frame, session),
-        DELETE_FILE_A_IMPLEMENTATION => handle_delete_file_a(policy, contract, frame, session),
         CREATE_FILE_A_IMPLEMENTATION => handle_create_file_a(policy, contract, frame, session),
         GET_FILE_SIZE_IMPLEMENTATION => handle_get_file_size(policy, contract, frame, session),
         WRITE_FILE_IMPLEMENTATION => handle_write_file(policy, contract, frame, session),
@@ -2824,41 +2827,88 @@ fn handle_delete_file_a(
     contract: &ApiContract,
     frame: &ApiCallFrame,
     session: &mut ExecutionSession<'_>,
-) -> Result<ApiImmediate, ApiFault> {
-    let file_policy = require_source_file_policy(policy)?;
-    require_delete_file_a_policy(policy)?;
-    let path_address = required_argument(contract, frame, 0, "ANSI file path")?;
-    let path = read_nul_terminated_source_path(
-        contract,
-        session,
-        GuestAddress(path_address),
-        file_policy.maximum_path_bytes,
-    )?;
-    let resolution = session
-        .runtime()
-        .resolve_file_system_path_a(&path)
-        .map_err(|error| {
-            ApiFault::unsupported("win32-vfs", "delete-file-a-path-unsupported", error.message)
-        })?;
-    match resolution {
-        RuntimePathResolution::MissingFile => {
-            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
-                .with_last_error(ERROR_FILE_NOT_FOUND))
+) -> ApiHandlerResult {
+    let result = (|| {
+        let file_policy = require_source_file_policy(policy)?;
+        let delete_policy = require_delete_file_a_policy(policy)?;
+        let path_address = required_argument(contract, frame, 0, "ANSI file path")?;
+        let path = read_nul_terminated_source_path(
+            contract,
+            session,
+            GuestAddress(path_address),
+            file_policy.maximum_path_bytes,
+        )?;
+        let resolution = session
+            .runtime()
+            .resolve_file_system_path_a(&path)
+            .map_err(|error| {
+                ApiFault::unsupported("win32-vfs", "delete-file-a-path-unsupported", error.message)
+            })?;
+        match resolution {
+            RuntimePathResolution::MissingFile => Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(ApiReturnValue::Bool32(false))
+                    .with_last_error(ERROR_FILE_NOT_FOUND),
+            )),
+            RuntimePathResolution::MissingPath => Ok(ApiHandlerResult::Immediate(
+                ApiImmediate::new(ApiReturnValue::Bool32(false))
+                    .with_last_error(ERROR_PATH_NOT_FOUND),
+            )),
+            RuntimePathResolution::RegularFile if delete_policy.allow_writable_profile_file => {
+                let request = match session.runtime_mut().begin_writable_file_delete(&path) {
+                    Ok(request) => request,
+                    Err(error)
+                        if matches!(
+                            error.code,
+                            "writable-file-delete-sharing-violation"
+                                | "writable-file-delete-pending"
+                        ) =>
+                    {
+                        return Ok(ApiHandlerResult::Immediate(
+                            ApiImmediate::new(ApiReturnValue::Bool32(false))
+                                .with_last_error(ERROR_SHARING_VIOLATION),
+                        ));
+                    }
+                    Err(error) if error.code == "writable-file-delete-missing" => {
+                        return Ok(ApiHandlerResult::Immediate(
+                            ApiImmediate::new(ApiReturnValue::Bool32(false))
+                                .with_last_error(ERROR_FILE_NOT_FOUND),
+                        ));
+                    }
+                    Err(error)
+                        if matches!(
+                            error.code,
+                            "writable-profile-missing" | "writable-file-delete-unregistered"
+                        ) =>
+                    {
+                        return Err(ApiFault::unsupported(
+                            "win32-vfs",
+                            "delete-file-a-existing-file-unsupported",
+                            error.message,
+                        ));
+                    }
+                    Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+                };
+                Ok(ApiHandlerResult::Deferred(crate::api::HostRequest {
+                    request_id: request.request_id,
+                    service: RUNTIME_WRITABLE_DELETE_SERVICE.to_owned(),
+                    payload: request.encode_host_payload().to_vec(),
+                }))
+            }
+            RuntimePathResolution::RegularFile => Err(ApiFault::unsupported(
+                "win32-vfs",
+                "delete-file-a-existing-file-unsupported",
+                "DeleteFileA is enabled only for a missing final VFS component",
+            )),
+            RuntimePathResolution::Directory => Err(ApiFault::unsupported(
+                "win32-vfs",
+                "delete-file-a-directory-unsupported",
+                "DeleteFileA does not remove runtime VFS directories",
+            )),
         }
-        RuntimePathResolution::MissingPath => {
-            Ok(ApiImmediate::new(ApiReturnValue::Bool32(false))
-                .with_last_error(ERROR_PATH_NOT_FOUND))
-        }
-        RuntimePathResolution::RegularFile => Err(ApiFault::unsupported(
-            "win32-vfs",
-            "delete-file-a-existing-file-unsupported",
-            "DeleteFileA is enabled only for a missing final VFS component",
-        )),
-        RuntimePathResolution::Directory => Err(ApiFault::unsupported(
-            "win32-vfs",
-            "delete-file-a-directory-unsupported",
-            "DeleteFileA directory and existing-object mutation are outside the enabled variant",
-        )),
+    })();
+    match result {
+        Ok(outcome) => outcome,
+        Err(fault) => ApiHandlerResult::Fault(fault),
     }
 }
 
@@ -3808,6 +3858,96 @@ pub fn complete_kernel32_writable_commit(
         let completion = session
             .runtime_mut()
             .commit_writable_file_commit_completion(plan);
+        (outcome, Some(completion))
+    } else {
+        (outcome, None)
+    }
+}
+
+pub fn complete_kernel32_writable_delete(
+    dispatcher: &ApiDispatcher,
+    call: ApiDeferredCall,
+    response: RuntimeWritableCommitHostResponse,
+    session: &mut ExecutionSession<'_>,
+) -> (
+    DispatchOutcome,
+    Option<crate::runtime::RuntimeWritableDeleteCompletion>,
+) {
+    if call.contract.implementation_id != DELETE_FILE_A_IMPLEMENTATION
+        || call.request.request_id != response.request_id
+        || call.request.service != RUNTIME_WRITABLE_DELETE_SERVICE
+    {
+        return (
+            DispatchOutcome::Fault(ApiFault::invalid_call(
+                "win32-vfs",
+                "writable-file-delete-suspended-call-mismatch",
+                "file delete host completion does not match its suspended API call",
+            )),
+            None,
+        );
+    }
+    let request = match session
+        .runtime()
+        .writable_file_delete_request(response.request_id)
+    {
+        Ok(request) => request,
+        Err(error) => {
+            return (
+                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
+                None,
+            );
+        }
+    };
+    if call.request.payload != request.encode_host_payload() {
+        return (
+            DispatchOutcome::Fault(ApiFault::invalid_call(
+                "win32-vfs",
+                "writable-file-delete-payload-mismatch",
+                "file delete host payload differs from the Rust VFS authority",
+            )),
+            None,
+        );
+    }
+    let plan = match session
+        .runtime()
+        .plan_writable_file_delete_completion(response)
+    {
+        Ok(plan) => plan,
+        Err(error) => {
+            return (
+                DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
+                None,
+            );
+        }
+    };
+    let completion_last_error = if plan.completion().succeeded {
+        match session.last_error() {
+            Ok(last_error) => last_error,
+            Err(error) => {
+                return (
+                    DispatchOutcome::Fault(ApiFault::from_runtime(error, &call.contract.endpoint)),
+                    None,
+                );
+            }
+        }
+    } else {
+        plan.completion().win32_error
+    };
+    let immediate = ApiImmediate::new(ApiReturnValue::Bool32(plan.completion().succeeded))
+        .with_last_error(completion_last_error);
+    let request_id = call.request.request_id;
+    let outcome = dispatcher.complete_deferred(
+        call,
+        HostCompletion {
+            request_id,
+            result: immediate,
+        },
+        session,
+    );
+    if matches!(outcome, DispatchOutcome::Immediate(_)) {
+        let completion = session
+            .runtime_mut()
+            .commit_writable_file_delete_completion(plan);
         (outcome, Some(completion))
     } else {
         (outcome, None)
@@ -6693,6 +6833,7 @@ pub fn delete_file_a_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContra
         ApiReturnSchema::Bool32,
         DELETE_FILE_A_IMPLEMENTATION,
     )?;
+    contract.behavior = ApiBehavior::ImmediateOrDeferred;
     contract.last_error_policy = LastErrorPolicy::FromHandler;
     Ok(contract)
 }

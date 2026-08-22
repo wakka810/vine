@@ -21,21 +21,22 @@ use vine_core::{
     ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
     RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE, RUNTIME_GDI_TEXT_RASTER_SERVICE,
     RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE,
-    RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
-    RuntimeCallbackFrameId, RuntimeClockState, RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase,
-    RuntimeExport, RuntimeExportCatalog, RuntimeGuestImportBinding, RuntimeHandle,
-    RuntimeHeapInitialization, RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind,
-    RuntimeModule, RuntimeModuleId, RuntimeObjectKind, RuntimePointerButton,
-    RuntimePointerButtonSourceEvent, RuntimePointerButtonSourceEventKind,
-    RuntimePointerPositionSourceEvent, RuntimePointerPositionSourceEventKind, RuntimeProcessId,
-    RuntimeSchedulerEvent, RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest,
-    RuntimeStartupInfo, RuntimeState, RuntimeStateErrorClass, RuntimeThreadId,
-    RuntimeWritableCommitHostResponse, RuntimeWritableDirectoryCreateHostResponse,
-    RuntimeWritableProfileManifest, SEND_MESSAGE_A_IMPLEMENTATION, SchedulerThreadState,
-    StackCleanup, USER32_WM_IME_CONTROL, User32CompatibilityPolicy, WinmmCompatibilityPolicy,
-    X86CpuContext, bind_pe32_imports, build_pe32_load_plan, complete_gdi32_text_raster,
-    complete_kernel32_audio_notification_wait, complete_kernel32_source_read,
-    complete_kernel32_waitable_timer_pacing, complete_kernel32_writable_commit,
+    RUNTIME_WRITABLE_DELETE_SERVICE, RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, ReentrancyPolicy,
+    RegisterUpdate, RuntimeBootstrap, RuntimeCallbackFrameId, RuntimeClockState,
+    RuntimeDllLifecycleAction, RuntimeDllLifecyclePhase, RuntimeExport, RuntimeExportCatalog,
+    RuntimeGuestImportBinding, RuntimeHandle, RuntimeHeapInitialization,
+    RuntimeKeyboardSourceEvent, RuntimeKeyboardSourceEventKind, RuntimeModule, RuntimeModuleId,
+    RuntimeObjectKind, RuntimePointerButton, RuntimePointerButtonSourceEvent,
+    RuntimePointerButtonSourceEventKind, RuntimePointerPositionSourceEvent,
+    RuntimePointerPositionSourceEventKind, RuntimeProcessId, RuntimeSchedulerEvent,
+    RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState,
+    RuntimeStateErrorClass, RuntimeThreadId, RuntimeWritableCommitHostResponse,
+    RuntimeWritableDirectoryCreateHostResponse, RuntimeWritableProfileManifest,
+    SEND_MESSAGE_A_IMPLEMENTATION, SchedulerThreadState, StackCleanup, USER32_WM_IME_CONTROL,
+    User32CompatibilityPolicy, WinmmCompatibilityPolicy, X86CpuContext, bind_pe32_imports,
+    build_pe32_load_plan, complete_gdi32_text_raster, complete_kernel32_audio_notification_wait,
+    complete_kernel32_source_read, complete_kernel32_waitable_timer_pacing,
+    complete_kernel32_writable_commit, complete_kernel32_writable_delete,
     complete_kernel32_writable_directory_create, d3d9_contract_for_endpoint,
     dinput8_contract_for_endpoint, dispatch_d3d9_api, dispatch_d3d9_com_call, dispatch_dinput8_api,
     dispatch_dinput8_com_call, dispatch_dsound_api, dispatch_dsound_com_call,
@@ -70,10 +71,9 @@ const MAPPING_FIXTURE_STAGE_COUNT: u32 = 7;
 const FIXTURE_MAX_PHYSICAL_PAGES: usize = 16;
 const BGI_SHA256: &str = "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1";
 const BGI_LOAD_BASE: GuestAddress = GuestAddress(0x1000_0000);
-// The first 1280x720 scenario image pushes the measured live set just beyond
-// 30K pages. Keep a bounded 192 MiB guest working set so image decode can
-// finish without committing any reserved-but-untouched heap pages eagerly.
-const BGI_MAX_PHYSICAL_PAGES: usize = 48 * 1024;
+// Route continuation reaches the 240 MiB live set while materializing a
+// 64 MiB scenario buffer. Keep both bounded without committing untouched pages.
+const BGI_MAX_PHYSICAL_PAGES: usize = 80 * 1024;
 const BGI_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 const FAST_DISPATCH_RECORD_VERSION: u32 = 1;
 const FAST_DISPATCH_RECORD_WORDS: usize = 30;
@@ -472,6 +472,21 @@ impl Bridge {
         let response = RuntimeWritableCommitHostResponse::decode_binary(request_id, control)
             .map_err(error_string)?;
         let metadata = self.runtime_mut()?.complete_writable_commit(response)?;
+        self.set_output(metadata, Vec::new(), Vec::new())
+    }
+
+    fn complete_writable_delete(
+        &mut self,
+        request_id: u64,
+        control_length: usize,
+    ) -> Result<(), String> {
+        let control = self
+            .input
+            .get(..control_length)
+            .ok_or_else(|| "writable delete input length exceeds the bridge buffer".to_owned())?;
+        let response = RuntimeWritableCommitHostResponse::decode_binary(request_id, control)
+            .map_err(error_string)?;
+        let metadata = self.runtime_mut()?.complete_writable_delete(response)?;
         self.set_output(metadata, Vec::new(), Vec::new())
     }
 
@@ -3212,6 +3227,78 @@ impl BrowserRuntime {
         }))
     }
 
+    fn complete_writable_delete(
+        &mut self,
+        response: RuntimeWritableCommitHostResponse,
+    ) -> Result<Value, String> {
+        let request_id = response.request_id;
+        let pending = self
+            .pending_host
+            .get(&request_id)
+            .cloned()
+            .ok_or_else(|| "writable delete completion has no pending API call".to_owned())?;
+        if pending.call.request.request_id != request_id
+            || pending.call.request.service != RUNTIME_WRITABLE_DELETE_SERVICE
+        {
+            return Err("writable delete completion request identity is corrupt".to_owned());
+        }
+        let endpoint = pending.call.frame.endpoint.clone();
+        let previous_thread_id = self.runtime.current_thread_id();
+        let owner_thread_id = pending.thread_id;
+        if previous_thread_id != owner_thread_id {
+            self.runtime
+                .select_thread(owner_thread_id)
+                .map_err(error_string)?;
+        }
+        let (outcome, writable_delete) = complete_kernel32_writable_delete(
+            &self.dispatcher,
+            pending.call.clone(),
+            response,
+            &mut ExecutionSession::new(&mut self.memory, &mut self.runtime),
+        );
+        let completion = match outcome {
+            DispatchOutcome::Immediate(completion) => completion,
+            DispatchOutcome::Fault(fault) => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err(api_fault_string(fault));
+            }
+            _ => {
+                restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+                return Err("writable delete completion produced a suspended outcome".to_owned());
+            }
+        };
+        let writable_delete = writable_delete
+            .ok_or_else(|| "DeleteFileA completed without committing its VFS state".to_owned())?;
+        match self.runtime.pop_scheduler_event() {
+            Some(RuntimeSchedulerEvent::HostCompleted(completion))
+                if completion.request_id == request_id
+                    && completion.thread_id == owner_thread_id => {}
+            _ => return Err("writable delete scheduler completion event mismatch".to_owned()),
+        }
+        let removed = self
+            .pending_host
+            .remove(&request_id)
+            .ok_or_else(|| "writable delete pending call disappeared before commit".to_owned())?;
+        debug_assert_eq!(removed.call.request.request_id, request_id);
+        let scheduler = self
+            .runtime
+            .scheduler_state_for_thread(owner_thread_id)
+            .map_err(error_string)?;
+        if !scheduler.is_executable() {
+            return Err("Rust scheduler did not resume the writable delete request".to_owned());
+        }
+        restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
+        Ok(json!({
+            "kind": "host-complete",
+            "threadId": owner_thread_id.0,
+            "scheduler": scheduler,
+            "endpoint": endpoint,
+            "completion": completion,
+            "writableDelete": writable_delete,
+            "memory": self.memory.synchronization_state(),
+        }))
+    }
+
     fn complete_writable_directory_create(
         &mut self,
         response: RuntimeWritableDirectoryCreateHostResponse,
@@ -5819,6 +5906,18 @@ pub extern "C" fn vine_bridge_complete_writable_commit(
     run_bridge(|bridge| {
         let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
         bridge.complete_writable_commit(request_id, control_length as usize)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_complete_writable_delete(
+    request_low: u32,
+    request_high: u32,
+    control_length: u32,
+) -> u32 {
+    run_bridge(|bridge| {
+        let request_id = u64::from(request_low) | (u64::from(request_high) << 32);
+        bridge.complete_writable_delete(request_id, control_length as usize)
     })
 }
 

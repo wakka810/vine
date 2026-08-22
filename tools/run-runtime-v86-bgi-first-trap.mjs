@@ -27,11 +27,13 @@ import {
   acquireWritableProfileLease,
   commitWritableDirectory,
   commitWritableProfile,
+  deleteWritableProfile,
   openWritableProfile,
   readWritableProfile,
   revokeWritableProfileLease,
   snapshotWritableProfile,
   writableProfileCommitService,
+  writableProfileDeleteService,
   writableProfileDirectoryCreateService,
 } from "./writable-profile.mjs";
 import { createMonotonicV86InstructionCounter } from "./v86-instruction-counter.mjs";
@@ -8247,6 +8249,7 @@ async function runGenericRuntimeReentry({
   const hostDeltas = [];
   const sourceReads = [];
   const writableCommits = [];
+  const writableDeletes = [];
   const writableDirectoryCreates = [];
   const timerPacing = [];
   assert.equal(writableProfileLease === null, writableProfile === null);
@@ -10843,6 +10846,7 @@ async function runGenericRuntimeReentry({
         hostDeltas,
         sourceReads,
         ...(writableCommits.length === 0 ? {} : { writableCommits }),
+        ...(writableDeletes.length === 0 ? {} : { writableDeletes }),
         ...(writableDirectoryCreates.length === 0
           ? {}
           : { writableDirectoryCreates }),
@@ -11643,6 +11647,7 @@ async function runGenericRuntimeReentry({
         hostDeltas,
         sourceReads,
         ...(writableCommits.length === 0 ? {} : { writableCommits }),
+        ...(writableDeletes.length === 0 ? {} : { writableDeletes }),
         ...(writableDirectoryCreates.length === 0
           ? {}
           : { writableDirectoryCreates }),
@@ -11748,6 +11753,7 @@ async function runGenericRuntimeReentry({
         writableProfileLease,
         sourceReads,
         writableCommits,
+        writableDeletes,
         writableDirectoryCreates,
         timerPacing,
         sequence,
@@ -12377,6 +12383,7 @@ async function runGenericRuntimeReentry({
         hostDeltas,
         sourceReads,
         ...(writableCommits.length === 0 ? {} : { writableCommits }),
+        ...(writableDeletes.length === 0 ? {} : { writableDeletes }),
         ...(writableDirectoryCreates.length === 0
           ? {}
           : { writableDirectoryCreates }),
@@ -17730,6 +17737,7 @@ async function completeStorageHostRequest({
   writableProfileLease,
   sourceReads,
   writableCommits,
+  writableDeletes,
   writableDirectoryCreates,
   timerPacing,
   sequence,
@@ -17825,6 +17833,50 @@ async function completeStorageHostRequest({
     sourceRegistration !== null || writableProfile !== null,
     "runtime emitted storage I/O without a registered backing",
   );
+  if (metadata.service === writableProfileDeleteService) {
+    assert.notEqual(writableProfile, null, "writable delete has no profile database");
+    assert.notEqual(writableProfileLease, null, "writable delete has no profile lease");
+    assert.equal(response.payload.length, 0);
+    assert.equal(metadata.endpoint.endpoint.symbol.name, "DeleteFileA");
+    assert.equal(metadata.arguments.length, 4);
+    const [version, objectId, baseLow, baseHigh] = metadata.arguments;
+    assert.equal(version, 1);
+    const baseGeneration = Number(BigInt(baseLow) | (BigInt(baseHigh) << 32n));
+    assert(Number.isSafeInteger(baseGeneration));
+    const profile = snapshotWritableProfile(writableProfile);
+    const file = profile.files.find((candidate) => candidate.objectId === objectId);
+    assert.notEqual(file, undefined, "writable delete object is not allowlisted");
+    assert.equal(file.exists, true);
+    assert.equal(file.generation, baseGeneration);
+    const result = deleteWritableProfile(writableProfile, {
+      requestKey: `${writableProfileLease.sessionKey}:${metadata.requestId}`,
+      titleFingerprint: profile.titleFingerprint,
+      profileId: profile.profileId,
+      objectId,
+      relativePathA: file.relativePathA,
+      baseGeneration,
+      sessionKey: writableProfileLease.sessionKey,
+      sessionEpoch: writableProfileLease.epoch,
+    });
+    const requestIdentity = Buffer.alloc(8);
+    requestIdentity.writeBigUInt64LE(BigInt(metadata.requestId));
+    const control = encodeWritableCommitResponse(result);
+    await writeRuntimeFrame(
+      child.stdin,
+      runtimeFrame.hostCompletion,
+      Buffer.concat([requestIdentity, control]),
+      Buffer.alloc(0),
+    );
+    writableDeletes.push({
+      sequence,
+      requestId: String(metadata.requestId),
+      objectId,
+      baseGeneration,
+      committedGeneration: result.committedGeneration,
+      duplicate: result.duplicate,
+    });
+    return readRuntimeFrame(protocolReader, null, "generic writable delete completion");
+  }
   if (metadata.service === writableProfileDirectoryCreateService) {
     assert.notEqual(
       writableProfile,

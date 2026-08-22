@@ -1,3 +1,4 @@
+use vine_core::complete_kernel32_writable_delete;
 use vine_core::{
     ApiBehavior, ApiDeferredCall, ApiDispatcher, ApiEndpointIdentity, ApiFaultClass,
     ApiReturnSchema, CREATE_DIRECTORY_A_IMPLEMENTATION, DELETE_FILE_A_IMPLEMENTATION,
@@ -123,7 +124,7 @@ fn get_file_attributes_a_projects_only_registered_vfs_paths() {
 }
 
 #[test]
-fn delete_file_a_projects_only_missing_vfs_failures_without_mutation() {
+fn delete_file_a_durably_removes_only_an_existing_writable_profile_file() {
     let mut policy = source_policy();
     policy
         .source_files
@@ -131,6 +132,7 @@ fn delete_file_a_projects_only_missing_vfs_failures_without_mutation() {
         .expect("source file policy")
         .delete_file_a = Some(Kernel32DeleteFileAPolicy {
         missing_file_only: true,
+        allow_writable_profile_file: true,
     });
     policy.validate().expect("valid DeleteFileA policy");
     let endpoint = endpoint(38, "DeleteFileA");
@@ -229,7 +231,6 @@ fn delete_file_a_projects_only_missing_vfs_failures_without_mutation() {
 
     for (index, expected_code) in [
         (2_usize, "delete-file-a-existing-file-unsupported"),
-        (3, "delete-file-a-existing-file-unsupported"),
         (4, "delete-file-a-directory-unsupported"),
         (5, "delete-file-a-path-unsupported"),
     ] {
@@ -252,6 +253,81 @@ fn delete_file_a_projects_only_missing_vfs_failures_without_mutation() {
         );
         assert_eq!(runtime, before);
     }
+
+    runtime.set_current_last_error(0x5566_7788).unwrap();
+    let failed_delete = expect_deferred(dispatch(
+        &dispatcher,
+        &endpoint,
+        MEMORY_BASE.0 + 3 * 0x20,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    assert_eq!(
+        decode_words(&failed_delete.request.payload),
+        vec![1, 21, 1, 0]
+    );
+    assert!(runtime.writable_profile().unwrap().files[&21].exists);
+    let (failed, failed_completion) = complete_kernel32_writable_delete(
+        &dispatcher,
+        failed_delete,
+        RuntimeWritableCommitHostResponse {
+            request_id: 1,
+            object_id: 21,
+            base_generation: 1,
+            committed_generation: 1,
+            win32_error: 29,
+        },
+        &mut ExecutionSession::new(&mut memory, &mut runtime),
+    );
+    let failed = expect_immediate(failed);
+    assert_eq!(failed.eax, RegisterUpdate::Set(0));
+    assert_eq!(failed.last_error, 29);
+    assert!(
+        !failed_completion
+            .expect("failed delete completion")
+            .succeeded
+    );
+    assert!(runtime.writable_profile().unwrap().files[&21].exists);
+    assert!(matches!(
+        runtime.pop_scheduler_event(),
+        Some(RuntimeSchedulerEvent::HostCompleted(_))
+    ));
+
+    runtime.set_current_last_error(0x1122_3344).unwrap();
+    let delete = expect_deferred(dispatch(
+        &dispatcher,
+        &endpoint,
+        MEMORY_BASE.0 + 3 * 0x20,
+        &policy,
+        &mut memory,
+        &mut runtime,
+    ));
+    let (deleted, completion) = complete_kernel32_writable_delete(
+        &dispatcher,
+        delete,
+        RuntimeWritableCommitHostResponse {
+            request_id: 2,
+            object_id: 21,
+            base_generation: 1,
+            committed_generation: 2,
+            win32_error: 0,
+        },
+        &mut ExecutionSession::new(&mut memory, &mut runtime),
+    );
+    let deleted = expect_immediate(deleted);
+    assert_eq!(deleted.eax, RegisterUpdate::Set(1));
+    assert_eq!(deleted.last_error, 0x1122_3344);
+    assert!(completion.expect("delete completion").succeeded);
+    let file = &runtime.writable_profile().unwrap().files[&21];
+    assert!(!file.exists);
+    assert_eq!(file.generation, 0);
+    assert_eq!(file.byte_length, 0);
+    assert_eq!(file.sha256, None);
+    assert!(matches!(
+        runtime.pop_scheduler_event(),
+        Some(RuntimeSchedulerEvent::HostCompleted(_))
+    ));
 
     let before_null = runtime.clone();
     assert!(matches!(
