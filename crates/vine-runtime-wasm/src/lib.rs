@@ -71,9 +71,9 @@ const MAPPING_FIXTURE_STAGE_COUNT: u32 = 7;
 const FIXTURE_MAX_PHYSICAL_PAGES: usize = 16;
 const BGI_SHA256: &str = "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1";
 const BGI_LOAD_BASE: GuestAddress = GuestAddress(0x1000_0000);
-// Route continuation reaches a 291 MiB live set before committing a 42 MiB
-// decode buffer. Keep a bounded 376 MiB working set within the mirror cap.
-const BGI_MAX_PHYSICAL_PAGES: usize = 94 * 1024;
+// Route continuation reaches the 376 MiB ceiling with two lazy large-heap
+// buffers live. Keep a bounded 448 MiB working set within the mirror cap.
+const BGI_MAX_PHYSICAL_PAGES: usize = 112 * 1024;
 const BGI_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 const FAST_DISPATCH_RECORD_VERSION: u32 = 1;
 const FAST_DISPATCH_RECORD_WORDS: usize = 30;

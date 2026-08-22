@@ -10,27 +10,28 @@ This section is generated from [`docs/current-checkpoint.json`](docs/current-che
 | Area | Current state |
 |---|---|
 | Active target | Sakura no Uta `BGI.exe` (PE32/i386) in Chrome |
-| Active milestone | `primary-representative-flow`: A bounded real scenario covers launch, readable rendering, multiple inputs, audio, a scene transition, persistent state, restart, and restore without an unsupported stop |
-| Last completed boundary | `primary-readable-dialogue-flow`: Release Chrome rendered the complete title including Config and Exit, consumed Start and 16 subsequent scenario clicks through the authoritative input path, crossed the intro transition, and rendered a readable background scene, dialogue UI, and Japanese dialogue while streaming non-zero PCM and leaving source files unchanged |
-| Current forward stop | `readable-dialogue-after-scenario-pointer-campaign` / `none-within-bounded-forward-run`: The release Chrome run reached 348 Presents, completed all 18 configured pointer actions, rendered readable Japanese dialogue after the background-scene transition, passed the reached 80x40 font and browser-backed CP932 TextOutA path, and stopped only at the 36-billion-instruction development watchdog with no unsupported endpoint, semantic fault, pending callback, or pending host request |
-| Next development goal | Measure and remove the remaining DirectSound streaming repeat caused by guest ring-buffer updates falling behind the browser playback cursor, then extend the bounded scenario from readable dialogue to the first in-story save/load gateway |
+| Active milestone | `primary-first-route-ending`: A complete route reaches an ending with readable rendering, responsive choices, sustained audio, save/load resume, and no unsupported stop |
+| Last completed boundary | `primary-first-route-choice`: Release Chrome restored an 80,589-byte title-local Q.Save into the first route-choice input wait, consumed exactly one authoritative Enter down/up activation, and produced a deterministic visible response; the matched no-Enter and Enter A/B runs ended on distinct frame hashes with no unsupported endpoint, pending work, WebGL error, or source mutation |
+| Current forward stop | `post-first-route-choice-visible-response` / `none-within-bounded-forward-run`: A .work-only choice snapshot reduced the replay from 567 seconds to 188 seconds; matched 45-second A/B runs reached frame SHA-256 14485586aa9fd6a4cf0f16cd6e5f8bddcb403d7cdbb2a0c6803460560e2e1575 without Enter and 6940bfdd33cfdad1821c100c188cd8b9fdbd64f4744c8bde97b642bd0ab65437 after one Enter activation, then stopped only at the bounded cancellation with no unsupported endpoint, pending callback, pending host request, WebGL error, or source mutation |
+| Next development goal | Capture a post-choice .work-only Q.Save, resume the selected branch from that bounded snapshot, and continue to the next route choice, first ending, or next real unsupported stop |
 
 ### Subsystems
 
 | Subsystem | Status | Boundary |
 |---|---|---|
-| `execution` | `partial` | PE32 loading, JIT-enabled x86 execution, checked GuestMemory synchronization, process/thread scheduling, callbacks, and generic forward capture are active; mirror host-delta preflight and guest reads use bounded indexes without weakening atomic validation |
-| `window-input` | `partial` | Logical window, message queue, timers, focus/cursor state, keyboard scan, and primary down/up dispatch are active; Start and all 16 centered post-title clicks in the current campaign are guest-consumed and visibly presented |
-| `graphics` | `partial` | GDI/GDI+ reached paths and bounded D3D9 fixed-function scenes publish through WebGL2; owner-validated browser-backed CP932 TextOutA rasterization and the reached 80x40 MS Gothic metrics render the complete title, intro poem, background scene, dialogue UI, and readable Japanese dialogue |
-| `source-storage` | `partial` | Immutable source reads and a title-local forward.sqlite overlay are separated; BGI.gdb commit generation and content survive browser/local-service restart and are hash-checked before Rust hydration |
-| `audio` | `partial` | Reached DirectSound streaming buffers, partial and wrapping Lock/Unlock, captured notification waits, status/cursor control, and Play/Stop publish non-zero primary PCM through generation-safe Chrome Web Audio transport; overlapping waits now rebase from Rust authority without a false payload fault |
+| `execution` | `partial` | PE32 loading, JIT-enabled x86 execution, checked GuestMemory synchronization, process/thread scheduling, callbacks, and generic forward capture sustain the first-choice boundary; the measured two-buffer route live set remains bounded to 448 MiB within a 512 MiB execution-mirror cap |
+| `window-input` | `partial` | Logical window, message queue, timers, focus/cursor state, keyboard scan, primary down/up dispatch, and native double-click generation are active; title and Load controls consume authoritative pointer messages, while one authoritative Enter down/up produces the accepted first-choice visible response |
+| `graphics` | `partial` | GDI/GDI+ reached paths and bounded D3D9 fixed-function scenes publish through WebGL2; the first-choice no-Enter and Enter A/B runs end on distinct deterministic frames with WebGL error zero |
+| `source-storage` | `partial` | Immutable source reads and a title-local SQLite overlay remain separated; an 80,589-byte Q.Save is hash-preserved into .work slot 004 and restores the first-choice wait, while the executable and source assets remain unchanged |
+| `audio` | `partial` | Reached DirectSound streaming buffers support concurrent non-overlapping partial and wrapping Lock/Unlock, captured notification waits, cursor/status/control, and Play/Stop through generation-safe Chrome Web Audio transport; multiple non-zero looping and one-shot playbacks span the representative flow |
 
 ### Important Non-Claims
 
-- The first background scene, dialogue UI, and Japanese dialogue are readable after 16 scenario clicks, but the representative flow through an in-story save/load boundary is not yet accepted
-- The persistence milestone covers the reached title-local BGI.gdb configuration overlay; an in-story save-slot and Load-menu roundtrip are not yet claimed
-- Primary audio progresses and content updates are observed, but the reported two-to-three-repeat cadence, format breadth, suspend/resume behavior, and long-run streaming stability are not yet accepted
-- No representative route, ending, or long-run acceptance is claimed
+- Only the first default route-choice activation is accepted; alternate options and later choices are not yet accepted
+- The current route snapshot is .work-only and covers one 80,589-byte Q.Save with SHA-256 cea28d54adc3c9f56a0cbc7bfe9e4bd39ee1a3a5f6b90c1394a179acf63a6223 restored through slot 004
+- The measured route live set is bounded to 448 MiB; later-route peak memory and long-run reclamation are not yet accepted
+- Primary audio spans the representative flow, but format breadth, suspend/resume behavior, and long-run streaming stability are not yet accepted
+- No complete route, ending, alternate route, or long-run acceptance is claimed
 - Historical per-API capability profiles are frozen and are not the active development queue
 
 ### Commands
