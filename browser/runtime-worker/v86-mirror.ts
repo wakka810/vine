@@ -31,7 +31,7 @@ const dirtyPageCandidateCapacity = 16 * 1024;
 const jitTableOffset = 1_024;
 const jitTableSize = 900;
 const initialPhysicalPoolBytes = 64 * 1024;
-// The BGI runtime currently permits a bounded 448 MiB live guest set. Leave
+// The BGI runtime currently permits a bounded 480 MiB live guest set. Leave
 // room for its page directory/tables while retaining an explicit mirror cap.
 const hardMaximumPhysicalPoolBytes = 512 * 1024 * 1024;
 const excludedPhysicalRanges = [{ start: 0x000a_0000, end: 0x000c_0000 }] as const;

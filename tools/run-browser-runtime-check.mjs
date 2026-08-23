@@ -752,8 +752,8 @@ function parseForwardPointerOverrides(value) {
     const normalizedX = Number(match[2]);
     const normalizedY = Number(match[3]);
     assert(
-      Number.isSafeInteger(action) && action > 0,
-      "forward pointer override action must be a positive integer",
+      Number.isSafeInteger(action) && action >= 0,
+      "forward pointer override action must be zero for the scenario default or a positive integer",
     );
     assert(
       Number.isInteger(normalizedX) && normalizedX >= 0 && normalizedX <= 0xffff,

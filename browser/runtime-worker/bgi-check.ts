@@ -339,18 +339,22 @@ const forwardStartupKeyboardActivationCount = 0;
 // Keep advancing dialogue for the whole bounded forward run. The event and
 // semantic reports are independently ring-bounded, so this is only a safety
 // ceiling and not a checkpoint endpoint.
-const forwardScenarioPointerActionCount = 512;
+const forwardScenarioPointerActionCount = 4_096;
+const forwardScenarioPointerCoordinates = forwardPointerOverrides.get(0) ?? {
+  normalizedX: 0x8000,
+  normalizedY: 0x8000,
+};
 const defaultForwardPointerActions = [
   { normalizedX: 0x3a1a, normalizedY: 0xcfd2 },
   // Native title trace: client (276, 592) after moving onto Start.
   { normalizedX: 0x374d, normalizedY: 0xd2a2 },
-  // The scenario action binding uses the primary pointer button. Advance from
-  // the center of the viewport so the development campaign does not target a
-  // title/menu control that may remain under the cursor during a transition.
-  ...Array.from({ length: forwardScenarioPointerActionCount }, () => ({
-    normalizedX: 0x8000,
-    normalizedY: 0x8000,
-  })),
+  // The scenario action binding uses the primary pointer button. Default to
+  // the viewport center; action-zero configuration can select a measured safe
+  // scenario point without repeating it for the whole campaign.
+  ...Array.from(
+    { length: forwardScenarioPointerActionCount },
+    () => forwardScenarioPointerCoordinates,
+  ),
 ] as const;
 const forwardPointerActions = defaultForwardPointerActions.map(
   (coordinates, index) => forwardPointerOverrides.get(index + 1) ?? coordinates,
@@ -1106,9 +1110,9 @@ function parseForwardPointerOverrides(
     const action = Number(match[1]);
     const normalizedX = Number(match[2]);
     const normalizedY = Number(match[3]);
-    if (!Number.isSafeInteger(action) || action <= 0) {
+    if (!Number.isSafeInteger(action) || action < 0) {
       throw new Error(
-        "forwardPointerOverrides action must be a positive integer",
+        "forwardPointerOverrides action must be zero for the scenario default or a positive integer",
       );
     }
     if (
