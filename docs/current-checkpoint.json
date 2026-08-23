@@ -14,16 +14,16 @@
     "exitCondition": "A complete route reaches an ending with readable rendering, responsive choices, sustained audio, save/load resume, and no unsupported stop"
   },
   "lastCompletedBoundary": {
-    "id": "primary-post-choice-qsave-restart-qload",
-    "summary": "Release Chrome created an 86,341-byte title-local Q.Save in slot 102, restarted with that exact hash hydrated, and consumed the authoritative Q.Load press/release plus the following pointer press/release; no unsupported endpoint, semantic fault, WebGL error, or source mutation was observed"
+    "id": "primary-post-qload-visible-progression",
+    "summary": "Release Chrome hydrated the exact 86,341-byte Q.Save from slot 102, crossed Q.Load, resumed visible presentation, and completed post-load pointer actions through action 20 on a distinct final frame; no unsupported endpoint, semantic fault, WebGL error, pending host work, or source mutation was observed"
   },
   "currentForwardStop": {
     "kind": "development-budget",
-    "classification": "post-qload-input-consumed-awaiting-presentation",
+    "classification": "post-qload-visible-progression-action-20",
     "endpoint": "none-within-bounded-forward-run",
-    "reason": "The restarted run hydrated slot 102 at generation 1 with SHA-256 b28d66fe43e8920fb56a3907498c6125a5495267bf7d8fc9af88aa97450c8a70 and consumed Q.Load plus the next pointer input, then produced no further Present before the 500-second watchdog; the only stop was forward-run-budget-exhausted with a null endpoint and no semantic fault"
+    "reason": "The restarted release run hydrated slot 102 at generation 1 with SHA-256 b28d66fe43e8920fb56a3907498c6125a5495267bf7d8fc9af88aa97450c8a70, crossed Q.Load, produced 126 Presents, completed pointer action 20, and stopped intentionally after a 20-second settle with a null endpoint, no semantic fault, and no pending host work"
   },
-  "nextDevelopmentGoal": "Resolve the post-Q.Load no-Present wait, then continue from the hydrated checkpoint to the next route choice, first ending, or next real unsupported stop",
+  "nextDevelopmentGoal": "Continue the validated post-Q.Load input path beyond action 20 to the next route choice, first ending, or next real unsupported stop",
   "supportedSubsystems": [
     {
       "id": "execution",
@@ -33,7 +33,7 @@
     {
       "id": "window-input",
       "status": "partial",
-      "summary": "Logical window, message queue, timers, focus/cursor state, keyboard scan, primary down/up dispatch, and native double-click generation are active; Q.Save and Q.Load controls consume authoritative pointer messages, and the restarted run also consumed the first post-load pointer input"
+      "summary": "Logical window, message queue, timers, focus/cursor state, keyboard scan, primary down/up dispatch, and native double-click generation are active; Q.Save and Q.Load controls consume authoritative pointer messages, and the restarted run completed visible post-load input through action 20"
     },
     {
       "id": "graphics",
@@ -53,7 +53,7 @@
   ],
   "importantNonClaims": [
     "Only the first default route-choice activation is accepted; alternate options and later choices are not yet accepted",
-    "The post-choice checkpoint is .work-only and covers one 86,341-byte Q.Save with SHA-256 b28d66fe43e8920fb56a3907498c6125a5495267bf7d8fc9af88aa97450c8a70 restored through slot 102; a post-Q.Load Present is not yet accepted",
+    "The post-choice checkpoint is .work-only and covers one 86,341-byte Q.Save with SHA-256 b28d66fe43e8920fb56a3907498c6125a5495267bf7d8fc9af88aa97450c8a70 restored through slot 102; visible post-Q.Load input is accepted only through action 20",
     "The measured route live set is bounded to 448 MiB; later-route peak memory and long-run reclamation are not yet accepted",
     "Primary audio spans the representative flow, but format breadth, suspend/resume behavior, and long-run streaming stability are not yet accepted",
     "No complete route, ending, alternate route, or long-run acceptance is claimed",
@@ -86,6 +86,7 @@
     ".work/target-forward/route-choice-short-no-enter-report.json",
     ".work/target-forward/route-choice-short-enter-report.json",
     ".work/target-forward/post-choice-qsave-report.json",
-    ".work/target-forward/post-choice-qload-watchdog-report.json"
+    ".work/target-forward/post-choice-qload-watchdog-report.json",
+    ".work/target-forward/post-qload-valid-point-action20-report.json"
   ]
 }

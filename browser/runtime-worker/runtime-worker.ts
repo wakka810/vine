@@ -29040,6 +29040,11 @@ class BrowserRuntimeSession {
       );
       this.#forwardPointerButtonCallbackFrameId = null;
       this.#forwardPointerButtonMessage = null;
+      if (tracked.phase === "press") {
+        // A newer action means the producer accepted the prior static surface
+        // without a frame; only the current action can still be presented.
+        this.#forwardPointerButtonAwaitingPresent.length = 0;
+      }
       invariant(
         this.#forwardPointerButtonAwaitingPresent.length < 4,
         "forward pointer presentation queue exceeded its bound",
