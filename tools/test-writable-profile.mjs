@@ -465,6 +465,56 @@ try {
   );
   profile.close();
 
+  const titleCatalogFiles = [
+    { objectId: 1, relativePathA: Buffer.from("BGI.gdb", "ascii") },
+    ...Array.from({ length: 103 }, (_, slot) => ({
+      objectId: slot + 2,
+      relativePathA: Buffer.from(
+        `UserData\\Sakuranouta${String(slot).padStart(3, "0")}.sud`,
+        "ascii",
+      ),
+    })),
+  ];
+  const titleCatalogProfile = openWritableProfile({
+    ...configuration,
+    databasePath: path.join(temporaryDirectory, "title-save-catalog.sqlite"),
+    files: titleCatalogFiles,
+    directories: [
+      {
+        directoryId: 1,
+        relativePathA: Buffer.from("UserData", "ascii"),
+        seedExists: true,
+      },
+    ],
+  });
+  const titleCatalogSnapshot = snapshotWritableProfile(titleCatalogProfile);
+  assert.equal(titleCatalogSnapshot.files.length, 104);
+  assert.equal(
+    Buffer.from(titleCatalogSnapshot.files.at(-1).relativePathA).toString("ascii"),
+    "UserData\\Sakuranouta102.sud",
+  );
+  assert.deepEqual(titleCatalogSnapshot.directories, [
+    {
+      directoryId: 1,
+      relativePathA: [...Buffer.from("UserData", "ascii")],
+      exists: true,
+      generation: 1,
+    },
+  ]);
+  titleCatalogProfile.close();
+  assert.throws(
+    () =>
+      openWritableProfile({
+        ...configuration,
+        databasePath: path.join(temporaryDirectory, "oversized-catalog.sqlite"),
+        files: Array.from({ length: 129 }, (_, index) => ({
+          objectId: index + 1,
+          relativePathA: Buffer.from(`save-${index}.dat`, "ascii"),
+        })),
+      }),
+    { code: "writable-profile-files-invalid" },
+  );
+
   const failureProfile = openWritableProfile({
     ...configuration,
     databasePath: path.join(temporaryDirectory, "failure-profile.sqlite"),

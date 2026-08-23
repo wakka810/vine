@@ -49,6 +49,51 @@ const forwardMode = process.argv.includes("--forward");
 const forwardTitleObserve = process.argv.includes("--forward-title-observe");
 const interpreterMode = process.argv.includes("--interpreter");
 const forwardStopOption = optionValue("--forward-stop");
+const forwardPointerOverridesOption = optionValue(
+  "--forward-pointer-overrides",
+);
+const forwardPointerOverrides = parseForwardPointerOverrides(
+  forwardPointerOverridesOption,
+);
+const forwardPointerHoldOverridesOption = optionValue(
+  "--forward-pointer-hold-overrides",
+);
+const forwardPointerHoldOverrides = parseForwardPointerHoldOverrides(
+  forwardPointerHoldOverridesOption,
+);
+const forwardPointerStaticActionsOption = optionValue(
+  "--forward-pointer-static-actions",
+);
+const forwardPointerStaticActions = parseForwardPointerStaticActions(
+  forwardPointerStaticActionsOption,
+);
+const forwardEnterAfterPointerActionOption = optionValue(
+  "--forward-enter-after-pointer-action",
+);
+const forwardEnterAfterPointerAction =
+  forwardEnterAfterPointerActionOption === null
+    ? null
+    : Number(forwardEnterAfterPointerActionOption);
+const forwardHoldControlAfterPointerActionOption = optionValue(
+  "--forward-hold-control-after-pointer-action",
+);
+const forwardHoldControlAfterPointerAction =
+  forwardHoldControlAfterPointerActionOption === null
+    ? null
+    : Number(forwardHoldControlAfterPointerActionOption);
+const forwardHoldControlMillisecondsOption = optionValue(
+  "--forward-hold-control-milliseconds",
+);
+const forwardHoldControlMilliseconds =
+  forwardHoldControlMillisecondsOption === null
+    ? null
+    : Number(forwardHoldControlMillisecondsOption);
+const forwardStopSettleMillisecondsOption = optionValue(
+  "--forward-stop-settle-milliseconds",
+);
+const forwardStopSettleMilliseconds = Number(
+  forwardStopSettleMillisecondsOption ?? 10_000,
+);
 const forwardSecondsOption = optionValue("--forward-seconds");
 const forwardSeconds = Number(forwardSecondsOption ?? 540);
 const forwardProfileSlotOption = optionValue("--forward-profile-slot");
@@ -119,16 +164,104 @@ assert(
 assert(
   forwardStopOption === null ||
     forwardStopOption === "title-action" ||
-    forwardStopOption === "looping-audio-update",
-  "--forward-stop must be title-action or looping-audio-update",
+    forwardStopOption === "looping-audio-update" ||
+    /^pointer-action:[1-9][0-9]*$/u.test(forwardStopOption),
+  "--forward-stop must be title-action, looping-audio-update, or pointer-action:N",
+);
+assert(
+  forwardPointerOverridesOption === null || forwardMode,
+  "--forward-pointer-overrides requires forward mode",
+);
+assert(
+  forwardPointerHoldOverridesOption === null || forwardMode,
+  "--forward-pointer-hold-overrides requires forward mode",
+);
+assert(
+  forwardPointerStaticActionsOption === null || forwardMode,
+  "--forward-pointer-static-actions requires forward mode",
+);
+assert(
+  forwardEnterAfterPointerActionOption === null || forwardMode,
+  "--forward-enter-after-pointer-action requires forward mode",
+);
+assert(
+  forwardEnterAfterPointerAction === null ||
+    (Number.isSafeInteger(forwardEnterAfterPointerAction) &&
+      forwardEnterAfterPointerAction > 0),
+  "--forward-enter-after-pointer-action requires a positive integer",
+);
+assert(
+  forwardEnterAfterPointerAction === null ||
+    forwardStopOption === `pointer-action:${forwardEnterAfterPointerAction}` ||
+    (forwardHoldControlMilliseconds !== null &&
+      forwardEnterAfterPointerAction === forwardHoldControlAfterPointerAction &&
+      /^pointer-action:[1-9][0-9]*$/u.test(forwardStopOption ?? "") &&
+      forwardEnterAfterPointerAction <
+        Number(forwardStopOption?.slice("pointer-action:".length))),
+  "--forward-enter-after-pointer-action must match the terminal stop or precede it with a finite Control hold",
+);
+assert(
+  forwardHoldControlAfterPointerActionOption === null || forwardMode,
+  "--forward-hold-control-after-pointer-action requires forward mode",
+);
+assert(
+  forwardHoldControlAfterPointerAction === null ||
+    (Number.isSafeInteger(forwardHoldControlAfterPointerAction) &&
+      forwardHoldControlAfterPointerAction > 0),
+  "--forward-hold-control-after-pointer-action requires a positive integer",
+);
+assert(
+  forwardHoldControlAfterPointerAction === null ||
+    (forwardHoldControlMilliseconds === null
+      ? forwardStopOption === `pointer-action:${forwardHoldControlAfterPointerAction}`
+      : /^pointer-action:[1-9][0-9]*$/u.test(forwardStopOption ?? "") &&
+        forwardHoldControlAfterPointerAction <=
+          Number(forwardStopOption?.slice("pointer-action:".length))),
+  "--forward-hold-control-after-pointer-action must match the terminal stop or precede it when a hold duration is set",
+);
+assert(
+  forwardHoldControlMillisecondsOption === null || forwardMode,
+  "--forward-hold-control-milliseconds requires forward mode",
+);
+assert(
+  forwardHoldControlMilliseconds === null ||
+    (Number.isSafeInteger(forwardHoldControlMilliseconds) &&
+      forwardHoldControlMilliseconds > 0 &&
+      forwardHoldControlMilliseconds <= 600_000),
+  "--forward-hold-control-milliseconds requires an integer from 1 through 600000",
+);
+assert(
+  forwardHoldControlMilliseconds === null ||
+    forwardHoldControlAfterPointerAction !== null,
+  "--forward-hold-control-milliseconds requires --forward-hold-control-after-pointer-action",
+);
+assert(
+  forwardEnterAfterPointerAction === null ||
+    forwardHoldControlAfterPointerAction === null ||
+    forwardHoldControlMilliseconds !== null,
+  "combined forward Enter and Control activation requires a finite Control hold",
+);
+assert(
+  forwardStopSettleMillisecondsOption === null || forwardMode,
+  "--forward-stop-settle-milliseconds requires forward mode",
+);
+assert(
+  Number.isSafeInteger(forwardStopSettleMilliseconds) &&
+    forwardStopSettleMilliseconds >= 0 &&
+    forwardStopSettleMilliseconds <= 600_000,
+  "--forward-stop-settle-milliseconds requires an integer from 0 through 600000",
+);
+assert(
+  forwardStopSettleMillisecondsOption === null || forwardStopOption !== null,
+  "--forward-stop-settle-milliseconds requires --forward-stop",
 );
 assert(
   forwardSecondsOption === null || forwardMode,
   "--forward-seconds requires forward mode",
 );
 assert(
-  Number.isInteger(forwardSeconds) && forwardSeconds >= 1 && forwardSeconds <= 540,
-  "--forward-seconds must be an integer from 1 through 540",
+  Number.isInteger(forwardSeconds) && forwardSeconds >= 1 && forwardSeconds <= 600,
+  "--forward-seconds must be an integer from 1 through 600",
 );
 assert(
   !process.argv.includes("--forward-profile-slot") ||
@@ -564,6 +697,7 @@ const bgiPolicyPath = path.resolve(
     checkpoint.activeRuntimeCheckpoint.kernel32CompatibilityPolicy.source,
 );
 const bgiGdbPath = path.join(path.dirname(bgiPath), "BGI.gdb");
+const bgiUserDataPath = path.join(path.dirname(bgiPath), "UserData");
 const sourceManifestPath = path.join(
   root,
   "fixtures",
@@ -601,6 +735,106 @@ const browserPerformanceEnvironmentPolicyPath = path.join(
 function optionValue(name) {
   const index = process.argv.indexOf(name);
   return index < 0 ? null : (process.argv[index + 1] ?? null);
+}
+
+function parseForwardPointerOverrides(value) {
+  if (value === null) {
+    return [];
+  }
+  assert(value.length > 0, "--forward-pointer-overrides requires a value");
+  const overrides = value.split(",").map((entry) => {
+    const match = /^(\d+):(\d+):(\d+)$/u.exec(entry);
+    assert(
+      match !== null,
+      "--forward-pointer-overrides entries must be action:normalized-x:normalized-y",
+    );
+    const action = Number(match[1]);
+    const normalizedX = Number(match[2]);
+    const normalizedY = Number(match[3]);
+    assert(
+      Number.isSafeInteger(action) && action > 0,
+      "forward pointer override action must be a positive integer",
+    );
+    assert(
+      Number.isInteger(normalizedX) && normalizedX >= 0 && normalizedX <= 0xffff,
+      "forward pointer override normalized x must be from 0 through 65535",
+    );
+    assert(
+      Number.isInteger(normalizedY) && normalizedY >= 0 && normalizedY <= 0xffff,
+      "forward pointer override normalized y must be from 0 through 65535",
+    );
+    return { action, normalizedX, normalizedY };
+  });
+  assert.equal(
+    new Set(overrides.map(({ action }) => action)).size,
+    overrides.length,
+    "forward pointer override actions must be unique",
+  );
+  return overrides;
+}
+
+function parseForwardPointerHoldOverrides(value) {
+  if (value === null) {
+    return [];
+  }
+  assert(
+    value.length > 0,
+    "--forward-pointer-hold-overrides requires a value",
+  );
+  const overrides = value.split(",").map((entry) => {
+    const match = /^(\d+):(\d+)$/u.exec(entry);
+    assert(
+      match !== null,
+      "--forward-pointer-hold-overrides entries must be action:milliseconds",
+    );
+    const action = Number(match[1]);
+    const milliseconds = Number(match[2]);
+    assert(
+      Number.isSafeInteger(action) && action > 0,
+      "forward pointer hold override action must be a positive integer",
+    );
+    assert(
+      Number.isInteger(milliseconds) &&
+        milliseconds >= 1 &&
+        milliseconds <= 60_000,
+      "forward pointer hold override must be from 1 through 60000 milliseconds",
+    );
+    return { action, milliseconds };
+  });
+  assert.equal(
+    new Set(overrides.map(({ action }) => action)).size,
+    overrides.length,
+    "forward pointer hold override actions must be unique",
+  );
+  return overrides;
+}
+
+function parseForwardPointerStaticActions(value) {
+  if (value === null) {
+    return [];
+  }
+  assert(
+    value.length > 0,
+    "--forward-pointer-static-actions requires a value",
+  );
+  const actions = value.split(",").map((entry) => {
+    assert(
+      /^(?:0|[1-9]\d*)$/u.test(entry),
+      "--forward-pointer-static-actions entries must be positive action numbers",
+    );
+    const action = Number(entry);
+    assert(
+      Number.isSafeInteger(action) && action > 0,
+      "forward pointer static action must be a positive integer",
+    );
+    return action;
+  });
+  assert.equal(
+    new Set(actions).size,
+    actions.length,
+    "forward pointer static actions must be unique",
+  );
+  return actions;
 }
 
 function wait(milliseconds) {
@@ -5992,7 +6226,7 @@ function validateCreateFontA224x112BgiProbe(evidence, scenario) {
 }
 
 async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
-  const targetUrl = `${baseUrl}bgi-check.html?scenario=${scenario}${forwardMode ? "" : `&profile=${encodeURIComponent(bgiProfile)}`}${fullEvidence ? "&evidence=full" : ""}${forwardMode ? `&development=forward&forwardSeconds=${forwardSeconds}` : ""}${forwardTitleObserve ? "&forwardInput=title-observe" : ""}${forwardStopOption === null ? "" : `&forwardStop=${encodeURIComponent(forwardStopOption)}`}${interpreterMode ? "&engine=interpreter" : ""}`;
+  const targetUrl = `${baseUrl}bgi-check.html?scenario=${scenario}${forwardMode ? "" : `&profile=${encodeURIComponent(bgiProfile)}`}${fullEvidence ? "&evidence=full" : ""}${forwardMode ? `&development=forward&forwardSeconds=${forwardSeconds}` : ""}${forwardTitleObserve ? "&forwardInput=title-observe" : ""}${forwardStopOption === null ? "" : `&forwardStop=${encodeURIComponent(forwardStopOption)}`}${forwardPointerOverridesOption === null ? "" : `&forwardPointerOverrides=${encodeURIComponent(forwardPointerOverridesOption)}`}${forwardPointerHoldOverridesOption === null ? "" : `&forwardPointerHoldOverrides=${encodeURIComponent(forwardPointerHoldOverridesOption)}`}${forwardPointerStaticActionsOption === null ? "" : `&forwardPointerStaticActions=${encodeURIComponent(forwardPointerStaticActionsOption)}`}${forwardEnterAfterPointerActionOption === null ? "" : `&forwardEnterAfterPointerAction=${encodeURIComponent(forwardEnterAfterPointerActionOption)}`}${forwardHoldControlAfterPointerActionOption === null ? "" : `&forwardHoldControlAfterPointerAction=${encodeURIComponent(forwardHoldControlAfterPointerActionOption)}`}${forwardHoldControlMillisecondsOption === null ? "" : `&forwardHoldControlMilliseconds=${encodeURIComponent(forwardHoldControlMillisecondsOption)}`}${forwardStopSettleMillisecondsOption === null ? "" : `&forwardStopSettleMilliseconds=${encodeURIComponent(forwardStopSettleMillisecondsOption)}`}${interpreterMode ? "&engine=interpreter" : ""}`;
   const target = await createDebugTarget(
     browserWebSocketUrl,
     bgiCpuProfile && forwardMode ? "about:blank" : targetUrl,
@@ -20654,8 +20888,8 @@ const writableProfile = bgiMode
         writableProfileRunDirectory ?? writableProfileBaseDirectory,
         forwardMode
           ? forwardProfileSlot === "default"
-            ? "forward.sqlite"
-            : `forward-${forwardProfileSlot}.sqlite`
+            ? "forward-save-catalog-v2.sqlite"
+            : `forward-save-catalog-v2-${forwardProfileSlot}.sqlite`
           : "default.sqlite",
       ),
       titleFingerprint:
@@ -20669,12 +20903,24 @@ const writableProfile = bgiMode
           relativePathA: Buffer.from("BGI.gdb", "ascii"),
           ...(bgiGdbBefore === null ? {} : { seedBytes: bgiGdbBefore }),
         },
+        ...(forwardMode
+          ? Array.from({ length: 103 }, (_, slot) => ({
+              objectId: slot + 2,
+              relativePathA: Buffer.from(
+                `UserData\\Sakuranouta${String(slot).padStart(3, "0")}.sud`,
+                "ascii",
+              ),
+            }))
+          : []),
       ],
       directories: forwardMode || createDirectoryAProfile
         ? [
             {
               directoryId: 1,
               relativePathA: Buffer.from("UserData", "ascii"),
+              ...(forwardMode && fs.existsSync(bgiUserDataPath)
+                ? { seedExists: true }
+                : {}),
             },
           ]
         : [],
@@ -20786,9 +21032,16 @@ if (serveOnly) {
             forwardSeconds === 540 &&
             !interpreterMode &&
             forwardStopOption === null &&
+            forwardPointerOverrides.length === 0 &&
+            forwardPointerHoldOverrides.length === 0 &&
+            forwardPointerStaticActions.length === 0 &&
+            forwardEnterAfterPointerAction === null &&
+            forwardHoldControlAfterPointerAction === null &&
+            forwardHoldControlMilliseconds === null &&
+            forwardStopSettleMillisecondsOption === null &&
             forwardProfileSlot === "default"
               ? currentState.commands.forward
-              : `npm run run:target:forward:prepared -- --forward-seconds ${forwardSeconds}${forwardTitleObserve ? " --forward-title-observe" : ""}${forwardStopOption === null ? "" : ` --forward-stop ${forwardStopOption}`}${interpreterMode ? " --interpreter" : ""}${forwardProfileSlot === "default" ? "" : ` --forward-profile-slot ${forwardProfileSlot}`}`,
+              : `npm run run:target:forward:prepared -- --forward-seconds ${forwardSeconds}${forwardTitleObserve ? " --forward-title-observe" : ""}${forwardStopOption === null ? "" : ` --forward-stop ${forwardStopOption}`}${forwardPointerOverridesOption === null ? "" : ` --forward-pointer-overrides ${forwardPointerOverridesOption}`}${forwardPointerHoldOverridesOption === null ? "" : ` --forward-pointer-hold-overrides ${forwardPointerHoldOverridesOption}`}${forwardPointerStaticActionsOption === null ? "" : ` --forward-pointer-static-actions ${forwardPointerStaticActionsOption}`}${forwardEnterAfterPointerActionOption === null ? "" : ` --forward-enter-after-pointer-action ${forwardEnterAfterPointerActionOption}`}${forwardHoldControlAfterPointerActionOption === null ? "" : ` --forward-hold-control-after-pointer-action ${forwardHoldControlAfterPointerActionOption}`}${forwardHoldControlMillisecondsOption === null ? "" : ` --forward-hold-control-milliseconds ${forwardHoldControlMillisecondsOption}`}${forwardStopSettleMillisecondsOption === null ? "" : ` --forward-stop-settle-milliseconds ${forwardStopSettleMillisecondsOption}`}${interpreterMode ? " --interpreter" : ""}${forwardProfileSlot === "default" ? "" : ` --forward-profile-slot ${forwardProfileSlot}`}`,
           mode: interpreterMode
             ? "release-chrome-forward-interpreter-diagnostic"
             : "release-chrome-forward",
@@ -20821,7 +21074,12 @@ if (serveOnly) {
             latest: forward.latestPresentation,
             finalFrame: success.finalFrame,
           },
-          input: forward.input,
+          input: {
+            ...forward.input,
+            recentPointerMessages: session.pointerInput.receipts
+              .slice(-16)
+              .map((receipt) => receipt.message),
+          },
           audio: {
             eventCount: forward.audioEventCount,
             latestEvent: forward.latestAudioEvent,

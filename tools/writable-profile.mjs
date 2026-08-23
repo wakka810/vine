@@ -48,8 +48,8 @@ export function openWritableProfile({
     );
   }
   assertInteger(quotaBytes, "profile quota", 1, writableProfileMaximumBytes);
-  if (!Array.isArray(files) || files.length === 0 || files.length > 64) {
-    throw profileError("writable-profile-files-invalid", "profile requires 1..64 writable paths");
+  if (!Array.isArray(files) || files.length === 0 || files.length > 128) {
+    throw profileError("writable-profile-files-invalid", "profile requires 1..128 writable paths");
   }
   const normalizedFiles = files.map((file) => normalizeConfiguredFile(file));
   const objectIds = new Set(normalizedFiles.map((file) => file.objectId));
@@ -912,8 +912,14 @@ function initializeProfile(database, configuration) {
       const insertDirectory = database.prepare(
         "INSERT INTO writable_directory_paths(directory_id, relative_path_a) VALUES (?, ?)",
       );
+      const seedDirectory = database.prepare(
+        "INSERT INTO directories(directory_id, generation) VALUES (?, 1)",
+      );
       for (const directory of configuration.directories) {
         insertDirectory.run(directory.directoryId, directory.relativePathA);
+        if (directory.seedExists) {
+          seedDirectory.run(directory.directoryId);
+        }
       }
     } else {
       const previousSchemaVersion = metadata.schema_version;
@@ -1010,7 +1016,14 @@ function normalizeConfiguredDirectory(directory) {
       "writable directory relative path must be nonempty and NUL-free",
     );
   }
-  return { directoryId: directory.directoryId, relativePathA };
+  const seedExists = directory.seedExists ?? false;
+  if (typeof seedExists !== "boolean") {
+    throw profileError(
+      "writable-profile-directory-seed-invalid",
+      "writable directory seed existence must be boolean",
+    );
+  }
+  return { directoryId: directory.directoryId, relativePathA, seedExists };
 }
 
 function windowsPathIdentity(bytes) {

@@ -75,25 +75,73 @@ if (forwardInput !== null && forwardInput !== "title-observe") {
 const forwardInputMode =
   forwardInput === "title-observe" ? "title-observe" : "campaign";
 const forwardStop = searchParams.get("forwardStop");
+const forwardPointerStopMatch =
+  forwardStop === null
+    ? null
+    : /^pointer-action:([1-9][0-9]*)$/u.exec(forwardStop);
 if (
   forwardStop !== null &&
   forwardStop !== "title-action" &&
-  forwardStop !== "looping-audio-update"
+  forwardStop !== "looping-audio-update" &&
+  forwardPointerStopMatch === null
 ) {
   throw new Error(
-    "forwardStop must be title-action or looping-audio-update when specified",
+    "forwardStop must be title-action, looping-audio-update, or pointer-action:N when specified",
   );
 }
 const stopAfterForwardTitleAction = forwardStop === "title-action";
 const stopAfterForwardLoopingAudioUpdate =
   forwardStop === "looping-audio-update";
+const stopAfterForwardPointerAction =
+  forwardPointerStopMatch === null ? null : Number(forwardPointerStopMatch[1]);
+const forwardPointerOverrides = parseForwardPointerOverrides(
+  searchParams.get("forwardPointerOverrides"),
+);
+const forwardPointerHoldOverrides = parseForwardPointerHoldOverrides(
+  searchParams.get("forwardPointerHoldOverrides"),
+);
+const forwardPointerStaticActions = parseForwardPointerStaticActions(
+  searchParams.get("forwardPointerStaticActions"),
+);
+const forwardEnterAfterPointerAction = parseOptionalPositiveInteger(
+  searchParams.get("forwardEnterAfterPointerAction"),
+  "forwardEnterAfterPointerAction",
+);
+const forwardHoldControlAfterPointerAction = parseOptionalPositiveInteger(
+  searchParams.get("forwardHoldControlAfterPointerAction"),
+  "forwardHoldControlAfterPointerAction",
+);
+const forwardHoldControlMilliseconds = parseOptionalPositiveInteger(
+  searchParams.get("forwardHoldControlMilliseconds"),
+  "forwardHoldControlMilliseconds",
+);
+if (
+  forwardHoldControlMilliseconds !== null &&
+  forwardHoldControlMilliseconds > 600_000
+) {
+  throw new Error(
+    "forwardHoldControlMilliseconds must be from 1 through 600000",
+  );
+}
+const forwardStopSettleMilliseconds = Number(
+  searchParams.get("forwardStopSettleMilliseconds") ?? 10_000,
+);
+if (
+  !Number.isInteger(forwardStopSettleMilliseconds) ||
+  forwardStopSettleMilliseconds < 0 ||
+  forwardStopSettleMilliseconds > 600_000
+) {
+  throw new Error(
+    "forwardStopSettleMilliseconds must be an integer from 0 through 600000",
+  );
+}
 const forwardSeconds = Number(searchParams.get("forwardSeconds") ?? 540);
 if (
   !Number.isInteger(forwardSeconds) ||
   forwardSeconds < 1 ||
-  forwardSeconds > 540
+  forwardSeconds > 600
 ) {
-  throw new Error("forwardSeconds must be an integer from 1 through 540");
+  throw new Error("forwardSeconds must be an integer from 1 through 600");
 }
 const evidenceLevel =
   !forwardDevelopment && searchParams.get("evidence") === "full"
@@ -274,6 +322,7 @@ let forwardButtonDown = false;
 let forwardNextInputSequence = 1;
 let forwardKeyboardCampaignReady = false;
 let forwardKeyboardButtonDown = false;
+let forwardControlButtonDown = false;
 let forwardCompletedKeyboardActivations = 0;
 let forwardPrimaryActionTargetReady = false;
 let forwardTitleActionDelayScheduled = false;
@@ -290,8 +339,8 @@ const forwardStartupKeyboardActivationCount = 0;
 // Keep advancing dialogue for the whole bounded forward run. The event and
 // semantic reports are independently ring-bounded, so this is only a safety
 // ceiling and not a checkpoint endpoint.
-const forwardScenarioPointerActionCount = 256;
-const forwardPointerActions = [
+const forwardScenarioPointerActionCount = 512;
+const defaultForwardPointerActions = [
   { normalizedX: 0x3a1a, normalizedY: 0xcfd2 },
   // Native title trace: client (276, 592) after moving onto Start.
   { normalizedX: 0x374d, normalizedY: 0xd2a2 },
@@ -303,6 +352,80 @@ const forwardPointerActions = [
     normalizedY: 0x8000,
   })),
 ] as const;
+const forwardPointerActions = defaultForwardPointerActions.map(
+  (coordinates, index) => forwardPointerOverrides.get(index + 1) ?? coordinates,
+);
+for (const action of forwardPointerOverrides.keys()) {
+  if (action > forwardPointerActions.length) {
+    throw new Error(
+      `forwardPointerOverrides action ${action} exceeds the ${forwardPointerActions.length}-action campaign`,
+    );
+  }
+}
+for (const action of forwardPointerHoldOverrides.keys()) {
+  if (action > forwardPointerActions.length) {
+    throw new Error(
+      `forwardPointerHoldOverrides action ${action} exceeds the ${forwardPointerActions.length}-action campaign`,
+    );
+  }
+}
+for (const action of forwardPointerStaticActions) {
+  if (action > forwardPointerActions.length) {
+    throw new Error(
+      `forwardPointerStaticActions action ${action} exceeds the ${forwardPointerActions.length}-action campaign`,
+    );
+  }
+}
+if (
+  stopAfterForwardPointerAction !== null &&
+  stopAfterForwardPointerAction > forwardPointerActions.length
+) {
+  throw new Error(
+    `forwardStop action ${stopAfterForwardPointerAction} exceeds the ${forwardPointerActions.length}-action campaign`,
+  );
+}
+if (
+  forwardEnterAfterPointerAction !== null &&
+  forwardEnterAfterPointerAction !== stopAfterForwardPointerAction &&
+  !(
+    forwardHoldControlMilliseconds !== null &&
+    forwardEnterAfterPointerAction === forwardHoldControlAfterPointerAction &&
+    stopAfterForwardPointerAction !== null &&
+    forwardEnterAfterPointerAction < stopAfterForwardPointerAction
+  )
+) {
+  throw new Error(
+    "forwardEnterAfterPointerAction must match the terminal stop or precede it with a finite Control hold",
+  );
+}
+if (
+  forwardHoldControlAfterPointerAction !== null &&
+  (forwardHoldControlMilliseconds === null
+    ? forwardHoldControlAfterPointerAction !== stopAfterForwardPointerAction
+    : stopAfterForwardPointerAction === null ||
+      forwardHoldControlAfterPointerAction > stopAfterForwardPointerAction)
+) {
+  throw new Error(
+    "forwardHoldControlAfterPointerAction must match the terminal stop or precede it when a hold duration is set",
+  );
+}
+if (
+  forwardHoldControlMilliseconds !== null &&
+  forwardHoldControlAfterPointerAction === null
+) {
+  throw new Error(
+    "forwardHoldControlMilliseconds requires forwardHoldControlAfterPointerAction",
+  );
+}
+if (
+  forwardEnterAfterPointerAction !== null &&
+  forwardHoldControlAfterPointerAction !== null &&
+  forwardHoldControlMilliseconds === null
+) {
+  throw new Error(
+    "combined forward Enter and Control activation requires a finite Control hold",
+  );
+}
 const forwardStartupPointerActionCount = 1;
 const forwardTitlePointerActionCount = 1;
 const forwardTitleActionDelayMilliseconds = 1_250;
@@ -348,7 +471,8 @@ function maybePostForwardAction(): void {
       nextAction <= forwardPointerActions.length);
   if (
     !forwardDevelopment ||
-    !forwardVisibleFrameObserved ||
+    (!forwardVisibleFrameObserved &&
+      !forwardPointerStaticActions.has(nextAction)) ||
     !phaseAcceptsNextAction ||
     forwardPointerMoveSent
   ) {
@@ -369,13 +493,22 @@ function maybePostForwardAction(): void {
       coordinates.normalizedY,
     ),
   } satisfies MainToWorkerMessage);
+  if (forwardPointerStaticActions.has(nextAction)) {
+    // Worker messages from this producer are FIFO: queue the Rust-owned cursor
+    // move before the button event, but do not require a cosmetic WM_MOUSEMOVE
+    // callback or Present from menu surfaces that poll GetCursorPos instead.
+    forwardHoverPresented = true;
+    pressForwardAction();
+  }
 }
 
 function pressForwardAction(): void {
+  const nextAction = forwardCompletedActions + 1;
   if (
     !forwardPointerMoveSent ||
     !forwardHoverPresented ||
-    !forwardVisibleFrameObserved ||
+    (!forwardVisibleFrameObserved &&
+      !forwardPointerStaticActions.has(nextAction)) ||
     (forwardCampaignPhase !== "startup-pointer" &&
       forwardCampaignPhase !== "title-start-pointer" &&
       forwardCampaignPhase !== "scenario-pointer") ||
@@ -442,6 +575,113 @@ function releaseForwardAction(action: number): void {
     sessionId,
     event: up,
   } satisfies MainToWorkerMessage);
+  const nextCoordinates = forwardPointerActions[action];
+  if (
+    action !== stopAfterForwardPointerAction &&
+    forwardPointerStaticActions.has(action) &&
+    forwardPointerStaticActions.has(action + 1) &&
+    nextCoordinates !== undefined &&
+    coordinates.normalizedX === nextCoordinates.normalizedX &&
+    coordinates.normalizedY === nextCoordinates.normalizedY
+  ) {
+    // FIFO preserves UP before the next DOWN. Explicit identical static
+    // actions model a real double-click without waiting for a cosmetic
+    // release Present that would exceed the Windows double-click interval.
+    scheduleNextForwardAction(action);
+  }
+}
+
+function startForwardControlHold(action: number): void {
+  if (forwardControlButtonDown) {
+    return;
+  }
+  const down = keyboardSourceEvent(
+    forwardNextInputSequence++,
+    "key-down",
+    "ControlLeft",
+    false,
+  );
+  if (down === null) {
+    fail(new Error("forward Control input is outside the keyboard mapping"));
+    return;
+  }
+  forwardControlButtonDown = true;
+  worker.postMessage({
+    type: "keyboard-input",
+    protocolVersion,
+    sessionId,
+    event: down,
+  } satisfies MainToWorkerMessage);
+  if (forwardHoldControlMilliseconds !== null) {
+    window.setTimeout(() => {
+      const up = keyboardSourceEvent(
+        forwardNextInputSequence++,
+        "key-up",
+        "ControlLeft",
+        false,
+      );
+      if (up === null) {
+        fail(new Error("forward Control release is outside the keyboard mapping"));
+        return;
+      }
+      forwardControlButtonDown = false;
+      worker.postMessage({
+        type: "keyboard-input",
+        protocolVersion,
+        sessionId,
+        event: up,
+      } satisfies MainToWorkerMessage);
+      if (action === stopAfterForwardPointerAction) {
+        forwardCampaignPhase = "complete";
+        window.setTimeout(
+          () => window.__vineBgiCheck.cancel(),
+          forwardStopSettleMilliseconds,
+        );
+      } else {
+        forwardCampaignPhase = "scenario-pointer";
+        scheduleNextForwardAction(action);
+      }
+    }, forwardHoldControlMilliseconds);
+    return;
+  }
+  forwardCampaignPhase = "complete";
+  window.setTimeout(
+    () => window.__vineBgiCheck.cancel(),
+    forwardStopSettleMilliseconds,
+  );
+}
+
+function handleForwardPointerActionCompletion(action: number): boolean {
+  if (action === forwardEnterAfterPointerAction) {
+    if (forwardCampaignPhase === "complete") {
+      return true;
+    }
+    forwardCampaignPhase = "startup-keyboard";
+    forwardKeyboardActivationLimit = forwardCompletedKeyboardActivations + 1;
+    forwardKeyboardCampaignReady = true;
+    forwardVisibleFrameObserved = true;
+    pressForwardKeyboardActivation();
+    forwardCampaignPhase = "complete";
+    return true;
+  }
+  if (action === forwardHoldControlAfterPointerAction) {
+    if (forwardCampaignPhase !== "complete") {
+      startForwardControlHold(action);
+    }
+    return true;
+  }
+  if (action !== stopAfterForwardPointerAction) {
+    return false;
+  }
+  if (forwardCampaignPhase === "complete") {
+    return true;
+  }
+  forwardCampaignPhase = "complete";
+  window.setTimeout(
+    () => window.__vineBgiCheck.cancel(),
+    forwardStopSettleMilliseconds,
+  );
+  return true;
 }
 
 function scheduleNextForwardAction(action: number): void {
@@ -464,7 +704,23 @@ function scheduleNextForwardAction(action: number): void {
       forwardCampaignPhase = "complete";
       return;
     }
-    maybePostForwardAction();
+    const previousCoordinates = forwardPointerActions[action - 1];
+    const nextCoordinates = forwardPointerActions[action];
+    if (
+      previousCoordinates !== undefined &&
+      nextCoordinates !== undefined &&
+      previousCoordinates.normalizedX === nextCoordinates.normalizedX &&
+      previousCoordinates.normalizedY === nextCoordinates.normalizedY
+    ) {
+      // The cursor remains at the same guest-visible position after release.
+      // Reuse that observed hover instead of forcing another cosmetic Present
+      // between identical scenario actions.
+      forwardPointerMoveSent = true;
+      forwardHoverPresented = true;
+      pressForwardAction();
+    } else {
+      maybePostForwardAction();
+    }
     return;
   }
   if (
@@ -639,12 +895,12 @@ worker.addEventListener(
         forwardDevelopment &&
         message.phase === "running" &&
         message.detail === "Forward primary pointer hover consumed by guest" &&
-        forwardCampaignPhase === "title-start-pointer"
+        (forwardCampaignPhase === "title-start-pointer" ||
+          forwardPointerStaticActions.has(forwardCompletedActions + 1))
       ) {
-        // The static title does not necessarily Present after a hover-only
-        // update. Its strong title signature plus guest-consumed mouse move is
-        // sufficient to deliver the primary button without deadlocking on a
-        // cosmetic hover frame.
+        // An explicitly static surface does not necessarily Present after a
+        // hover-only update. Its guest-consumed mouse move is sufficient to
+        // deliver the primary button without deadlocking on a cosmetic frame.
         forwardHoverPresented = true;
         pressForwardAction();
       }
@@ -687,8 +943,22 @@ worker.addEventListener(
           const action = Number(enteredPress[1]);
           window.setTimeout(
             () => releaseForwardAction(action),
-            forwardPointerHoldMilliseconds,
+            forwardPointerHoldOverrides.get(action) ??
+              forwardPointerHoldMilliseconds,
           );
+        }
+        const consumedRelease =
+          /^Forward pointer action (\d+) release consumed by guest$/u.exec(
+            message.detail,
+          );
+        if (consumedRelease !== null) {
+          const action = Number(consumedRelease[1]);
+          if (handleForwardPointerActionCompletion(action)) {
+            return;
+          }
+          if (forwardPointerStaticActions.has(action + 1)) {
+            scheduleNextForwardAction(action);
+          }
         }
         const release =
           /^Forward pointer action (\d+) release frame presented$/u.exec(
@@ -696,12 +966,26 @@ worker.addEventListener(
           );
         if (release !== null) {
           const action = Number(release[1]);
+          if (handleForwardPointerActionCompletion(action)) {
+            return;
+          }
           scheduleNextForwardAction(action);
         }
         const activationPress =
           /^Forward activation action (\d+) press frame presented$/u.exec(
             message.detail,
           );
+        const activationObserved =
+          /^Forward activation action (\d+) press observed by guest$/u.exec(
+            message.detail,
+          );
+        if (
+          activationObserved !== null &&
+          forwardEnterAfterPointerAction !== null &&
+          forwardCampaignPhase === "complete"
+        ) {
+          releaseForwardKeyboardActivation(Number(activationObserved[1]));
+        }
         if (activationPress !== null) {
           releaseForwardKeyboardActivation(Number(activationPress[1]));
         }
@@ -711,6 +995,23 @@ worker.addEventListener(
           );
         if (activationRelease !== null) {
           forwardCompletedKeyboardActivations = Number(activationRelease[1]);
+          if (
+            forwardEnterAfterPointerAction !== null &&
+            forwardCampaignPhase === "complete"
+          ) {
+            if (
+              forwardHoldControlAfterPointerAction ===
+              forwardEnterAfterPointerAction
+            ) {
+              startForwardControlHold(forwardEnterAfterPointerAction);
+            } else {
+              window.setTimeout(
+                () => window.__vineBgiCheck.cancel(),
+                forwardStopSettleMilliseconds,
+              );
+            }
+            return;
+          }
           if (
             forwardCompletedKeyboardActivations ===
             forwardStartupKeyboardActivationCount
@@ -781,6 +1082,152 @@ worker.addEventListener(
 );
 
 worker.addEventListener("error", (event) => fail(new Error(event.message)));
+
+function parseForwardPointerOverrides(
+  value: string | null,
+): Map<number, { normalizedX: number; normalizedY: number }> {
+  const overrides = new Map<
+    number,
+    { normalizedX: number; normalizedY: number }
+  >();
+  if (value === null) {
+    return overrides;
+  }
+  if (value.length === 0) {
+    throw new Error("forwardPointerOverrides must not be empty");
+  }
+  for (const entry of value.split(",")) {
+    const match = /^(\d+):(\d+):(\d+)$/u.exec(entry);
+    if (match === null) {
+      throw new Error(
+        "forwardPointerOverrides entries must be action:normalized-x:normalized-y",
+      );
+    }
+    const action = Number(match[1]);
+    const normalizedX = Number(match[2]);
+    const normalizedY = Number(match[3]);
+    if (!Number.isSafeInteger(action) || action <= 0) {
+      throw new Error(
+        "forwardPointerOverrides action must be a positive integer",
+      );
+    }
+    if (
+      !Number.isInteger(normalizedX) ||
+      normalizedX < 0 ||
+      normalizedX > 0xffff
+    ) {
+      throw new Error(
+        "forwardPointerOverrides normalized x must be from 0 through 65535",
+      );
+    }
+    if (
+      !Number.isInteger(normalizedY) ||
+      normalizedY < 0 ||
+      normalizedY > 0xffff
+    ) {
+      throw new Error(
+        "forwardPointerOverrides normalized y must be from 0 through 65535",
+      );
+    }
+    if (overrides.has(action)) {
+      throw new Error(
+        `forwardPointerOverrides action ${action} must be unique`,
+      );
+    }
+    overrides.set(action, { normalizedX, normalizedY });
+  }
+  return overrides;
+}
+
+function parseForwardPointerHoldOverrides(
+  value: string | null,
+): Map<number, number> {
+  const overrides = new Map<number, number>();
+  if (value === null) {
+    return overrides;
+  }
+  if (value.length === 0) {
+    throw new Error("forwardPointerHoldOverrides must not be empty");
+  }
+  for (const entry of value.split(",")) {
+    const match = /^(\d+):(\d+)$/u.exec(entry);
+    if (match === null) {
+      throw new Error(
+        "forwardPointerHoldOverrides entries must be action:milliseconds",
+      );
+    }
+    const action = Number(match[1]);
+    const milliseconds = Number(match[2]);
+    if (!Number.isSafeInteger(action) || action <= 0) {
+      throw new Error(
+        "forwardPointerHoldOverrides action must be a positive integer",
+      );
+    }
+    if (
+      !Number.isInteger(milliseconds) ||
+      milliseconds < 1 ||
+      milliseconds > 60_000
+    ) {
+      throw new Error(
+        "forwardPointerHoldOverrides milliseconds must be from 1 through 60000",
+      );
+    }
+    if (overrides.has(action)) {
+      throw new Error(
+        `forwardPointerHoldOverrides action ${action} must be unique`,
+      );
+    }
+    overrides.set(action, milliseconds);
+  }
+  return overrides;
+}
+
+function parseForwardPointerStaticActions(value: string | null): Set<number> {
+  const actions = new Set<number>();
+  if (value === null) {
+    return actions;
+  }
+  if (value.length === 0) {
+    throw new Error("forwardPointerStaticActions must not be empty");
+  }
+  for (const entry of value.split(",")) {
+    if (!/^(?:0|[1-9]\d*)$/u.test(entry)) {
+      throw new Error(
+        "forwardPointerStaticActions entries must be positive action numbers",
+      );
+    }
+    const action = Number(entry);
+    if (!Number.isSafeInteger(action) || action <= 0) {
+      throw new Error(
+        "forwardPointerStaticActions action must be a positive integer",
+      );
+    }
+    if (actions.has(action)) {
+      throw new Error(
+        `forwardPointerStaticActions action ${action} must be unique`,
+      );
+    }
+    actions.add(action);
+  }
+  return actions;
+}
+
+function parseOptionalPositiveInteger(
+  value: string | null,
+  label: string,
+): number | null {
+  if (value === null) {
+    return null;
+  }
+  if (!/^[1-9]\d*$/u.test(value)) {
+    throw new Error(`${label} must be a positive integer`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`${label} exceeds the safe integer range`);
+  }
+  return parsed;
+}
 
 const startMessage = {
   type: "start-session",

@@ -1148,7 +1148,7 @@ function validateProfileConfiguration(
     configuration.quotaBytes > maximumProfileQuotaBytes ||
     !Array.isArray(configuration.files) ||
     configuration.files.length === 0 ||
-    configuration.files.length > 64 ||
+    configuration.files.length > 128 ||
     !Array.isArray(configuration.directories) ||
     configuration.directories.length > 64
   ) {

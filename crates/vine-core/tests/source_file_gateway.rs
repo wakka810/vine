@@ -7,15 +7,17 @@ use vine_core::{
     GuestAddress, GuestMemory, GuestRange, Kernel32CompatibilityPolicy, Kernel32DeleteFileAPolicy,
     Kernel32FindFileAPolicy, Kernel32GetFileAttributesAPolicy, LastErrorPolicy, MemoryLimits,
     MemoryOwnerKind, MemoryRegionKind, PageProtection, ProcessAddressSpaceLayout,
-    RUNTIME_WRITABLE_PROFILE_SCHEMA, RUNTIME_WRITABLE_PROFILE_VERSION, RegisterUpdate,
-    RuntimeBootstrap, RuntimeClockState, RuntimeDynamicEndpoint, RuntimeHandle, RuntimeObjectKind,
-    RuntimeProcessId, RuntimeProcessLifecycleState, RuntimeSchedulerEvent,
-    RuntimeSourceFileManifest, RuntimeSourceMountManifest, RuntimeSourceReadHostResponse,
-    RuntimeSourceSnapshotManifest, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
-    RuntimeWritableCommitHostResponse, RuntimeWritableDirectoryCreateHostResponse,
-    RuntimeWritableDirectoryManifest, RuntimeWritableFileManifest, RuntimeWritableProfileManifest,
-    SchedulerThreadState, complete_kernel32_source_read, complete_kernel32_writable_commit,
-    complete_kernel32_writable_directory_create, dispatch_kernel32_api_with_policy,
+    RUNTIME_WRITABLE_PROFILE_FILE_LIMIT, RUNTIME_WRITABLE_PROFILE_SCHEMA,
+    RUNTIME_WRITABLE_PROFILE_VERSION, RegisterUpdate, RuntimeBootstrap, RuntimeClockState,
+    RuntimeDynamicEndpoint, RuntimeHandle, RuntimeObjectKind, RuntimeProcessId,
+    RuntimeProcessLifecycleState, RuntimeSchedulerEvent, RuntimeSourceFileManifest,
+    RuntimeSourceMountManifest, RuntimeSourceReadHostResponse, RuntimeSourceSnapshotManifest,
+    RuntimeStartupInfo, RuntimeState, RuntimeThreadId, RuntimeWritableCommitHostResponse,
+    RuntimeWritableDirectoryCreateHostResponse, RuntimeWritableDirectoryManifest,
+    RuntimeWritableFileManifest, RuntimeWritableProfileManifest, SchedulerThreadState,
+    complete_kernel32_source_read, complete_kernel32_writable_commit,
+    complete_kernel32_writable_directory_create,
+    dispatch_kernel32_api_with_policy,
     kernel32_contract_for_endpoint,
 };
 
@@ -26,6 +28,60 @@ const PATH_ADDRESS: u32 = 0x2000_1000;
 const BUFFER_ADDRESS: u32 = 0x2000_2000;
 const BYTES_READ_ADDRESS: u32 = 0x2000_2f00;
 const FIRST_FILE_HANDLE: u32 = 0x4601_0001;
+
+#[test]
+fn primary_title_save_catalog_creates_a_registered_slot_below_the_profile_bound() {
+    assert_eq!(RUNTIME_WRITABLE_PROFILE_FILE_LIMIT, 128);
+    let mut files = vec![RuntimeWritableFileManifest {
+        object_id: 1,
+        relative_path_a: b"BGI.gdb".to_vec(),
+        exists: false,
+        generation: 0,
+        byte_length: 0,
+        sha256: None,
+    }];
+    files.extend((0_u32..=102).map(|slot| RuntimeWritableFileManifest {
+        object_id: slot + 2,
+        relative_path_a: format!("UserData\\Sakuranouta{slot:03}.sud").into_bytes(),
+        exists: false,
+        generation: 0,
+        byte_length: 0,
+        sha256: None,
+    }));
+
+    let mut runtime = controlled_runtime();
+    runtime
+        .register_writable_profile(RuntimeWritableProfileManifest {
+            schema: RUNTIME_WRITABLE_PROFILE_SCHEMA.to_owned(),
+            schema_version: RUNTIME_WRITABLE_PROFILE_VERSION,
+            title_fingerprint: "sha256:primary-title-save-catalog".to_owned(),
+            profile_id: "default".to_owned(),
+            root_path_a: b"C:\\Vine\0".to_vec(),
+            quota_bytes: 16 * 1024 * 1024,
+            files,
+            directories: vec![RuntimeWritableDirectoryManifest {
+                directory_id: 1,
+                relative_path_a: b"UserData".to_vec(),
+                exists: true,
+                generation: 1,
+            }],
+        })
+        .expect("register bounded primary save catalog");
+    assert_eq!(runtime.writable_profile().unwrap().files.len(), 104);
+
+    let opened = runtime
+        .open_file_a(
+            b"UserData\\Sakuranouta000.sud\0",
+            0x4000_0000,
+            0,
+            2,
+            0x0800_0020,
+        )
+        .expect("open registered save slot")
+        .expect("create registered save slot");
+    assert!(!opened.existed);
+    assert!(runtime.writable_profile().unwrap().files[&2].exists);
+}
 
 #[test]
 fn get_file_attributes_a_projects_only_registered_vfs_paths() {

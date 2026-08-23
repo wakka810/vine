@@ -4342,6 +4342,7 @@ class BrowserRuntimeSession {
   #forwardPrefixComplete = false;
   #forwardVisibleFrameSignaled = false;
   #forwardVisiblePresentationStreak = 0;
+  #forwardVisibleProbePixelRgba: [number, number, number, number] = [0, 0, 0, 255];
   #forwardLatestPointerMessage: RuntimeThreadMessageSnapshot | null = null;
   #forwardPointerPositionMessage: RuntimeThreadMessageSnapshot | null = null;
   #forwardPointerPositionCallbackFrameId: number | null = null;
@@ -5530,7 +5531,7 @@ class BrowserRuntimeSession {
     invariant(
       Array.isArray(profile.files) &&
         profile.files.length > 0 &&
-        profile.files.length <= 64,
+        profile.files.length <= 128,
       "writable profile file count is invalid",
     );
     const objectIds = new Set<number>();
@@ -10800,6 +10801,7 @@ class BrowserRuntimeSession {
     const configDarkPixels = renderer.countDarkPixels(700, 565, 80, 40, 96);
     const exitDarkPixels = renderer.countDarkPixels(950, 565, 80, 40, 96);
     const titleBackground = renderer.readPixelRgba(50, 50);
+    this.#forwardVisibleProbePixelRgba = titleBackground;
     const titleBlueBackground =
       titleBackground[0] < 32 &&
       titleBackground[1] >= 48 &&
@@ -20052,13 +20054,15 @@ class BrowserRuntimeSession {
     if (presentation !== undefined) {
       summary.presentCount += 1;
       summary.latestPresentation = structuredClone(presentation);
-      const visiblyPopulated =
-        presentation.centerPixelRgba
-          .slice(0, 3)
-          .some((component) => component > 7) &&
-        presentation.centerPixelRgba
-          .slice(0, 3)
-          .some((component) => component < 248);
+      const populatedSamples = [
+        presentation.centerPixelRgba,
+        this.#forwardVisibleProbePixelRgba,
+      ].map(
+        (pixel) =>
+          pixel.slice(0, 3).some((component) => component > 7) &&
+          pixel.slice(0, 3).some((component) => component < 248),
+      );
+      const visiblyPopulated = populatedSamples.some(Boolean);
       this.#forwardVisiblePresentationStreak = visiblyPopulated
         ? this.#forwardVisiblePresentationStreak + 1
         : 0;
@@ -20068,7 +20072,8 @@ class BrowserRuntimeSession {
       }
       if (
         !this.#forwardVisibleFrameSignaled &&
-        this.#forwardVisiblePresentationStreak >= 8
+        this.#forwardVisiblePresentationStreak >=
+          (populatedSamples[0] === true ? 8 : 1)
       ) {
         this.#forwardVisibleFrameSignaled = true;
         this.#status(
