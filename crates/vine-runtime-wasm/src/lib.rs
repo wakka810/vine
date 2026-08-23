@@ -18,7 +18,7 @@ use vine_core::{
     InitialThreadStack, Kernel32CompatibilityPolicy, LOGICAL_ENCODED_POINTER_NAMESPACE,
     LOGICAL_LOADED_MODULE_NAMESPACE, LastErrorPolicy, MappingOperation, MemoryDeltaBuffers,
     MemoryLimits, ModuleSnapshot, PageProtection, Pe32Limits, ProcessAddressAllocationPurpose,
-    ProcessAddressAllocationRecord, ProcessAddressSpaceLayout,
+    ProcessAddressAllocationRecord, ProcessAddressSpaceLayout, RTL_UNWIND_IMPLEMENTATION,
     RUNTIME_AUDIO_NOTIFICATION_PACING_SERVICE, RUNTIME_GDI_TEXT_RASTER_SERVICE,
     RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RUNTIME_WRITABLE_COMMIT_SERVICE,
     RUNTIME_WRITABLE_DELETE_SERVICE, RUNTIME_WRITABLE_DIRECTORY_CREATE_SERVICE, ReentrancyPolicy,
@@ -1740,6 +1740,34 @@ impl BrowserRuntime {
             return_address,
             argument_bytes,
         };
+        let exception_unwind_frame = if endpoint.matches(
+            "kernel32.dll",
+            &vine_core::ApiSymbol::Name {
+                name: "RtlUnwind".to_owned(),
+            },
+        ) {
+            let thread_id = self.runtime.current_thread_id();
+            let active = self
+                .callbacks
+                .get(&thread_id)
+                .and_then(|callbacks| callbacks.last())
+                .filter(|active| {
+                    matches!(
+                        active.call.request.completion_policy,
+                        GuestCallbackCompletionPolicy::ExceptionDispatch { .. }
+                    )
+                });
+            if let Some(active) = active {
+                self.runtime
+                    .validate_callback_frame_return(active.frame_id)
+                    .map_err(error_string)?;
+                Some((thread_id, active.frame_id))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         let heap_allocation_evidence = matches!(
             &self.target,
             BrowserRuntimeTarget::Bgi {
@@ -1976,6 +2004,31 @@ impl BrowserRuntime {
                 Ok(BrowserApiDispatchOutput::structured(metadata, delta))
             }
             DispatchOutcome::Immediate(completion) => {
+                let retired_callback = if completion.implementation_id == RTL_UNWIND_IMPLEMENTATION
+                    && let Some((thread_id, frame_id)) = exception_unwind_frame
+                {
+                    self.runtime
+                        .pop_callback_frame(frame_id)
+                        .map_err(error_string)?;
+                    let callbacks = self.callbacks.get_mut(&thread_id).ok_or_else(|| {
+                        "RtlUnwind lost its preflighted exception callback stack".to_owned()
+                    })?;
+                    let retired = callbacks.pop().ok_or_else(|| {
+                        "RtlUnwind lost its preflighted exception callback frame".to_owned()
+                    })?;
+                    if retired.frame_id != frame_id {
+                        return Err(
+                            "RtlUnwind exception callback frame changed after preflight".to_owned()
+                        );
+                    }
+                    let remaining_depth = callbacks.len();
+                    if remaining_depth == 0 {
+                        self.callbacks.remove(&thread_id);
+                    }
+                    Some((frame_id, remaining_depth))
+                } else {
+                    None
+                };
                 let delta = self.pending_delta()?;
                 let fast_completion = allow_fast_completion
                     && matches!(&self.target, BrowserRuntimeTarget::Bgi { .. })
@@ -2389,6 +2442,12 @@ impl BrowserRuntime {
                         metadata
                     }
                 };
+                if let Some((frame_id, remaining_depth)) = retired_callback {
+                    metadata["retiredCallback"] = json!({
+                        "frameId": frame_id.0,
+                        "remainingDepth": remaining_depth,
+                    });
+                }
                 let selection = if completion.execution_boundary
                     == vine_core::RuntimeApiBoundaryDisposition::TerminateCurrentThread
                 {

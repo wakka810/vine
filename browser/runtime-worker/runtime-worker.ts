@@ -2574,6 +2574,10 @@ interface GuestCallbackMetadata {
 interface CompletionMetadata {
   kind: "api-complete";
   completion: ApiCompletion;
+  retiredCallback?: {
+    frameId: number;
+    remainingDepth: number;
+  };
   endpoint?: {
     id: number;
     address: number;
@@ -10529,7 +10533,7 @@ class BrowserRuntimeSession {
         break;
       }
       case "api-complete": {
-        const resumeState = this.#takeApiResumeState();
+        const resumeState = this.#takeApiCompletionResumeState(metadata);
         const appliedDelta = this.#applyOptionalDelta(output);
         const appliedDeltaEvidence =
           ((isLargeHeapFreeCheckpoint(this.#configuration.capabilityProfile) &&
@@ -10650,7 +10654,7 @@ class BrowserRuntimeSession {
         return null;
       }
       case "api-complete": {
-        const resumeState = this.#takeApiResumeState();
+        const resumeState = this.#takeApiCompletionResumeState(metadata);
         this.#applyOptionalDelta(output);
         if (metadata.createdThread !== undefined) {
           this.#registerCreatedThread(metadata.createdThread);
@@ -30220,6 +30224,31 @@ class BrowserRuntimeSession {
     );
     this.#threadResumeStates.delete(threadId);
     return resumeState;
+  }
+
+  #takeApiCompletionResumeState(
+    metadata: CompletionMetadata,
+  ): "ready" | "guest-callback" {
+    const resumeState = this.#takeApiResumeState();
+    const retired = metadata.retiredCallback;
+    if (retired === undefined) {
+      return resumeState;
+    }
+    invariant(
+      resumeState === "guest-callback" &&
+        Number.isInteger(retired.frameId) &&
+        retired.frameId > 0 &&
+        Number.isInteger(retired.remainingDepth) &&
+        retired.remainingDepth >= 0,
+      "nonlocal callback retirement metadata is invalid",
+    );
+    if (this.#requirePrepared().workload === "private-bgi") {
+      invariant(
+        this.#bgiCallbackCallSequences.delete(retired.frameId),
+        "nonlocal callback retirement lost its call sequence",
+      );
+    }
+    return retired.remainingDepth > 0 ? "guest-callback" : "ready";
   }
 
   async #scheduleAfterBlock(
