@@ -1100,13 +1100,11 @@ impl RuntimeAudio {
                 "logical audio buffer has no active lock",
             )
         })?;
-        if request.first_segment.guest_address != lock.first_segment.guest_address
-            || request.first_segment.byte_length > lock.first_segment.byte_length
+        if !audio_buffer_segment_contains(lock.first_segment, request.first_segment)
             || match (request.second_segment, lock.second_segment) {
                 (None, None) => false,
                 (Some(request), Some(lock)) => {
-                    request.guest_address != lock.guest_address
-                        || request.byte_length > lock.byte_length
+                    !audio_buffer_segment_contains(lock, request)
                 }
                 _ => true,
             }
@@ -1962,6 +1960,18 @@ fn derive_buffer_lock(
     })
 }
 
+fn audio_buffer_segment_contains(
+    lock: RuntimeAudioBufferSegment,
+    request: RuntimeAudioBufferSegment,
+) -> bool {
+    request
+        .guest_address
+        .0
+        .checked_sub(lock.guest_address.0)
+        .and_then(|offset| lock.byte_length.checked_sub(offset))
+        .is_some_and(|remaining| request.byte_length <= remaining)
+}
+
 fn validate_device_create_request(
     request: RuntimeAudioDeviceCreateRequest,
 ) -> Result<(), RuntimeStateError> {
@@ -2663,8 +2673,8 @@ mod tests {
             .plan_buffer_unlock(RuntimeAudioBufferUnlockRequest {
                 buffer_com_object_id: RuntimeComObjectId(22),
                 first_segment: RuntimeAudioBufferSegment {
-                    byte_length: 17_640,
-                    ..lock.first_segment
+                    guest_address: GuestAddress(lock.first_segment.guest_address.0 + 4),
+                    byte_length: 17_636,
                 },
                 second_segment: lock.second_segment,
             })
