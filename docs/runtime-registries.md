@@ -17,15 +17,15 @@ TLS endpoint classification、`EncodePointer`／`DecodePointer`のguest-visible 
 - dynamic endpoint IDからimmutable endpoint recordへのtable
 - encoded tokenからsource recordへのtable
 - sourceからtokenへのinverse index
-- encoded-pointer namespace／16-bit-aligned token prefix policy
-- next encoded-pointer ID
+- encoded-pointer namespace／per-process cookie policy
+- next encoded-pointer ID（token derivationではなくdiagnostic registration order）
 
 全collection fieldはprivateであり、module外のinspectionは`dynamic_endpoints()`／
 `encoded_pointers()`のimmutable borrowに限定する。`RuntimeState`はlookupをdelegateし、mapへ
 `insert`／`get`／iterationを行わない。
 
 Serialized `registries.dynamicEndpoints`／`registries.encodedPointers` shapeは維持する。Root
-`encodedPointerNamespace`／`encodedPointerTokenPrefix`／`encodedPointerSources`／
+`encodedPointerNamespace`／`encodedPointerCookie`／`encodedPointerSources`／
 `nextEncodedPointerId`もborrowed compatibility viewであり、aggregateの第二authorityではない。
 `registries.hostRequests`は同じJSON objectに現れるが、private `RuntimeScheduler`から借用する
 compatibility fieldであり、このregistry subsystemは所有もmutationもしない。
@@ -47,13 +47,15 @@ coordinatorとして接続するだけである。
 ## Encoded-pointer transaction
 
 `plan_encode_pointer(source)`はexisting sourceならstable token relationをreverse-validationし、新規sourceなら
-namespace prefixとnext token IDからrecordを作る。Token collisionとID exhaustionはtoken table、source
-index、allocatorのいずれも変更しない。
+Windowsと同じcookie transform `ror(source ^ cookie, cookie & 0x1f)`でtokenを導く。Cookieはprocessごとの
+bootstrap valueであり、`cookie & 0x1f != 0`をpolicyとして要求してrotationを必ず効かせる。Transformは
+u32上のbijectionなので、distinct sourceがtokenを共有せず、同じsourceはprocess lifetime中stable tokenを保つ。
+Token collisionとID exhaustionはtoken table、source index、allocatorのいずれも変更しない。
 
 `commit_encode_pointer`はnew record、inverse index、next IDを一つのinfallible targeted commitで進める。
-Same sourceは同じtokenを返してstateを変えない。`decode_pointer`はruntime prefix、token record、source
-indexの三者が一致するregistered tokenだけをsourceへ戻す。Native cookie／host pointer値はauthorityへ
-入らない。
+Same sourceは同じtokenを返してstateを変えない。`decode_pointer`はcookie inverseがrecordのsourceと一致する
+registered tokenだけをsourceへ戻す。Token IDはregistration orderのdiagnosticであり、tokenの導出には
+関与しない。Host pointer値はauthorityへ入らない。
 
 ## Contract and regression
 
@@ -75,6 +77,10 @@ Current Node／Chrome result、artifact identity、benchmark、next structured s
 [current checkpoint manifest](current-checkpoint.json)だけを正とする。
 
 ## Non-claims and next dependency
+
+`decode_pointer`はregistered tokenだけを受け付ける。Windowsの`DecodePointer`は未登録tokenにもcookie inverseを
+返すが、Vineはguest-visible stateのauthority modelを保つためregistry gateを維持し、未登録tokenは
+`encoded-pointer-token-unknown`で停止する。65,535 recordのtoken space boundも同じ理由で維持する。
 
 Dynamic endpoint IDのlifetime retirement、FLS callback teardown、snapshot-stable identity、COM vtable endpoint、
 general executable arena allocationは未実装である。Existing fixed dynamic-export rangeはprocess address-space
