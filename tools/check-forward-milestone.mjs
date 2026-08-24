@@ -9,7 +9,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const checkpoint = loadCurrentCheckpoint(
   path.join(root, "docs", "current-checkpoint.json"),
 );
-const reportPath = path.resolve(root, checkpoint.development.reportPath);
+const reportReference =
+  checkpoint.lastCompletedBoundary.id === "primary-first-route-ending"
+    ? checkpoint.artifactReferences.find((reference) =>
+        reference.endsWith("first-route-ending-report.json"),
+      )
+    : checkpoint.development.reportPath;
+assert(reportReference, "accepted milestone report reference is missing");
+const reportPath = path.resolve(root, reportReference);
 function loadBoundedReport(file) {
   const bytes = fs.readFileSync(file);
   assert(
@@ -148,7 +155,11 @@ switch (checkpoint.lastCompletedBoundary.id) {
     assert(report.presentation.presentCount > 0, "the ending run produced no Present");
     const frame = report.presentation.finalFrame;
     assert(frame !== null, "the ending frame artifact is missing");
-    const framePath = path.resolve(root, frame.file);
+    const frameReference = checkpoint.artifactReferences.find((reference) =>
+      reference.endsWith("first-route-ending-final-frame.png"),
+    );
+    assert(frameReference, "accepted ending frame reference is missing");
+    const framePath = path.resolve(root, frameReference);
     const targetDirectory = path.resolve(root, ".work", "target-forward");
     assert(framePath.startsWith(`${targetDirectory}${path.sep}`));
     const frameBytes = fs.readFileSync(framePath);
