@@ -16,8 +16,7 @@ use vine_core::{
     RuntimeWritableDirectoryCreateHostResponse, RuntimeWritableDirectoryManifest,
     RuntimeWritableFileManifest, RuntimeWritableProfileManifest, SchedulerThreadState,
     complete_kernel32_source_read, complete_kernel32_writable_commit,
-    complete_kernel32_writable_directory_create,
-    dispatch_kernel32_api_with_policy,
+    complete_kernel32_writable_directory_create, dispatch_kernel32_api_with_policy,
     kernel32_contract_for_endpoint,
 };
 

@@ -3393,6 +3393,10 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
             FRAME_BASE + 0x160,
             vec![0x1000_060c, 0x6801_0001, 0, 0x2000_0008, 0x300],
         ),
+        (
+            FRAME_BASE + 0x180,
+            vec![0x1000_060d, 0x6801_0001, 0, 0x6000],
+        ),
     ];
     for (address, words) in &frames {
         write_frame(&mut memory, owner, GuestAddress(*address), words);
@@ -3412,6 +3416,29 @@ fn heap_alloc_policy_enables_bounded_sizes_without_changing_semantics() {
         .allocate_private_heap(0, 0x1000, 0)
         .expect("logical private heap");
     assert_eq!(heap.handle, 0x6801_0001);
+
+    let quota_policy = compatibility_policy(
+        "heap-quota-test",
+        vec![RUNTIME_STANDARD_INPUT_SELECTOR],
+        vec![(RUNTIME_STANDARD_INPUT_SELECTOR, 2)],
+        vec![(0, vec![0x6000])],
+    );
+    let runtime_before_quota = runtime.clone();
+    let memory_before_quota = memory.stats();
+    let exhausted = dispatch_owned_with_policy(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &endpoint,
+        frames[12].0,
+        frames[12].1[0],
+        &quota_policy,
+    );
+    assert_eq!(exhausted.eax, RegisterUpdate::Set(0));
+    assert_eq!(exhausted.stack_pointer, GuestAddress(frames[12].0 + 16));
+    assert_eq!(exhausted.last_error, INITIAL_LAST_ERROR);
+    assert_eq!(runtime, runtime_before_quota);
+    assert_eq!(memory.stats(), memory_before_quota);
 
     let completion = dispatch_owned(
         &dispatcher,

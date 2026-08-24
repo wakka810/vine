@@ -185,11 +185,11 @@ pub use heaps::{
     LOGICAL_PRIVATE_HEAP_NAMESPACE, RUNTIME_PRIVATE_HEAP_ALIGNMENT,
     RUNTIME_PRIVATE_HEAP_ARENA_BASE, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
     RUNTIME_PRIVATE_HEAP_BACKING_LIMIT, RUNTIME_PRIVATE_HEAP_FREED_BYTE,
-    RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE,
-    RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS, RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE,
-    RuntimeHeap, RuntimeHeapAllocation, RuntimeHeapAllocationId, RuntimeHeapBacking,
-    RuntimeHeapInitialization, RuntimeHeapPageMaterialization, RuntimeHeapTeardown,
-    RuntimeLargeHeapAllocationBacking,
+    RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_LIMIT,
+    RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE, RUNTIME_PRIVATE_HEAP_MAX_LIVE_ALLOCATIONS,
+    RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RuntimeHeap, RuntimeHeapAllocation,
+    RuntimeHeapAllocationId, RuntimeHeapBacking, RuntimeHeapInitialization,
+    RuntimeHeapPageMaterialization, RuntimeHeapTeardown, RuntimeLargeHeapAllocationBacking,
 };
 pub(crate) use heaps::{RuntimeHeapFreeBackingPlan, RuntimeHeapFreePlan};
 pub use imm32::{
@@ -307,7 +307,9 @@ pub use user32::{
     RuntimeWindowProcedure, RuntimeWindowProcedureCallingConvention,
 };
 pub use virtual_memory::{
-    RUNTIME_VIRTUAL_MEMORY_ADDRESS_OWNER, RuntimeVirtualMemoryReservation,
+    RUNTIME_VIRTUAL_MEMORY_ADDRESS_OWNER, RuntimeVirtualMemoryCommit,
+    RuntimeVirtualMemoryCommitRequest, RuntimeVirtualMemoryDecommit,
+    RuntimeVirtualMemoryDecommitRequest, RuntimeVirtualMemoryReservation,
     RuntimeVirtualMemoryReserveRequest,
 };
 pub use waits::{

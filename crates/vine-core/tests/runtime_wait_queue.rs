@@ -73,6 +73,37 @@ fn auto_reset_event_signal_wakes_one_fifo_waiter_and_is_consumed() {
 }
 
 #[test]
+fn object_wait_wake_restores_the_callback_lane() {
+    let mut runtime = running_runtime();
+    let (event_handle, _) = runtime
+        .create_event(false, false)
+        .expect("create callback wait event");
+    runtime.register_thread(SECOND_THREAD_ID, 0).unwrap();
+    let callback = runtime
+        .push_callback_frame(
+            vine_core::GuestAddress(0x1000_5000),
+            vine_core::GuestAddress(0x7f01_0000),
+        )
+        .expect("enter callback before waiting");
+    assert!(matches!(
+        runtime.wait_current_thread_on(event_handle).unwrap(),
+        RuntimeWaitDisposition::Pending { .. }
+    ));
+
+    runtime.select_thread(SECOND_THREAD_ID).unwrap();
+    runtime.set_event(event_handle).unwrap();
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(INITIAL_THREAD_ID)
+            .unwrap(),
+        SchedulerThreadState::InCallback { depth: 1 }
+    );
+
+    runtime.select_thread(INITIAL_THREAD_ID).unwrap();
+    assert_eq!(runtime.pop_callback_frame(callback.id).unwrap(), callback);
+}
+
+#[test]
 fn wait_queue_wakes_on_thread_signal_and_cancels_on_process_exit() {
     let mut runtime = running_runtime();
     let second_handle = runtime

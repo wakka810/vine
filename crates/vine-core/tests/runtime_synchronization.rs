@@ -170,6 +170,41 @@ fn last_executable_critical_section_waiter_can_block_for_a_host_waiting_owner() 
     );
 }
 
+#[test]
+fn critical_section_wake_restores_the_callback_lane() {
+    let mut runtime = initialized_runtime();
+    runtime.start_initial_thread().unwrap();
+    runtime
+        .initialize_critical_section(CRITICAL_SECTION, 0)
+        .unwrap();
+    runtime.enter_critical_section(CRITICAL_SECTION).unwrap();
+    runtime.register_thread(SECOND_THREAD_ID, 0).unwrap();
+    runtime.select_thread(SECOND_THREAD_ID).unwrap();
+    let callback = runtime
+        .push_callback_frame(GuestAddress(0x1000_5000), GuestAddress(0x7f01_0000))
+        .expect("enter callback on the contending thread");
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::InCallback { depth: 1 }
+    );
+
+    runtime
+        .wait_current_thread_for_critical_section(CRITICAL_SECTION)
+        .expect("callback thread waits for the owned critical section");
+    runtime.select_thread(INITIAL_THREAD_ID).unwrap();
+    runtime.leave_critical_section(CRITICAL_SECTION).unwrap();
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(SECOND_THREAD_ID)
+            .unwrap(),
+        SchedulerThreadState::InCallback { depth: 1 }
+    );
+
+    runtime.select_thread(SECOND_THREAD_ID).unwrap();
+    assert_eq!(runtime.pop_callback_frame(callback.id).unwrap(), callback);
+    runtime.leave_critical_section(CRITICAL_SECTION).unwrap();
+}
+
 fn initialized_runtime() -> RuntimeState {
     RuntimeState::new(RuntimeBootstrap {
         process_id: PROCESS_ID,

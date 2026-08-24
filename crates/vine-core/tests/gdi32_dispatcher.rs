@@ -1581,6 +1581,335 @@ fn large_scenario_font_dib_metrics_and_text_raster_form_one_reached_vertical_sli
 }
 
 #[test]
+fn save_catalog_font_and_dib_form_the_reached_surface() {
+    let mut fixture = FontFixture::new();
+    let (_font, device_context, _default_font) =
+        fixture.create_font_memory_dc(save_catalog_create_font_arguments());
+    fixture.install_bitmap_info(&save_catalog_bitmap_info());
+    fixture
+        .memory
+        .write(BITS_OUTPUT_ADDRESS, &0xa5a5_a5a5_u32.to_le_bytes())
+        .expect("initialize save-catalog DIB output");
+    fixture.acknowledge_pending_delta();
+
+    let creation = match fixture.dispatch_create_dib_section(
+        device_context,
+        BITMAP_INFO_ADDRESS,
+        BITS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected save-catalog DIB creation, got {other:?}"),
+    };
+    let dib = match creation.eax {
+        RegisterUpdate::Set(handle) => handle,
+        other => panic!("save-catalog CreateDIBSection did not set EAX: {other:?}"),
+    };
+    assert_ne!(dib, 0);
+    assert_eq!(creation.last_error, INITIAL_LAST_ERROR);
+    fixture.acknowledge_pending_delta();
+
+    let bits = GuestAddress(read_u32(
+        &fixture
+            .memory
+            .read(BITS_OUTPUT_ADDRESS, 4)
+            .expect("save-catalog DIB bits output"),
+        0,
+    ));
+    let (descriptor, backing) = {
+        let object = fixture
+            .runtime
+            .gdi_objects()
+            .values()
+            .find(|object| object.handle == dib)
+            .expect("save-catalog logical DIB");
+        let RuntimeGdiObjectKind::DibSection {
+            descriptor,
+            backing,
+        } = &object.object
+        else {
+            panic!("created save-catalog object is not a DIB section")
+        };
+        (descriptor.clone(), *backing)
+    };
+    assert_eq!(descriptor.width, 576);
+    assert_eq!(descriptor.height, -216);
+    assert_eq!(descriptor.planes, 1);
+    assert_eq!(descriptor.bits_per_pixel, 8);
+    assert_eq!(descriptor.stride_bytes, 576);
+    assert_eq!(descriptor.pixel_byte_length, 124_416);
+    assert_eq!(descriptor.palette[0].red, 255);
+    assert_eq!(descriptor.palette[255].red, 0);
+    assert_eq!(backing.range.start(), bits);
+    let backing_allocation = fixture
+        .runtime
+        .process_address_space_allocator()
+        .allocation(backing.address_allocation_id)
+        .expect("save-catalog DIB address allocation");
+    assert_eq!(backing_allocation.usable_byte_length, 124_416);
+    assert_eq!(
+        fixture
+            .memory
+            .read(bits, 124_416)
+            .expect("fresh save-catalog DIB pixels"),
+        vec![0; 124_416]
+    );
+
+    assert!(matches!(
+        fixture.dispatch_select_object(device_context, dib),
+        DispatchOutcome::Immediate(_)
+    ));
+    let size_query = match fixture.dispatch_outline_text_metrics(device_context, 0, GuestAddress(0))
+    {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected save-catalog outline size query, got {other:?}"),
+    };
+    assert_eq!(
+        size_query.eax,
+        RegisterUpdate::Set(X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32)
+    );
+    assert!(size_query.guest_writes.is_empty());
+
+    fixture
+        .memory
+        .write(OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS, &[0xa5; 320])
+        .expect("initialize save-catalog outline output");
+    fixture.acknowledge_pending_delta();
+    let outline = match fixture.dispatch_outline_text_metrics(
+        device_context,
+        X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32,
+        OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected save-catalog outline metrics, got {other:?}"),
+    };
+    assert_eq!(
+        outline.eax,
+        RegisterUpdate::Set(X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32)
+    );
+    fixture.acknowledge_pending_delta();
+    let metrics = fixture
+        .memory
+        .read(
+            OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS,
+            X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH,
+        )
+        .expect("save-catalog outline metrics bytes");
+    for (offset, value) in [
+        (4, 144),
+        (8, 124),
+        (12, 20),
+        (24, 144),
+        (28, 568),
+        (96, 124),
+        (100, -20),
+        (116, -281),
+        (124, 287),
+        (192, -10),
+    ] {
+        assert_eq!(read_i32(&metrics, offset), value);
+    }
+
+    fixture
+        .memory
+        .write(TEXT_OUT_BYTES_ADDRESS, &[0xb6])
+        .expect("install save-catalog CP932 glyph");
+    fixture.acknowledge_pending_delta();
+    let call = match fixture.dispatch_text_out(device_context, 0, 0, TEXT_OUT_BYTES_ADDRESS, 1) {
+        DispatchOutcome::Deferred(call) => call,
+        other => panic!("expected save-catalog text raster request, got {other:?}"),
+    };
+    assert_eq!(read_u32(&call.request.payload, 40), 144);
+    assert_eq!(read_u32(&call.request.payload, 44), 144);
+    assert_eq!(read_u32(&call.request.payload, 52), 576);
+    assert_eq!(read_u32(&call.request.payload, 56) as i32, -216);
+    assert_eq!(read_u32(&call.request.payload, 60), 576);
+    assert_eq!(read_u32(&call.request.payload, 64), 124_416);
+    assert_eq!(read_u32(&call.request.payload, 68), 1);
+    assert_eq!(read_u32(&call.request.payload, 72), 0xb6);
+    let mut rasterized = vec![0; 124_416];
+    rasterized[72 * 576 + 72] = 255;
+    let (outcome, runtime_completion) = fixture.complete_text_raster(call, rasterized.clone());
+    assert!(matches!(outcome, DispatchOutcome::Immediate(_)));
+    assert!(runtime_completion.is_some());
+    fixture.acknowledge_pending_delta();
+    assert_eq!(fixture.memory.read(bits, 124_416).unwrap(), rasterized);
+}
+
+#[test]
+fn scenario_128x64_font_dib_metrics_and_raster_form_one_reached_surface() {
+    let mut fixture = FontFixture::new();
+    let (_font, device_context, _default_font) =
+        fixture.create_font_memory_dc(scenario_128x64_create_font_arguments());
+    fixture.install_bitmap_info(&scenario_256x192_bitmap_info());
+    fixture
+        .memory
+        .write(BITS_OUTPUT_ADDRESS, &0xa5a5_a5a5_u32.to_le_bytes())
+        .expect("initialize 256x192 DIB output");
+    fixture.acknowledge_pending_delta();
+    let dib = match fixture.dispatch_create_dib_section(
+        device_context,
+        BITMAP_INFO_ADDRESS,
+        BITS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => match completion.eax {
+            RegisterUpdate::Set(handle) => handle,
+            other => panic!("256x192 CreateDIBSection did not set EAX: {other:?}"),
+        },
+        other => panic!("expected 256x192 DIB creation, got {other:?}"),
+    };
+    fixture.acknowledge_pending_delta();
+    let bits = GuestAddress(read_u32(
+        &fixture.memory.read(BITS_OUTPUT_ADDRESS, 4).unwrap(),
+        0,
+    ));
+    assert!(matches!(
+        fixture.dispatch_select_object(device_context, dib),
+        DispatchOutcome::Immediate(_)
+    ));
+
+    fixture
+        .memory
+        .write(OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS, &[0xa5; 320])
+        .expect("initialize 128x64 outline output");
+    fixture.acknowledge_pending_delta();
+    let outline = match fixture.dispatch_outline_text_metrics(
+        device_context,
+        X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32,
+        OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected 128x64 outline metrics, got {other:?}"),
+    };
+    assert_eq!(
+        outline.eax,
+        RegisterUpdate::Set(X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32)
+    );
+    fixture.acknowledge_pending_delta();
+    let metrics = fixture
+        .memory
+        .read(
+            OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS,
+            X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH,
+        )
+        .expect("128x64 outline metrics bytes");
+    for (offset, value) in [
+        (4, 128),
+        (8, 110),
+        (12, 18),
+        (24, 64),
+        (28, 253),
+        (116, -125),
+        (124, 128),
+        (192, -9),
+    ] {
+        assert_eq!(read_i32(&metrics, offset), value);
+    }
+
+    fixture
+        .memory
+        .write(TEXT_OUT_BYTES_ADDRESS, &[0xb6])
+        .expect("install 128x64 CP932 glyph");
+    fixture.acknowledge_pending_delta();
+    let call = match fixture.dispatch_text_out(device_context, 0, 0, TEXT_OUT_BYTES_ADDRESS, 1) {
+        DispatchOutcome::Deferred(call) => call,
+        other => panic!("expected 128x64 text raster request, got {other:?}"),
+    };
+    assert_eq!(read_u32(&call.request.payload, 40), 128);
+    assert_eq!(read_u32(&call.request.payload, 44), 64);
+    assert_eq!(read_u32(&call.request.payload, 52), 256);
+    assert_eq!(read_u32(&call.request.payload, 56) as i32, -192);
+    assert_eq!(read_u32(&call.request.payload, 60), 256);
+    assert_eq!(read_u32(&call.request.payload, 64), 49_152);
+    let (outcome, runtime_completion) = fixture.complete_text_raster(call, vec![0; 49_152]);
+    assert!(matches!(outcome, DispatchOutcome::Immediate(_)));
+    assert!(runtime_completion.is_some());
+    fixture.acknowledge_pending_delta();
+    assert_eq!(fixture.memory.read(bits, 49_152).unwrap(), vec![0; 49_152]);
+}
+
+#[test]
+fn scenario_144x72_font_dib_metrics_and_raster_form_one_reached_surface() {
+    let mut fixture = FontFixture::new();
+    let (_font, device_context, _default_font) =
+        fixture.create_font_memory_dc(scenario_144x72_create_font_arguments());
+    fixture.install_bitmap_info(&scenario_288x216_bitmap_info());
+    fixture
+        .memory
+        .write(BITS_OUTPUT_ADDRESS, &0xa5a5_a5a5_u32.to_le_bytes())
+        .expect("initialize 288x216 DIB output");
+    fixture.acknowledge_pending_delta();
+    let dib = match fixture.dispatch_create_dib_section(
+        device_context,
+        BITMAP_INFO_ADDRESS,
+        BITS_OUTPUT_ADDRESS,
+    ) {
+        DispatchOutcome::Immediate(completion) => match completion.eax {
+            RegisterUpdate::Set(handle) => handle,
+            other => panic!("288x216 CreateDIBSection did not set EAX: {other:?}"),
+        },
+        other => panic!("expected 288x216 DIB creation, got {other:?}"),
+    };
+    fixture.acknowledge_pending_delta();
+    assert!(matches!(
+        fixture.dispatch_select_object(device_context, dib),
+        DispatchOutcome::Immediate(_)
+    ));
+
+    fixture
+        .memory
+        .write(OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS, &[0xa5; 320])
+        .expect("initialize 144x72 outline output");
+    fixture.acknowledge_pending_delta();
+    assert!(matches!(
+        fixture.dispatch_outline_text_metrics(
+            device_context,
+            X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as u32,
+            OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS,
+        ),
+        DispatchOutcome::Immediate(_)
+    ));
+    fixture.acknowledge_pending_delta();
+    let metrics = fixture
+        .memory
+        .read(
+            OUTLINE_TEXT_METRICS_OUTPUT_ADDRESS,
+            X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH,
+        )
+        .expect("144x72 outline metrics bytes");
+    for (offset, value) in [
+        (4, 144),
+        (8, 124),
+        (12, 20),
+        (24, 72),
+        (28, 284),
+        (116, -141),
+        (124, 143),
+        (192, -10),
+    ] {
+        assert_eq!(read_i32(&metrics, offset), value);
+    }
+
+    fixture
+        .memory
+        .write(TEXT_OUT_BYTES_ADDRESS, &[0xb6])
+        .expect("install 144x72 CP932 glyph");
+    fixture.acknowledge_pending_delta();
+    let call = match fixture.dispatch_text_out(device_context, 0, 0, TEXT_OUT_BYTES_ADDRESS, 1) {
+        DispatchOutcome::Deferred(call) => call,
+        other => panic!("expected 144x72 text raster request, got {other:?}"),
+    };
+    assert_eq!(read_u32(&call.request.payload, 40), 144);
+    assert_eq!(read_u32(&call.request.payload, 44), 72);
+    assert_eq!(read_u32(&call.request.payload, 52), 288);
+    assert_eq!(read_u32(&call.request.payload, 56) as i32, -216);
+    assert_eq!(read_u32(&call.request.payload, 60), 288);
+    assert_eq!(read_u32(&call.request.payload, 64), 62_208);
+    let (outcome, runtime_completion) = fixture.complete_text_raster(call, vec![0; 62_208]);
+    assert!(matches!(outcome, DispatchOutcome::Immediate(_)));
+    assert!(runtime_completion.is_some());
+}
+
+#[test]
 fn outline_text_metrics_write_failure_preserves_guest_bytes_and_gdi_state() {
     let mut fixture = FontFixture::new();
     let (_font, device_context, _default_font) = fixture.create_primary_font_memory_dc();
@@ -2818,7 +3147,26 @@ fn create_font_a_creates_distinct_rust_owned_objects_without_guest_writes() {
     assert_eq!(log_font.quality, 2);
     assert_eq!(log_font.pitch_and_family, 0);
     assert_eq!(log_font.face_name_windows_932, MS_GOTHIC_WINDOWS_932);
-    assert_eq!(fixture.runtime.gdi_objects().len(), 3);
+
+    fixture.configure_create_font(save_catalog_create_font_arguments(), FACE_NAME_ADDRESS);
+    let completion = match fixture.dispatch_create_font() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected save-catalog CreateFontA completion, got {other:?}"),
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(first_handle + 3));
+    let save_catalog = fixture
+        .runtime
+        .gdi_objects()
+        .values()
+        .find(|object| object.handle == first_handle + 3)
+        .expect("created save-catalog logical font");
+    let RuntimeGdiObjectKind::FontA { log_font } = &save_catalog.object else {
+        panic!("save-catalog object is not a font")
+    };
+    assert_eq!(log_font.height, 144);
+    assert_eq!(log_font.width, 144);
+    assert_eq!(log_font.face_name_windows_932, MS_GOTHIC_WINDOWS_932);
+    assert_eq!(fixture.runtime.gdi_objects().len(), 4);
 }
 
 #[test]
@@ -3246,6 +3594,18 @@ fn large_scenario_bitmap_info() -> Vec<u8> {
     bitmap_info_bytes(384, -288)
 }
 
+fn save_catalog_bitmap_info() -> Vec<u8> {
+    bitmap_info_bytes(576, -216)
+}
+
+fn scenario_256x192_bitmap_info() -> Vec<u8> {
+    bitmap_info_bytes(256, -192)
+}
+
+fn scenario_288x216_bitmap_info() -> Vec<u8> {
+    bitmap_info_bytes(288, -216)
+}
+
 fn bitmap_info_bytes(width: i32, height: i32) -> Vec<u8> {
     let mut bytes = vec![0; X86_DIB_BITMAPINFO_BYTE_LENGTH];
     bytes[0..4].copy_from_slice(&X86_BITMAPINFOHEADER_BYTE_LENGTH.to_le_bytes());
@@ -3280,6 +3640,18 @@ fn dialogue_create_font_arguments() -> [u32; 13] {
 
 fn large_scenario_create_font_arguments() -> [u32; 13] {
     [192, 96, 0, 0, 100, 0, 0, 0, 128, 4, 0, 2, 0]
+}
+
+fn save_catalog_create_font_arguments() -> [u32; 13] {
+    [144, 144, 0, 0, 100, 0, 0, 0, 128, 4, 0, 2, 0]
+}
+
+fn scenario_128x64_create_font_arguments() -> [u32; 13] {
+    [128, 64, 0, 0, 100, 0, 0, 0, 128, 4, 0, 2, 0]
+}
+
+fn scenario_144x72_create_font_arguments() -> [u32; 13] {
+    [144, 72, 0, 0, 100, 0, 0, 0, 128, 4, 0, 2, 0]
 }
 
 fn primary_face_name() -> Vec<u8> {

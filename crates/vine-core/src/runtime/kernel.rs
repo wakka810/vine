@@ -141,7 +141,7 @@ use super::imm32::{
 use super::input::{
     RuntimeAsyncKeyStateResult, RuntimeCursorPosition, RuntimeInput, RuntimeInputProfile,
     RuntimeKeyboardEventReceipt, RuntimeKeyboardSourceEvent, RuntimeKeyboardState,
-    RuntimeMouseButtonMapping, RuntimePointerButtonEventReceipt,
+    RuntimeMouseButtonMapping, RuntimePointerButtonEventReceipt, RuntimePointerButtonEventTarget,
     RuntimePointerButtonMessageProfile, RuntimePointerButtonSourceEvent,
     RuntimePointerPositionEventReceipt, RuntimePointerPositionSourceEvent,
     RuntimeSwapMouseButtonResult,
@@ -209,23 +209,28 @@ use super::timers::{
     RuntimeWindowTimerRegistrationRequest, RuntimeWindowTimerRegistrationResult,
 };
 use super::user32::{
-    RuntimeBeginPaintRequest, RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId,
-    RuntimeCursorSource, RuntimeDefaultImeWindowResult, RuntimeEnableMenuItemResult,
-    RuntimeEndPaintRequest, RuntimeGetSystemMenuResult, RuntimeIcon, RuntimeIconId,
-    RuntimeIconResource, RuntimeImeStatusWindowRequest, RuntimeImeWindow, RuntimeImeWindowId,
-    RuntimeLoadCursorAResult, RuntimeLoadIconAResult, RuntimeMenuId, RuntimePaintSession,
-    RuntimeRegisterClassExAResult, RuntimeSetWindowPosCallbackAction,
-    RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
-    RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosDefaultOperation,
-    RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest, RuntimeSetWindowPosVariant,
-    RuntimeSetWindowStyleResult, RuntimeSystemMenu, RuntimeUpdateWindowCallbackAction,
-    RuntimeUpdateWindowOperation, RuntimeUpdateWindowRequest, RuntimeUser32, RuntimeWindow,
-    RuntimeWindowClass, RuntimeWindowClassId, RuntimeWindowClassRegistration,
-    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage,
-    RuntimeWindowCreationRequest, RuntimeWindowFileDropAcceptanceResult, RuntimeWindowGeometry,
-    RuntimeWindowId, RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
+    RUNTIME_WINDOW_CLASS_STYLE_DOUBLE_CLICKS, RuntimeBeginPaintRequest,
+    RuntimeCreateWindowExAResult, RuntimeCursor, RuntimeCursorId, RuntimeCursorSource,
+    RuntimeDefaultImeWindowResult, RuntimeEnableMenuItemResult, RuntimeEndPaintRequest,
+    RuntimeGetSystemMenuResult, RuntimeIcon, RuntimeIconId, RuntimeIconResource,
+    RuntimeImeStatusWindowRequest, RuntimeImeWindow, RuntimeImeWindowId, RuntimeLoadCursorAResult,
+    RuntimeLoadIconAResult, RuntimeMenuId, RuntimePaintSession, RuntimeRegisterClassExAResult,
+    RuntimeSetWindowPosCallbackAction, RuntimeSetWindowPosCallbackMessage,
+    RuntimeSetWindowPosDefaultCallbackAction, RuntimeSetWindowPosDefaultCallbackMessage,
+    RuntimeSetWindowPosDefaultOperation, RuntimeSetWindowPosOperation, RuntimeSetWindowPosRequest,
+    RuntimeSetWindowPosVariant, RuntimeSetWindowStyleResult, RuntimeSystemMenu,
+    RuntimeUpdateWindowCallbackAction, RuntimeUpdateWindowOperation, RuntimeUpdateWindowRequest,
+    RuntimeUser32, RuntimeWindow, RuntimeWindowClass, RuntimeWindowClassId,
+    RuntimeWindowClassRegistration, RuntimeWindowCreationCallbackAction,
+    RuntimeWindowCreationMessage, RuntimeWindowCreationRequest,
+    RuntimeWindowFileDropAcceptanceResult, RuntimeWindowGeometry, RuntimeWindowId,
+    RuntimeWindowLifecycle, RuntimeWindowNameA, RuntimeWindowProcedure,
 };
-use super::virtual_memory::{RuntimeVirtualMemoryReservation, RuntimeVirtualMemoryReserveRequest};
+use super::virtual_memory::{
+    RuntimeVirtualMemoryCommit, RuntimeVirtualMemoryCommitRequest, RuntimeVirtualMemoryDecommit,
+    RuntimeVirtualMemoryDecommitRequest, RuntimeVirtualMemoryReservation,
+    RuntimeVirtualMemoryReserveRequest,
+};
 use super::waits::{
     RUNTIME_WAITABLE_TIMER_PACING_SERVICE, RuntimeWaitCompletion, RuntimeWaitDisposition,
     RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
@@ -1175,6 +1180,15 @@ impl RuntimeKernel {
         self.input.cursor_position()
     }
 
+    pub fn set_cursor_position(
+        &mut self,
+        screen_x: i32,
+        screen_y: i32,
+    ) -> Result<RuntimeCursorPosition, RuntimeStateError> {
+        let plan = self.input.plan_cursor_position_set(screen_x, screen_y)?;
+        self.input.commit_cursor_position_set(plan)
+    }
+
     pub fn ingest_keyboard_event(
         &mut self,
         event: RuntimeKeyboardSourceEvent,
@@ -1193,9 +1207,28 @@ impl RuntimeKernel {
         let window_handle = window.handle;
         let (client_x, client_y, screen_x, screen_y, l_param) =
             pointer_input_coordinates(event.normalized_x, event.normalized_y, geometry, profile)?;
-        let input_plan = self
-            .input
-            .plan_pointer_button_event(event, screen_x, screen_y)?;
+        let window_class = self.user32.window_class(window.creation.class.atom)?;
+        if window_class.id != window.creation.class.class_id {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-pointer-input",
+                "pointer-input-window-class-mismatch",
+                "logical pointer target does not match its registered window class identity",
+            ));
+        }
+        let input_plan = self.input.plan_pointer_button_event(
+            event,
+            screen_x,
+            screen_y,
+            RuntimePointerButtonEventTarget {
+                window_id: window.id.0,
+                window_handle,
+                accepts_double_clicks: window_class.registration.style
+                    & RUNTIME_WINDOW_CLASS_STYLE_DOUBLE_CLICKS
+                    != 0,
+                tick_count: self.process.clock().tick_count,
+            },
+            profile,
+        )?;
         let (message, w_param) = input_plan.message_and_key_state(profile);
         let message_plan = self.messages.plan_post(
             RuntimeMessageSource::PointerInput {
@@ -1215,8 +1248,8 @@ impl RuntimeKernel {
         let scheduler_plan = message_plan
             .wake_target
             .then(|| {
-                self.scheduler
-                    .plan_transition(target_thread_id, SchedulerThreadState::Runnable)
+                self.resumed_execution_state_for_thread(target_thread_id)
+                    .and_then(|state| self.scheduler.plan_transition(target_thread_id, state))
             })
             .transpose()?;
 
@@ -1278,8 +1311,8 @@ impl RuntimeKernel {
         let scheduler_plan = message_plan
             .wake_target
             .then(|| {
-                self.scheduler
-                    .plan_transition(target_thread_id, SchedulerThreadState::Runnable)
+                self.resumed_execution_state_for_thread(target_thread_id)
+                    .and_then(|state| self.scheduler.plan_transition(target_thread_id, state))
             })
             .transpose()?;
 
@@ -1330,9 +1363,18 @@ impl RuntimeKernel {
             || profile.id.as_bytes().contains(&0)
             || profile.normalized_position_denominator != 65_536
             || profile.left_button_down_message == 0
+            || profile.left_button_double_click_message == 0
             || profile.left_button_up_message == 0
             || profile.right_button_down_message == 0
+            || profile.right_button_double_click_message == 0
             || profile.right_button_up_message == 0
+            || profile.left_button_double_click_message == profile.left_button_down_message
+            || profile.right_button_double_click_message == profile.right_button_down_message
+            || !(1..=5_000).contains(&profile.double_click_time_milliseconds)
+            || profile.double_click_width == 0
+            || profile.double_click_width > 256
+            || profile.double_click_height == 0
+            || profile.double_click_height > 256
             || profile.left_button_key_mask == 0
             || profile.right_button_key_mask == 0
             || profile.shift_key_mask == 0
@@ -1415,6 +1457,7 @@ impl RuntimeKernel {
             || current_window.lifecycle != RuntimeWindowLifecycle::Created
             || !current_window.visible
             || current_window.creation.owner_thread_id != target_thread_id
+            || current_window.creation.class != window.creation.class
             || current_window.creation.geometry != geometry
             || self.user32.active_window_handle(target_thread_id)? != Some(window.handle)
             || self.user32.focused_window_handle(target_thread_id)? != Some(window.handle)
@@ -2360,6 +2403,159 @@ impl RuntimeKernel {
         self.address_space_allocator.commit_reservation(reservation);
         transaction.commit_transaction();
         Ok(result)
+    }
+
+    pub fn commit_virtual_memory(
+        &mut self,
+        memory: &mut GuestMemory,
+        request: RuntimeVirtualMemoryCommitRequest,
+    ) -> Result<RuntimeVirtualMemoryCommit, RuntimeStateError> {
+        self.require_virtual_memory_operation_state()?;
+        let committed_range = request.committed_range()?;
+        let mut matching_allocation = None;
+        for allocation in self.address_space_allocator.records() {
+            if allocation.purpose != ProcessAddressAllocationPurpose::VirtualMemory
+                || !allocation.range.contains(committed_range)?
+            {
+                continue;
+            }
+            if matching_allocation.replace(allocation).is_some() {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-virtual-memory",
+                    "virtual-memory-commit-allocation-ambiguous",
+                    "virtual memory commit range belongs to multiple process allocations",
+                ));
+            }
+        }
+        let allocation = matching_allocation.ok_or_else(|| {
+            RuntimeStateError::invalid_input(
+                "runtime-virtual-memory",
+                "virtual-memory-commit-range-unreserved",
+                "virtual memory commit range is not contained in a live virtual reservation",
+            )
+        })?;
+        if allocation.owner != super::RUNTIME_VIRTUAL_MEMORY_ADDRESS_OWNER
+            || allocation.classification != ProcessAddressAllocationClassification::VirtualMemory
+            || allocation.lifetime != ProcessAddressAllocationLifetime::Process
+            || allocation.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
+            || allocation.executable != request.protection.execute
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-virtual-memory",
+                "virtual-memory-commit-allocation-invalid",
+                "virtual memory commit resolved to an incompatible process allocation",
+            ));
+        }
+        let mut matching_region = memory
+            .region_snapshots()
+            .into_iter()
+            .filter(|region| region.address_allocation_id == Some(allocation.id.0));
+        let region = matching_region.next().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-virtual-memory",
+                "virtual-memory-commit-region-missing",
+                "virtual memory process allocation has no authoritative guest region",
+            )
+        })?;
+        if matching_region.next().is_some()
+            || region.kind != MemoryRegionKind::Anonymous
+            || region.range.start() != allocation.range.base
+            || region.range.byte_length() != allocation.range.byte_length
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-virtual-memory",
+                "virtual-memory-commit-region-invalid",
+                "virtual memory guest region does not match its process allocation identity",
+            ));
+        }
+        let guest_range = GuestRange::new(committed_range.base, committed_range.byte_length)
+            .map_err(RuntimeStateError::from_memory)?;
+        memory
+            .commit(region.owner, guest_range, request.protection)
+            .map_err(RuntimeStateError::from_memory)?;
+        Ok(RuntimeVirtualMemoryCommit {
+            address_allocation_id: allocation.id,
+            memory_owner: region.owner,
+            range: committed_range,
+            requested_byte_length: request.byte_length,
+            protection: request.protection,
+        })
+    }
+
+    pub fn decommit_virtual_memory(
+        &mut self,
+        memory: &mut GuestMemory,
+        request: RuntimeVirtualMemoryDecommitRequest,
+    ) -> Result<RuntimeVirtualMemoryDecommit, RuntimeStateError> {
+        self.require_virtual_memory_operation_state()?;
+        let decommitted_range = request.decommitted_range()?;
+        let mut matching_allocation = None;
+        for allocation in self.address_space_allocator.records() {
+            if allocation.purpose != ProcessAddressAllocationPurpose::VirtualMemory
+                || !allocation.range.contains(decommitted_range)?
+            {
+                continue;
+            }
+            if matching_allocation.replace(allocation).is_some() {
+                return Err(RuntimeStateError::runtime_defect(
+                    "runtime-virtual-memory",
+                    "virtual-memory-decommit-allocation-ambiguous",
+                    "virtual memory decommit range belongs to multiple process allocations",
+                ));
+            }
+        }
+        let allocation = matching_allocation.ok_or_else(|| {
+            RuntimeStateError::invalid_input(
+                "runtime-virtual-memory",
+                "virtual-memory-decommit-range-unreserved",
+                "virtual memory decommit range is not contained in a live virtual reservation",
+            )
+        })?;
+        if allocation.owner != super::RUNTIME_VIRTUAL_MEMORY_ADDRESS_OWNER
+            || allocation.classification != ProcessAddressAllocationClassification::VirtualMemory
+            || allocation.lifetime != ProcessAddressAllocationLifetime::Process
+            || allocation.release_policy != ProcessAddressAllocationReleasePolicy::Explicit
+            || allocation.executable
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-virtual-memory",
+                "virtual-memory-decommit-allocation-invalid",
+                "virtual memory decommit resolved to an incompatible process allocation",
+            ));
+        }
+        let mut matching_region = memory
+            .region_snapshots()
+            .into_iter()
+            .filter(|region| region.address_allocation_id == Some(allocation.id.0));
+        let region = matching_region.next().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-virtual-memory",
+                "virtual-memory-decommit-region-missing",
+                "virtual memory process allocation has no authoritative guest region",
+            )
+        })?;
+        if matching_region.next().is_some()
+            || region.kind != MemoryRegionKind::Anonymous
+            || region.range.start() != allocation.range.base
+            || region.range.byte_length() != allocation.range.byte_length
+        {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-virtual-memory",
+                "virtual-memory-decommit-region-invalid",
+                "virtual memory guest region does not match its process allocation identity",
+            ));
+        }
+        let guest_range = GuestRange::new(decommitted_range.base, decommitted_range.byte_length)
+            .map_err(RuntimeStateError::from_memory)?;
+        memory
+            .decommit(region.owner, guest_range)
+            .map_err(RuntimeStateError::from_memory)?;
+        Ok(RuntimeVirtualMemoryDecommit {
+            address_allocation_id: allocation.id,
+            memory_owner: region.owner,
+            range: decommitted_range,
+            requested_byte_length: request.byte_length,
+        })
     }
 
     fn require_virtual_memory_operation_state(&self) -> Result<(), RuntimeStateError> {
@@ -3653,6 +3849,20 @@ impl RuntimeKernel {
         self.scheduler.state(thread_id)
     }
 
+    fn resumed_execution_state_for_thread(
+        &self,
+        thread_id: RuntimeThreadId,
+    ) -> Result<SchedulerThreadState, RuntimeStateError> {
+        let callback_depth = self.threads.callback_depth(thread_id)?;
+        Ok(if callback_depth == 0 {
+            SchedulerThreadState::Runnable
+        } else {
+            SchedulerThreadState::InCallback {
+                depth: callback_depth,
+            }
+        })
+    }
+
     pub fn start_initial_thread(&mut self) -> Result<(), RuntimeStateError> {
         let thread_id = self.current_thread_id();
         let process_plan = self.process.plan_start()?;
@@ -4413,12 +4623,12 @@ impl RuntimeKernel {
     ) -> Result<RuntimeWaitDisposition, RuntimeStateError> {
         if !self.process.is_running()
             || self.current_thread()?.lifecycle != RuntimeThreadLifecycleState::Running
-            || self.scheduler_state()? != SchedulerThreadState::Runnable
+            || !self.scheduler_state()?.is_executable()
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-wait",
                 "wait-registration-thread-state-invalid",
-                "wait registration requires a running process and runnable current thread",
+                "wait registration requires a running process and executable current thread",
             ));
         }
         let thread_id = self.current_thread_id();
@@ -4568,8 +4778,8 @@ impl RuntimeKernel {
         let scheduler_plan = plan
             .wake_target
             .then(|| {
-                self.scheduler
-                    .plan_transition(target_thread_id, SchedulerThreadState::Runnable)
+                self.resumed_execution_state_for_thread(target_thread_id)
+                    .and_then(|state| self.scheduler.plan_transition(target_thread_id, state))
             })
             .transpose()?;
         self.messages.preflight_post(&plan)?;
@@ -4831,6 +5041,12 @@ impl RuntimeKernel {
         self.heaps.large_backing()
     }
 
+    pub fn large_heap_allocation_backings(
+        &self,
+    ) -> &BTreeMap<u16, RuntimeLargeHeapAllocationBacking> {
+        self.heaps.large_backings()
+    }
+
     pub fn private_heap_allocation(
         &self,
         handle: u32,
@@ -4920,8 +5136,7 @@ impl RuntimeKernel {
         let region_matches = memory.region_snapshots().iter().any(|region| {
             region.owner == plan.memory_owner
                 && region.kind == MemoryRegionKind::Heap
-                && region.range.start() == plan.allocation.address
-                && region.range.byte_length() == u64::from(plan.allocation.reserved_byte_length)
+                && region.range == plan.backing_range
         });
         if !region_matches {
             return Err(RuntimeStateError::runtime_defect(
@@ -7300,6 +7515,7 @@ impl RuntimeKernel {
             .text_raster_target(device_context_handle, self.current_thread_id())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn commit_pending_gdi_text_raster(
         &mut self,
         memory: &mut GuestMemory,
@@ -9697,8 +9913,8 @@ impl RuntimeKernel {
                         "critical section waiter does not have a matching live scheduler lane",
                     ));
                 }
-                self.scheduler
-                    .plan_transition(thread_id, SchedulerThreadState::Runnable)
+                let resumed_state = self.resumed_execution_state_for_thread(thread_id)?;
+                self.scheduler.plan_transition(thread_id, resumed_state)
             })
             .transpose()?;
         self.synchronization.preflight(&plan)?;
@@ -9808,14 +10024,18 @@ impl RuntimeKernel {
     ) -> Result<RuntimeCallbackMutationPlan, RuntimeStateError> {
         let thread_id = self.current_thread_id();
         let current_depth = self.threads.callback_depth(thread_id)?;
-        match self.scheduler_state()? {
+        let scheduler_state = self.scheduler_state()?;
+        match scheduler_state {
             SchedulerThreadState::Runnable if current_depth == 0 => {}
             SchedulerThreadState::InCallback { depth } if depth == current_depth => {}
             _ => {
                 return Err(RuntimeStateError::conflict(
                     "runtime-callback",
                     "callback-entry-thread-state-invalid",
-                    "callback entry requires a runnable thread or the matching nested callback state",
+                    format!(
+                        "callback entry on thread {} requires a runnable thread or the matching nested callback state; scheduler is {scheduler_state:?} and callback depth is {current_depth}",
+                        thread_id.0,
+                    ),
                 ));
             }
         }
@@ -10530,9 +10750,10 @@ impl RuntimeKernel {
             if candidate.excluded {
                 continue;
             }
+            let resumed_state = self.resumed_execution_state_for_thread(registration.thread_id)?;
             let scheduler_plan = self
                 .scheduler
-                .plan_transition(registration.thread_id, SchedulerThreadState::Runnable)?;
+                .plan_transition(registration.thread_id, resumed_state)?;
             plans.push(RuntimeWaitWakePlan {
                 completion,
                 scheduler_plan,
@@ -16195,8 +16416,8 @@ mod tests {
         let backing = locked_secondary.backing.expect("secondary sample backing");
         assert_eq!(backing.range.start(), GuestAddress(data1));
         assert_eq!(
-            locked_secondary.active_lock.expect("active secondary Lock"),
-            RuntimeAudioBufferLock {
+            locked_secondary.active_locks,
+            vec![RuntimeAudioBufferLock {
                 offset: 0,
                 byte_length: SECONDARY_BYTES,
                 flags: 0,
@@ -16205,7 +16426,7 @@ mod tests {
                     byte_length: SECONDARY_BYTES,
                 },
                 second_segment: None,
-            }
+            }]
         );
         assert_eq!(locked_secondary.content_generation, 0);
         assert!(
@@ -16341,7 +16562,7 @@ mod tests {
         let unlocked_secondary = runtime
             .audio_buffer_for_com_object(secondary_interface.object_id)
             .expect("unlocked secondary logical audio buffer");
-        assert_eq!(unlocked_secondary.active_lock, None);
+        assert!(unlocked_secondary.active_locks.is_empty());
         assert_eq!(unlocked_secondary.content_generation, 1);
 
         for (slot, value) in [
@@ -16386,6 +16607,88 @@ mod tests {
         assert_eq!(controls.pan_hundredths_db, -500);
         assert_eq!(controls.frequency_hz, Some(22_050));
         assert_eq!(controls.current_position_bytes, 4);
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_OUTPUT,
+            &[0xcccc_cccc, 0xdddd_dddd],
+        );
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                D3D9_FIXTURE_CALL_SITE.0,
+                secondary_interface.guest_pointer.0,
+                D3D9_FIXTURE_OUTPUT.0,
+                D3D9_FIXTURE_OUTPUT.0 + 4,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let before_position_query = runtime.clone();
+        let position_query = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatch_dsound_com_call(
+                &policy,
+                ComCallTrap {
+                    endpoint_address: secondary_interface.methods[&4].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: D3D9_FIXTURE_CALL_SITE,
+                    call_site: D3D9_FIXTURE_CALL_SITE,
+                },
+                &mut session,
+            )
+        };
+        let ComDispatchOutcome::Completed(position_query) = position_query else {
+            panic!("stopped secondary position query did not complete: {position_query:?}");
+        };
+        assert_eq!(
+            position_query.return_value,
+            ComReturnValue::HResult(COM_S_OK)
+        );
+        assert_eq!(position_query.guest_writes.len(), 2);
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        assert_eq!(
+            memory.read(D3D9_FIXTURE_OUTPUT, 8).unwrap(),
+            [4_u32.to_le_bytes(), 4_u32.to_le_bytes()].concat()
+        );
+        assert_eq!(runtime, before_position_query);
+
+        write_d3d9_fixture_words(
+            &mut memory,
+            D3D9_FIXTURE_STACK,
+            &[
+                D3D9_FIXTURE_CALL_SITE.0,
+                secondary_interface.guest_pointer.0,
+                0,
+                0,
+            ],
+        );
+        acknowledge_d3d9_fixture_memory(&mut memory);
+        let before_empty_position_query = runtime.clone();
+        let empty_position_query = {
+            let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+            dispatch_dsound_com_call(
+                &policy,
+                ComCallTrap {
+                    endpoint_address: secondary_interface.methods[&4].endpoint,
+                    stack_pointer: D3D9_FIXTURE_STACK,
+                    return_address: D3D9_FIXTURE_CALL_SITE,
+                    call_site: D3D9_FIXTURE_CALL_SITE,
+                },
+                &mut session,
+            )
+        };
+        let ComDispatchOutcome::Completed(empty_position_query) = empty_position_query else {
+            panic!(
+                "empty secondary position query did not return HRESULT: {empty_position_query:?}"
+            );
+        };
+        assert_eq!(
+            empty_position_query.return_value,
+            ComReturnValue::HResult(DSOUND_E_INVALIDARG)
+        );
+        assert!(empty_position_query.guest_writes.is_empty());
+        assert_eq!(runtime, before_empty_position_query);
 
         write_d3d9_fixture_words(
             &mut memory,

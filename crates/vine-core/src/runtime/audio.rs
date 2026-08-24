@@ -26,6 +26,7 @@ pub(crate) const RUNTIME_AUDIO_RESOURCE_ADDRESS_OWNER: &str = "runtime-audio-res
 pub const RUNTIME_AUDIO_DEVICE_LIMIT: usize = 4_096;
 pub const RUNTIME_AUDIO_BUFFER_LIMIT: usize = 16_384;
 pub const RUNTIME_AUDIO_NOTIFICATION_LIMIT: usize = 32;
+const RUNTIME_AUDIO_ACTIVE_LOCK_LIMIT: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
@@ -170,8 +171,8 @@ pub struct RuntimeAudioBuffer {
     pub backing: Option<RuntimeAudioBufferBacking>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_format: Option<RuntimeAudioPcmFormat>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_lock: Option<RuntimeAudioBufferLock>,
+    #[serde(skip)]
+    pub active_locks: Vec<RuntimeAudioBufferLock>,
     pub content_generation: u64,
     pub playback: RuntimeAudioPlaybackState,
     pub controls: RuntimeAudioBufferControls,
@@ -342,6 +343,7 @@ pub(crate) struct RuntimeAudioBufferLockPlan {
     expected_buffer_generation: u64,
     next_buffer_generation: u64,
     previous_backing: Option<RuntimeAudioBufferBacking>,
+    previous_active_locks: Vec<RuntimeAudioBufferLock>,
     backing_installation: Option<RuntimeAudioBufferBackingPlan>,
     lock: RuntimeAudioBufferLock,
 }
@@ -369,6 +371,8 @@ pub(crate) struct RuntimeAudioBufferUnlockPlan {
     next_buffer_generation: u64,
     expected_content_generation: u64,
     next_content_generation: u64,
+    previous_active_locks: Vec<RuntimeAudioBufferLock>,
+    lock_index: usize,
     lock: RuntimeAudioBufferLock,
 }
 
@@ -458,6 +462,10 @@ impl RuntimeAudioNotificationWaitPlan {
 impl RuntimeAudioBufferUnlockPlan {
     pub(crate) fn buffer_id(&self) -> RuntimeAudioBufferId {
         self.buffer_id
+    }
+
+    pub(crate) fn releases_last_lock(&self) -> bool {
+        self.previous_active_locks.len() == 1
     }
 }
 
@@ -828,7 +836,7 @@ impl RuntimeAudio {
             descriptor: plan.request.descriptor,
             backing: None,
             active_format: plan.request.descriptor.format,
-            active_lock: None,
+            active_locks: Vec::new(),
             content_generation: 0,
             playback: RuntimeAudioPlaybackState::Stopped,
             controls: RuntimeAudioBufferControls {
@@ -959,11 +967,11 @@ impl RuntimeAudio {
                 "bounded audio locking supports aligned secondary-buffer regions with no Lock flags",
             ));
         }
-        if buffer.active_lock.is_some() {
-            return Err(RuntimeStateError::conflict(
+        if buffer.active_locks.len() >= RUNTIME_AUDIO_ACTIVE_LOCK_LIMIT {
+            return Err(RuntimeStateError::resource_limit(
                 "runtime-audio",
-                "audio-buffer-already-locked",
-                "logical audio buffer already has an active lock",
+                "audio-buffer-lock-limit-exceeded",
+                "logical audio buffer active Lock capacity is exhausted",
             ));
         }
         let backing_start = match (buffer.backing, backing_installation) {
@@ -990,6 +998,17 @@ impl RuntimeAudio {
             }
         };
         let lock = derive_buffer_lock(buffer, request, backing_start)?;
+        if buffer
+            .active_locks
+            .iter()
+            .any(|active| audio_buffer_locks_overlap(*active, lock))
+        {
+            return Err(RuntimeStateError::conflict(
+                "runtime-audio",
+                "audio-buffer-already-locked",
+                "logical audio Lock overlaps an active Lock region",
+            ));
+        }
         Ok(RuntimeAudioBufferLockPlan {
             expected_generation: self.generation,
             next_generation: checked_next_generation(self.generation)?,
@@ -997,6 +1016,7 @@ impl RuntimeAudio {
             expected_buffer_generation: buffer.generation,
             next_buffer_generation: checked_buffer_generation(buffer.generation)?,
             previous_backing: buffer.backing,
+            previous_active_locks: buffer.active_locks.clone(),
             backing_installation,
             lock,
         })
@@ -1048,7 +1068,12 @@ impl RuntimeAudio {
             || buffer.generation != plan.expected_buffer_generation
             || buffer.descriptor.kind != RuntimeAudioBufferKind::Secondary
             || buffer.active_format.is_none()
-            || buffer.active_lock.is_some()
+            || buffer.active_locks != plan.previous_active_locks
+            || buffer.active_locks.len() >= RUNTIME_AUDIO_ACTIVE_LOCK_LIMIT
+            || buffer
+                .active_locks
+                .iter()
+                .any(|active| audio_buffer_locks_overlap(*active, plan.lock))
             || buffer.backing != plan.previous_backing
             || !backing_shape_matches
             || expected_lock != Some(plan.lock)
@@ -1082,7 +1107,7 @@ impl RuntimeAudio {
                 range: backing.range,
             });
         }
-        buffer.active_lock = Some(plan.lock);
+        buffer.active_locks.push(plan.lock);
         buffer.generation = plan.next_buffer_generation;
         self.generation = plan.next_generation;
         plan.lock
@@ -1093,28 +1118,32 @@ impl RuntimeAudio {
         request: RuntimeAudioBufferUnlockRequest,
     ) -> Result<RuntimeAudioBufferUnlockPlan, RuntimeStateError> {
         let buffer = self.buffer_by_com_object(request.buffer_com_object_id)?;
-        let lock = buffer.active_lock.ok_or_else(|| {
-            RuntimeStateError::conflict(
+        if buffer.active_locks.is_empty() {
+            return Err(RuntimeStateError::conflict(
                 "runtime-audio",
                 "audio-buffer-not-locked",
-                "logical audio buffer has no active lock",
-            )
-        })?;
-        if !audio_buffer_segment_contains(lock.first_segment, request.first_segment)
-            || match (request.second_segment, lock.second_segment) {
-                (None, None) => false,
-                (Some(request), Some(lock)) => {
-                    !audio_buffer_segment_contains(lock, request)
-                }
-                _ => true,
-            }
-        {
-            return Err(RuntimeStateError::invalid_input(
-                "runtime-audio",
-                "audio-buffer-unlock-segments-mismatch",
-                "audio Unlock segments do not match the active Lock",
+                "logical audio buffer has no active Lock",
             ));
         }
+        let lock_index = buffer
+            .active_locks
+            .iter()
+            .position(|lock| {
+                audio_buffer_segment_contains(lock.first_segment, request.first_segment)
+                    && match (request.second_segment, lock.second_segment) {
+                        (None, None) => true,
+                        (Some(request), Some(lock)) => audio_buffer_segment_contains(lock, request),
+                        _ => false,
+                    }
+            })
+            .ok_or_else(|| {
+                RuntimeStateError::invalid_input(
+                    "runtime-audio",
+                    "audio-buffer-unlock-segments-mismatch",
+                    "audio Unlock segments do not match an active Lock",
+                )
+            })?;
+        let lock = buffer.active_locks[lock_index];
         Ok(RuntimeAudioBufferUnlockPlan {
             expected_generation: self.generation,
             next_generation: checked_next_generation(self.generation)?,
@@ -1129,6 +1158,8 @@ impl RuntimeAudio {
                     "logical audio buffer content generation is exhausted",
                 )
             })?,
+            previous_active_locks: buffer.active_locks.clone(),
+            lock_index,
             lock,
         })
     }
@@ -1143,7 +1174,8 @@ impl RuntimeAudio {
         if self.generation != plan.expected_generation
             || buffer.generation != plan.expected_buffer_generation
             || buffer.content_generation != plan.expected_content_generation
-            || buffer.active_lock != Some(plan.lock)
+            || buffer.active_locks != plan.previous_active_locks
+            || buffer.active_locks.get(plan.lock_index) != Some(&plan.lock)
             || buffer.backing.is_none()
             || self.buffer_com_object_index.get(&buffer.com_object_id) != Some(&buffer.id)
             || self.generation.checked_add(1) != Some(plan.next_generation)
@@ -1164,7 +1196,7 @@ impl RuntimeAudio {
             .buffers
             .get_mut(&plan.buffer_id)
             .expect("preflighted audio buffer disappeared");
-        buffer.active_lock = None;
+        buffer.active_locks.remove(plan.lock_index);
         buffer.content_generation = plan.next_content_generation;
         buffer.generation = plan.next_buffer_generation;
         self.generation = plan.next_generation;
@@ -1960,6 +1992,18 @@ fn derive_buffer_lock(
     })
 }
 
+fn audio_buffer_locks_overlap(left: RuntimeAudioBufferLock, right: RuntimeAudioBufferLock) -> bool {
+    [Some(left.first_segment), left.second_segment]
+        .into_iter()
+        .flatten()
+        .any(|left_segment| {
+            [Some(right.first_segment), right.second_segment]
+                .into_iter()
+                .flatten()
+                .any(|right_segment| audio_buffer_segments_overlap(left_segment, right_segment))
+        })
+}
+
 fn audio_buffer_segment_contains(
     lock: RuntimeAudioBufferSegment,
     request: RuntimeAudioBufferSegment,
@@ -1970,6 +2014,17 @@ fn audio_buffer_segment_contains(
         .checked_sub(lock.guest_address.0)
         .and_then(|offset| lock.byte_length.checked_sub(offset))
         .is_some_and(|remaining| request.byte_length <= remaining)
+}
+
+fn audio_buffer_segments_overlap(
+    left: RuntimeAudioBufferSegment,
+    right: RuntimeAudioBufferSegment,
+) -> bool {
+    let left_start = u64::from(left.guest_address.0);
+    let left_end = left_start + u64::from(left.byte_length);
+    let right_start = u64::from(right.guest_address.0);
+    let right_end = right_start + u64::from(right.byte_length);
+    left_start < right_end && right_start < left_end
 }
 
 fn validate_device_create_request(
@@ -2160,7 +2215,7 @@ fn buffer_ready_for_play(buffer: &RuntimeAudioBuffer) -> bool {
         RuntimeAudioBufferKind::Secondary => {
             buffer.active_format.is_some()
                 && buffer.backing.is_some()
-                && buffer.active_lock.is_none()
+                && buffer.active_locks.is_empty()
                 && buffer.content_generation != 0
         }
     }
@@ -2617,7 +2672,7 @@ mod tests {
         assert_eq!(lock.first_segment.byte_length, 88_200);
         assert_eq!(lock.second_segment, None);
         let secondary = audio.buffer(RuntimeAudioBufferId(1)).unwrap();
-        assert_eq!(secondary.active_lock, Some(lock));
+        assert_eq!(secondary.active_locks, vec![lock]);
         let installed_backing = secondary.backing.expect("installed audio sample backing");
         assert_eq!(
             installed_backing,
@@ -2760,20 +2815,18 @@ mod tests {
         let mut changed_handle_payload = pending_wait_payload.clone();
         changed_handle_payload[13 * 4..14 * 4].copy_from_slice(&0u32.to_le_bytes());
         assert!(!overlapped_wait.matches_rebased_host_payload(&changed_handle_payload));
-        for expected_position in [35_280] {
-            let wait = audio.plan_notification_wait(&handles, 100).unwrap();
-            assert_eq!(wait.delay_milliseconds(), 100);
-            assert_eq!(wait.result_index(), None);
-            assert_eq!(audio.commit_notification_wait(wait), None);
-            assert_eq!(
-                audio
-                    .buffer(RuntimeAudioBufferId(1))
-                    .unwrap()
-                    .controls
-                    .current_position_bytes,
-                expected_position
-            );
-        }
+        let wait = audio.plan_notification_wait(&handles, 100).unwrap();
+        assert_eq!(wait.delay_milliseconds(), 100);
+        assert_eq!(wait.result_index(), None);
+        assert_eq!(audio.commit_notification_wait(wait), None);
+        assert_eq!(
+            audio
+                .buffer(RuntimeAudioBufferId(1))
+                .unwrap()
+                .controls
+                .current_position_bytes,
+            35_280
+        );
         let wait = audio.plan_notification_wait(&handles, 100).unwrap();
         assert_eq!(wait.delay_milliseconds(), 50);
         assert_eq!(wait.result_index(), Some(1));
@@ -2823,6 +2876,115 @@ mod tests {
             audio.buffer_backings_for_retirement(&retirement).unwrap(),
             vec![(installed_backing, 88_200)]
         );
+    }
+
+    #[test]
+    fn secondary_non_overlapping_locks_can_be_active_and_unlock_independently() {
+        let mut audio = priority_audio();
+        let secondary_plan = audio
+            .plan_buffer_creation(RuntimeAudioBufferCreateRequest {
+                device_com_object_id: RuntimeComObjectId(13),
+                descriptor: secondary_descriptor(),
+            })
+            .unwrap();
+        audio.commit_buffer_creation(secondary_plan, RuntimeComObjectId(22));
+        let backing_plan = RuntimeAudioBufferBackingPlan {
+            address_allocation_id: ProcessAddressAllocationId(99),
+            range: GuestRange::new(GuestAddress(0x4500_0000), 0x1_6000).unwrap(),
+        };
+
+        let first_plan = audio
+            .plan_buffer_lock(
+                RuntimeAudioBufferLockRequest {
+                    buffer_com_object_id: RuntimeComObjectId(22),
+                    offset: 0,
+                    byte_length: 17_640,
+                    flags: 0,
+                },
+                Some(backing_plan),
+            )
+            .unwrap();
+        audio
+            .preflight_buffer_lock(&first_plan, Some(MemoryOwnerId(77)))
+            .unwrap();
+        let first = audio.commit_buffer_lock(first_plan, Some(MemoryOwnerId(77)));
+        let second_plan = audio
+            .plan_buffer_lock(
+                RuntimeAudioBufferLockRequest {
+                    buffer_com_object_id: RuntimeComObjectId(22),
+                    offset: 17_640,
+                    byte_length: 17_640,
+                    flags: 0,
+                },
+                None,
+            )
+            .unwrap();
+        audio.preflight_buffer_lock(&second_plan, None).unwrap();
+        let second = audio.commit_buffer_lock(second_plan, None);
+        assert_eq!(
+            audio.buffer(RuntimeAudioBufferId(1)).unwrap().active_locks,
+            vec![first, second]
+        );
+
+        let before_overlapping_lock = audio.clone();
+        assert_eq!(
+            audio
+                .plan_buffer_lock(
+                    RuntimeAudioBufferLockRequest {
+                        buffer_com_object_id: RuntimeComObjectId(22),
+                        offset: 17_636,
+                        byte_length: 8,
+                        flags: 0,
+                    },
+                    None,
+                )
+                .unwrap_err()
+                .code,
+            "audio-buffer-already-locked"
+        );
+        assert_eq!(audio, before_overlapping_lock);
+
+        let first_unlock = audio
+            .plan_buffer_unlock(RuntimeAudioBufferUnlockRequest {
+                buffer_com_object_id: RuntimeComObjectId(22),
+                first_segment: first.first_segment,
+                second_segment: first.second_segment,
+            })
+            .unwrap();
+        assert!(!first_unlock.releases_last_lock());
+        audio.commit_buffer_unlock(first_unlock);
+        let secondary = audio.buffer(RuntimeAudioBufferId(1)).unwrap();
+        assert_eq!(secondary.active_locks, vec![second]);
+        assert_eq!(secondary.content_generation, 1);
+        assert_eq!(
+            audio
+                .plan_buffer_play(RuntimeAudioBufferPlayRequest {
+                    buffer_com_object_id: RuntimeComObjectId(22),
+                    playback: RuntimeAudioPlaybackState::PlayingLooping,
+                })
+                .unwrap_err()
+                .code,
+            "audio-buffer-play-state-invalid"
+        );
+
+        let second_unlock = audio
+            .plan_buffer_unlock(RuntimeAudioBufferUnlockRequest {
+                buffer_com_object_id: RuntimeComObjectId(22),
+                first_segment: second.first_segment,
+                second_segment: second.second_segment,
+            })
+            .unwrap();
+        assert!(second_unlock.releases_last_lock());
+        audio.commit_buffer_unlock(second_unlock);
+        let secondary = audio.buffer(RuntimeAudioBufferId(1)).unwrap();
+        assert!(secondary.active_locks.is_empty());
+        assert_eq!(secondary.content_generation, 2);
+        audio
+            .plan_buffer_play(RuntimeAudioBufferPlayRequest {
+                buffer_com_object_id: RuntimeComObjectId(22),
+                playback: RuntimeAudioPlaybackState::PlayingLooping,
+            })
+            .unwrap();
     }
 
     #[test]

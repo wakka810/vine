@@ -18,7 +18,7 @@ pub const RUNTIME_SOURCE_READ_TRANSPORT_VERSION: u32 = 1;
 pub const RUNTIME_SOURCE_READ_REQUEST_BYTES: usize = 24;
 pub const RUNTIME_SOURCE_READ_RESPONSE_CONTROL_BYTES: usize = 32;
 pub const RUNTIME_SOURCE_FILE_LIMIT: usize = 4096;
-pub const RUNTIME_SOURCE_READ_MAX_BYTES: u32 = 1024 * 1024;
+pub const RUNTIME_SOURCE_READ_MAX_BYTES: u32 = 2 * 1024 * 1024;
 pub const RUNTIME_WRITABLE_PROFILE_SCHEMA: &str = "vine.writable-profile-snapshot";
 pub const RUNTIME_WRITABLE_PROFILE_VERSION: u32 = 3;
 pub const RUNTIME_WRITABLE_PROFILE_FILE_LIMIT: usize = 128;
@@ -4640,6 +4640,11 @@ mod tests {
         assert_eq!(failure.win32_error, 5);
         assert!(failure.bytes.is_empty());
 
+        let reached_large_control = source_read_response_control(1_451_826, 0, 5);
+        let reached_large =
+            RuntimeSourceReadHostResponse::decode_binary(11, &reached_large_control, &[]).unwrap();
+        assert_eq!(reached_large.requested_bytes, 1_451_826);
+
         for (control, payload, expected_code) in [
             (
                 source_read_response_control(0, 0, 0),
@@ -4677,7 +4682,7 @@ mod tests {
             ),
         ] {
             let error =
-                RuntimeSourceReadHostResponse::decode_binary(11, &control, &payload).unwrap_err();
+                RuntimeSourceReadHostResponse::decode_binary(12, &control, &payload).unwrap_err();
             assert_eq!(error.code, expected_code);
         }
     }

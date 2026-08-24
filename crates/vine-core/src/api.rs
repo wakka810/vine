@@ -37,10 +37,12 @@ use crate::runtime::{
     RuntimeSetWindowPosCallbackMessage, RuntimeSetWindowPosDefaultCallbackAction,
     RuntimeSetWindowPosDefaultCallbackMessage, RuntimeSetWindowPosDefaultOperation,
     RuntimeSetWindowPosOperation, RuntimeState, RuntimeStateError, RuntimeStateErrorClass,
-    RuntimeUpdateWindowCallbackAction, RuntimeUpdateWindowOperation,
-    RuntimeVirtualMemoryReservation, RuntimeVirtualMemoryReserveRequest,
-    RuntimeWindowCreationCallbackAction, RuntimeWindowCreationMessage, RuntimeWindowId,
-    RuntimeWritableReadResult, RuntimeWritableWriteResult,
+    RuntimeUpdateWindowCallbackAction, RuntimeUpdateWindowOperation, RuntimeVirtualMemoryCommit,
+    RuntimeVirtualMemoryCommitRequest, RuntimeVirtualMemoryDecommit,
+    RuntimeVirtualMemoryDecommitRequest, RuntimeVirtualMemoryReservation,
+    RuntimeVirtualMemoryReserveRequest, RuntimeWindowCreationCallbackAction,
+    RuntimeWindowCreationMessage, RuntimeWindowId, RuntimeWritableReadResult,
+    RuntimeWritableWriteResult,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -1945,6 +1947,20 @@ impl<'a> ExecutionSession<'a> {
         request: RuntimeVirtualMemoryReserveRequest,
     ) -> Result<RuntimeVirtualMemoryReservation, RuntimeStateError> {
         self.runtime.reserve_virtual_memory(self.memory, request)
+    }
+
+    pub fn commit_virtual_memory(
+        &mut self,
+        request: RuntimeVirtualMemoryCommitRequest,
+    ) -> Result<RuntimeVirtualMemoryCommit, RuntimeStateError> {
+        self.runtime.commit_virtual_memory(self.memory, request)
+    }
+
+    pub fn decommit_virtual_memory(
+        &mut self,
+        request: RuntimeVirtualMemoryDecommitRequest,
+    ) -> Result<RuntimeVirtualMemoryDecommit, RuntimeStateError> {
+        self.runtime.decommit_virtual_memory(self.memory, request)
     }
 
     pub fn free_private_heap_block(

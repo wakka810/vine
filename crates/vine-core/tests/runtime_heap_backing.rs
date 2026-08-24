@@ -11,6 +11,8 @@ use vine_core::{
 
 const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
+const REACHED_SAVE_COMPRESSION_BYTES: u32 = 7_786_068;
+const REACHED_SCENARIO_BUFFER_BYTES: u32 = 61_219_868;
 
 #[test]
 fn heap_slot_allocator_ownership_preserves_runtime_serialization_shape() {
@@ -129,6 +131,53 @@ fn growable_heap_uses_multiple_bounded_segments_and_tears_them_down_atomically()
     );
     assert_eq!(memory.stats().owners, 0);
     assert_eq!(memory.stats().regions, 0);
+}
+
+#[test]
+fn growable_heap_keeps_save_compression_capacity_while_the_large_slot_is_live() {
+    let mut memory = GuestMemory::new(MemoryLimits {
+        max_physical_pages: 8_192,
+        ..MemoryLimits::default()
+    })
+    .unwrap();
+    let mut runtime = running_runtime();
+    let handle = runtime.allocate_private_heap(0, 0, 0).unwrap().handle;
+    for _ in 1..32 {
+        runtime.allocate_private_heap(0, 0, 0).unwrap();
+    }
+
+    ExecutionSession::new(&mut memory, &mut runtime)
+        .allocate_private_heap_block(
+            handle,
+            RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
+            RuntimeHeapInitialization::DeterministicUninitialized,
+        )
+        .unwrap();
+    acknowledge_initial_reflection(&mut memory);
+    let scenario_buffer = ExecutionSession::new(&mut memory, &mut runtime)
+        .allocate_private_heap_block(
+            handle,
+            REACHED_SCENARIO_BUFFER_BYTES,
+            RuntimeHeapInitialization::DeterministicUninitialized,
+        )
+        .unwrap();
+    assert_eq!(
+        scenario_buffer.address,
+        vine_core::RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE
+    );
+    acknowledge_delta(&mut memory);
+
+    let save_compression = ExecutionSession::new(&mut memory, &mut runtime)
+        .allocate_private_heap_block(
+            handle,
+            REACHED_SAVE_COMPRESSION_BYTES,
+            RuntimeHeapInitialization::DeterministicUninitialized,
+        )
+        .unwrap();
+    let final_ordinary_slot = RUNTIME_PRIVATE_HEAP_ARENA_BASE.0
+        + u32::from(RUNTIME_PRIVATE_HEAP_BACKING_LIMIT - 1) * RUNTIME_PRIVATE_HEAP_ARENA_STRIDE;
+    assert_eq!(save_compression.address, GuestAddress(final_ordinary_slot));
+    assert_eq!(runtime.heap(handle).unwrap().live_allocations, 3);
 }
 
 #[test]

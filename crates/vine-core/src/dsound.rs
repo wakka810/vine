@@ -385,6 +385,9 @@ fn dispatch_dsound_frontend_call(
         (true, false, 6, "SetCooperativeLevel", 2, 2, RuntimeComReturnKind::HResult) => {
             handle_set_cooperative_level(policy, call)
         }
+        (false, true, 4, "GetCurrentPosition", 2, 2, RuntimeComReturnKind::HResult) => {
+            handle_buffer_get_current_position(call)
+        }
         (false, true, 9, "GetStatus", 1, 1, RuntimeComReturnKind::HResult) => {
             handle_buffer_get_status(call)
         }
@@ -702,6 +705,43 @@ fn handle_buffer_get_status(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
     complete_dsound_u32_write(call, GuestAddress(output_pointer), status)
 }
 
+fn handle_buffer_get_current_position(call: ComFrontendCall<'_>) -> ComDispatchOutcome {
+    let [play_cursor_output, write_cursor_output] = call.frame().explicit_arguments.as_slice()
+    else {
+        unreachable!("frontend ABI preflight fixed the DirectSound argument count");
+    };
+    let (play_cursor_output, write_cursor_output) = (*play_cursor_output, *write_cursor_output);
+    if play_cursor_output == 0 && write_cursor_output == 0 {
+        return call.complete(ComReturnValue::HResult(DSOUND_E_INVALIDARG), Vec::new());
+    }
+    let buffer = match call
+        .runtime()
+        .audio_buffer_for_com_object(call.frame().object_id)
+    {
+        Ok(buffer) => buffer,
+        Err(error) => return call.runtime_fault(error),
+    };
+    if buffer.descriptor.kind != RuntimeAudioBufferKind::Secondary
+        || buffer.playback != RuntimeAudioPlaybackState::Stopped
+    {
+        return call.fault(
+            ComFaultClass::Unsupported,
+            "dsound-buffer-get-current-position",
+            "dsound-buffer-position-variant-unsupported",
+            "bounded DirectSound cursor queries support stopped secondary buffers",
+        );
+    }
+    let position = buffer.controls.current_position_bytes;
+    let mut outputs = Vec::with_capacity(2);
+    if play_cursor_output != 0 {
+        outputs.push((GuestAddress(play_cursor_output), position));
+    }
+    if write_cursor_output != 0 {
+        outputs.push((GuestAddress(write_cursor_output), position));
+    }
+    complete_dsound_u32_writes(call, outputs)
+}
+
 fn dsound_buffer_status(playback: RuntimeAudioPlaybackState) -> u32 {
     match playback {
         RuntimeAudioPlaybackState::Stopped => 0,
@@ -717,31 +757,41 @@ fn complete_dsound_u32_write(
     output: GuestAddress,
     value: u32,
 ) -> ComDispatchOutcome {
-    if let Err(error) = call
-        .memory()
-        .validate_access(output, 4, MemoryAccess::Write)
-    {
-        return call.memory_fault(error);
-    }
-    let bytes = value.to_le_bytes().to_vec();
-    let mut call = call;
-    let mut transaction = call.memory_mut().begin_transaction();
-    let result = match transaction.write(output, &bytes) {
-        Ok(result) => result,
-        Err(error) => {
-            drop(transaction);
+    complete_dsound_u32_writes(call, vec![(output, value)])
+}
+
+fn complete_dsound_u32_writes(
+    call: ComFrontendCall<'_>,
+    outputs: Vec<(GuestAddress, u32)>,
+) -> ComDispatchOutcome {
+    for (output, _) in &outputs {
+        if let Err(error) = call
+            .memory()
+            .validate_access(*output, 4, MemoryAccess::Write)
+        {
             return call.memory_fault(error);
         }
-    };
-    transaction.commit_transaction();
-    call.complete(
-        ComReturnValue::HResult(COM_S_OK),
-        vec![ComGuestWriteReceipt {
+    }
+    let mut call = call;
+    let mut transaction = call.memory_mut().begin_transaction();
+    let mut guest_writes = Vec::with_capacity(outputs.len());
+    for (output, value) in outputs {
+        let bytes = value.to_le_bytes().to_vec();
+        let result = match transaction.write(output, &bytes) {
+            Ok(result) => result,
+            Err(error) => {
+                drop(transaction);
+                return call.memory_fault(error);
+            }
+        };
+        guest_writes.push(ComGuestWriteReceipt {
             address: output,
             bytes,
             result,
-        }],
-    )
+        });
+    }
+    transaction.commit_transaction();
+    call.complete(ComReturnValue::HResult(COM_S_OK), guest_writes)
 }
 
 fn handle_set_notification_positions(mut call: ComFrontendCall<'_>) -> ComDispatchOutcome {
@@ -1336,7 +1386,7 @@ pub fn direct_sound_buffer8_object_spec() -> ComObjectSpec {
                     ComMethodSpec::add_ref(),
                     ComMethodSpec::release(),
                     ComMethodSpec::unsupported_hresult("GetCaps", 1),
-                    ComMethodSpec::unsupported_hresult("GetCurrentPosition", 2),
+                    ComMethodSpec::frontend_hresult("GetCurrentPosition", 2),
                     ComMethodSpec::unsupported_hresult("GetFormat", 3),
                     ComMethodSpec::unsupported_hresult("GetVolume", 1),
                     ComMethodSpec::unsupported_hresult("GetPan", 1),

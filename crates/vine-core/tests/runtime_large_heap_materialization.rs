@@ -2,20 +2,22 @@ use vine_core::{
     ExecutionSession, GUEST_PAGE_SIZE, GuestAddress, GuestMemory,
     LOGICAL_ENCODED_POINTER_NAMESPACE, MappingOperation, MemoryLimits,
     ProcessAddressAllocationPurpose, ProcessAddressSpaceLayout, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
-    RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE,
-    RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE, RuntimeBootstrap, RuntimeClockState,
-    RuntimeHeapAllocationId, RuntimeHeapInitialization, RuntimePageFaultResolution,
-    RuntimeProcessId, RuntimeStartupInfo, RuntimeState, RuntimeThreadId,
-    X86_STARTUP_INFO_W_BYTE_LENGTH,
+    RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_LIMIT,
+    RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE, RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE,
+    RuntimeBootstrap, RuntimeClockState, RuntimeHeapAllocationId, RuntimeHeapInitialization,
+    RuntimePageFaultResolution, RuntimeProcessId, RuntimeStartupInfo, RuntimeState,
+    RuntimeThreadId, X86_STARTUP_INFO_W_BYTE_LENGTH,
 };
 
 const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
+const REACHED_FIRST_LARGE_BYTES: u32 = 47_354_272;
+const REACHED_VARIABLE_LARGE_BYTES: u32 = 61_219_868;
 
 #[test]
 fn large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot() {
     let mut memory = GuestMemory::new(MemoryLimits {
-        max_physical_pages: 2,
+        max_physical_pages: 3,
         ..MemoryLimits::default()
     })
     .unwrap();
@@ -34,7 +36,7 @@ fn large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot()
             ExecutionSession::new(memory, runtime)
                 .allocate_private_heap_block(
                     handle,
-                    32 * 1024 * 1024,
+                    RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE + 1,
                     RuntimeHeapInitialization::DeterministicUninitialized,
                 )
                 .map(|_| ())
@@ -46,13 +48,14 @@ fn large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot()
     let large = ExecutionSession::new(&mut memory, &mut runtime)
         .allocate_private_heap_block(
             handle,
-            RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE,
+            REACHED_FIRST_LARGE_BYTES,
             RuntimeHeapInitialization::DeterministicUninitialized,
         )
         .unwrap();
     assert_eq!(large.id, RuntimeHeapAllocationId(2));
     assert_eq!(large.address, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE);
-    assert_eq!(large.byte_length, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE);
+    assert_eq!(large.byte_length, REACHED_FIRST_LARGE_BYTES);
+    assert_eq!(large.reserved_byte_length, REACHED_FIRST_LARGE_BYTES);
     assert_eq!(memory.stats().physical_pages, physical_before_large);
     let reserve_delta = memory.pending_delta().unwrap();
     assert_eq!(reserve_delta.mapping_operations.len(), 1);
@@ -74,7 +77,36 @@ fn large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot()
         .unwrap();
     assert_eq!(
         address_allocation.purpose,
-        ProcessAddressAllocationPurpose::PrivateHeapLargeSlot
+        ProcessAddressAllocationPurpose::PrivateHeapLargeSlot { slot: 1 }
+    );
+
+    let second_large = ExecutionSession::new(&mut memory, &mut runtime)
+        .allocate_private_heap_block(
+            handle,
+            REACHED_VARIABLE_LARGE_BYTES,
+            RuntimeHeapInitialization::DeterministicUninitialized,
+        )
+        .unwrap();
+    assert_eq!(second_large.id, RuntimeHeapAllocationId(3));
+    assert_eq!(
+        second_large.address,
+        GuestAddress(RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE.0 + RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE)
+    );
+    assert_eq!(second_large.byte_length, REACHED_VARIABLE_LARGE_BYTES);
+    assert_eq!(second_large.reserved_byte_length, 61_219_872);
+    let second_reserve_delta = memory.pending_delta().unwrap();
+    assert!(matches!(
+        second_reserve_delta.mapping_operations.as_slice(),
+        [MappingOperation::Reserve { range, .. }]
+            if range.start() == second_large.address
+                && range.byte_length() == u64::from(RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE)
+    ));
+    memory
+        .acknowledge_delta(second_reserve_delta.generation)
+        .unwrap();
+    assert_eq!(
+        runtime.large_heap_allocation_backings().len(),
+        usize::from(RUNTIME_PRIVATE_HEAP_LARGE_SLOT_LIMIT)
     );
 
     assert_rejected_without_mutation(
@@ -89,7 +121,7 @@ fn large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot()
                 )
                 .map(|_| ())
         },
-        "large-heap-slot-in-use",
+        "large-heap-slot-capacity-exhausted",
     );
 
     let fault_address = GuestAddress(RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE.0 + 0x123);
@@ -164,6 +196,22 @@ fn large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot()
             runtime
                 .service_page_fault(
                     memory,
+                    GuestAddress(
+                        RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE.0 + REACHED_FIRST_LARGE_BYTES,
+                    ),
+                    6,
+                )
+                .map(|_| ())
+        },
+        "guest-page-fault-unhandled",
+    );
+    assert_rejected_without_mutation(
+        &mut memory,
+        &mut runtime,
+        |memory, runtime| {
+            runtime
+                .service_page_fault(
+                    memory,
                     GuestAddress(RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE.0 + GUEST_PAGE_SIZE as u32),
                     7,
                 )
@@ -171,6 +219,18 @@ fn large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot()
         },
         "large-heap-protection-fault",
     );
+    let second_fault_address = GuestAddress(second_large.address.0 + 0x456);
+    let second_materialization = runtime
+        .service_page_fault(&mut memory, second_fault_address, 6)
+        .unwrap();
+    let RuntimePageFaultResolution::PrivateHeapPageMaterialization { materialization } =
+        second_materialization
+    else {
+        panic!("unexpected second-slot page-fault resolution: {second_materialization:?}");
+    };
+    assert_eq!(materialization.allocation, second_large);
+    assert_eq!(materialization.committed_page.start(), second_large.address);
+    acknowledge_delta(&mut memory);
     assert_rejected_without_mutation(
         &mut memory,
         &mut runtime,
@@ -197,8 +257,12 @@ fn large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot()
             if range.start() == RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE
     ));
     memory.acknowledge_delta(release_delta.generation).unwrap();
-    assert!(runtime.large_heap_allocation_backing().is_none());
-    assert_eq!(memory.stats().physical_pages, physical_before_large);
+    assert_eq!(runtime.large_heap_allocation_backings().len(), 1);
+    assert_eq!(
+        runtime.large_heap_allocation_backing().unwrap().allocation,
+        second_large
+    );
+    assert_eq!(memory.stats().physical_pages, physical_before_large + 1);
     assert!(
         runtime
             .process_address_space_allocator()
@@ -224,7 +288,7 @@ fn large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot()
             RuntimeHeapInitialization::Zeroed,
         )
         .unwrap();
-    assert_eq!(reused.id, RuntimeHeapAllocationId(3));
+    assert_eq!(reused.id, RuntimeHeapAllocationId(4));
     assert_eq!(reused.address, large.address);
     acknowledge_delta(&mut memory);
     let zero_page = GuestAddress(reused.address.0 + GUEST_PAGE_SIZE as u32 + 0x88);
@@ -246,13 +310,13 @@ fn large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot()
         .teardown_process_heaps()
         .unwrap();
     assert_eq!(teardown.handles, vec![handle]);
-    assert_eq!(teardown.allocations_discarded, 2);
+    assert_eq!(teardown.allocations_discarded, 3);
     assert_eq!(
         teardown.reserved_bytes_released,
         u64::from(RUNTIME_PRIVATE_HEAP_ARENA_STRIDE)
-            + u64::from(RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE)
+            + 2 * u64::from(RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE)
     );
-    assert_eq!(teardown.committed_bytes_released, 2 * GUEST_PAGE_SIZE);
+    assert_eq!(teardown.committed_bytes_released, 3 * GUEST_PAGE_SIZE);
     acknowledge_delta(&mut memory);
     assert!(runtime.large_heap_allocation_backing().is_none());
     assert_eq!(memory.stats().owners, 0);

@@ -132,6 +132,8 @@ import {
 import { sourceSnapshotManifest } from "../storage/protocol.js";
 
 const worker = self as DedicatedWorkerGlobalScope;
+const maximumSourceReadBytes = 2 * 1024 * 1024;
+const maximumProfileReadBytes = 1024 * 1024;
 const EMPTY_SEMANTIC_CALL_SHA256 = new SemanticCallDigest().digestHex();
 const BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 64;
 const FORWARD_BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 256;
@@ -5830,14 +5832,14 @@ class BrowserRuntimeSession {
     const sequence = Number(BigInt(event.sequence));
     const receipt = metadata.receipt;
     const input = receipt.input;
-    const expectedMessage =
+    const expectedMessages =
       input.logicalButton === "left"
         ? event.kind === "button-down"
-          ? 0x0201
-          : 0x0202
+          ? [0x0201, 0x0203]
+          : [0x0202]
         : event.kind === "button-down"
-          ? 0x0204
-          : 0x0205;
+          ? [0x0204, 0x0206]
+          : [0x0205];
     const expectedButtonMask = input.logicalButton === "left" ? 0x01 : 0x02;
     invariant(
       metadata.kind === "pointer-button-event-ingested" &&
@@ -5872,7 +5874,7 @@ class BrowserRuntimeSession {
         receipt.message.source.event_sequence === sequence &&
         receipt.message.targetThreadId === receipt.targetThreadId &&
         receipt.message.hwnd === receipt.windowHandle &&
-        receipt.message.message === expectedMessage &&
+        expectedMessages.includes(receipt.message.message) &&
         (event.kind === "button-down"
           ? (receipt.message.wParam & expectedButtonMask) === expectedButtonMask
           : (receipt.message.wParam & expectedButtonMask) === 0) &&
@@ -7054,7 +7056,7 @@ class BrowserRuntimeSession {
     invariant(
       Number.isInteger(requestedBytes) &&
         (requestedBytes ?? 0) > 0 &&
-        (requestedBytes ?? 0) <= 1024 * 1024,
+        (requestedBytes ?? 0) <= maximumSourceReadBytes,
       "source read length is outside the transport bound",
     );
     const expectedBytes = Math.min(
@@ -7181,7 +7183,7 @@ class BrowserRuntimeSession {
     invariant(
       Number.isInteger(requestedBytes) &&
         (requestedBytes ?? 0) > 0 &&
-        (requestedBytes ?? 0) <= 1024 * 1024,
+        (requestedBytes ?? 0) <= maximumProfileReadBytes,
       "profile read length is outside the transport bound",
     );
     const expectedBytes = Math.min(

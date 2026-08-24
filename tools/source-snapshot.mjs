@@ -14,7 +14,8 @@ export const sourceSnapshotVersion = 1;
 export const sourceReadService = "storage.source-read.v1";
 export const profileReadService = "storage.profile-read.v1";
 export const sourceReadTransportVersion = 1;
-export const sourceReadMaximumBytes = 1024 * 1024;
+export const sourceReadMaximumBytes = 2 * 1024 * 1024;
+export const profileReadMaximumBytes = 1024 * 1024;
 
 export async function registerSourceSnapshot({ manifestPath, objectFiles, sourceRoot }) {
   const manifestBytes = await readFile(manifestPath);
@@ -82,7 +83,11 @@ export function decodeSourceReadRequest(requestId, service, arguments_) {
   if (version !== sourceReadTransportVersion) {
     throw new Error(`unsupported source read transport version ${version}`);
   }
-  if (requestedBytes === 0 || requestedBytes > sourceReadMaximumBytes) {
+  const maximumReadBytes =
+    service === sourceReadService
+      ? sourceReadMaximumBytes
+      : profileReadMaximumBytes;
+  if (requestedBytes === 0 || requestedBytes > maximumReadBytes) {
     throw new Error("source read request length exceeds the bounded transport");
   }
   return {

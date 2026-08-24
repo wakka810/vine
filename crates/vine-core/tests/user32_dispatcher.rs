@@ -37,11 +37,11 @@ use vine_core::{
     imm_associate_context_contract, imm_get_default_ime_wnd_contract, is_iconic_contract,
     load_cursor_a_contract, load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
     monitor_from_window_contract, peek_message_a_contract, register_class_ex_a_contract,
-    release_dc_contract, send_message_a_contract, set_cursor_contract, set_focus_contract,
-    set_rect_contract, set_timer_contract, set_window_long_a_contract, set_window_pos_contract,
-    set_window_text_a_contract, show_cursor_contract, show_window_contract,
-    swap_mouse_button_contract, translate_message_contract, update_window_contract,
-    user32_contract_for_endpoint,
+    release_dc_contract, send_message_a_contract, set_cursor_contract, set_cursor_pos_contract,
+    set_focus_contract, set_rect_contract, set_timer_contract, set_window_long_a_contract,
+    set_window_pos_contract, set_window_text_a_contract, show_cursor_contract,
+    show_window_contract, swap_mouse_button_contract, translate_message_contract,
+    update_window_contract, user32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -160,6 +160,10 @@ const GET_CURSOR_POS_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 11
 const GET_CURSOR_POS_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x22e0;
 const GET_CURSOR_POS_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_8563);
 const CURSOR_POSITION_OUTPUT_ADDRESS: GuestAddress = GuestAddress(MEMORY_BASE.0 + 0x2e30);
+const SET_CURSOR_POS_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0aa0);
+const SET_CURSOR_POS_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 144);
+const SET_CURSOR_POS_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2360;
+const SET_CURSOR_POS_RETURN_ADDRESS: GuestAddress = GuestAddress(0x1008_850a);
 const GET_CURSOR_INFO_ENDPOINT_ADDRESS: GuestAddress = GuestAddress(0x7f00_0a70);
 const GET_CURSOR_INFO_IAT_ADDRESS: GuestAddress = GuestAddress(IAT_ADDRESS.0 + 140);
 const GET_CURSOR_INFO_STACK_POINTER: u32 = MEMORY_BASE.0 + 0x2340;
@@ -4280,6 +4284,42 @@ fn get_cursor_pos_contract_is_one_argument_stdcall_with_nullable_point_output() 
 }
 
 #[test]
+fn set_cursor_pos_contract_is_two_coordinate_stdcall_and_preserves_last_error() {
+    let (_, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(169),
+        address: SET_CURSOR_POS_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_1380),
+        iat_address: SET_CURSOR_POS_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "SetCursorPos".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    let contract = set_cursor_pos_contract(endpoint).expect("SetCursorPos contract");
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 2);
+    assert!(
+        contract
+            .abi
+            .arguments
+            .iter()
+            .all(|argument| argument.direction == ApiDirection::In
+                && argument.value == ApiValueSchema::U32)
+    );
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Allowed);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
+}
+
+#[test]
 fn get_cursor_info_contract_is_one_argument_stdcall_with_nullable_bounded_inout() {
     let (_, owner) = initialized_memory();
     let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
@@ -5265,6 +5305,128 @@ fn get_window_rect_reads_live_outer_geometry_and_preserves_failure_atomicity() {
     assert_eq!(pointer_fault.code, "guest-page-fault");
     assert_eq!(fixture.runtime, pointer_fault_runtime);
     assert_eq!(fixture.memory.stats(), pointer_fault_memory);
+}
+
+#[test]
+fn set_cursor_pos_updates_rust_cursor_authority_and_preserves_failure_atomicity() {
+    let (mut memory, owner) = initialized_memory();
+    let endpoint = ApiEndpointIdentity::from_import_thunk(&ImportThunk {
+        id: ImportThunkId(169),
+        address: SET_CURSOR_POS_ENDPOINT_ADDRESS,
+        requester_owner: owner,
+        module: "USER32.dll".to_owned(),
+        iat_rva: vine_core::Rva(0x0d_1380),
+        iat_address: SET_CURSOR_POS_IAT_ADDRESS,
+        original_iat_value: 0,
+        disposition: ImportThunkDisposition::DeclaredRuntimeExport,
+        target: ImportTarget::Name {
+            name: "SetCursorPos".to_owned(),
+            hint: 0,
+            name_rva: vine_core::Rva(0),
+        },
+    });
+    memory
+        .write_initialization(
+            owner,
+            SET_CURSOR_POS_IAT_ADDRESS,
+            &SET_CURSOR_POS_ENDPOINT_ADDRESS.0.to_le_bytes(),
+        )
+        .expect("initialize SetCursorPos IAT");
+    write_words(
+        &mut memory,
+        owner,
+        GuestAddress(SET_CURSOR_POS_STACK_POINTER),
+        &[SET_CURSOR_POS_RETURN_ADDRESS.0, 566, 374],
+    );
+    memory.seal_owner(owner).expect("seal SetCursorPos owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("acknowledge initial reflection");
+
+    let contract = set_cursor_pos_contract(endpoint.clone()).expect("SetCursorPos contract");
+    let dispatcher =
+        ApiDispatcher::new([endpoint.clone()], [contract]).expect("SetCursorPos dispatcher");
+    let policy = User32CompatibilityPolicy::controlled_v30();
+    let mut runtime = controlled_runtime();
+    runtime
+        .configure_input_profile(policy.input_profile().expect("input profile"))
+        .expect("configure logical input");
+    let sentinel = 0x5566_7788;
+    runtime
+        .set_current_last_error(sentinel)
+        .expect("seed SetCursorPos LastError");
+    let memory_generation = memory.stats().generation;
+    let completion = {
+        let mut session = ExecutionSession::new(&mut memory, &mut runtime);
+        match dispatcher.dispatch_owned(
+            ApiOwnedTrap {
+                endpoint_id: endpoint.id,
+                endpoint_address: endpoint.address,
+                stack_pointer: GuestAddress(SET_CURSOR_POS_STACK_POINTER),
+                return_address: SET_CURSOR_POS_RETURN_ADDRESS,
+            },
+            &mut session,
+            |contract, frame, session| {
+                dispatch_user32_api_with_policy(
+                    &policy,
+                    CALLBACK_SENTINEL,
+                    contract,
+                    frame,
+                    session,
+                )
+            },
+        ) {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected SetCursorPos completion, got {other:?}"),
+        }
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(1));
+    assert_eq!(
+        completion.stack_pointer,
+        GuestAddress(SET_CURSOR_POS_STACK_POINTER + 12)
+    );
+    assert_eq!(
+        completion.instruction_pointer,
+        SET_CURSOR_POS_RETURN_ADDRESS
+    );
+    assert_eq!(completion.last_error, sentinel);
+    assert!(completion.guest_writes.is_empty());
+    assert_eq!(memory.stats().generation, memory_generation);
+    let cursor = runtime.cursor_position().expect("updated logical cursor");
+    assert_eq!((cursor.screen_x, cursor.screen_y), (566, 374));
+    assert_eq!(cursor.generation, 1);
+
+    let mut missing_runtime = controlled_runtime();
+    let missing_memory_generation = memory.stats().generation;
+    let fault = {
+        let mut session = ExecutionSession::new(&mut memory, &mut missing_runtime);
+        match dispatcher.dispatch_owned(
+            ApiOwnedTrap {
+                endpoint_id: endpoint.id,
+                endpoint_address: endpoint.address,
+                stack_pointer: GuestAddress(SET_CURSOR_POS_STACK_POINTER),
+                return_address: SET_CURSOR_POS_RETURN_ADDRESS,
+            },
+            &mut session,
+            |contract, frame, session| {
+                dispatch_user32_api_with_policy(
+                    &policy,
+                    CALLBACK_SENTINEL,
+                    contract,
+                    frame,
+                    session,
+                )
+            },
+        ) {
+            DispatchOutcome::Fault(fault) => fault,
+            other => panic!("expected missing cursor authority fault, got {other:?}"),
+        }
+    };
+    assert_eq!(fault.class, ApiFaultClass::RuntimeDefect);
+    assert_eq!(fault.code, "cursor-position-profile-unconfigured");
+    assert!(missing_runtime.cursor_position().is_none());
+    assert_eq!(memory.stats().generation, missing_memory_generation);
 }
 
 #[test]
@@ -6500,6 +6662,129 @@ fn pointer_button_ingress_commits_input_queue_and_window_proc_dispatch_atomicall
         .expect_err("full queue must reject pointer input before mutation");
     assert_eq!(fault.code, "message-queue-capacity-exceeded");
     assert_eq!(fixture.runtime, before_capacity_fault);
+}
+
+#[test]
+fn pointer_button_ingress_emits_double_click_for_registered_class_style() {
+    let mut fixture = RegisterClassFixture::new();
+    let (window_handle, _) = fixture.prepare_active_window_with_small_icon();
+    fixture.policy = User32CompatibilityPolicy::controlled_v32();
+    let profile = fixture
+        .policy
+        .pointer_button_messages
+        .clone()
+        .expect("controlled pointer message profile");
+    let sentinel = 0x62aa_3517;
+    fixture
+        .runtime
+        .set_current_last_error(sentinel)
+        .expect("seed double-click LastError");
+    let window = fixture.runtime.window(window_handle).unwrap();
+    assert_ne!(
+        fixture
+            .runtime
+            .window_class(window.creation.class.atom)
+            .unwrap()
+            .registration
+            .style
+            & 0x0008,
+        0,
+        "fixture must exercise a CS_DBLCLKS window class"
+    );
+
+    let mut ingest = |sequence, kind| {
+        fixture
+            .runtime
+            .ingest_pointer_button_event(
+                RuntimePointerButtonSourceEvent {
+                    sequence,
+                    kind,
+                    button: RuntimePointerButton::Primary,
+                    normalized_x: 32_768,
+                    normalized_y: 32_768,
+                },
+                &profile,
+            )
+            .unwrap()
+            .message
+            .message
+    };
+    assert_eq!(
+        ingest(1, RuntimePointerButtonSourceEventKind::ButtonDown),
+        0x0201
+    );
+    assert_eq!(
+        ingest(2, RuntimePointerButtonSourceEventKind::ButtonUp),
+        0x0202
+    );
+    assert_eq!(
+        ingest(3, RuntimePointerButtonSourceEventKind::ButtonDown),
+        0x0203
+    );
+    assert_eq!(
+        ingest(4, RuntimePointerButtonSourceEventKind::ButtonUp),
+        0x0202
+    );
+    assert_eq!(
+        ingest(5, RuntimePointerButtonSourceEventKind::ButtonDown),
+        0x0201,
+        "the click after a completed double-click starts a fresh sequence"
+    );
+
+    let mut double_click_l_param = 0;
+    for expected_message in [0x0201, 0x0202, 0x0203] {
+        fixture.configure_peek_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS, 0, 0, 0, 1);
+        let peek = match fixture.dispatch_peek_message_a() {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected queued click message, got {other:?}"),
+        };
+        assert_eq!(peek.eax, RegisterUpdate::Set(1));
+        assert_eq!(peek.last_error, sentinel);
+        let words = peek.guest_writes[0]
+            .write
+            .bytes
+            .chunks_exact(4)
+            .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
+            .collect::<Vec<_>>();
+        assert_eq!(words[1], expected_message);
+        if expected_message == 0x0203 {
+            assert_eq!(words[2], 0x0001);
+            double_click_l_param = words[3];
+        }
+        fixture.acknowledge_pending_delta();
+    }
+
+    fixture.configure_translate_message(PEEK_MESSAGE_A_OUTPUT_ADDRESS);
+    let runtime_before_translate = fixture.runtime.clone();
+    let memory_before_translate = fixture.memory.stats();
+    let translated = match fixture.dispatch_translate_message() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected double-click TranslateMessage completion, got {other:?}"),
+    };
+    assert_eq!(translated.eax, RegisterUpdate::Set(0));
+    assert_eq!(translated.last_error, sentinel);
+    assert!(translated.guest_writes.is_empty());
+    assert_eq!(fixture.runtime, runtime_before_translate);
+    assert_eq!(fixture.memory.stats(), memory_before_translate);
+
+    fixture.configure_dispatch_message_a(PEEK_MESSAGE_A_OUTPUT_ADDRESS);
+    let call = match fixture.dispatch_dispatch_message_a() {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected double-click window-procedure callback, got {other:?}"),
+    };
+    assert_eq!(
+        call.request.arguments,
+        [window_handle, 0x0203, 0x0001, double_click_l_param]
+            .into_iter()
+            .map(GuestCallbackArgument::U32)
+            .collect::<Vec<_>>()
+    );
+    let prepared = begin_fixture_callback(&mut fixture, &call);
+    let (completion, semantic_action) =
+        complete_fixture_callback(&mut fixture, call, 0x7152_3498, prepared.frame_id);
+    assert_eq!(semantic_action, None);
+    assert_eq!(completion.eax, RegisterUpdate::Set(0x7152_3498));
+    assert_eq!(completion.last_error, sentinel);
 }
 
 #[test]
@@ -9299,7 +9584,7 @@ fn get_foreground_window_reads_process_relation_without_mutation() {
 }
 
 #[test]
-fn def_window_proc_pointer_down_returns_zero_without_mutating_runtime_or_memory() {
+fn def_window_proc_pointer_down_and_double_click_return_zero_without_mutation() {
     let mut fixture = RegisterClassFixture::new();
     let (window_handle, _) = fixture.prepare_active_window_with_small_icon();
     fixture.policy = User32CompatibilityPolicy::controlled_v34();
@@ -9307,24 +9592,26 @@ fn def_window_proc_pointer_down_returns_zero_without_mutating_runtime_or_memory(
         .runtime
         .set_current_last_error(0x2468_1357)
         .expect("seed DefWindowProcA pointer LastError");
-    fixture.configure_def_window_proc_args(window_handle, 0x0201, 0x0001, 0x012c_0190);
-    let runtime_before = fixture.runtime.clone();
-    let memory_before = fixture.memory.stats();
+    for message in [0x0201, 0x0203] {
+        fixture.configure_def_window_proc_args(window_handle, message, 0x0001, 0x012c_0190);
+        let runtime_before = fixture.runtime.clone();
+        let memory_before = fixture.memory.stats();
 
-    let completion = match fixture.dispatch_configured_def_window_proc() {
-        DispatchOutcome::Immediate(completion) => completion,
-        other => panic!("expected pointer DefWindowProcA completion, got {other:?}"),
-    };
+        let completion = match fixture.dispatch_configured_def_window_proc() {
+            DispatchOutcome::Immediate(completion) => completion,
+            other => panic!("expected pointer DefWindowProcA completion, got {other:?}"),
+        };
 
-    assert_eq!(completion.eax, RegisterUpdate::Set(0));
-    assert_eq!(
-        completion.stack_pointer,
-        GuestAddress(DEF_WINDOW_PROC_STACK_POINTER + 20)
-    );
-    assert_eq!(completion.last_error, 0x2468_1357);
-    assert!(completion.guest_writes.is_empty());
-    assert_eq!(fixture.runtime, runtime_before);
-    assert_eq!(fixture.memory.stats(), memory_before);
+        assert_eq!(completion.eax, RegisterUpdate::Set(0));
+        assert_eq!(
+            completion.stack_pointer,
+            GuestAddress(DEF_WINDOW_PROC_STACK_POINTER + 20)
+        );
+        assert_eq!(completion.last_error, 0x2468_1357);
+        assert!(completion.guest_writes.is_empty());
+        assert_eq!(fixture.runtime, runtime_before);
+        assert_eq!(fixture.memory.stats(), memory_before);
+    }
 }
 
 #[test]
@@ -9368,6 +9655,10 @@ fn def_window_proc_pointer_release_returns_zero_without_mutating_runtime_or_memo
     let mut fixture = RegisterClassFixture::new();
     let (window_handle, _) = fixture.prepare_active_window_with_small_icon();
     fixture.policy = User32CompatibilityPolicy::controlled_v35();
+    fixture
+        .runtime
+        .set_cursor_position(700, 500)
+        .expect("move cursor after the queued pointer release");
     fixture
         .runtime
         .set_current_last_error(0x5a17_c0de)
@@ -9449,15 +9740,18 @@ fn def_window_proc_pointer_release_rejects_unreached_relations_without_mutation(
     assert_eq!(malformed.runtime, runtime_before);
     assert_eq!(malformed.memory.stats(), memory_before);
 
-    malformed.configure_def_window_proc_args(malformed_handle, 0x0202, 0, 0x012c_0191);
+    malformed.configure_def_window_proc_args(malformed_handle, 0x0202, 0, 0x012c_7fff);
     let runtime_before = malformed.runtime.clone();
     let memory_before = malformed.memory.stats();
     let fault = match malformed.dispatch_configured_def_window_proc() {
         DispatchOutcome::Fault(fault) => fault,
-        other => panic!("expected mismatched pointer-release coordinate fault, got {other:?}"),
+        other => panic!("expected out-of-bounds pointer-release coordinate fault, got {other:?}"),
     };
     assert_eq!(fault.class, ApiFaultClass::InvalidCall);
-    assert_eq!(fault.code, "def-window-proc-pointer-lparam-mismatch");
+    assert_eq!(
+        fault.code,
+        "def-window-proc-pointer-client-position-invalid"
+    );
     assert_eq!(malformed.runtime, runtime_before);
     assert_eq!(malformed.memory.stats(), memory_before);
 
@@ -9534,15 +9828,18 @@ fn def_window_proc_pointer_down_rejects_unreached_relations_without_mutation() {
     assert_eq!(malformed.runtime, runtime_before);
     assert_eq!(malformed.memory.stats(), memory_before);
 
-    malformed.configure_def_window_proc_args(malformed_handle, 0x0201, 0x0001, 0x012c_0191);
+    malformed.configure_def_window_proc_args(malformed_handle, 0x0201, 0x0001, 0x012c_7fff);
     let runtime_before = malformed.runtime.clone();
     let memory_before = malformed.memory.stats();
     let fault = match malformed.dispatch_configured_def_window_proc() {
         DispatchOutcome::Fault(fault) => fault,
-        other => panic!("expected mismatched pointer coordinate fault, got {other:?}"),
+        other => panic!("expected out-of-bounds pointer coordinate fault, got {other:?}"),
     };
     assert_eq!(fault.class, ApiFaultClass::InvalidCall);
-    assert_eq!(fault.code, "def-window-proc-pointer-lparam-mismatch");
+    assert_eq!(
+        fault.code,
+        "def-window-proc-pointer-client-position-invalid"
+    );
     assert_eq!(malformed.runtime, runtime_before);
     assert_eq!(malformed.memory.stats(), memory_before);
 
@@ -10541,7 +10838,7 @@ fn set_window_pos_frame_change_move_drives_show_and_update_paint_lifecycle_atomi
 
     fixture.runtime.set_current_last_error(0x1357_9bdf).unwrap();
     fixture.configure_set_window_pos(
-        [window_handle, 0, 317, 154, 0, 0, 0x0000_0025],
+        [window_handle, 0, 365, 155, 0, 0, 0x0000_0025],
         SET_WINDOW_POS_ACTIVATE_RETURN_ADDRESS,
     );
     let changing = match fixture.dispatch_set_window_pos(SET_WINDOW_POS_ACTIVATE_RETURN_ADDRESS) {
@@ -10560,7 +10857,7 @@ fn set_window_pos_frame_change_move_drives_show_and_update_paint_lifecycle_atomi
     ));
     assert_eq!(
         changing.request.scratch,
-        [window_handle, 0, 317, 154, 0, 0, 0x0000_0025]
+        [window_handle, 0, 365, 155, 0, 0, 0x0000_0025]
             .into_iter()
             .flat_map(u32::to_le_bytes)
             .collect::<Vec<_>>()
@@ -10587,10 +10884,10 @@ fn set_window_pos_frame_change_move_drives_show_and_update_paint_lifecycle_atomi
         )
     ));
     let mut expected_nccalc = [
-        317_u32,
-        154,
-        1_603,
-        903,
+        365_u32,
+        155,
+        1_651,
+        904,
         557,
         214,
         1_843,
@@ -10602,8 +10899,8 @@ fn set_window_pos_frame_change_move_drives_show_and_update_paint_lifecycle_atomi
         0,
         window_handle,
         0,
-        317,
-        154,
+        365,
+        155,
         1_286,
         749,
         0x0000_1825,
@@ -10645,7 +10942,7 @@ fn set_window_pos_frame_change_move_drives_show_and_update_paint_lifecycle_atomi
             .memory
             .read(nccalc_prepared.scratch_address, 16)
             .unwrap(),
-        [320_i32, 180, 1_600, 900]
+        [368_i32, 181, 1_648, 901]
             .into_iter()
             .flat_map(i32::to_le_bytes)
             .collect::<Vec<_>>()
@@ -10666,10 +10963,10 @@ fn set_window_pos_frame_change_move_drives_show_and_update_paint_lifecycle_atomi
     assert_eq!(
         moved_window.creation.geometry,
         RuntimeWindowGeometry {
-            x: 317,
-            y: 154,
-            client_x: 320,
-            client_y: 180,
+            x: 365,
+            y: 155,
+            client_x: 368,
+            client_y: 181,
             ..previous_window.creation.geometry
         }
     );
@@ -10679,7 +10976,7 @@ fn set_window_pos_frame_change_move_drives_show_and_update_paint_lifecycle_atomi
     );
     assert_eq!(
         changed.request.scratch,
-        [window_handle, 0, 317, 154, 1_286, 749, 0x0000_0825,]
+        [window_handle, 0, 365, 155, 1_286, 749, 0x0000_0825,]
             .into_iter()
             .flat_map(u32::to_le_bytes)
             .collect::<Vec<_>>()
@@ -10695,14 +10992,14 @@ fn set_window_pos_frame_change_move_drives_show_and_update_paint_lifecycle_atomi
     };
     assert_eq!(
         move_call.request.arguments,
-        [window_handle, 0x0003, 0, 0x00b4_0140]
+        [window_handle, 0x0003, 0, 0x00b5_0170]
             .into_iter()
             .map(GuestCallbackArgument::U32)
             .collect::<Vec<_>>()
     );
     let move_prepared = begin_fixture_callback(&mut fixture, &move_call);
     assert!(matches!(
-        fixture.dispatch_def_window_proc_args(window_handle, 0x0003, 0, 0x00b4_0140),
+        fixture.dispatch_def_window_proc_args(window_handle, 0x0003, 0, 0x00b5_0170),
         DispatchOutcome::Immediate(ref completion)
             if completion.eax == RegisterUpdate::Set(0)
     ));
@@ -11274,8 +11571,8 @@ fn set_window_pos_rejects_unreached_variants_and_invalid_state_atomically() {
             "set-window-pos-frame-change-move-geometry-invalid",
         ),
         (
-            0,
-            318,
+            1,
+            317,
             154,
             0,
             0,

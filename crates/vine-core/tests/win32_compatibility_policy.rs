@@ -1,7 +1,31 @@
 use vine_core::{
-    Kernel32CompatibilityPolicy, RUNTIME_STANDARD_ERROR_SELECTOR, RUNTIME_STANDARD_INPUT_SELECTOR,
-    RUNTIME_STANDARD_OUTPUT_SELECTOR,
+    Kernel32CompatibilityPolicy, RUNTIME_SOURCE_READ_MAX_BYTES, RUNTIME_STANDARD_ERROR_SELECTOR,
+    RUNTIME_STANDARD_INPUT_SELECTOR, RUNTIME_STANDARD_OUTPUT_SELECTOR,
 };
+
+#[test]
+fn active_local_time_offset_is_explicit_and_bounded() {
+    let active: Kernel32CompatibilityPolicy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-delete-file-a-v1.json"
+    ))
+    .expect("active Kernel32 policy fixture");
+    active.validate().expect("valid active Kernel32 policy");
+    assert_eq!(active.local_time_utc_offset_minutes(), Some(540));
+
+    let mut out_of_range = active.clone();
+    out_of_range.local_time_utc_offset_minutes = Some(1_440);
+    assert_eq!(
+        out_of_range.validate().unwrap_err().code,
+        "kernel32-policy-local-time-offset-invalid"
+    );
+
+    let mut legacy = Kernel32CompatibilityPolicy::controlled_v1();
+    legacy.local_time_utc_offset_minutes = Some(0);
+    assert_eq!(
+        legacy.validate().unwrap_err().code,
+        "kernel32-policy-local-time-offset-invalid"
+    );
+}
 
 #[test]
 fn sleep_zero_is_an_explicit_version_two_policy_capability() {
@@ -25,6 +49,29 @@ fn sleep_zero_is_an_explicit_version_two_policy_capability() {
     .expect("finite Sleep policy fixture");
     finite.validate().expect("valid finite Sleep policy");
     assert_eq!(finite.maximum_sleep_milliseconds(), Some(50));
+    assert_eq!(
+        finite
+            .source_files()
+            .expect("active source file policy")
+            .maximum_read_bytes,
+        RUNTIME_SOURCE_READ_MAX_BYTES
+    );
+    assert!(finite.allows_heap_allocation(0, 61_219_868));
+    assert!(finite.allows_thread_priority(2));
+    assert_eq!(
+        finite
+            .virtual_alloc()
+            .expect("active virtual allocation policy")
+            .maximum_commit_byte_length,
+        Some(96 * 1024 * 1024)
+    );
+    assert_eq!(
+        finite
+            .virtual_alloc()
+            .expect("active virtual allocation policy")
+            .maximum_decommit_byte_length,
+        Some(96 * 1024 * 1024)
+    );
     let mut without_zero = finite.clone();
     without_zero.sleep_zero = false;
     assert_eq!(
@@ -377,7 +424,7 @@ fn versioned_policy_files_validate_without_evidence_manifest() {
         .source_files
         .as_mut()
         .unwrap()
-        .maximum_read_bytes = 1024 * 1024 + 1;
+        .maximum_read_bytes = RUNTIME_SOURCE_READ_MAX_BYTES + 1;
     assert_eq!(
         unsupported_source_files.validate().unwrap_err().code,
         "kernel32-policy-source-files-invalid"

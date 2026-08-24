@@ -34,6 +34,7 @@ pub const RUNTIME_WINDOW_CLASS_ATOM_BASE: u16 = 0xc000;
 pub const RUNTIME_WINDOW_PROCEDURE_ARGUMENT_BYTES: u32 = 16;
 pub const RUNTIME_X86_PAINT_STRUCT_BYTE_LENGTH: usize = 64;
 pub const RUNTIME_WINDOW_EXTENDED_STYLE_ACCEPT_FILES: u32 = 0x0000_0010;
+pub const RUNTIME_WINDOW_CLASS_STYLE_DOUBLE_CLICKS: u32 = 0x0000_0008;
 pub const RUNTIME_WINDOW_STYLE_VISIBLE: u32 = 0x1000_0000;
 pub const RUNTIME_WINDOW_STYLE_MINIMIZED: u32 = 0x2000_0000;
 
@@ -1451,7 +1452,7 @@ impl RuntimeUser32 {
             ));
         }
         if self.current_cursor()?.map_or(0, |cursor| cursor.handle) != plan.previous_handle
-            || plan.next.map_or(false, |id| {
+            || plan.next.is_some_and(|id| {
                 self.cursors
                     .get(&id)
                     .is_none_or(|cursor| self.cursor_handle_index.get(&cursor.handle) != Some(&id))

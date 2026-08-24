@@ -31,6 +31,8 @@ pub struct Kernel32CompatibilityPolicy {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clock_profile: Option<RuntimeClockProfile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_time_utc_offset_minutes: Option<i16>,
     pub standard_handle_selectors: Vec<u32>,
     pub standard_handle_file_types: Vec<Kernel32StandardHandleFileType>,
     #[serde(default)]
@@ -125,6 +127,8 @@ pub struct Kernel32HeapAllocatorPolicy {
     pub maximum_allocation_bytes: u32,
     #[serde(default)]
     pub large_allocation_bytes: Vec<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maximum_large_allocation_bytes: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -343,6 +347,8 @@ pub struct Kernel32VirtualAllocPolicy {
     pub allowed_reserve_byte_lengths: Vec<u32>,
     pub allowed_allocation_types: Vec<u32>,
     pub allowed_protections: Vec<u32>,
+    pub maximum_commit_byte_length: Option<u32>,
+    pub maximum_decommit_byte_length: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -392,6 +398,7 @@ impl Kernel32CompatibilityPolicy {
             schema_version: KERNEL32_COMPATIBILITY_POLICY_LEGACY_VERSION,
             id: "kernel32-controlled-v1".to_owned(),
             clock_profile: None,
+            local_time_utc_offset_minutes: None,
             standard_handle_selectors: vec![RUNTIME_STANDARD_INPUT_SELECTOR],
             standard_handle_file_types: vec![Kernel32StandardHandleFileType {
                 selector: RUNTIME_STANDARD_INPUT_SELECTOR,
@@ -471,6 +478,15 @@ impl Kernel32CompatibilityPolicy {
             return Err(policy_error(
                 "kernel32-policy-clock-profile-invalid",
                 "runtime clock selection requires schema v2, one validated scheduled shared profile, and no per-read clock increments",
+            ));
+        }
+        if self.local_time_utc_offset_minutes.is_some_and(|offset| {
+            self.schema_version != KERNEL32_COMPATIBILITY_POLICY_VERSION
+                || !(-1_439..=1_439).contains(&offset)
+        }) {
+            return Err(policy_error(
+                "kernel32-policy-local-time-offset-invalid",
+                "local time requires schema v2 and one UTC offset within a civil day",
             ));
         }
         if self.standard_handle_selectors.is_empty()
@@ -909,14 +925,26 @@ impl Kernel32CompatibilityPolicy {
                 || reserve_byte_lengths
                     .iter()
                     .any(|byte_length| *byte_length != 0x0600_0000)
-                || allocation_types != BTreeSet::from([0x0010_2000])
+                || allocation_types
+                    != match virtual_alloc.maximum_commit_byte_length {
+                        Some(_) => BTreeSet::from([0x0000_1000, 0x0010_2000]),
+                        None => BTreeSet::from([0x0010_2000]),
+                    }
                 || allocation_types.len() != virtual_alloc.allowed_allocation_types.len()
                 || protections != BTreeSet::from([0x0000_0004])
                 || protections.len() != virtual_alloc.allowed_protections.len()
+                || virtual_alloc
+                    .maximum_commit_byte_length
+                    .is_some_and(|maximum| maximum == 0 || maximum > 0x0600_0000)
+                || virtual_alloc
+                    .maximum_decommit_byte_length
+                    .is_some_and(|maximum| maximum == 0 || maximum > 0x0600_0000)
+                || virtual_alloc.maximum_decommit_byte_length.is_some()
+                    && virtual_alloc.maximum_commit_byte_length.is_none()
             {
                 return Err(policy_error(
                     "kernel32-policy-virtual-alloc-invalid",
-                    "VirtualAlloc requires schema v2, the x86 address profile, null top-down reserve-only placement, the reached 96 MiB size, and PAGE_READWRITE",
+                    "virtual memory requires schema v2, the x86 address profile, null top-down 96 MiB reservation, optional bounded commit/decommit within that reservation, and PAGE_READWRITE",
                 ));
             }
         }
@@ -977,10 +1005,16 @@ impl Kernel32CompatibilityPolicy {
                 || large_allocation_bytes
                     .iter()
                     .any(|byte_length| *byte_length != RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE)
+                || allocator
+                    .maximum_large_allocation_bytes
+                    .is_some_and(|maximum| {
+                        maximum <= allocator.maximum_allocation_bytes
+                            || maximum > RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE
+                    })
             {
                 return Err(policy_error(
                     "kernel32-policy-heap-allocator-invalid",
-                    "heap allocator policy requires unique implemented flags, a bounded ordinary range, and only explicitly implemented large allocation sizes",
+                    "heap allocator policy requires unique implemented flags, a bounded ordinary range, and bounded exact or variable large-slot allocation sizes",
                 ));
             }
         } else {
@@ -1085,6 +1119,10 @@ impl Kernel32CompatibilityPolicy {
 
     pub fn system_default_lang_id(&self) -> Option<u16> {
         self.system_default_lang_id
+    }
+
+    pub fn local_time_utc_offset_minutes(&self) -> Option<i16> {
+        self.local_time_utc_offset_minutes
     }
 
     pub fn multi_byte_to_wide_char(&self) -> Option<&Kernel32MultiByteToWideCharPolicy> {
@@ -1221,7 +1259,13 @@ impl Kernel32CompatibilityPolicy {
             |allocator| {
                 byte_length != 0
                     && (byte_length <= allocator.maximum_allocation_bytes
-                        || allocator.large_allocation_bytes.contains(&byte_length))
+                        || allocator.large_allocation_bytes.contains(&byte_length)
+                        || allocator
+                            .maximum_large_allocation_bytes
+                            .is_some_and(|maximum| {
+                                byte_length > allocator.maximum_allocation_bytes
+                                    && byte_length <= maximum
+                            }))
                     && allocator.allowed_flags.contains(&flags)
             },
         )
@@ -1438,6 +1482,7 @@ mod tests {
             allowed_flags: vec![0, HEAP_ZERO_MEMORY],
             maximum_allocation_bytes: RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
             large_allocation_bytes: Vec::new(),
+            maximum_large_allocation_bytes: None,
         });
         affinity.system_info = Some(Kernel32SystemInfoPolicy {
             processor_architecture: 0,
@@ -1520,7 +1565,8 @@ mod tests {
         bounded_heap.heap_allocator = Some(Kernel32HeapAllocatorPolicy {
             allowed_flags: vec![0, HEAP_ZERO_MEMORY],
             maximum_allocation_bytes: RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
-            large_allocation_bytes: vec![RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE],
+            large_allocation_bytes: Vec::new(),
+            maximum_large_allocation_bytes: Some(RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE),
         });
         bounded_heap.validate().unwrap();
         assert!(bounded_heap.allows_heap_allocation(0, 37));
@@ -1529,7 +1575,7 @@ mod tests {
                 .allows_heap_allocation(HEAP_ZERO_MEMORY, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE)
         );
         assert!(!bounded_heap.allows_heap_allocation(0, 0));
-        assert!(!bounded_heap.allows_heap_allocation(0, 32 * 1024 * 1024));
+        assert!(bounded_heap.allows_heap_allocation(0, 32 * 1024 * 1024));
         assert!(!bounded_heap.allows_heap_allocation(0, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE + 1));
         assert!(!bounded_heap.allows_heap_allocation(HEAP_NO_SERIALIZE, 37));
 

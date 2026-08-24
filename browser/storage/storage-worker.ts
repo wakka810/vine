@@ -29,7 +29,8 @@ const sqlitePoolDirectory = "/vine/v1/sqlite-sahpool";
 const sqlitePoolName = "vine-opfs-sahpool-v1";
 const sqliteApplicationId = 0x5649_4e45;
 const sqliteSchemaVersion = 1;
-const maximumTransportBytes = 1024 * 1024;
+const maximumSourceReadBytes = 2 * 1024 * 1024;
+const maximumProfileReadBytes = 1024 * 1024;
 const maximumProfileQuotaBytes = 16 * 1024 * 1024;
 const maximumGeneration = Number.MAX_SAFE_INTEGER;
 const identityPattern = /^[a-zA-Z0-9:._-]{1,128}$/u;
@@ -550,14 +551,20 @@ async function readSourceRange(
       "source read uses an unknown object identity",
     );
   }
-  validateRange(offset, requestedBytes, descriptor.byteLength, "source read");
+  validateRange(
+    offset,
+    requestedBytes,
+    descriptor.byteLength,
+    maximumSourceReadBytes,
+    "source read",
+  );
+  const transferred = Math.min(requestedBytes, descriptor.byteLength - offset);
   const handle = await resolveSourceFile(
     source.mount.directoryHandle,
     descriptor.pathSegments,
   );
   const before = await handle.getFile();
   assertSourceIdentity(descriptor, before);
-  const transferred = Math.min(requestedBytes, descriptor.byteLength - offset);
   const bytes = new Uint8Array(
     await before.slice(offset, offset + transferred).arrayBuffer(),
   );
@@ -635,7 +642,13 @@ function profileRead(
     );
   }
   const byteLength = integerValue(row.byte_length);
-  validateRange(offset, requestedBytes, byteLength, "profile read");
+  validateRange(
+    offset,
+    requestedBytes,
+    byteLength,
+    maximumProfileReadBytes,
+    "profile read",
+  );
   const content = blobValue(row.content);
   if (content.byteLength !== byteLength) {
     throw new StorageFault(
@@ -1256,6 +1269,7 @@ function validateRange(
   offset: number,
   requestedBytes: number,
   byteLength: number,
+  maximumBytes: number,
   label: string,
 ): void {
   if (
@@ -1264,7 +1278,7 @@ function validateRange(
     offset > byteLength ||
     !Number.isInteger(requestedBytes) ||
     requestedBytes <= 0 ||
-    requestedBytes > maximumTransportBytes
+    requestedBytes > maximumBytes
   ) {
     throw new StorageFault(
       "browser-storage-range-invalid",

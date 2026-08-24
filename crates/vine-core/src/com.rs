@@ -687,17 +687,19 @@ impl ComFrontendCall<'_> {
                 )
             })?;
         let mut transaction = self.memory.begin_transaction();
-        transaction
-            .protect(
-                backing.memory_owner,
-                backing.range,
-                PageProtection {
-                    read: true,
-                    write: false,
-                    execute: false,
-                },
-            )
-            .map_err(RuntimeStateError::from_memory)?;
+        if plan.releases_last_lock() {
+            transaction
+                .protect(
+                    backing.memory_owner,
+                    backing.range,
+                    PageProtection {
+                        read: true,
+                        write: false,
+                        execute: false,
+                    },
+                )
+                .map_err(RuntimeStateError::from_memory)?;
+        }
         self.runtime.preflight_audio_buffer_unlock(&plan)?;
         let result = self.runtime.commit_audio_buffer_unlock(plan)?;
         transaction.commit_transaction();

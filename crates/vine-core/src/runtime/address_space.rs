@@ -15,7 +15,7 @@ use super::{
     RUNTIME_GRAPHICS_RESOURCE_ARENA_BASE, RUNTIME_GRAPHICS_RESOURCE_ARENA_SIZE,
     RUNTIME_PRIVATE_HEAP_ARENA_BASE, RUNTIME_PRIVATE_HEAP_ARENA_STRIDE,
     RUNTIME_PRIVATE_HEAP_BACKING_LIMIT, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE,
-    RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE, RuntimeStateError,
+    RUNTIME_PRIVATE_HEAP_LARGE_SLOT_LIMIT, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE, RuntimeStateError,
 };
 
 const X86_ADDRESS_SPACE_END: u64 = 0x1_0000_0000;
@@ -114,7 +114,7 @@ pub enum ProcessAddressAllocationPurpose {
     DynamicExports,
     PrivateHeapBand,
     PrivateHeapSlot { slot: u16 },
-    PrivateHeapLargeSlot,
+    PrivateHeapLargeSlot { slot: u16 },
     GuestImage,
     ThreadStack,
     ThreadEnvironment,
@@ -299,16 +299,8 @@ impl ProcessAddressSpaceAllocator {
                     "private heap band size overflowed",
                 )
             })?;
-        let heap_band_size = small_heap_band_size
-            .checked_add(u64::from(RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE))
-            .ok_or_else(|| {
-                address_error(
-                    "address-space-heap-band-overflow",
-                    "private heap band size overflowed while adding the large slot",
-                )
-            })?;
         let heap_band_range =
-            RuntimeAddressRange::new(RUNTIME_PRIVATE_HEAP_ARENA_BASE, heap_band_size)?;
+            RuntimeAddressRange::new(RUNTIME_PRIVATE_HEAP_ARENA_BASE, small_heap_band_size)?;
         let heap_band = allocator.reserve_fixed(
             None,
             fixed_request(
@@ -351,19 +343,39 @@ impl ProcessAddressSpaceAllocator {
                 ),
             )?;
         }
-        allocator.reserve_fixed(
-            Some(heap_band.id),
-            fixed_request(
-                ProcessAddressAllocationPurpose::PrivateHeapLargeSlot,
-                "runtime-private-heap-large-slot",
-                RuntimeAddressRange::new(
-                    RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE,
-                    u64::from(RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE),
-                )?,
-                ProcessAddressAllocationClassification::Heap,
-                false,
-            ),
-        )?;
+        for slot in 1..=RUNTIME_PRIVATE_HEAP_LARGE_SLOT_LIMIT {
+            let offset = u32::from(slot - 1)
+                .checked_mul(RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE)
+                .ok_or_else(|| {
+                    address_error(
+                        "address-space-large-heap-slot-overflow",
+                        "large private heap slot offset overflowed",
+                    )
+                })?;
+            let base = RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE
+                .0
+                .checked_add(offset)
+                .map(GuestAddress)
+                .ok_or_else(|| {
+                    address_error(
+                        "address-space-large-heap-slot-overflow",
+                        "large private heap slot base overflowed",
+                    )
+                })?;
+            allocator.reserve_fixed(
+                None,
+                fixed_request(
+                    ProcessAddressAllocationPurpose::PrivateHeapLargeSlot { slot },
+                    &format!("runtime-private-heap-large-slot-{slot}"),
+                    RuntimeAddressRange::new(
+                        base,
+                        u64::from(RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE),
+                    )?,
+                    ProcessAddressAllocationClassification::Heap,
+                    false,
+                ),
+            )?;
+        }
         allocator.reserve_fixed(
             None,
             fixed_request(
@@ -1147,7 +1159,7 @@ mod tests {
     fn vine_layout_registers_control_arenas_and_heap_slots() {
         let allocator =
             ProcessAddressSpaceAllocator::vine_v1(ProcessAddressSpaceLayout::vine_v1()).unwrap();
-        assert_eq!(allocator.records().len(), 40);
+        assert_eq!(allocator.records().len(), 45);
         let import = allocator
             .allocation_for_purpose(&ProcessAddressAllocationPurpose::ImportThunks)
             .unwrap();
@@ -1174,14 +1186,33 @@ mod tests {
         assert_eq!(first_heap.range.base, RUNTIME_PRIVATE_HEAP_ARENA_BASE);
         assert!(first_heap.parent_id.is_some());
         let large_heap = allocator
-            .allocation_for_purpose(&ProcessAddressAllocationPurpose::PrivateHeapLargeSlot)
+            .allocation_for_purpose(&ProcessAddressAllocationPurpose::PrivateHeapLargeSlot {
+                slot: 1,
+            })
             .unwrap();
         assert_eq!(large_heap.range.base, RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE);
         assert_eq!(
             large_heap.range.byte_length,
             u64::from(RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE)
         );
-        assert_eq!(large_heap.parent_id, first_heap.parent_id);
+        assert_eq!(large_heap.parent_id, None);
+        assert_ne!(large_heap.parent_id, first_heap.parent_id);
+        let second_large_heap = allocator
+            .allocation_for_purpose(&ProcessAddressAllocationPurpose::PrivateHeapLargeSlot {
+                slot: 2,
+            })
+            .unwrap();
+        assert_eq!(
+            second_large_heap.range.base,
+            GuestAddress(
+                RUNTIME_PRIVATE_HEAP_LARGE_SLOT_BASE.0 + RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE
+            )
+        );
+        assert_eq!(
+            second_large_heap.range.byte_length,
+            u64::from(RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE)
+        );
+        assert_eq!(second_large_heap.parent_id, None);
         let graphics = allocator
             .allocation_for_purpose(&ProcessAddressAllocationPurpose::GraphicsResourceArena)
             .unwrap();

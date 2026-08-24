@@ -60,7 +60,7 @@
       134217760
     ],
     "maximumPathBytes": 32768,
-    "maximumReadBytes": 1048576,
+    "maximumReadBytes": 2097152,
     "maximumWriteBytes": 1048576,
     "getFileAttributesA": {
       "regularFileAttributes": 32,
@@ -169,6 +169,7 @@
   "threadPriority": {
     "allowedPriorities": [
       1,
+      2,
       15
     ]
   },
@@ -205,11 +206,14 @@
       100663296
     ],
     "allowedAllocationTypes": [
+      4096,
       1056768
     ],
     "allowedProtections": [
       4
-    ]
+    ],
+    "maximumCommitByteLength": 100663296,
+    "maximumDecommitByteLength": 100663296
   },
   "osVersionInfoA": {
     "majorVersion": 10,
@@ -228,15 +232,15 @@
     "id": "scheduled-shared-logical-deadline-v1",
     "progression": "scheduled-shared"
   },
+  "localTimeUtcOffsetMinutes": 540,
   "heapAllocator": {
     "allowedFlags": [
       0,
       8
     ],
     "maximumAllocationBytes": 16777216,
-    "largeAllocationBytes": [
-      67108864
-    ]
+    "largeAllocationBytes": [],
+    "maximumLargeAllocationBytes": 67108864
   },
   "heapFreeFlags": [
     0

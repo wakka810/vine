@@ -82,6 +82,14 @@ for (const relative of policyFiles) {
     const largeAllocationBytes = policy.heapAllocator.largeAllocationBytes ?? [];
     assert.equal(new Set(largeAllocationBytes).size, largeAllocationBytes.length);
     assert(largeAllocationBytes.every((byteLength) => byteLength === 64 * 1024 * 1024));
+    const maximumLargeAllocationBytes =
+      policy.heapAllocator.maximumLargeAllocationBytes ?? null;
+    if (maximumLargeAllocationBytes !== null) {
+      assert(
+        maximumLargeAllocationBytes > policy.heapAllocator.maximumAllocationBytes &&
+          maximumLargeAllocationBytes <= 64 * 1024 * 1024,
+      );
+    }
   }
   const heapFreeFlags = policy.heapFreeFlags ?? [];
   assert.equal(new Set(heapFreeFlags).size, heapFreeFlags.length);
@@ -167,12 +175,30 @@ for (const relative of policyFiles) {
   if (virtualAlloc !== null) {
     assert.equal(policy.schemaVersion, 2);
     assert(systemInfo !== null);
-    assert.deepEqual(virtualAlloc, {
-      requireNullPreferredAddress: true,
-      allowedReserveByteLengths: [96 * 1024 * 1024],
-      allowedAllocationTypes: [0x0010_2000],
-      allowedProtections: [4],
-    });
+    const maximumCommitByteLength = virtualAlloc.maximumCommitByteLength ?? null;
+    const maximumDecommitByteLength = virtualAlloc.maximumDecommitByteLength ?? null;
+    assert.equal(virtualAlloc.requireNullPreferredAddress, true);
+    assert.deepEqual(virtualAlloc.allowedReserveByteLengths, [96 * 1024 * 1024]);
+    assert.deepEqual(
+      virtualAlloc.allowedAllocationTypes,
+      maximumCommitByteLength === null ? [0x0010_2000] : [0x1000, 0x0010_2000],
+    );
+    assert.deepEqual(virtualAlloc.allowedProtections, [4]);
+    if (maximumCommitByteLength !== null) {
+      assert(
+        Number.isInteger(maximumCommitByteLength) &&
+          maximumCommitByteLength > 0 &&
+          maximumCommitByteLength <= 96 * 1024 * 1024,
+      );
+    }
+    if (maximumDecommitByteLength !== null) {
+      assert(maximumCommitByteLength !== null);
+      assert(
+        Number.isInteger(maximumDecommitByteLength) &&
+          maximumDecommitByteLength > 0 &&
+          maximumDecommitByteLength <= 96 * 1024 * 1024,
+      );
+    }
   }
   const tickCount = policy.tickCount ?? null;
   if (tickCount !== null) {
@@ -236,7 +262,9 @@ for (const relative of policyFiles) {
     assert.deepEqual(sourceFiles.allowedCreationDispositions, [3, 4, 2]);
     assert.deepEqual(sourceFiles.allowedFlagsAndAttributes, [0x0800_0020]);
     assert.equal(sourceFiles.maximumPathBytes, 32_768);
-    assert.equal(sourceFiles.maximumReadBytes, 1024 * 1024);
+    assert(
+      [1024 * 1024, 2 * 1024 * 1024].includes(sourceFiles.maximumReadBytes),
+    );
     assert.equal(sourceFiles.maximumWriteBytes, 1024 * 1024);
     assert.equal(multibyte?.allowActiveCodePageSelector, true);
     const fileAttributes = sourceFiles.getFileAttributesA ?? null;

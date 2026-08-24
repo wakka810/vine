@@ -69,6 +69,7 @@ pub const GET_SYSTEM_METRICS_IMPLEMENTATION: &str = "user32.get-system-metrics.v
 pub const GET_CLIENT_RECT_IMPLEMENTATION: &str = "user32.get-client-rect.v1";
 pub const GET_WINDOW_RECT_IMPLEMENTATION: &str = "user32.get-window-rect.v1";
 pub const GET_CURSOR_POS_IMPLEMENTATION: &str = "user32.get-cursor-pos.v1";
+pub const SET_CURSOR_POS_IMPLEMENTATION: &str = "user32.set-cursor-pos.logical-position.v1";
 pub const SET_CURSOR_IMPLEMENTATION: &str = "user32.set-cursor.current-selection.v1";
 pub const GET_CURSOR_INFO_IMPLEMENTATION: &str = "user32.get-cursor-info.current-cursor.v2";
 pub const SHOW_CURSOR_IMPLEMENTATION: &str = "user32.show-cursor.display-count.v1";
@@ -103,8 +104,10 @@ const WM_TIMER: u32 = 0x0113;
 const WM_MOUSEMOVE: u32 = 0x0200;
 const WM_LBUTTONDOWN: u32 = 0x0201;
 const WM_LBUTTONUP: u32 = 0x0202;
+const WM_LBUTTONDBLCLK: u32 = 0x0203;
 const WM_RBUTTONDOWN: u32 = 0x0204;
 const WM_RBUTTONUP: u32 = 0x0205;
+const WM_RBUTTONDBLCLK: u32 = 0x0206;
 const WM_MOVE: u32 = 0x0003;
 const WM_SIZE: u32 = 0x0005;
 const WM_ACTIVATE: u32 = 0x0006;
@@ -728,9 +731,14 @@ impl User32CompatibilityPolicy {
             id: "normalized-primary-secondary-foreground-client-message-v1".to_owned(),
             normalized_position_denominator: 65_536,
             left_button_down_message: WM_LBUTTONDOWN,
+            left_button_double_click_message: WM_LBUTTONDBLCLK,
             left_button_up_message: WM_LBUTTONUP,
             right_button_down_message: WM_RBUTTONDOWN,
+            right_button_double_click_message: WM_RBUTTONDBLCLK,
             right_button_up_message: WM_RBUTTONUP,
+            double_click_time_milliseconds: 500,
+            double_click_width: 4,
+            double_click_height: 4,
             left_button_key_mask: MK_LBUTTON,
             right_button_key_mask: MK_RBUTTON,
             shift_key_mask: MK_SHIFT,
@@ -1210,9 +1218,14 @@ impl User32CompatibilityPolicy {
             && (!valid_profile_id(&profile.id)
                 || profile.normalized_position_denominator != 65_536
                 || profile.left_button_down_message != WM_LBUTTONDOWN
+                || profile.left_button_double_click_message != WM_LBUTTONDBLCLK
                 || profile.left_button_up_message != WM_LBUTTONUP
                 || profile.right_button_down_message != WM_RBUTTONDOWN
+                || profile.right_button_double_click_message != WM_RBUTTONDBLCLK
                 || profile.right_button_up_message != WM_RBUTTONUP
+                || profile.double_click_time_milliseconds != 500
+                || profile.double_click_width != 4
+                || profile.double_click_height != 4
                 || profile.left_button_key_mask != MK_LBUTTON
                 || profile.right_button_key_mask != MK_RBUTTON
                 || profile.shift_key_mask != MK_SHIFT
@@ -1692,6 +1705,10 @@ pub fn dispatch_user32_api_with_policy(
             Err(fault) => ApiHandlerResult::Fault(fault),
         },
         GET_CURSOR_POS_IMPLEMENTATION => match handle_get_cursor_pos(contract, frame, session) {
+            Ok(immediate) => ApiHandlerResult::Immediate(immediate),
+            Err(fault) => ApiHandlerResult::Fault(fault),
+        },
+        SET_CURSOR_POS_IMPLEMENTATION => match handle_set_cursor_pos(contract, frame, session) {
             Ok(immediate) => ApiHandlerResult::Immediate(immediate),
             Err(fault) => ApiHandlerResult::Fault(fault),
         },
@@ -2200,6 +2217,20 @@ fn handle_get_cursor_pos(
         .with_guest_write(GuestAddress(output), bytes))
 }
 
+fn handle_set_cursor_pos(
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let screen_x = required_argument(contract, frame, 0, "screen x")? as i32;
+    let screen_y = required_argument(contract, frame, 1, "screen y")? as i32;
+    session
+        .runtime_mut()
+        .set_cursor_position(screen_x, screen_y)
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)))
+}
+
 fn handle_set_cursor(
     contract: &ApiContract,
     frame: &ApiCallFrame,
@@ -2503,10 +2534,16 @@ fn validate_queued_message_dispatch(
         value if value == profile.left_button_down_message => {
             Some((profile.left_button_key_mask, true))
         }
+        value if value == profile.left_button_double_click_message => {
+            Some((profile.left_button_key_mask, true))
+        }
         value if value == profile.left_button_up_message => {
             Some((profile.left_button_key_mask, false))
         }
         value if value == profile.right_button_down_message => {
+            Some((profile.right_button_key_mask, true))
+        }
+        value if value == profile.right_button_double_click_message => {
             Some((profile.right_button_key_mask, true))
         }
         value if value == profile.right_button_up_message => {
@@ -3620,8 +3657,6 @@ fn handle_show_window(
     if window.visible != show_policy.require_visible
         || window.creation.effective_style & RUNTIME_WINDOW_STYLE_VISIBLE == 0
         || window.topmost
-        || geometry.x != position_policy.frame_change_move_x
-        || geometry.y != position_policy.frame_change_move_y
         || geometry.width != position_policy.resize_outer_width
         || geometry.height != position_policy.resize_outer_height
         || geometry.client_width != position_policy.resize_client_width
@@ -3932,8 +3967,6 @@ fn handle_set_window_pos(
         .last_error()
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     let frame_change_move_request = insert_after == position_policy.frame_change_insert_after
-        && x == position_policy.frame_change_move_x
-        && y == position_policy.frame_change_move_y
         && width == 0
         && height == 0
         && flags == position_policy.frame_change_move_flags;
@@ -4159,8 +4192,8 @@ fn handle_set_window_pos(
                 )
             })?;
         let mut geometry = window.creation.geometry;
-        geometry.x = position_policy.frame_change_move_x;
-        geometry.y = position_policy.frame_change_move_y;
+        geometry.x = x;
+        geometry.y = y;
         geometry.client_x = geometry.x.checked_add(offset_x).ok_or_else(|| {
             ApiFault::runtime_defect(
                 "user32-windows",
@@ -5623,14 +5656,12 @@ fn handle_def_window_proc_window_position(
             != [
                 handle,
                 position_policy.frame_change_insert_after,
-                position_policy.frame_change_move_x as u32,
-                position_policy.frame_change_move_y as u32,
+                geometry.x as u32,
+                geometry.y as u32,
                 geometry.width,
                 geometry.height,
                 position_policy.frame_change_changed_flags,
             ]
-            || geometry.x != position_policy.frame_change_move_x
-            || geometry.y != position_policy.frame_change_move_y
             || geometry.width != position_policy.resize_outer_width
             || geometry.height != position_policy.resize_outer_height
             || geometry.client_width != position_policy.resize_client_width
@@ -5826,19 +5857,19 @@ fn handle_def_window_proc_resize(
                     "resize WM_NCCALCSIZE requires the reached TRUE wParam",
                 ));
             }
-            let flags_address = l_param.checked_add(76).ok_or_else(|| {
+            let window_pos_address = l_param.checked_add(52).ok_or_else(|| {
                 ApiFault::invalid_call(
                     "user32-windows",
                     "def-window-proc-nccalc-pointer-overflow",
-                    "NCCALCSIZE_PARAMS WINDOWPOS flags pointer overflowed x86 address space",
+                    "NCCALCSIZE_PARAMS WINDOWPOS pointer overflowed x86 address space",
                 )
             })?;
-            let flags_bytes = session
-                .memory()
-                .read(GuestAddress(flags_address), 4)
-                .map_err(|error| ApiFault::from_memory(error, &contract.endpoint))?;
-            let nccalc_flags =
-                u32::from_le_bytes(flags_bytes.try_into().expect("WINDOWPOS flags word"));
+            let window_pos = read_window_pos_words(
+                session.memory(),
+                GuestAddress(window_pos_address),
+                &contract.endpoint,
+            )?;
+            let nccalc_flags = window_pos[6];
             let (variant, next_geometry, callback_flags, callback_insert_after) = if nccalc_flags
                 == position_policy.resize_nccalc_window_pos_flags
             {
@@ -5891,8 +5922,8 @@ fn handle_def_window_proc_resize(
                         )
                     })?;
                 let mut geometry = window.creation.geometry;
-                geometry.x = position_policy.frame_change_move_x;
-                geometry.y = position_policy.frame_change_move_y;
+                geometry.x = window_pos[2] as i32;
+                geometry.y = window_pos[3] as i32;
                 geometry.client_x = geometry.x.checked_add(offset_x).ok_or_else(|| {
                     ApiFault::runtime_defect(
                         "user32-windows",
@@ -5943,13 +5974,6 @@ fn handle_def_window_proc_resize(
                 })
                 .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
             let mut expected = set_window_pos_nccalc_callback_scratch(operation)?;
-            let window_pos_address = l_param.checked_add(52).ok_or_else(|| {
-                ApiFault::invalid_call(
-                    "user32-windows",
-                    "def-window-proc-nccalc-pointer-overflow",
-                    "NCCALCSIZE_PARAMS WINDOWPOS pointer overflowed x86 address space",
-                )
-            })?;
             expected[48..52].copy_from_slice(&window_pos_address.to_le_bytes());
             let before = session
                 .memory()
@@ -6099,16 +6123,11 @@ fn handle_def_window_proc_activation(
                     position_policy.resize_outer_height,
                     position_policy.activation_flags,
                 ];
-            let frame_change_move = words
-                == [
-                    handle,
-                    position_policy.frame_change_insert_after,
-                    position_policy.frame_change_move_x as u32,
-                    position_policy.frame_change_move_y as u32,
-                    0,
-                    0,
-                    position_policy.frame_change_move_flags,
-                ];
+            let frame_change_move = words[0] == handle
+                && words[1] == position_policy.frame_change_insert_after
+                && words[4] == 0
+                && words[5] == 0
+                && words[6] == position_policy.frame_change_move_flags;
             if first {
                 let already_focused = session
                     .runtime()
@@ -6336,7 +6355,10 @@ fn handle_def_window_proc_a_immediate(
             "DefWindowProcA currently supports the creating owner thread only",
         ));
     }
-    if matches!(message, WM_MOUSEMOVE | WM_LBUTTONDOWN | WM_LBUTTONUP) {
+    if matches!(
+        message,
+        WM_MOUSEMOVE | WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_LBUTTONUP
+    ) {
         return handle_def_window_proc_pointer_message(
             policy, contract, message, w_param, l_param, &window, session,
         );
@@ -6583,7 +6605,7 @@ fn handle_def_window_proc_pointer_message(
             }
             (w_param, 0, "pointer-move")
         }
-        WM_LBUTTONDOWN => {
+        WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
             let profile = policy
                 .def_window_proc_a_pointer_down
                 .as_ref()
@@ -6596,12 +6618,13 @@ fn handle_def_window_proc_pointer_message(
                 })?;
             if profile.profile_id
                 != "same-current-thread-visible-active-focused-foreground-cursor-wm-lbuttondown-v1"
-                || profile.message != message
+                || profile.message != WM_LBUTTONDOWN
                 || profile.w_param != MK_LBUTTON
                 || profile.result != 0
                 || !profile.require_current_thread_visible_active_focused_foreground_window
                 || !profile.require_cursor_derived_client_l_param
                 || pointer_profile.left_button_down_message != profile.message
+                || pointer_profile.left_button_double_click_message != WM_LBUTTONDBLCLK
                 || pointer_profile.left_button_key_mask != profile.w_param
             {
                 return Err(ApiFault::runtime_defect(
@@ -6610,7 +6633,15 @@ fn handle_def_window_proc_pointer_message(
                     "validated pointer-down default-processing policy changed the reached message relation",
                 ));
             }
-            (profile.w_param, profile.result, "pointer-down")
+            (
+                profile.w_param,
+                profile.result,
+                if message == WM_LBUTTONDBLCLK {
+                    "pointer-double-click"
+                } else {
+                    "pointer-down"
+                },
+            )
         }
         WM_LBUTTONUP => {
             let profile = policy
@@ -6701,34 +6732,9 @@ fn handle_def_window_proc_pointer_message(
             ),
         ));
     }
-    let cursor = session.runtime().cursor_position().ok_or_else(|| {
-        ApiFault::runtime_defect(
-            "user32-windows",
-            "def-window-proc-pointer-cursor-missing",
-            "validated pointer-button policy has no logical cursor position",
-        )
-    })?;
     let geometry = window.creation.geometry;
-    let client_x = cursor
-        .screen_x
-        .checked_sub(geometry.client_x)
-        .ok_or_else(|| {
-            ApiFault::invalid_call(
-                "user32-windows",
-                "def-window-proc-pointer-client-x-overflow",
-                "logical cursor x cannot be represented relative to the target client area",
-            )
-        })?;
-    let client_y = cursor
-        .screen_y
-        .checked_sub(geometry.client_y)
-        .ok_or_else(|| {
-            ApiFault::invalid_call(
-                "user32-windows",
-                "def-window-proc-pointer-client-y-overflow",
-                "logical cursor y cannot be represented relative to the target client area",
-            )
-        })?;
+    let client_x = i32::from(l_param as i16);
+    let client_y = i32::from((l_param >> 16) as i16);
     let client_width = i32::try_from(geometry.client_width).map_err(|_| {
         ApiFault::runtime_defect(
             "user32-windows",
@@ -6743,30 +6749,11 @@ fn handle_def_window_proc_pointer_message(
             "validated logical client height does not fit signed pointer coordinates",
         )
     })?;
-    let client_x_i16 = i16::try_from(client_x).ok();
-    let client_y_i16 = i16::try_from(client_y).ok();
-    if client_x < 0
-        || client_x >= client_width
-        || client_y < 0
-        || client_y >= client_height
-        || client_x_i16.is_none()
-        || client_y_i16.is_none()
-    {
+    if client_x < 0 || client_x >= client_width || client_y < 0 || client_y >= client_height {
         return Err(ApiFault::invalid_call(
             "user32-windows",
             "def-window-proc-pointer-client-position-invalid",
-            "logical cursor is outside the reached signed target client coordinates",
-        ));
-    }
-    let expected_l_param = u32::from(client_x_i16.expect("validated client x") as u16)
-        | (u32::from(client_y_i16.expect("validated client y") as u16) << 16);
-    if l_param != expected_l_param {
-        return Err(ApiFault::invalid_call(
-            "user32-windows",
-            "def-window-proc-pointer-lparam-mismatch",
-            format!(
-                "DefWindowProcA message {message:#06x} lParam {l_param:#010x} does not match the logical cursor-derived client position {expected_l_param:#010x}"
-            ),
+            "pointer message position is outside the reached signed target client coordinates",
         ));
     }
     Ok(ApiImmediate::new(ApiReturnValue::U32(result)))
@@ -7559,6 +7546,7 @@ pub fn user32_contract_for_endpoint(
         "GetClientRect" => Ok(Some(get_client_rect_contract(endpoint)?)),
         "GetWindowRect" => Ok(Some(get_window_rect_contract(endpoint)?)),
         "GetCursorPos" => Ok(Some(get_cursor_pos_contract(endpoint)?)),
+        "SetCursorPos" => Ok(Some(set_cursor_pos_contract(endpoint)?)),
         "SetCursor" => Ok(Some(set_cursor_contract(endpoint)?)),
         "GetCursorInfo" => Ok(Some(get_cursor_info_contract(endpoint)?)),
         "ShowCursor" => Ok(Some(show_cursor_contract(endpoint)?)),
@@ -7993,6 +7981,23 @@ pub fn get_cursor_pos_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContr
         behavior: ApiBehavior::Immediate,
         callback_policy: CallbackPolicy::Forbidden,
         implementation_id: GET_CURSOR_POS_IMPLEMENTATION.to_owned(),
+    })
+}
+
+pub fn set_cursor_pos_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    Ok(ApiContract {
+        endpoint,
+        abi: AbiSchema {
+            calling_convention: CallingConvention::Stdcall,
+            arguments: vec![u32_argument("screenX"), u32_argument("screenY")],
+            return_value: ApiReturnSchema::Bool32,
+            stack_cleanup: StackCleanup::Callee,
+        },
+        last_error_policy: LastErrorPolicy::Preserve,
+        reentrancy_policy: ReentrancyPolicy::Allowed,
+        behavior: ApiBehavior::Immediate,
+        callback_policy: CallbackPolicy::Forbidden,
+        implementation_id: SET_CURSOR_POS_IMPLEMENTATION.to_owned(),
     })
 }
 

@@ -22,6 +22,19 @@ pub struct RuntimeVirtualMemoryReserveRequest {
     pub protection: PageProtection,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeVirtualMemoryCommitRequest {
+    pub address: GuestAddress,
+    pub byte_length: u32,
+    pub protection: PageProtection,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeVirtualMemoryDecommitRequest {
+    pub address: GuestAddress,
+    pub byte_length: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeVirtualMemoryReservation {
@@ -31,6 +44,25 @@ pub struct RuntimeVirtualMemoryReservation {
     pub usable_byte_length: u32,
     pub top_down: bool,
     pub protection: PageProtection,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeVirtualMemoryCommit {
+    pub address_allocation_id: ProcessAddressAllocationId,
+    pub memory_owner: MemoryOwnerId,
+    pub range: RuntimeAddressRange,
+    pub requested_byte_length: u32,
+    pub protection: PageProtection,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeVirtualMemoryDecommit {
+    pub address_allocation_id: ProcessAddressAllocationId,
+    pub memory_owner: MemoryOwnerId,
+    pub range: RuntimeAddressRange,
+    pub requested_byte_length: u32,
 }
 
 impl RuntimeVirtualMemoryReserveRequest {
@@ -89,6 +121,62 @@ impl RuntimeVirtualMemoryReserveRequest {
             release_policy: ProcessAddressAllocationReleasePolicy::Explicit,
             executable: self.protection.execute,
         })
+    }
+}
+
+impl RuntimeVirtualMemoryCommitRequest {
+    pub(crate) fn committed_range(self) -> Result<RuntimeAddressRange, RuntimeStateError> {
+        if !self.address.0.is_multiple_of(GUEST_PAGE_SIZE as u32) {
+            return Err(virtual_memory_error(
+                "virtual-memory-commit-address-unaligned",
+                "virtual memory commit address must be page-aligned",
+            ));
+        }
+        if self.byte_length == 0 {
+            return Err(virtual_memory_error(
+                "virtual-memory-commit-size-zero",
+                "virtual memory commit size must be nonzero",
+            ));
+        }
+        let page_mask = GUEST_PAGE_SIZE - 1;
+        let byte_length = u64::from(self.byte_length)
+            .checked_add(page_mask)
+            .map(|value| value & !page_mask)
+            .ok_or_else(|| {
+                virtual_memory_error(
+                    "virtual-memory-commit-range-overflow",
+                    "virtual memory commit size overflowed page rounding",
+                )
+            })?;
+        RuntimeAddressRange::new(self.address, byte_length)
+    }
+}
+
+impl RuntimeVirtualMemoryDecommitRequest {
+    pub(crate) fn decommitted_range(self) -> Result<RuntimeAddressRange, RuntimeStateError> {
+        if !self.address.0.is_multiple_of(GUEST_PAGE_SIZE as u32) {
+            return Err(virtual_memory_error(
+                "virtual-memory-decommit-address-unaligned",
+                "virtual memory decommit address must be page-aligned",
+            ));
+        }
+        if self.byte_length == 0 {
+            return Err(virtual_memory_error(
+                "virtual-memory-decommit-size-zero",
+                "virtual memory decommit size must be nonzero",
+            ));
+        }
+        let page_mask = GUEST_PAGE_SIZE - 1;
+        let byte_length = u64::from(self.byte_length)
+            .checked_add(page_mask)
+            .map(|value| value & !page_mask)
+            .ok_or_else(|| {
+                virtual_memory_error(
+                    "virtual-memory-decommit-range-overflow",
+                    "virtual memory decommit size overflowed page rounding",
+                )
+            })?;
+        RuntimeAddressRange::new(self.address, byte_length)
     }
 }
 

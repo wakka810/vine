@@ -2,15 +2,15 @@ use vine_core::{
     ApiBehavior, ApiDirection, ApiDispatcher, ApiEndpointIdentity, ApiFaultClass, ApiOwnedTrap,
     ApiReturnSchema, ApiValueSchema, CallbackPolicy, CallingConvention, DispatchOutcome,
     ExecutionSession, GuestAddress, GuestMemory, ImportTarget, ImportThunk, ImportThunkDisposition,
-    ImportThunkId, Kernel32CompatibilityPolicy, LastErrorPolicy, MEM_RESERVE, MEM_TOP_DOWN,
-    MappingOperation, MemoryLimits, MemoryOwnerId, MemoryOwnerKind, MemoryRegionKind,
-    PAGE_READWRITE, PageProtection, ProcessAddressAllocationClassification,
+    ImportThunkId, Kernel32CompatibilityPolicy, LastErrorPolicy, MEM_COMMIT, MEM_DECOMMIT,
+    MEM_RESERVE, MEM_TOP_DOWN, MappingOperation, MemoryLimits, MemoryOwnerId, MemoryOwnerKind,
+    MemoryRegionKind, PAGE_READWRITE, PageProtection, ProcessAddressAllocationClassification,
     ProcessAddressAllocationLifetime, ProcessAddressAllocationPurpose,
     ProcessAddressAllocationReleasePolicy, ProcessAddressSpaceLayout,
     RUNTIME_VIRTUAL_MEMORY_ADDRESS_OWNER, ReentrancyPolicy, RegisterUpdate, RuntimeBootstrap,
     RuntimeClockState, RuntimeCurrentDirectoryA, RuntimeProcessId, RuntimeProcessImagePathA,
     RuntimeStartupInfo, RuntimeState, RuntimeThreadId, StackCleanup, VIRTUAL_ALLOC_IMPLEMENTATION,
-    dispatch_kernel32_api_with_policy, kernel32_contract_for_endpoint,
+    VIRTUAL_FREE_IMPLEMENTATION, dispatch_kernel32_api_with_policy, kernel32_contract_for_endpoint,
 };
 
 const MEMORY_BASE: GuestAddress = GuestAddress(0x2000_0000);
@@ -23,6 +23,10 @@ const PROCESS_ID: u32 = 4096;
 const THREAD_ID: u32 = 8192;
 const LAST_ERROR_SENTINEL: u32 = 0x1234_5678;
 const RESERVE_BYTES: u32 = 96 * 1024 * 1024;
+const REACHED_COMMIT_BYTES: u32 = 0x008f_4432;
+const REACHED_COMMIT_PAGE_BYTES: u32 = 0x008f_5000;
+const REACHED_DECOMMIT_BYTES: u32 = 0x0088_471e;
+const REACHED_DECOMMIT_PAGE_BYTES: u32 = 0x0088_5000;
 const EXPECTED_BASE: GuestAddress = GuestAddress(0x7900_0000);
 
 struct Fixture {
@@ -30,6 +34,7 @@ struct Fixture {
     runtime: RuntimeState,
     dispatcher: ApiDispatcher,
     endpoint: ApiEndpointIdentity,
+    endpoint_owner: MemoryOwnerId,
     policy: Kernel32CompatibilityPolicy,
 }
 
@@ -82,6 +87,7 @@ impl Fixture {
             runtime: controlled_runtime(),
             dispatcher,
             endpoint,
+            endpoint_owner: owner,
             policy,
         }
     }
@@ -99,6 +105,15 @@ impl Fixture {
             ],
         );
         acknowledge_pending(&mut self.memory);
+    }
+
+    fn select_endpoint(&mut self, name: &str) {
+        let endpoint = endpoint_named(self.endpoint_owner, name);
+        let contract = kernel32_contract_for_endpoint(endpoint.clone())
+            .unwrap()
+            .unwrap();
+        self.dispatcher = ApiDispatcher::new([endpoint.clone()], [contract]).unwrap();
+        self.endpoint = endpoint;
     }
 
     fn dispatch_prepared(&mut self) -> DispatchOutcome {
@@ -150,6 +165,22 @@ fn catalog_exposes_bounded_x86_virtual_alloc_contract() {
             .iter()
             .all(|argument| argument.value == ApiValueSchema::U32)
     );
+}
+
+#[test]
+fn catalog_exposes_bounded_x86_virtual_free_contract() {
+    let fixture = Fixture::new();
+    let endpoint = endpoint_named(fixture.endpoint_owner, "VirtualFree");
+    let contract = kernel32_contract_for_endpoint(endpoint).unwrap().unwrap();
+    assert_eq!(contract.implementation_id, VIRTUAL_FREE_IMPLEMENTATION);
+    assert_eq!(contract.abi.calling_convention, CallingConvention::Stdcall);
+    assert_eq!(contract.abi.arguments.len(), 3);
+    assert_eq!(contract.abi.return_value, ApiReturnSchema::Bool32);
+    assert_eq!(contract.abi.stack_cleanup, StackCleanup::Callee);
+    assert_eq!(contract.last_error_policy, LastErrorPolicy::Preserve);
+    assert_eq!(contract.reentrancy_policy, ReentrancyPolicy::Disallowed);
+    assert_eq!(contract.behavior, ApiBehavior::Immediate);
+    assert_eq!(contract.callback_policy, CallbackPolicy::Forbidden);
 }
 
 #[test]
@@ -235,6 +266,200 @@ fn reserve_top_down_registers_one_process_allocation_and_lazy_guest_region() {
             && range.start() == EXPECTED_BASE
             && range.byte_length() == u64::from(RESERVE_BYTES)
     ));
+}
+
+#[test]
+fn reached_commit_materializes_zero_pages_inside_the_existing_reservation() {
+    let committed_pages = REACHED_COMMIT_PAGE_BYTES as usize / 4096;
+    let mut fixture = Fixture::with_limits(MemoryLimits {
+        max_physical_pages: committed_pages + 4,
+        max_regions: 4,
+        max_owners: 4,
+        max_access_bytes: MEMORY_BYTES as usize,
+    });
+    fixture.policy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-delete-file-a-v1.json"
+    ))
+    .unwrap();
+    fixture.prepare([0, RESERVE_BYTES, MEM_RESERVE | MEM_TOP_DOWN, PAGE_READWRITE]);
+    immediate(fixture.dispatch_prepared());
+    acknowledge_pending(&mut fixture.memory);
+
+    fixture.prepare([
+        EXPECTED_BASE.0,
+        REACHED_COMMIT_BYTES,
+        MEM_COMMIT,
+        PAGE_READWRITE,
+    ]);
+    let allocations_before = fixture.runtime.process_address_space_allocator().records();
+    let memory_before = fixture.memory.stats();
+    let completion = immediate(fixture.dispatch_prepared());
+
+    assert_eq!(completion.eax, RegisterUpdate::Set(EXPECTED_BASE.0));
+    assert_eq!(completion.last_error, LAST_ERROR_SENTINEL);
+    assert_eq!(
+        fixture.runtime.process_address_space_allocator().records(),
+        allocations_before
+    );
+    let memory_after = fixture.memory.stats();
+    assert_eq!(
+        memory_after.committed_pages,
+        memory_before.committed_pages + committed_pages
+    );
+    assert_eq!(
+        memory_after.physical_pages,
+        memory_before.physical_pages + committed_pages
+    );
+    let allocation = fixture
+        .runtime
+        .process_address_space_allocator()
+        .allocation_for_purpose(&ProcessAddressAllocationPurpose::VirtualMemory)
+        .unwrap();
+    let region = fixture
+        .memory
+        .region_snapshots()
+        .into_iter()
+        .find(|region| region.address_allocation_id == Some(allocation.id.0))
+        .unwrap();
+    let delta = fixture.memory.pending_delta().unwrap();
+    assert_eq!(delta.dirty_pages.len(), committed_pages);
+    assert!(matches!(
+        delta.mapping_operations.as_slice(),
+        [MappingOperation::Commit {
+            address_allocation_id: Some(id),
+            owner,
+            range,
+            protection,
+        }] if *id == allocation.id.0
+            && *owner == region.owner
+            && range.start() == EXPECTED_BASE
+            && range.byte_length() == u64::from(REACHED_COMMIT_PAGE_BYTES)
+            && *protection == PageProtection { read: true, write: true, execute: false }
+    ));
+    acknowledge_pending(&mut fixture.memory);
+    assert_eq!(
+        fixture
+            .memory
+            .read(
+                GuestAddress(EXPECTED_BASE.0 + REACHED_COMMIT_PAGE_BYTES - 1),
+                1
+            )
+            .unwrap(),
+        &[0]
+    );
+}
+
+#[test]
+fn reached_decommit_releases_pages_but_preserves_the_reservation_identity() {
+    let committed_pages = REACHED_COMMIT_PAGE_BYTES as usize / 4096;
+    let decommitted_pages = REACHED_DECOMMIT_PAGE_BYTES as usize / 4096;
+    let mut fixture = Fixture::with_limits(MemoryLimits {
+        max_physical_pages: committed_pages + 4,
+        max_regions: 4,
+        max_owners: 4,
+        max_access_bytes: MEMORY_BYTES as usize,
+    });
+    fixture.policy = serde_json::from_str(include_str!(
+        "../../../fixtures/runtime-policies/kernel32-delete-file-a-v1.json"
+    ))
+    .unwrap();
+    fixture.prepare([0, RESERVE_BYTES, MEM_RESERVE | MEM_TOP_DOWN, PAGE_READWRITE]);
+    immediate(fixture.dispatch_prepared());
+    acknowledge_pending(&mut fixture.memory);
+    fixture.prepare([
+        EXPECTED_BASE.0,
+        REACHED_COMMIT_BYTES,
+        MEM_COMMIT,
+        PAGE_READWRITE,
+    ]);
+    immediate(fixture.dispatch_prepared());
+    acknowledge_pending(&mut fixture.memory);
+
+    fixture.select_endpoint("VirtualFree");
+    fixture.prepare([EXPECTED_BASE.0, REACHED_DECOMMIT_BYTES, MEM_DECOMMIT, 0]);
+    let allocations_before = fixture.runtime.process_address_space_allocator().records();
+    let memory_before = fixture.memory.stats();
+    let completion = immediate(fixture.dispatch_prepared());
+
+    assert_eq!(completion.eax, RegisterUpdate::Set(1));
+    assert_eq!(completion.instruction_pointer, RETURN_ADDRESS);
+    assert_eq!(completion.stack_pointer, GuestAddress(STACK.0 + 16));
+    assert_eq!(completion.last_error, LAST_ERROR_SENTINEL);
+    assert!(completion.guest_writes.is_empty());
+    assert_eq!(
+        fixture.runtime.process_address_space_allocator().records(),
+        allocations_before
+    );
+    let memory_after = fixture.memory.stats();
+    assert_eq!(
+        memory_after.committed_pages,
+        memory_before.committed_pages - decommitted_pages
+    );
+    assert_eq!(
+        memory_after.physical_pages,
+        memory_before.physical_pages - decommitted_pages
+    );
+    let allocation = fixture
+        .runtime
+        .process_address_space_allocator()
+        .allocation_for_purpose(&ProcessAddressAllocationPurpose::VirtualMemory)
+        .unwrap();
+    let region = fixture
+        .memory
+        .region_snapshots()
+        .into_iter()
+        .find(|region| region.address_allocation_id == Some(allocation.id.0))
+        .unwrap();
+    let delta = fixture.memory.pending_delta().unwrap();
+    assert!(delta.dirty_pages.is_empty());
+    assert!(matches!(
+        delta.mapping_operations.as_slice(),
+        [MappingOperation::Decommit {
+            address_allocation_id: Some(id),
+            owner,
+            range,
+        }] if *id == allocation.id.0
+            && *owner == region.owner
+            && range.start() == EXPECTED_BASE
+            && range.byte_length() == u64::from(REACHED_DECOMMIT_PAGE_BYTES)
+    ));
+    acknowledge_pending(&mut fixture.memory);
+    assert_eq!(
+        fixture
+            .memory
+            .read(
+                GuestAddress(EXPECTED_BASE.0 + REACHED_DECOMMIT_PAGE_BYTES),
+                1
+            )
+            .unwrap(),
+        &[0]
+    );
+}
+
+#[test]
+fn unreached_virtual_free_variants_fail_without_authority_mutation() {
+    for arguments in [
+        [EXPECTED_BASE.0 + 1, REACHED_DECOMMIT_BYTES, MEM_DECOMMIT, 0],
+        [EXPECTED_BASE.0, 0, MEM_DECOMMIT, 0],
+        [EXPECTED_BASE.0, REACHED_DECOMMIT_BYTES, 0x8000, 0],
+    ] {
+        let mut fixture = Fixture::new();
+        fixture.policy = serde_json::from_str(include_str!(
+            "../../../fixtures/runtime-policies/kernel32-delete-file-a-v1.json"
+        ))
+        .unwrap();
+        fixture.select_endpoint("VirtualFree");
+        fixture.prepare(arguments);
+        let runtime_before = fixture.runtime.clone();
+        let memory_before = fixture.memory.stats();
+        let regions_before = fixture.memory.region_snapshots();
+        let rejected = fault(fixture.dispatch_prepared());
+        assert_eq!(rejected.class, ApiFaultClass::Unsupported);
+        assert_eq!(rejected.code, "virtual-free-variant-unsupported");
+        assert_eq!(fixture.runtime, runtime_before);
+        assert_eq!(fixture.memory.stats(), memory_before);
+        assert_eq!(fixture.memory.region_snapshots(), regions_before);
+    }
 }
 
 #[test]
@@ -334,6 +559,10 @@ fn guest_region_overlap_rejects_before_allocator_commit_or_owner_id_advance() {
 }
 
 fn endpoint(owner: MemoryOwnerId) -> ApiEndpointIdentity {
+    endpoint_named(owner, "VirtualAlloc")
+}
+
+fn endpoint_named(owner: MemoryOwnerId, name: &str) -> ApiEndpointIdentity {
     ApiEndpointIdentity::from_import_thunk(&ImportThunk {
         id: ImportThunkId(28),
         address: ENDPOINT,
@@ -344,7 +573,7 @@ fn endpoint(owner: MemoryOwnerId) -> ApiEndpointIdentity {
         original_iat_value: 0,
         disposition: ImportThunkDisposition::DeclaredRuntimeExport,
         target: ImportTarget::Name {
-            name: "VirtualAlloc".to_owned(),
+            name: name.to_owned(),
             hint: 0,
             name_rva: vine_core::Rva(0),
         },

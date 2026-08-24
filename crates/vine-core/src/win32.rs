@@ -29,7 +29,8 @@ use crate::runtime::{
     RuntimeFileBacking, RuntimeFileSearchEntry, RuntimeFileSearchEntryKind, RuntimeHandle,
     RuntimeHeapInitialization, RuntimeHostCompletion, RuntimeMutexNameA, RuntimeObjectKind,
     RuntimePathResolution, RuntimeSourceReadHostResponse, RuntimeStateError,
-    RuntimeStateErrorClass, RuntimeThreadPriority, RuntimeVirtualMemoryReserveRequest,
+    RuntimeStateErrorClass, RuntimeThreadPriority, RuntimeVirtualMemoryCommitRequest,
+    RuntimeVirtualMemoryDecommitRequest, RuntimeVirtualMemoryReserveRequest,
     RuntimeWaitDisposition, RuntimeWaitForSingleObjectExBegin, RuntimeWaitForSingleObjectExOutcome,
     RuntimeWaitForSingleObjectExResult, RuntimeWaitState, RuntimeWritableCommitHostResponse,
     RuntimeWritableDirectoryCreateHostResponse, X86_CRITICAL_SECTION_BYTE_LENGTH,
@@ -58,6 +59,7 @@ pub use policy::{
 pub const GET_SYSTEM_TIME_AS_FILE_TIME_IMPLEMENTATION: &str =
     "kernel32.get-system-time-as-file-time.v1";
 pub const GET_SYSTEM_TIME_IMPLEMENTATION: &str = "kernel32.get-system-time.v1";
+pub const GET_LOCAL_TIME_IMPLEMENTATION: &str = "kernel32.get-local-time.fixed-utc-offset.v1";
 pub const RAISE_EXCEPTION_IMPLEMENTATION: &str = "kernel32.raise-exception.seh-dispatch.v1";
 pub const RTL_UNWIND_IMPLEMENTATION: &str = "kernel32.rtl-unwind.current-seh-frame.v1";
 pub const GET_CURRENT_PROCESS_ID_IMPLEMENTATION: &str = "kernel32.get-current-process-id.v1";
@@ -73,6 +75,7 @@ pub const GET_SYSTEM_INFO_IMPLEMENTATION: &str = "kernel32.get-system-info.v1";
 pub const GLOBAL_MEMORY_STATUS_IMPLEMENTATION: &str =
     "kernel32.global-memory-status.x86-deterministic.v1";
 pub const VIRTUAL_ALLOC_IMPLEMENTATION: &str = "kernel32.virtual-alloc.reserve-top-down.v1";
+pub const VIRTUAL_FREE_IMPLEMENTATION: &str = "kernel32.virtual-free.decommit.v1";
 pub const GET_VERSION_EX_A_IMPLEMENTATION: &str = "kernel32.get-version-ex-a.v1";
 pub const GET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.get-last-error.v1";
 pub const SET_LAST_ERROR_IMPLEMENTATION: &str = "kernel32.set-last-error.v1";
@@ -205,6 +208,8 @@ const X86_WIN32_FIND_DATA_A_BYTES: usize = 320;
 const X86_WIN32_FIND_DATA_A_FILE_NAME_OFFSET: usize = 44;
 const X86_WIN32_FIND_DATA_A_FILE_NAME_CAPACITY: usize = 260;
 pub const MEM_RESERVE: u32 = 0x0000_2000;
+pub const MEM_COMMIT: u32 = 0x0000_1000;
+pub const MEM_DECOMMIT: u32 = 0x0000_4000;
 pub const MEM_TOP_DOWN: u32 = 0x0010_0000;
 pub const PAGE_READWRITE: u32 = 0x0000_0004;
 
@@ -278,6 +283,7 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
             handle_get_system_time_as_file_time(contract, frame, session)
         }
         GET_SYSTEM_TIME_IMPLEMENTATION => handle_get_system_time(contract, frame, session),
+        GET_LOCAL_TIME_IMPLEMENTATION => handle_get_local_time(policy, contract, frame, session),
         GET_CURRENT_PROCESS_ID_IMPLEMENTATION => handle_get_current_process_id(session),
         GET_CURRENT_THREAD_ID_IMPLEMENTATION => handle_get_current_thread_id(session),
         GET_CURRENT_THREAD_IMPLEMENTATION => handle_get_current_thread(contract, session),
@@ -296,6 +302,7 @@ pub fn dispatch_kernel32_api_with_prevalidated_policy(
         GET_SYSTEM_INFO_IMPLEMENTATION => handle_get_system_info(policy, contract, frame),
         GLOBAL_MEMORY_STATUS_IMPLEMENTATION => handle_global_memory_status(policy, contract, frame),
         VIRTUAL_ALLOC_IMPLEMENTATION => handle_virtual_alloc(policy, contract, frame, session),
+        VIRTUAL_FREE_IMPLEMENTATION => handle_virtual_free(policy, contract, frame, session),
         GET_VERSION_EX_A_IMPLEMENTATION => {
             handle_get_version_ex_a(policy, contract, frame, session)
         }
@@ -440,6 +447,7 @@ pub fn kernel32_contract_for_endpoint(
     let contract = match name.as_str() {
         "GetSystemTimeAsFileTime" => get_system_time_as_file_time_contract(endpoint)?,
         "GetSystemTime" => get_system_time_contract(endpoint)?,
+        "GetLocalTime" => get_local_time_contract(endpoint)?,
         "RaiseException" => raise_exception_contract(endpoint)?,
         "RtlUnwind" => rtl_unwind_contract(endpoint)?,
         "GetCurrentProcessId" => get_current_process_id_contract(endpoint)?,
@@ -454,6 +462,7 @@ pub fn kernel32_contract_for_endpoint(
         "GetSystemInfo" => get_system_info_contract(endpoint)?,
         "GlobalMemoryStatus" => global_memory_status_contract(endpoint)?,
         "VirtualAlloc" => virtual_alloc_contract(endpoint)?,
+        "VirtualFree" => virtual_free_contract(endpoint)?,
         "GetVersionExA" => get_version_ex_a_contract(endpoint)?,
         "GetLastError" => get_last_error_contract(endpoint)?,
         "SetLastError" => set_last_error_contract(endpoint)?,
@@ -1058,6 +1067,54 @@ fn handle_get_system_time(
     ))
 }
 
+fn handle_get_local_time(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let offset_minutes = policy.local_time_utc_offset_minutes().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-clock",
+            "local-time-offset-unconfigured",
+            "GetLocalTime requires one explicit runtime UTC offset",
+        )
+    })?;
+    let local_file_time = local_file_time(
+        session.runtime().clock().wall_clock_file_time,
+        offset_minutes,
+    )?;
+    let output = required_argument(contract, frame, 0, "SYSTEMTIME output")?;
+    Ok(ApiImmediate::new(ApiReturnValue::Void)
+        .with_guest_write(GuestAddress(output), system_time_bytes(local_file_time)))
+}
+
+fn local_file_time(file_time: u64, offset_minutes: i16) -> Result<u64, ApiFault> {
+    const FILE_TIME_TICKS_PER_MINUTE: u64 = 600_000_000;
+
+    let offset_ticks = u64::from(offset_minutes.unsigned_abs())
+        .checked_mul(FILE_TIME_TICKS_PER_MINUTE)
+        .ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "win32-clock",
+                "local-time-offset-overflow",
+                "configured local-time offset exceeds FILETIME arithmetic",
+            )
+        })?;
+    let local_file_time = if offset_minutes >= 0 {
+        file_time.checked_add(offset_ticks)
+    } else {
+        file_time.checked_sub(offset_ticks)
+    };
+    local_file_time.ok_or_else(|| {
+        ApiFault::runtime_defect(
+            "win32-clock",
+            "local-time-projection-overflow",
+            "runtime wall clock cannot be projected through the configured UTC offset",
+        )
+    })
+}
+
 fn system_time_bytes(file_time: u64) -> Vec<u8> {
     const TICKS_PER_MILLISECOND: u64 = 10_000;
     const MILLISECONDS_PER_DAY: u64 = 86_400_000;
@@ -1211,10 +1268,18 @@ fn handle_virtual_alloc(
             ),
         )
     })?;
-    if (virtual_alloc.require_null_preferred_address && preferred_address != 0)
-        || !virtual_alloc
+    let reserve_enabled = allocation_type == (MEM_RESERVE | MEM_TOP_DOWN)
+        && (!virtual_alloc.require_null_preferred_address || preferred_address == 0)
+        && virtual_alloc
             .allowed_reserve_byte_lengths
-            .contains(&byte_length)
+            .contains(&byte_length);
+    let commit_enabled = allocation_type == MEM_COMMIT
+        && preferred_address != 0
+        && byte_length != 0
+        && virtual_alloc
+            .maximum_commit_byte_length
+            .is_some_and(|maximum| byte_length <= maximum);
+    if (!reserve_enabled && !commit_enabled)
         || !virtual_alloc
             .allowed_allocation_types
             .contains(&allocation_type)
@@ -1236,6 +1301,23 @@ fn handle_virtual_alloc(
             "validated VirtualAlloc policy has no x86 system-information profile",
         )
     })?;
+    let page_protection = crate::memory::PageProtection {
+        read: protection == PAGE_READWRITE,
+        write: protection == PAGE_READWRITE,
+        execute: false,
+    };
+    if commit_enabled {
+        let commitment = session
+            .commit_virtual_memory(RuntimeVirtualMemoryCommitRequest {
+                address: GuestAddress(preferred_address),
+                byte_length,
+                protection: page_protection,
+            })
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        return Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
+            commitment.range.base.0,
+        )));
+    }
     let reservation = session
         .reserve_virtual_memory(RuntimeVirtualMemoryReserveRequest {
             preferred_address: None,
@@ -1244,16 +1326,57 @@ fn handle_virtual_alloc(
             maximum_application_address: GuestAddress(system_info.maximum_application_address),
             allocation_granularity: system_info.allocation_granularity,
             top_down: allocation_type == (MEM_RESERVE | MEM_TOP_DOWN),
-            protection: crate::memory::PageProtection {
-                read: protection == PAGE_READWRITE,
-                write: protection == PAGE_READWRITE,
-                execute: false,
-            },
+            protection: page_protection,
         })
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
     Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
         reservation.range.base.0,
     )))
+}
+
+fn handle_virtual_free(
+    policy: &Kernel32CompatibilityPolicy,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> Result<ApiImmediate, ApiFault> {
+    let address = required_argument(contract, frame, 0, "decommit address")?;
+    let byte_length = required_argument(contract, frame, 1, "decommit size")?;
+    let free_type = required_argument(contract, frame, 2, "free type")?;
+    let virtual_alloc = policy.virtual_alloc().ok_or_else(|| {
+        ApiFault::unsupported(
+            "win32-virtual-memory",
+            "virtual-free-policy-disabled",
+            format!(
+                "compatibility policy {} does not enable VirtualFree",
+                policy.id
+            ),
+        )
+    })?;
+    let decommit_enabled = free_type == MEM_DECOMMIT
+        && address != 0
+        && address % crate::memory::GUEST_PAGE_SIZE as u32 == 0
+        && byte_length != 0
+        && virtual_alloc
+            .maximum_decommit_byte_length
+            .is_some_and(|maximum| byte_length <= maximum);
+    if !decommit_enabled {
+        return Err(ApiFault::unsupported(
+            "win32-virtual-memory",
+            "virtual-free-variant-unsupported",
+            format!(
+                "compatibility policy {} does not enable VirtualFree({address:#010x}, {byte_length:#010x}, {free_type:#010x})",
+                policy.id
+            ),
+        ));
+    }
+    session
+        .decommit_virtual_memory(RuntimeVirtualMemoryDecommitRequest {
+            address: GuestAddress(address),
+            byte_length,
+        })
+        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    Ok(ApiImmediate::new(ApiReturnValue::Bool32(true)))
 }
 
 fn handle_set_thread_affinity_mask(
@@ -5382,9 +5505,13 @@ fn handle_heap_alloc(
             ));
         }
     };
-    let allocation = session
-        .allocate_private_heap_block(heap, byte_length, initialization)
-        .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+    let allocation = match session.allocate_private_heap_block(heap, byte_length, initialization) {
+        Ok(allocation) => allocation,
+        Err(error) if error.class == RuntimeStateErrorClass::ResourceLimit => {
+            return Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(0)));
+        }
+        Err(error) => return Err(ApiFault::from_runtime(error, &contract.endpoint)),
+    };
     Ok(ApiImmediate::new(ApiReturnValue::OpaquePointer(
         allocation.address.0,
     )))
@@ -6272,6 +6399,16 @@ pub fn get_system_time_contract(endpoint: ApiEndpointIdentity) -> Result<ApiCont
     )
 }
 
+pub fn get_local_time_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "GetLocalTime",
+        vec![out_struct("systemTime", "SYSTEMTIME", 16)],
+        ApiReturnSchema::Void,
+        GET_LOCAL_TIME_IMPLEMENTATION,
+    )
+}
+
 pub fn raise_exception_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
     let mut contract = kernel32_contract(
         endpoint,
@@ -6482,6 +6619,20 @@ pub fn virtual_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContra
         ],
         ApiReturnSchema::OpaquePointer { nullable: true },
         VIRTUAL_ALLOC_IMPLEMENTATION,
+    )
+}
+
+pub fn virtual_free_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract, ApiFault> {
+    kernel32_contract(
+        endpoint,
+        "VirtualFree",
+        vec![
+            opaque_pointer("address", false, 1),
+            u32_argument("byteLength"),
+            u32_argument("freeType"),
+        ],
+        ApiReturnSchema::Bool32,
+        VIRTUAL_FREE_IMPLEMENTATION,
     )
 }
 
@@ -7279,7 +7430,7 @@ pub fn heap_alloc_contract(endpoint: ApiEndpointIdentity) -> Result<ApiContract,
             u32_argument("flags"),
             u32_argument("byteLength"),
         ],
-        ApiReturnSchema::OpaquePointer { nullable: false },
+        ApiReturnSchema::OpaquePointer { nullable: true },
         HEAP_ALLOC_IMPLEMENTATION,
     )
 }
@@ -7875,7 +8026,44 @@ fn inout_struct(name: &str, type_id: &str, byte_length: u32) -> ApiArgumentSchem
 
 #[cfg(test)]
 mod tests {
-    use super::system_time_bytes;
+    use super::{
+        ERROR_INVALID_PARAMETER, ERROR_NOT_ENOUGH_MEMORY, RuntimeStateError,
+        fls_set_value_failure_last_error, local_file_time, system_time_bytes,
+    };
+
+    #[test]
+    fn fls_set_value_maps_documented_parameter_and_allocation_failures() {
+        let invalid_index = RuntimeStateError::not_found(
+            "runtime-fls",
+            "fls-index-unallocated",
+            "test invalid index",
+        );
+        assert_eq!(
+            fls_set_value_failure_last_error(&invalid_index),
+            Some(ERROR_INVALID_PARAMETER)
+        );
+
+        let allocation_failure = RuntimeStateError::resource_limit(
+            "runtime-fls",
+            "fls-storage-allocation-failed",
+            "test allocation failure",
+        );
+        assert_eq!(
+            fls_set_value_failure_last_error(&allocation_failure),
+            Some(ERROR_NOT_ENOUGH_MEMORY)
+        );
+    }
+
+    #[test]
+    fn local_time_projection_applies_bounded_offsets_without_mutating_the_clock() {
+        let utc = 134_282_016_000_000_000;
+        assert_eq!(local_file_time(utc, 540).unwrap(), 134_282_340_000_000_000);
+        assert_eq!(local_file_time(600_000_000, -1).unwrap(), 0);
+        assert_eq!(
+            local_file_time(0, -1).unwrap_err().code,
+            "local-time-projection-overflow"
+        );
+    }
 
     #[test]
     fn file_time_is_projected_as_utc_system_time() {

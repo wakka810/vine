@@ -51,10 +51,16 @@ const PRIMARY_FONT_CREATION_PROFILE_ID: &str = "primary-cp932-ms-gothic-64x32-th
 const POST_HEAP_GROWTH_FONT_CREATION_PROFILE_ID: &str = "primary-cp932-ms-gothic-224x112-thin-v1";
 const SCENARIO_FONT_CREATION_PROFILE_ID: &str = "primary-cp932-ms-gothic-80x40-thin-v1";
 const LARGE_SCENARIO_FONT_CREATION_PROFILE_ID: &str = "primary-cp932-ms-gothic-192x96-thin-v1";
+const SAVE_CATALOG_FONT_CREATION_PROFILE_ID: &str = "primary-cp932-ms-gothic-144x144-thin-v1";
+const SCENARIO_128X64_FONT_CREATION_PROFILE_ID: &str = "primary-cp932-ms-gothic-128x64-thin-v1";
+const SCENARIO_144X72_FONT_CREATION_PROFILE_ID: &str = "primary-cp932-ms-gothic-144x72-thin-v1";
 const PRIMARY_DIB_SECTION_PROFILE_ID: &str = "primary-128x-96-8bpp-reverse-grayscale-v1";
 const POST_CREATE_FONT_DIB_SECTION_PROFILE_ID: &str = "primary-448x-336-8bpp-reverse-grayscale-v1";
 const SCENARIO_DIB_SECTION_PROFILE_ID: &str = "primary-160x-120-8bpp-reverse-grayscale-v1";
 const LARGE_SCENARIO_DIB_SECTION_PROFILE_ID: &str = "primary-384x-288-8bpp-reverse-grayscale-v1";
+const SAVE_CATALOG_DIB_SECTION_PROFILE_ID: &str = "primary-576x-216-8bpp-reverse-grayscale-v1";
+const SCENARIO_256X192_DIB_SECTION_PROFILE_ID: &str = "primary-256x-192-8bpp-reverse-grayscale-v1";
+const SCENARIO_288X216_DIB_SECTION_PROFILE_ID: &str = "primary-288x-216-8bpp-reverse-grayscale-v1";
 const ERROR_INVALID_HANDLE: u32 = 6;
 const ERROR_CAN_NOT_COMPLETE: u32 = 1003;
 const TRUETYPE_FONTTYPE: u32 = 0x0000_0004;
@@ -1157,6 +1163,77 @@ fn supported_text_raster_profile(
     {
         return Ok(false);
     }
+    let save_catalog_font = font_creation_profile(creation, SAVE_CATALOG_FONT_CREATION_PROFILE_ID)
+        .ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "gdi32-text-raster",
+                "text-out-a-save-catalog-font-profile-missing",
+                "TextOutA policy is missing the reached save-catalog font profile",
+            )
+        })?;
+    let save_catalog_dib = dib_section_profile(dib_policy, SAVE_CATALOG_DIB_SECTION_PROFILE_ID)
+        .ok_or_else(|| {
+            ApiFault::runtime_defect(
+                "gdi32-text-raster",
+                "text-out-a-save-catalog-dib-profile-missing",
+                "TextOutA policy is missing the reached save-catalog DIB profile",
+            )
+        })?;
+    if target.log_font == save_catalog_font.log_font
+        && target.descriptor == save_catalog_dib.descriptor
+    {
+        return Ok(false);
+    }
+    let scenario_128x64_font =
+        font_creation_profile(creation, SCENARIO_128X64_FONT_CREATION_PROFILE_ID).ok_or_else(
+            || {
+                ApiFault::runtime_defect(
+                    "gdi32-text-raster",
+                    "text-out-a-128x64-font-profile-missing",
+                    "TextOutA policy is missing the reached 128x64 font profile",
+                )
+            },
+        )?;
+    let scenario_256x192_dib =
+        dib_section_profile(dib_policy, SCENARIO_256X192_DIB_SECTION_PROFILE_ID).ok_or_else(
+            || {
+                ApiFault::runtime_defect(
+                    "gdi32-text-raster",
+                    "text-out-a-256x192-dib-profile-missing",
+                    "TextOutA policy is missing the reached 256x192 DIB profile",
+                )
+            },
+        )?;
+    if target.log_font == scenario_128x64_font.log_font
+        && target.descriptor == scenario_256x192_dib.descriptor
+    {
+        return Ok(false);
+    }
+    let scenario_144x72_font =
+        font_creation_profile(creation, SCENARIO_144X72_FONT_CREATION_PROFILE_ID).ok_or_else(
+            || {
+                ApiFault::runtime_defect(
+                    "gdi32-text-raster",
+                    "text-out-a-144x72-font-profile-missing",
+                    "TextOutA policy is missing the reached 144x72 font profile",
+                )
+            },
+        )?;
+    let scenario_288x216_dib =
+        dib_section_profile(dib_policy, SCENARIO_288X216_DIB_SECTION_PROFILE_ID).ok_or_else(
+            || {
+                ApiFault::runtime_defect(
+                    "gdi32-text-raster",
+                    "text-out-a-288x216-dib-profile-missing",
+                    "TextOutA policy is missing the reached 288x216 DIB profile",
+                )
+            },
+        )?;
+    if target.log_font == scenario_144x72_font.log_font
+        && target.descriptor == scenario_288x216_dib.descriptor
+    {
+        return Ok(false);
+    }
     Err(ApiFault::unsupported(
         "gdi32-text-raster",
         "text-out-a-selection-variant-unsupported",
@@ -2229,6 +2306,9 @@ fn controlled_font_creation_policy() -> Gdi32FontCreationPolicy {
             font_creation_profile_policy(POST_HEAP_GROWTH_FONT_CREATION_PROFILE_ID, 224, 112),
             font_creation_profile_policy(SCENARIO_FONT_CREATION_PROFILE_ID, 80, 40),
             font_creation_profile_policy(LARGE_SCENARIO_FONT_CREATION_PROFILE_ID, 192, 96),
+            font_creation_profile_policy(SAVE_CATALOG_FONT_CREATION_PROFILE_ID, 144, 144),
+            font_creation_profile_policy(SCENARIO_128X64_FONT_CREATION_PROFILE_ID, 128, 64),
+            font_creation_profile_policy(SCENARIO_144X72_FONT_CREATION_PROFILE_ID, 144, 72),
         ],
     }
 }
@@ -2307,6 +2387,27 @@ fn controlled_dib_section_policy() -> Gdi32DibSectionPolicy {
                 384,
                 110_592,
             ),
+            controlled_dib_section_profile(
+                SAVE_CATALOG_DIB_SECTION_PROFILE_ID,
+                576,
+                -216,
+                576,
+                124_416,
+            ),
+            controlled_dib_section_profile(
+                SCENARIO_256X192_DIB_SECTION_PROFILE_ID,
+                256,
+                -192,
+                256,
+                49_152,
+            ),
+            controlled_dib_section_profile(
+                SCENARIO_288X216_DIB_SECTION_PROFILE_ID,
+                288,
+                -216,
+                288,
+                62_208,
+            ),
         ],
     }
 }
@@ -2375,6 +2476,21 @@ fn controlled_outline_text_metrics_policy() -> Gdi32OutlineTextMetricsPolicy {
                 "primary-cp932-ms-gothic-192x96-outline-metrics-v1",
                 LARGE_SCENARIO_FONT_CREATION_PROFILE_ID,
                 controlled_outline_text_metrics_192x96_a(),
+            ),
+            controlled_outline_text_metrics_profile(
+                "primary-cp932-ms-gothic-144x144-outline-metrics-v1",
+                SAVE_CATALOG_FONT_CREATION_PROFILE_ID,
+                controlled_outline_text_metrics_144x144_a(),
+            ),
+            controlled_outline_text_metrics_profile(
+                "primary-cp932-ms-gothic-128x64-outline-metrics-v1",
+                SCENARIO_128X64_FONT_CREATION_PROFILE_ID,
+                controlled_outline_text_metrics_128x64_a(),
+            ),
+            controlled_outline_text_metrics_profile(
+                "primary-cp932-ms-gothic-144x72-outline-metrics-v1",
+                SCENARIO_144X72_FONT_CREATION_PROFILE_ID,
+                controlled_outline_text_metrics_144x72_a(),
             ),
         ],
     }
@@ -2587,6 +2703,141 @@ fn controlled_outline_text_metrics_192x96_a() -> Vec<u8> {
         (184, 50),
         (188, 14),
         (192, -13),
+    ])
+}
+
+fn controlled_outline_text_metrics_144x144_a() -> Vec<u8> {
+    controlled_outline_text_metrics_a(&[
+        (0, X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as i32),
+        (4, 144),
+        (8, 124),
+        (12, 20),
+        (16, 0),
+        (20, 0),
+        (24, 144),
+        (28, 568),
+        (32, 400),
+        (36, 0),
+        (40, 96),
+        (44, 96),
+        (80, 1),
+        (84, 0),
+        (88, 0),
+        (96, 124),
+        (100, -20),
+        (104, 0),
+        (108, 72),
+        (112, 36),
+        (116, -281),
+        (120, 124),
+        (124, 287),
+        (128, -20),
+        (132, 124),
+        (136, -20),
+        (140, 0),
+        (144, 25),
+        (148, 144),
+        (152, 72),
+        (156, 0),
+        (160, 52),
+        (164, 144),
+        (168, 72),
+        (172, 0),
+        (176, 124),
+        (180, 7),
+        (184, 37),
+        (188, 11),
+        (192, -10),
+    ])
+}
+
+fn controlled_outline_text_metrics_128x64_a() -> Vec<u8> {
+    controlled_outline_text_metrics_a(&[
+        (0, X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as i32),
+        (4, 128),
+        (8, 110),
+        (12, 18),
+        (16, 0),
+        (20, 0),
+        (24, 64),
+        (28, 253),
+        (32, 400),
+        (36, 0),
+        (40, 96),
+        (44, 96),
+        (80, 1),
+        (84, 0),
+        (88, 0),
+        (96, 110),
+        (100, -18),
+        (104, 0),
+        (108, 64),
+        (112, 32),
+        (116, -125),
+        (120, 110),
+        (124, 128),
+        (128, -18),
+        (132, 110),
+        (136, -18),
+        (140, 0),
+        (144, 25),
+        (148, 64),
+        (152, 64),
+        (156, 0),
+        (160, 46),
+        (164, 64),
+        (168, 64),
+        (172, 0),
+        (176, 110),
+        (180, 7),
+        (184, 33),
+        (188, 10),
+        (192, -9),
+    ])
+}
+
+fn controlled_outline_text_metrics_144x72_a() -> Vec<u8> {
+    controlled_outline_text_metrics_a(&[
+        (0, X86_OUTLINE_TEXT_METRIC_A_BYTE_LENGTH as i32),
+        (4, 144),
+        (8, 124),
+        (12, 20),
+        (16, 0),
+        (20, 0),
+        (24, 72),
+        (28, 284),
+        (32, 400),
+        (36, 0),
+        (40, 96),
+        (44, 96),
+        (80, 1),
+        (84, 0),
+        (88, 0),
+        (96, 124),
+        (100, -20),
+        (104, 0),
+        (108, 72),
+        (112, 36),
+        (116, -141),
+        (120, 124),
+        (124, 143),
+        (128, -20),
+        (132, 124),
+        (136, -20),
+        (140, 0),
+        (144, 25),
+        (148, 72),
+        (152, 72),
+        (156, 0),
+        (160, 52),
+        (164, 72),
+        (168, 72),
+        (172, 0),
+        (176, 124),
+        (180, 7),
+        (184, 37),
+        (188, 11),
+        (192, -10),
     ])
 }
 
@@ -2900,7 +3151,7 @@ mod tests {
             SHIFT_JIS_CHARSET
         );
         let creation = policy.create_font_a.as_ref().unwrap();
-        assert_eq!(creation.profiles.len(), 4);
+        assert_eq!(creation.profiles.len(), 7);
         let primary = &creation.profiles[0];
         assert_eq!(primary.profile_id, PRIMARY_FONT_CREATION_PROFILE_ID);
         assert_eq!(primary.log_font.height, 64);
@@ -2948,12 +3199,33 @@ mod tests {
         );
         assert_eq!(large_scenario.log_font.height, 192);
         assert_eq!(large_scenario.log_font.width, 96);
+        let save_catalog = &creation.profiles[4];
+        assert_eq!(
+            save_catalog.profile_id,
+            SAVE_CATALOG_FONT_CREATION_PROFILE_ID
+        );
+        assert_eq!(save_catalog.log_font.height, 144);
+        assert_eq!(save_catalog.log_font.width, 144);
+        let scenario_128x64 = &creation.profiles[5];
+        assert_eq!(
+            scenario_128x64.profile_id,
+            SCENARIO_128X64_FONT_CREATION_PROFILE_ID
+        );
+        assert_eq!(scenario_128x64.log_font.height, 128);
+        assert_eq!(scenario_128x64.log_font.width, 64);
+        let scenario_144x72 = &creation.profiles[6];
+        assert_eq!(
+            scenario_144x72.profile_id,
+            SCENARIO_144X72_FONT_CREATION_PROFILE_ID
+        );
+        assert_eq!(scenario_144x72.log_font.height, 144);
+        assert_eq!(scenario_144x72.log_font.width, 72);
         let compatible_dc = policy.create_compatible_dc.as_ref().unwrap();
         assert_eq!(compatible_dc.source_device_context, 0);
         assert_eq!(compatible_dc.initial_font_stock_index, 13);
         assert_eq!(compatible_dc.initial_bitmap_stock_index, 21);
         let dib_section = policy.create_dib_section.as_ref().unwrap();
-        assert_eq!(dib_section.profiles.len(), 4);
+        assert_eq!(dib_section.profiles.len(), 7);
         let primary_dib = &dib_section.profiles[0];
         assert_eq!(primary_dib.profile_id, PRIMARY_DIB_SECTION_PROFILE_ID);
         assert_eq!(primary_dib.bitmap_info_header_size, 40);
@@ -3011,8 +3283,35 @@ mod tests {
         assert_eq!(large_scenario_dib.descriptor.height, -288);
         assert_eq!(large_scenario_dib.descriptor.stride_bytes, 384);
         assert_eq!(large_scenario_dib.descriptor.pixel_byte_length, 110_592);
+        let save_catalog_dib = &dib_section.profiles[4];
+        assert_eq!(
+            save_catalog_dib.profile_id,
+            SAVE_CATALOG_DIB_SECTION_PROFILE_ID
+        );
+        assert_eq!(save_catalog_dib.descriptor.width, 576);
+        assert_eq!(save_catalog_dib.descriptor.height, -216);
+        assert_eq!(save_catalog_dib.descriptor.stride_bytes, 576);
+        assert_eq!(save_catalog_dib.descriptor.pixel_byte_length, 124_416);
+        let scenario_256x192_dib = &dib_section.profiles[5];
+        assert_eq!(
+            scenario_256x192_dib.profile_id,
+            SCENARIO_256X192_DIB_SECTION_PROFILE_ID
+        );
+        assert_eq!(scenario_256x192_dib.descriptor.width, 256);
+        assert_eq!(scenario_256x192_dib.descriptor.height, -192);
+        assert_eq!(scenario_256x192_dib.descriptor.stride_bytes, 256);
+        assert_eq!(scenario_256x192_dib.descriptor.pixel_byte_length, 49_152);
+        let scenario_288x216_dib = &dib_section.profiles[6];
+        assert_eq!(
+            scenario_288x216_dib.profile_id,
+            SCENARIO_288X216_DIB_SECTION_PROFILE_ID
+        );
+        assert_eq!(scenario_288x216_dib.descriptor.width, 288);
+        assert_eq!(scenario_288x216_dib.descriptor.height, -216);
+        assert_eq!(scenario_288x216_dib.descriptor.stride_bytes, 288);
+        assert_eq!(scenario_288x216_dib.descriptor.pixel_byte_length, 62_208);
         let outline = policy.get_outline_text_metrics_a.as_ref().unwrap();
-        assert_eq!(outline.profiles.len(), 4);
+        assert_eq!(outline.profiles.len(), 7);
         let primary_outline = &outline.profiles[0];
         assert_eq!(
             primary_outline.profile_id,
@@ -3090,6 +3389,45 @@ mod tests {
         assert_eq!(read_i32(&large_scenario_outline.metrics_a, 24), 96);
         assert_eq!(read_i32(&large_scenario_outline.metrics_a, 28), 379);
         assert_eq!(read_i32(&large_scenario_outline.metrics_a, 192), -13);
+        let save_catalog_outline = &outline.profiles[4];
+        assert_eq!(
+            save_catalog_outline.font_creation_profile_id,
+            SAVE_CATALOG_FONT_CREATION_PROFILE_ID
+        );
+        assert_eq!(read_i32(&save_catalog_outline.metrics_a, 4), 144);
+        assert_eq!(read_i32(&save_catalog_outline.metrics_a, 8), 124);
+        assert_eq!(read_i32(&save_catalog_outline.metrics_a, 12), 20);
+        assert_eq!(read_i32(&save_catalog_outline.metrics_a, 24), 144);
+        assert_eq!(read_i32(&save_catalog_outline.metrics_a, 28), 568);
+        assert_eq!(read_i32(&save_catalog_outline.metrics_a, 116), -281);
+        assert_eq!(read_i32(&save_catalog_outline.metrics_a, 124), 287);
+        assert_eq!(read_i32(&save_catalog_outline.metrics_a, 192), -10);
+        let scenario_128x64_outline = &outline.profiles[5];
+        assert_eq!(
+            scenario_128x64_outline.font_creation_profile_id,
+            SCENARIO_128X64_FONT_CREATION_PROFILE_ID
+        );
+        assert_eq!(read_i32(&scenario_128x64_outline.metrics_a, 4), 128);
+        assert_eq!(read_i32(&scenario_128x64_outline.metrics_a, 8), 110);
+        assert_eq!(read_i32(&scenario_128x64_outline.metrics_a, 12), 18);
+        assert_eq!(read_i32(&scenario_128x64_outline.metrics_a, 24), 64);
+        assert_eq!(read_i32(&scenario_128x64_outline.metrics_a, 28), 253);
+        assert_eq!(read_i32(&scenario_128x64_outline.metrics_a, 116), -125);
+        assert_eq!(read_i32(&scenario_128x64_outline.metrics_a, 124), 128);
+        assert_eq!(read_i32(&scenario_128x64_outline.metrics_a, 192), -9);
+        let scenario_144x72_outline = &outline.profiles[6];
+        assert_eq!(
+            scenario_144x72_outline.font_creation_profile_id,
+            SCENARIO_144X72_FONT_CREATION_PROFILE_ID
+        );
+        assert_eq!(read_i32(&scenario_144x72_outline.metrics_a, 4), 144);
+        assert_eq!(read_i32(&scenario_144x72_outline.metrics_a, 8), 124);
+        assert_eq!(read_i32(&scenario_144x72_outline.metrics_a, 12), 20);
+        assert_eq!(read_i32(&scenario_144x72_outline.metrics_a, 24), 72);
+        assert_eq!(read_i32(&scenario_144x72_outline.metrics_a, 28), 284);
+        assert_eq!(read_i32(&scenario_144x72_outline.metrics_a, 116), -141);
+        assert_eq!(read_i32(&scenario_144x72_outline.metrics_a, 124), 143);
+        assert_eq!(read_i32(&scenario_144x72_outline.metrics_a, 192), -10);
         let text_out = policy.text_out_a.as_ref().unwrap();
         assert_eq!(text_out.text_windows_932, b"a");
         assert_eq!(text_out.cell_top, 20);

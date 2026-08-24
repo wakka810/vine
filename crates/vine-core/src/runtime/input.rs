@@ -116,9 +116,14 @@ pub struct RuntimePointerButtonMessageProfile {
     pub id: String,
     pub normalized_position_denominator: u32,
     pub left_button_down_message: u32,
+    pub left_button_double_click_message: u32,
     pub left_button_up_message: u32,
     pub right_button_down_message: u32,
+    pub right_button_double_click_message: u32,
     pub right_button_up_message: u32,
+    pub double_click_time_milliseconds: u32,
+    pub double_click_width: u32,
+    pub double_click_height: u32,
     pub left_button_key_mask: u32,
     pub right_button_key_mask: u32,
     pub shift_key_mask: u32,
@@ -223,6 +228,27 @@ pub(super) struct RuntimeInput {
     keyboard: Option<RuntimeKeyboardState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cursor_position: Option<RuntimeCursorPosition>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_pointer_click: Option<RuntimePointerClickRecord>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimePointerClickRecord {
+    target_window_id: u64,
+    target_window_handle: u32,
+    logical_button: RuntimeLogicalMouseButton,
+    screen_x: i32,
+    screen_y: i32,
+    tick_count: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RuntimePointerButtonEventTarget {
+    pub window_id: u64,
+    pub window_handle: u32,
+    pub accepts_double_clicks: bool,
+    pub tick_count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -230,6 +256,12 @@ pub(super) struct RuntimeInputConfigurationPlan {
     mapping: RuntimeMouseButtonMapping,
     keyboard: Option<RuntimeKeyboardState>,
     cursor_position: Option<RuntimeCursorPosition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeCursorPositionSetPlan {
+    expected: RuntimeCursorPosition,
+    next: RuntimeCursorPosition,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -257,10 +289,13 @@ pub(super) struct RuntimePointerButtonEventPlan {
     expected_cursor_x: i32,
     expected_cursor_y: i32,
     next_cursor: RuntimeCursorPosition,
+    expected_last_pointer_click: Option<RuntimePointerClickRecord>,
+    next_last_pointer_click: Option<RuntimePointerClickRecord>,
     keyboard: RuntimeKeyboardEventPlan,
     event: RuntimePointerButtonSourceEvent,
     logical_button: RuntimeLogicalMouseButton,
     virtual_key: u16,
+    double_click: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -295,19 +330,35 @@ impl RuntimePointerButtonEventPlan {
         &self,
         profile: &RuntimePointerButtonMessageProfile,
     ) -> (u32, u32) {
-        let message = match (self.logical_button, self.event.kind) {
-            (RuntimeLogicalMouseButton::Left, RuntimePointerButtonSourceEventKind::ButtonDown) => {
-                profile.left_button_down_message
-            }
-            (RuntimeLogicalMouseButton::Left, RuntimePointerButtonSourceEventKind::ButtonUp) => {
+        let message = match (self.logical_button, self.event.kind, self.double_click) {
+            (
+                RuntimeLogicalMouseButton::Left,
+                RuntimePointerButtonSourceEventKind::ButtonDown,
+                true,
+            ) => profile.left_button_double_click_message,
+            (
+                RuntimeLogicalMouseButton::Left,
+                RuntimePointerButtonSourceEventKind::ButtonDown,
+                false,
+            ) => profile.left_button_down_message,
+            (RuntimeLogicalMouseButton::Left, RuntimePointerButtonSourceEventKind::ButtonUp, _) => {
                 profile.left_button_up_message
             }
-            (RuntimeLogicalMouseButton::Right, RuntimePointerButtonSourceEventKind::ButtonDown) => {
-                profile.right_button_down_message
-            }
-            (RuntimeLogicalMouseButton::Right, RuntimePointerButtonSourceEventKind::ButtonUp) => {
-                profile.right_button_up_message
-            }
+            (
+                RuntimeLogicalMouseButton::Right,
+                RuntimePointerButtonSourceEventKind::ButtonDown,
+                true,
+            ) => profile.right_button_double_click_message,
+            (
+                RuntimeLogicalMouseButton::Right,
+                RuntimePointerButtonSourceEventKind::ButtonDown,
+                false,
+            ) => profile.right_button_down_message,
+            (
+                RuntimeLogicalMouseButton::Right,
+                RuntimePointerButtonSourceEventKind::ButtonUp,
+                _,
+            ) => profile.right_button_up_message,
         };
         let mut key_state = 0;
         for (virtual_key, mask) in [
@@ -478,6 +529,62 @@ impl RuntimeInput {
         self.cursor_position.as_ref()
     }
 
+    pub(super) fn plan_cursor_position_set(
+        &self,
+        screen_x: i32,
+        screen_y: i32,
+    ) -> Result<RuntimeCursorPositionSetPlan, RuntimeStateError> {
+        let cursor = self.cursor_position.as_ref().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-input",
+                "cursor-position-profile-unconfigured",
+                "logical cursor position must be configured before it is changed",
+            )
+        })?;
+        let next_generation = if cursor.screen_x == screen_x && cursor.screen_y == screen_y {
+            cursor.generation
+        } else {
+            cursor.generation.checked_add(1).ok_or_else(|| {
+                RuntimeStateError::resource_limit(
+                    "runtime-input",
+                    "cursor-position-generation-overflow",
+                    "logical cursor position generation is exhausted",
+                )
+            })?
+        };
+        Ok(RuntimeCursorPositionSetPlan {
+            expected: cursor.clone(),
+            next: RuntimeCursorPosition {
+                profile_id: cursor.profile_id.clone(),
+                screen_x,
+                screen_y,
+                generation: next_generation,
+            },
+        })
+    }
+
+    pub(super) fn commit_cursor_position_set(
+        &mut self,
+        plan: RuntimeCursorPositionSetPlan,
+    ) -> Result<RuntimeCursorPosition, RuntimeStateError> {
+        let cursor = self.cursor_position.as_mut().ok_or_else(|| {
+            RuntimeStateError::runtime_defect(
+                "runtime-input",
+                "cursor-position-profile-unconfigured",
+                "logical cursor position disappeared before commit",
+            )
+        })?;
+        if cursor != &plan.expected {
+            return Err(RuntimeStateError::conflict(
+                "runtime-input",
+                "cursor-position-set-plan-stale",
+                "logical cursor position changed after the update was planned",
+            ));
+        }
+        *cursor = plan.next;
+        Ok(cursor.clone())
+    }
+
     pub(super) fn plan_keyboard_event(
         &self,
         event: RuntimeKeyboardSourceEvent,
@@ -625,6 +732,8 @@ impl RuntimeInput {
         event: RuntimePointerButtonSourceEvent,
         screen_x: i32,
         screen_y: i32,
+        target: RuntimePointerButtonEventTarget,
+        profile: &RuntimePointerButtonMessageProfile,
     ) -> Result<RuntimePointerButtonEventPlan, RuntimeStateError> {
         let mapping = self.mouse_button_mapping.as_ref().ok_or_else(|| {
             RuntimeStateError::runtime_defect(
@@ -650,6 +759,36 @@ impl RuntimeInput {
         let virtual_key = match logical_button {
             RuntimeLogicalMouseButton::Left => VK_LBUTTON,
             RuntimeLogicalMouseButton::Right => VK_RBUTTON,
+        };
+        let (double_click, next_last_pointer_click) = match event.kind {
+            RuntimePointerButtonSourceEventKind::ButtonDown => {
+                let double_click = target.accepts_double_clicks
+                    && self.last_pointer_click.is_some_and(|previous| {
+                        previous.target_window_id == target.window_id
+                            && previous.target_window_handle == target.window_handle
+                            && previous.logical_button == logical_button
+                            && target.tick_count.wrapping_sub(previous.tick_count)
+                                <= profile.double_click_time_milliseconds
+                            && previous.screen_x.abs_diff(screen_x).saturating_mul(2)
+                                <= profile.double_click_width
+                            && previous.screen_y.abs_diff(screen_y).saturating_mul(2)
+                                <= profile.double_click_height
+                    });
+                let next = if target.accepts_double_clicks && !double_click {
+                    Some(RuntimePointerClickRecord {
+                        target_window_id: target.window_id,
+                        target_window_handle: target.window_handle,
+                        logical_button,
+                        screen_x,
+                        screen_y,
+                        tick_count: target.tick_count,
+                    })
+                } else {
+                    None
+                };
+                (double_click, next)
+            }
+            RuntimePointerButtonSourceEventKind::ButtonUp => (false, self.last_pointer_click),
         };
         let keyboard = self.plan_keyboard_event(RuntimeKeyboardSourceEvent {
             sequence: event.sequence,
@@ -687,10 +826,13 @@ impl RuntimeInput {
                 screen_y,
                 generation: next_generation,
             },
+            expected_last_pointer_click: self.last_pointer_click,
+            next_last_pointer_click,
             keyboard,
             event,
             logical_button,
             virtual_key,
+            double_click,
         })
     }
 
@@ -832,6 +974,7 @@ impl RuntimeInput {
             || cursor.screen_x != plan.expected_cursor_x
             || cursor.screen_y != plan.expected_cursor_y
             || cursor.profile_id != plan.next_cursor.profile_id
+            || self.last_pointer_click != plan.expected_last_pointer_click
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-input",
@@ -858,6 +1001,7 @@ impl RuntimeInput {
         debug_assert!(self.preflight_pointer_button_event(&plan).is_ok());
         let RuntimePointerButtonEventPlan {
             next_cursor,
+            next_last_pointer_click,
             keyboard,
             event,
             logical_button,
@@ -866,6 +1010,7 @@ impl RuntimeInput {
         } = plan;
         let keyboard = self.commit_preflighted_keyboard_event(keyboard);
         self.cursor_position = Some(next_cursor.clone());
+        self.last_pointer_click = next_last_pointer_click;
         RuntimePointerButtonEventReceipt {
             event,
             logical_button,
@@ -1182,6 +1327,39 @@ mod tests {
         assert_eq!(input.mouse_button_mapping().unwrap().generation, 1);
     }
 
+    #[test]
+    fn cursor_position_updates_are_atomic_and_generation_tracks_only_changes() {
+        let mut input = RuntimeInput::default();
+        let configuration = input.plan_configuration(profile(false)).unwrap();
+        input.commit_configuration(configuration).unwrap();
+
+        let unchanged = input.plan_cursor_position_set(960, 540).unwrap();
+        let unchanged = input.commit_cursor_position_set(unchanged).unwrap();
+        assert_eq!(unchanged.screen_x, 960);
+        assert_eq!(unchanged.screen_y, 540);
+        assert_eq!(unchanged.generation, 0);
+
+        let moved = input.plan_cursor_position_set(566, 374).unwrap();
+        let stale = moved.clone();
+        let moved = input.commit_cursor_position_set(moved).unwrap();
+        assert_eq!(moved.screen_x, 566);
+        assert_eq!(moved.screen_y, 374);
+        assert_eq!(moved.generation, 1);
+        assert_eq!(
+            input.commit_cursor_position_set(stale).unwrap_err().code,
+            "cursor-position-set-plan-stale"
+        );
+        assert_eq!(input.cursor_position(), Some(&moved));
+
+        assert_eq!(
+            RuntimeInput::default()
+                .plan_cursor_position_set(0, 0)
+                .unwrap_err()
+                .code,
+            "cursor-position-profile-unconfigured"
+        );
+    }
+
     fn key_event(
         sequence: u64,
         kind: RuntimeKeyboardSourceEventKind,
@@ -1213,9 +1391,14 @@ mod tests {
             id: "normalized-primary-secondary-foreground-client-message-v1".to_owned(),
             normalized_position_denominator: 65_536,
             left_button_down_message: 0x0201,
+            left_button_double_click_message: 0x0203,
             left_button_up_message: 0x0202,
             right_button_down_message: 0x0204,
+            right_button_double_click_message: 0x0206,
             right_button_up_message: 0x0205,
+            double_click_time_milliseconds: 500,
+            double_click_width: 4,
+            double_click_height: 4,
             left_button_key_mask: 0x0001,
             right_button_key_mask: 0x0002,
             shift_key_mask: 0x0004,
@@ -1237,6 +1420,18 @@ mod tests {
         }
     }
 
+    fn pointer_target(
+        accepts_double_clicks: bool,
+        tick_count: u32,
+    ) -> RuntimePointerButtonEventTarget {
+        RuntimePointerButtonEventTarget {
+            window_id: 7,
+            window_handle: 0x4801_0001,
+            accepts_double_clicks,
+            tick_count,
+        }
+    }
+
     #[test]
     fn pointer_events_share_mapping_keyboard_and_cursor_authority_with_stale_safe_commit() {
         let message_profile = pointer_profile();
@@ -1250,6 +1445,8 @@ mod tests {
                 pointer_event(1, RuntimePointerButtonSourceEventKind::ButtonDown),
                 1_600,
                 900,
+                pointer_target(false, 100),
+                &message_profile,
             )
             .unwrap();
         assert_eq!(
@@ -1273,6 +1470,8 @@ mod tests {
                 pointer_event(2, RuntimePointerButtonSourceEventKind::ButtonUp),
                 1_600,
                 900,
+                pointer_target(false, 110),
+                &message_profile,
             )
             .unwrap();
         let stale = up.clone();
@@ -1296,6 +1495,8 @@ mod tests {
                 pointer_event(1, RuntimePointerButtonSourceEventKind::ButtonDown),
                 960,
                 540,
+                pointer_target(false, 100),
+                &message_profile,
             )
             .unwrap();
         assert_eq!(
@@ -1314,6 +1515,8 @@ mod tests {
                 pointer_event(1, RuntimePointerButtonSourceEventKind::ButtonDown),
                 960,
                 540,
+                pointer_target(false, 100),
+                &message_profile,
             )
             .unwrap();
         let swap = remapped.plan_mouse_button_swap(true).unwrap();
@@ -1324,6 +1527,109 @@ mod tests {
                 .unwrap_err()
                 .code,
             "pointer-button-event-plan-stale"
+        );
+    }
+
+    #[test]
+    fn pointer_double_click_requires_matching_class_window_time_and_position() {
+        let message_profile = pointer_profile();
+        let mut input = RuntimeInput::default();
+        let configuration = input.plan_configuration(profile(false)).unwrap();
+        input.commit_configuration(configuration).unwrap();
+
+        let first_down = input
+            .plan_pointer_button_event(
+                pointer_event(1, RuntimePointerButtonSourceEventKind::ButtonDown),
+                640,
+                810,
+                pointer_target(true, 100),
+                &message_profile,
+            )
+            .unwrap();
+        assert_eq!(
+            first_down.message_and_key_state(&message_profile),
+            (0x0201, 0x0001)
+        );
+        input.commit_preflighted_pointer_button_event(first_down);
+        let first_up = input
+            .plan_pointer_button_event(
+                pointer_event(2, RuntimePointerButtonSourceEventKind::ButtonUp),
+                640,
+                810,
+                pointer_target(true, 110),
+                &message_profile,
+            )
+            .unwrap();
+        input.commit_preflighted_pointer_button_event(first_up);
+
+        let before_second = input.clone();
+        let second_down = input
+            .plan_pointer_button_event(
+                pointer_event(3, RuntimePointerButtonSourceEventKind::ButtonDown),
+                642,
+                812,
+                pointer_target(true, 600),
+                &message_profile,
+            )
+            .unwrap();
+        assert_eq!(input, before_second, "double-click planning must be pure");
+        assert_eq!(
+            second_down.message_and_key_state(&message_profile),
+            (0x0203, 0x0001)
+        );
+
+        for (screen_x, screen_y, target) in [
+            (640, 810, pointer_target(false, 200)),
+            (640, 810, pointer_target(true, 601)),
+            (643, 810, pointer_target(true, 200)),
+            (
+                640,
+                810,
+                RuntimePointerButtonEventTarget {
+                    window_id: 8,
+                    ..pointer_target(true, 200)
+                },
+            ),
+        ] {
+            let ordinary_down = input
+                .plan_pointer_button_event(
+                    pointer_event(3, RuntimePointerButtonSourceEventKind::ButtonDown),
+                    screen_x,
+                    screen_y,
+                    target,
+                    &message_profile,
+                )
+                .unwrap();
+            assert_eq!(
+                ordinary_down.message_and_key_state(&message_profile),
+                (0x0201, 0x0001)
+            );
+        }
+
+        input.commit_preflighted_pointer_button_event(second_down);
+        let second_up = input
+            .plan_pointer_button_event(
+                pointer_event(4, RuntimePointerButtonSourceEventKind::ButtonUp),
+                642,
+                812,
+                pointer_target(true, 610),
+                &message_profile,
+            )
+            .unwrap();
+        input.commit_preflighted_pointer_button_event(second_up);
+        let third_down = input
+            .plan_pointer_button_event(
+                pointer_event(5, RuntimePointerButtonSourceEventKind::ButtonDown),
+                642,
+                812,
+                pointer_target(true, 620),
+                &message_profile,
+            )
+            .unwrap();
+        assert_eq!(
+            third_down.message_and_key_state(&message_profile),
+            (0x0201, 0x0001),
+            "a completed double-click must not overlap the next click sequence"
         );
     }
 
@@ -1376,6 +1682,8 @@ mod tests {
                 pointer_event(2, RuntimePointerButtonSourceEventKind::ButtonDown),
                 640,
                 810,
+                pointer_target(false, 100),
+                &message_profile,
             )
             .unwrap();
         assert_eq!(
@@ -1389,6 +1697,7 @@ mod tests {
 
     #[test]
     fn completed_pointer_click_retains_pressed_since_last_query_once() {
+        let message_profile = pointer_profile();
         let mut input = RuntimeInput::default();
         let configuration = input.plan_configuration(profile(false)).unwrap();
         input.commit_configuration(configuration).unwrap();
@@ -1398,6 +1707,8 @@ mod tests {
                 pointer_event(1, RuntimePointerButtonSourceEventKind::ButtonDown),
                 640,
                 810,
+                pointer_target(false, 100),
+                &message_profile,
             )
             .unwrap();
         input.commit_preflighted_pointer_button_event(down);
@@ -1406,6 +1717,8 @@ mod tests {
                 pointer_event(2, RuntimePointerButtonSourceEventKind::ButtonUp),
                 640,
                 810,
+                pointer_target(false, 110),
+                &message_profile,
             )
             .unwrap();
         input.commit_preflighted_pointer_button_event(up);

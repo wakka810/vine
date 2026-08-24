@@ -199,6 +199,7 @@ fn prepare_allocation_memory(
             Ok(memory_owner)
         }
         RuntimeHeapBackingPlan::LargeNew {
+            slot: _,
             address_allocation_id,
             range,
         } => {
@@ -284,7 +285,7 @@ fn destroy_planned_heaps(
                 .destroy_owner(*owner)
                 .map_err(RuntimeStateError::from_memory)?;
         }
-        if let Some(backing) = plan.large_backing.as_ref() {
+        for backing in &plan.large_backings {
             transaction
                 .release_region(backing.memory_owner, backing.range.start())
                 .map_err(RuntimeStateError::from_memory)?;

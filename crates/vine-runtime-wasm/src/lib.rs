@@ -2841,18 +2841,7 @@ impl BrowserRuntime {
         if !scheduler.is_executable() {
             return Err("Rust scheduler did not resume the completed host request".to_owned());
         }
-        if previous_thread_id != owner_thread_id
-            && self
-                .runtime
-                .thread_state(previous_thread_id)
-                .is_ok_and(|thread| {
-                    thread.lifecycle == vine_core::RuntimeThreadLifecycleState::Running
-                })
-        {
-            self.runtime
-                .select_thread(previous_thread_id)
-                .map_err(error_string)?;
-        }
+        restore_selected_thread(&mut self.runtime, previous_thread_id, owner_thread_id)?;
         Ok(json!({
             "kind": "host-complete",
             "threadId": owner_thread_id.0,
@@ -6148,6 +6137,33 @@ pub extern "C" fn vine_bridge_finish(exit_code: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_completion_selection_does_not_restore_a_blocked_previous_thread() {
+        let mut runtime = controlled_runtime_state(0xec02_5c47).expect("controlled runtime");
+        let initial_thread = RuntimeThreadId(THREAD_ID);
+        let completion_owner = RuntimeThreadId(SECOND_THREAD_ID);
+        runtime
+            .register_thread(completion_owner, 0)
+            .expect("register completion owner");
+        runtime
+            .begin_host_request("fixture.blocked-previous-thread")
+            .expect("block initial thread");
+        runtime
+            .select_thread(completion_owner)
+            .expect("select completion owner");
+
+        restore_selected_thread(&mut runtime, initial_thread, completion_owner)
+            .expect("retain executable completion owner");
+
+        assert_eq!(runtime.current_thread_id(), completion_owner);
+        assert!(matches!(
+            runtime
+                .scheduler_state_for_thread(initial_thread)
+                .expect("blocked initial thread state"),
+            SchedulerThreadState::WaitingHost { .. }
+        ));
+    }
 
     #[test]
     fn window_timer_metadata_excludes_pointer_dispatch_and_peek_completions() {
