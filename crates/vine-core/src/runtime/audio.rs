@@ -1100,8 +1100,16 @@ impl RuntimeAudio {
                 "logical audio buffer has no active lock",
             )
         })?;
-        if request.first_segment != lock.first_segment
-            || request.second_segment != lock.second_segment
+        if request.first_segment.guest_address != lock.first_segment.guest_address
+            || request.first_segment.byte_length > lock.first_segment.byte_length
+            || match (request.second_segment, lock.second_segment) {
+                (None, None) => false,
+                (Some(request), Some(lock)) => {
+                    request.guest_address != lock.guest_address
+                        || request.byte_length > lock.byte_length
+                }
+                _ => true,
+            }
         {
             return Err(RuntimeStateError::invalid_input(
                 "runtime-audio",
@@ -2654,7 +2662,10 @@ mod tests {
         let unlock_plan = audio
             .plan_buffer_unlock(RuntimeAudioBufferUnlockRequest {
                 buffer_com_object_id: RuntimeComObjectId(22),
-                first_segment: lock.first_segment,
+                first_segment: RuntimeAudioBufferSegment {
+                    byte_length: 17_640,
+                    ..lock.first_segment
+                },
                 second_segment: lock.second_segment,
             })
             .unwrap();
