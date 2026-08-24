@@ -140,6 +140,41 @@ switch (checkpoint.lastCompletedBoundary.id) {
       `${committedAfter.byteLength}-byte restart hydration`;
     break;
   }
+  case "primary-first-route-ending": {
+    assertPrimaryAudio();
+    assert.equal(report.outcome, "checkpoint-complete");
+    assert.equal(report.stop, null);
+    assert(report.input.completedActions > 0, "the ending run completed no input actions");
+    assert(report.presentation.presentCount > 0, "the ending run produced no Present");
+    const frame = report.presentation.finalFrame;
+    assert(frame !== null, "the ending frame artifact is missing");
+    const framePath = path.resolve(root, frame.file);
+    const targetDirectory = path.resolve(root, ".work", "target-forward");
+    assert(framePath.startsWith(`${targetDirectory}${path.sep}`));
+    const frameBytes = fs.readFileSync(framePath);
+    assert.equal(frameBytes.byteLength, frame.bytes);
+    const profile = report.storage.profile;
+    const hydration = report.storage.latestWritableHydration;
+    assert(profile !== null && hydration !== null);
+    const hydratedBefore = profile.before.files.find(
+      (file) => file.objectId === hydration.objectId,
+    );
+    const hydratedAfter = profile.after.files.find(
+      (file) => file.objectId === hydration.objectId,
+    );
+    assert(hydratedBefore !== undefined && hydratedAfter !== undefined);
+    assert(hydratedBefore.exists && hydratedBefore.byteLength > 0);
+    assert.equal(hydratedBefore.generation, hydration.generation);
+    assert.equal(hydratedBefore.byteLength, hydration.byteLength);
+    assert.equal(hydratedBefore.sha256, hydration.sha256);
+    assert.deepEqual(hydratedAfter, hydratedBefore);
+    acceptanceSummary =
+      `generation ${hydration.generation}, ${hydration.byteLength}-byte unchanged save, ` +
+      `${report.input.completedActions} action(s), ` +
+      `${report.presentation.presentCount} Present(s), ` +
+      `${report.audio.playbacksStarted} playback(s), ${frameBytes.byteLength}-byte title frame`;
+    break;
+  }
   default:
     throw new Error(
       `no bounded acceptance is registered for ${checkpoint.lastCompletedBoundary.id}`,

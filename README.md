@@ -10,28 +10,27 @@ This section is generated from [`docs/current-checkpoint.json`](docs/current-che
 | Area | Current state |
 |---|---|
 | Active target | Sakura no Uta `BGI.exe` (PE32/i386) in Chrome |
-| Active milestone | `primary-first-route-ending`: A complete route reaches an ending with readable rendering, responsive choices, sustained audio, save/load resume, and no unsupported stop |
-| Last completed boundary | `primary-save-slot-restart-load`: Release Chrome advanced the post-Q.Load path through action 620, completed a new Q.Save at action 621 and its confirmation at action 622 with a bounded 480 MiB guest set, then a fresh process hydrated the exact 94,564-byte save and resumed visible presentation through action 60; no unsupported endpoint, semantic fault, WebGL error, pending host work, or source mutation was observed |
-| Current forward stop | `post-action-622-qload-visible-progression-action-60` / `none-within-bounded-forward-run`: The action-622 save run completed all requested input and committed slot 102 at generation 1 with SHA-256 bd6187200187529a0a1b43bc23486a68e37c48b8394b013ec50384bea315857e; the restarted release run hydrated the same 94,564 bytes, produced 153 Presents, completed pointer action 60 on a non-black final frame, and stopped intentionally with a null endpoint, no semantic fault, and no pending host work |
-| Next development goal | Continue from the validated action-622 Q.Save/Q.Load checkpoint beyond action 60 to the next route choice, first ending, or next real unsupported stop |
+| Active milestone | `primary-full-play-long-run`: All scenarios complete through endings with readable rendering, responsive choices, sustained audio, save/load resume, and measured long-run stability without unsupported stops |
+| Last completed boundary | `primary-first-route-ending`: Release Chrome resumed the validated save and returned to the exact title target after 174.85 seconds with 135 Presents, 10 completed pointer actions, and 5 audio playbacks; no unsupported endpoint, WebGL error, pending host work, lease leak, or source mutation was observed, and the persisted 95,058-byte save remained hash-identical |
+| Current forward stop | `primary-first-route-ending-title-return` / `none`: The release forward run returned to the exact title target and stopped with outcome checkpoint-complete after 135 Presents; the final frame independently matched the bounded title color and dark-region probes, while source immutability, zero pending host work, an inactive profile lease, and unchanged save bytes were preserved |
+| Next development goal | Use the accepted first-ending build for manual play, then extend bounded forward coverage across additional choices and routes plus long-run save/load/audio stability until the next real unsupported stop or full-play acceptance |
 
 ### Subsystems
 
 | Subsystem | Status | Boundary |
 |---|---|---|
-| `execution` | `partial` | PE32 loading, JIT-enabled x86 execution, checked GuestMemory synchronization, process/thread scheduling, callbacks, and generic forward capture sustain the action-622 save boundary; save compression completes with a bounded 480 MiB guest set inside the 512 MiB execution-mirror cap |
-| `window-input` | `partial` | Logical window, message queue, timers, focus/cursor state, keyboard scan, primary down/up dispatch, and native double-click generation are active; Q.Save completed at actions 621-622, and the restarted Q.Load run completed visible post-load input through action 60 |
-| `graphics` | `partial` | GDI/GDI+ reached paths and bounded D3D9 fixed-function scenes publish through WebGL2; the first-choice no-Enter and Enter A/B runs end on distinct deterministic frames with WebGL error zero |
-| `source-storage` | `partial` | Immutable source reads and a title-local SQLite overlay remain separated; the 94,564-byte action-622 Q.Save is hash-preserved in .work slot 102 and hydrates unchanged after restart, while the executable and source assets remain unchanged |
-| `audio` | `partial` | Reached DirectSound streaming buffers support concurrent non-overlapping partial and wrapping Lock/Unlock, captured notification waits, cursor/status/control, and Play/Stop through generation-safe Chrome Web Audio transport; multiple non-zero looping and one-shot playbacks span the representative flow |
+| `execution` | `partial` | PE32 loading, JIT-enabled x86 execution, checked GuestMemory synchronization, process/thread scheduling, callbacks, and generic forward capture sustain the accepted first route ending; save compression remains bounded to the measured 480 MiB guest set inside the 512 MiB execution-mirror cap |
+| `window-input` | `partial` | Logical window, message queue, timers, focus/cursor state, keyboard scan, primary down/up dispatch, and native double-click generation are active; the validated save/load continuation accepted input through the first route ending and exact title return |
+| `graphics` | `partial` | GDI/GDI+ reached paths and bounded D3D9 fixed-function scenes publish through WebGL2; the ending run produced 135 Presents and returned to the exact title color and dark-region signature with WebGL error zero |
+| `source-storage` | `partial` | Immutable source reads and a title-local SQLite overlay remain separated; the latest 95,058-byte Q.Save stayed hash-identical through the ending run with the lease inactive afterward, while the executable and source assets remained unchanged |
+| `audio` | `partial` | Reached DirectSound streaming buffers support concurrent non-overlapping partial and wrapping Lock/Unlock, captured notification waits, cursor/status/control, and Play/Stop through generation-safe Chrome Web Audio transport; five non-zero playbacks occurred in the ending run and sustained audio spans the accepted route |
 
 ### Important Non-Claims
 
-- Only the first default route-choice activation is accepted; alternate options and later choices are not yet accepted
-- The action-622 checkpoint is .work-only and covers one 94,564-byte Q.Save with SHA-256 bd6187200187529a0a1b43bc23486a68e37c48b8394b013ec50384bea315857e restored through slot 102; visible post-Q.Load input is accepted only through action 60
+- Only the first default route ending is accepted; alternate choices, alternate routes, all-scenario completion, and long-run acceptance are not yet claimed
+- The accepted checkpoint is .work-only and retains one 95,058-byte Q.Save with SHA-256 0cd7c853e9c4afd032e9f1235c2a9bb065d6b5a15cb35fc57c87921a991306ec; the ending run hydrated it unchanged and did not overwrite it
 - The measured route live set is bounded to 480 MiB; later-route peak memory and long-run reclamation are not yet accepted
 - Primary audio spans the representative flow, but format breadth, suspend/resume behavior, and long-run streaming stability are not yet accepted
-- No complete route, ending, alternate route, or long-run acceptance is claimed
 - Historical per-API capability profiles are frozen and are not the active development queue
 
 ### Commands

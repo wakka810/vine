@@ -10808,7 +10808,23 @@ class BrowserRuntimeSession {
       titleBackground[1] <= 112 &&
       titleBackground[2] >= 128 &&
       titleBackground[2] <= 224;
+    const titleTargetReady =
+      titleBlueBackground &&
+      startDarkPixels >= 64 &&
+      configDarkPixels >= 256 &&
+      exitDarkPixels >= 128;
     if (this.#forwardPrimaryActionCommitted) {
+      if (
+        this.#forwardPrimaryActionResponseSignaled &&
+        titleTargetReady
+      ) {
+        this.#cancelAndFinish(
+          "checkpoint-complete",
+          "Forward primary action target returned",
+          null,
+        );
+        return;
+      }
       this.#forwardPrimaryActionResponseStreak =
         !titleBlueBackground
           ? this.#forwardPrimaryActionResponseStreak + 1
@@ -10829,12 +10845,7 @@ class BrowserRuntimeSession {
       return;
     }
     this.#forwardPrimaryActionTargetReadyStreak =
-      titleBlueBackground &&
-      startDarkPixels >= 64 &&
-      configDarkPixels >= 256 &&
-      exitDarkPixels >= 128
-        ? this.#forwardPrimaryActionTargetReadyStreak + 1
-        : 0;
+      titleTargetReady ? this.#forwardPrimaryActionTargetReadyStreak + 1 : 0;
     if (this.#forwardPrimaryActionTargetReadyStreak < 1) {
       return;
     }
