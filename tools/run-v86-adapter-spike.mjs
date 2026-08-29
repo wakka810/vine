@@ -55,6 +55,7 @@ const stopReason = {
 const requiredExports = [
   "allocate_memory",
   "full_clear_tlb",
+  "get_jit_config",
   "jit_clear_cache_js",
   "memory",
   "reset_cpu",
@@ -591,6 +592,116 @@ assert.equal(
 );
 assert(jitInstructionLimitCalls > 0, "compiled JIT block did not enforce its slice limit");
 
+wasm.jit_clear_cache_js();
+wasm.set_jit_config(4, 0);
+assert.equal(wasm.get_jit_config(4), 0);
+configure(jitProgram, 3);
+const relaxedJitWarmup = currentState(wasm.vine_execute_budget(jitWarmupBudget));
+assert.equal(relaxedJitWarmup.reason, stopReason.budget);
+await Promise.resolve();
+const relaxedJitBefore = wasm.vine_instruction_counter();
+const relaxedJitLimitCallsBefore = jitInstructionLimitCalls;
+const relaxedJitContinuation = currentState(
+  wasm.vine_execute_budget(jitContinuationBudget),
+);
+assert.equal(relaxedJitContinuation.reason, stopReason.budget);
+const relaxedJitDelta =
+  relaxedJitContinuation.instructionCount - relaxedJitBefore;
+assert(
+  relaxedJitDelta >= jitContinuationBudget,
+  "relaxed JIT execution stopped before its requested budget",
+);
+assert(
+  relaxedJitDelta <= jitContinuationBudget + 100_003,
+  "relaxed JIT execution exceeded one compiled block of budget overshoot",
+);
+assert.equal(
+  jitInstructionLimitCalls,
+  relaxedJitLimitCallsBefore,
+  "relaxed JIT block retained the exact-budget host call",
+);
+wasm.set_jit_config(4, 1);
+assert.equal(wasm.get_jit_config(4), 1);
+wasm.set_jit_config(5, 100_000);
+assert.equal(wasm.get_jit_config(5), 100_000);
+wasm.set_jit_config(5, 200_000);
+assert.equal(wasm.get_jit_config(5), 200_000);
+
+const crossPageCallProgram = new Uint8Array(0x1018);
+crossPageCallProgram.set([
+  0xb9, 0x40, 0x0d, 0x03, 0x00,
+  0x49,
+  0x75, 0xfd,
+  0xbf, 0xa0, 0x86, 0x01, 0x00,
+  0xb8, 0x00, 0x30, 0x00, 0x00,
+  0xbe, 0x78, 0x56, 0x34, 0x12,
+  0xe8, 0xe4, 0x0f, 0x00, 0x00,
+  0x4f,
+  0x75, 0xf8,
+  0xf4,
+]);
+crossPageCallProgram.set([
+  0x8b, 0x48, 0x74,
+  0x8b, 0x50, 0x18,
+  0x89, 0x34, 0x8a,
+  0x8b, 0x50, 0x74,
+  0x42,
+  0x3b, 0x50, 0x10,
+  0x1b, 0xc9,
+  0x23, 0xca,
+  0x89, 0x48, 0x74,
+  0xc3,
+], 0x1000);
+
+async function runCrossPageCall(jitEnabled) {
+  wasm.jit_clear_cache_js();
+  wasm.set_jit_config(0, jitEnabled ? 0 : 1);
+  configure(crossPageCallProgram, 0);
+  assert.equal(wasm.vine_set_page_executable(guest.codeAddress + 0x1000, 1), 0);
+  const view = new DataView(memory.buffer, memory.byteOffset, memory.byteLength);
+  state.setUint32(stateOffset.registers + 4 * 4, 0x1f000, true);
+  view.setUint32(0x3000 + 0x10, 16, true);
+  view.setUint32(0x3000 + 0x18, 0x3200, true);
+  view.setUint32(0x3000 + 0x74, 0, true);
+  const compileCallsBefore = hostImportCalls.codegen_finalize ?? 0;
+  let reason = stopReason.budget;
+  let slices = 0;
+  while (reason === stopReason.budget) {
+    reason = wasm.vine_execute_budget(250_000);
+    await Promise.resolve();
+    refreshViews();
+    slices += 1;
+    assert(slices < 16, "cross-page call loop did not halt within its bounded slices");
+  }
+  assert.equal(reason, stopReason.halt);
+  const resultView = new DataView(memory.buffer, memory.byteOffset, memory.byteLength);
+  return {
+    registers: Array.from({ length: 8 }, (_, index) =>
+      state.getUint32(stateOffset.registers + index * 4, true)),
+    flags: state.getUint32(stateOffset.flags, true),
+    instructionCount: wasm.vine_instruction_counter(),
+    index: resultView.getUint32(0x3000 + 0x74, true),
+    values: Array.from({ length: 16 }, (_, index) =>
+      resultView.getUint32(0x3200 + index * 4, true)),
+    compileCalls: (hostImportCalls.codegen_finalize ?? 0) - compileCallsBefore,
+    compiled: (hostImportCalls.codegen_finalize ?? 0) > compileCallsBefore,
+  };
+}
+
+const crossPageReference = await runCrossPageCall(false);
+const crossPageJit = await runCrossPageCall(true);
+assert.equal(crossPageJit.compileCalls, 1, "direct callee escaped its caller JIT module");
+assert.deepEqual(
+  { ...crossPageJit, compileCalls: 0, compiled: false },
+  crossPageReference,
+  "cross-page direct-call JIT diverged from the interpreter",
+);
+assert.equal(crossPageJit.index, 0);
+assert.deepEqual(crossPageJit.values, Array(16).fill(0x1234_5678));
+
+wasm.jit_clear_cache_js();
+wasm.set_jit_config(0, 0);
+
 const branchingLoopProgram = Uint8Array.from([
   0xb9, 0xa0, 0x86, 0x01, 0x00,
   0x31, 0xc0,
@@ -648,6 +759,69 @@ const forbiddenCalls = Object.keys(hostImportCalls).filter(
 );
 assert.deepEqual(forbiddenCalls, []);
 
+let executionIsland = null;
+if (exportNames.has("vine_execution_island_abi_version")) {
+  assert.equal(wasm.vine_execution_island_abi_version(), 1);
+  assert.equal(wasm.vine_bridge_fast_path_abi_version(), 3);
+  const fixture = fs.readFileSync(
+    path.join(root, ".work", "toolchain-spike", "browser-vertical.exe"),
+  );
+  assert.equal(wasm.vine_bridge_input_resize(fixture.byteLength), 0);
+  new Uint8Array(
+    wasm.memory.buffer,
+    wasm.vine_bridge_input_ptr(),
+    fixture.byteLength,
+  ).set(fixture);
+  assert.equal(wasm.vine_bridge_prepare(fixture.byteLength, 0x1357_9bdf), 0);
+  const prepared = JSON.parse(
+    new TextDecoder().decode(
+      new Uint8Array(
+        wasm.memory.buffer,
+        wasm.vine_bridge_metadata_ptr(),
+        wasm.vine_bridge_metadata_len(),
+      ),
+    ),
+  );
+  const generation = BigInt(prepared.generation);
+  assert.equal(
+    wasm.vine_bridge_acknowledge(
+      Number(generation & 0xffff_ffffn),
+      Number(generation >> 32n),
+    ),
+    0,
+  );
+  assert.equal(wasm.vine_execution_island_execute_budget(0, 0, 0, 0, 0), stopReason.budget);
+  const islandGeneration =
+    BigInt(wasm.vine_execution_island_generation_low()) |
+    (BigInt(wasm.vine_execution_island_generation_high()) << 32n);
+  assert.equal(islandGeneration, generation);
+  executionIsland = {
+    abiVersion: wasm.vine_execution_island_abi_version(),
+    runtimeFastPathVersion: wasm.vine_bridge_fast_path_abi_version(),
+    preparedGeneration: generation.toString(),
+  };
+
+  const runtimeFirst = new WebAssembly.Instance(module, { env: environment }).exports;
+  wasm = runtimeFirst;
+  jitImports = { m: wasm.memory };
+  for (const [name, value] of Object.entries(wasm)) {
+    if (!name.startsWith("_") && !name.startsWith("zstd") && !name.endsWith("_js")) {
+      jitImports[name] = value;
+    }
+  }
+  assert.equal(wasm.vine_bridge_input_resize(fixture.byteLength), 0);
+  new Uint8Array(
+    wasm.memory.buffer,
+    wasm.vine_bridge_input_ptr(),
+    fixture.byteLength,
+  ).set(fixture);
+  assert.equal(wasm.vine_bridge_prepare(fixture.byteLength, 0x2468_ace1), 0);
+  wasm.rust_init();
+  assert.equal(wasm.vine_set_memory_size(64 * 1024), 0);
+  assert(wasm.allocate_memory(64 * 1024) > 0);
+  executionIsland.runtimeFirstInitialization = true;
+}
+
 let sourceRevision = null;
 const candidateSourceRoot = path.resolve(path.dirname(wasmPath), "..");
 try {
@@ -695,8 +869,11 @@ const report = {
     },
     jitWarmup,
     jitContinuation,
+    relaxedJitWarmup,
+    relaxedJitContinuation,
     branchingInterpreter,
     branchingJit,
+    executionIsland,
   },
   hostImportCalls,
 };

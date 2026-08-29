@@ -1,0 +1,21 @@
+diff --git a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -7,6 +7,9 @@ edition = "2021"
+ default = []
+ profiler = []
+ 
++[dependencies]
++vine-runtime-wasm = { path = "../../crates/vine-runtime-wasm" }
++
+ [lib]
+ crate-type = ["cdylib"]
+ path = "src/rust/lib.rs"
+diff --git a/src/rust/cpu/mod.rs b/src/rust/cpu/mod.rs
+--- a/src/rust/cpu/mod.rs
++++ b/src/rust/cpu/mod.rs
+@@ -15,3 +15,4 @@ pub mod sse_instr;
+ pub mod string;
+ pub mod vga;
+ pub mod vine;
++pub mod island;

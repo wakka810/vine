@@ -4,10 +4,12 @@ import {
   type CpuRegisterUpdate,
   type CpuResume,
   type ExecutionBootstrap,
+  type ExecutionClockSample,
   type ExecutionCpuContext,
   type ExecutionEngine,
   type ExecutionEngineIdentity,
   type ExecutionEngineMemoryCapacity,
+  type ExecutionEnginePerformanceMetrics,
   type ExecutionEngineOptions,
   type ExecutionSlice,
   type ExecutionStop,
@@ -68,6 +70,8 @@ export const v86StopReason = {
   budget: 1,
   halt: 2,
   executeProtection: 3,
+  runtimeDispatch: 4,
+  executionIslandError: 6,
   divideError: 0x100,
   invalidOpcode: 0x106,
   generalProtection: 0x10d,
@@ -98,10 +102,41 @@ interface V86Exports extends WebAssembly.Exports {
   vine_execute_budget(instructions: number): number;
   vine_get_stop_error_code(): number;
   vine_instruction_counter(): number;
+  vine_jit_retired_instructions_low(): number;
+  vine_jit_retired_instructions_high(): number;
+  vine_interpreted_retired_instructions_low(): number;
+  vine_interpreted_retired_instructions_high(): number;
   vine_reset_execute_permissions(): void;
   vine_set_memory_size(bytes: number): number;
   vine_set_page_executable(pageAddress: number, executable: number): number;
 }
+
+interface V86IslandExports {
+  vine_execution_island_abi_version(): number;
+  vine_execution_island_execute_budget(
+    instructions: number,
+    retiredInstructionsLow: number,
+    retiredInstructionsHigh: number,
+    hostElapsedTime100nsLow: number,
+    hostElapsedTime100nsHigh: number,
+  ): number;
+  vine_execution_island_fast_api_count(): number;
+  vine_execution_island_writeback_batches(): number;
+  vine_execution_island_writeback_pages(): number;
+  vine_execution_island_mirrored_delta_pages(): number;
+  vine_execution_island_generation_low(): number;
+  vine_execution_island_generation_high(): number;
+  vine_bridge_metadata_ptr(): number;
+  vine_bridge_metadata_len(): number;
+}
+
+interface V86JitMetrics {
+  compilations: number;
+  clears: number;
+  activeFunctions: number;
+}
+
+const jitMetricsByInstance = new WeakMap<V86Exports, V86JitMetrics>();
 
 interface MirrorMapping {
   address: number;
@@ -135,9 +170,16 @@ export interface V86MirrorOptions {
   maximumPhysicalPages?: ExecutionEngineOptions["maximumPhysicalPages"];
   initialPhysicalPoolBytes?: number;
   disableJit?: boolean;
+  relaxJitInstructionBudget?: boolean;
+  jitHotnessThreshold?: number;
 }
 
 export type V86MirrorFactory = (options?: V86MirrorOptions) => V86Mirror;
+
+export interface V86ExecutionIsland {
+  runtimeExports: WebAssembly.Exports;
+  createEngine(options: V86MirrorOptions): V86Mirror;
+}
 
 interface PhysicalCapacityRequirement {
   guestPages: number;
@@ -350,6 +392,8 @@ export function classifyV86Stop(
       return { kind: "budget-yield" };
     case v86StopReason.halt:
       return { kind: "halt" };
+    case v86StopReason.runtimeDispatch:
+      return { kind: "runtime-dispatch" };
     case v86StopReason.executeProtection:
       return {
         kind: "fault",
@@ -426,6 +470,9 @@ export class V86Mirror implements ExecutionEngine {
   #physicalView!: DataView;
   readonly #maximumPhysicalPages: number;
   readonly #disableJit: boolean;
+  readonly #relaxJitInstructionBudget: boolean;
+  readonly #jitHotnessThreshold: number | undefined;
+  readonly #sharedRuntime: boolean;
   readonly #initialPhysicalPoolBytes: number;
   readonly #maximumPhysicalPoolBytes: number;
   #physicalPoolBytes: number;
@@ -448,10 +495,15 @@ export class V86Mirror implements ExecutionEngine {
     module: WebAssembly.Module,
     identity: ExecutionEngineIdentity,
     options: V86MirrorOptions = {},
+    existingWasm?: V86Exports,
   ) {
     this.#module = module;
     this.#identity = structuredClone(identity);
     this.#disableJit = options.disableJit ?? false;
+    this.#relaxJitInstructionBudget =
+      options.relaxJitInstructionBudget ?? false;
+    this.#jitHotnessThreshold = options.jitHotnessThreshold;
+    this.#sharedRuntime = existingWasm !== undefined;
     this.#maximumPhysicalPages = requirePageCount(
       options.maximumPhysicalPages ?? defaultMaximumPhysicalPages,
       "maximum physical page count",
@@ -462,15 +514,18 @@ export class V86Mirror implements ExecutionEngine {
       `configured physical page limit requires ${this.#maximumPhysicalPoolBytes} bytes, ` +
         `above the hard ${hardMaximumPhysicalPoolBytes}-byte mirror limit`,
     );
-    const requestedInitialBytes = alignPoolBytes(
-      options.initialPhysicalPoolBytes ?? initialPhysicalPoolBytes,
-    );
+    const requestedInitialBytes = this.#sharedRuntime
+      ? this.#maximumPhysicalPoolBytes
+      : alignPoolBytes(options.initialPhysicalPoolBytes ?? initialPhysicalPoolBytes);
     this.#initialPhysicalPoolBytes = Math.min(
       Math.max(requestedInitialBytes, physicalPoolBytesForAllocations(1)),
       this.#maximumPhysicalPoolBytes,
     );
     this.#physicalPoolBytes = this.#initialPhysicalPoolBytes;
-    this.#installFreshAdapter(this.#physicalPoolBytes);
+    this.#installAdapter(
+      existingWasm ?? V86Mirror.#instantiateAdapter(this.#module),
+      this.#physicalPoolBytes,
+    );
   }
 
   static async prepare(url: URL): Promise<V86MirrorFactory> {
@@ -503,6 +558,35 @@ export class V86Mirror implements ExecutionEngine {
       await V86Mirror.#prepareBytes(bytes, identity),
       options,
     );
+  }
+
+  static async prepareExecutionIsland(url: URL): Promise<V86ExecutionIsland> {
+    const key = url.href;
+    let prepared = V86Mirror.#preparedUrls.get(key);
+    if (prepared === undefined) {
+      prepared = (async () => {
+        const response = await fetch(url);
+        invariant(response.ok, `v86 execution island fetch failed with ${response.status}`);
+        return V86Mirror.#prepareBytes(new Uint8Array(await response.arrayBuffer()));
+      })();
+      V86Mirror.#preparedUrls.set(key, prepared);
+    }
+    const resolved = await prepared;
+    const wasm = V86Mirror.#instantiateAdapter(resolved.module);
+    const islandWasm = wasm as V86Exports & Partial<V86IslandExports>;
+    invariant(
+      islandWasm.vine_execution_island_abi_version?.() === 1,
+      "execution island ABI mismatch",
+    );
+    let claimed = false;
+    return {
+      runtimeExports: wasm,
+      createEngine(options) {
+        invariant(!claimed, "execution island engine was created more than once");
+        claimed = true;
+        return new V86Mirror(resolved.module, resolved.identity, options, wasm);
+      },
+    };
   }
 
   static async #prepareBytes(
@@ -542,6 +626,11 @@ export class V86Mirror implements ExecutionEngine {
     });
     let wasm: V86Exports | undefined;
     let jitImports: Record<string, WebAssembly.ImportValue> | undefined;
+    const jitMetrics: V86JitMetrics = {
+      compilations: 0,
+      clears: 0,
+      activeFunctions: 0,
+    };
     const environment: Record<string, WebAssembly.ImportValue> = {
       __indirect_function_table: table,
     };
@@ -590,7 +679,11 @@ export class V86Mirror implements ExecutionEngine {
           const generatedExports = new WebAssembly.Instance(generated, { e: jitImports }).exports;
           const entry = generatedExports.f;
           invariant(typeof entry === "function", "v86 JIT module did not export its entry point");
+          jitMetrics.compilations += 1;
           queueMicrotask(() => {
+            if (table.get(index + jitTableOffset) === null) {
+              jitMetrics.activeFunctions += 1;
+            }
             table.set(index + jitTableOffset, entry);
             wasm?.codegen_finalize_finished(index, start, stateFlags);
           });
@@ -603,6 +696,10 @@ export class V86Mirror implements ExecutionEngine {
             Number.isInteger(index) && index >= 0 && index < jitTableSize,
             "v86 requested an invalid JIT table clear",
           );
+          if (table.get(index + jitTableOffset) !== null) {
+            jitMetrics.activeFunctions -= 1;
+          }
+          jitMetrics.clears += 1;
           table.set(index + jitTableOffset, null);
           return 0;
         }
@@ -617,6 +714,7 @@ export class V86Mirror implements ExecutionEngine {
       };
     }
     wasm = new WebAssembly.Instance(module, { env: environment }).exports as V86Exports;
+    jitMetricsByInstance.set(wasm, jitMetrics);
     jitImports = { m: wasm.memory };
     for (const [name, value] of Object.entries(wasm)) {
       if (!name.startsWith("_") && !name.startsWith("zstd") && !name.endsWith("_js")) {
@@ -631,10 +729,19 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   #installFreshAdapter(poolBytes: number): void {
-    const wasm = V86Mirror.#instantiateAdapter(this.#module);
+    this.#installAdapter(V86Mirror.#instantiateAdapter(this.#module), poolBytes);
+  }
+
+  #installAdapter(wasm: V86Exports, poolBytes: number): void {
     wasm.rust_init();
     if (this.#disableJit) {
       wasm.set_jit_config(0, 1);
+    }
+    if (this.#relaxJitInstructionBudget) {
+      wasm.set_jit_config(4, 0);
+    }
+    if (this.#jitHotnessThreshold !== undefined) {
+      wasm.set_jit_config(5, this.#jitHotnessThreshold);
     }
     invariant(
       wasm.vine_adapter_abi_version() === adapterAbiVersion,
@@ -757,6 +864,7 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   initialize(reflection: MemoryReflection, prepared: ExecutionBootstrap): void {
+    this.#refreshLinearMemoryViews();
     invariant(this.#mappings.size === 0, "v86 mirror is already initialized");
     this.#installReflectedPages(reflection);
     this.#installReservations(prepared.regions);
@@ -770,6 +878,7 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   rebuildMemory(reflection: MemoryReflection, regions: MemoryRegionSnapshot[]): void {
+    this.#refreshLinearMemoryViews();
     const state = this.saveState().words;
     this.#mappings.clear();
     this.#writableMappings.length = 0;
@@ -820,6 +929,23 @@ export class V86Mirror implements ExecutionEngine {
     return { ...this.#cacheEffectCounts };
   }
 
+  performanceMetrics(): Readonly<ExecutionEnginePerformanceMetrics> {
+    const metrics = jitMetricsByInstance.get(this.#wasm);
+    invariant(metrics !== undefined, "execution engine JIT metrics are unavailable");
+    return {
+      jitCompilations: metrics.compilations,
+      jitClears: metrics.clears,
+      jitActiveFunctions: metrics.activeFunctions,
+      jitInstructions:
+        (this.#wasm.vine_jit_retired_instructions_low() >>> 0) +
+        (this.#wasm.vine_jit_retired_instructions_high() >>> 0) * 0x1_0000_0000,
+      interpretedInstructions:
+        (this.#wasm.vine_interpreted_retired_instructions_low() >>> 0) +
+        (this.#wasm.vine_interpreted_retired_instructions_high() >>> 0) *
+          0x1_0000_0000,
+    };
+  }
+
   memoryCapacity(): Readonly<ExecutionEngineMemoryCapacity> {
     return {
       initialPhysicalPoolBytes: this.#initialPhysicalPoolBytes,
@@ -854,16 +980,81 @@ export class V86Mirror implements ExecutionEngine {
     };
   }
 
-  executeBudget(instructionBudget: number): ExecutionSlice {
-    const result = this.execute(instructionBudget);
+  executeBudget(instructionBudget: number, clock?: ExecutionClockSample): ExecutionSlice {
+    const before = this.#wasm.vine_instruction_counter();
+    const island = this.#wasm as V86Exports & Partial<V86IslandExports>;
+    const islandExecute = island.vine_execution_island_execute_budget;
+    let reason: number;
+    if (islandExecute === undefined) {
+      reason = this.#wasm.vine_execute_budget(instructionBudget);
+    } else {
+      invariant(clock !== undefined, "execution island requires a host clock sample");
+      invariant(
+        Number.isSafeInteger(clock.retiredInstructions) && clock.retiredInstructions >= 0,
+        "execution island retired instruction cursor is invalid",
+      );
+      invariant(
+        clock.hostElapsedTime100ns >= 0n &&
+          clock.hostElapsedTime100ns <= 0xffff_ffff_ffff_ffffn,
+        "execution island host clock is outside the u64 range",
+      );
+      const retired = BigInt(clock.retiredInstructions);
+      reason = islandExecute(
+        instructionBudget,
+        Number(retired & 0xffff_ffffn),
+        Number((retired >> 32n) & 0xffff_ffffn),
+        Number(clock.hostElapsedTime100ns & 0xffff_ffffn),
+        Number((clock.hostElapsedTime100ns >> 32n) & 0xffff_ffffn),
+      );
+      if (reason === v86StopReason.executionIslandError) {
+        const pointer = island.vine_bridge_metadata_ptr?.() ?? 0;
+        const length = island.vine_bridge_metadata_len?.() ?? 0;
+        invariant(
+          pointer > 0 && length > 0 && pointer + length <= this.#wasm.memory.buffer.byteLength,
+          "execution island failed without error metadata",
+        );
+        const metadata = JSON.parse(
+          new TextDecoder().decode(new Uint8Array(this.#wasm.memory.buffer, pointer, length)),
+        ) as { message?: unknown };
+        throw new Error(
+          typeof metadata.message === "string" ? metadata.message : "execution island failed",
+        );
+      }
+    }
+    this.#refreshLinearMemoryViews();
+    const errorCode = this.#wasm.vine_get_stop_error_code();
+    this.#wasm.vine_cpu_state_save();
+    const words = this.#liveStateWords();
+    const after = this.#wasm.vine_instruction_counter();
+    const state = {
+      words,
+      eax: words[stateWord.eax] ?? 0,
+      esp: words[stateWord.esp] ?? 0,
+      instructionPointer: words[stateWord.instructionPointer] ?? 0,
+      previousInstructionPointer: words[stateWord.previousInstructionPointer] ?? 0,
+    };
+    const executionIsland =
+      islandExecute === undefined
+        ? undefined
+        : {
+            fastApiCompletions: island.vine_execution_island_fast_api_count?.() ?? 0,
+            writebackBatches: island.vine_execution_island_writeback_batches?.() ?? 0,
+            writebackPages: island.vine_execution_island_writeback_pages?.() ?? 0,
+            mirroredDeltaPages:
+              island.vine_execution_island_mirrored_delta_pages?.() ?? 0,
+            generation:
+              BigInt(island.vine_execution_island_generation_low?.() ?? 0) |
+              (BigInt(island.vine_execution_island_generation_high?.() ?? 0) << 32n),
+          };
     return {
       stop: classifyV86Stop(
-        result.reason,
-        result.errorCode,
-        result.state.words[stateWord.controlRegisterBase + 2],
+        reason,
+        errorCode,
+        words[stateWord.controlRegisterBase + 2],
       ),
-      instructions: result.instructions,
-      context: this.#executionContext(result.state),
+      instructions: (after - before) >>> 0,
+      context: this.#executionContext(state),
+      ...(executionIsland === undefined ? {} : { executionIsland }),
     };
   }
 
@@ -986,6 +1177,7 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   readGuestU32(address: number): number {
+    this.#refreshLinearMemoryViews();
     invariant(
       Number.isSafeInteger(address) && address > 0 && address <= 0xffff_fffc,
       "guest mirror u32 read requires a valid x86 range",
@@ -1013,6 +1205,7 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   readGuestBytes(address: number, byteLength: number): Uint8Array {
+    this.#refreshLinearMemoryViews();
     invariant(
       Number.isSafeInteger(address) && address > 0 &&
         Number.isSafeInteger(byteLength) && byteLength > 0,
@@ -1062,6 +1255,7 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   #collectChangedPages(copyBytes: boolean): DirtyMirrorPage[] {
+    this.#refreshLinearMemoryViews();
     const dirtyMappings = this.#dirtyMappingsScratch;
     dirtyMappings.length = 0;
     const candidateCount = this.#wasm.vine_dirty_page_count();
@@ -1136,6 +1330,7 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   applyMemoryDelta(delta: HostMemoryDelta): void {
+    this.#refreshLinearMemoryViews();
     if (delta.mappingOperations.length === 0) {
       if (delta.pages.length === 1) {
         const page = delta.pages[0]!;
@@ -1745,7 +1940,7 @@ export class V86Mirror implements ExecutionEngine {
     return {
       version: this.#identity.cpuContextAbi.version,
       byteLength: this.#identity.cpuContextAbi.bytes,
-      opaqueWords: Uint32Array.from(state.words),
+      opaqueWords: state.words,
       eax: state.eax,
       ecx: state.words[stateWord.ecx] ?? 0,
       edx: state.words[stateWord.edx] ?? 0,

@@ -60,6 +60,17 @@ fn reconciles_binary_multi_page_cpu_writeback_into_rust_authority() {
         .reconcile_cpu_writeback_binary_fast(&buffers.control, &buffers.page_bytes)
         .expect("fast CPU writeback");
 
+    let (mut view_memory, view_reflection, _) = reflected_fixture();
+    assert_eq!(view_reflection.invalidation.generation, base_generation);
+    let page_views = batch
+        .pages
+        .iter()
+        .map(|page| (page.address.0, page.bytes.as_slice()))
+        .collect::<Vec<_>>();
+    let view_receipt = view_memory
+        .reconcile_cpu_writeback_pages_fast(base_generation, &page_views)
+        .expect("borrowed-page CPU writeback");
+
     let receipt = memory
         .reconcile_cpu_writeback_binary(&buffers.control, &buffers.page_bytes)
         .expect("CPU writeback");
@@ -80,7 +91,9 @@ fn reconciles_binary_multi_page_cpu_writeback_into_rust_authority() {
     assert_eq!(fast_receipt.executable_pages, receipt.executable_pages);
     assert_eq!(fast_receipt.changed_bytes, receipt.changed_bytes);
     assert_eq!(fast_receipt.transferred_bytes, receipt.transferred_bytes);
+    assert_eq!(view_receipt, fast_receipt);
     assert_eq!(fast_memory.stats(), memory.stats());
+    assert_eq!(view_memory.stats(), memory.stats());
     assert_eq!(
         fast_memory.current_reflection().unwrap().content_sha256,
         memory.current_reflection().unwrap().content_sha256,

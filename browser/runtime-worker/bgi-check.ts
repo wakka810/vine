@@ -58,9 +58,16 @@ const executionEngine = searchParams.get("engine");
 if (executionEngine !== null && executionEngine !== "interpreter") {
   throw new Error("engine must be interpreter when specified");
 }
+const executionMode = searchParams.get("executionMode");
+if (executionMode !== null && executionMode !== "play-performance") {
+  throw new Error("executionMode must be play-performance when specified");
+}
 const workerUrl = new URL("./runtime-worker.js", import.meta.url);
 if (executionEngine === "interpreter") {
   workerUrl.searchParams.set("executionJit", "off");
+}
+if (executionMode === "play-performance") {
+  workerUrl.searchParams.set("executionMode", executionMode);
 }
 const worker = new Worker(workerUrl, {
   type: "module",

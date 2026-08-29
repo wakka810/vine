@@ -13,13 +13,13 @@ This section is generated from [`docs/current-checkpoint.json`](docs/current-che
 | Active milestone | `primary-full-play-long-run`: All scenarios complete through endings with readable rendering, responsive choices, sustained audio, save/load resume, and measured long-run stability without unsupported stops |
 | Last completed boundary | `primary-first-route-ending`: Release Chrome resumed the validated save and returned to the exact title target after 174.85 seconds with 135 Presents, 10 completed pointer actions, and 5 audio playbacks; no unsupported endpoint, WebGL error, pending host work, lease leak, or source mutation was observed, and the persisted 95,058-byte save remained hash-identical |
 | Current forward stop | `primary-first-route-ending-title-return` / `none`: The release forward run returned to the exact title target and stopped with outcome checkpoint-complete after 135 Presents; the final frame independently matched the bounded title color and dark-region probes, while source immutability, zero pending host work, an inactive profile lease, and unchanged save bytes were preserved |
-| Next development goal | Use the accepted first-ending build for manual play, then extend bounded forward coverage across additional choices and routes plus long-run save/load/audio stability until the next real unsupported stop or full-play acceptance |
+| Next development goal | Raise actual Chrome play responsiveness through the Rust-authoritative performance execution island and a bounded traced x86 hot path while retaining v86 fallback, then resume additional routes and long-run acceptance |
 
 ### Subsystems
 
 | Subsystem | Status | Boundary |
 |---|---|---|
-| `execution` | `partial` | PE32 loading, JIT-enabled x86 execution, checked GuestMemory synchronization, process/thread scheduling, callbacks, and generic forward capture sustain the accepted first route ending; save compression remains bounded to the measured 480 MiB guest set inside the 512 MiB execution-mirror cap |
+| `execution` | `partial` | PE32 loading, JIT-enabled x86 execution, a Rust-authoritative shared-Wasm performance island, checked GuestMemory synchronization, process/thread scheduling, callbacks, and generic forward capture sustain actual Chrome play; v86 remains the normal/debug fallback and differential oracle |
 | `window-input` | `partial` | Logical window, message queue, timers, focus/cursor state, keyboard scan, primary down/up dispatch, and native double-click generation are active; the validated save/load continuation accepted input through the first route ending and exact title return |
 | `graphics` | `partial` | GDI/GDI+ reached paths and bounded D3D9 fixed-function scenes publish through WebGL2; the ending run produced 135 Presents and returned to the exact title color and dark-region signature with WebGL error zero |
 | `source-storage` | `partial` | Immutable source reads and a title-local SQLite overlay remain separated; the latest 95,058-byte Q.Save stayed hash-identical through the ending run with the lease inactive afterward, while the executable and source assets remained unchanged |
@@ -31,6 +31,7 @@ This section is generated from [`docs/current-checkpoint.json`](docs/current-che
 - The accepted checkpoint is .work-only and retains one 95,058-byte Q.Save with SHA-256 0cd7c853e9c4afd032e9f1235c2a9bb065d6b5a15cb35fc57c87921a991306ec; the ending run hydrated it unchanged and did not overwrite it
 - The measured route live set is bounded to 480 MiB; later-route peak memory and long-run reclamation are not yet accepted
 - Primary audio spans the representative flow, but format breadth, suspend/resume behavior, and long-run streaming stability are not yet accepted
+- Performance mode substantially raises guest throughput and preserves input, rendering, and audio, but 60 FPS-class response is not yet accepted; call/return-driven JIT module exits remain the measured CPU bottleneck
 - Historical per-API capability profiles are frozen and are not the active development queue
 
 ### Commands

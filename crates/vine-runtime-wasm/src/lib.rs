@@ -75,9 +75,10 @@ const BGI_LOAD_BASE: GuestAddress = GuestAddress(0x1000_0000);
 // ceiling. Keep a bounded 480 MiB working set within the mirror cap.
 const BGI_MAX_PHYSICAL_PAGES: usize = 120 * 1024;
 const BGI_KERNEL32_HANDLE: u32 = 0x4d01_0001;
-const FAST_DISPATCH_RECORD_VERSION: u32 = 1;
-const FAST_DISPATCH_RECORD_WORDS: usize = 30;
-const FAST_DISPATCH_INLINE_WRITE_BYTES: usize = 24;
+const FAST_DISPATCH_RECORD_VERSION: u32 = 2;
+const FAST_DISPATCH_RECORD_WORDS: usize = 36;
+const FAST_DISPATCH_MAX_ARGUMENTS: usize = 6;
+const FAST_DISPATCH_INLINE_WRITE_BYTES: usize = 28;
 
 thread_local! {
     static BRIDGE: RefCell<Bridge> = const { RefCell::new(Bridge::new()) };
@@ -117,8 +118,12 @@ impl BrowserApiDispatchOutput {
 impl FastApiDispatchReceipt {
     fn supports(completion: &ApiImmediateCompletion) -> bool {
         let implementation = completion.implementation_id.as_str();
-        completion.frame.arguments.len() == 1
-            && completion.frame.arguments[0].words.len() == 1
+        completion.frame.arguments.len() <= FAST_DISPATCH_MAX_ARGUMENTS
+            && completion
+                .frame
+                .arguments
+                .iter()
+                .all(|argument| argument.words.len() == 1)
             && fast_dispatch_implementation_code(implementation).is_some()
             && fast_dispatch_write_shape_supported(
                 implementation,
@@ -137,7 +142,13 @@ impl FastApiDispatchReceipt {
     ) -> Result<Self, String> {
         let implementation = fast_dispatch_implementation_code(&completion.implementation_id)
             .ok_or_else(|| "API completion is outside the forward fast path".to_owned())?;
-        if completion.frame.arguments.len() != 1 || completion.frame.arguments[0].words.len() != 1 {
+        if completion.frame.arguments.len() > FAST_DISPATCH_MAX_ARGUMENTS
+            || !completion
+                .frame
+                .arguments
+                .iter()
+                .all(|argument| argument.words.len() == 1)
+        {
             return Err("forward fast API completion has an unsupported frame shape".to_owned());
         }
         let (eax_action, eax_value) = encode_fast_register(completion.eax);
@@ -170,7 +181,7 @@ impl FastApiDispatchReceipt {
             },
         };
         let mut words = [0; FAST_DISPATCH_RECORD_WORDS];
-        words[..21].copy_from_slice(&[
+        words[..20].copy_from_slice(&[
             FAST_DISPATCH_RECORD_VERSION,
             implementation,
             endpoint.id.0,
@@ -190,20 +201,22 @@ impl FastApiDispatchReceipt {
             previous_thread_id,
             thread_id,
             callback_depth,
-            1,
-            completion.frame.arguments[0].words[0],
+            completion.frame.arguments.len() as u32,
         ]);
+        for (index, argument) in completion.frame.arguments.iter().enumerate() {
+            words[20 + index] = argument.words[0];
+        }
         match completion.guest_writes.as_slice() {
             [] => {}
             [write]
-                if matches!(implementation, 4 | 5)
-                    && write.write.bytes.len() == FAST_DISPATCH_INLINE_WRITE_BYTES =>
+                if write.write.bytes.len() <= FAST_DISPATCH_INLINE_WRITE_BYTES
+                    && write.write.bytes.len().is_multiple_of(4) =>
             {
-                words[21] = 1;
-                words[22] = write.write.address.0;
-                words[23] = FAST_DISPATCH_INLINE_WRITE_BYTES as u32;
+                words[26] = 1;
+                words[27] = write.write.address.0;
+                words[28] = write.write.bytes.len() as u32;
                 for (index, chunk) in write.write.bytes.chunks_exact(4).enumerate() {
-                    words[24 + index] = u32::from_le_bytes(
+                    words[29 + index] = u32::from_le_bytes(
                         chunk
                             .try_into()
                             .map_err(|_| "fast dispatch write chunk is not a u32")?,
@@ -227,6 +240,18 @@ fn fast_dispatch_implementation_code(implementation: &str) -> Option<u32> {
         vine_core::IS_ICONIC_IMPLEMENTATION => Some(3),
         vine_core::ENTER_CRITICAL_SECTION_IMPLEMENTATION => Some(4),
         vine_core::LEAVE_CRITICAL_SECTION_IMPLEMENTATION => Some(5),
+        vine_core::HEAP_ALLOC_IMPLEMENTATION => Some(6),
+        vine_core::HEAP_FREE_IMPLEMENTATION => Some(7),
+        vine_core::TIME_GET_TIME_IMPLEMENTATION => Some(8),
+        vine_core::GET_CURSOR_POS_IMPLEMENTATION => Some(9),
+        vine_core::GET_WINDOW_RECT_IMPLEMENTATION => Some(10),
+        vine_core::PEEK_MESSAGE_A_IMPLEMENTATION => Some(11),
+        vine_core::SET_WAITABLE_TIMER_IMPLEMENTATION => Some(12),
+        vine_core::WAIT_FOR_SINGLE_OBJECT_EX_IMPLEMENTATION => Some(13),
+        vine_core::GET_LAST_ERROR_IMPLEMENTATION => Some(14),
+        vine_core::SET_LAST_ERROR_IMPLEMENTATION => Some(15),
+        vine_core::TLS_GET_VALUE_IMPLEMENTATION => Some(16),
+        vine_core::FLS_GET_VALUE_IMPLEMENTATION => Some(17),
         _ => None,
     }
 }
@@ -239,11 +264,15 @@ fn fast_dispatch_write_shape_supported(
     match write_count {
         0 => true,
         1 => {
-            matches!(
-                implementation,
-                vine_core::ENTER_CRITICAL_SECTION_IMPLEMENTATION
-                    | vine_core::LEAVE_CRITICAL_SECTION_IMPLEMENTATION
-            ) && first_write_length == Some(FAST_DISPATCH_INLINE_WRITE_BYTES)
+            first_write_length
+                == match implementation {
+                    vine_core::ENTER_CRITICAL_SECTION_IMPLEMENTATION
+                    | vine_core::LEAVE_CRITICAL_SECTION_IMPLEMENTATION => Some(24),
+                    vine_core::GET_CURSOR_POS_IMPLEMENTATION => Some(8),
+                    vine_core::GET_WINDOW_RECT_IMPLEMENTATION => Some(16),
+                    vine_core::PEEK_MESSAGE_A_IMPLEMENTATION => Some(28),
+                    _ => None,
+                }
         }
         _ => false,
     }
@@ -5437,6 +5466,44 @@ fn run_bridge(operation: impl FnOnce(&mut Bridge) -> Result<(), String>) -> u32 
     })
 }
 
+pub fn execution_island_forward_endpoint_owned(endpoint_address: u32) -> bool {
+    BRIDGE.with(|cell| {
+        cell.borrow()
+            .runtime
+            .as_ref()
+            .is_some_and(|runtime| runtime.routes.contains_key(&GuestAddress(endpoint_address)))
+    })
+}
+
+pub fn execution_island_memory_generation() -> Result<u64, String> {
+    BRIDGE.with(|cell| {
+        let bridge = cell.borrow();
+        let runtime = bridge
+            .runtime
+            .as_ref()
+            .ok_or_else(|| "runtime bridge is not prepared".to_owned())?;
+        Ok(runtime.memory.stats().generation)
+    })
+}
+
+pub fn execution_island_set_error(error: String) {
+    BRIDGE.with(|cell| cell.borrow_mut().set_error(error));
+}
+
+pub fn execution_island_reconcile_cpu_pages(
+    pages: &[(u32, &[u8])],
+) -> Result<CpuWritebackFastReceipt, String> {
+    BRIDGE.with(|cell| {
+        let mut bridge = cell.borrow_mut();
+        let runtime = bridge.runtime_mut()?;
+        let generation = runtime.memory.stats().generation;
+        runtime
+            .memory
+            .reconcile_cpu_writeback_pages_fast(generation, pages)
+            .map_err(error_string)
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn vine_bridge_input_resize(byte_length: u32) -> u32 {
     run_bridge(|bridge| {
@@ -5604,11 +5671,11 @@ pub extern "C" fn vine_bridge_acknowledge(generation_low: u32, generation_high: 
 
 #[unsafe(no_mangle)]
 pub extern "C" fn vine_bridge_fast_path_abi_version() -> u32 {
-    2
+    3
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_fast_dispatch_ptr_v2() -> u32 {
+pub extern "C" fn vine_bridge_fast_dispatch_ptr_v3() -> u32 {
     BRIDGE.with(|cell| {
         cell.borrow()
             .fast_dispatch_receipt
@@ -5618,7 +5685,7 @@ pub extern "C" fn vine_bridge_fast_dispatch_ptr_v2() -> u32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_fast_dispatch_len_v2() -> u32 {
+pub extern "C" fn vine_bridge_fast_dispatch_len_v3() -> u32 {
     BRIDGE.with(|cell| {
         cell.borrow()
             .fast_dispatch_receipt
@@ -5794,7 +5861,7 @@ pub extern "C" fn vine_bridge_dispatch(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn vine_bridge_dispatch_fast_v2(
+pub extern "C" fn vine_bridge_dispatch_fast_v3(
     endpoint_address: u32,
     stack_pointer: u32,
     return_address: u32,
@@ -6255,7 +6322,31 @@ mod tests {
         );
         assert_eq!(
             fast_dispatch_implementation_code("kernel32.heap-alloc.v2"),
-            None
+            Some(6)
+        );
+        assert_eq!(
+            fast_dispatch_implementation_code(vine_core::TIME_GET_TIME_IMPLEMENTATION),
+            Some(8),
+        );
+        assert_eq!(
+            fast_dispatch_implementation_code(vine_core::PEEK_MESSAGE_A_IMPLEMENTATION),
+            Some(11),
+        );
+        assert_eq!(
+            fast_dispatch_implementation_code(vine_core::GET_LAST_ERROR_IMPLEMENTATION),
+            Some(14),
+        );
+        assert_eq!(
+            fast_dispatch_implementation_code(vine_core::SET_LAST_ERROR_IMPLEMENTATION),
+            Some(15),
+        );
+        assert_eq!(
+            fast_dispatch_implementation_code(vine_core::TLS_GET_VALUE_IMPLEMENTATION),
+            Some(16),
+        );
+        assert_eq!(
+            fast_dispatch_implementation_code(vine_core::FLS_GET_VALUE_IMPLEMENTATION),
+            Some(17),
         );
         assert!(fast_dispatch_write_shape_supported(
             vine_core::GET_ASYNC_KEY_STATE_IMPLEMENTATION,
@@ -6265,22 +6356,37 @@ mod tests {
         assert!(fast_dispatch_write_shape_supported(
             vine_core::ENTER_CRITICAL_SECTION_IMPLEMENTATION,
             1,
+            Some(24),
+        ));
+        assert!(fast_dispatch_write_shape_supported(
+            vine_core::GET_CURSOR_POS_IMPLEMENTATION,
+            1,
+            Some(8),
+        ));
+        assert!(fast_dispatch_write_shape_supported(
+            vine_core::GET_WINDOW_RECT_IMPLEMENTATION,
+            1,
+            Some(16),
+        ));
+        assert!(fast_dispatch_write_shape_supported(
+            vine_core::PEEK_MESSAGE_A_IMPLEMENTATION,
+            1,
             Some(FAST_DISPATCH_INLINE_WRITE_BYTES),
         ));
         assert!(!fast_dispatch_write_shape_supported(
             vine_core::GET_SYSTEM_METRICS_IMPLEMENTATION,
             1,
-            Some(FAST_DISPATCH_INLINE_WRITE_BYTES),
+            Some(24),
         ));
         assert!(!fast_dispatch_write_shape_supported(
             vine_core::LEAVE_CRITICAL_SECTION_IMPLEMENTATION,
             1,
-            Some(FAST_DISPATCH_INLINE_WRITE_BYTES - 1),
+            Some(20),
         ));
         assert!(!fast_dispatch_write_shape_supported(
             vine_core::ENTER_CRITICAL_SECTION_IMPLEMENTATION,
             2,
-            Some(FAST_DISPATCH_INLINE_WRITE_BYTES),
+            Some(24),
         ));
     }
 }

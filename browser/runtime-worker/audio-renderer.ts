@@ -126,6 +126,10 @@ export class BrowserPcmRenderer {
     };
   }
 
+  async activate(): Promise<void> {
+    await this.#readyContext();
+  }
+
   play(message: AudioPlaybackMessage): Promise<BrowserAudioPlaybackReceipt> {
     const operation = this.#operationTail.then(() => this.#play(message));
     this.#operationTail = operation.then(

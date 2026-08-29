@@ -36,6 +36,7 @@ export interface ExecutionThreadBootstrap {
 
 export type ExecutionStop =
   | { kind: "budget-yield" }
+  | { kind: "runtime-dispatch" }
   | { kind: "trap"; trap: "invalid-opcode"; errorCode: number }
   | {
       kind: "fault";
@@ -78,6 +79,18 @@ export interface ExecutionSlice {
   stop: ExecutionStop;
   instructions: number;
   context: ExecutionCpuContext;
+  executionIsland?: {
+    fastApiCompletions: number;
+    writebackBatches: number;
+    writebackPages: number;
+    mirroredDeltaPages: number;
+    generation: bigint;
+  };
+}
+
+export interface ExecutionClockSample {
+  retiredInstructions: number;
+  hostElapsedTime100ns: bigint;
 }
 
 export type CpuRegisterUpdate =
@@ -101,6 +114,8 @@ export interface ExecutionCacheEffectCounts {
 export interface ExecutionEngineOptions {
   maximumPhysicalPages: number;
   disableJit?: boolean;
+  relaxJitInstructionBudget?: boolean;
+  jitHotnessThreshold?: number;
 }
 
 export interface ExecutionEngineMemoryCapacity {
@@ -116,6 +131,14 @@ export interface ExecutionEngineMemoryCapacity {
   reusedPages: number;
 }
 
+export interface ExecutionEnginePerformanceMetrics {
+  jitCompilations: number;
+  jitClears: number;
+  jitActiveFunctions: number;
+  jitInstructions: number;
+  interpretedInstructions: number;
+}
+
 export type ExecutionEngineFactory = (options: ExecutionEngineOptions) => ExecutionEngine;
 
 export interface ExecutionEngine {
@@ -124,9 +147,10 @@ export interface ExecutionEngine {
   rebuildMemory(reflection: MemoryReflection, regions: MemoryRegionSnapshot[]): void;
   memoryContractState(): string;
   cacheEffectCounts(): Readonly<ExecutionCacheEffectCounts>;
+  performanceMetrics(): Readonly<ExecutionEnginePerformanceMetrics>;
   memoryCapacity(): Readonly<ExecutionEngineMemoryCapacity>;
   linearMemoryBytes(): number;
-  executeBudget(instructionBudget: number): ExecutionSlice;
+  executeBudget(instructionBudget: number, clock?: ExecutionClockSample): ExecutionSlice;
   createCpuContext(bootstrap: ExecutionThreadBootstrap): ExecutionCpuContext;
   saveCpuContext(): ExecutionCpuContext;
   restoreCpuContext(context: ExecutionCpuContext): void;

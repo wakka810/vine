@@ -236,8 +236,8 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
   ): number;
   vine_bridge_acknowledge(low: number, high: number): number;
   vine_bridge_fast_path_abi_version(): number;
-  vine_bridge_fast_dispatch_ptr_v2(): number;
-  vine_bridge_fast_dispatch_len_v2(): number;
+  vine_bridge_fast_dispatch_ptr_v3(): number;
+  vine_bridge_fast_dispatch_len_v3(): number;
   vine_bridge_acknowledge_fast_v1(low: number, high: number): number;
   vine_bridge_reconcile_writeback(controlLength: number, payloadLength: number): number;
   vine_bridge_reconcile_writeback_fast_v1(
@@ -275,7 +275,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     fs: number,
     gs: number,
   ): number;
-  vine_bridge_dispatch_fast_v2(
+  vine_bridge_dispatch_fast_v3(
     endpoint: number,
     stackPointer: number,
     returnAddress: number,
@@ -410,12 +410,13 @@ function createEncodedPointerCookie(): number {
 export class RuntimeBridge {
   readonly #exports: RuntimeBridgeExports;
   readonly #metadataDecoder = new TextDecoder();
+  readonly #sharedWritebackOffsets: number[] = [];
   #callCount = 0;
 
   private constructor(exports: RuntimeBridgeExports) {
     this.#exports = exports;
     invariant(
-      this.#exports.vine_bridge_fast_path_abi_version() === 2,
+      this.#exports.vine_bridge_fast_path_abi_version() === 3,
       "unsupported runtime bridge fast-path ABI",
     );
   }
@@ -426,6 +427,10 @@ export class RuntimeBridge {
     const bytes = await response.arrayBuffer();
     const { instance } = await WebAssembly.instantiate(bytes, {});
     return new RuntimeBridge(instance.exports as RuntimeBridgeExports);
+  }
+
+  static fromExports(exports: WebAssembly.Exports): RuntimeBridge {
+    return new RuntimeBridge(exports as RuntimeBridgeExports);
   }
 
   prepare(fixture: Uint8Array): BridgeOutput<PreparedMetadata> {
@@ -572,7 +577,32 @@ export class RuntimeBridge {
   ): bigint {
     const controlLength = cpuWritebackControlByteLength(pages.length);
     const payloadLength = pages.length * memoryPageSize;
+    const sourceBuffer = this.#exports.memory.buffer;
+    const sharedOffsets = this.#sharedWritebackOffsets;
+    sharedOffsets.length = 0;
+    if (pages.every((page) => page.bytes.buffer === sourceBuffer)) {
+      for (const page of pages) {
+        sharedOffsets.push(page.bytes.byteOffset);
+      }
+    }
     const input = this.#resizeInput(controlLength + payloadLength);
+    if (
+      sharedOffsets.length === pages.length &&
+      sourceBuffer !== this.#exports.memory.buffer
+    ) {
+      for (let index = 0; index < pages.length; index += 1) {
+        const byteOffset = sharedOffsets[index]!;
+        invariant(
+          byteOffset + memoryPageSize <= this.#exports.memory.buffer.byteLength,
+          "shared writeback page moved outside linear memory",
+        );
+        pages[index]!.bytes = new Uint8Array(
+          this.#exports.memory.buffer,
+          byteOffset,
+          memoryPageSize,
+        );
+      }
+    }
     encodeCpuWritebackControlInto(input, generation, pages);
     let offset = controlLength;
     for (const page of pages) {
@@ -659,7 +689,7 @@ export class RuntimeBridge {
     const [retiredInstructionsLow, retiredInstructionsHigh] =
       splitRetiredInstructions(retiredInstructions);
     this.#callCount += 1;
-    const status = this.#exports.vine_bridge_dispatch_fast_v2(
+    const status = this.#exports.vine_bridge_dispatch_fast_v3(
       endpoint.address,
       stackPointer,
       returnAddress,
@@ -685,12 +715,26 @@ export class RuntimeBridge {
     if (status !== 0) {
       throw new Error(this.#readMetadataError());
     }
-    const fastLength = this.#exports.vine_bridge_fast_dispatch_len_v2();
+    return this.#readForwardDispatchOutput(endpoint, stackPointer);
+  }
+
+  takePendingForward<T = Record<string, unknown>>(
+    endpoint: PreparedEndpoint,
+    stackPointer: number,
+  ): BridgeOutput<T> {
+    return this.#readForwardDispatchOutput(endpoint, stackPointer);
+  }
+
+  #readForwardDispatchOutput<T>(
+    endpoint: PreparedEndpoint,
+    stackPointer: number,
+  ): BridgeOutput<T> {
+    const fastLength = this.#exports.vine_bridge_fast_dispatch_len_v3();
     if (fastLength === 0) {
       return this.#readOutput<T>();
     }
-    invariant(fastLength === 30, "runtime bridge returned an invalid fast dispatch record length");
-    const pointer = this.#exports.vine_bridge_fast_dispatch_ptr_v2();
+    invariant(fastLength === 36, "runtime bridge returned an invalid fast dispatch record length");
+    const pointer = this.#exports.vine_bridge_fast_dispatch_ptr_v3();
     invariant(
       pointer % Uint32Array.BYTES_PER_ELEMENT === 0 &&
         pointer + fastLength * Uint32Array.BYTES_PER_ELEMENT <=
@@ -1008,7 +1052,7 @@ export class RuntimeBridge {
     words: Uint32Array,
     expectedStackPointer?: number,
   ): FastApiCompletionMetadata {
-    invariant(words[0] === 1, "runtime bridge fast dispatch record version mismatch");
+    invariant(words[0] === 2, "runtime bridge fast dispatch record version mismatch");
     const implementationId = [
       "",
       "user32.get-async-key-state.v1",
@@ -1016,15 +1060,28 @@ export class RuntimeBridge {
       "user32.is-iconic.logical-window-style.v1",
       "kernel32.enter-critical-section.v1",
       "kernel32.leave-critical-section.v1",
+      "kernel32.heap-alloc.v2",
+      "kernel32.heap-free.v1",
+      "winmm.time-get-time.v1",
+      "user32.get-cursor-pos.v1",
+      "user32.get-window-rect.v1",
+      "user32.peek-message-a.current-thread.v1",
+      "kernel32.set-waitable-timer.relative-one-shot.v1",
+      "kernel32.wait-for-single-object-ex.waitable-timer.v1",
+      "kernel32.get-last-error.v1",
+      "kernel32.set-last-error.v1",
+      "kernel32.tls-get-value.v1",
+      "kernel32.fls-get-value.v1",
     ][words[1] ?? 0];
     invariant(implementationId !== undefined && implementationId.length > 0, "unknown fast API implementation");
+    const argumentCount = words[19] ?? 0;
     invariant(
       endpoint.module !== undefined &&
         endpoint.symbol !== undefined &&
         words[2] === endpoint.id &&
         words[3] === endpoint.address &&
         (expectedStackPointer === undefined || words[5] === expectedStackPointer) &&
-        words[19] === 1,
+        argumentCount <= 6,
       "runtime bridge fast dispatch endpoint or frame mismatch",
     );
     const register = (action: number, value: number): RegisterUpdate => {
@@ -1062,13 +1119,17 @@ export class RuntimeBridge {
         "empty fast dispatch thread selection retained state",
       );
     }
-    const writeCount = words[21] ?? 0;
+    const writeCount = words[26] ?? 0;
     invariant(writeCount === 0 || writeCount === 1, "invalid fast dispatch guest-write count");
     const guestWrites = [] as NonNullable<ApiCompletion["guestWrites"]>;
     if (writeCount === 1) {
-      invariant(words[23] === 24, "invalid fast dispatch guest-write byte length");
+      const byteLength = words[28] ?? 0;
+      invariant(
+        byteLength > 0 && byteLength <= 28 && byteLength % 4 === 0,
+        "invalid fast dispatch guest-write byte length",
+      );
       const bytes: number[] = [];
-      for (let index = 24; index < 30; index += 1) {
+      for (let index = 29; index < 29 + byteLength / 4; index += 1) {
         const value = words[index]!;
         bytes.push(
           value & 0xff,
@@ -1077,10 +1138,10 @@ export class RuntimeBridge {
           value >>> 24,
         );
       }
-      guestWrites.push({ write: { address: words[22]!, bytes } });
+      guestWrites.push({ write: { address: words[27]!, bytes } });
     } else {
       invariant(
-        words.slice(22, 30).every((word) => word === 0),
+        words.slice(27, 36).every((word) => word === 0),
         "empty fast dispatch guest-write record retained data",
       );
     }
@@ -1096,7 +1157,9 @@ export class RuntimeBridge {
         implementationId,
         frame: {
           stackPointer: words[5]!,
-          arguments: [{ words: [words[20]!] }],
+          arguments: Array.from({ length: argumentCount }, (_, index) => ({
+            words: [words[20 + index]!],
+          })),
         },
         instructionPointer: words[4]!,
         stackPointer: words[6]!,

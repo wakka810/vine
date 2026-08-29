@@ -13,6 +13,10 @@ export async function prepareExecutionEngine(baseUrl: URL): Promise<ExecutionEng
   return (options) => factory(options);
 }
 
+export async function prepareExecutionIsland(baseUrl: URL) {
+  return V86Mirror.prepareExecutionIsland(new URL("./v86-island.wasm", baseUrl));
+}
+
 export async function instantiateExecutionEngine(
   baseUrl: URL,
   options: ExecutionEngineOptions,

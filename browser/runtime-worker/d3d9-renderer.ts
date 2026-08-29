@@ -56,6 +56,7 @@ export class D3d9WebGl2Renderer {
     device: RuntimeGraphicsDeviceSnapshot,
     binding: LogicalComBinding,
     textureBacking?: Uint8Array,
+    verifyPixels = true,
   ): RuntimeBrowserPresentationReceipt {
     invariant(
       binding.interfaceName === "IDirect3DDevice9" &&
@@ -175,19 +176,21 @@ export class D3d9WebGl2Renderer {
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, submission.vertexCount);
 
-    gl.flush();
     const centerPixel = new Uint8Array(4);
-    gl.readPixels(
-      Math.floor(width / 2),
-      Math.floor(height / 2),
-      1,
-      1,
-      gl.RGBA,
-      gl.UNSIGNED_BYTE,
-      centerPixel,
-    );
-    const webGlError = gl.getError();
-    invariant(webGlError === gl.NO_ERROR, `WebGL2 Present failed with error ${webGlError}`);
+    if (verifyPixels) {
+      gl.flush();
+      gl.readPixels(
+        Math.floor(width / 2),
+        Math.floor(height / 2),
+        1,
+        1,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        centerPixel,
+      );
+      const webGlError = gl.getError();
+      invariant(webGlError === gl.NO_ERROR, `WebGL2 Present failed with error ${webGlError}`);
+    }
 
     return {
       backend: "webgl2-offscreen-canvas",

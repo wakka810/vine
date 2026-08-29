@@ -74,6 +74,8 @@
     "check:runtime:bgi-browser:prepared": "npm run check:runtime:bgi && npm run build:runtime:browser-worker:prepared && node tools/run-browser-runtime-check.mjs --bgi",
     "check:runtime:bgi-browser": "npm run check:toolchain && npm run prepare:engine && npm run check:runtime:bgi-browser:prepared",
     "dev:target": "npm run run:target:forward",
+    "play:target": "npm run prepare:engine && npm run build:runtime:browser-worker:prepared && node tools/run-browser-runtime-check.mjs --bgi --forward --serve --forward-profile-slot manual-play",
+    "play:target:fast": "npm run play:target -- --play-performance",
     "run:target:forward": "npm run prepare:engine && npm run run:target:forward:prepared",
     "run:target:forward:prepared": "npm run build:runtime:browser-worker:prepared && node tools/run-browser-runtime-check.mjs --bgi --forward",
     "check:runtime:bgi-browser-benchmark:prepared": "npm run build:runtime:browser-worker:prepared && node tools/run-browser-runtime-check.mjs --bgi-benchmark-ms 180000",

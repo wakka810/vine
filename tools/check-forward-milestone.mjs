@@ -60,6 +60,63 @@ function assertPrimaryAudio() {
   assert(playback.peakAbsoluteSample > 0, "browser playback PCM is silent");
 }
 
+function assertVisiblePrimaryFrame() {
+  assert(report.presentation.presentCount > 0, "no primary Present was observed");
+  const presentation = report.presentation.latest;
+  assert(presentation !== null, "latest browser presentation is missing");
+  assert(
+    presentation.centerPixelRgba.slice(0, 3).some((component) => component > 0),
+    "latest primary frame is still uniformly black at its center sample",
+  );
+  const frame = report.presentation.finalFrame;
+  assert(frame !== null, "final primary frame artifact is missing");
+  const framePath = path.resolve(root, frame.file);
+  const targetDirectory = path.resolve(root, ".work", "target-forward");
+  assert(
+    framePath.startsWith(`${targetDirectory}${path.sep}`),
+    "final frame artifact leaves the target-forward directory",
+  );
+  const frameBytes = fs.readFileSync(framePath);
+  assert.equal(frameBytes.byteLength, frame.bytes);
+  assert(frameBytes.byteLength > 0 && frameBytes.byteLength <= 2 * 1024 * 1024);
+  return frameBytes.byteLength;
+}
+
+function assertUnchangedHydratedSaveSlot() {
+  const restartProfile = report.storage.profile;
+  const hydration = report.storage.latestWritableHydration;
+  assert(restartProfile !== null, "restart storage profile is missing");
+  assert(hydration !== null, "restart save hydration is missing");
+  const hydratedBefore = restartProfile.before.files.find(
+    (file) => file.objectId === hydration.objectId,
+  );
+  const hydratedAfter = restartProfile.after.files.find(
+    (file) => file.objectId === hydration.objectId,
+  );
+  assert(hydratedBefore !== undefined && hydratedAfter !== undefined);
+  const relativePath = Buffer.from(hydratedBefore.relativePathA).toString("latin1");
+  assert(
+    /^UserData\\[^\\]+\.sud$/i.test(relativePath),
+    "latest restart hydration is not a title-local save slot",
+  );
+  assert(hydratedBefore.exists, "hydrated save slot is not marked present");
+  assert(hydratedBefore.generation > 0, "hydrated save slot has no generation");
+  assert(hydratedBefore.byteLength > 0, "hydrated save slot is empty");
+  assert.equal(hydratedBefore.generation, hydration.generation);
+  assert.equal(hydratedBefore.byteLength, hydration.byteLength);
+  assert.equal(hydratedBefore.sha256, hydration.sha256);
+  assert.deepEqual(hydratedAfter, hydratedBefore);
+  assert(
+    report.storage.writableHydratedObjects >= 2,
+    "restart did not hydrate configuration and save objects",
+  );
+  assert(
+    report.storage.writableHydratedBytes >= hydration.byteLength,
+    "restart hydration byte total excludes the save slot",
+  );
+  return { hydration, relativePath };
+}
+
 let acceptanceSummary;
 switch (checkpoint.lastCompletedBoundary.id) {
   case "primary-audible-output": {
@@ -74,25 +131,8 @@ switch (checkpoint.lastCompletedBoundary.id) {
       report.input.latestPointerMessage !== null,
       "latest primary pointer diagnostic is missing",
     );
-    assert(report.presentation.presentCount > 0, "no primary Present was observed");
-    const presentation = report.presentation.latest;
-    assert(presentation !== null, "latest browser presentation is missing");
-    assert(
-      presentation.centerPixelRgba.slice(0, 3).some((component) => component > 0),
-      "latest primary frame is still uniformly black at its center sample",
-    );
-    const frame = report.presentation.finalFrame;
-    assert(frame !== null, "final primary frame artifact is missing");
-    const framePath = path.resolve(root, frame.file);
-    const targetDirectory = path.resolve(root, ".work", "target-forward");
-    assert(
-      framePath.startsWith(`${targetDirectory}${path.sep}`),
-      "final frame artifact leaves the target-forward directory",
-    );
-    const frameBytes = fs.readFileSync(framePath);
-    assert.equal(frameBytes.byteLength, frame.bytes);
-    assert(frameBytes.byteLength > 0 && frameBytes.byteLength <= 2 * 1024 * 1024);
-    acceptanceSummary = `${report.presentation.presentCount} Present(s), ${frameBytes.byteLength}-byte frame`;
+    const frameByteLength = assertVisiblePrimaryFrame();
+    acceptanceSummary = `${report.presentation.presentCount} Present(s), ${frameByteLength}-byte frame`;
     break;
   }
   case "primary-save-browser-restart-load": {
@@ -145,6 +185,57 @@ switch (checkpoint.lastCompletedBoundary.id) {
     acceptanceSummary =
       `generation ${committedBefore.generation}->${committedAfter.generation}, ` +
       `${committedAfter.byteLength}-byte restart hydration`;
+    break;
+  }
+  case "primary-save-slot-restart-catalog": {
+    assertPrimaryAudio();
+    const frameByteLength = assertVisiblePrimaryFrame();
+    assert(report.input.pointerMessages > 0, "no catalog pointer input reached the guest");
+    assert(report.input.completedActions > 0, "the pointer campaign completed no actions");
+    const { hydration, relativePath } = assertUnchangedHydratedSaveSlot();
+    acceptanceSummary =
+      `${relativePath}, generation ${hydration.generation}, ` +
+      `${hydration.byteLength}-byte hydration, ${report.presentation.presentCount} Present(s), ` +
+      `${frameByteLength}-byte frame`;
+    break;
+  }
+  case "primary-save-slot-restart-load": {
+    assertPrimaryAudio();
+    const frameByteLength = assertVisiblePrimaryFrame();
+    assert(report.input.pointerMessages > 0, "no Load pointer input reached the guest");
+    assert(report.input.completedActions > 0, "the Load campaign completed no actions");
+    assert(report.input.latestPointerMessage !== null, "latest Load pointer message is missing");
+    assert.equal(report.outcome, "cancelled");
+    assert.equal(report.stop.endpoint, null);
+    assert.equal(report.stop.fault.code, "forward-run-cancelled");
+    const { hydration, relativePath } = assertUnchangedHydratedSaveSlot();
+    acceptanceSummary =
+      `${relativePath}, generation ${hydration.generation}, ` +
+      `${hydration.byteLength}-byte unchanged save, ${report.presentation.presentCount} Present(s), ` +
+      `${report.audio.playbacksStarted} playback(s), ${frameByteLength}-byte restored frame`;
+    break;
+  }
+  case "primary-representative-flow": {
+    assertPrimaryAudio();
+    const frameByteLength = assertVisiblePrimaryFrame();
+    assert.equal(report.outcome, "watchdog");
+    assert.equal(report.stop.endpoint, null);
+    assert.equal(report.stop.fault.code, "forward-run-budget-exhausted");
+    assert(
+      report.input.completedActions >= 100,
+      "the scenario pointer campaign did not sustain representative input",
+    );
+    assert(
+      report.presentation.presentCount >= report.input.completedActions,
+      "scenario input did not produce a sustained presentation sequence",
+    );
+    const commit = report.storageLatest.writableCommit;
+    assert(commit !== null && commit.succeeded && commit.win32Error === 0);
+    assert(report.storage.writableCommits > 0);
+    acceptanceSummary =
+      `${report.input.completedActions} completed action(s), ` +
+      `${report.presentation.presentCount} Present(s), ` +
+      `${report.audio.playbacksStarted} playback(s), ${frameByteLength}-byte later frame`;
     break;
   }
   case "primary-first-route-ending": {

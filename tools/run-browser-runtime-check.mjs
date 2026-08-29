@@ -48,6 +48,7 @@ const fullEvidence = process.argv.includes("--full-evidence");
 const forwardMode = process.argv.includes("--forward");
 const forwardTitleObserve = process.argv.includes("--forward-title-observe");
 const interpreterMode = process.argv.includes("--interpreter");
+const playPerformance = process.argv.includes("--play-performance");
 const forwardStopOption = optionValue("--forward-stop");
 const forwardPointerOverridesOption = optionValue(
   "--forward-pointer-overrides",
@@ -153,6 +154,10 @@ assert(
 );
 assert(!forwardMode || (bgiMode && !fullEvidence), "forward mode requires summary BGI execution");
 assert(!interpreterMode || forwardMode, "--interpreter requires forward mode");
+assert(
+  !playPerformance || (forwardMode && !interpreterMode),
+  "--play-performance requires JIT-enabled forward mode",
+);
 assert(
   !forwardTitleObserve || forwardMode,
   "--forward-title-observe requires forward mode",
@@ -6226,7 +6231,7 @@ function validateCreateFontA224x112BgiProbe(evidence, scenario) {
 }
 
 async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
-  const targetUrl = `${baseUrl}bgi-check.html?scenario=${scenario}${forwardMode ? "" : `&profile=${encodeURIComponent(bgiProfile)}`}${fullEvidence ? "&evidence=full" : ""}${forwardMode ? `&development=forward&forwardSeconds=${forwardSeconds}` : ""}${forwardTitleObserve ? "&forwardInput=title-observe" : ""}${forwardStopOption === null ? "" : `&forwardStop=${encodeURIComponent(forwardStopOption)}`}${forwardPointerOverridesOption === null ? "" : `&forwardPointerOverrides=${encodeURIComponent(forwardPointerOverridesOption)}`}${forwardPointerHoldOverridesOption === null ? "" : `&forwardPointerHoldOverrides=${encodeURIComponent(forwardPointerHoldOverridesOption)}`}${forwardPointerStaticActionsOption === null ? "" : `&forwardPointerStaticActions=${encodeURIComponent(forwardPointerStaticActionsOption)}`}${forwardEnterAfterPointerActionOption === null ? "" : `&forwardEnterAfterPointerAction=${encodeURIComponent(forwardEnterAfterPointerActionOption)}`}${forwardHoldControlAfterPointerActionOption === null ? "" : `&forwardHoldControlAfterPointerAction=${encodeURIComponent(forwardHoldControlAfterPointerActionOption)}`}${forwardHoldControlMillisecondsOption === null ? "" : `&forwardHoldControlMilliseconds=${encodeURIComponent(forwardHoldControlMillisecondsOption)}`}${forwardStopSettleMillisecondsOption === null ? "" : `&forwardStopSettleMilliseconds=${encodeURIComponent(forwardStopSettleMillisecondsOption)}`}${interpreterMode ? "&engine=interpreter" : ""}`;
+  const targetUrl = `${baseUrl}bgi-check.html?scenario=${scenario}${forwardMode ? "" : `&profile=${encodeURIComponent(bgiProfile)}`}${fullEvidence ? "&evidence=full" : ""}${forwardMode ? `&development=forward&forwardSeconds=${forwardSeconds}` : ""}${forwardTitleObserve ? "&forwardInput=title-observe" : ""}${forwardStopOption === null ? "" : `&forwardStop=${encodeURIComponent(forwardStopOption)}`}${forwardPointerOverridesOption === null ? "" : `&forwardPointerOverrides=${encodeURIComponent(forwardPointerOverridesOption)}`}${forwardPointerHoldOverridesOption === null ? "" : `&forwardPointerHoldOverrides=${encodeURIComponent(forwardPointerHoldOverridesOption)}`}${forwardPointerStaticActionsOption === null ? "" : `&forwardPointerStaticActions=${encodeURIComponent(forwardPointerStaticActionsOption)}`}${forwardEnterAfterPointerActionOption === null ? "" : `&forwardEnterAfterPointerAction=${encodeURIComponent(forwardEnterAfterPointerActionOption)}`}${forwardHoldControlAfterPointerActionOption === null ? "" : `&forwardHoldControlAfterPointerAction=${encodeURIComponent(forwardHoldControlAfterPointerActionOption)}`}${forwardHoldControlMillisecondsOption === null ? "" : `&forwardHoldControlMilliseconds=${encodeURIComponent(forwardHoldControlMillisecondsOption)}`}${forwardStopSettleMillisecondsOption === null ? "" : `&forwardStopSettleMilliseconds=${encodeURIComponent(forwardStopSettleMillisecondsOption)}`}${interpreterMode ? "&engine=interpreter" : ""}${playPerformance ? "&executionMode=play-performance" : ""}`;
   const target = await createDebugTarget(
     browserWebSocketUrl,
     bgiCpuProfile && forwardMode ? "about:blank" : targetUrl,
@@ -20808,6 +20813,10 @@ if (bgiMode) {
     fs.existsSync(path.join(assetsRoot, "bgi-check.html")),
     "BGI browser check is not built",
   );
+  assert(
+    fs.existsSync(path.join(assetsRoot, "bgi-play.html")),
+    "BGI browser play page is not built",
+  );
   assert(fs.existsSync(bgiPath), `BGI source is missing at ${bgiPath}`);
   assert(
     fs.existsSync(bgiPolicyPath),
@@ -20943,6 +20952,11 @@ if (writableProfile !== null) {
 
 if (serveOnly) {
   console.log(`Vine browser runtime listening at ${url}`);
+  if (bgiMode && forwardMode) {
+    console.log(
+      `Vine target play URL: ${url}bgi-play.html?mode=${playPerformance ? "performance" : "normal"}`,
+    );
+  }
   await waitForShutdown();
   await closeServer(server);
   writableProfile?.close();
@@ -21031,6 +21045,7 @@ if (serveOnly) {
           command:
             forwardSeconds === 540 &&
             !interpreterMode &&
+            !playPerformance &&
             forwardStopOption === null &&
             forwardPointerOverrides.length === 0 &&
             forwardPointerHoldOverrides.length === 0 &&
@@ -21041,10 +21056,12 @@ if (serveOnly) {
             forwardStopSettleMillisecondsOption === null &&
             forwardProfileSlot === "default"
               ? currentState.commands.forward
-              : `npm run run:target:forward:prepared -- --forward-seconds ${forwardSeconds}${forwardTitleObserve ? " --forward-title-observe" : ""}${forwardStopOption === null ? "" : ` --forward-stop ${forwardStopOption}`}${forwardPointerOverridesOption === null ? "" : ` --forward-pointer-overrides ${forwardPointerOverridesOption}`}${forwardPointerHoldOverridesOption === null ? "" : ` --forward-pointer-hold-overrides ${forwardPointerHoldOverridesOption}`}${forwardPointerStaticActionsOption === null ? "" : ` --forward-pointer-static-actions ${forwardPointerStaticActionsOption}`}${forwardEnterAfterPointerActionOption === null ? "" : ` --forward-enter-after-pointer-action ${forwardEnterAfterPointerActionOption}`}${forwardHoldControlAfterPointerActionOption === null ? "" : ` --forward-hold-control-after-pointer-action ${forwardHoldControlAfterPointerActionOption}`}${forwardHoldControlMillisecondsOption === null ? "" : ` --forward-hold-control-milliseconds ${forwardHoldControlMillisecondsOption}`}${forwardStopSettleMillisecondsOption === null ? "" : ` --forward-stop-settle-milliseconds ${forwardStopSettleMillisecondsOption}`}${interpreterMode ? " --interpreter" : ""}${forwardProfileSlot === "default" ? "" : ` --forward-profile-slot ${forwardProfileSlot}`}`,
+              : `npm run run:target:forward:prepared -- --forward-seconds ${forwardSeconds}${forwardTitleObserve ? " --forward-title-observe" : ""}${forwardStopOption === null ? "" : ` --forward-stop ${forwardStopOption}`}${forwardPointerOverridesOption === null ? "" : ` --forward-pointer-overrides ${forwardPointerOverridesOption}`}${forwardPointerHoldOverridesOption === null ? "" : ` --forward-pointer-hold-overrides ${forwardPointerHoldOverridesOption}`}${forwardPointerStaticActionsOption === null ? "" : ` --forward-pointer-static-actions ${forwardPointerStaticActionsOption}`}${forwardEnterAfterPointerActionOption === null ? "" : ` --forward-enter-after-pointer-action ${forwardEnterAfterPointerActionOption}`}${forwardHoldControlAfterPointerActionOption === null ? "" : ` --forward-hold-control-after-pointer-action ${forwardHoldControlAfterPointerActionOption}`}${forwardHoldControlMillisecondsOption === null ? "" : ` --forward-hold-control-milliseconds ${forwardHoldControlMillisecondsOption}`}${forwardStopSettleMillisecondsOption === null ? "" : ` --forward-stop-settle-milliseconds ${forwardStopSettleMillisecondsOption}`}${interpreterMode ? " --interpreter" : ""}${playPerformance ? " --play-performance" : ""}${forwardProfileSlot === "default" ? "" : ` --forward-profile-slot ${forwardProfileSlot}`}`,
           mode: interpreterMode
             ? "release-chrome-forward-interpreter-diagnostic"
-            : "release-chrome-forward",
+            : playPerformance
+              ? "release-chrome-forward-play-performance"
+              : "release-chrome-forward",
           chromeVersion: version,
           source: {
             bytes: sourceBefore.byteLength,
@@ -21071,6 +21088,8 @@ if (serveOnly) {
           timerPacing: session.timerPacing,
           presentation: {
             presentCount: forward.presentCount,
+            presentationsPerSecond:
+              forward.presentCount / (session.elapsedMilliseconds / 1_000),
             latest: forward.latestPresentation,
             finalFrame: success.finalFrame,
           },
@@ -21135,9 +21154,24 @@ if (serveOnly) {
             state: session.executionState,
             engine: session.executionEngine,
             jitEnabled: !interpreterMode,
+            playPerformance,
             linearMemoryBytes: session.executionEngineLinearMemoryBytes,
+            slices: session.slices,
+            budgetYields: session.budgetYields,
             maximumSliceMilliseconds: session.maximumSliceMilliseconds,
             guestMilliseconds: session.executionTiming.guestMilliseconds,
+            guestInstructionsPerSecond:
+              session.instructions / (session.elapsedMilliseconds / 1_000),
+            averageGuestSliceMilliseconds:
+              session.executionTiming.guestMilliseconds / session.slices,
+            workerYields: session.executionTiming.workerYields,
+            synchronousApiYields:
+              session.executionTiming.synchronousApiYields,
+            wasmBridgeCalls: session.wasmBridgeCalls,
+            instructionBudget: session.executionTiming.instructionBudget,
+            budgetYieldHotspots:
+              session.executionTiming.budgetYieldHotspots,
+            jit: session.executionTiming.jit,
             writebackReconciliationMilliseconds:
               session.executionTiming.writebackReconciliationMilliseconds,
             writebackBatches: session.writebackBatches,
@@ -21163,7 +21197,14 @@ if (serveOnly) {
         const outputDirectory = path.join(root, ".work", "target-forward");
         fs.mkdirSync(outputDirectory, { recursive: true });
         await writeFile(
-          path.join(outputDirectory, interpreterMode ? "interpreter-report.json" : "report.json"),
+          path.join(
+            outputDirectory,
+            interpreterMode
+              ? "interpreter-report.json"
+              : playPerformance
+                ? "performance-report.json"
+                : "report.json",
+          ),
           reportBytes,
         );
         const endpoint = session.firstUnsupported?.endpoint ?? null;

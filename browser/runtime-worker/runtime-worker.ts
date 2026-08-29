@@ -87,6 +87,7 @@ import {
 import {
   ExecutionMemoryAccessFault,
   prepareExecutionEngine,
+  prepareExecutionIsland,
   type ExecutionCpuContext,
   type ExecutionEngine,
   type ExecutionStop,
@@ -111,8 +112,11 @@ import {
   SemanticCallDigest,
 } from "./semantic-call.mjs";
 
-const disableExecutionJit =
-  new URL(import.meta.url).searchParams.get("executionJit") === "off";
+const workerSearchParams = new URL(import.meta.url).searchParams;
+const disableExecutionJit = workerSearchParams.get("executionJit") === "off";
+const playPerformanceMode =
+  workerSearchParams.get("executionMode") === "play-performance";
+const manualPlayMode = workerSearchParams.get("manualPlay") === "1";
 import {
   recoverableCommitHttpError,
   recoverableCommitStorageError,
@@ -139,6 +143,10 @@ const BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 64;
 const FORWARD_BGI_SYNCHRONOUS_API_YIELD_INTERVAL = 256;
 const FORWARD_BUDGET_STATUS_INTERVAL = 4096;
 const FORWARD_GUEST_TIME_SLICE_MILLISECONDS = 10;
+const PLAY_TARGET_SLICE_MILLISECONDS = 8;
+const PLAY_MINIMUM_INSTRUCTION_BUDGET = 131_072;
+const PLAY_MAXIMUM_INSTRUCTION_BUDGET = 1_048_576;
+const PLAY_JIT_HOTNESS_THRESHOLD = 100_000;
 const MAX_PENDING_INPUT_EVENTS = 256;
 const WM_MOUSEMOVE = 0x0200;
 const RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS = 40_000_000;
@@ -4461,6 +4469,8 @@ class BrowserRuntimeSession {
     [];
   #d3d9TextureLockRectCall: RuntimeSupportedCallSnapshot | null = null;
   #synchronousApiBoundariesSinceYield = 0;
+  readonly #budgetYieldHotspots = new Map<number, number>();
+  #playInstructionBudget: number;
   #watchdogContext: SessionReport["watchdogContext"] = null;
   #watchdogArmedAt: number | null = null;
   #watchdogTimer: number | null = null;
@@ -4505,6 +4515,31 @@ class BrowserRuntimeSession {
     executionTiming: {
       guestMilliseconds: 0,
       writebackReconciliationMilliseconds: 0,
+      workerYields: 0,
+      synchronousApiYields: 0,
+      budgetYieldHotspots: [] as SessionReport["executionTiming"]["budgetYieldHotspots"],
+      jit: {
+        compilations: 0,
+        clears: 0,
+        activeFunctions: 0,
+        instructions: 0,
+        interpretedInstructions: 0,
+      },
+      executionIsland: {
+        fastApiCompletions: 0,
+        pendingDispatches: 0,
+        writebackBatches: 0,
+        writebackPages: 0,
+        mirroredDeltaPages: 0,
+      },
+      instructionBudget: {
+        adaptive: playPerformanceMode,
+        targetSliceMilliseconds: PLAY_TARGET_SLICE_MILLISECONDS,
+        initial: 0,
+        current: 0,
+        minimum: 0,
+        maximum: 0,
+      },
     },
     supportedCallCount: 0,
     supportedCallSemanticsAlgorithm: SEMANTIC_CALL_DIGEST_ALGORITHM,
@@ -4577,6 +4612,15 @@ class BrowserRuntimeSession {
   ) {
     this.#sessionId = sessionId;
     this.#configuration = configuration;
+    this.#playInstructionBudget = configuration.instructionBudget;
+    this.#report.executionTiming.instructionBudget.initial =
+      configuration.instructionBudget;
+    this.#report.executionTiming.instructionBudget.current =
+      configuration.instructionBudget;
+    this.#report.executionTiming.instructionBudget.minimum =
+      configuration.instructionBudget;
+    this.#report.executionTiming.instructionBudget.maximum =
+      configuration.instructionBudget;
     this.#timerPacing = new TimerPacingService(
       timerPacingDriver,
       configuration.pageLifecycle,
@@ -4604,7 +4648,7 @@ class BrowserRuntimeSession {
         mode: "forward",
         supportProfile: "generic-forward",
         historicalCheckpointBypassed: true,
-        semanticTailCapacity: 512,
+        semanticTailCapacity: playPerformanceMode ? 0 : 512,
         semanticTail: [],
         largeHeapLifecycle: [],
         presentCount: 0,
@@ -4685,9 +4729,18 @@ class BrowserRuntimeSession {
             : "./browser-vertical.exe",
         import.meta.url,
       );
-      const [bridge, engineFactory, executableResponse] = await Promise.all([
-        RuntimeBridge.instantiate(coreUrl),
-        prepareExecutionEngine(new URL(".", import.meta.url)),
+      const baseUrl = new URL(".", import.meta.url);
+      const runtimeAndEngine = playPerformanceMode
+        ? prepareExecutionIsland(baseUrl).then((island) => ({
+            bridge: RuntimeBridge.fromExports(island.runtimeExports),
+            engineFactory: island.createEngine,
+          }))
+        : Promise.all([
+            RuntimeBridge.instantiate(coreUrl),
+            prepareExecutionEngine(baseUrl),
+          ]).then(([bridge, engineFactory]) => ({ bridge, engineFactory }));
+      const [{ bridge, engineFactory }, executableResponse] = await Promise.all([
+        runtimeAndEngine,
         fetch(executableUrl),
       ]);
       invariant(
@@ -4884,6 +4937,10 @@ class BrowserRuntimeSession {
       const engine = engineFactory({
         maximumPhysicalPages: preparedOutput.metadata.maximumPhysicalPages,
         disableJit: disableExecutionJit,
+        relaxJitInstructionBudget: playPerformanceMode,
+        jitHotnessThreshold: playPerformanceMode
+          ? PLAY_JIT_HOTNESS_THRESHOLD
+          : undefined,
       });
       this.#engine = engine;
       this.#runtimePrepared = true;
@@ -8164,6 +8221,9 @@ class BrowserRuntimeSession {
       }
       const sliceState = this.#execution.state();
       const sliceStartedAt = performance.now();
+      if (this.#isForwardDevelopment()) {
+        this.#forwardClockStartedAt ??= sliceStartedAt;
+      }
       const createdThreadStackGrowthObserved = this.#report.stackGrowths.some(
         ({ threadId }) => threadId !== this.#initialThreadId,
       );
@@ -8173,6 +8233,9 @@ class BrowserRuntimeSession {
         ) &&
         createdThreadStackGrowthObserved &&
         this.#report.supportedCallCount === 158_098;
+      const instructionBudget = playPerformanceMode
+        ? this.#playInstructionBudget
+        : this.#configuration.instructionBudget;
       const remainingTraplessInstructions = runtimeTraplessExecutionBudgetActive
         ? RUNTIME_TRAPLESS_EXECUTION_BUDGET_MAX_INSTRUCTIONS -
           (this.#report.instructions -
@@ -8182,16 +8245,28 @@ class BrowserRuntimeSession {
             ) && createdThreadStackGrowthObserved
           ? RUNTIME_THREAD_STACK_GROWTH_MAX_TRAPLESS_INSTRUCTIONS -
             this.#instructionsSinceOwnedStop
-          : this.#configuration.instructionBudget;
+          : instructionBudget;
       invariant(
         remainingTraplessInstructions > 0,
         "trapless execution continuation exceeded its bounded window",
       );
       const slice = engine.executeBudget(
         Math.min(
-          this.#configuration.instructionBudget,
+          instructionBudget,
           remainingTraplessInstructions,
         ),
+        this.#isForwardDevelopment()
+          ? {
+              retiredInstructions: this.#report.instructions,
+              hostElapsedTime100ns: BigInt(
+                Math.floor(
+                  (sliceStartedAt -
+                    (this.#forwardClockStartedAt ?? sliceStartedAt)) *
+                    10_000,
+                ),
+              ),
+            }
+          : undefined,
       );
       const sliceMilliseconds = performance.now() - sliceStartedAt;
       this.#report.executionTiming.guestMilliseconds += sliceMilliseconds;
@@ -8202,18 +8277,52 @@ class BrowserRuntimeSession {
       this.#report.instructions += slice.instructions;
       this.#instructionsSinceOwnedStop += slice.instructions;
       this.#report.slices += 1;
+      if (slice.executionIsland !== undefined) {
+        const island = slice.executionIsland;
+        invariant(
+          island.generation >= this.#generation,
+          "execution island memory generation moved backwards",
+        );
+        this.#generation = island.generation;
+        this.#report.writebackBatches += island.writebackBatches;
+        this.#report.writebackPages += island.writebackPages;
+        this.#report.executionTiming.executionIsland.fastApiCompletions +=
+          island.fastApiCompletions;
+        this.#report.executionTiming.executionIsland.writebackBatches +=
+          island.writebackBatches;
+        this.#report.executionTiming.executionIsland.writebackPages +=
+          island.writebackPages;
+        this.#report.executionTiming.executionIsland.mirroredDeltaPages +=
+          island.mirroredDeltaPages;
+        this.#report.supportedCallCount += island.fastApiCompletions;
+        this.#nextBgiCallSequence += island.fastApiCompletions;
+        if (island.fastApiCompletions > 0) {
+          this.#instructionsSinceOwnedStop = 0;
+          const summary = this.#report.forwardDevelopment;
+          if (summary !== null) {
+            summary.currentThreadId = this.#currentThreadId;
+          }
+        }
+      }
       this.#reconcileDirtyPages();
-      if (this.#isForwardDevelopment()) {
+      if (
+        this.#isForwardDevelopment() &&
+        slice.stop.kind !== "runtime-dispatch"
+      ) {
         const now = performance.now();
-        this.#forwardClockStartedAt ??= now;
         this.#requireBridge().synchronizeForwardClock(
           this.#report.instructions,
-          now - this.#forwardClockStartedAt,
+          now - (this.#forwardClockStartedAt ?? now),
         );
       }
       this.#checkWatchdog();
 
       if (slice.stop.kind === "budget-yield") {
+        this.#budgetYieldHotspots.set(
+          slice.context.instructionPointer,
+          (this.#budgetYieldHotspots.get(slice.context.instructionPointer) ?? 0) + 1,
+        );
+        this.#tunePlayInstructionBudget(slice.instructions, sliceMilliseconds);
         if (
           (runtimeTraplessExecutionBudgetActive &&
             this.#report.instructions -
@@ -8246,6 +8355,7 @@ class BrowserRuntimeSession {
             `${this.#report.instructions.toLocaleString()} guest instructions; periodic yield`,
           );
         }
+        this.#report.executionTiming.workerYields += 1;
         await yieldToWorkerLoop();
         this.#synchronousApiBoundariesSinceYield = 0;
         if (this.#terminal || this.#stopping) {
@@ -8255,6 +8365,40 @@ class BrowserRuntimeSession {
         continue;
       }
       this.#instructionsSinceOwnedStop = 0;
+
+      if (slice.stop.kind === "runtime-dispatch") {
+        const address = slice.context.instructionPointer;
+        invariant(
+          endpointAddresses.has(address) &&
+            slice.context.instructionPointer ===
+              slice.context.previousInstructionPointer,
+          "execution island returned an invalid pending API dispatch",
+        );
+        this.#threadResumeStates.set(
+          this.#currentThreadId,
+          sliceState === "running" ? "ready" : "guest-callback",
+        );
+        this.#execution.transition("api-trap", {
+          cause: "execution-island-api-trap",
+          threadId: this.#currentThreadId,
+        });
+        this.#report.executionTiming.executionIsland.pendingDispatches += 1;
+        const pending = this.#dispatchForwardApi(
+          address,
+          slice.context.esp,
+          slice.context,
+          true,
+        );
+        if (pending !== null) {
+          await pending;
+        }
+        if (this.#shouldYieldAfterSynchronousApiBoundary()) {
+          this.#report.executionTiming.workerYields += 1;
+          this.#report.executionTiming.synchronousApiYields += 1;
+          await yieldToWorkerLoop();
+        }
+        continue;
+      }
 
       if (
         slice.stop.kind === "fault" &&
@@ -8727,6 +8871,8 @@ class BrowserRuntimeSession {
         this.#dispatchCom(address, slice.context.esp);
       }
       if (this.#shouldYieldAfterSynchronousApiBoundary()) {
+        this.#report.executionTiming.workerYields += 1;
+        this.#report.executionTiming.synchronousApiYields += 1;
         await yieldToWorkerLoop();
       }
     }
@@ -8752,6 +8898,37 @@ class BrowserRuntimeSession {
     }
     this.#synchronousApiBoundariesSinceYield = 0;
     return true;
+  }
+
+  #tunePlayInstructionBudget(
+    instructions: number,
+    sliceMilliseconds: number,
+  ): void {
+    if (
+      !playPerformanceMode ||
+      instructions <= 0 ||
+      sliceMilliseconds <= 0
+    ) {
+      return;
+    }
+    const current = this.#playInstructionBudget;
+    const measuredTarget = Math.round(
+      (instructions * PLAY_TARGET_SLICE_MILLISECONDS) / sliceMilliseconds,
+    );
+    const boundedTarget = Math.max(
+      PLAY_MINIMUM_INSTRUCTION_BUDGET,
+      Math.min(
+        PLAY_MAXIMUM_INSTRUCTION_BUDGET,
+        Math.max(Math.ceil(current / 2), Math.min(current * 2, measuredTarget)),
+      ),
+    );
+    this.#playInstructionBudget = Math.round(
+      current * 0.75 + boundedTarget * 0.25,
+    );
+    const budget = this.#report.executionTiming.instructionBudget;
+    budget.current = this.#playInstructionBudget;
+    budget.minimum = Math.min(budget.minimum, this.#playInstructionBudget);
+    budget.maximum = Math.max(budget.maximum, this.#playInstructionBudget);
   }
 
   #setWindowPosFrameChangeEventTarget(
@@ -10602,23 +10779,27 @@ class BrowserRuntimeSession {
     endpoint: number,
     stackPointer: number,
     stoppedContext: ExecutionCpuContext,
+    pendingDispatch = false,
   ): Promise<void> | null {
     const engine = this.#requireEngine();
     const preparedEndpoint = this.#preparedEndpoints.get(endpoint);
     invariant(preparedEndpoint !== undefined, "forward dispatch reached an unowned API endpoint");
+    const bridge = this.#requireBridge();
     const returnAddress = engine.readGuestU32(stackPointer);
-    const output = this.#requireBridge().dispatchForward<
+    type ForwardOutput =
       | HostRequestMetadata
       | GuestCallbackMetadata
       | CompletionMetadata
-      | ApiFaultMetadata
-    >(
-      preparedEndpoint,
-      stackPointer,
-      returnAddress,
-      this.#report.instructions,
-      stoppedContext,
-    );
+      | ApiFaultMetadata;
+    const output = pendingDispatch
+      ? bridge.takePendingForward<ForwardOutput>(preparedEndpoint, stackPointer)
+      : bridge.dispatchForward<ForwardOutput>(
+          preparedEndpoint,
+          stackPointer,
+          returnAddress,
+          this.#report.instructions,
+          stoppedContext,
+        );
     const metadata = output.metadata;
     switch (metadata.kind) {
       case "host-request": {
@@ -10787,8 +10968,15 @@ class BrowserRuntimeSession {
         interfaceName: frame.interface,
       },
       textureBacking,
+      !playPerformanceMode ||
+        (!manualPlayMode && !this.#forwardPrimaryActionResponseSignaled),
     );
-    this.#observeForwardPrimaryActionTarget();
+    if (
+      !playPerformanceMode ||
+      (!manualPlayMode && !this.#forwardPrimaryActionResponseSignaled)
+    ) {
+      this.#observeForwardPrimaryActionTarget();
+    }
     return presentation;
   }
 
@@ -19881,6 +20069,15 @@ class BrowserRuntimeSession {
       );
     }
     const sequence = reservedSequence ?? ++this.#nextBgiCallSequence;
+    if (playPerformanceMode) {
+      const summary = this.#report.forwardDevelopment;
+      if (summary !== null) {
+        summary.currentThreadId = this.#currentThreadId;
+        summary.latestLastError = completion.lastError;
+      }
+      this.#report.supportedCallCount += 1;
+      return;
+    }
     this.#captureForwardEntry({
       sequence,
       instructionCount: this.#report.instructions,
@@ -19914,6 +20111,18 @@ class BrowserRuntimeSession {
   ): void {
     const frame = metadata.call.frame;
     const sequence = ++this.#nextBgiCallSequence;
+    if (
+      playPerformanceMode &&
+      browserPresentation === undefined &&
+      !frame.interface.toLowerCase().includes("sound")
+    ) {
+      const summary = this.#report.forwardDevelopment;
+      if (summary !== null) {
+        summary.currentThreadId = this.#currentThreadId;
+      }
+      this.#report.supportedCallCount += 1;
+      return;
+    }
     this.#captureForwardEntry(
       {
         sequence,
@@ -19971,6 +20180,16 @@ class BrowserRuntimeSession {
         `Forward activation action ${action} press observed by guest`,
       );
     }
+    if (playPerformanceMode) {
+      const summary = this.#report.forwardDevelopment;
+      if (summary !== null) {
+        summary.currentThreadId = this.#currentThreadId;
+        if (call.lastError !== undefined) {
+          summary.latestLastError = call.lastError;
+        }
+      }
+      return;
+    }
     const arguments_ = call.arguments.slice(0, 16);
     this.#captureForwardEntry(
       {
@@ -20015,7 +20234,9 @@ class BrowserRuntimeSession {
     if (summary === null) {
       return;
     }
-    if (summary.semanticTail.length < summary.semanticTailCapacity) {
+    if (summary.semanticTailCapacity === 0) {
+      // Play-performance mode retains live semantics, not diagnostic history.
+    } else if (summary.semanticTail.length < summary.semanticTailCapacity) {
       summary.semanticTail.push(entry);
     } else {
       summary.semanticTail[this.#forwardTailCursor] = entry;
@@ -20075,7 +20296,8 @@ class BrowserRuntimeSession {
           pixel.slice(0, 3).some((component) => component > 7) &&
           pixel.slice(0, 3).some((component) => component < 248),
       );
-      const visiblyPopulated = populatedSamples.some(Boolean);
+      const visiblyPopulated =
+        (playPerformanceMode && manualPlayMode) || populatedSamples.some(Boolean);
       this.#forwardVisiblePresentationStreak = visiblyPopulated
         ? this.#forwardVisiblePresentationStreak + 1
         : 0;
@@ -37145,6 +37367,22 @@ class BrowserRuntimeSession {
       };
     }
     this.#terminal = true;
+    this.#report.executionTiming.budgetYieldHotspots = [
+      ...this.#budgetYieldHotspots,
+    ]
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 16)
+      .map(([instructionPointer, samples]) => ({ instructionPointer, samples }));
+    const engineMetrics = this.#engine?.performanceMetrics();
+    if (engineMetrics !== undefined) {
+      this.#report.executionTiming.jit = {
+        compilations: engineMetrics.jitCompilations,
+        clears: engineMetrics.jitClears,
+        activeFunctions: engineMetrics.jitActiveFunctions,
+        instructions: engineMetrics.jitInstructions,
+        interpretedInstructions: engineMetrics.interpretedInstructions,
+      };
+    }
     for (const resolve of this.#runnableResolvers.splice(0)) {
       resolve();
     }
@@ -37287,6 +37525,31 @@ worker.addEventListener(
               executionTiming: {
                 guestMilliseconds: 0,
                 writebackReconciliationMilliseconds: 0,
+                workerYields: 0,
+                synchronousApiYields: 0,
+                budgetYieldHotspots: [],
+                jit: {
+                  compilations: 0,
+                  clears: 0,
+                  activeFunctions: 0,
+                  instructions: 0,
+                  interpretedInstructions: 0,
+                },
+                executionIsland: {
+                  fastApiCompletions: 0,
+                  pendingDispatches: 0,
+                  writebackBatches: 0,
+                  writebackPages: 0,
+                  mirroredDeltaPages: 0,
+                },
+                instructionBudget: {
+                  adaptive: false,
+                  targetSliceMilliseconds: PLAY_TARGET_SLICE_MILLISECONDS,
+                  initial: 0,
+                  current: 0,
+                  minimum: 0,
+                  maximum: 0,
+                },
               },
               wasmBridgeCalls: 0,
               runtimeCoreLinearMemoryBytes: 0,

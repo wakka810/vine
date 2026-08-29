@@ -2,7 +2,7 @@ import type { ExecutionState, ExecutionTransition } from "./execution-state.js";
 import type { ExecutionEngineIdentity } from "./execution-engine-contract.js";
 import type { BrowserNativeStorageConfiguration } from "../storage/protocol.js";
 
-export const protocolVersion = 146 as const;
+export const protocolVersion = 147 as const;
 
 export type SessionMode = "success" | "cancel-pending" | "watchdog";
 export type PageLifecycleState = "active" | "frozen";
@@ -1220,7 +1220,7 @@ export interface RuntimeForwardDevelopmentSummary {
   mode: "forward";
   supportProfile: "generic-forward";
   historicalCheckpointBypassed: boolean;
-  semanticTailCapacity: 512;
+  semanticTailCapacity: 0 | 512;
   semanticTail: RuntimeForwardSemanticEntry[];
   largeHeapLifecycle: Array<{
     action: "allocate" | "free";
@@ -2158,6 +2158,34 @@ export interface SessionReport {
   executionTiming: {
     guestMilliseconds: number;
     writebackReconciliationMilliseconds: number;
+    workerYields: number;
+    synchronousApiYields: number;
+    budgetYieldHotspots: Array<{
+      instructionPointer: number;
+      samples: number;
+    }>;
+    jit: {
+      compilations: number;
+      clears: number;
+      activeFunctions: number;
+      instructions: number;
+      interpretedInstructions: number;
+    };
+    executionIsland: {
+      fastApiCompletions: number;
+      pendingDispatches: number;
+      writebackBatches: number;
+      writebackPages: number;
+      mirroredDeltaPages: number;
+    };
+    instructionBudget: {
+      adaptive: boolean;
+      targetSliceMilliseconds: number;
+      initial: number;
+      current: number;
+      minimum: number;
+      maximum: number;
+    };
   };
   wasmBridgeCalls: number;
   runtimeCoreLinearMemoryBytes: number;

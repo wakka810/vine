@@ -31,6 +31,13 @@ const statePatchPath = path.join(
   "patches",
   "v86-state-module.patch",
 );
+const islandPatchPath = path.join(
+  root,
+  "spikes",
+  "x86-engine",
+  "patches",
+  "v86-execution-island.patch",
+);
 const stateSourcePath = path.join(
   root,
   "spikes",
@@ -39,8 +46,18 @@ const stateSourcePath = path.join(
   "vine.rs",
 );
 const stateTargetPath = path.join(sourceDirectory, "src", "rust", "cpu", "vine.rs");
+const islandSourcePath = path.join(
+  root,
+  "spikes",
+  "x86-engine",
+  "v86",
+  "island.rs",
+);
+const islandTargetPath = path.join(sourceDirectory, "src", "rust", "cpu", "island.rs");
 const adapterCheck = path.join(root, "tools", "run-v86-adapter-spike.mjs");
 const wasmPath = path.join(sourceDirectory, "build", "v86-fallback.wasm");
+const normalWasmPath = path.join(sourceDirectory, "build", "v86-browser-v1.wasm");
+const islandWasmPath = path.join(sourceDirectory, "build", "v86-island.wasm");
 const repository = "https://github.com/copy/v86.git";
 const revision = "2f1346b0e7d88d4cbbbcc05fe15b4e369c3de23f";
 const rustVersion = "1.97.0";
@@ -87,6 +104,20 @@ function ensurePatch(patch, label) {
       `v86 source has changes that conflict with ${label}; preserve them and inspect manually`,
     );
   }
+}
+
+function ensurePatchReverted(patch, label) {
+  if (canApply(patch, [])) {
+    return;
+  }
+  if (canApply(patch, ["--reverse"])) {
+    run("git", ["-C", sourceDirectory, "apply", "--reverse", patch]);
+    console.log(`Reverted ${label}`);
+    return;
+  }
+  throw new Error(
+    `v86 source has changes that conflict with ${label}; preserve them and inspect manually`,
+  );
 }
 
 async function installRustup() {
@@ -175,7 +206,12 @@ function prepareSource() {
   );
 
   ensurePatch(boundedPatchPath, "Vine bounded-execution patch");
+  if (canApply(islandPatchPath, ["--reverse"])) {
+    run("git", ["-C", sourceDirectory, "apply", "--reverse", islandPatchPath]);
+    console.log("Reverted Vine execution-island patch");
+  }
   ensurePatch(statePatchPath, "Vine state-module patch");
+  ensurePatchReverted(islandPatchPath, "Vine execution-island patch");
 
   const expectedStateSource = fs.readFileSync(stateSourcePath);
   if (!fs.existsSync(stateTargetPath)) {
@@ -186,6 +222,17 @@ function prepareSource() {
       fs.readFileSync(stateTargetPath),
       expectedStateSource,
       "v86 state ABI source differs from the tracked overlay",
+    );
+  }
+  const expectedIslandSource = fs.readFileSync(islandSourcePath);
+  if (!fs.existsSync(islandTargetPath)) {
+    fs.copyFileSync(islandSourcePath, islandTargetPath);
+    console.log("Installed Vine execution-island source");
+  } else {
+    assert.deepEqual(
+      fs.readFileSync(islandTargetPath),
+      expectedIslandSource,
+      "v86 execution-island source differs from the tracked overlay",
     );
   }
   run("git", ["-C", sourceDirectory, "diff", "--check"]);
@@ -222,6 +269,18 @@ run("make", buildArguments, {
   env: rustEnvironment,
 });
 run(process.execPath, [adapterCheck, wasmPath]);
+fs.copyFileSync(wasmPath, normalWasmPath);
+
+ensurePatch(islandPatchPath, "Vine execution-island patch");
+run("git", ["-C", sourceDirectory, "diff", "--check"]);
+run("make", buildArguments, {
+  cwd: sourceDirectory,
+  env: rustEnvironment,
+});
+run(process.execPath, [adapterCheck, wasmPath]);
+fs.copyFileSync(wasmPath, islandWasmPath);
+ensurePatchReverted(islandPatchPath, "Vine execution-island patch");
+fs.copyFileSync(normalWasmPath, wasmPath);
 
 const rustcVersion = capture(rustc, ["--version"], {
   env: rustEnvironment,
@@ -229,8 +288,12 @@ const rustcVersion = capture(rustc, ["--version"], {
 const clangVersion = capture("clang", ["--version"]).split("\n", 1)[0];
 const wasmBytes = fs.readFileSync(wasmPath);
 const wasmSha256 = crypto.createHash("sha256").update(wasmBytes).digest("hex");
+const islandBytes = fs.readFileSync(islandWasmPath);
+const islandSha256 = crypto.createHash("sha256").update(islandBytes).digest("hex");
 console.log(
   `v86 adapter ready: ${path.relative(root, wasmPath)}\n` +
     `${wasmBytes.byteLength} bytes; sha256 ${wasmSha256}\n` +
+    `execution island: ${path.relative(root, islandWasmPath)}\n` +
+    `${islandBytes.byteLength} bytes; sha256 ${islandSha256}\n` +
     `${rustcVersion}; ${clangVersion}`,
 );

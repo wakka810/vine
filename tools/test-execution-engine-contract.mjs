@@ -244,6 +244,13 @@ assert.deepEqual(trap.stop, {
   errorCode: -1,
 });
 assert.equal(trap.context.instructionPointer, codeAddress + 10);
+assert.deepEqual(engine.performanceMetrics(), {
+  jitCompilations: 0,
+  jitClears: 0,
+  jitActiveFunctions: 0,
+  jitInstructions: 0,
+  interpretedInstructions: 3,
+});
 
 engine.applyStoppedCpuResume({
   instructionPointer: codeAddress,
