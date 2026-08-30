@@ -25,9 +25,9 @@ const adapterProfiles = Object.freeze([
     hasCanonicalReportFingerprints: false,
   }),
   Object.freeze({
-    id: "windows-gnu-packed-f32-fallback-v20",
-    bytes: 1_872_295,
-    sha256: "46855e6fb2bc7cfbb86e1ba94ac391c5a650af09375c4bdf657d5a5374cd3ba0",
+    id: "windows-gnu-packed-convert-fallback-v22",
+    bytes: 1_879_176,
+    sha256: "a0fddf3be247c73581801834eedd7610067e931a21769740d3b6c50b3e7c98e9",
     exports: 824,
     hasCanonicalReportFingerprints: false,
   }),

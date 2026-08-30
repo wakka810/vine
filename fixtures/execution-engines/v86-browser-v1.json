@@ -24,14 +24,14 @@
       "sha256": "d7faadb387c09913e0ecb266a01981864e4c6e330f56cd1df80adccc35feb661"
     },
     {
-      "hostProfile": "windows-gnu-packed-f32-fallback-v20",
-      "bytes": 1872295,
-      "sha256": "46855e6fb2bc7cfbb86e1ba94ac391c5a650af09375c4bdf657d5a5374cd3ba0"
+      "hostProfile": "windows-gnu-packed-convert-fallback-v22",
+      "bytes": 1879176,
+      "sha256": "a0fddf3be247c73581801834eedd7610067e931a21769740d3b6c50b3e7c98e9"
     },
     {
-      "hostProfile": "windows-gnu-execution-island-packed-f32-v20",
-      "bytes": 7618071,
-      "sha256": "e10ca17c655569e7ee77703a2e3e524d4856b419dc0fbbca81a71f5efbcfd579"
+      "hostProfile": "windows-gnu-execution-island-packed-convert-v22",
+      "bytes": 7622354,
+      "sha256": "88dc495e4fa29818ed65e302ce41a201f9fbb1f4151e9e9645af3a2c38e465fb"
     }
   ]
 }
