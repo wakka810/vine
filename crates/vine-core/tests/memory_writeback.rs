@@ -131,6 +131,58 @@ fn reconciles_binary_multi_page_cpu_writeback_into_rust_authority() {
 }
 
 #[test]
+fn reconciles_large_borrowed_page_batch_without_losing_atomicity() {
+    const BASE: GuestAddress = GuestAddress(0x6000_0000);
+    const PAGE_COUNT: usize = 32;
+    let mut memory = GuestMemory::new(MemoryLimits {
+        max_physical_pages: PAGE_COUNT,
+        max_regions: 1,
+        max_owners: 1,
+        max_access_bytes: GUEST_PAGE_SIZE as usize,
+    })
+    .expect("memory");
+    install_region(
+        &mut memory,
+        BASE,
+        PAGE_COUNT as u64,
+        MemoryRegionKind::Heap,
+        false,
+    );
+    let reflection = memory.pending_reflection().expect("reflection");
+    let generation = reflection.invalidation.generation;
+    memory.acknowledge_delta(generation).expect("acknowledge");
+    let bytes = (1..=PAGE_COUNT)
+        .map(|value| vec![value as u8; GUEST_PAGE_SIZE as usize])
+        .collect::<Vec<_>>();
+    let pages = bytes
+        .iter()
+        .enumerate()
+        .map(|(index, bytes)| {
+            (
+                BASE.0 + index as u32 * GUEST_PAGE_SIZE as u32,
+                bytes.as_slice(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let receipt = memory
+        .reconcile_cpu_writeback_pages_fast(generation, &pages)
+        .expect("large borrowed-page CPU writeback");
+    assert_eq!(receipt.touched_pages, PAGE_COUNT);
+    assert_eq!(receipt.changed_pages, PAGE_COUNT);
+    assert_eq!(receipt.generation, generation + 1);
+    assert_eq!(
+        memory
+            .read(
+                GuestAddress(BASE.0 + (PAGE_COUNT - 1) as u32 * GUEST_PAGE_SIZE as u32),
+                1,
+            )
+            .unwrap(),
+        [PAGE_COUNT as u8],
+    );
+}
+
+#[test]
 fn rejects_invalid_cpu_writeback_without_partial_authority_change() {
     let (mut memory, reflection, owners) = reflected_fixture();
     let stats_before = memory.stats();

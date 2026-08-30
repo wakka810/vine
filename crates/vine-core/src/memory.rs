@@ -559,6 +559,48 @@ struct CpuWritebackBatchView<'a> {
     pages: Vec<CpuWritebackPageView<'a>>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct CpuWritebackPageInput<'a> {
+    address: GuestAddress,
+    owner: Option<MemoryOwnerId>,
+    bytes: &'a [u8],
+}
+
+enum CpuWritebackPages<'a> {
+    Described(&'a [CpuWritebackPageView<'a>]),
+    CurrentOwner(&'a [(u32, &'a [u8])]),
+}
+
+impl<'a> CpuWritebackPages<'a> {
+    fn len(&self) -> usize {
+        match self {
+            Self::Described(pages) => pages.len(),
+            Self::CurrentOwner(pages) => pages.len(),
+        }
+    }
+
+    fn get(&self, index: usize) -> CpuWritebackPageInput<'a> {
+        match self {
+            Self::Described(pages) => {
+                let page = pages[index];
+                CpuWritebackPageInput {
+                    address: page.address,
+                    owner: Some(page.owner),
+                    bytes: page.bytes,
+                }
+            }
+            Self::CurrentOwner(pages) => {
+                let &(address, bytes) = &pages[index];
+                CpuWritebackPageInput {
+                    address: GuestAddress(address),
+                    owner: None,
+                    bytes,
+                }
+            }
+        }
+    }
+}
+
 impl CpuWritebackBatch {
     pub fn encode_binary(&self) -> Result<CpuWritebackBuffers, GuestMemoryError> {
         let page_count = u32::try_from(self.pages.len()).map_err(|_| {
@@ -2881,7 +2923,11 @@ impl GuestMemory {
         page_bytes: &[u8],
     ) -> Result<CpuWritebackReceipt, GuestMemoryError> {
         let batch = decode_cpu_writeback_view(control, page_bytes, self.limits.max_physical_pages)?;
-        let (receipt, content_sha256) = self.reconcile_cpu_writeback_view(&batch, true)?;
+        let (receipt, content_sha256) = self.reconcile_cpu_writeback_view(
+            batch.base_generation,
+            CpuWritebackPages::Described(&batch.pages),
+            true,
+        )?;
         Ok(CpuWritebackReceipt {
             from_generation: receipt.from_generation,
             generation: receipt.generation,
@@ -2901,44 +2947,25 @@ impl GuestMemory {
         page_bytes: &[u8],
     ) -> Result<CpuWritebackFastReceipt, GuestMemoryError> {
         let batch = decode_cpu_writeback_view(control, page_bytes, self.limits.max_physical_pages)?;
-        let (receipt, content_sha256) = self.reconcile_cpu_writeback_view(&batch, false)?;
+        let (receipt, content_sha256) = self.reconcile_cpu_writeback_view(
+            batch.base_generation,
+            CpuWritebackPages::Described(&batch.pages),
+            false,
+        )?;
         debug_assert!(content_sha256.is_none());
         Ok(receipt)
     }
 
-    pub fn reconcile_cpu_writeback_pages_fast(
+    pub fn reconcile_cpu_writeback_pages_fast<'a>(
         &mut self,
         base_generation: u64,
-        pages: &[(u32, &[u8])],
+        pages: &'a [(u32, &'a [u8])],
     ) -> Result<CpuWritebackFastReceipt, GuestMemoryError> {
-        let pages = pages
-            .iter()
-            .map(|(address, bytes)| {
-                let address = GuestAddress(*address);
-                let virtual_page = address.0 >> 12;
-                let owner = self
-                    .pages
-                    .get(&virtual_page)
-                    .map(|page| page.owner)
-                    .ok_or_else(|| {
-                        GuestMemoryError::invalid_request(
-                            "cpu-writeback",
-                            "cpu-writeback-page-unmapped",
-                            "CPU writeback names an unmapped guest page",
-                        )
-                    })?;
-                Ok(CpuWritebackPageView {
-                    address,
-                    owner,
-                    bytes,
-                })
-            })
-            .collect::<Result<Vec<_>, GuestMemoryError>>()?;
-        let batch = CpuWritebackBatchView {
+        let (receipt, content_sha256) = self.reconcile_cpu_writeback_view(
             base_generation,
-            pages,
-        };
-        let (receipt, content_sha256) = self.reconcile_cpu_writeback_view(&batch, false)?;
+            CpuWritebackPages::CurrentOwner(pages),
+            false,
+        )?;
         debug_assert!(content_sha256.is_none());
         Ok(receipt)
     }
@@ -2960,7 +2987,11 @@ impl GuestMemory {
             base_generation: batch.base_generation,
             pages,
         };
-        let (receipt, content_sha256) = self.reconcile_cpu_writeback_view(&view, true)?;
+        let (receipt, content_sha256) = self.reconcile_cpu_writeback_view(
+            view.base_generation,
+            CpuWritebackPages::Described(&view.pages),
+            true,
+        )?;
         Ok(CpuWritebackReceipt {
             from_generation: receipt.from_generation,
             generation: receipt.generation,
@@ -2976,7 +3007,8 @@ impl GuestMemory {
 
     fn reconcile_cpu_writeback_view(
         &mut self,
-        batch: &CpuWritebackBatchView<'_>,
+        base_generation: u64,
+        pages: CpuWritebackPages<'_>,
         include_content_hash: bool,
     ) -> Result<(CpuWritebackFastReceipt, Option<String>), GuestMemoryError> {
         self.ensure_synchronized()?;
@@ -2987,25 +3019,23 @@ impl GuestMemory {
                 "a full memory reflection must be acknowledged before CPU writeback",
             ));
         }
-        if batch.base_generation != self.generation
-            || batch.base_generation != self.acknowledged_generation
-        {
+        if base_generation != self.generation || base_generation != self.acknowledged_generation {
             return Err(GuestMemoryError::conflict(
                 "cpu-writeback",
                 "cpu-writeback-generation-conflict",
                 format!(
                     "CPU writeback generation {} does not match synchronized generation {}",
-                    batch.base_generation, self.acknowledged_generation
+                    base_generation, self.acknowledged_generation
                 ),
             ));
         }
-        if batch.pages.len() > self.limits.max_physical_pages {
+        if pages.len() > self.limits.max_physical_pages {
             return Err(GuestMemoryError::resource_limit(
                 "cpu-writeback",
                 "cpu-writeback-page-limit-exceeded",
                 format!(
                     "CPU writeback contains {} pages; limit is {}",
-                    batch.pages.len(),
+                    pages.len(),
                     self.limits.max_physical_pages
                 ),
             ));
@@ -3013,11 +3043,14 @@ impl GuestMemory {
 
         // ponytail: small live batches use a bounded quadratic duplicate check; larger or hashed
         // batches retain sorted order.
-        let order = if include_content_hash || batch.pages.len() > 16 {
-            let mut order = (0..batch.pages.len()).collect::<Vec<_>>();
-            order.sort_unstable_by_key(|index| batch.pages[*index].address);
+        let mut inline_changed = [(0usize, FrameId(0)); 16];
+        let mut heap_changed =
+            (pages.len() > inline_changed.len()).then(|| Vec::with_capacity(pages.len()));
+        let order = if include_content_hash || pages.len() > inline_changed.len() {
+            let mut order = (0..pages.len()).collect::<Vec<_>>();
+            order.sort_unstable_by_key(|index| pages.get(*index).address);
             for pair in order.windows(2) {
-                if batch.pages[pair[0]].address == batch.pages[pair[1]].address {
+                if pages.get(pair[0]).address == pages.get(pair[1]).address {
                     return Err(GuestMemoryError::conflict(
                         "cpu-writeback",
                         "cpu-writeback-duplicate-page",
@@ -3027,11 +3060,9 @@ impl GuestMemory {
             }
             Some(order)
         } else {
-            for (index, page) in batch.pages.iter().enumerate() {
-                if batch.pages[..index]
-                    .iter()
-                    .any(|previous| previous.address == page.address)
-                {
+            for index in 0..pages.len() {
+                let address = pages.get(index).address;
+                if (0..index).any(|previous| pages.get(previous).address == address) {
                     return Err(GuestMemoryError::conflict(
                         "cpu-writeback",
                         "cpu-writeback-duplicate-page",
@@ -3042,16 +3073,16 @@ impl GuestMemory {
             None
         };
 
-        let mut changed_order = Vec::with_capacity(batch.pages.len());
+        let mut changed_pages = 0usize;
         let mut executable_pages = 0usize;
         let mut changed_bytes = 0u64;
         let mut hasher = include_content_hash.then(Sha256::new);
         if let Some(hasher) = &mut hasher {
-            hasher.update(batch.base_generation.to_le_bytes());
+            hasher.update(base_generation.to_le_bytes());
         }
-        for offset in 0..batch.pages.len() {
+        for offset in 0..pages.len() {
             let index = order.as_ref().map_or(offset, |order| order[offset]);
-            let writeback = &batch.pages[index];
+            let writeback = pages.get(index);
             if !writeback.address.0.is_multiple_of(GUEST_PAGE_SIZE as u32) {
                 return Err(GuestMemoryError::invalid_request(
                     "cpu-writeback",
@@ -3066,8 +3097,22 @@ impl GuestMemory {
                     "CPU writeback must provide exactly one page per dirty-page descriptor",
                 ));
             }
+            let expected_owner = match writeback.owner {
+                Some(owner) => owner,
+                None => self
+                    .pages
+                    .get(&(writeback.address.0 >> 12))
+                    .map(|page| page.owner)
+                    .ok_or_else(|| {
+                        GuestMemoryError::invalid_request(
+                            "cpu-writeback",
+                            "cpu-writeback-page-unmapped",
+                            "CPU writeback names an unmapped guest page",
+                        )
+                    })?,
+            };
             let page = self.preflight_cpu_writeback_page(writeback.address)?;
-            if page.owner != writeback.owner {
+            if page.owner != expected_owner {
                 return Err(GuestMemoryError::conflict(
                     "cpu-writeback",
                     "cpu-writeback-page-owner-mismatch",
@@ -3085,7 +3130,12 @@ impl GuestMemory {
             let page_changed_bytes =
                 count_changed_bytes(self.frames.bytes(page.frame)?, writeback.bytes);
             if page_changed_bytes != 0 {
-                changed_order.push((index, page.frame));
+                if let Some(changed) = &mut heap_changed {
+                    changed.push((index, page.frame));
+                } else {
+                    inline_changed[changed_pages] = (index, page.frame);
+                }
+                changed_pages += 1;
                 changed_bytes = changed_bytes
                     .checked_add(page_changed_bytes as u64)
                     .ok_or_else(|| {
@@ -3098,14 +3148,13 @@ impl GuestMemory {
             }
             if let Some(hasher) = &mut hasher {
                 hasher.update(writeback.address.0.to_le_bytes());
-                hasher.update(writeback.owner.0.to_le_bytes());
+                hasher.update(page.owner.0.to_le_bytes());
                 hasher.update(writeback.bytes);
             }
         }
 
         let from_generation = self.generation;
-        let changed_pages = changed_order.len();
-        let transferred_bytes = (batch.pages.len() as u64)
+        let transferred_bytes = (pages.len() as u64)
             .checked_mul(GUEST_PAGE_SIZE)
             .ok_or_else(|| {
                 GuestMemoryError::resource_limit(
@@ -3120,8 +3169,12 @@ impl GuestMemory {
             self.next_generation()?
         };
         if changed_pages != 0 {
-            for &(index, frame) in &changed_order {
-                let writeback = &batch.pages[index];
+            let changed_order = match &heap_changed {
+                Some(changed) => changed.as_slice(),
+                None => &inline_changed[..changed_pages],
+            };
+            for &(index, frame) in changed_order {
+                let writeback = pages.get(index);
                 self.frames
                     .bytes_mut(frame)
                     .expect("preflighted CPU writeback frame disappeared")
@@ -3135,9 +3188,9 @@ impl GuestMemory {
             CpuWritebackFastReceipt {
                 from_generation,
                 generation,
-                touched_pages: batch.pages.len(),
+                touched_pages: pages.len(),
                 changed_pages,
-                unchanged_pages: batch.pages.len() - changed_pages,
+                unchanged_pages: pages.len() - changed_pages,
                 executable_pages,
                 changed_bytes,
                 transferred_bytes,
