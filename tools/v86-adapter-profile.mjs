@@ -24,6 +24,13 @@ const adapterProfiles = Object.freeze([
     exports: 824,
     hasCanonicalReportFingerprints: false,
   }),
+  Object.freeze({
+    id: "windows-gnu-packed-simd-fallback-v17",
+    bytes: 1_868_639,
+    sha256: "e8d87c73eeedb12fc1cf5134a406737bd9dcbf3a07a69aecec6ade3185c1167d",
+    exports: 824,
+    hasCanonicalReportFingerprints: false,
+  }),
 ]);
 
 export function resolveV86AdapterProfile(wasmBytes) {

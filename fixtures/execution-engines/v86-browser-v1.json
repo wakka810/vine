@@ -24,9 +24,14 @@
       "sha256": "d7faadb387c09913e0ecb266a01981864e4c6e330f56cd1df80adccc35feb661"
     },
     {
-      "hostProfile": "windows-gnu-execution-island-direct-generation-v16",
-      "bytes": 7604410,
-      "sha256": "c78d3b9dda85890cd75ba063dbe62239655d2a5d6786a080d1ed59f209d76e2a"
+      "hostProfile": "windows-gnu-packed-simd-fallback-v17",
+      "bytes": 1868639,
+      "sha256": "e8d87c73eeedb12fc1cf5134a406737bd9dcbf3a07a69aecec6ade3185c1167d"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-packed-simd-v17",
+      "bytes": 7612562,
+      "sha256": "bf11379df7f6ff198fbfe77ee22fef5f4eab69026c8ad2ce3adace6a8198ec2b"
     }
   ]
 }

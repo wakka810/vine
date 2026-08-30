@@ -24,6 +24,13 @@ const boundedPatchPath = path.join(
   "patches",
   "v86-bounded-execution.patch",
 );
+const packedSimdPatchPath = path.join(
+  root,
+  "spikes",
+  "x86-engine",
+  "patches",
+  "v86-packed-simd-jit.patch",
+);
 const statePatchPath = path.join(
   root,
   "spikes",
@@ -206,6 +213,7 @@ function prepareSource() {
   );
 
   ensurePatch(boundedPatchPath, "Vine bounded-execution patch");
+  ensurePatch(packedSimdPatchPath, "Vine packed-SIMD JIT patch");
   if (canApply(islandPatchPath, ["--reverse"])) {
     run("git", ["-C", sourceDirectory, "apply", "--reverse", islandPatchPath]);
     console.log("Reverted Vine execution-island patch");
