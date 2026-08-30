@@ -1072,6 +1072,8 @@ export class RuntimeBridge {
       "kernel32.set-last-error.v1",
       "kernel32.tls-get-value.v1",
       "kernel32.fls-get-value.v1",
+      "user32.get-cursor-info.current-cursor.v2",
+      "user32.translate-message.window-timer-pointer-noop.v2",
     ][words[1] ?? 0];
     invariant(implementationId !== undefined && implementationId.length > 0, "unknown fast API implementation");
     const argumentCount = words[19] ?? 0;

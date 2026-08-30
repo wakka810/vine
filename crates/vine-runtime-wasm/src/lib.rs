@@ -252,6 +252,8 @@ fn fast_dispatch_implementation_code(implementation: &str) -> Option<u32> {
         vine_core::SET_LAST_ERROR_IMPLEMENTATION => Some(15),
         vine_core::TLS_GET_VALUE_IMPLEMENTATION => Some(16),
         vine_core::FLS_GET_VALUE_IMPLEMENTATION => Some(17),
+        vine_core::GET_CURSOR_INFO_IMPLEMENTATION => Some(18),
+        vine_core::TRANSLATE_MESSAGE_IMPLEMENTATION => Some(19),
         _ => None,
     }
 }
@@ -268,6 +270,7 @@ fn fast_dispatch_write_shape_supported(
                 == match implementation {
                     vine_core::ENTER_CRITICAL_SECTION_IMPLEMENTATION
                     | vine_core::LEAVE_CRITICAL_SECTION_IMPLEMENTATION => Some(24),
+                    vine_core::GET_CURSOR_INFO_IMPLEMENTATION => Some(20),
                     vine_core::GET_CURSOR_POS_IMPLEMENTATION => Some(8),
                     vine_core::GET_WINDOW_RECT_IMPLEMENTATION => Some(16),
                     vine_core::PEEK_MESSAGE_A_IMPLEMENTATION => Some(28),
@@ -6348,6 +6351,14 @@ mod tests {
             fast_dispatch_implementation_code(vine_core::FLS_GET_VALUE_IMPLEMENTATION),
             Some(17),
         );
+        assert_eq!(
+            fast_dispatch_implementation_code(vine_core::GET_CURSOR_INFO_IMPLEMENTATION),
+            Some(18),
+        );
+        assert_eq!(
+            fast_dispatch_implementation_code(vine_core::TRANSLATE_MESSAGE_IMPLEMENTATION),
+            Some(19),
+        );
         assert!(fast_dispatch_write_shape_supported(
             vine_core::GET_ASYNC_KEY_STATE_IMPLEMENTATION,
             0,
@@ -6357,6 +6368,11 @@ mod tests {
             vine_core::ENTER_CRITICAL_SECTION_IMPLEMENTATION,
             1,
             Some(24),
+        ));
+        assert!(fast_dispatch_write_shape_supported(
+            vine_core::GET_CURSOR_INFO_IMPLEMENTATION,
+            1,
+            Some(20),
         ));
         assert!(fast_dispatch_write_shape_supported(
             vine_core::GET_CURSOR_POS_IMPLEMENTATION,
