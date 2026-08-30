@@ -35,6 +35,10 @@ const stateOffset = {
   protectedMode: 800,
   operandSize32: 804,
   stackSize32: 808,
+  fpuStackEmpty: 816,
+  xmm: 832,
+  fpuStackPtr: 1032,
+  fpuSt: 1152,
 };
 
 const guest = {
@@ -825,6 +829,68 @@ assert.deepEqual(
   packedSimdInterpreter,
   "packed SIMD JIT diverged from the interpreter",
 );
+
+const mmxMoveProgram = Uint8Array.from([
+  0xb9, 0xa0, 0x86, 0x01, 0x00,
+  0x0f, 0x6f, 0x05, 0x00, 0x21, 0x00, 0x00,
+  0x0f, 0x6f, 0xc8,
+  0x0f, 0x7f, 0xca,
+  0xf3, 0x0f, 0xd6, 0xda,
+  0xf2, 0x0f, 0xd6, 0xe3,
+  0x0f, 0x7f, 0x25, 0x08, 0x21, 0x00, 0x00,
+  0x49,
+  0x75, 0xe1,
+  0xf4,
+]);
+
+async function runMmxMoves(disableJit) {
+  wasm.jit_clear_cache_js();
+  wasm.set_jit_config(0, disableJit ? 1 : 0);
+  configure(mmxMoveProgram, 0);
+  memory.set([0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef], 0x2100);
+  const compileCallsBefore = hostImportCalls.codegen_finalize ?? 0;
+  let reason = stopReason.budget;
+  let slices = 0;
+  while (reason === stopReason.budget) {
+    reason = wasm.vine_execute_budget(250_000);
+    await Promise.resolve();
+    refreshViews();
+    slices += 1;
+    assert(slices < 16, "MMX move loop did not halt within its bounded slices");
+  }
+  assert.equal(reason, stopReason.halt);
+  return {
+    output: [...memory.subarray(0x2108, 0x2110)],
+    xmm3: [
+      ...new Uint8Array(wasm.memory.buffer, stateOffset.xmm + 3 * 16, 16),
+    ],
+    mmxMetadata: [0, 1, 2, 4].map((register) =>
+      state.getUint16(stateOffset.fpuSt + register * 16 + 8, true)),
+    fpuStackEmpty: state.getUint8(stateOffset.fpuStackEmpty),
+    fpuStackPtr: state.getUint8(stateOffset.fpuStackPtr),
+    instructionCount: wasm.vine_instruction_counter(),
+    compiled: (hostImportCalls.codegen_finalize ?? 0) > compileCallsBefore,
+  };
+}
+
+const mmxMoveInterpreter = await runMmxMoves(true);
+const mmxMoveJit = await runMmxMoves(false);
+assert.equal(mmxMoveJit.compiled, true, "MMX move loop did not compile");
+assert.deepEqual(
+  { ...mmxMoveJit, compiled: false },
+  mmxMoveInterpreter,
+  "MMX move JIT diverged from the interpreter",
+);
+assert.deepEqual(mmxMoveJit.output, [
+  0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+]);
+assert.deepEqual(mmxMoveJit.xmm3, [
+  0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+  0, 0, 0, 0, 0, 0, 0, 0,
+]);
+assert.deepEqual(mmxMoveJit.mmxMetadata, [0xffff, 0xffff, 0xffff, 0xffff]);
+assert.equal(mmxMoveJit.fpuStackEmpty, 0);
+assert.equal(mmxMoveJit.fpuStackPtr, 0);
 
 const forbiddenCalls = Object.keys(hostImportCalls).filter(
   (name) =>

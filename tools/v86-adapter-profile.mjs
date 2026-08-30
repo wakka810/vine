@@ -25,9 +25,9 @@ const adapterProfiles = Object.freeze([
     hasCanonicalReportFingerprints: false,
   }),
   Object.freeze({
-    id: "windows-gnu-packed-simd-fallback-v18",
-    bytes: 1_865_791,
-    sha256: "57e258c127e81e68bb23dfc19aaaef3f8cb5ce19073fbcf4ac67c7fc3c39d01e",
+    id: "windows-gnu-mmx-moves-fallback-v19",
+    bytes: 1_878_442,
+    sha256: "287af0ccb3c8ea1638748dccd2abead0c2dfe80b12e40c50845fa212102bcd94",
     exports: 824,
     hasCanonicalReportFingerprints: false,
   }),
