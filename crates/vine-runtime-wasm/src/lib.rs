@@ -5485,7 +5485,7 @@ pub fn execution_island_memory_generation() -> Result<u64, String> {
             .runtime
             .as_ref()
             .ok_or_else(|| "runtime bridge is not prepared".to_owned())?;
-        Ok(runtime.memory.stats().generation)
+        Ok(runtime.memory.synchronization_state().generation)
     })
 }
 
@@ -5499,7 +5499,7 @@ pub fn execution_island_reconcile_cpu_pages(
     BRIDGE.with(|cell| {
         let mut bridge = cell.borrow_mut();
         let runtime = bridge.runtime_mut()?;
-        let generation = runtime.memory.stats().generation;
+        let generation = runtime.memory.synchronization_state().generation;
         runtime
             .memory
             .reconcile_cpu_writeback_pages_fast(generation, pages)

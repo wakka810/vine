@@ -24,9 +24,9 @@
       "sha256": "d7faadb387c09913e0ecb266a01981864e4c6e330f56cd1df80adccc35feb661"
     },
     {
-      "hostProfile": "windows-gnu-execution-island-user32-hot-fast-v15",
-      "bytes": 7604473,
-      "sha256": "ca4ca6661bbf2276120c2a5be95d7af878c1d36af56020279a044df96f6ffafa"
+      "hostProfile": "windows-gnu-execution-island-direct-generation-v16",
+      "bytes": 7604410,
+      "sha256": "c78d3b9dda85890cd75ba063dbe62239655d2a5d6786a080d1ed59f209d76e2a"
     }
   ]
 }
