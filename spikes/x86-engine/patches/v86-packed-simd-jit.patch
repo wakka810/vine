@@ -1,8 +1,8 @@
 diff --git a/src/rust/jit_instructions.rs b/src/rust/jit_instructions.rs
-index 142c522..4e07e9b 100644
+index 142c522..6052a3f 100644
 --- a/src/rust/jit_instructions.rs
 +++ b/src/rust/jit_instructions.rs
-@@ -211,6 +211,21 @@ fn sse_read128_xmm_xmm_imm(ctx: &mut JitContext, name: &str, r1: u32, r2: u32, i
+@@ -211,6 +211,33 @@ fn sse_read128_xmm_xmm_imm(ctx: &mut JitContext, name: &str, r1: u32, r2: u32, i
      ctx.builder.const_i32(imm as i32);
      ctx.builder.call_fn3(name);
  }
@@ -21,10 +21,22 @@ index 142c522..4e07e9b 100644
 +fn unpack_low_bytes(builder: &mut WasmBuilder) {
 +    builder.i8x16_shuffle([0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23]);
 +}
++fn sse_shift_v128(
++    ctx: &mut JitContext,
++    destination: u32,
++    amount: u32,
++    operation: fn(&mut WasmBuilder),
++) {
++    ctx.builder.const_i32(destination as i32);
++    ctx.builder.load_fixed_v128(destination);
++    ctx.builder.const_i32(amount as i32);
++    operation(ctx.builder);
++    ctx.builder.store_aligned_v128(0);
++}
  fn sse_mov_xmm_xmm(ctx: &mut JitContext, r1: u32, r2: u32) {
      ctx.builder
          .const_i32(global_pointers::get_reg_xmm_offset(r2) as i32);
-@@ -6359,11 +6374,17 @@ pub fn instr_0F6B_reg_jit(ctx: &mut JitContext, r1: u32, r2: u32) {
+@@ -6359,11 +6386,17 @@ pub fn instr_0F6B_reg_jit(ctx: &mut JitContext, r1: u32, r2: u32) {
  }
  
  pub fn instr_660F60_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte, r: u32) {
@@ -45,7 +57,7 @@ index 142c522..4e07e9b 100644
  }
  pub fn instr_660F61_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte, r: u32) {
      // Note: Only requires 64-bit read, but is allowed to do 128-bit read
-@@ -6435,10 +6456,22 @@ pub fn instr_660F66_reg_jit(ctx: &mut JitContext, r1: u32, r2: u32) {
+@@ -6435,10 +6468,22 @@ pub fn instr_660F66_reg_jit(ctx: &mut JitContext, r1: u32, r2: u32) {
      sse_read128_xmm_xmm(ctx, "instr_660F66", r1, r2);
  }
  pub fn instr_660F67_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte, r: u32) {
@@ -70,7 +82,39 @@ index 142c522..4e07e9b 100644
  }
  pub fn instr_660F68_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte, r: u32) {
      sse_read128_xmm_mem(ctx, "instr_660F68", modrm_byte, r);
-@@ -7327,10 +7360,22 @@ pub fn instr_660FD4_reg_jit(ctx: &mut JitContext, r1: u32, r2: u32) {
+@@ -6654,17 +6699,25 @@ pub fn instr_660F71_2_mem_jit(ctx: &mut JitContext, _modrm_byte: ModrmByte, _imm
+     codegen::gen_trigger_ud(ctx);
+ }
+ pub fn instr_660F71_2_reg_jit(ctx: &mut JitContext, r: u32, imm8: u32) {
+-    ctx.builder.const_i32(r as i32);
+-    ctx.builder.const_i32(imm8 as i32);
+-    ctx.builder.call_fn2("instr_660F71_2_reg");
++    if imm8 < 16 {
++        sse_shift_v128(ctx, global_pointers::get_reg_xmm_offset(r), imm8, WasmBuilder::shr_u_i16x8);
++    }
++    else {
++        ctx.builder.const_i32(r as i32);
++        ctx.builder.const_i32(imm8 as i32);
++        ctx.builder.call_fn2("instr_660F71_2_reg");
++    }
+ }
+ pub fn instr_660F71_4_mem_jit(ctx: &mut JitContext, _modrm_byte: ModrmByte, _imm: u32) {
+     codegen::gen_trigger_ud(ctx);
+ }
+ pub fn instr_660F71_4_reg_jit(ctx: &mut JitContext, r: u32, imm8: u32) {
+-    ctx.builder.const_i32(r as i32);
+-    ctx.builder.const_i32(imm8 as i32);
+-    ctx.builder.call_fn2("instr_660F71_4_reg");
++    sse_shift_v128(
++        ctx,
++        global_pointers::get_reg_xmm_offset(r),
++        imm8.min(15),
++        WasmBuilder::shr_s_i16x8,
++    );
+ }
+ pub fn instr_660F71_6_mem_jit(ctx: &mut JitContext, _modrm_byte: ModrmByte, _imm: u32) {
+     codegen::gen_trigger_ud(ctx);
+@@ -7327,10 +7380,22 @@ pub fn instr_660FD4_reg_jit(ctx: &mut JitContext, r1: u32, r2: u32) {
      sse_read128_xmm_xmm(ctx, "instr_660FD4", r1, r2);
  }
  pub fn instr_660FD5_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte, r: u32) {
@@ -95,7 +139,7 @@ index 142c522..4e07e9b 100644
  }
  
  pub fn instr_660FD6_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte, r: u32) {
-@@ -7775,10 +7820,22 @@ pub fn instr_660FF8_reg_jit(ctx: &mut JitContext, r1: u32, r2: u32) {
+@@ -7775,10 +7840,22 @@ pub fn instr_660FF8_reg_jit(ctx: &mut JitContext, r1: u32, r2: u32) {
      sse_read128_xmm_xmm(ctx, "instr_660FF8", r1, r2);
  }
  pub fn instr_660FF9_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte, r: u32) {
@@ -120,8 +164,33 @@ index 142c522..4e07e9b 100644
  }
  pub fn instr_660FFA_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte, r: u32) {
      sse_read128_xmm_mem(ctx, "instr_660FFA", modrm_byte, r);
+@@ -7799,10 +7876,22 @@ pub fn instr_660FFC_reg_jit(ctx: &mut JitContext, r1: u32, r2: u32) {
+     sse_read128_xmm_xmm(ctx, "instr_660FFC", r1, r2);
+ }
+ pub fn instr_660FFD_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte, r: u32) {
+-    sse_read128_xmm_mem(ctx, "instr_660FFD", modrm_byte, r);
++    let source = global_pointers::sse_scratch_register as u32;
++    codegen::gen_modrm_resolve_safe_read128(ctx, modrm_byte, source);
++    sse_binary_v128(
++        ctx,
++        source,
++        global_pointers::get_reg_xmm_offset(r),
++        WasmBuilder::add_i16x8,
++    );
+ }
+ pub fn instr_660FFD_reg_jit(ctx: &mut JitContext, r1: u32, r2: u32) {
+-    sse_read128_xmm_xmm(ctx, "instr_660FFD", r1, r2);
++    sse_binary_v128(
++        ctx,
++        global_pointers::get_reg_xmm_offset(r1),
++        global_pointers::get_reg_xmm_offset(r2),
++        WasmBuilder::add_i16x8,
++    );
+ }
+ pub fn instr_660FFE_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte, r: u32) {
+     sse_read128_xmm_mem(ctx, "instr_660FFE", modrm_byte, r);
 diff --git a/src/rust/wasmgen/wasm_builder.rs b/src/rust/wasmgen/wasm_builder.rs
-index 40ce194..28b1583 100644
+index 40ce194..6f1cdb8 100644
 --- a/src/rust/wasmgen/wasm_builder.rs
 +++ b/src/rust/wasmgen/wasm_builder.rs
 @@ -684,6 +684,12 @@ impl WasmBuilder {
@@ -163,7 +232,7 @@ index 40ce194..28b1583 100644
      pub fn store_unaligned_u16(&mut self, byte_offset: u32) {
          self.instruction_body.push(op::OP_I32STORE16);
          self.instruction_body.push(op::MEM_NO_ALIGN);
-@@ -800,6 +818,19 @@ impl WasmBuilder {
+@@ -800,6 +818,22 @@ impl WasmBuilder {
      pub fn div_i64(&mut self) { self.instruction_body.push(op::OP_I64DIVU); }
      pub fn rem_i64(&mut self) { self.instruction_body.push(op::OP_I64REMU); }
  
@@ -177,6 +246,9 @@ index 40ce194..28b1583 100644
 +        self.instruction_body.extend(lanes);
 +    }
 +    pub fn i8x16_narrow_i16x8_u(&mut self) { self.simd(op::SIMD_I8X16_NARROW_I16X8_U); }
++    pub fn shr_s_i16x8(&mut self) { self.simd(op::SIMD_I16X8_SHR_S); }
++    pub fn shr_u_i16x8(&mut self) { self.simd(op::SIMD_I16X8_SHR_U); }
++    pub fn add_i16x8(&mut self) { self.simd(op::SIMD_I16X8_ADD); }
 +    pub fn sub_i16x8(&mut self) { self.simd(op::SIMD_I16X8_SUB); }
 +    pub fn mul_i16x8(&mut self) { self.simd(op::SIMD_I16X8_MUL); }
 +
@@ -184,10 +256,10 @@ index 40ce194..28b1583 100644
  
      pub fn shl_i32(&mut self) { self.instruction_body.push(op::OP_I32SHL); }
 diff --git a/src/rust/wasmgen/wasm_opcodes.rs b/src/rust/wasmgen/wasm_opcodes.rs
-index d50f992..31153a9 100644
+index d50f992..b98f89e 100644
 --- a/src/rust/wasmgen/wasm_opcodes.rs
 +++ b/src/rust/wasmgen/wasm_opcodes.rs
-@@ -215,7 +215,16 @@ c!(OP_I64REINTERPRETF64, 0xbd);
+@@ -215,7 +215,19 @@ c!(OP_I64REINTERPRETF64, 0xbd);
  c!(OP_F32REINTERPRETI32, 0xbe);
  c!(OP_F64REINTERPRETI64, 0xbf);
  
@@ -196,6 +268,9 @@ index d50f992..31153a9 100644
 +c!(SIMD_V128_STORE, 0x0b);
 +c!(SIMD_I8X16_SHUFFLE, 0x0d);
 +c!(SIMD_I8X16_NARROW_I16X8_U, 0x66);
++c!(SIMD_I16X8_SHR_S, 0x8c);
++c!(SIMD_I16X8_SHR_U, 0x8d);
++c!(SIMD_I16X8_ADD, 0x8e);
 +c!(SIMD_I16X8_SUB, 0x91);
 +c!(SIMD_I16X8_MUL, 0x95);
 +
