@@ -11,6 +11,30 @@ pub const GUEST_PAGE_SIZE: u64 = 4_096;
 const GUEST_PAGE_SIZE_USIZE: usize = GUEST_PAGE_SIZE as usize;
 const GUEST_ADDRESS_SPACE_SIZE: u64 = 1_u64 << 32;
 
+fn count_changed_bytes(current: &[u8], incoming: &[u8]) -> usize {
+    debug_assert_eq!(current.len(), incoming.len());
+    let mut current_chunks = current.chunks_exact(8);
+    let mut incoming_chunks = incoming.chunks_exact(8);
+    let mut changed = 0;
+    for (current, incoming) in current_chunks.by_ref().zip(incoming_chunks.by_ref()) {
+        let mut different = u64::from_ne_bytes(current.try_into().expect("eight-byte chunk"))
+            ^ u64::from_ne_bytes(incoming.try_into().expect("eight-byte chunk"));
+        if different != 0 {
+            different |= different >> 4;
+            different |= different >> 2;
+            different |= different >> 1;
+            changed += (different & 0x0101_0101_0101_0101).count_ones() as usize;
+        }
+    }
+    changed
+        + current_chunks
+            .remainder()
+            .iter()
+            .zip(incoming_chunks.remainder())
+            .filter(|(current, incoming)| current != incoming)
+            .count()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(transparent)]
 pub struct GuestAddress(pub u32);
@@ -2845,13 +2869,7 @@ impl GuestMemory {
             ));
         }
         let frame = page.frame;
-        let changed_bytes = self
-            .frames
-            .bytes(frame)?
-            .iter()
-            .zip(bytes)
-            .filter(|(current, incoming)| current != incoming)
-            .count();
+        let changed_bytes = count_changed_bytes(self.frames.bytes(frame)?, bytes);
         self.journal_frame_bytes_before(frame)?;
         self.frames.bytes_mut(frame)?.copy_from_slice(bytes);
         Ok(changed_bytes)
@@ -3064,13 +3082,8 @@ impl GuestMemory {
                 ));
             }
             executable_pages += usize::from(page.protection.execute);
-            let page_changed_bytes = self
-                .frames
-                .bytes(page.frame)?
-                .iter()
-                .zip(writeback.bytes)
-                .filter(|(current, incoming)| current != incoming)
-                .count();
+            let page_changed_bytes =
+                count_changed_bytes(self.frames.bytes(page.frame)?, writeback.bytes);
             if page_changed_bytes != 0 {
                 changed_order.push((index, page.frame));
                 changed_bytes = changed_bytes

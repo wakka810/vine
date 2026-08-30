@@ -18,9 +18,9 @@ const adapterProfiles = Object.freeze([
     hasCanonicalReportFingerprints: false,
   }),
   Object.freeze({
-    id: "windows-gnu-bounded-direct-call-v9",
-    bytes: 1_862_441,
-    sha256: "f54a2ce5116f1e1ac86a2f8d6954e5f5e1a13ae49385300411c53de259fa4e27",
+    id: "windows-gnu-page-table-dirty-bypass-v13",
+    bytes: 1_860_684,
+    sha256: "d7faadb387c09913e0ecb266a01981864e4c6e330f56cd1df80adccc35feb661",
     exports: 824,
     hasCanonicalReportFingerprints: false,
   }),

@@ -174,6 +174,12 @@ jitImports.vine_jit_instruction_limit = () => {
   jitInstructionLimitCalls += 1;
   return limit;
 };
+const jitFindCacheEntryInPage = wasm.jit_find_cache_entry_in_page;
+let jitFindCacheEntryInPageCalls = 0;
+jitImports.jit_find_cache_entry_in_page = (...arguments_) => {
+  jitFindCacheEntryInPageCalls += 1;
+  return jitFindCacheEntryInPage(...arguments_);
+};
 wasm.rust_init();
 assert.equal(wasm.vine_adapter_abi_version(), 1);
 assert.equal(wasm.vine_dirty_page_tracking_version(), 1);
@@ -664,6 +670,7 @@ async function runCrossPageCall(jitEnabled) {
   view.setUint32(0x3000 + 0x18, 0x3200, true);
   view.setUint32(0x3000 + 0x74, 0, true);
   const compileCallsBefore = hostImportCalls.codegen_finalize ?? 0;
+  const cacheLookupCallsBefore = jitFindCacheEntryInPageCalls;
   let reason = stopReason.budget;
   let slices = 0;
   while (reason === stopReason.budget) {
@@ -684,6 +691,7 @@ async function runCrossPageCall(jitEnabled) {
     values: Array.from({ length: 16 }, (_, index) =>
       resultView.getUint32(0x3200 + index * 4, true)),
     compileCalls: (hostImportCalls.codegen_finalize ?? 0) - compileCallsBefore,
+    cacheLookupCalls: jitFindCacheEntryInPageCalls - cacheLookupCallsBefore,
     compiled: (hostImportCalls.codegen_finalize ?? 0) > compileCallsBefore,
   };
 }
@@ -691,6 +699,7 @@ async function runCrossPageCall(jitEnabled) {
 const crossPageReference = await runCrossPageCall(false);
 const crossPageJit = await runCrossPageCall(true);
 assert.equal(crossPageJit.compileCalls, 1, "direct callee escaped its caller JIT module");
+assert.equal(crossPageJit.cacheLookupCalls, 0, "JIT return crossed the cache-lookup boundary");
 assert.deepEqual(
   { ...crossPageJit, compileCalls: 0, compiled: false },
   crossPageReference,

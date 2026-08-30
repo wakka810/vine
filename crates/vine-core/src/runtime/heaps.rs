@@ -1368,7 +1368,7 @@ impl RuntimeHeaps {
                 )
             })?;
         let heap = self.heap(backing.handle)?;
-        self.validate_allocation_count(heap)?;
+        self.validate_allocation_mutation_state(heap)?;
         let next_allocation_id = self.next_allocation_id(backing.handle)?;
         if let Some(ordinary_backing) = self.backing(backing.handle) {
             validate_heap_backing_address_allocation(
@@ -1376,7 +1376,11 @@ impl RuntimeHeaps {
                 RuntimeHandle(backing.handle).slot(),
                 ordinary_backing,
             )?;
-            validate_runtime_heap_backing(heap, ordinary_backing, next_allocation_id)?;
+            validate_runtime_heap_backing_mutation_state(
+                heap,
+                ordinary_backing,
+                next_allocation_id,
+            )?;
         }
         for (slot, extension_backing) in self.extension_backings(backing.handle) {
             if runtime_heap_backing_slot(extension_backing) != Some(slot) {
@@ -1387,7 +1391,11 @@ impl RuntimeHeaps {
                 ));
             }
             validate_heap_backing_address_allocation(allocator, slot, extension_backing)?;
-            validate_runtime_heap_backing(heap, extension_backing, next_allocation_id)?;
+            validate_runtime_heap_backing_mutation_state(
+                heap,
+                extension_backing,
+                next_allocation_id,
+            )?;
         }
         validate_large_heap_backing(heap, backing, next_allocation_id)?;
         validate_large_heap_backing_address_allocation(allocator, backing)?;

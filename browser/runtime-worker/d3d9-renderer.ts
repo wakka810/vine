@@ -135,7 +135,11 @@ export class D3d9WebGl2Renderer {
       "first-frame renderer received unsupported fixed-function state",
     );
     const { texturePixels, vertices } = this.#preflightResource;
-    materializeTexture(submission.texture, texturePixels, textureBacking);
+    const uploadPixels = materializeTexture(
+      submission.texture,
+      texturePixels,
+      textureBacking,
+    );
     decodeVertices(submission.vertexData, submission.vertexCount, vertices);
 
     // All policy, identity, capacity, and immutable input validation is complete.
@@ -165,7 +169,7 @@ export class D3d9WebGl2Renderer {
       TEXTURE_HEIGHT,
       gl.RGBA,
       gl.UNSIGNED_BYTE,
-      texturePixels,
+      uploadPixels,
     );
     gl.clearColor(
       ((clearArgb >>> 16) & 0xff) / 255,
@@ -212,7 +216,7 @@ export class D3d9WebGl2Renderer {
       width,
       height,
       drawSubmissionCount: submissions.length,
-      uploadedTextureBytes: texturePixels.byteLength,
+      uploadedTextureBytes: uploadPixels.byteLength,
       uploadedVertexBytes: submission.vertexData.length,
       centerPixelRgba: [
         requireByte(centerPixel[0]),
@@ -365,7 +369,7 @@ in vec3 vDiffuse;
 out vec4 outColor;
 void main() {
   vec4 sampled = texture(uTexture, vUv);
-  outColor = vec4(sampled.rgb * vDiffuse, sampled.a);
+  outColor = vec4(sampled.bgr * vDiffuse, 1.0);
 }`,
   );
   const vertexArray = gl.createVertexArray();
@@ -447,7 +451,7 @@ function materializeTexture(
   >[number]["texture"],
   pixels: Uint8Array,
   backing?: Uint8Array,
-): void {
+): Uint8Array {
   const { width, height, colorFormat } = texture.descriptor;
   invariant(
     colorFormat === "b8g8r8x8-unorm" &&
@@ -472,13 +476,7 @@ function materializeTexture(
         backing.byteLength === byteLength,
       "renderer texture pixel source does not match its checked guest backing",
     );
-    for (let offset = 0; offset < byteLength; offset += 4) {
-      pixels[offset] = backing[offset + 2] ?? 0;
-      pixels[offset + 1] = backing[offset + 1] ?? 0;
-      pixels[offset + 2] = backing[offset] ?? 0;
-      pixels[offset + 3] = 0xff;
-    }
-    return;
+    return backing;
   }
   invariant(backing === undefined, "renderer received guest backing without a pixel source");
   pixels.fill(0);
@@ -502,13 +500,14 @@ function materializeTexture(
     for (let y = top; y < bottom; y += 1) {
       for (let x = left; x < right; x += 1) {
         const offset = (y * width + x) * 4;
-        pixels[offset] = red;
+        pixels[offset] = blue;
         pixels[offset + 1] = green;
-        pixels[offset + 2] = blue;
+        pixels[offset + 2] = red;
         pixels[offset + 3] = 0xff;
       }
     }
   }
+  return pixels;
 }
 
 function decodeVertices(

@@ -21168,6 +21168,8 @@ if (serveOnly) {
             synchronousApiYields:
               session.executionTiming.synchronousApiYields,
             wasmBridgeCalls: session.wasmBridgeCalls,
+            executionIsland: session.executionTiming.executionIsland,
+            mappingCacheEffects: session.mappingCacheEffects,
             instructionBudget: session.executionTiming.instructionBudget,
             budgetYieldHotspots:
               session.executionTiming.budgetYieldHotspots,

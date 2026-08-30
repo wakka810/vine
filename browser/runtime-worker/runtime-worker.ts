@@ -28939,12 +28939,14 @@ class BrowserRuntimeSession {
         page.bytes.every((byte) => byte === expectedFill),
         "heap materialization initialization mismatch",
       );
-      (this.#report.heapPageMaterializations ??= []).push({
-        instructionCount: this.#report.instructions,
-        ...materialization,
-        fromGeneration: metadata.fromGeneration,
-        generation: metadata.generation,
-      });
+      if (!playPerformanceMode) {
+        (this.#report.heapPageMaterializations ??= []).push({
+          instructionCount: this.#report.instructions,
+          ...materialization,
+          fromGeneration: metadata.fromGeneration,
+          generation: metadata.generation,
+        });
+      }
     }
     this.#report.mappingDeltas += 1;
     this.#report.mappingOperations.commit += 1;

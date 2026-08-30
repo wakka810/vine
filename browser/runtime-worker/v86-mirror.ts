@@ -87,6 +87,7 @@ interface V86Exports extends WebAssembly.Exports {
   full_clear_tlb(): void;
   jit_clear_cache_js(): void;
   set_jit_config(index: number, value: number): void;
+  get_jit_config(index: number): number;
   codegen_finalize_finished(index: number, start: number, stateFlags: number): void;
   vine_cpu_state_ptr(): number;
   vine_cpu_state_size(): number;
@@ -680,13 +681,13 @@ export class V86Mirror implements ExecutionEngine {
           const entry = generatedExports.f;
           invariant(typeof entry === "function", "v86 JIT module did not export its entry point");
           jitMetrics.compilations += 1;
-          queueMicrotask(() => {
-            if (table.get(index + jitTableOffset) === null) {
-              jitMetrics.activeFunctions += 1;
-            }
-            table.set(index + jitTableOffset, entry);
-            wasm?.codegen_finalize_finished(index, start, stateFlags);
-          });
+          if (table.get(index + jitTableOffset) === null) {
+            jitMetrics.activeFunctions += 1;
+          }
+          table.set(index + jitTableOffset, entry);
+          if (wasm.get_jit_config(6) === 0) {
+            queueMicrotask(() => wasm?.codegen_finalize_finished(index, start, stateFlags));
+          }
           return 0;
         }
         if (imported.name === "jit_clear_func") {
@@ -739,6 +740,7 @@ export class V86Mirror implements ExecutionEngine {
     }
     if (this.#relaxJitInstructionBudget) {
       wasm.set_jit_config(4, 0);
+      wasm.set_jit_config(6, 1);
     }
     if (this.#jitHotnessThreshold !== undefined) {
       wasm.set_jit_config(5, this.#jitHotnessThreshold);

@@ -1,5 +1,5 @@
 diff --git a/src/rust/cpu/cpu.rs b/src/rust/cpu/cpu.rs
-index 19f79b0..dc6eaa5 100644
+index 19f79b0..fb1a799 100644
 --- a/src/rust/cpu/cpu.rs
 +++ b/src/rust/cpu/cpu.rs
 @@ -295,6 +295,54 @@ pub static mut cpuid_level: u32 = 0x16;
@@ -57,7 +57,25 @@ index 19f79b0..dc6eaa5 100644
  const TSC_ENABLE_IMPRECISE_BROWSER_WORKAROUND: bool = true;
  
  #[cfg(debug_assertions)]
-@@ -2178,6 +2226,9 @@ pub unsafe fn do_page_walk(
+@@ -2119,9 +2167,9 @@ pub unsafe fn do_page_walk(
+             let new_page_dir_entry = page_dir_entry
+                 | PAGE_TABLE_ACCESSED_MASK
+                 | if for_writing { PAGE_TABLE_DIRTY_MASK } else { 0 };
+ 
+             if side_effects && page_dir_entry != new_page_dir_entry {
+-                memory::write8(page_dir_addr, new_page_dir_entry);
++                memory::write8_no_mmap_or_dirty_check(page_dir_addr, new_page_dir_entry);
+             }
+ 
+             high = if pae {
+@@ -2172,14 +2220,17 @@ pub unsafe fn do_page_walk(
+             // Set the accessed and dirty bits
+             // Note: dirty bit is only set on the page table entry
+             let new_page_dir_entry = page_dir_entry | PAGE_TABLE_ACCESSED_MASK;
+             if side_effects && new_page_dir_entry != page_dir_entry {
+-                memory::write8(page_dir_addr, new_page_dir_entry);
++                memory::write8_no_mmap_or_dirty_check(page_dir_addr, new_page_dir_entry);
+             }
              let new_page_table_entry = page_table_entry
                  | PAGE_TABLE_ACCESSED_MASK
                  | if for_writing { PAGE_TABLE_DIRTY_MASK } else { 0 };
@@ -65,8 +83,11 @@ index 19f79b0..dc6eaa5 100644
 +                crate::cpu::vine::mark_guest_page_dirty(addr as u32);
 +            }
              if side_effects && page_table_entry != new_page_table_entry {
-                 memory::write8(page_table_addr, new_page_table_entry);
+-                memory::write8(page_table_addr, new_page_table_entry);
++                memory::write8_no_mmap_or_dirty_check(page_table_addr, new_page_table_entry);
              }
+ 
+             high = page_table_entry as u32 & 0xFFFFF000;
 @@ -2355,6 +2406,9 @@ pub unsafe fn exit_jit() {
              return;
          },
@@ -131,28 +152,109 @@ index 19f79b0..dc6eaa5 100644
          #[cfg(debug_assertions)]
          {
              in_jit = false;
-@@ -3137,7 +3204,8 @@ pub unsafe fn cycle_internal() {
-             Some(c) => {
-                 let c = c.as_ref();
+@@ -3129,49 +3196,63 @@ pub unsafe fn cycle_internal() {
+         }
+     }
+     else {
+-        *previous_ip = initial_eip;
+-        let phys_addr = return_on_pagefault!(get_phys_eip());
++        #[inline(never)]
++        unsafe fn run_interpreted(
++            interpreter_budget: u32,
++            initial_eip: i32,
++            initial_state_flags: CachedStateFlags,
++        ) {
++            *previous_ip = initial_eip;
++            let phys_addr = return_on_pagefault!(get_phys_eip());
+ 
+-        match tlb_code[(initial_eip as u32 >> 12) as usize] {
+-            None => {},
+-            Some(c) => {
+-                let c = c.as_ref();
++            match tlb_code[(initial_eip as u32 >> 12) as usize] {
++                None => {},
++                Some(c) => {
++                    let c = c.as_ref();
  
 -                if initial_state_flags == c.state_flags
-+                if interpreter_budget >= VINE_JIT_MIN_BUDGET
-+                    && initial_state_flags == c.state_flags
-                     && c.state_table[initial_eip as usize & 0xFFF] != u16::MAX
-                 {
-                     profiler::stat_increment(stat::RUN_INTERPRETED_PAGE_HAS_ENTRY_AFTER_PAGE_WALK);
-@@ -3154,7 +3222,9 @@ pub unsafe fn cycle_internal() {
+-                    && c.state_table[initial_eip as usize & 0xFFF] != u16::MAX
+-                {
+-                    profiler::stat_increment(stat::RUN_INTERPRETED_PAGE_HAS_ENTRY_AFTER_PAGE_WALK);
+-                    return;
+-                }
+-            },
+-        }
+-
+-        #[cfg(feature = "profiler")]
+-        {
+-            if CHECK_MISSED_ENTRY_POINTS {
+-                jit::check_missed_entry_points(phys_addr, initial_state_flags);
++                    if interpreter_budget >= VINE_JIT_MIN_BUDGET
++                        && initial_state_flags == c.state_flags
++                        && c.state_table[initial_eip as usize & 0xFFF] != u16::MAX
++                    {
++                        profiler::stat_increment(
++                            stat::RUN_INTERPRETED_PAGE_HAS_ENTRY_AFTER_PAGE_WALK,
++                        );
++                        return;
++                    }
++                },
+             }
++
++            #[cfg(feature = "profiler")]
++            {
++                if CHECK_MISSED_ENTRY_POINTS {
++                    jit::check_missed_entry_points(phys_addr, initial_state_flags);
++                }
++            }
++
++            let initial_instruction_counter = *instruction_counter;
++            jit_run_interpreted(phys_addr, interpreter_budget);
++            vine_interpreted_retired_instructions = vine_interpreted_retired_instructions
++                .wrapping_add((*instruction_counter - initial_instruction_counter) as u64);
++
++            jit::jit_increase_hotness_and_maybe_compile(
++                initial_eip,
++                phys_addr,
++                get_seg_cs() as u32,
++                initial_state_flags,
++                *instruction_counter - initial_instruction_counter,
++            );
++
++            profiler::stat_increment_by(
++                stat::RUN_INTERPRETED_STEPS,
++                (*instruction_counter - initial_instruction_counter) as u64,
++            );
++            dbg_assert!(
++                *instruction_counter != initial_instruction_counter,
++                "Instruction counter didn't change"
++            );
          }
  
-         let initial_instruction_counter = *instruction_counter;
+-        let initial_instruction_counter = *instruction_counter;
 -        jit_run_interpreted(phys_addr);
-+        jit_run_interpreted(phys_addr, interpreter_budget);
-+        vine_interpreted_retired_instructions = vine_interpreted_retired_instructions
-+            .wrapping_add((*instruction_counter - initial_instruction_counter) as u64);
+-
+-        jit::jit_increase_hotness_and_maybe_compile(
+-            initial_eip,
+-            phys_addr,
+-            get_seg_cs() as u32,
+-            initial_state_flags,
+-            *instruction_counter - initial_instruction_counter,
+-        );
+-
+-        profiler::stat_increment_by(
+-            stat::RUN_INTERPRETED_STEPS,
+-            (*instruction_counter - initial_instruction_counter) as u64,
+-        );
+-        dbg_assert!(
+-            *instruction_counter != initial_instruction_counter,
+-            "Instruction counter didn't change"
+-        );
++        run_interpreted(interpreter_budget, initial_eip, initial_state_flags);
+     };
+ }
  
-         jit::jit_increase_hotness_and_maybe_compile(
-             initial_eip,
-@@ -3186,7 +3256,7 @@ pub unsafe fn get_phys_eip() -> OrPageFault<u32> {
+@@ -3186,7 +3267,7 @@ pub unsafe fn get_phys_eip() -> OrPageFault<u32> {
      return Ok(phys_addr);
  }
  
@@ -161,7 +263,7 @@ index 19f79b0..dc6eaa5 100644
      profiler::stat_increment(stat::RUN_INTERPRETED);
      dbg_assert!(!memory::in_mapped_range(phys_addr));
  
-@@ -3205,13 +3275,18 @@ unsafe fn jit_run_interpreted(mut phys_addr: u32) {
+@@ -3205,13 +3286,18 @@ unsafe fn jit_run_interpreted(mut phys_addr: u32) {
  
          i += 1;
          let start_eip = *instruction_pointer;
@@ -181,7 +283,7 @@ index 19f79b0..dc6eaa5 100644
              || Page::page_of(start_eip as u32) != Page::page_of(*instruction_pointer as u32)
                  // Limit the number of iterations, as jumps within the same page are not counted as
                  // block boundaries for the interpreter, but only on the next backwards jump
-@@ -3313,10 +3388,63 @@ pub unsafe fn do_many_cycles_native() {
+@@ -3313,10 +3399,63 @@ pub unsafe fn do_many_cycles_native() {
      }
  }
  
@@ -245,7 +347,7 @@ index 19f79b0..dc6eaa5 100644
      if DEBUG {
          if js::cpu_exception_hook(CPU_EXCEPTION_DE) {
              return;
-@@ -3330,6 +3458,9 @@ pub unsafe fn trigger_ud() {
+@@ -3330,6 +3469,9 @@ pub unsafe fn trigger_ud() {
      dbg_log!("#ud");
      dbg_trace();
      *instruction_pointer = *previous_ip;
@@ -255,7 +357,7 @@ index 19f79b0..dc6eaa5 100644
      if DEBUG {
          if js::cpu_exception_hook(CPU_EXCEPTION_UD) {
              return;
-@@ -3343,6 +3474,9 @@ pub unsafe fn trigger_nm() {
+@@ -3343,6 +3485,9 @@ pub unsafe fn trigger_nm() {
      dbg_log!("#nm eip={:x}", *previous_ip);
      dbg_trace();
      *instruction_pointer = *previous_ip;
@@ -265,7 +367,7 @@ index 19f79b0..dc6eaa5 100644
      if DEBUG {
          if js::cpu_exception_hook(CPU_EXCEPTION_NM) {
              return;
-@@ -3355,6 +3489,9 @@ pub unsafe fn trigger_nm() {
+@@ -3355,6 +3500,9 @@ pub unsafe fn trigger_nm() {
  pub unsafe fn trigger_gp(code: i32) {
      dbg_log!("#gp");
      *instruction_pointer = *previous_ip;
@@ -275,7 +377,7 @@ index 19f79b0..dc6eaa5 100644
      if DEBUG {
          if js::cpu_exception_hook(CPU_EXCEPTION_GP) {
              return;
-@@ -4436,6 +4573,9 @@ pub unsafe fn get_valid_global_tlb_entries_count() -> i32 {
+@@ -4436,6 +4584,9 @@ pub unsafe fn get_valid_global_tlb_entries_count() -> i32 {
  pub unsafe fn trigger_np(code: i32) {
      dbg_log!("#np");
      *instruction_pointer = *previous_ip;
@@ -285,7 +387,7 @@ index 19f79b0..dc6eaa5 100644
      if DEBUG {
          if js::cpu_exception_hook(CPU_EXCEPTION_NP) {
              return;
-@@ -4448,6 +4588,9 @@ pub unsafe fn trigger_np(code: i32) {
+@@ -4448,6 +4599,9 @@ pub unsafe fn trigger_np(code: i32) {
  pub unsafe fn trigger_ss(code: i32) {
      dbg_log!("#ss");
      *instruction_pointer = *previous_ip;
@@ -305,10 +407,18 @@ index c340036..350f700 100644
  pub mod vga;
 +pub mod vine;
 diff --git a/src/rust/jit.rs b/src/rust/jit.rs
-index fb2a388..9e03f72 100644
+index fb2a388..e586186 100644
 --- a/src/rust/jit.rs
 +++ b/src/rust/jit.rs
-@@ -73,7 +73,7 @@ static mut JIT_USE_LOOP_SAFETY: bool = true;
+@@ -60,6 +60,7 @@ pub fn jit_clear_func(wasm_table_index: WasmTableIndex) {
+ }
+ 
+ static mut JIT_DISABLED: bool = false;
++static mut JIT_SYNCHRONOUS_FINALIZE: bool = false;
+ 
+ // Maximum number of pages per wasm module. Necessary for the following reasons:
+ // - There is an upper limit on the size of a single function in wasm (currently ~7MB in all browsers)
+@@ -73,7 +74,7 @@ static mut JIT_USE_LOOP_SAFETY: bool = true;
  
  pub static mut MAX_EXTRA_BASIC_BLOCKS: u32 = 250;
  
@@ -317,7 +427,7 @@ index fb2a388..9e03f72 100644
  
  // less branches will generate if-else, more will generate brtable
  pub const BRTABLE_CUTOFF: usize = 10;
-@@ -434,6 +434,7 @@ fn jit_find_basic_blocks(
+@@ -434,6 +435,7 @@ fn jit_find_basic_blocks(
  ) -> Vec<BasicBlock> {
      fn follow_jump(
          virt_target: i32,
@@ -325,7 +435,7 @@ index fb2a388..9e03f72 100644
          ctx: &mut JitState,
          pages: &mut HashSet<Page>,
          page_blacklist: &mut HashSet<Page>,
-@@ -462,7 +463,12 @@ fn jit_find_basic_blocks(
+@@ -462,7 +464,12 @@ fn jit_find_basic_blocks(
  
          if !pages.contains(&phys_page) {
              // page seen for the first time, handle entry points
@@ -339,7 +449,7 @@ index fb2a388..9e03f72 100644
                  let existing_entry_points = match ctx.pages.get(&phys_page) {
                      Some(PageInfo { entry_points, .. }) => {
                          HashSet::from_iter(entry_points.iter().map(|x| x.0))
-@@ -493,11 +499,6 @@ fn jit_find_basic_blocks(
+@@ -493,11 +500,6 @@ fn jit_find_basic_blocks(
                      marked_as_entry.insert(addr);
                  }
              }
@@ -351,7 +461,7 @@ index fb2a388..9e03f72 100644
  
              pages.insert(phys_page);
              dbg_assert!(pages.len() as u32 <= max_pages);
-@@ -519,6 +520,7 @@ fn jit_find_basic_blocks(
+@@ -519,6 +521,7 @@ fn jit_find_basic_blocks(
      for virt_addr in entry_points {
          let ok = follow_jump(
              virt_addr,
@@ -359,7 +469,7 @@ index fb2a388..9e03f72 100644
              ctx,
              &mut pages,
              &mut page_blacklist,
-@@ -650,6 +652,7 @@ fn jit_find_basic_blocks(
+@@ -650,6 +653,7 @@ fn jit_find_basic_blocks(
                          next_block_addr,
                          next_block_branch_taken_addr: follow_jump(
                              jump_target,
@@ -367,7 +477,7 @@ index fb2a388..9e03f72 100644
                              ctx,
                              &mut pages,
                              &mut page_blacklist,
-@@ -689,6 +692,7 @@ fn jit_find_basic_blocks(
+@@ -689,6 +693,7 @@ fn jit_find_basic_blocks(
                      current_block.ty = BasicBlockType::Normal {
                          next_block_addr: follow_jump(
                              jump_target,
@@ -375,7 +485,7 @@ index fb2a388..9e03f72 100644
                              ctx,
                              &mut pages,
                              &mut page_blacklist,
-@@ -831,7 +835,7 @@ pub fn jit_force_generate_unsafe(virt_addr: i32) {
+@@ -831,7 +836,7 @@ pub fn jit_force_generate_unsafe(virt_addr: i32) {
          cpu::translate_address_read(virt_addr).unwrap(),
          cpu::get_seg_cs() as u32,
          cpu::get_state_flags(),
@@ -384,7 +494,70 @@ index fb2a388..9e03f72 100644
      );
      dbg_assert!(get_jit_state().compiling.is_some());
  }
-@@ -2080,6 +2084,18 @@ fn jit_generate_basic_block(ctx: &mut JitContext, block: &BasicBlock) {
+@@ -1395,16 +1400,57 @@ fn jit_generate_module(
+                     },
+                     BasicBlockType::AbsoluteEip => {
+                         // Check if we can stay in this module, if not exit
++                        codegen::gen_profiler_stat_increment(ctx.builder, stat::INDIRECT_JUMP);
+                         codegen::gen_get_eip(ctx.builder);
+-                        ctx.builder.const_i32(wasm_table_index.to_u16() as i32);
++                        let virt_address = ctx.builder.tee_new_local();
++                        ctx.builder.const_i32(12);
++                        ctx.builder.shr_u_i32();
++                        ctx.builder.const_i32(2);
++                        ctx.builder.shl_i32();
++                        ctx.builder.load_aligned_i32(unsafe {
++                            &cpu::tlb_code[0] as *const Option<NonNull<cpu::Code>> as u32
++                        });
++                        let code = ctx.builder.tee_new_local();
++                        ctx.builder.if_void();
++
++                        ctx.builder.get_local(&code);
++                        ctx.builder
++                            .load_u8(std::mem::offset_of!(cpu::Code, state_flags) as u32);
+                         ctx.builder.const_i32(state_flags.to_u32() as i32);
+-                        ctx.builder.call_fn3_ret("jit_find_cache_entry_in_page");
++                        ctx.builder.eq_i32();
++                        ctx.builder.get_local(&code);
++                        ctx.builder.load_aligned_u16(
++                            std::mem::offset_of!(cpu::Code, wasm_table_index) as u32,
++                        );
++                        ctx.builder.const_i32(wasm_table_index.to_u16() as i32);
++                        ctx.builder.eq_i32();
++                        ctx.builder.and_i32();
++                        ctx.builder.if_void();
++
++                        ctx.builder.get_local(&code);
++                        ctx.builder.get_local(&virt_address);
++                        ctx.builder.const_i32(0xFFF);
++                        ctx.builder.and_i32();
++                        ctx.builder.const_i32(1);
++                        ctx.builder.shl_i32();
++                        ctx.builder.add_i32();
++                        ctx.builder.load_aligned_u16(
++                            std::mem::offset_of!(cpu::Code, state_table) as u32,
++                        );
+                         ctx.builder.tee_local(target_block);
+-                        ctx.builder.const_i32(0);
+-                        ctx.builder.ge_i32();
+-                        // TODO: Could make this unconditional by including exit_label in the main br_table
++                        ctx.builder.const_i32(u16::MAX as i32);
++                        ctx.builder.ne_i32();
+                         ctx.builder.br_if(main_loop_label);
+ 
++                        ctx.builder.block_end();
++                        ctx.builder.block_end();
++                        ctx.builder.free_local(code);
++                        ctx.builder.free_local(virt_address);
++                        codegen::gen_profiler_stat_increment(
++                            ctx.builder,
++                            stat::INDIRECT_JUMP_NO_ENTRY,
++                        );
++
+                         codegen::gen_debug_track_jit_exit(ctx.builder, block.last_instruction_addr);
+                         ctx.builder.br(ctx.exit_label);
+                     },
+@@ -2080,6 +2126,18 @@ fn jit_generate_basic_block(ctx: &mut JitContext, block: &BasicBlock) {
          ctx.builder.call_fn1("enter_basic_block");
      }
  
@@ -403,7 +576,15 @@ index fb2a388..9e03f72 100644
      ctx.builder.get_local(&ctx.instruction_counter);
      ctx.builder.const_i32(block.number_of_instructions as i32);
      ctx.builder.add_i32();
-@@ -2177,7 +2193,7 @@ pub fn jit_increase_hotness_and_maybe_compile(
+@@ -2164,6 +2222,7 @@ pub fn jit_increase_hotness_and_maybe_compile(
+     }
+ 
+     let mut ctx = get_jit_state();
++    let mut synchronous_finalize = None;
+     let is_compiling = ctx.compiling.is_some();
+     let page = Page::page_of(phys_address);
+     let (hotness, entry_points) = ctx.entry_points.entry(page).or_insert_with(|| {
+@@ -2177,19 +2236,32 @@ pub fn jit_increase_hotness_and_maybe_compile(
      }
  
      *hotness += heat;
@@ -412,21 +593,49 @@ index fb2a388..9e03f72 100644
          if is_compiling {
              return;
          }
-@@ -2511,6 +2527,8 @@ pub unsafe fn set_jit_config(index: u32, value: u32) {
+         // only try generating if we're in the correct address space
+         if cpu::translate_address_read_no_side_effects(virt_address) == Ok(phys_address) {
+             *hotness = 0;
+-            jit_analyze_and_generate(&mut ctx, virt_address, phys_address, cs_offset, state_flags)
++            jit_analyze_and_generate(&mut ctx, virt_address, phys_address, cs_offset, state_flags);
++            if unsafe { JIT_SYNCHRONOUS_FINALIZE } {
++                if let Some((wasm_table_index, _)) = ctx.compiling.as_ref() {
++                    synchronous_finalize = Some((
++                        *wasm_table_index,
++                        Page::page_of(phys_address).to_address(),
++                        state_flags,
++                    ));
++                }
++            }
+         }
+         else {
+             profiler::stat_increment(stat::COMPILE_WRONG_ADDRESS_SPACE);
+         }
+     }
++    drop(ctx);
++    if let Some((wasm_table_index, phys_addr, state_flags)) = synchronous_finalize {
++        codegen_finalize_finished(wasm_table_index, phys_addr, state_flags);
++    }
+ }
+ 
+ fn free_wasm_table_index(ctx: &mut JitState, wasm_table_index: WasmTableIndex) {
+@@ -2511,6 +2583,9 @@ pub unsafe fn set_jit_config(index: u32, value: u32) {
          1 => MAX_PAGES = value,
          2 => JIT_USE_LOOP_SAFETY = value != 0,
          3 => MAX_EXTRA_BASIC_BLOCKS = value,
 +        4 => cpu::vine_jit_exact_instruction_budget = value != 0,
 +        5 => JIT_THRESHOLD = value,
++        6 => JIT_SYNCHRONOUS_FINALIZE = value != 0,
          _ => dbg_assert!(false),
      }
  }
-@@ -2522,6 +2540,8 @@ pub unsafe fn get_jit_config(index: u32) -> u32 {
+@@ -2522,6 +2597,9 @@ pub unsafe fn get_jit_config(index: u32) -> u32 {
          1 => MAX_PAGES as u32,
          2 => JIT_USE_LOOP_SAFETY as u32,
          3 => MAX_EXTRA_BASIC_BLOCKS as u32,
 +        4 => cpu::vine_jit_exact_instruction_budget as u32,
 +        5 => JIT_THRESHOLD,
++        6 => JIT_SYNCHRONOUS_FINALIZE as u32,
          _ => 0,
      }
  }
