@@ -952,6 +952,167 @@ if (exportNames.has("vine_execution_island_abi_version")) {
     ),
     0,
   );
+  const hotLoopCases = [
+    {
+      name: "aligned SIMD copy",
+      program: [
+        0x0f, 0x18, 0x80, 0x00, 0x02, 0x00, 0x00, 0x0f, 0x28, 0x00, 0x0f, 0x2b, 0x04,
+        0x02, 0x83, 0xc0, 0x10, 0x49, 0x75, 0xec, 0xf4,
+      ],
+      setup() {
+        for (let index = 0; index < 1024; index += 1) {
+          memory[0x2000 + index] = (index * 29 + 7) & 0xff;
+        }
+        state.setUint32(stateOffset.registers, 0x2000, true);
+        state.setUint32(stateOffset.registers + 4, 64, true);
+        state.setUint32(stateOffset.registers + 8, 0x1000, true);
+        state.setUint32(stateOffset.flags, 3, true);
+      },
+      output: [0x3000, 0x3400],
+    },
+    {
+      name: "bounded byte copy",
+      program: [
+        0x89, 0x85, 0xf8, 0xfc, 0xff, 0xff, 0x3b, 0xc1, 0x73, 0x09, 0x8a, 0x14, 0x30,
+        0x88, 0x14, 0x38, 0x40, 0xeb, 0xed, 0xf4,
+      ],
+      setup() {
+        for (let index = 0; index < 80; index += 1) {
+          memory[0x2000 + index] = (index * 17 + 3) & 0xff;
+        }
+        memory.fill(0xee, 0x3000, 0x3050);
+        state.setUint32(stateOffset.registers, 3, true);
+        state.setUint32(stateOffset.registers + 4, 67, true);
+        state.setUint32(stateOffset.registers + 8, 0x1234_5600, true);
+        state.setUint32(stateOffset.registers + 5 * 4, 0x5000, true);
+        state.setUint32(stateOffset.registers + 6 * 4, 0x2000, true);
+        state.setUint32(stateOffset.registers + 7 * 4, 0x3000, true);
+      },
+      output: [0x3000, 0x3050],
+    },
+    {
+      name: "overlapping forward copy",
+      program: [
+        0x8b, 0x7d, 0x08, 0x8a, 0x06, 0x88, 0x07, 0x47, 0x46, 0x49, 0x89, 0x7d, 0x08,
+        0x75, 0xf1, 0xf4,
+      ],
+      setup() {
+        memory.set([0x12, 0x34, 0x56], 0x2000);
+        state.setUint32(stateOffset.registers, 0xabcd_e000, true);
+        state.setUint32(stateOffset.registers + 4, 48, true);
+        state.setUint32(stateOffset.registers + 5 * 4, 0x4000, true);
+        state.setUint32(stateOffset.registers + 6 * 4, 0x2000, true);
+        new DataView(memory.buffer, memory.byteOffset).setUint32(0x4008, 0x2003, true);
+      },
+      output: [0x2000, 0x2033],
+    },
+    {
+      name: "byte copy with aliased loop local",
+      program: [
+        0x89, 0x85, 0xf8, 0xfc, 0xff, 0xff, 0x3b, 0xc1, 0x73, 0x09, 0x8a, 0x14, 0x30,
+        0x88, 0x14, 0x38, 0x40, 0xeb, 0xed, 0xf4,
+      ],
+      setup() {
+        for (let index = 0; index < 8; index += 1) {
+          memory[0x2000 + index] = index * 17 + 3;
+        }
+        state.setUint32(stateOffset.registers + 4, 8, true);
+        state.setUint32(stateOffset.registers + 5 * 4, 0x2308, true);
+        state.setUint32(stateOffset.registers + 6 * 4, 0x2000, true);
+        state.setUint32(stateOffset.registers + 7 * 4, 0x3000, true);
+      },
+      output: [0x3000, 0x3008],
+      extraOutput: [0x2000, 0x2008],
+    },
+    {
+      name: "bounded unsigned sort",
+      program: [
+        0x8b, 0xf3, 0x3b, 0xdf, 0x7d, 0x21, 0x8d, 0x9b, 0x00, 0x00, 0x00, 0x00,
+        0x8b, 0x84, 0xb5, 0xf8, 0xf7, 0xff, 0xff, 0x8b, 0x0a, 0x3b, 0xc8, 0x76,
+        0x09, 0x89, 0x02, 0x89, 0x8c, 0xb5, 0xf8, 0xf7, 0xff, 0xff, 0x46, 0x3b,
+        0xf7, 0x7c, 0xe5, 0x43, 0x83, 0xc2, 0x04, 0xff, 0x8d, 0xf0, 0xe7, 0xff,
+        0xff, 0x75, 0xcd, 0x33, 0xc9, 0xf4,
+      ],
+      setup() {
+        const values = [0xffff_ffff, 3, 0x8000_0000, 3, 0, 9, 1, 7];
+        const view = new DataView(memory.buffer, memory.byteOffset);
+        values.forEach((value, index) => view.setUint32(0x67f8 + index * 4, value, true));
+        view.setUint32(0x57f0, values.length - 1, true);
+        state.setUint32(stateOffset.registers + 3 * 4, 1, true);
+        state.setUint32(stateOffset.registers + 5 * 4, 0x7000, true);
+        state.setUint32(stateOffset.registers + 6 * 4, 0x7654_3210, true);
+        state.setUint32(stateOffset.registers + 7 * 4, values.length, true);
+        state.setUint32(stateOffset.registers + 2 * 4, 0x67f8, true);
+      },
+      output: [0x67f8, 0x6818],
+      extraOutput: [0x57f0, 0x57f4],
+    },
+    {
+      name: "bounded Huffman walk",
+      program: [
+        0x33, 0xc9, 0x85, 0xd2, 0x75, 0x08, 0x8a, 0x1f, 0x47, 0xba, 0x08, 0x00,
+        0x00, 0x00, 0x0f, 0xb6, 0xf3, 0xc1, 0xee, 0x07, 0x8d, 0x0c, 0x8e, 0x8b,
+        0x4c, 0x88, 0x08, 0x8b, 0xf1, 0x03, 0xf6, 0x02, 0xdb, 0x4a, 0x83, 0x3c,
+        0xf0, 0x00, 0x75, 0xda, 0xf4,
+      ],
+      setup() {
+        const view = new DataView(memory.buffer, memory.byteOffset);
+        view.setUint32(0x4000, 1, true);
+        view.setUint32(0x4008, 3, true);
+        view.setUint32(0x400c, 1, true);
+        view.setUint32(0x4010, 1, true);
+        view.setUint32(0x4018, 2, true);
+        view.setUint32(0x401c, 3, true);
+        view.setUint32(0x4020, 0, true);
+        memory[0x5000] = 0xa0;
+        state.setUint32(stateOffset.registers, 0x4000, true);
+        state.setUint32(stateOffset.registers + 2 * 4, 0x1234_5600, true);
+        state.setUint32(stateOffset.registers + 6 * 4, 0x7654_3210, true);
+        state.setUint32(stateOffset.registers + 7 * 4, 0x5000, true);
+      },
+      output: [0x5000, 0x5001],
+    },
+  ];
+  function runHotLoop(test, useIsland) {
+    configure(Uint8Array.from(test.program), 0);
+    test.setup();
+    wasm.vine_reset_dirty_pages();
+    const reason = useIsland
+      ? wasm.vine_execution_island_execute_budget(100_000, 0, 0, 0, 0)
+      : wasm.vine_execute_budget(100_000);
+    wasm.vine_cpu_state_save();
+    const cpuState = Array.from(
+      new Uint32Array(
+        wasm.memory.buffer,
+        wasm.vine_cpu_state_ptr(),
+        wasm.vine_cpu_state_size() / Uint32Array.BYTES_PER_ELEMENT,
+      ),
+    );
+    const dirtyPages = Array.from(
+      new Uint32Array(
+        wasm.memory.buffer,
+        wasm.vine_dirty_pages_ptr(),
+        wasm.vine_dirty_page_count(),
+      ),
+    ).sort((left, right) => left - right);
+    return {
+      reason,
+      instructionCount: wasm.vine_instruction_counter(),
+      cpuState,
+      dirtyPages,
+      output: [...memory.subarray(...test.output)],
+      extraOutput: test.extraOutput === undefined
+        ? null
+        : [...memory.subarray(...test.extraOutput)],
+    };
+  }
+  wasm.set_jit_config(0, 1);
+  for (const test of hotLoopCases) {
+    const reference = runHotLoop(test, false);
+    const accelerated = runHotLoop(test, true);
+    assert.deepEqual(accelerated, reference, `${test.name} hot loop diverged from the interpreter`);
+  }
+  wasm.set_jit_config(0, 0);
   assert.equal(wasm.vine_execution_island_execute_budget(0, 0, 0, 0, 0), stopReason.budget);
   const islandGeneration =
     BigInt(wasm.vine_execution_island_generation_low()) |

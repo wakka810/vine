@@ -37,6 +37,11 @@
       "hostProfile": "windows-gnu-execution-island-prevalidated-live-tick-v24",
       "bytes": 7613871,
       "sha256": "8188dedcf31f3357ab23be0afecddbd57848cb4599fdc1855a1011e6569597e3"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-hot-loops-v25",
+      "bytes": 7630008,
+      "sha256": "b32be186f49f678ab79a7746913d81f9448ccef65f4d283ad68e57ffe4e62c70"
     }
   ]
 }

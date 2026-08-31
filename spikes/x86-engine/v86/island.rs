@@ -1,16 +1,18 @@
 use crate::cpu::cpu::{
-    full_clear_tlb, safe_read32s, translate_address, translate_address_read_no_side_effects,
+    full_clear_tlb, safe_read128s, safe_read32s, safe_read8, safe_write32, translate_address,
+    translate_address_read_no_side_effects, translate_address_write_and_can_skip_dirty,
 };
 use crate::cpu::global_pointers::{
-    cpl, eip_phys, flags, in_hlt, instruction_counter, instruction_pointer, last_virt_eip,
-    previous_ip, reg32, sreg,
+    cpl, eip_phys, flags, in_hlt, instruction_counter, instruction_pointer, last_op1,
+    last_virt_eip, previous_ip, reg32, reg_xmm, sreg,
 };
 use crate::cpu::{memory, vine};
+use crate::page::Page;
 use crate::regs::{EAX, EBP, EBX, ECX, EDI, EDX, ESI, ESP};
 
 const STOP_BUDGET: u32 = 1;
 const STOP_PENDING_DISPATCH: u32 = 4;
-const STOP_ISLAND_ERROR: u32 = 6;
+pub(crate) const STOP_ISLAND_ERROR: u32 = 6;
 const STOP_INVALID_OPCODE: u32 = 0x106;
 const PAGE_BYTES: usize = 4096;
 const PAGE_MASK: u32 = (PAGE_BYTES as u32) - 1;
@@ -22,8 +24,36 @@ const GET_TICK_COUNT_FAST_CODE: u32 = 20;
 const MEMORY_DELTA_CONTROL_HEADER_BYTES: usize = 56;
 const MEMORY_DELTA_MAPPING_DESCRIPTOR_BYTES: usize = 40;
 const MEMORY_DELTA_PAGE_DESCRIPTOR_BYTES: usize = 16;
+const SIMD_COPY_SIGNATURE: u32 = 0x0080_180f;
+const BYTE_COPY_SIGNATURE: u32 = 0xfcf8_8589;
+const FORWARD_COPY_SIGNATURE: u32 = 0x8a08_7d8b;
+const SORT_SIGNATURE: u32 = 0xdf3b_f38b;
+const HUFFMAN_SIGNATURE: u32 = 0xd285_c933;
+const SIMD_COPY_LOOP: &[u8] = &[
+    0x0f, 0x18, 0x80, 0x00, 0x02, 0x00, 0x00, 0x0f, 0x28, 0x00, 0x0f, 0x2b, 0x04, 0x02, 0x83, 0xc0,
+    0x10, 0x49, 0x75, 0xec,
+];
+const BYTE_COPY_LOOP: &[u8] = &[
+    0x89, 0x85, 0xf8, 0xfc, 0xff, 0xff, 0x3b, 0xc1, 0x73, 0x09, 0x8a, 0x14, 0x30, 0x88, 0x14, 0x38,
+    0x40, 0xeb, 0xed,
+];
+const FORWARD_COPY_LOOP: &[u8] = &[
+    0x8b, 0x7d, 0x08, 0x8a, 0x06, 0x88, 0x07, 0x47, 0x46, 0x49, 0x89, 0x7d, 0x08, 0x75, 0xf1,
+];
+const SORT_LOOP: &[u8] = &[
+    0x8b, 0xf3, 0x3b, 0xdf, 0x7d, 0x21, 0x8d, 0x9b, 0x00, 0x00, 0x00, 0x00, 0x8b, 0x84, 0xb5, 0xf8,
+    0xf7, 0xff, 0xff, 0x8b, 0x0a, 0x3b, 0xc8, 0x76, 0x09, 0x89, 0x02, 0x89, 0x8c, 0xb5, 0xf8, 0xf7,
+    0xff, 0xff, 0x46, 0x3b, 0xf7, 0x7c, 0xe5, 0x43, 0x83, 0xc2, 0x04, 0xff, 0x8d, 0xf0, 0xe7, 0xff,
+    0xff, 0x75, 0xcd, 0x33, 0xc9,
+];
+const HUFFMAN_LOOP: &[u8] = &[
+    0x33, 0xc9, 0x85, 0xd2, 0x75, 0x08, 0x8a, 0x1f, 0x47, 0xba, 0x08, 0x00, 0x00, 0x00, 0x0f, 0xb6,
+    0xf3, 0xc1, 0xee, 0x07, 0x8d, 0x0c, 0x8e, 0x8b, 0x4c, 0x88, 0x08, 0x8b, 0xf1, 0x03, 0xf6, 0x02,
+    0xdb, 0x4a, 0x83, 0x3c, 0xf0, 0x00, 0x75, 0xda,
+];
 
 static mut FAST_API_COUNT: u32 = 0;
+static mut HOT_LOOP_ACTIVE: bool = false;
 static mut WRITEBACK_BATCHES: u32 = 0;
 static mut WRITEBACK_PAGES: u32 = 0;
 static mut MIRRORED_DELTA_PAGES: u32 = 0;
@@ -69,6 +99,371 @@ impl HostClock {
             .checked_add(elapsed_100ns as u64)
             .ok_or_else(|| "execution island host elapsed clock overflowed".to_owned())
     }
+}
+
+#[inline(always)]
+pub(crate) unsafe fn is_hot_loop_start(address: u32, physical: u32) -> bool {
+    address & PAGE_MASK <= PAGE_MASK - 3
+        && matches!(
+            memory::read32_no_mmap_check(physical) as u32,
+            SIMD_COPY_SIGNATURE
+                | BYTE_COPY_SIGNATURE
+                | FORWARD_COPY_SIGNATURE
+                | SORT_SIGNATURE
+                | HUFFMAN_SIGNATURE
+        )
+}
+
+unsafe fn code_matches(address: u32, physical: u32, expected: &[u8]) -> bool {
+    if expected.is_empty() || address & PAGE_MASK > PAGE_MASK - expected.len() as u32 {
+        return false;
+    }
+    std::slice::from_raw_parts(memory::mem8.add(physical as usize), expected.len()) == expected
+}
+
+fn ranges_overlap(left: u32, left_length: u32, right: u32, right_length: u32) -> bool {
+    let left_end = left as u64 + left_length as u64;
+    let right_end = right as u64 + right_length as u64;
+    (left as u64) < right_end && (right as u64) < left_end
+}
+
+unsafe fn preflight_guest_range(address: u32, length: u32, write: bool) -> bool {
+    let end = address as u64 + length as u64;
+    if end > 0x1_0000_0000 {
+        return false;
+    }
+    let mut cursor = address as u64;
+    while cursor < end {
+        match translate_address(cursor as u32 as i32, write, *cpl == 3, false, false) {
+            Ok(physical) if !memory::in_mapped_range(physical) => {}
+            _ => return false,
+        }
+        cursor = (cursor + PAGE_BYTES as u64 - (cursor & PAGE_MASK as u64)).min(end);
+    }
+    true
+}
+
+unsafe fn copy_guest_bytes(
+    source: u32,
+    destination: u32,
+    length: u32,
+    allow_forward_overlap: bool,
+) -> Result<Option<u8>, String> {
+    if length == 0 {
+        return Ok(Some(0));
+    }
+    if !allow_forward_overlap && ranges_overlap(source, length, destination, length) {
+        return Ok(None);
+    }
+    if !preflight_guest_range(source, length, false)
+        || !preflight_guest_range(destination, length, true)
+    {
+        return Ok(None);
+    }
+    let mut source_cursor = source;
+    let mut destination_cursor = destination;
+    let mut remaining = length;
+    let mut last = 0;
+    while remaining > 0 {
+        let source_physical = translate_address_read_no_side_effects(source_cursor as i32)
+            .map_err(|()| "hot copy lost a preflighted source page".to_owned())?;
+        let (destination_physical, can_skip_dirty) =
+            translate_address_write_and_can_skip_dirty(destination_cursor as i32)
+                .map_err(|()| "hot copy lost a preflighted destination page".to_owned())?;
+        if memory::in_mapped_range(source_physical) || memory::in_mapped_range(destination_physical)
+        {
+            return Err("hot copy reached mapped device memory after preflight".to_owned());
+        }
+        if !can_skip_dirty {
+            crate::jit::jit_dirty_page(Page::page_of(destination_physical));
+        }
+        let chunk = remaining
+            .min(PAGE_BYTES as u32 - (source_cursor & PAGE_MASK))
+            .min(PAGE_BYTES as u32 - (destination_cursor & PAGE_MASK));
+        let source_pointer = memory::mem8.add(source_physical as usize);
+        let destination_pointer = memory::mem8.add(destination_physical as usize);
+        if allow_forward_overlap {
+            for offset in 0..chunk as usize {
+                last = *source_pointer.add(offset);
+                *destination_pointer.add(offset) = last;
+            }
+        } else {
+            last = *source_pointer.add(chunk as usize - 1);
+            std::ptr::copy_nonoverlapping(source_pointer, destination_pointer, chunk as usize);
+        }
+        source_cursor = source_cursor.wrapping_add(chunk);
+        destination_cursor = destination_cursor.wrapping_add(chunk);
+        remaining -= chunk;
+    }
+    Ok(Some(last))
+}
+
+unsafe fn set_hot_instruction_pointer(address: u32) {
+    *instruction_pointer = address as i32;
+    *previous_ip = address as i32;
+    *last_virt_eip = -1;
+    *eip_phys = 0;
+}
+
+pub(crate) unsafe fn try_hot_loop(max_instructions: u32, physical: u32) -> Result<bool, String> {
+    if !HOT_LOOP_ACTIVE {
+        return Ok(false);
+    }
+    let address = *instruction_pointer as u32;
+    if code_matches(address, physical, SIMD_COPY_LOOP) {
+        let count = *reg32.add(ECX as usize) as u32;
+        let iterations = count.min(max_instructions / 6);
+        if iterations == 0 {
+            return Ok(false);
+        }
+        let source = *reg32.add(EAX as usize) as u32;
+        let destination = source.wrapping_add(*reg32.add(EDX as usize) as u32);
+        let length = iterations
+            .checked_mul(16)
+            .ok_or_else(|| "hot SIMD copy length overflowed".to_owned())?;
+        let source_end = source as u64 + length as u64;
+        let destination_end = destination as u64 + length as u64;
+        if source & 15 != 0
+            || destination & 15 != 0
+            || source_end > 0x1_0000_0000
+            || destination_end > 0x1_0000_0000
+            || ranges_overlap(source, length, destination, length)
+            || copy_guest_bytes(source, destination, length, false)?.is_none()
+        {
+            return Ok(false);
+        }
+        *reg_xmm = safe_read128s(source.wrapping_add(length).wrapping_sub(16) as i32)
+            .map_err(|()| "hot SIMD copy lost its preflighted final source block".to_owned())?;
+        let remaining = count - iterations;
+        *reg32.add(EAX as usize) =
+            crate::cpu::arith::add32(source.wrapping_add(length).wrapping_sub(16) as i32, 16);
+        *reg32.add(ECX as usize) = remaining as i32;
+        crate::cpu::arith::dec32(remaining.wrapping_add(1) as i32);
+        set_hot_instruction_pointer(if remaining == 0 {
+            address + SIMD_COPY_LOOP.len() as u32
+        } else {
+            address
+        });
+        *instruction_counter = instruction_counter.read().wrapping_add(iterations * 6);
+        return Ok(true);
+    }
+
+    if code_matches(address, physical, BYTE_COPY_LOOP) {
+        let offset = *reg32.add(EAX as usize) as u32;
+        let limit = *reg32.add(ECX as usize) as u32;
+        let iterations = limit.saturating_sub(offset);
+        let required = iterations
+            .checked_mul(7)
+            .and_then(|instructions| instructions.checked_add(3))
+            .ok_or_else(|| "hot byte copy instruction count overflowed".to_owned())?;
+        if (offset < limit && required > max_instructions) || max_instructions < 3 {
+            return Ok(false);
+        }
+        let local = (*reg32.add(EBP as usize) as u32).wrapping_sub(0x308);
+        if !preflight_guest_range(local, 4, true) {
+            return Ok(false);
+        }
+        let last = if iterations == 0 {
+            None
+        } else {
+            let source = (*reg32.add(ESI as usize) as u32).wrapping_add(offset);
+            let destination = (*reg32.add(EDI as usize) as u32).wrapping_add(offset);
+            if ranges_overlap(local, 4, source, iterations)
+                || ranges_overlap(local, 4, destination, iterations)
+            {
+                return Ok(false);
+            }
+            match copy_guest_bytes(source, destination, iterations, false)? {
+                Some(last) => Some(last),
+                None => return Ok(false),
+            }
+        };
+        let final_offset = offset.wrapping_add(iterations);
+        safe_write32(local as i32, final_offset as i32)
+            .map_err(|()| "hot byte copy lost its preflighted local".to_owned())?;
+        if let Some(last) = last {
+            let edx = *reg32.add(EDX as usize) as u32;
+            *reg32.add(EDX as usize) = (edx & !0xff | last as u32) as i32;
+            *flags |= 1;
+        }
+        *reg32.add(EAX as usize) = final_offset as i32;
+        crate::cpu::arith::cmp32(final_offset as i32, limit as i32);
+        set_hot_instruction_pointer(address + BYTE_COPY_LOOP.len() as u32);
+        *instruction_counter = instruction_counter.read().wrapping_add(required);
+        return Ok(true);
+    }
+
+    if code_matches(address, physical, FORWARD_COPY_LOOP) {
+        let count = *reg32.add(ECX as usize) as u32;
+        let iterations = count.min(max_instructions / 8);
+        if iterations == 0 {
+            return Ok(false);
+        }
+        let local = (*reg32.add(EBP as usize) as u32).wrapping_add(8);
+        if !preflight_guest_range(local, 4, true) {
+            return Ok(false);
+        }
+        let destination = safe_read32s(local as i32)
+            .map_err(|()| "hot forward copy could not read its preflighted local".to_owned())?
+            as u32;
+        let source = *reg32.add(ESI as usize) as u32;
+        if ranges_overlap(local, 4, source, iterations)
+            || ranges_overlap(local, 4, destination, iterations)
+        {
+            return Ok(false);
+        }
+        let last = match copy_guest_bytes(source, destination, iterations, true)? {
+            Some(last) => last,
+            None => return Ok(false),
+        };
+        let final_source = source.wrapping_add(iterations);
+        let final_destination = destination.wrapping_add(iterations);
+        safe_write32(local as i32, final_destination as i32)
+            .map_err(|()| "hot forward copy lost its preflighted local".to_owned())?;
+        let eax = *reg32.add(EAX as usize) as u32;
+        *reg32.add(EAX as usize) = (eax & !0xff | last as u32) as i32;
+        *reg32.add(EDI as usize) = final_destination as i32;
+        *reg32.add(ESI as usize) = final_source as i32;
+        let remaining = count - iterations;
+        *reg32.add(ECX as usize) = remaining as i32;
+        crate::cpu::arith::dec32(remaining.wrapping_add(1) as i32);
+        set_hot_instruction_pointer(if remaining == 0 {
+            address + FORWARD_COPY_LOOP.len() as u32
+        } else {
+            address
+        });
+        *instruction_counter = instruction_counter.read().wrapping_add(iterations * 8);
+        return Ok(true);
+    }
+
+    if code_matches(address, physical, SORT_LOOP) {
+        let total = *reg32.add(EDI as usize);
+        let outer = *reg32.add(EBX as usize);
+        if total <= 1 || total > 512 || outer < 1 || outer >= total {
+            return Ok(false);
+        }
+        let base = (*reg32.add(EBP as usize) as u32).wrapping_sub(0x808);
+        let remaining_local = (*reg32.add(EBP as usize) as u32).wrapping_sub(0x1810);
+        let remaining = total - outer;
+        let values_length = total as u32 * 4;
+        if *reg32.add(EDX as usize) as u32 != base.wrapping_add((outer as u32 - 1).wrapping_mul(4))
+            || ranges_overlap(base, values_length, remaining_local, 4)
+            || !preflight_guest_range(base, values_length, false)
+            || !preflight_guest_range(remaining_local, 4, true)
+            || safe_read32s(remaining_local as i32)
+                .map_err(|()| "hot sort lost its preflighted loop counter".to_owned())?
+                != remaining
+        {
+            return Ok(false);
+        }
+        let mut values = [0_u32; 512];
+        for index in 0..total as u32 {
+            values[index as usize] = safe_read32s(base.wrapping_add(index * 4) as i32)
+                .map_err(|()| "hot sort lost its preflighted input".to_owned())?
+                as u32;
+        }
+        let mut touched = [false; 512];
+        let mut swaps = 0_u32;
+        let mut final_eax = 0_u32;
+        // The guest instruction count depends on every conditional swap, so mirror this bounded loop.
+        for current in outer as usize..total as usize {
+            for index in current..total as usize {
+                final_eax = values[index];
+                if values[current - 1] > final_eax {
+                    values.swap(current - 1, index);
+                    touched[current - 1] = true;
+                    touched[index] = true;
+                    swaps += 1;
+                }
+            }
+        }
+        let inner_iterations = remaining as u32 * (remaining as u32 + 1) / 2;
+        let required = 1 + remaining as u32 * 8 + inner_iterations * 7 + swaps * 2;
+        if required > max_instructions {
+            return Ok(false);
+        }
+        if touched[..total as usize].iter().any(|&value| value)
+            && !preflight_guest_range(base, values_length, true)
+        {
+            return Ok(false);
+        }
+        for (index, (&value, &write)) in values[..total as usize].iter().zip(&touched).enumerate() {
+            if write {
+                safe_write32(base.wrapping_add(index as u32 * 4) as i32, value as i32)
+                    .map_err(|()| "hot sort lost its preflighted output".to_owned())?;
+            }
+        }
+        safe_write32(remaining_local as i32, 0)
+            .map_err(|()| "hot sort lost its preflighted loop counter".to_owned())?;
+        *reg32.add(EAX as usize) = final_eax as i32;
+        *reg32.add(ECX as usize) = crate::cpu::arith::xor32(0, 0);
+        *reg32.add(EDX as usize) = base.wrapping_add((total as u32 - 1) * 4) as i32;
+        *reg32.add(EBX as usize) = total;
+        *reg32.add(ESI as usize) = total;
+        *last_op1 = 1;
+        set_hot_instruction_pointer(address + SORT_LOOP.len() as u32);
+        *instruction_counter = instruction_counter.read().wrapping_add(required);
+        return Ok(true);
+    }
+
+    if code_matches(address, physical, HUFFMAN_LOOP) {
+        let tree = *reg32.add(EAX as usize) as u32;
+        let mut input = *reg32.add(EDI as usize) as u32;
+        let mut bit_count = *reg32.add(EDX as usize) as u32;
+        let mut bit_buffer = *reg32.add(EBX as usize) as u32;
+        if bit_count > 8 {
+            return Ok(false);
+        }
+        let mut node = 0_u32;
+        let mut doubled_node = 0_u32;
+        let mut final_flag = 1_i32;
+        let mut final_bit = 0_u32;
+        let mut required = 1_u32;
+        for _ in 0..512 {
+            required += 12;
+            if bit_count == 0 {
+                let byte = safe_read8(input as i32)
+                    .map_err(|()| "hot Huffman decode could not read its input".to_owned())?
+                    as u32
+                    & 0xff;
+                bit_buffer = bit_buffer & !0xff | byte;
+                input = input.wrapping_add(1);
+                bit_count = 8;
+                required += 3;
+            }
+            final_bit = bit_buffer >> 7 & 1;
+            let child = tree
+                .wrapping_add(node.wrapping_mul(16))
+                .wrapping_add(8 + final_bit * 4);
+            node = safe_read32s(child as i32)
+                .map_err(|()| "hot Huffman decode could not read its child".to_owned())?
+                as u32;
+            doubled_node = node.wrapping_mul(2);
+            bit_buffer = bit_buffer & !0xff | ((bit_buffer & 0xff) << 1 & 0xff);
+            bit_count -= 1;
+            final_flag = safe_read32s(tree.wrapping_add(doubled_node * 8) as i32)
+                .map_err(|()| "hot Huffman decode could not read its node".to_owned())?;
+            if final_flag == 0 {
+                break;
+            }
+        }
+        if final_flag != 0 || required > max_instructions {
+            return Ok(false);
+        }
+        crate::cpu::arith::xor32(0, 0);
+        *flags = *flags & !1 | final_bit as i32;
+        crate::cpu::arith::cmp32(final_flag, 0);
+        *reg32.add(ECX as usize) = node as i32;
+        *reg32.add(ESI as usize) = doubled_node as i32;
+        *reg32.add(EDI as usize) = input as i32;
+        *reg32.add(EDX as usize) = bit_count as i32;
+        *reg32.add(EBX as usize) = bit_buffer as i32;
+        set_hot_instruction_pointer(address + HUFFMAN_LOOP.len() as u32);
+        *instruction_counter = instruction_counter.read().wrapping_add(required);
+        return Ok(true);
+    }
+
+    Ok(false)
 }
 
 unsafe fn stack_is_dirty_and_iat_is_clean(stack_pointer: u32, iat_page: u32) -> bool {
@@ -424,6 +819,7 @@ pub unsafe fn vine_execution_island_execute_budget(
     host_elapsed_time_100ns_high: u32,
 ) -> u32 {
     FAST_API_COUNT = 0;
+    HOT_LOOP_ACTIVE = false;
     WRITEBACK_BATCHES = 0;
     WRITEBACK_PAGES = 0;
     MIRRORED_DELTA_PAGES = 0;
@@ -451,7 +847,9 @@ pub unsafe fn vine_execution_island_execute_budget(
         if executed >= max_instructions || FAST_API_COUNT >= MAX_FAST_APIS_PER_SLICE {
             return STOP_BUDGET;
         }
+        HOT_LOOP_ACTIVE = true;
         let reason = crate::cpu::cpu::vine_execute_budget(max_instructions - executed);
+        HOT_LOOP_ACTIVE = false;
         if reason != STOP_INVALID_OPCODE {
             return reason;
         }

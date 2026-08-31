@@ -11,6 +11,63 @@ diff --git a/Cargo.toml b/Cargo.toml
  [lib]
  crate-type = ["cdylib"]
  path = "src/rust/lib.rs"
+diff --git a/src/rust/cpu/cpu.rs b/src/rust/cpu/cpu.rs
+--- a/src/rust/cpu/cpu.rs
++++ b/src/rust/cpu/cpu.rs
+@@ -3273,6 +3273,7 @@ unsafe fn jit_run_interpreted(mut phys_addr: u32, instruction_limit: u32) {
+ 
+     jit_block_boundary = false;
+     let mut i = 0;
++    let initial_instruction_counter = *instruction_counter;
+ 
+     loop {
+         if CHECK_MISSED_ENTRY_POINTS {
+@@ -3290,13 +3291,44 @@ unsafe fn jit_run_interpreted(mut phys_addr: u32, instruction_limit: u32) {
+             break;
+         }
+         let opcode = *memory::mem8.offset(phys_addr as isize) as i32;
++        let retired = (*instruction_counter)
++            .wrapping_sub(initial_instruction_counter)
++            .wrapping_add(i - 1);
++        if matches!(opcode & 0xff, 0x0f | 0x33 | 0x89 | 0x8b)
++            && crate::cpu::island::is_hot_loop_start(start_eip as u32, phys_addr)
++        {
++            match crate::cpu::island::try_hot_loop(instruction_limit - retired, phys_addr) {
++                Ok(true) => {
++                    i -= 1;
++                    if (*instruction_counter)
++                        .wrapping_sub(initial_instruction_counter)
++                        .wrapping_add(i)
++                        >= instruction_limit
++                    {
++                        break;
++                    }
++                    *previous_ip = *instruction_pointer;
++                    phys_addr = return_on_pagefault!(get_phys_eip()) as u32;
++                    continue;
++                }
++                Ok(false) => {}
++                Err(error) => {
++                    vine_runtime_wasm::execution_island_set_error(error);
++                    vine_stop_reason = crate::cpu::island::STOP_ISLAND_ERROR;
++                    break;
++                }
++            }
++        }
+         *instruction_pointer += 1;
+         dbg_assert!(*prefixes == 0);
+         run_instruction(opcode | (*is_32 as i32) << 8);
+         dbg_assert!(*prefixes == 0);
+ 
+         if (vine_execution_active && vine_stop_reason != 0)
+-            || i >= instruction_limit
++            || (*instruction_counter)
++                .wrapping_sub(initial_instruction_counter)
++                .wrapping_add(i)
++                >= instruction_limit
+             || jit_block_boundary
+             || Page::page_of(start_eip as u32) != Page::page_of(*instruction_pointer as u32)
+                 // Limit the number of iterations, as jumps within the same page are not counted as
 diff --git a/src/rust/cpu/mod.rs b/src/rust/cpu/mod.rs
 --- a/src/rust/cpu/mod.rs
 +++ b/src/rust/cpu/mod.rs
