@@ -254,6 +254,7 @@ fn fast_dispatch_implementation_code(implementation: &str) -> Option<u32> {
         vine_core::FLS_GET_VALUE_IMPLEMENTATION => Some(17),
         vine_core::GET_CURSOR_INFO_IMPLEMENTATION => Some(18),
         vine_core::TRANSLATE_MESSAGE_IMPLEMENTATION => Some(19),
+        vine_core::GET_TICK_COUNT_IMPLEMENTATION => Some(20),
         _ => None,
     }
 }
@@ -1750,6 +1751,7 @@ impl BrowserRuntime {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn dispatch(
         &mut self,
         endpoint_address: GuestAddress,
@@ -1758,6 +1760,7 @@ impl BrowserRuntime {
         retired_instructions: u64,
         x86_context: X86CpuContext,
         allow_fast_completion: bool,
+        frame_prevalidated_no_arguments: bool,
     ) -> Result<BrowserApiDispatchOutput, String> {
         let (route_id, argument_bytes, endpoint) = self
             .routes
@@ -1855,6 +1858,7 @@ impl BrowserRuntime {
             &mut self.runtime,
             x86_context,
             callback_sentinel,
+            frame_prevalidated_no_arguments,
         );
         let outcome =
             dispatcher.dispatch(
@@ -5478,6 +5482,19 @@ pub fn execution_island_forward_endpoint_owned(endpoint_address: u32) -> bool {
     })
 }
 
+pub fn execution_island_forward_endpoint_iat_page(endpoint_address: u32) -> Option<u32> {
+    BRIDGE.with(|cell| {
+        cell.borrow()
+            .runtime
+            .as_ref()?
+            .routes
+            .get(&GuestAddress(endpoint_address))?
+            .endpoint
+            .iat_address
+            .map(|address| address.0 & !(GUEST_PAGE_SIZE as u32 - 1))
+    })
+}
+
 pub fn execution_island_memory_generation() -> Result<u64, String> {
     BRIDGE.with(|cell| {
         let bridge = cell.borrow();
@@ -5852,6 +5869,7 @@ pub extern "C" fn vine_bridge_dispatch(
                 gs,
             },
             false,
+            false,
         )?;
         let BrowserApiDispatchOutput::Structured { metadata, delta } = output else {
             return Err("legacy dispatch unexpectedly produced a fast completion".to_owned());
@@ -5887,6 +5905,57 @@ pub extern "C" fn vine_bridge_dispatch_fast_v3(
     fs: u32,
     gs: u32,
 ) -> u32 {
+    vine_bridge_dispatch_fast_v4(
+        endpoint_address,
+        stack_pointer,
+        return_address,
+        retired_instructions_low,
+        retired_instructions_high,
+        eax,
+        ecx,
+        edx,
+        ebx,
+        esp,
+        ebp,
+        esi,
+        edi,
+        eip,
+        eflags,
+        es,
+        cs,
+        ss,
+        ds,
+        fs,
+        gs,
+        0,
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_dispatch_fast_v4(
+    endpoint_address: u32,
+    stack_pointer: u32,
+    return_address: u32,
+    retired_instructions_low: u32,
+    retired_instructions_high: u32,
+    eax: u32,
+    ecx: u32,
+    edx: u32,
+    ebx: u32,
+    esp: u32,
+    ebp: u32,
+    esi: u32,
+    edi: u32,
+    eip: u32,
+    eflags: u32,
+    es: u32,
+    cs: u32,
+    ss: u32,
+    ds: u32,
+    fs: u32,
+    gs: u32,
+    frame_prevalidated_no_arguments: u32,
+) -> u32 {
     run_bridge(|bridge| {
         let retired_instructions =
             u64::from(retired_instructions_low) | (u64::from(retired_instructions_high) << 32);
@@ -5914,6 +5983,7 @@ pub extern "C" fn vine_bridge_dispatch_fast_v3(
                 gs,
             },
             true,
+            frame_prevalidated_no_arguments != 0,
         )?;
         match output {
             BrowserApiDispatchOutput::Fast { receipt, delta } => {
@@ -6358,6 +6428,10 @@ mod tests {
         assert_eq!(
             fast_dispatch_implementation_code(vine_core::TRANSLATE_MESSAGE_IMPLEMENTATION),
             Some(19),
+        );
+        assert_eq!(
+            fast_dispatch_implementation_code(vine_core::GET_TICK_COUNT_IMPLEMENTATION),
+            Some(20),
         );
         assert!(fast_dispatch_write_shape_supported(
             vine_core::GET_ASYNC_KEY_STATE_IMPLEMENTATION,

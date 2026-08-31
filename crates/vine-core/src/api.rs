@@ -1158,6 +1158,7 @@ pub struct ExecutionSession<'a> {
     runtime: &'a mut RuntimeState,
     x86_context: Option<X86CpuContext>,
     guest_callback_return_sentinel: Option<GuestAddress>,
+    frame_prevalidated_no_arguments: bool,
 }
 
 impl<'a> ExecutionSession<'a> {
@@ -1167,20 +1168,26 @@ impl<'a> ExecutionSession<'a> {
             runtime,
             x86_context: None,
             guest_callback_return_sentinel: None,
+            frame_prevalidated_no_arguments: false,
         }
     }
 
+    /// Creates a CPU-backed session. `frame_prevalidated_no_arguments` is only valid when the
+    /// authoritative CPU mirror already checked the endpoint binding and return address since the
+    /// last guest write outside the current stack page.
     pub fn with_x86_context(
         memory: &'a mut GuestMemory,
         runtime: &'a mut RuntimeState,
         x86_context: X86CpuContext,
         guest_callback_return_sentinel: GuestAddress,
+        frame_prevalidated_no_arguments: bool,
     ) -> Self {
         Self {
             memory,
             runtime,
             x86_context: Some(x86_context),
             guest_callback_return_sentinel: Some(guest_callback_return_sentinel),
+            frame_prevalidated_no_arguments,
         }
     }
 
@@ -2195,10 +2202,12 @@ impl ApiDispatcher {
         let Some(contract) = self.contracts.get(&endpoint.address) else {
             return DispatchOutcome::Fault(missing_endpoint_contract(endpoint));
         };
-        if let Err(fault) = validate_bound_iat(session.memory(), endpoint) {
-            return DispatchOutcome::Fault(fault);
-        }
-        let frame = match decode_call_frame(session.memory(), contract, trap) {
+        let frame = match if session.frame_prevalidated_no_arguments {
+            decode_prevalidated_no_argument_frame(contract, trap)
+        } else {
+            validate_bound_iat(session.memory(), endpoint)
+                .and_then(|()| decode_call_frame(session.memory(), contract, trap))
+        } {
             Ok(frame) => frame,
             Err(fault) => return DispatchOutcome::Fault(fault),
         };
@@ -2813,6 +2822,28 @@ fn decode_call_frame(
         return_address: trap.return_address,
         argument_bytes: expected_argument_bytes,
         arguments,
+    })
+}
+
+fn decode_prevalidated_no_argument_frame(
+    contract: &ApiContract,
+    trap: ApiTrap,
+) -> Result<ApiCallFrame, ApiFault> {
+    let argument_bytes = contract.abi.argument_bytes()?;
+    if argument_bytes != 0 || trap.argument_bytes != 0 {
+        return Err(ApiFault::invalid_call(
+            "abi-gateway",
+            "prevalidated-frame-has-arguments",
+            "prevalidated zero-argument dispatch requires an argument-free API contract",
+        )
+        .with_endpoint(&contract.endpoint));
+    }
+    Ok(ApiCallFrame {
+        endpoint: contract.endpoint.clone(),
+        stack_pointer: trap.stack_pointer,
+        return_address: trap.return_address,
+        argument_bytes,
+        arguments: Vec::new(),
     })
 }
 

@@ -573,7 +573,7 @@ export class V86Mirror implements ExecutionEngine {
       V86Mirror.#preparedUrls.set(key, prepared);
     }
     const resolved = await prepared;
-    const wasm = V86Mirror.#instantiateAdapter(resolved.module);
+    const wasm = V86Mirror.#instantiateAdapter(resolved.module, true);
     const islandWasm = wasm as V86Exports & Partial<V86IslandExports>;
     invariant(
       islandWasm.vine_execution_island_abi_version?.() === 1,
@@ -619,7 +619,10 @@ export class V86Mirror implements ExecutionEngine {
     return new V86Mirror(prepared.module, prepared.identity, options);
   }
 
-  static #instantiateAdapter(module: WebAssembly.Module): V86Exports {
+  static #instantiateAdapter(
+    module: WebAssembly.Module,
+    hostMonotonicClock = false,
+  ): V86Exports {
     const imports = WebAssembly.Module.imports(module);
     const table = new WebAssembly.Table({
       element: "anyfunc",
@@ -642,7 +645,10 @@ export class V86Mirror implements ExecutionEngine {
         continue;
       }
       environment[imported.name] = (...arguments_: unknown[]) => {
-        if (imported.name === "microtick" || imported.name === "get_rand_int") {
+        if (imported.name === "microtick") {
+          return hostMonotonicClock ? performance.now() : 0;
+        }
+        if (imported.name === "get_rand_int") {
           return 0;
         }
         if (imported.name === "codegen_finalize") {

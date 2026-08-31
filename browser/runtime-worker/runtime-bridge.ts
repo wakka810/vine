@@ -731,7 +731,7 @@ export class RuntimeBridge {
   ): BridgeOutput<T> {
     const fastLength = this.#exports.vine_bridge_fast_dispatch_len_v3();
     if (fastLength === 0) {
-      return this.#readOutput<T>();
+      return this.#readOutput(this.#readJson<T>());
     }
     invariant(fastLength === 36, "runtime bridge returned an invalid fast dispatch record length");
     const pointer = this.#exports.vine_bridge_fast_dispatch_ptr_v3();
@@ -1029,11 +1029,10 @@ export class RuntimeBridge {
       const error = metadata as { message?: unknown };
       throw new Error(typeof error.message === "string" ? error.message : "runtime bridge failed");
     }
-    return this.#readOutput<T>();
+    return this.#readOutput(metadata);
   }
 
-  #readOutput<T>(): BridgeOutput<T> {
-    const metadata = this.#readJson<T>();
+  #readOutput<T>(metadata: T): BridgeOutput<T> {
     return {
       metadata,
       control: this.#copyOutput(
@@ -1074,6 +1073,7 @@ export class RuntimeBridge {
       "kernel32.fls-get-value.v1",
       "user32.get-cursor-info.current-cursor.v2",
       "user32.translate-message.window-timer-pointer-noop.v2",
+      "kernel32.get-tick-count.v1",
     ][words[1] ?? 0];
     invariant(implementationId !== undefined && implementationId.length > 0, "unknown fast API implementation");
     const argumentCount = words[19] ?? 0;

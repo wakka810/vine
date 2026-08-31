@@ -67,6 +67,78 @@ const PERFORMANCE_COUNTER: u64 = 12_345_678_901;
 const PERFORMANCE_FREQUENCY: u64 = 10_000_000;
 
 #[test]
+fn prevalidated_no_argument_frame_reuses_normal_completion() {
+    let (mut memory, owner) = initialized_memory();
+    let (dispatcher, endpoints, frames) = dispatcher_fixture(&mut memory, owner);
+    let mut runtime = controlled_runtime(controlled_startup_info());
+    let x86_context = |esp, eip| X86CpuContext {
+        eax: 0,
+        ecx: 0,
+        edx: 0,
+        ebx: 0,
+        esp,
+        ebp: 0,
+        esi: 0,
+        edi: 0,
+        eip,
+        eflags: 0x202,
+        es: 0,
+        cs: 0,
+        ss: 0,
+        ds: 0,
+        fs: 0,
+        gs: 0,
+    };
+    let dispatch = |prevalidated, memory: &mut GuestMemory, runtime: &mut RuntimeState| {
+        let mut session = ExecutionSession::with_x86_context(
+            memory,
+            runtime,
+            x86_context(frames[0].0, endpoints[0].address.0),
+            GuestAddress(0),
+            prevalidated,
+        );
+        dispatcher.dispatch(
+            trap(&endpoints[0], frames[0].0, frames[0].1[0], 0),
+            &mut session,
+            dispatch_kernel32_api,
+        )
+    };
+    let normal = dispatch(false, &mut memory, &mut runtime);
+    memory
+        .write(endpoints[0].iat_address.unwrap(), &0_u32.to_le_bytes())
+        .expect("invalidate prevalidated IAT mirror");
+    memory
+        .write(GuestAddress(frames[0].0), &0_u32.to_le_bytes())
+        .expect("invalidate prevalidated stack mirror");
+    let prevalidated = dispatch(true, &mut memory, &mut runtime);
+    assert_eq!(prevalidated, normal);
+
+    let handler_called = Cell::new(false);
+    let rejected = {
+        let mut session = ExecutionSession::with_x86_context(
+            &mut memory,
+            &mut runtime,
+            x86_context(frames[1].0, endpoints[1].address.0),
+            GuestAddress(0),
+            true,
+        );
+        dispatcher.dispatch(
+            trap(&endpoints[1], frames[1].0, frames[1].1[0], 4),
+            &mut session,
+            |_, _, _| {
+                handler_called.set(true);
+                ApiHandlerResult::Immediate(ApiImmediate::new(ApiReturnValue::Bool32(true)))
+            },
+        )
+    };
+    assert!(!handler_called.get());
+    assert!(matches!(
+        rejected,
+        DispatchOutcome::Fault(ref fault) if fault.code == "prevalidated-frame-has-arguments"
+    ));
+}
+
+#[test]
 fn runtime_state_drives_five_api_shapes_and_nested_scheduler_state() {
     let (mut memory, owner) = initialized_memory();
     let (dispatcher, endpoints, frames) = dispatcher_fixture(&mut memory, owner);
@@ -9999,6 +10071,7 @@ fn raise_exception_dispatches_the_bounded_x86_seh_chain() {
             &mut runtime,
             cpu_context,
             sentinels.callback_return.address,
+            false,
         );
         dispatcher.dispatch(
             trap(&endpoint, API_STACK.0, RETURN_ADDRESS.0, 16),
@@ -10111,6 +10184,7 @@ fn raise_exception_dispatches_the_bounded_x86_seh_chain() {
             &mut runtime,
             unwind_context,
             sentinels.callback_return.address,
+            false,
         );
         dispatcher.dispatch(
             trap(&unwind_endpoint, UNWIND_STACK.0, HANDLER_ONE.0, 16),
@@ -10170,6 +10244,7 @@ fn raise_exception_dispatches_the_bounded_x86_seh_chain() {
             &mut runtime,
             cpu_context,
             sentinels.callback_return.address,
+            false,
         );
         dispatcher.dispatch(
             trap(&endpoint, API_STACK.0, RETURN_ADDRESS.0, 16),

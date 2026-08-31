@@ -32,6 +32,11 @@
       "hostProfile": "windows-gnu-execution-island-packed-convert-v22",
       "bytes": 7622354,
       "sha256": "88dc495e4fa29818ed65e302ce41a201f9fbb1f4151e9e9645af3a2c38e465fb"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-prevalidated-live-tick-v24",
+      "bytes": 7613871,
+      "sha256": "8188dedcf31f3357ab23be0afecddbd57848cb4599fdc1855a1011e6569597e3"
     }
   ]
 }

@@ -18,6 +18,7 @@ const PTE_DIRTY: u32 = 0x40;
 const MAX_FAST_APIS_PER_SLICE: u32 = 256;
 const FAST_RECORD_WORDS: u32 = 36;
 const FAST_RECORD_VERSION: u32 = 2;
+const GET_TICK_COUNT_FAST_CODE: u32 = 20;
 const MEMORY_DELTA_CONTROL_HEADER_BYTES: usize = 56;
 const MEMORY_DELTA_MAPPING_DESCRIPTOR_BYTES: usize = 40;
 const MEMORY_DELTA_PAGE_DESCRIPTOR_BYTES: usize = 16;
@@ -32,6 +33,54 @@ enum FastDispatch {
     NotHandled,
     Continued,
     Pending,
+}
+
+struct HostClock {
+    base_elapsed_time_100ns: u64,
+    base_monotonic_milliseconds: f64,
+}
+
+impl HostClock {
+    unsafe fn new(base_elapsed_time_100ns: u64) -> Result<Self, String> {
+        let base_monotonic_milliseconds = crate::cpu::cpu::js::microtick();
+        if !base_monotonic_milliseconds.is_finite() || base_monotonic_milliseconds < 0.0 {
+            return Err("execution island received an invalid host monotonic clock".to_owned());
+        }
+        Ok(Self {
+            base_elapsed_time_100ns,
+            base_monotonic_milliseconds,
+        })
+    }
+
+    unsafe fn elapsed_time_100ns(&self, refresh: bool) -> Result<u64, String> {
+        if !refresh {
+            return Ok(self.base_elapsed_time_100ns);
+        }
+        let elapsed_milliseconds =
+            crate::cpu::cpu::js::microtick() - self.base_monotonic_milliseconds;
+        if !elapsed_milliseconds.is_finite() || elapsed_milliseconds < 0.0 {
+            return Err("execution island host monotonic clock regressed".to_owned());
+        }
+        let elapsed_100ns = (elapsed_milliseconds * 10_000.0).floor();
+        if elapsed_100ns > u64::MAX as f64 {
+            return Err("execution island host monotonic clock overflowed".to_owned());
+        }
+        self.base_elapsed_time_100ns
+            .checked_add(elapsed_100ns as u64)
+            .ok_or_else(|| "execution island host elapsed clock overflowed".to_owned())
+    }
+}
+
+unsafe fn stack_is_dirty_and_iat_is_clean(stack_pointer: u32, iat_page: u32) -> bool {
+    if vine::vine_dirty_pages_overflowed() != 0 || stack_pointer & PAGE_MASK > PAGE_MASK - 3 {
+        return false;
+    }
+    let pages = std::slice::from_raw_parts(
+        vine::vine_dirty_pages_ptr() as *const u32,
+        vine::vine_dirty_page_count() as usize,
+    );
+    let stack_page = stack_pointer & !PAGE_MASK;
+    pages.contains(&stack_page) && !pages.contains(&iat_page)
 }
 
 unsafe fn clear_page_dirty(address: u32) -> bool {
@@ -177,7 +226,7 @@ unsafe fn apply_inline_delta(words: &[u32; FAST_RECORD_WORDS as usize]) -> Resul
                 return Ok(false);
             }
             Some((words[27], end, length))
-        },
+        }
         _ => return Ok(false),
     };
     let mut inline_write_matched = inline_write.is_none();
@@ -269,28 +318,32 @@ unsafe fn apply_register(action: u32, value: u32, register: *mut i32) -> bool {
         1 => {
             *register = value as i32;
             true
-        },
+        }
         _ => false,
     }
 }
 
 unsafe fn dispatch_fast(
     retired: u64,
-    host_elapsed_time_100ns: u64,
+    host_clock: &HostClock,
+    prevalidated_endpoint: &mut Option<(u32, u32)>,
 ) -> Result<FastDispatch, String> {
     let endpoint = *instruction_pointer as u32;
     if !vine_runtime_wasm::execution_island_forward_endpoint_owned(endpoint) {
         return Ok(FastDispatch::NotHandled);
     }
-    if !reconcile_dirty_pages()? {
+    let stack_pointer = *reg32.add(ESP as usize) as u32;
+    let frame_prevalidated = prevalidated_endpoint.is_some_and(|(address, iat_page)| {
+        address == endpoint && stack_is_dirty_and_iat_is_clean(stack_pointer, iat_page)
+    });
+    if !frame_prevalidated && !reconcile_dirty_pages()? {
         return Ok(FastDispatch::NotHandled);
     }
-    synchronize_clock(retired, host_elapsed_time_100ns)?;
-    let stack_pointer = *reg32.add(ESP as usize) as u32;
+    synchronize_clock(retired, host_clock.elapsed_time_100ns(frame_prevalidated)?)?;
     let return_address = safe_read32s(stack_pointer as i32)
         .map_err(|()| "execution island could not read the API return address".to_owned())?
         as u32;
-    let status = vine_runtime_wasm::vine_bridge_dispatch_fast_v3(
+    let status = vine_runtime_wasm::vine_bridge_dispatch_fast_v4(
         endpoint,
         stack_pointer,
         return_address,
@@ -312,6 +365,7 @@ unsafe fn dispatch_fast(
         *sreg.add(3) as u32,
         *sreg.add(4) as u32,
         *sreg.add(5) as u32,
+        frame_prevalidated as u32,
     );
     if status != 0 {
         return Err("execution island API dispatch failed".to_owned());
@@ -343,6 +397,15 @@ unsafe fn dispatch_fast(
     *in_hlt = false;
     *last_virt_eip = -1;
     *eip_phys = 0;
+    if words[1] == GET_TICK_COUNT_FAST_CODE && words[19] == 0 {
+        if !frame_prevalidated {
+            *prevalidated_endpoint =
+                vine_runtime_wasm::execution_island_forward_endpoint_iat_page(endpoint)
+                    .map(|iat_page| (endpoint, iat_page));
+        }
+    } else {
+        *prevalidated_endpoint = None;
+    }
     FAST_API_COUNT += 1;
     Ok(FastDispatch::Continued)
 }
@@ -369,12 +432,20 @@ pub unsafe fn vine_execution_island_execute_budget(
         Err(error) => {
             vine_runtime_wasm::execution_island_set_error(error);
             return STOP_ISLAND_ERROR;
-        },
+        }
     };
     let retired_base = retired_instructions_low as u64 | (retired_instructions_high as u64) << 32;
     let host_elapsed_time_100ns =
         host_elapsed_time_100ns_low as u64 | (host_elapsed_time_100ns_high as u64) << 32;
+    let host_clock = match HostClock::new(host_elapsed_time_100ns) {
+        Ok(clock) => clock,
+        Err(error) => {
+            vine_runtime_wasm::execution_island_set_error(error);
+            return STOP_ISLAND_ERROR;
+        }
+    };
     let initial_counter = *instruction_counter;
+    let mut prevalidated_endpoint = None;
     loop {
         let executed = (*instruction_counter).wrapping_sub(initial_counter);
         if executed >= max_instructions || FAST_API_COUNT >= MAX_FAST_APIS_PER_SLICE {
@@ -385,14 +456,14 @@ pub unsafe fn vine_execution_island_execute_budget(
             return reason;
         }
         let retired = retired_base + (*instruction_counter).wrapping_sub(initial_counter) as u64;
-        match dispatch_fast(retired, host_elapsed_time_100ns) {
-            Ok(FastDispatch::Continued) => {},
+        match dispatch_fast(retired, &host_clock, &mut prevalidated_endpoint) {
+            Ok(FastDispatch::Continued) => {}
             Ok(FastDispatch::Pending) => return STOP_PENDING_DISPATCH,
             Ok(FastDispatch::NotHandled) => return reason,
             Err(error) => {
                 vine_runtime_wasm::execution_island_set_error(error);
                 return STOP_ISLAND_ERROR;
-            },
+            }
         }
     }
 }
