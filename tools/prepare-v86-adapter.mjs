@@ -212,12 +212,12 @@ function prepareSource() {
     `unexpected v86 revision in ${path.relative(root, sourceDirectory)}`,
   );
 
-  ensurePatch(boundedPatchPath, "Vine bounded-execution patch");
-  ensurePatch(packedSimdPatchPath, "Vine packed-SIMD JIT patch");
   if (canApply(islandPatchPath, ["--reverse"])) {
     run("git", ["-C", sourceDirectory, "apply", "--reverse", islandPatchPath]);
     console.log("Reverted Vine execution-island patch");
   }
+  ensurePatch(boundedPatchPath, "Vine bounded-execution patch");
+  ensurePatch(packedSimdPatchPath, "Vine packed-SIMD JIT patch");
   ensurePatch(statePatchPath, "Vine state-module patch");
   ensurePatchReverted(islandPatchPath, "Vine execution-island patch");
 

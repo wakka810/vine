@@ -42,6 +42,11 @@
       "hostProfile": "windows-gnu-execution-island-hot-loops-v25",
       "bytes": 7630008,
       "sha256": "b32be186f49f678ab79a7746913d81f9448ccef65f4d283ad68e57ffe4e62c70"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-simd-blend-v26",
+      "bytes": 7412767,
+      "sha256": "fb35e153ea9d50e572287cfe97c5fbf0eaa61b02fc1340074e4df4aa5ea3c148"
     }
   ]
 }

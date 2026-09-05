@@ -76,3 +76,47 @@ diff --git a/src/rust/cpu/mod.rs b/src/rust/cpu/mod.rs
  pub mod vga;
  pub mod vine;
 +pub mod island;
+diff --git a/src/rust/jit.rs b/src/rust/jit.rs
+--- a/src/rust/jit.rs
++++ b/src/rust/jit.rs
+@@ -564,6 +564,12 @@ fn jit_find_basic_blocks(
+         };
+         loop {
+             let addr_before_instruction = current_address;
++            // Leave verified native loops to the execution island, including fallthrough entries.
++            if !current_block.has_sti
++                && unsafe { crate::cpu::island::owns_hot_loop(current_address) }
++            {
++                break;
++            }
+             let mut cpu = &mut CpuContext {
+                 eip: current_address,
+                 ..cpu
+@@ -802,7 +808,7 @@ fn jit_find_basic_blocks(
+ 
+     let basic_blocks: Vec<BasicBlock> = basic_blocks.into_iter().map(|(_, block)| block).collect();
+ 
+-    for i in 0..basic_blocks.len() - 1 {
++    for i in 0..basic_blocks.len().saturating_sub(1) {
+         let next_block_addr = basic_blocks[i + 1].addr;
+         let next_block_end_addr = basic_blocks[i + 1].end_addr;
+         let next_block_is_entry = basic_blocks[i + 1].is_entry_block;
+@@ -900,6 +906,9 @@ fn jit_analyze_and_generate(
+         .map(|e| virt_page.to_address() as i32 | *e as i32)
+         .collect();
+     let basic_blocks = jit_find_basic_blocks(ctx, entry_points, cpu.clone());
++    if basic_blocks.is_empty() {
++        return;
++    }
+ 
+     let mut pages = HashSet::new();
+ 
+@@ -2218,7 +2227,7 @@ pub fn jit_increase_hotness_and_maybe_compile(
+     state_flags: CachedStateFlags,
+     heat: u32,
+ ) {
+-    if unsafe { JIT_DISABLED } {
++    if unsafe { JIT_DISABLED || crate::cpu::island::owns_hot_loop(phys_address) } {
+         return;
+     }
+ 

@@ -952,7 +952,49 @@ if (exportNames.has("vine_execution_island_abi_version")) {
     ),
     0,
   );
+  const blendProgram = [
+    0x0f, 0x6f, 0x04, 0x01, 0xf3, 0x0f, 0xd6, 0xc0, 0x0f, 0x6f, 0x00, 0xf3, 0x0f,
+    0xd6, 0xe0, 0x66, 0x0f, 0x60, 0xe1, 0x66, 0x0f, 0x60, 0xc1, 0x66, 0x0f, 0xf9,
+    0xe0, 0x66, 0x0f, 0xd5, 0xe2, 0x66, 0x0f, 0x6f, 0xd8, 0x66, 0x0f, 0x71, 0xe4,
+    0x07, 0x66, 0x0f, 0xfd, 0xdc, 0x66, 0x0f, 0x67, 0xd9, 0xf2, 0x0f, 0xd6, 0xc3,
+    0x0f, 0x7f, 0x00, 0x83, 0xc0, 0x08, 0x4e, 0x75, 0xc3, 0xf4,
+  ];
   const hotLoopCases = [
+    ...[
+      { name: "page-crossing blend", source: 0x2f00, destination: 0x4000 },
+      { name: "forward aliased blend", source: 0x3000, destination: 0x3008 },
+      { name: "backward aliased blend", source: 0x3008, destination: 0x3000 },
+      { name: "in-place blend", source: 0x3000, destination: 0x3000 },
+      { name: "unaligned blend fallback", source: 0x2fff, destination: 0x4001 },
+      { name: "nonzero unpack blend fallback", source: 0x2f00, destination: 0x4000, unpack: 0x17 },
+      { name: "disabled SIMD blend", source: 0x2000, destination: 0x4000, cr0: 4 },
+      { name: "pending SIMD context switch", source: 0x2000, destination: 0x4000, cr0: 8 },
+      { name: "disabled OS SIMD blend", source: 0x2000, destination: 0x4000, cr4: 0 },
+      { name: "code-aliased blend fallback", source: 0x2000, destination: 0x4000,
+        pageOverrides: [[0x4000, 0x1007]], extraOutput: [0x1000, 0x1040] },
+    ].map(({ name, source, destination, unpack = 0, cr0 = 0, cr4 = 0x200,
+      pageOverrides, extraOutput }) => ({
+      name,
+      program: blendProgram,
+      pageOverrides,
+      extraOutput,
+      setup() {
+        for (let index = 0x2000; index < 0x5000; index += 1) {
+          memory[index] = (index * 17 + (index >>> 4) * 29) & 0xff;
+        }
+        state.setUint32(stateOffset.registers, destination, true);
+        state.setUint32(stateOffset.registers + 4, (source - destination) >>> 0, true);
+        state.setUint32(stateOffset.registers + 6 * 4, 128, true);
+        state.setUint32(stateOffset.flags, 3, true);
+        state.setUint32(stateOffset.controlRegisters, 1 | cr0, true);
+        state.setUint32(stateOffset.controlRegisters + 4 * 4, cr4, true);
+        for (let lane = 0; lane < 8; lane += 1) {
+          state.setUint16(stateOffset.xmm + 16 + lane * 2, unpack, true);
+          state.setUint16(stateOffset.xmm + 32 + lane * 2, [0, 1, 63, 64, 127, 128, 0x7fff, 0xffff][lane], true);
+        }
+      },
+      output: [destination, destination + 1024],
+    })),
     {
       name: "aligned SIMD copy",
       program: [
@@ -1073,13 +1115,40 @@ if (exportNames.has("vine_execution_island_abi_version")) {
       output: [0x5000, 0x5001],
     },
   ];
-  function runHotLoop(test, useIsland) {
-    configure(Uint8Array.from(test.program), 0);
+  async function runHotLoop(test, useIsland, budget, warm = false) {
+    const program = [...test.program];
+    if (warm) {
+      // Enter the repeated blend by fallthrough and a warm JIT backedge.
+      program.unshift(0xbb, 0x00, 0x02, 0x00, 0x00,
+        0xb8, ...[0, 8, 16, 24].map((shift) => test.output[0] >>> shift & 0xff),
+        0xbe, 0x80, 0x00, 0x00, 0x00);
+      program.splice(-1, 1, 0x4b, 0x75, (5 - (program.length + 2)) & 0xff, 0xf4);
+    }
+    configure(Uint8Array.from(program), 0);
     test.setup();
+    const pageTable = new DataView(memory.buffer, memory.byteOffset);
+    pageTable.setUint32(0x1f0000, 0x1f1007, true);
+    for (let page = 0; page < guest.memorySize / 4096; page += 1) {
+      pageTable.setUint32(0x1f1000 + page * 4, page * 4096 | 7, true);
+    }
+    for (const [address, entry] of test.pageOverrides ?? []) {
+      pageTable.setUint32(0x1f1000 + (address >>> 12) * 4, entry, true);
+    }
+    state.setUint32(stateOffset.controlRegisters + 3 * 4, 0x1f0000, true);
+    state.setUint32(stateOffset.controlRegisters,
+      state.getUint32(stateOffset.controlRegisters, true) | 0x80000000, true);
+    wasm.full_clear_tlb();
     wasm.vine_reset_dirty_pages();
-    const reason = useIsland
-      ? wasm.vine_execution_island_execute_budget(100_000, 0, 0, 0, 0)
-      : wasm.vine_execute_budget(100_000);
+    let reason;
+    let slices = 0;
+    do {
+      reason = useIsland
+        ? wasm.vine_execution_island_execute_budget(budget, 0, 0, 0, 0)
+        : wasm.vine_execute_budget(budget);
+      await Promise.resolve();
+      refreshViews();
+      assert(++slices < 64, "warm native loop exceeded its bounded slices");
+    } while (warm && reason === stopReason.budget);
     wasm.vine_cpu_state_save();
     const cpuState = Array.from(
       new Uint32Array(
@@ -1108,9 +1177,28 @@ if (exportNames.has("vine_execution_island_abi_version")) {
   }
   wasm.set_jit_config(0, 1);
   for (const test of hotLoopCases) {
-    const reference = runHotLoop(test, false);
-    const accelerated = runHotLoop(test, true);
-    assert.deepEqual(accelerated, reference, `${test.name} hot loop diverged from the interpreter`);
+    for (const budget of [1, 3, 6, 8, 16, 17, 18, 33, 34, 35, 97, 100_000]) {
+      const reference = await runHotLoop(test, false, budget);
+      const accelerated = await runHotLoop(test, true, budget);
+      assert.deepEqual(accelerated, reference,
+        `${test.name} budget ${budget} hot loop diverged from the interpreter`);
+    }
+  }
+  for (const test of hotLoopCases.slice(0, 3)) {
+    wasm.jit_clear_cache_js();
+    wasm.set_jit_config(0, 1);
+    const reference = await runHotLoop(test, false, 100_000, true);
+    wasm.jit_clear_cache_js();
+    wasm.set_jit_config(0, 0);
+    const compiledBefore = hostImportCalls.codegen_finalize ?? 0;
+    const jitBefore = wasm.vine_jit_retired_instructions_low();
+    const accelerated = await runHotLoop(test, true, 100_000, true);
+    assert.deepEqual(accelerated, reference, `${test.name} warm JIT handoff diverged`);
+    const jitInstructions = (wasm.vine_jit_retired_instructions_low() - jitBefore) >>> 0;
+    assert((hostImportCalls.codegen_finalize ?? 0) > compiledBefore && jitInstructions > 0,
+      `${test.name} did not warm the surrounding JIT code`);
+    assert(jitInstructions < accelerated.instructionCount / 2,
+      `${test.name} was compiled over the native island loop`);
   }
   wasm.set_jit_config(0, 0);
   assert.equal(wasm.vine_execution_island_execute_budget(0, 0, 0, 0, 0), stopReason.budget);

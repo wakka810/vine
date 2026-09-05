@@ -1,10 +1,11 @@
 use crate::cpu::cpu::{
-    full_clear_tlb, safe_read128s, safe_read32s, safe_read8, safe_write32, translate_address,
-    translate_address_read_no_side_effects, translate_address_write_and_can_skip_dirty,
+    full_clear_tlb, safe_read128s, safe_read32s, safe_read8, safe_write32, transition_fpu_to_mmx,
+    translate_address, translate_address_read_no_side_effects,
+    translate_address_write_and_can_skip_dirty, write_mmx_reg64,
 };
 use crate::cpu::global_pointers::{
-    cpl, eip_phys, flags, in_hlt, instruction_counter, instruction_pointer, last_op1,
-    last_virt_eip, previous_ip, reg32, reg_xmm, sreg,
+    cpl, cr, eip_phys, flags, in_hlt, instruction_counter, instruction_pointer, last_op1,
+    last_virt_eip, previous_ip, reg32, reg_xmm, sreg, state_flags,
 };
 use crate::cpu::{memory, vine};
 use crate::page::Page;
@@ -29,6 +30,13 @@ const BYTE_COPY_SIGNATURE: u32 = 0xfcf8_8589;
 const FORWARD_COPY_SIGNATURE: u32 = 0x8a08_7d8b;
 const SORT_SIGNATURE: u32 = 0xdf3b_f38b;
 const HUFFMAN_SIGNATURE: u32 = 0xd285_c933;
+const BLEND_SIGNATURE: u32 = 0x0104_6f0f;
+const BLEND_LOOP: &[u8] = &[
+    0x0f, 0x6f, 0x04, 0x01, 0xf3, 0x0f, 0xd6, 0xc0, 0x0f, 0x6f, 0x00, 0xf3, 0x0f, 0xd6, 0xe0, 0x66,
+    0x0f, 0x60, 0xe1, 0x66, 0x0f, 0x60, 0xc1, 0x66, 0x0f, 0xf9, 0xe0, 0x66, 0x0f, 0xd5, 0xe2, 0x66,
+    0x0f, 0x6f, 0xd8, 0x66, 0x0f, 0x71, 0xe4, 0x07, 0x66, 0x0f, 0xfd, 0xdc, 0x66, 0x0f, 0x67, 0xd9,
+    0xf2, 0x0f, 0xd6, 0xc3, 0x0f, 0x7f, 0x00, 0x83, 0xc0, 0x08, 0x4e, 0x75, 0xc3,
+];
 const SIMD_COPY_LOOP: &[u8] = &[
     0x0f, 0x18, 0x80, 0x00, 0x02, 0x00, 0x00, 0x0f, 0x28, 0x00, 0x0f, 0x2b, 0x04, 0x02, 0x83, 0xc0,
     0x10, 0x49, 0x75, 0xec,
@@ -111,6 +119,7 @@ pub(crate) unsafe fn is_hot_loop_start(address: u32, physical: u32) -> bool {
                 | FORWARD_COPY_SIGNATURE
                 | SORT_SIGNATURE
                 | HUFFMAN_SIGNATURE
+                | BLEND_SIGNATURE
         )
 }
 
@@ -119,6 +128,23 @@ unsafe fn code_matches(address: u32, physical: u32, expected: &[u8]) -> bool {
         return false;
     }
     std::slice::from_raw_parts(memory::mem8.add(physical as usize), expected.len()) == expected
+}
+
+pub(crate) unsafe fn owns_hot_loop(physical: u32) -> bool {
+    HOT_LOOP_ACTIVE
+        && (*state_flags).is_32()
+        && (*state_flags).has_flat_segmentation()
+        && is_hot_loop_start(physical, physical)
+        && [
+            BLEND_LOOP,
+            SIMD_COPY_LOOP,
+            BYTE_COPY_LOOP,
+            FORWARD_COPY_LOOP,
+            SORT_LOOP,
+            HUFFMAN_LOOP,
+        ]
+        .iter()
+        .any(|code| code_matches(physical, physical, code))
 }
 
 fn ranges_overlap(left: u32, left_length: u32, right: u32, right_length: u32) -> bool {
@@ -132,10 +158,14 @@ unsafe fn preflight_guest_range(address: u32, length: u32, write: bool) -> bool 
     if end > 0x1_0000_0000 {
         return false;
     }
+    // The interpreter has already translated the current fetch before entering a hot loop.
+    let code_page = Page::page_of((*eip_phys ^ *instruction_pointer) as u32);
     let mut cursor = address as u64;
     while cursor < end {
         match translate_address(cursor as u32 as i32, write, *cpl == 3, false, false) {
-            Ok(physical) if !memory::in_mapped_range(physical) => {}
+            Ok(physical)
+                if !memory::in_mapped_range(physical)
+                    && (!write || Page::page_of(physical) != code_page) => {}
             _ => return false,
         }
         cursor = (cursor + PAGE_BYTES as u64 - (cursor & PAGE_MASK as u64)).min(end);
@@ -198,18 +228,108 @@ unsafe fn copy_guest_bytes(
     Ok(Some(last))
 }
 
-unsafe fn set_hot_instruction_pointer(address: u32) {
+unsafe fn set_hot_instruction_pointer(address: u32, previous_address: u32) {
     *instruction_pointer = address as i32;
-    *previous_ip = address as i32;
+    *previous_ip = previous_address as i32;
     *last_virt_eip = -1;
     *eip_phys = 0;
 }
 
+#[target_feature(enable = "simd128")]
+unsafe fn blend_guest_bytes(source: u32, destination: u32, length: u32) -> Result<(), String> {
+    use std::arch::wasm32::*;
+
+    let multiplier = v128_load(reg_xmm.add(2).cast());
+    let zero = u64x2(0, 0);
+    let mut final_source = zero;
+    let mut final_delta = zero;
+    let mut final_packed = zero;
+    let mut offset = 0;
+    while offset < length {
+        let source_address = source + offset;
+        let destination_address = destination + offset;
+        let source_physical = translate_address_read_no_side_effects(source_address as i32)
+            .map_err(|()| "hot blend lost its preflighted source page".to_owned())?;
+        let (destination_physical, can_skip_dirty) =
+            translate_address_write_and_can_skip_dirty(destination_address as i32)
+                .map_err(|()| "hot blend lost its preflighted destination page".to_owned())?;
+        if !can_skip_dirty {
+            crate::jit::jit_dirty_page(Page::page_of(destination_physical));
+        }
+        let chunk = (length - offset)
+            .min(PAGE_BYTES as u32 - (source_address & PAGE_MASK))
+            .min(PAGE_BYTES as u32 - (destination_address & PAGE_MASK));
+        let source_pointer = memory::mem8.add(source_physical as usize);
+        let destination_pointer = memory::mem8.add(destination_physical as usize);
+        for index in (0..chunk as usize).step_by(8) {
+            let source = source_pointer.add(index).cast::<u64>().read_unaligned();
+            let destination = destination_pointer
+                .add(index)
+                .cast::<u64>()
+                .read_unaligned();
+            final_source = u16x8_extend_low_u8x16(u64x2(source, 0));
+            let destination = u16x8_extend_low_u8x16(u64x2(destination, 0));
+            final_delta = i16x8_shr(
+                i16x8_mul(i16x8_sub(destination, final_source), multiplier),
+                7,
+            );
+            final_packed = u8x16_narrow_i16x8(i16x8_add(final_source, final_delta), zero);
+            destination_pointer
+                .add(index)
+                .cast::<u64>()
+                .write_unaligned(u64x2_extract_lane::<0>(final_packed));
+        }
+        offset += chunk;
+    }
+    v128_store(reg_xmm.cast(), final_source);
+    v128_store(reg_xmm.add(3).cast(), final_packed);
+    v128_store(reg_xmm.add(4).cast(), final_delta);
+    write_mmx_reg64(0, u64x2_extract_lane::<0>(final_packed));
+    transition_fpu_to_mmx();
+    Ok(())
+}
+
 pub(crate) unsafe fn try_hot_loop(max_instructions: u32, physical: u32) -> Result<bool, String> {
-    if !HOT_LOOP_ACTIVE {
+    if !HOT_LOOP_ACTIVE || !(*state_flags).is_32() || !(*state_flags).has_flat_segmentation() {
         return Ok(false);
     }
     let address = *instruction_pointer as u32;
+    if code_matches(address, physical, BLEND_LOOP) {
+        let count = *reg32.add(ESI as usize) as u32;
+        let iterations = count.min(max_instructions / 17);
+        let destination = *reg32.add(EAX as usize) as u32;
+        let source = destination.wrapping_add(*reg32.add(ECX as usize) as u32);
+        let Some(length) = iterations.checked_mul(8) else {
+            return Ok(false);
+        };
+        if iterations == 0
+            || *cr & 0x0c != 0
+            || *cr.add(4) & 0x200 == 0
+            || source & 7 != 0
+            || destination & 7 != 0
+            || (*reg_xmm.add(1)).u64 != [0, 0]
+            || !preflight_guest_range(source, length, false)
+            || !preflight_guest_range(destination, length, true)
+        {
+            return Ok(false);
+        }
+        blend_guest_bytes(source, destination, length)?;
+        let remaining = count - iterations;
+        *reg32.add(EAX as usize) =
+            crate::cpu::arith::add32(destination.wrapping_add(length).wrapping_sub(8) as i32, 8);
+        *reg32.add(ESI as usize) = remaining as i32;
+        crate::cpu::arith::dec32(remaining.wrapping_add(1) as i32);
+        set_hot_instruction_pointer(
+            if remaining == 0 {
+                address + BLEND_LOOP.len() as u32
+            } else {
+                address
+            },
+            address + BLEND_LOOP.len() as u32 - 2,
+        );
+        *instruction_counter = instruction_counter.read().wrapping_add(iterations * 17);
+        return Ok(true);
+    }
     if code_matches(address, physical, SIMD_COPY_LOOP) {
         let count = *reg32.add(ECX as usize) as u32;
         let iterations = count.min(max_instructions / 6);
@@ -223,7 +343,9 @@ pub(crate) unsafe fn try_hot_loop(max_instructions: u32, physical: u32) -> Resul
             .ok_or_else(|| "hot SIMD copy length overflowed".to_owned())?;
         let source_end = source as u64 + length as u64;
         let destination_end = destination as u64 + length as u64;
-        if source & 15 != 0
+        if *cr & 0x0c != 0
+            || *cr.add(4) & 0x200 == 0
+            || source & 15 != 0
             || destination & 15 != 0
             || source_end > 0x1_0000_0000
             || destination_end > 0x1_0000_0000
@@ -239,11 +361,14 @@ pub(crate) unsafe fn try_hot_loop(max_instructions: u32, physical: u32) -> Resul
             crate::cpu::arith::add32(source.wrapping_add(length).wrapping_sub(16) as i32, 16);
         *reg32.add(ECX as usize) = remaining as i32;
         crate::cpu::arith::dec32(remaining.wrapping_add(1) as i32);
-        set_hot_instruction_pointer(if remaining == 0 {
-            address + SIMD_COPY_LOOP.len() as u32
-        } else {
-            address
-        });
+        set_hot_instruction_pointer(
+            if remaining == 0 {
+                address + SIMD_COPY_LOOP.len() as u32
+            } else {
+                address
+            },
+            address + SIMD_COPY_LOOP.len() as u32 - 2,
+        );
         *instruction_counter = instruction_counter.read().wrapping_add(iterations * 6);
         return Ok(true);
     }
@@ -288,7 +413,7 @@ pub(crate) unsafe fn try_hot_loop(max_instructions: u32, physical: u32) -> Resul
         }
         *reg32.add(EAX as usize) = final_offset as i32;
         crate::cpu::arith::cmp32(final_offset as i32, limit as i32);
-        set_hot_instruction_pointer(address + BYTE_COPY_LOOP.len() as u32);
+        set_hot_instruction_pointer(address + BYTE_COPY_LOOP.len() as u32, address + 8);
         *instruction_counter = instruction_counter.read().wrapping_add(required);
         return Ok(true);
     }
@@ -327,11 +452,14 @@ pub(crate) unsafe fn try_hot_loop(max_instructions: u32, physical: u32) -> Resul
         let remaining = count - iterations;
         *reg32.add(ECX as usize) = remaining as i32;
         crate::cpu::arith::dec32(remaining.wrapping_add(1) as i32);
-        set_hot_instruction_pointer(if remaining == 0 {
-            address + FORWARD_COPY_LOOP.len() as u32
-        } else {
-            address
-        });
+        set_hot_instruction_pointer(
+            if remaining == 0 {
+                address + FORWARD_COPY_LOOP.len() as u32
+            } else {
+                address
+            },
+            address + FORWARD_COPY_LOOP.len() as u32 - 2,
+        );
         *instruction_counter = instruction_counter.read().wrapping_add(iterations * 8);
         return Ok(true);
     }
@@ -401,7 +529,10 @@ pub(crate) unsafe fn try_hot_loop(max_instructions: u32, physical: u32) -> Resul
         *reg32.add(EBX as usize) = total;
         *reg32.add(ESI as usize) = total;
         *last_op1 = 1;
-        set_hot_instruction_pointer(address + SORT_LOOP.len() as u32);
+        set_hot_instruction_pointer(
+            address + SORT_LOOP.len() as u32,
+            address + SORT_LOOP.len() as u32 - 2,
+        );
         *instruction_counter = instruction_counter.read().wrapping_add(required);
         return Ok(true);
     }
@@ -458,7 +589,10 @@ pub(crate) unsafe fn try_hot_loop(max_instructions: u32, physical: u32) -> Resul
         *reg32.add(EDI as usize) = input as i32;
         *reg32.add(EDX as usize) = bit_count as i32;
         *reg32.add(EBX as usize) = bit_buffer as i32;
-        set_hot_instruction_pointer(address + HUFFMAN_LOOP.len() as u32);
+        set_hot_instruction_pointer(
+            address + HUFFMAN_LOOP.len() as u32,
+            address + HUFFMAN_LOOP.len() as u32 - 2,
+        );
         *instruction_counter = instruction_counter.read().wrapping_add(required);
         return Ok(true);
     }
