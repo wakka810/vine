@@ -242,6 +242,97 @@ fn transfers_incremental_memory_deltas_and_acknowledges_exact_generations() {
 }
 
 #[test]
+fn invalidates_generated_code_only_when_mapping_changes_touch_executable_pages() {
+    for executable in [false, true] {
+        let mut memory = GuestMemory::new(MemoryLimits {
+            max_physical_pages: 8,
+            max_regions: 8,
+            max_owners: 8,
+            max_access_bytes: 0x4000,
+        })
+        .expect("memory");
+        let owner = memory
+            .create_owner(MemoryOwnerKind::Anonymous)
+            .expect("owner");
+        let range = memory
+            .reserve_fixed(owner, MemoryRegionKind::Anonymous, DATA_BASE, 0x2000)
+            .expect("reserve");
+        memory.seal_owner(owner).expect("seal owner");
+        let reflection = memory.pending_reflection().expect("initial reflection");
+        memory
+            .acknowledge_delta(reflection.invalidation.generation)
+            .expect("initial ack");
+        let protection = PageProtection {
+            execute: executable,
+            ..read_write()
+        };
+        memory.commit(owner, range, protection).expect("commit");
+        check(&mut memory, executable);
+        memory.protect(owner, range, protection).expect("protect");
+        check(&mut memory, executable);
+        memory.decommit(owner, range).expect("decommit");
+        check(&mut memory, executable);
+        memory.commit(owner, range, protection).expect("recommit");
+        check(&mut memory, executable);
+        memory.release_region(owner, DATA_BASE).expect("release");
+        check(&mut memory, executable);
+    }
+
+    let mut memory = GuestMemory::new(MemoryLimits::default()).expect("memory");
+    let owner = memory
+        .create_owner(MemoryOwnerKind::Anonymous)
+        .expect("owner");
+    let range = memory
+        .reserve_fixed(owner, MemoryRegionKind::Anonymous, DATA_BASE, 0x2000)
+        .expect("reserve");
+    memory.seal_owner(owner).expect("seal owner");
+    let reflection = memory.pending_reflection().expect("initial reflection");
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .expect("initial ack");
+    memory
+        .commit(owner, range, read_write())
+        .expect("data commit");
+    check(&mut memory, false);
+    let code_page =
+        vine_core::GuestRange::new(GuestAddress(DATA_BASE.0 + 0x1000), 0x1000).expect("code page");
+    memory
+        .protect(
+            owner,
+            code_page,
+            PageProtection {
+                execute: true,
+                ..read_write()
+            },
+        )
+        .expect("data to code");
+    check(&mut memory, true);
+    memory
+        .protect(owner, range, read_write())
+        .expect("mixed code to data");
+    check(&mut memory, true);
+    memory
+        .release_region(owner, DATA_BASE)
+        .expect("data release");
+    check(&mut memory, false);
+
+    fn check(memory: &mut GuestMemory, executable: bool) {
+        let delta = memory.pending_delta().expect("delta");
+        assert_eq!(
+            delta.cache_effects,
+            CacheEffects {
+                flush_tlb: true,
+                invalidate_instruction_fetch: executable,
+                invalidate_generated_code: executable,
+            }
+        );
+        memory
+            .acknowledge_delta(delta.generation)
+            .expect("acknowledge");
+    }
+}
+
+#[test]
 fn rolls_back_every_observable_memory_change_when_transaction_is_dropped() {
     let mut memory = GuestMemory::new(MemoryLimits {
         max_physical_pages: 4,

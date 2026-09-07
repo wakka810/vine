@@ -2106,8 +2106,8 @@ impl GuestMemory {
             }],
             CacheEffects {
                 flush_tlb: true,
-                invalidate_instruction_fetch: true,
-                invalidate_generated_code: true,
+                invalidate_instruction_fetch: protection.execute,
+                invalidate_generated_code: protection.execute,
             },
         )
     }
@@ -2124,6 +2124,7 @@ impl GuestMemory {
         let pages: Vec<u32> = virtual_pages(range)?.collect();
         self.require_committed_owner(owner, &pages)?;
         self.ensure_generation_available()?;
+        let touches_executable = protection.execute || self.pages_touch_executable(&pages);
         for virtual_page in pages {
             self.journal_page_before(virtual_page);
             let page = self.pages.get_mut(&virtual_page).ok_or_else(|| {
@@ -2144,8 +2145,8 @@ impl GuestMemory {
             }],
             CacheEffects {
                 flush_tlb: true,
-                invalidate_instruction_fetch: true,
-                invalidate_generated_code: true,
+                invalidate_instruction_fetch: touches_executable,
+                invalidate_generated_code: touches_executable,
             },
         )
     }
@@ -2161,6 +2162,7 @@ impl GuestMemory {
         let pages: Vec<u32> = virtual_pages(range)?.collect();
         self.require_committed_owner(owner, &pages)?;
         self.ensure_generation_available()?;
+        let touches_executable = self.pages_touch_executable(&pages);
         for virtual_page in pages {
             self.journal_page_before(virtual_page);
             let page = self.pages.remove(&virtual_page).ok_or_else(|| {
@@ -2181,8 +2183,8 @@ impl GuestMemory {
             }],
             CacheEffects {
                 flush_tlb: true,
-                invalidate_instruction_fetch: true,
-                invalidate_generated_code: true,
+                invalidate_instruction_fetch: touches_executable,
+                invalidate_generated_code: touches_executable,
             },
         )
     }
@@ -2214,6 +2216,7 @@ impl GuestMemory {
             .collect();
         self.require_committed_owner(owner, &pages)?;
         self.ensure_generation_available()?;
+        let touches_executable = self.pages_touch_executable(&pages);
         for virtual_page in &pages {
             self.journal_page_before(*virtual_page);
             let page = self.pages.remove(virtual_page).ok_or_else(|| {
@@ -2236,8 +2239,8 @@ impl GuestMemory {
             }],
             CacheEffects {
                 flush_tlb: !pages.is_empty(),
-                invalidate_instruction_fetch: !pages.is_empty(),
-                invalidate_generated_code: !pages.is_empty(),
+                invalidate_instruction_fetch: touches_executable,
+                invalidate_generated_code: touches_executable,
             },
         )
         .map(Some)
@@ -3621,6 +3624,14 @@ impl GuestMemory {
             input_offset = input_end;
         }
         Ok(())
+    }
+
+    fn pages_touch_executable(&self, pages: &[u32]) -> bool {
+        pages.iter().any(|page| {
+            self.pages
+                .get(page)
+                .is_some_and(|state| state.protection.execute)
+        })
     }
 
     fn segments_touch_executable(&self, segments: &[AccessSegment]) -> bool {

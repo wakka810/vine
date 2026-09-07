@@ -47,6 +47,11 @@
       "hostProfile": "windows-gnu-execution-island-simd-blend-v26",
       "bytes": 7412767,
       "sha256": "fb35e153ea9d50e572287cfe97c5fbf0eaa61b02fc1340074e4df4aa5ea3c148"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-data-mapping-only-v28",
+      "bytes": 7407511,
+      "sha256": "f9d825d7223fdd6d0e44241476b6db09d6ba88d83431e80dd79faf12d83f4372"
     }
   ]
 }

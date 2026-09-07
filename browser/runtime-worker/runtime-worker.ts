@@ -37376,6 +37376,11 @@ class BrowserRuntimeSession {
       .slice(0, 16)
       .map(([instructionPointer, samples]) => ({ instructionPointer, samples }));
     const engineMetrics = this.#engine?.performanceMetrics();
+    if (playPerformanceMode && this.#engine !== null) {
+      // Sample the real cache counters once; the mapping fixture's counters
+      // otherwise stay at zero during ordinary play.
+      this.#report.mappingCacheEffects = { ...this.#engine.cacheEffectCounts() };
+    }
     if (engineMetrics !== undefined) {
       this.#report.executionTiming.jit = {
         compilations: engineMetrics.jitCompilations,

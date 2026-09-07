@@ -109,6 +109,55 @@ const protection = {
   data: { read: true, write: true, execute: false },
 };
 
+const dataLoopCode = new Uint8Array(pageSize);
+dataLoopCode.set([0xa1, 0x00, 0x30, 0, 0, 0x40, 0xa3, 0x00, 0x30, 0, 0, 0xeb, 0xf3]);
+const dataLoopEngine = await initializeBoundaryEngine({
+  entryPoint: codeAddress,
+  firstPage: dataLoopCode,
+  secondPage: new Uint8Array(pageSize),
+  secondExecutable: false,
+});
+const dataLoopContext = dataLoopEngine.saveCpuContext();
+for (let warmup = 0; warmup < 16 && dataLoopEngine.performanceMetrics().jitInstructions === 0; warmup += 1) {
+  dataLoopEngine.executeBudget(250_000);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+const hotMetrics = dataLoopEngine.performanceMetrics();
+assert(hotMetrics.jitInstructions > 0, "data mapping test did not execute compiled code");
+dataLoopEngine.collectChangedPages();
+const dataLoopRange = { base: 0x3000, byteLength: pageSize };
+const dataCacheEffects = { flushTlb: true, invalidateInstructionFetch: false, invalidateGeneratedCode: false };
+dataLoopEngine.applyMemoryDelta({
+  fromGeneration: 1n, generation: 2n, cacheEffects: dataCacheEffects,
+  mappingOperations: [{ operation: "decommit", owner: 9, range: dataLoopRange }],
+  pages: [],
+});
+const newData = new Uint8Array(pageSize);
+new DataView(newData.buffer).setUint32(0, 100, true);
+dataLoopEngine.applyMemoryDelta({
+  fromGeneration: 2n, generation: 3n, cacheEffects: dataCacheEffects,
+  mappingOperations: [{ operation: "commit", owner: 9, range: dataLoopRange, protection: protection.data }],
+  pages: [{ address: dataLoopRange.base, owner: 9, protection: protection.data,
+    ownerSealed: true, dirty: true, bytes: newData }],
+});
+dataLoopEngine.restoreCpuContext(dataLoopContext);
+assert.equal(dataLoopEngine.executeBudget(40_000).stop.kind, "budget-yield");
+assert.equal(dataLoopEngine.readGuestU32(dataLoopRange.base), 10_100,
+  "retained JIT code used stale data after physical page reuse");
+assert.equal(dataLoopEngine.performanceMetrics().jitClears, hotMetrics.jitClears);
+assert(dataLoopEngine.performanceMetrics().jitInstructions > hotMetrics.jitInstructions);
+dataLoopEngine.collectChangedPages();
+dataLoopEngine.applyMemoryDelta({
+  fromGeneration: 3n, generation: 4n, cacheEffects: dataCacheEffects,
+  mappingOperations: [{ operation: "protect", owner: 9, range: dataLoopRange,
+    protection: { read: true, write: false, execute: false } }],
+  pages: [],
+});
+dataLoopEngine.restoreCpuContext(dataLoopContext);
+assert.equal(dataLoopEngine.executeBudget(40_000).stop.kind, "fault");
+assert.equal(dataLoopEngine.readGuestU32(dataLoopRange.base), 10_100,
+  "retained JIT code ignored changed data protection");
+
 async function initializeBoundaryEngine({ entryPoint, firstPage, secondPage, secondExecutable }) {
   const boundaryEngine = await instantiateExecutionEngineBytes(adapterBytes);
   const stackAddress = 0x3000;

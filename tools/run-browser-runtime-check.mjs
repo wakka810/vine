@@ -1301,8 +1301,8 @@ async function runProbe(
     assert.equal(evidence.report.mappingStaleAccessStops, 2);
     assert.deepEqual(evidence.report.mappingCacheEffects, {
       tlbFlushes: 6,
-      instructionFetchInvalidations: 6,
-      generatedCodeInvalidations: 6,
+      instructionFetchInvalidations: 0,
+      generatedCodeInvalidations: 0,
     });
     assert.equal(evidence.report.mirrorRebuilds, 1);
     if (mode === "success") {
