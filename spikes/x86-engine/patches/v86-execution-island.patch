@@ -151,7 +151,48 @@ diff --git a/src/rust/cpu/fpu.rs b/src/rust/cpu/fpu.rs
 diff --git a/src/rust/jit_instructions.rs b/src/rust/jit_instructions.rs
 --- a/src/rust/jit_instructions.rs
 +++ b/src/rust/jit_instructions.rs
-@@ -3521,7 +3521,6 @@
+@@ -326,6 +326,38 @@ fn mmx_read64_mm_mem32(ctx: &mut JitContext, name: &str, modrm_byte: ModrmByte,
+     ctx.builder.const_i32(r as i32);
+     ctx.builder.call_fn2(name)
+ }
++fn mmx_unpack_low_mem(
++    ctx: &mut JitContext,
++    modrm_byte: ModrmByte,
++    r: u32,
++    operation: fn(&mut WasmBuilder),
++) {
++    let destination = global_pointers::get_reg_mmx_offset(r);
++    ctx.builder.const_i32(0);
++    ctx.builder.load_fixed_v128(destination);
++    // Preserve the existing 32-bit memory access and its fault-before-write ordering.
++    codegen::gen_modrm_resolve_safe_read32(ctx, modrm_byte);
++    ctx.builder.splat_i32x4();
++    operation(ctx.builder);
++    ctx.builder.extract_low_i64x2();
++    ctx.builder.store_aligned_i64(destination);
++    mmx_finish_write64(ctx, destination);
++}
++fn mmx_unpack_low_reg(
++    ctx: &mut JitContext,
++    r1: u32,
++    r2: u32,
++    operation: fn(&mut WasmBuilder),
++) {
++    let destination = global_pointers::get_reg_mmx_offset(r2);
++    ctx.builder.const_i32(0);
++    ctx.builder.load_fixed_v128(destination);
++    ctx.builder.load_fixed_v128(global_pointers::get_reg_mmx_offset(r1));
++    operation(ctx.builder);
++    ctx.builder.extract_low_i64x2();
++    ctx.builder.store_aligned_i64(destination);
++    mmx_finish_write64(ctx, destination);
++}
+ fn mmx_read64_mm_mm32(ctx: &mut JitContext, name: &str, r1: u32, r2: u32) {
+     ctx.builder
+         .const_i32(global_pointers::get_reg_mmx_offset(r1) as i32);
+@@ -3519,9 +3551,8 @@ pub fn instr_D7_jit(ctx: &mut JitContext) {
+ }
+ 
  fn instr_group_D8_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte, op: &str) {
 -    ctx.builder.const_i32(0);
 -    codegen::gen_fpu_load_m32(ctx, modrm_byte);
@@ -161,7 +202,9 @@ diff --git a/src/rust/jit_instructions.rs b/src/rust/jit_instructions.rs
  }
  fn instr_group_D8_reg_jit(ctx: &mut JitContext, r: u32, op: &str) {
      ctx.builder.const_i32(0);
-@@ -3584,6 +3583,6 @@
+@@ -3583,8 +3614,8 @@ pub fn instr_D8_7_reg_jit(ctx: &mut JitContext, r: u32) {
+ }
+ 
  pub fn instr16_D9_0_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte) {
 -    codegen::gen_fpu_load_m32(ctx, modrm_byte);
 -    ctx.builder.call_fn2_i64_i32("fpu_push");
@@ -170,7 +213,8 @@ diff --git a/src/rust/jit_instructions.rs b/src/rust/jit_instructions.rs
  }
  pub fn instr16_D9_0_reg_jit(ctx: &mut JitContext, r: u32) {
      codegen::gen_fpu_get_sti(ctx, r);
-@@ -3610,7 +3609,6 @@ pub fn instr16_D9_2_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte) {
+@@ -3611,8 +3642,7 @@ pub fn instr32_D9_1_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte) {
+ pub fn instr16_D9_2_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte) {
      codegen::gen_modrm_resolve(ctx, modrm_byte);
      let address_local = ctx.builder.set_new_local();
 -    codegen::gen_fpu_get_sti(ctx, 0);
@@ -179,7 +223,8 @@ diff --git a/src/rust/jit_instructions.rs b/src/rust/jit_instructions.rs
      let value_local = ctx.builder.set_new_local();
      codegen::gen_safe_write32(ctx, &address_local, &value_local);
      ctx.builder.free_local(address_local);
-@@ -3630,7 +3628,6 @@ pub fn instr16_D9_3_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte) {
+@@ -3631,8 +3661,7 @@ pub fn instr32_D9_2_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte) {
+ pub fn instr16_D9_3_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte) {
      codegen::gen_modrm_resolve(ctx, modrm_byte);
      let address_local = ctx.builder.set_new_local();
 -    codegen::gen_fpu_get_sti(ctx, 0);
@@ -188,6 +233,52 @@ diff --git a/src/rust/jit_instructions.rs b/src/rust/jit_instructions.rs
      let value_local = ctx.builder.set_new_local();
      codegen::gen_safe_write32(ctx, &address_local, &value_local);
      ctx.builder.free_local(address_local);
+@@ -6428,16 +6457,16 @@ pub fn instr_F30F5F_reg_jit(ctx: &mut JitContext, r1: u32, r2: u32) {
+ }
+ 
+ pub fn instr_0F60_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte, r: u32) {
+-    mmx_read64_mm_mem32(ctx, "instr_0F60", modrm_byte, r);
++    mmx_unpack_low_mem(ctx, modrm_byte, r, unpack_low_bytes);
+ }
+ pub fn instr_0F60_reg_jit(ctx: &mut JitContext, r1: u32, r2: u32) {
+-    mmx_read64_mm_mm32(ctx, "instr_0F60", r1, r2);
++    mmx_unpack_low_reg(ctx, r1, r2, unpack_low_bytes);
+ }
+ pub fn instr_0F61_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte, r: u32) {
+-    mmx_read64_mm_mem32(ctx, "instr_0F61", modrm_byte, r);
++    mmx_unpack_low_mem(ctx, modrm_byte, r, unpack_low_words);
+ }
+ pub fn instr_0F61_reg_jit(ctx: &mut JitContext, r1: u32, r2: u32) {
+-    mmx_read64_mm_mm32(ctx, "instr_0F61", r1, r2);
++    mmx_unpack_low_reg(ctx, r1, r2, unpack_low_words);
+ }
+ pub fn instr_0F62_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte, r: u32) {
+     mmx_read64_mm_mem32(ctx, "instr_0F62", modrm_byte, r);
+@@ -6664,14 +6693,20 @@ pub fn instr_660F6D_reg_jit(ctx: &mut JitContext, r1: u32, r2: u32) {
+ }
+ 
+ pub fn instr_0F6E_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte, r: u32) {
++    let destination = global_pointers::get_reg_mmx_offset(r);
++    ctx.builder.const_i32(0);
+     codegen::gen_modrm_resolve_safe_read32(ctx, modrm_byte);
+-    ctx.builder.const_i32(r as i32);
+-    ctx.builder.call_fn2("instr_0F6E")
++    ctx.builder.extend_unsigned_i32_to_i64();
++    ctx.builder.store_aligned_i64(destination);
++    mmx_finish_write64(ctx, destination);
+ }
+ pub fn instr_0F6E_reg_jit(ctx: &mut JitContext, r1: u32, r2: u32) {
++    let destination = global_pointers::get_reg_mmx_offset(r2);
++    ctx.builder.const_i32(0);
+     codegen::gen_get_reg32(ctx, r1);
+-    ctx.builder.const_i32(r2 as i32);
+-    ctx.builder.call_fn2("instr_0F6E")
++    ctx.builder.extend_unsigned_i32_to_i64();
++    ctx.builder.store_aligned_i64(destination);
++    mmx_finish_write64(ctx, destination);
+ }
+ 
+ pub fn instr_660F6E_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte, r: u32) {
 diff --git a/src/rust/softfloat.rs b/src/rust/softfloat.rs
 index 6c1a4df..a0680f2 100644
 --- a/src/rust/softfloat.rs
@@ -295,3 +386,31 @@ index 6c1a4df..a0680f2 100644
          let mut result = F80::ZERO;
          unsafe { extF80M_mul(&self, &other, &mut result) };
          result
+
+diff --git a/src/rust/wasmgen/wasm_builder.rs b/src/rust/wasmgen/wasm_builder.rs
+--- a/src/rust/wasmgen/wasm_builder.rs
++++ b/src/rust/wasmgen/wasm_builder.rs
+@@ -824,6 +824,11 @@ impl WasmBuilder {
+         self.instruction_body.extend(bytes);
+     }
+     pub fn bitselect_v128(&mut self) { self.simd(op::SIMD_V128_BITSELECT); }
++    pub fn splat_i32x4(&mut self) { self.simd(op::SIMD_I32X4_SPLAT); }
++    pub fn extract_low_i64x2(&mut self) {
++        self.simd(op::SIMD_I64X2_EXTRACT_LANE);
++        self.instruction_body.push(0);
++    }
+     pub fn lt_f32x4(&mut self) { self.simd(op::SIMD_F32X4_LT); }
+     pub fn trunc_sat_f32x4_s(&mut self) { self.simd(op::SIMD_I32X4_TRUNC_SAT_F32X4_S); }
+     pub fn i8x16_narrow_i16x8_u(&mut self) { self.simd(op::SIMD_I8X16_NARROW_I16X8_U); }
+diff --git a/src/rust/wasmgen/wasm_opcodes.rs b/src/rust/wasmgen/wasm_opcodes.rs
+--- a/src/rust/wasmgen/wasm_opcodes.rs
++++ b/src/rust/wasmgen/wasm_opcodes.rs
+@@ -220,6 +220,8 @@ c!(SIMD_V128_LOAD, 0x00);
+ c!(SIMD_V128_STORE, 0x0b);
+ c!(SIMD_V128_CONST, 0x0c);
+ c!(SIMD_I8X16_SHUFFLE, 0x0d);
++c!(SIMD_I32X4_SPLAT, 0x11);
++c!(SIMD_I64X2_EXTRACT_LANE, 0x1d);
+ c!(SIMD_F32X4_LT, 0x43);
+ c!(SIMD_V128_BITSELECT, 0x52);
+ c!(SIMD_I8X16_NARROW_I16X8_U, 0x66);

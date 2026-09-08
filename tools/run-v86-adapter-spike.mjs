@@ -852,41 +852,58 @@ assert.deepEqual(
   "packed SIMD JIT diverged from the interpreter",
 );
 
-const mmxMoveProgram = Uint8Array.from([
+const mmxMoveProgram = [
   0xb9, 0xa0, 0x86, 0x01, 0x00,
+  0xb8, 0x98, 0xba, 0xdc, 0xfe,
+];
+const mmxMoveLoop = mmxMoveProgram.length;
+mmxMoveProgram.push(
   0x0f, 0x6f, 0x05, 0x00, 0x21, 0x00, 0x00,
   0x0f, 0x6f, 0xc8,
   0x0f, 0x7f, 0xca,
   0xf3, 0x0f, 0xd6, 0xda,
   0xf2, 0x0f, 0xd6, 0xe3,
   0x0f, 0x7f, 0x25, 0x08, 0x21, 0x00, 0x00,
-  0x49,
-  0x75, 0xe1,
-  0xf4,
-]);
+);
+const mmxUnpackCases = [
+  { code: [0x0f, 0x6e, 0xe8], register: 5, expected: [0x98, 0xba, 0xdc, 0xfe, 0, 0, 0, 0] },
+  { code: [0x0f, 0x6e, 0x35, 0x00, 0x21, 0, 0], register: 6, expected: [1, 0x23, 0x45, 0x67, 0, 0, 0, 0] },
+  { code: [0x0f, 0x60, 0xee], register: 5, expected: [0x98, 1, 0xba, 0x23, 0xdc, 0x45, 0xfe, 0x67] },
+  { code: [0x0f, 0x60, 0x35, 0x00, 0x21, 0, 0], register: 6, expected: [1, 1, 0x23, 0x23, 0x45, 0x45, 0x67, 0x67] },
+  { code: [0x0f, 0x60, 0xed], register: 5, expected: [0x98, 0x98, 1, 1, 0xba, 0xba, 0x23, 0x23] },
+  { code: [0x0f, 0x61, 0xf5], register: 6, expected: [1, 1, 0x98, 0x98, 0x23, 0x23, 1, 1] },
+  { code: [0x0f, 0x61, 0x35, 0x00, 0x21, 0, 0], register: 6, expected: [1, 1, 1, 0x23, 0x98, 0x98, 0x45, 0x67] },
+  { code: [0x0f, 0x61, 0xed], register: 5, expected: [0x98, 0x98, 0x98, 0x98, 1, 1, 1, 1] },
+];
+for (const [index, { code, register }] of mmxUnpackCases.entries()) {
+  mmxMoveProgram.push(...code, 0x0f, 0x7f, 0x05 | register << 3, 0x20 + index * 8, 0x21, 0, 0);
+}
+mmxMoveProgram.push(0x49, 0x0f, 0x85);
+mmxMoveProgram.push(...new Uint8Array(new Int32Array([mmxMoveLoop - mmxMoveProgram.length - 4]).buffer), 0xf4);
 
-async function runMmxMoves(disableJit) {
+async function runMmxMoves(disableJit, budget = 250_000) {
   wasm.jit_clear_cache_js();
   wasm.set_jit_config(0, disableJit ? 1 : 0);
-  configure(mmxMoveProgram, 0);
+  configure(Uint8Array.from(mmxMoveProgram), 0);
   memory.set([0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef], 0x2100);
   const compileCallsBefore = hostImportCalls.codegen_finalize ?? 0;
   let reason = stopReason.budget;
   let slices = 0;
   while (reason === stopReason.budget) {
-    reason = wasm.vine_execute_budget(250_000);
+    reason = wasm.vine_execute_budget(budget);
     await Promise.resolve();
     refreshViews();
     slices += 1;
-    assert(slices < 16, "MMX move loop did not halt within its bounded slices");
+    assert(slices < 512, "MMX move/unpack loop did not halt within its bounded slices");
   }
   assert.equal(reason, stopReason.halt);
   return {
     output: [...memory.subarray(0x2108, 0x2110)],
+    unpack: [...memory.subarray(0x2120, 0x2120 + mmxUnpackCases.length * 8)],
     xmm3: [
       ...new Uint8Array(wasm.memory.buffer, stateOffset.xmm + 3 * 16, 16),
     ],
-    mmxMetadata: [0, 1, 2, 4].map((register) =>
+    mmxMetadata: [0, 1, 2, 4, 5, 6].map((register) =>
       state.getUint16(stateOffset.fpuSt + register * 16 + 8, true)),
     fpuStackEmpty: state.getUint8(stateOffset.fpuStackEmpty),
     fpuStackPtr: state.getUint8(stateOffset.fpuStackPtr),
@@ -910,9 +927,66 @@ assert.deepEqual(mmxMoveJit.xmm3, [
   0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
   0, 0, 0, 0, 0, 0, 0, 0,
 ]);
-assert.deepEqual(mmxMoveJit.mmxMetadata, [0xffff, 0xffff, 0xffff, 0xffff]);
+assert.deepEqual(mmxMoveJit.unpack, mmxUnpackCases.flatMap(({ expected }) => expected));
+assert.deepEqual(mmxMoveJit.mmxMetadata, [0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff]);
 assert.equal(mmxMoveJit.fpuStackEmpty, 0);
 assert.equal(mmxMoveJit.fpuStackPtr, 0);
+for (const budget of [8_193, 32_771]) {
+  assert.deepEqual(await runMmxMoves(false, budget), mmxMoveJit,
+    `MMX move/unpack JIT diverged at short budget ${budget}`);
+}
+
+for (const opcode of [0x6e, 0x60, 0x61]) {
+  for (const disableJit of [true, false]) {
+    wasm.jit_clear_cache_js();
+    wasm.set_jit_config(0, Number(disableJit));
+    configure(Uint8Array.from([
+      0xb9, 0xa0, 0x86, 0x01, 0x00,
+      0x0f, opcode, 0x3d, 0xfc, 0x2f, 0, 0,
+      0x49, 0x75, 0xf6, 0xf4,
+    ]), 0);
+    let data = new DataView(memory.buffer, memory.byteOffset, memory.byteLength);
+    data.setUint32(0x1f0000, 0x1f1007, true);
+    data.setUint32(0x1f1004, 0x1007, true);
+    data.setUint32(0x1f1008, 0x2007, true);
+    data.setUint32(0x1f100c, 0, true);
+    data.setUint32(0x2ffc, 0xfedcba98, true);
+    state.setUint32(stateOffset.controlRegisters + 12, 0x1f0000, true);
+    state.setUint32(stateOffset.controlRegisters,
+      state.getUint32(stateOffset.controlRegisters, true) | 0x80000000, true);
+    wasm.full_clear_tlb();
+    const jitBefore = wasm.vine_jit_retired_instructions_low();
+    for (const budget of [250_000, 8_193]) {
+      assert.equal(wasm.vine_execute_budget(budget), stopReason.budget,
+        "MMX memory operand read beyond its four bytes at the page boundary");
+      await Promise.resolve();
+      refreshViews();
+    }
+    if (!disableJit) assert(wasm.vine_jit_retired_instructions_low() !== jitBefore);
+    data = new DataView(memory.buffer, memory.byteOffset, memory.byteLength);
+    data.setUint32(0x1f1008, 0, true);
+    const mm7 = stateOffset.fpuSt + 7 * 16;
+    state.setBigUint64(mm7, 0x0123456789abcdefn, true);
+    state.setUint16(mm7 + 8, 0x2345, true);
+    state.setUint8(stateOffset.fpuStackEmpty, 0x55);
+    state.setUint8(stateOffset.fpuStackPtr, 3);
+    state.setUint32(stateOffset.instructionPointer, guest.codeAddress + 5, true);
+    wasm.full_clear_tlb();
+    assert.equal(wasm.vine_execute_budget(4096), stopReason.pageFault);
+    assert.equal(wasm.vine_get_stop_error_code(), 0);
+    assert.equal(state.getUint32(stateOffset.instructionPointer, true), guest.codeAddress + 5);
+    assert.equal(state.getBigUint64(mm7, true), 0x0123456789abcdefn);
+    assert.equal(state.getUint16(mm7 + 8, true), 0x2345);
+    assert.equal(state.getUint8(stateOffset.fpuStackEmpty), 0x55);
+    assert.equal(state.getUint8(stateOffset.fpuStackPtr), 3);
+    data.setUint32(0x1f1008, 0x2007, true);
+    wasm.full_clear_tlb();
+    assert.equal(wasm.vine_execute_budget(400_000), stopReason.halt);
+    assert.equal(state.getUint16(mm7 + 8, true), 0xffff);
+    assert.equal(state.getUint8(stateOffset.fpuStackEmpty), 0);
+    assert.equal(state.getUint8(stateOffset.fpuStackPtr), 0);
+  }
+}
 
 const x87MemoryProgram = [0xb9, 0xa0, 0x86, 0x01, 0x00];
 const x87LoopStart = x87MemoryProgram.length;

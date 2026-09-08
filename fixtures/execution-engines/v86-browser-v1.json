@@ -72,6 +72,11 @@
       "hostProfile": "windows-gnu-execution-island-heap-fill-v35",
       "bytes": 7422376,
       "sha256": "01768ace57e26d2b0d86f839e595ef2f2e963b434987da2fc61bda14bbdd530b"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-mmx-v36",
+      "bytes": 7423815,
+      "sha256": "6009c2e4aad39ac062921f051b7614a6e00b7716e9459dfa9bc2c2568c73e1bc"
     }
   ]
 }

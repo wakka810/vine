@@ -281,6 +281,9 @@ fs.copyFileSync(wasmPath, normalWasmPath);
 
 ensurePatch(islandPatchPath, "Vine execution-island patch");
 run("git", ["-C", sourceDirectory, "diff", "--check"]);
+// The dependency-free fallback prunes its lockfile. Restore Vine's resolved versions
+// before adding the island so a rebuild cannot silently upgrade runtime dependencies.
+fs.copyFileSync(path.join(root, "Cargo.lock"), path.join(sourceDirectory, "Cargo.lock"));
 run("make", buildArguments, {
   cwd: sourceDirectory,
   env: rustEnvironment,
