@@ -914,12 +914,220 @@ assert.deepEqual(mmxMoveJit.mmxMetadata, [0xffff, 0xffff, 0xffff, 0xffff]);
 assert.equal(mmxMoveJit.fpuStackEmpty, 0);
 assert.equal(mmxMoveJit.fpuStackPtr, 0);
 
+const x87MemoryProgram = [0xb9, 0xa0, 0x86, 0x01, 0x00];
+const x87LoopStart = x87MemoryProgram.length;
+x87MemoryProgram.push(0xd9, 0x05, 0x00, 0x20, 0x00, 0x00);
+for (const [index, operation] of [0, 1, 4, 5, 6, 7].entries()) {
+  x87MemoryProgram.push(0xd8, 0x05 | operation << 3, 4 + index * 4, 0x20, 0, 0);
+}
+x87MemoryProgram.push(
+  0xd9, 0x15, 0x1c, 0x20, 0, 0,
+  0xd9, 0x1d, 0x20, 0x20, 0, 0,
+  0x49, 0x75,
+);
+x87MemoryProgram.push((x87LoopStart - x87MemoryProgram.length - 1) & 0xff, 0xf4);
+
+async function runX87Memory(disableJit, values, controlWord, budget = 250_000, fault = null) {
+  wasm.jit_clear_cache_js();
+  wasm.set_jit_config(0, disableJit ? 1 : 0);
+  configure(Uint8Array.from(x87MemoryProgram), 0);
+  new Uint8Array(wasm.memory.buffer, stateOffset.fpuSt, 8 * 16).fill(0);
+  wasm.set_control_word(controlWord);
+  const data = new DataView(memory.buffer, memory.byteOffset);
+  values.forEach((value, index) => data.setUint32(0x2000 + index * 4, value, true));
+  data.setUint32(0x1f0000, 0x1f1007, true);
+  for (let page = 0; page < guest.memorySize / 4096; page += 1) {
+    data.setUint32(0x1f1000 + page * 4, page * 4096 | 7, true);
+  }
+  state.setUint32(stateOffset.controlRegisters + 3 * 4, 0x1f0000, true);
+  state.setUint32(stateOffset.controlRegisters,
+    state.getUint32(stateOffset.controlRegisters, true) | 0x80000000, true);
+  wasm.full_clear_tlb();
+  wasm.vine_reset_dirty_pages();
+  const jitBefore = wasm.vine_jit_retired_instructions_low();
+  const compiledBefore = hostImportCalls.codegen_finalize ?? 0;
+  let reason = stopReason.budget;
+  let slices = 0;
+  while (reason === stopReason.budget) {
+    reason = wasm.vine_execute_budget(budget);
+    await Promise.resolve();
+    refreshViews();
+    assert(++slices < 512, "x87 memory loop exceeded its bounded slices");
+    if (fault !== null && slices === 1) {
+      assert.equal(reason, stopReason.budget);
+      state.setUint32(stateOffset.instructionPointer, guest.codeAddress + x87LoopStart, true);
+      state.setUint8(stateOffset.fpuStackEmpty, 0xff);
+      state.setUint8(stateOffset.fpuStackPtr, 0);
+      // Fault only after the loop is compiled. A failed store must not pop ST0.
+      data.setUint32(0x1f1000 + 2 * 4, fault === "read" ? 0 : 0x2005, true);
+      state.setUint32(stateOffset.controlRegisters,
+        state.getUint32(stateOffset.controlRegisters, true) | 0x10000, true);
+      wasm.full_clear_tlb();
+    }
+  }
+  assert.equal(reason, fault === null ? stopReason.halt : stopReason.pageFault);
+  if (fault === "write") assert.equal(state.getUint8(stateOffset.fpuStackPtr), 7);
+  if (!disableJit) {
+    assert((wasm.vine_jit_retired_instructions_low() - jitBefore) >>> 0,
+      `x87 memory loop did not execute compiled instructions: retired=${wasm.vine_instruction_counter()}, compilations=${(hostImportCalls.codegen_finalize ?? 0) - compiledBefore}`);
+  }
+  wasm.vine_cpu_state_save();
+  return {
+    reason,
+    errorCode: wasm.vine_get_stop_error_code(),
+    state: Array.from(new Uint32Array(wasm.memory.buffer,
+      wasm.vine_cpu_state_ptr(), wasm.vine_cpu_state_size() / 4)),
+    instructionCount: wasm.vine_instruction_counter(),
+    output: [...memory.subarray(0x201c, 0x2024)],
+    dirtyPages: Array.from(new Uint32Array(wasm.memory.buffer,
+      wasm.vine_dirty_pages_ptr(), wasm.vine_dirty_page_count())).sort((a, b) => a - b),
+  };
+}
+
+const x87MemoryCases = [
+  [0x3fc00000, 0x3e800000, 0xbf000000, 0x42000000, 0x40b80000, 0x3f333333, 0x4112147b],
+  [0x4b800000, 0x3f800000, 0x3f800000, 0x4b800000, 0x3f800000, 0x40400000, 0x3f800000],
+  [0x00000001, 0x80000001, 0x3f800000, 0x80000000, 0x00800001, 0x7f7fffff, 0x00800001],
+  [0x80000000, 0x80000000, 0x3f800000, 0x00000000, 0x80000000, 0x3f800000, 0x80000000],
+  [0x7f800000, 0xff800000, 0x00000000, 0x3f800000, 0x3f800000, 0x00000000, 0x7f800000],
+  [0x7fc01234, 0x3f800000, 0x7f801234, 0xffc05678, 0x3f800000, 0x3f800000, 0x3f800000],
+];
+for (const precision of [0, 2, 3]) {
+  for (const rounding of [0, 1, 2, 3]) {
+    const controlWord = 0x7f | precision << 8 | rounding << 10;
+    for (const values of x87MemoryCases) {
+      const reference = await runX87Memory(true, values, controlWord);
+      const compiled = await runX87Memory(false, values, controlWord);
+      assert.deepEqual(compiled, reference,
+        `x87 memory JIT diverged at control word ${controlWord.toString(16)}`);
+    }
+  }
+}
+if (exportNames.has("vine_fpu_push_m32")) {
+  const reference = await runX87Memory(true, x87MemoryCases[0], 0x37f);
+  for (const budget of [8_193, 32_771, 65_537]) {
+    const compiled = await runX87Memory(false, x87MemoryCases[0], 0x37f, budget);
+    assert.deepEqual(compiled, reference,
+      `x87 memory JIT diverged at short budget ${budget}`);
+  }
+}
+for (const fault of ["read", "write"]) {
+  const { instructionCount: interpretedCount, ...reference } =
+    await runX87Memory(true, x87MemoryCases[0], 0x37f, 250_000, fault);
+  const { instructionCount: compiledCount, ...compiled } =
+    await runX87Memory(false, x87MemoryCases[0], 0x37f, 250_000, fault);
+  // v86 accounts the complete compiled block on a fault; architectural state
+  // and dirty bytes must still match, with at most the unexecuted loop tail counted.
+  assert(compiledCount >= interpretedCount && compiledCount <= interpretedCount + 10);
+  // Its internal previous_ip also retains the compiled entry on a fault. The
+  // actual EIP (word 12), x87 registers, status, tags and all other state must match.
+  assert.equal(compiled.state[13], guest.codeAddress + x87LoopStart);
+  assert.equal(reference.state[13], reference.state[12]);
+  compiled.state.splice(13, 1);
+  reference.state.splice(13, 1);
+  assert.deepEqual(compiled, reference, `x87 JIT ${fault} fault changed architectural state`);
+}
+
 const forbiddenCalls = Object.keys(hostImportCalls).filter(
   (name) =>
     name.startsWith("mmap_") ||
     name.startsWith("io_port_"),
 );
 assert.deepEqual(forbiddenCalls, []);
+
+// The island and its interpreter share F80 code: compare the unchanged fallback
+// too, not just JIT against its own interpreter.
+if (exportNames.has("vine_fpu_push_m32")) {
+  const reference = new WebAssembly.Instance(
+    // prepare:engine temporarily builds the island into v86-fallback.wasm.
+    // Its saved normal artifact is the independent oracle throughout the build.
+    new WebAssembly.Module(fs.readFileSync(path.join(path.dirname(defaultWasmPath), "v86-browser-v1.wasm"))),
+    { env: { ...environment, __indirect_function_table: new WebAssembly.Table({
+      element: "anyfunc", initial: wasmTableOffset + wasmTableSize,
+    }) } },
+  ).exports;
+  assert.equal(reference.vine_execution_island_abi_version, undefined,
+    "x87 oracle must be the unchanged normal engine, not the island candidate");
+  reference.rust_init();
+  reference.reset_cpu();
+  const baselineState = new DataView(reference.memory.buffer);
+  const candidateState = new DataView(wasm.memory.buffer);
+  const check = (bits) => {
+    for (const [cpu, view] of [[reference, baselineState], [wasm, candidateState]]) {
+      view.setUint16(1040, 0x4100, true);
+      cpu.f32_to_f80_jit(stateOffset.fpuSt, bits);
+    }
+    assert.equal(candidateState.getBigUint64(stateOffset.fpuSt, true),
+      baselineState.getBigUint64(stateOffset.fpuSt, true));
+    assert.equal(candidateState.getUint16(stateOffset.fpuSt + 8, true),
+      baselineState.getUint16(stateOffset.fpuSt + 8, true));
+    assert.equal(candidateState.getUint16(1040, true), baselineState.getUint16(1040, true));
+  };
+  for (let exponent = 0; exponent < 256; exponent += 1) {
+    for (const fraction of [0, 1, 0x3fffff, 0x400000, 0x7fffff]) {
+      check(exponent << 23 | fraction);
+      check(0x80000000 | exponent << 23 | fraction);
+    }
+  }
+  let seed = 0x13579bdf;
+  for (let i = 0; i < 10000; i += 1) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    check(seed);
+  }
+
+  const checkArithmetic = (left, right, controlWord) => {
+    for (const operation of ["fpu_fadd", "fpu_fsub", "fpu_fmul"]) {
+      const results = [];
+      for (const [cpu, view] of [[reference, baselineState], [wasm, candidateState]]) {
+        cpu.set_control_word(controlWord);
+        view.setUint8(stateOffset.fpuStackEmpty, 0xff);
+        view.setUint8(stateOffset.fpuStackPtr, 0);
+        view.setUint16(1040, 0x4100, true);
+        cpu.fpu_push(...left);
+        cpu[operation](0, ...right);
+        const st0 = stateOffset.fpuSt + view.getUint8(stateOffset.fpuStackPtr) * 16;
+        results.push([
+          view.getBigUint64(st0, true), view.getUint16(st0 + 8, true),
+          view.getUint16(1040, true), view.getUint8(stateOffset.fpuStackEmpty),
+          view.getUint8(stateOffset.fpuStackPtr),
+        ]);
+      }
+      assert.deepEqual(results[1], results[0],
+        `${operation} fallback divergence: cw=${controlWord.toString(16)}, ` +
+        `left=${left.map(String)}, right=${right.map(String)}`);
+    }
+  };
+  const values = [];
+  // Zeros, denormals, pseudo-denormals, unsupported encodings, the binary64
+  // exponent boundaries, full 64-bit mantissas, ties, infinities and both NaNs.
+  for (const exponent of [0, 1, 0x3c00, 0x3c01, 0x3ffe, 0x3fff, 0x4000, 0x43fe, 0x43ff, 0x7ffe, 0x7fff]) {
+    for (const mantissa of [0n, 1n, 0x8000000000000000n, 0x8000000000000400n,
+      0x8000000000000800n, 0xc000000000000000n, 0xfffffffffffff800n, 0xffffffffffffffffn]) {
+      values.push([mantissa, exponent], [mantissa, exponent | 0x8000]);
+    }
+  }
+  for (const precision of [0, 2, 3]) {
+    for (const rounding of [0, 1, 2, 3]) {
+      const controlWord = 0x7f | precision << 8 | rounding << 10;
+      for (const left of values) {
+        for (const right of values) checkArithmetic(left, right, controlWord);
+      }
+    }
+  }
+  const next = () => seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+  for (let i = 0; i < 10000; i += 1) {
+    const number = () => {
+      const exponent = 0x3c01 + next() % 2046 | next() & 0x8000;
+      const mantissa = (BigInt(next()) << 32n | BigInt(next())) | 1n << 63n;
+      return [mantissa & (i % 4 === 0 ? 0xffffffffffffffffn : 0xfffffffffffff800n), exponent];
+    };
+    const left = number();
+    const right = number();
+    checkArithmetic(left, right, 0x27f);
+    // Cancellation and rounding carry, which independent random exponents miss.
+    checkArithmetic(left, [right[0], left[1] ^ 0x8000], 0x27f);
+  }
+}
 
 let executionIsland = null;
 if (exportNames.has("vine_execution_island_abi_version")) {

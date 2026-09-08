@@ -57,6 +57,11 @@
       "hostProfile": "windows-gnu-execution-island-selective-tlb-v29",
       "bytes": 7407676,
       "sha256": "349940ea206278f7f25db91ef787f3f422820ef66a321f5d04ef4d08ad168d40"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-binary53-v32",
+      "bytes": 7421236,
+      "sha256": "fc72fc513fbcba5a81c9ff84b7d6189ace73b89be239d802306d776350edb058"
     }
   ]
 }

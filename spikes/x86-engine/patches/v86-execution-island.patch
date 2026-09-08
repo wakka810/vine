@@ -120,3 +120,178 @@ diff --git a/src/rust/jit.rs b/src/rust/jit.rs
          return;
      }
  
+diff --git a/src/rust/cpu/fpu.rs b/src/rust/cpu/fpu.rs
+--- a/src/rust/cpu/fpu.rs
++++ b/src/rust/cpu/fpu.rs
+@@ -108,5 +108,24 @@ pub unsafe fn f80_to_f32(v: F80) -> i32 {
+     x
+ }
++// Keep conversion and arithmetic in one Wasm call; preserve the existing F80
++// precision, rounding, exception ordering and stack semantics.
++#[no_mangle]
++pub unsafe fn vine_fpu_fadd_m32(v: i32) { fpu_fadd(0, f32_to_f80(v)); }
++#[no_mangle]
++pub unsafe fn vine_fpu_fmul_m32(v: i32) { fpu_fmul(0, f32_to_f80(v)); }
++#[no_mangle]
++pub unsafe fn vine_fpu_fsub_m32(v: i32) { fpu_fsub(0, f32_to_f80(v)); }
++#[no_mangle]
++pub unsafe fn vine_fpu_fsubr_m32(v: i32) { fpu_fsubr(0, f32_to_f80(v)); }
++#[no_mangle]
++pub unsafe fn vine_fpu_fdiv_m32(v: i32) { fpu_fdiv(0, f32_to_f80(v)); }
++#[no_mangle]
++pub unsafe fn vine_fpu_fdivr_m32(v: i32) { fpu_fdivr(0, f32_to_f80(v)); }
++#[no_mangle]
++pub unsafe fn vine_fpu_push_m32(v: i32) { fpu_push(f32_to_f80(v)); }
++#[no_mangle]
++pub unsafe fn vine_fpu_st0_m32() -> i32 { f80_to_f32(fpu_get_sti(0)) }
++
+ #[no_mangle]
+ pub unsafe fn f80_to_f64(v: F80) -> u64 {
+     F80::clear_exception_flags();
+diff --git a/src/rust/jit_instructions.rs b/src/rust/jit_instructions.rs
+--- a/src/rust/jit_instructions.rs
++++ b/src/rust/jit_instructions.rs
+@@ -3521,7 +3521,6 @@
+ fn instr_group_D8_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte, op: &str) {
+-    ctx.builder.const_i32(0);
+-    codegen::gen_fpu_load_m32(ctx, modrm_byte);
+-    ctx.builder.call_fn3_i32_i64_i32(op)
++    codegen::gen_modrm_resolve_safe_read32(ctx, modrm_byte);
++    ctx.builder.call_fn1(&format!("vine_{}_m32", op))
+ }
+ fn instr_group_D8_reg_jit(ctx: &mut JitContext, r: u32, op: &str) {
+     ctx.builder.const_i32(0);
+@@ -3584,6 +3583,6 @@
+ pub fn instr16_D9_0_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte) {
+-    codegen::gen_fpu_load_m32(ctx, modrm_byte);
+-    ctx.builder.call_fn2_i64_i32("fpu_push");
++    codegen::gen_modrm_resolve_safe_read32(ctx, modrm_byte);
++    ctx.builder.call_fn1("vine_fpu_push_m32");
+ }
+ pub fn instr16_D9_0_reg_jit(ctx: &mut JitContext, r: u32) {
+     codegen::gen_fpu_get_sti(ctx, r);
+@@ -3610,7 +3609,6 @@ pub fn instr16_D9_2_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte) {
+     codegen::gen_modrm_resolve(ctx, modrm_byte);
+     let address_local = ctx.builder.set_new_local();
+-    codegen::gen_fpu_get_sti(ctx, 0);
+-    ctx.builder.call_fn2_i64_i32_ret("f80_to_f32");
++    ctx.builder.call_fn0_ret("vine_fpu_st0_m32");
+     let value_local = ctx.builder.set_new_local();
+     codegen::gen_safe_write32(ctx, &address_local, &value_local);
+     ctx.builder.free_local(address_local);
+@@ -3630,7 +3628,6 @@ pub fn instr16_D9_3_mem_jit(ctx: &mut JitContext, modrm_byte: ModrmByte) {
+     codegen::gen_modrm_resolve(ctx, modrm_byte);
+     let address_local = ctx.builder.set_new_local();
+-    codegen::gen_fpu_get_sti(ctx, 0);
+-    ctx.builder.call_fn2_i64_i32_ret("f80_to_f32");
++    ctx.builder.call_fn0_ret("vine_fpu_st0_m32");
+     let value_local = ctx.builder.set_new_local();
+     codegen::gen_safe_write32(ctx, &address_local, &value_local);
+     ctx.builder.free_local(address_local);
+diff --git a/src/rust/softfloat.rs b/src/rust/softfloat.rs
+index 6c1a4df..a0680f2 100644
+--- a/src/rust/softfloat.rs
++++ b/src/rust/softfloat.rs
+@@ -102,6 +102,15 @@ impl F80 {
+     }
+ 
+     pub fn of_f32(src: i32) -> F80 {
++        let bits = src as u32;
++        let exponent = bits >> 23 & 0xff;
++        if exponent > 0 && exponent < 0xff {
++            // Normal binary32 values widen exactly, with no rounding or flags.
++            return F80 {
++                mantissa: 1u64 << 63 | u64::from(bits & 0x7f_ffff) << 40,
++                sign_exponent: (bits >> 16 & 0x8000) as u16 + exponent as u16 + 0x3f80,
++            };
++        }
+         let mut x = F80::ZERO;
+         unsafe { f32_to_extF80M(src, &mut x) };
+         x
+@@ -114,6 +123,62 @@ impl F80 {
+     }
+     fn of_f64x(src: f64) -> F80 { F80::of_f64(f64::to_bits(src)) }
+ 
++    fn exact_binary64(self) -> Option<f64> {
++        let exponent = self.sign_exponent & 0x7fff;
++        let sign = u64::from(self.sign_exponent & 0x8000) << 48;
++        if exponent == 0 && self.mantissa == 0 {
++            return Some(f64::from_bits(sign));
++        }
++        if !(0x3c01..=0x43fe).contains(&exponent)
++            || self.mantissa & 0x8000_0000_0000_07ff != 0x8000_0000_0000_0000
++        {
++            return None;
++        }
++        Some(f64::from_bits(sign | u64::from(exponent - 0x3c00) << 52
++            | (self.mantissa >> 11 & 0x000f_ffff_ffff_ffff)))
++    }
++
++    fn binary53(self, other: Self, multiply: bool) -> Option<Self> {
++        if unsafe { extF80_roundingPrecision != 64 || softfloat_roundingMode != 0 } {
++            return None;
++        }
++        let a = self.exact_binary64()?;
++        let b = other.exact_binary64()?;
++        let value = if multiply { a * b } else { a + b };
++        let bits = value.to_bits();
++        let exponent = (bits >> 52 & 0x7ff) as u16;
++        if exponent == 0x7ff || exponent == 1 || exponent == 0 &&
++            (bits << 1 != 0 || multiply && a != 0.0 && b != 0.0)
++        {
++            // Binary80 retains a wider exponent range, even at 53-bit precision.
++            // Also reject subnormal results rounded up to binary64's min normal.
++            return None;
++        }
++        let inexact = if multiply {
++            if a == 0.0 || b == 0.0 { false }
++            else {
++                // Two normalized 53-bit significands produce 105 or 106 bits.
++                let extra = i32::from(exponent) + 1023
++                    - ((a.to_bits() >> 52 & 0x7ff) as i32)
++                    - ((b.to_bits() >> 52 & 0x7ff) as i32);
++                if !(0..=1).contains(&extra) { return None; }
++                (self.mantissa >> 11).trailing_zeros()
++                    + (other.mantissa >> 11).trailing_zeros() < 52 + extra as u32
++            }
++        } else {
++            // Magnitude-ordered FastTwoSum recovers the exact rounding error.
++            // Ogita/Rump/Oishi, https://www.tuhh.de/ti3/paper/rump/OgRuOi05.pdf
++            if a.abs() >= b.abs() { (a - value) + b != 0.0 }
++            else { (b - value) + a != 0.0 }
++        };
++        if inexact { unsafe { softfloat_exceptionFlags |= 1; } }
++        Some(Self {
++            mantissa: if exponent == 0 { 0 } else { 1u64 << 63 | bits << 11 },
++            sign_exponent: ((bits >> 48) as u16 & 0x8000)
++                | if exponent == 0 { 0 } else { exponent + 0x3c00 },
++        })
++    }
++
+     pub fn to_f32(&self) -> i32 { unsafe { extF80M_to_f32(self) } }
+     pub fn to_f64(&self) -> u64 { unsafe { extF80M_to_f64(self) } }
+     fn to_f64x(&self) -> f64 { f64::from_bits(self.to_f64()) }
+@@ -213,6 +278,7 @@ impl F80 {
+ impl std::ops::Add for F80 {
+     type Output = F80;
+     fn add(self, other: Self) -> Self {
++        if let Some(result) = self.binary53(other, false) { return result; }
+         let mut result = F80::ZERO;
+         unsafe { extF80M_add(&self, &other, &mut result) };
+         result
+@@ -221,6 +287,7 @@ impl std::ops::Add for F80 {
+ impl std::ops::Sub for F80 {
+     type Output = F80;
+     fn sub(self, other: Self) -> Self {
++        if let Some(result) = self.binary53(-other, false) { return result; }
+         let mut result = F80::ZERO;
+         unsafe { extF80M_sub(&self, &other, &mut result) };
+         result
+@@ -237,6 +304,7 @@ impl std::ops::Neg for F80 {
+ impl std::ops::Mul for F80 {
+     type Output = F80;
+     fn mul(self, other: Self) -> Self {
++        if let Some(result) = self.binary53(other, true) { return result; }
+         let mut result = F80::ZERO;
+         unsafe { extF80M_mul(&self, &other, &mut result) };
+         result

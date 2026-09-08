@@ -162,7 +162,12 @@ async function waitForCheckPage(client) {
     }
     await wait(50);
   }
-  throw new Error("browser-native storage page did not become ready");
+  const page = await evaluate(client, `({
+    url: location.href, readyState: document.readyState,
+    title: document.title, status: document.querySelector('#status')?.textContent,
+    text: document.body?.innerText.slice(0, 500)
+  })`);
+  throw new Error(`browser-native storage page did not become ready: ${JSON.stringify(page)}`);
 }
 
 function createServer() {
