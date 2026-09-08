@@ -1165,7 +1165,7 @@ enum FrameUndo {
     },
     Bytes {
         frame: FrameId,
-        bytes: Box<[u8; GUEST_PAGE_SIZE_USIZE]>,
+        image: usize,
     },
 }
 
@@ -1182,6 +1182,7 @@ struct MemoryTransactionJournal {
     frame_bytes_recorded: BTreeSet<usize>,
     allocated_frames: BTreeSet<usize>,
     frame_undo: Vec<FrameUndo>,
+    frame_images: Vec<[u8; GUEST_PAGE_SIZE_USIZE]>,
     offered_generations: BTreeSet<u64>,
     offered_full_reflections: BTreeSet<u64>,
     journaled_frame_bytes: u64,
@@ -1202,6 +1203,7 @@ impl MemoryTransactionJournal {
             frame_bytes_recorded: BTreeSet::new(),
             allocated_frames: BTreeSet::new(),
             frame_undo: Vec::new(),
+            frame_images: Vec::new(),
             offered_generations: BTreeSet::new(),
             offered_full_reflections: BTreeSet::new(),
             journaled_frame_bytes: 0,
@@ -1331,10 +1333,21 @@ impl PhysicalFrames {
         Ok(bytes)
     }
 
-    fn rollback(&mut self, undo: FrameUndo) -> Result<(), GuestMemoryError> {
+    fn rollback(
+        &mut self,
+        undo: FrameUndo,
+        images: &[[u8; GUEST_PAGE_SIZE_USIZE]],
+    ) -> Result<(), GuestMemoryError> {
         match undo {
-            FrameUndo::Bytes { frame, bytes } => {
-                self.bytes_mut(frame)?.copy_from_slice(bytes.as_ref());
+            FrameUndo::Bytes { frame, image } => {
+                let bytes = images.get(image).ok_or_else(|| {
+                    GuestMemoryError::runtime_defect(
+                        "memory-transaction",
+                        "rollback-frame-image-missing",
+                        "frame byte journal refers to a missing before-image",
+                    )
+                })?;
+                self.bytes_mut(frame)?.copy_from_slice(bytes);
             }
             FrameUndo::Release { frame, bytes } => {
                 let free = self.free.pop().ok_or_else(|| {
@@ -1563,7 +1576,7 @@ impl GuestMemory {
 
         for undo in journal.frame_undo.into_iter().rev() {
             self.frames
-                .rollback(undo)
+                .rollback(undo, &journal.frame_images)
                 .expect("GuestMemory transaction frame journal was inconsistent");
         }
         for (virtual_page, before) in journal.pages {
@@ -1665,13 +1678,16 @@ impl GuestMemory {
                 && !journal.frame_bytes_recorded.contains(&frame.0)
         });
         if should_record {
-            let bytes = Box::new(*self.frames.bytes(frame)?);
+            let bytes = self.frames.bytes(frame)?;
             let journal = self
                 .transaction
                 .as_mut()
                 .expect("checked transaction journal disappeared");
+            // Batch before-images in one growable allocation, not one Box per page.
+            let image = journal.frame_images.len();
+            journal.frame_images.push(*bytes);
             journal.frame_bytes_recorded.insert(frame.0);
-            journal.push_frame_undo(FrameUndo::Bytes { frame, bytes });
+            journal.push_frame_undo(FrameUndo::Bytes { frame, image });
         }
         Ok(())
     }

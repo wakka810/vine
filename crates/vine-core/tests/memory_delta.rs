@@ -466,6 +466,20 @@ fn transaction_journal_cost_scales_with_changed_pages_not_baseline_pages() {
         assert_eq!(second_page.journaled_frame_images, 2);
         assert_eq!(second_page.journaled_frame_bytes, 2 * GUEST_PAGE_SIZE);
         assert_eq!(second_page.peak_journaled_frame_bytes, 2 * GUEST_PAGE_SIZE);
+
+        // Grow the contiguous journal repeatedly without invalidating earlier images.
+        for page in 2..33 {
+            transaction
+                .write(
+                    GuestAddress(DATA_BASE.0 + page * GUEST_PAGE_SIZE as u32),
+                    &[4],
+                )
+                .expect("additional page write");
+        }
+        transaction
+            .write(DATA_BASE, &[5])
+            .expect("rewrite first image");
+        assert_eq!(transaction.transaction_stats().journaled_frame_images, 33);
     }
 
     assert_eq!(memory.stats(), stats_before);
@@ -479,6 +493,14 @@ fn transaction_journal_cost_scales_with_changed_pages_not_baseline_pages() {
             .unwrap(),
         [0]
     );
+    for page in 0..33 {
+        assert_eq!(
+            memory
+                .read(GuestAddress(DATA_BASE.0 + page * GUEST_PAGE_SIZE as u32), 1)
+                .unwrap(),
+            [0]
+        );
+    }
 }
 
 #[test]
