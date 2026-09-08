@@ -2810,6 +2810,20 @@ impl GuestMemory {
         self.read_segments(&segments, byte_length)
     }
 
+    pub(crate) fn validate_host_write(
+        &self,
+        address: GuestAddress,
+        byte_length: usize,
+    ) -> Result<(), GuestMemoryError> {
+        // Host-side transactions may have just committed the allocation's pages.
+        self.preflight_guest_access_without_synchronization(
+            address,
+            byte_length,
+            MemoryAccess::Write,
+        )
+        .map(|_| ())
+    }
+
     pub fn write(
         &mut self,
         address: GuestAddress,

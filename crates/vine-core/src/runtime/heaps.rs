@@ -238,6 +238,8 @@ pub(crate) struct RuntimeHeapPageMaterializationPlan {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct RuntimeHeaps {
+    #[serde(skip)]
+    poison_uninitialized_and_freed: bool,
     heaps: BTreeMap<u32, RuntimeHeap>,
     #[serde(skip)]
     backings: BTreeMap<u32, RuntimeHeapBacking>,
@@ -266,6 +268,7 @@ struct RuntimePrivateHeapSlotPlan {
 impl Default for RuntimeHeaps {
     fn default() -> Self {
         Self {
+            poison_uninitialized_and_freed: true,
             heaps: BTreeMap::new(),
             backings: BTreeMap::new(),
             extension_backings: BTreeMap::new(),
@@ -283,6 +286,14 @@ impl RuntimeHeapCreationPlan {
 }
 
 impl RuntimeHeaps {
+    pub(super) fn poisoning_enabled(&self) -> bool {
+        self.poison_uninitialized_and_freed
+    }
+
+    pub(super) fn set_poisoning_enabled(&mut self, enabled: bool) {
+        self.poison_uninitialized_and_freed = enabled;
+    }
+
     pub(super) fn heaps(&self) -> &BTreeMap<u32, RuntimeHeap> {
         &self.heaps
     }

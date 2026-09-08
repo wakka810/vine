@@ -15,6 +15,118 @@ const REACHED_SAVE_COMPRESSION_BYTES: u32 = 7_786_068;
 const REACHED_SCENARIO_BUFFER_BYTES: u32 = 61_219_868;
 
 #[test]
+fn heap_poisoning_can_be_disabled_without_skipping_zeroing_copy_or_validation() {
+    let mut memory = GuestMemory::new(MemoryLimits::default()).unwrap();
+    let mut runtime = running_runtime();
+    runtime.set_heap_poisoning_enabled(false);
+    let handle = runtime.allocate_private_heap(0, 0x1000, 0).unwrap().handle;
+    let initial = ExecutionSession::new(&mut memory, &mut runtime)
+        .allocate_private_heap_block(
+            handle,
+            32,
+            RuntimeHeapInitialization::DeterministicUninitialized,
+        )
+        .unwrap();
+    acknowledge_initial_reflection(&mut memory);
+    memory.write(initial.address, &[0x5a; 32]).unwrap();
+    acknowledge_delta(&mut memory);
+    let unchanged = memory.stats();
+    ExecutionSession::new(&mut memory, &mut runtime)
+        .free_private_heap_block(handle, initial.address)
+        .unwrap();
+    assert_eq!(memory.stats(), unchanged);
+    assert_eq!(memory.read(initial.address, 32).unwrap(), [0x5a; 32]);
+    let reused = ExecutionSession::new(&mut memory, &mut runtime)
+        .allocate_private_heap_block(
+            handle,
+            32,
+            RuntimeHeapInitialization::DeterministicUninitialized,
+        )
+        .unwrap();
+    assert_eq!(reused.address, initial.address);
+    assert_eq!(memory.stats(), unchanged);
+    assert_eq!(memory.read(reused.address, 32).unwrap(), [0x5a; 32]);
+
+    let grown = ExecutionSession::new(&mut memory, &mut runtime)
+        .reallocate_private_heap_block(
+            handle,
+            reused.address,
+            64,
+            RuntimeHeapInitialization::Zeroed,
+        )
+        .unwrap();
+    acknowledge_delta(&mut memory);
+    assert_eq!(memory.read(grown.address, 32).unwrap(), [0x5a; 32]);
+    assert_eq!(
+        memory.read(GuestAddress(grown.address.0 + 32), 32).unwrap(),
+        [0; 32]
+    );
+
+    let backing = runtime.heap_backing(handle).unwrap().unwrap().clone();
+    let page = vine_core::GuestRange::new(backing.range.start(), 4096).unwrap();
+    memory
+        .protect(
+            backing.memory_owner,
+            page,
+            vine_core::PageProtection {
+                read: true,
+                write: false,
+                execute: false,
+            },
+        )
+        .unwrap();
+    acknowledge_delta(&mut memory);
+    let memory_before = memory.stats();
+    let runtime_before = runtime.clone();
+    assert!(
+        ExecutionSession::new(&mut memory, &mut runtime)
+            .free_private_heap_block(handle, grown.address)
+            .is_err()
+    );
+    assert!(
+        ExecutionSession::new(&mut memory, &mut runtime)
+            .allocate_private_heap_block(
+                handle,
+                32,
+                RuntimeHeapInitialization::DeterministicUninitialized
+            )
+            .is_err()
+    );
+    assert_eq!(memory.stats(), memory_before);
+    assert_eq!(runtime, runtime_before);
+    assert_eq!(memory.read(grown.address, 32).unwrap(), [0x5a; 32]);
+
+    memory
+        .protect(
+            backing.memory_owner,
+            page,
+            vine_core::PageProtection {
+                read: true,
+                write: true,
+                execute: false,
+            },
+        )
+        .unwrap();
+    acknowledge_delta(&mut memory);
+    runtime.set_heap_poisoning_enabled(true);
+    ExecutionSession::new(&mut memory, &mut runtime)
+        .free_private_heap_block(handle, grown.address)
+        .unwrap();
+    acknowledge_delta(&mut memory);
+    assert_eq!(
+        memory.read(grown.address, 64).unwrap(),
+        [RUNTIME_PRIVATE_HEAP_FREED_BYTE; 64]
+    );
+    let before = runtime.clone();
+    assert!(
+        ExecutionSession::new(&mut memory, &mut runtime)
+            .free_private_heap_block(handle, grown.address)
+            .is_err()
+    );
+    assert_eq!(runtime, before);
+}
+
+#[test]
 fn heap_slot_allocator_ownership_preserves_runtime_serialization_shape() {
     let mut runtime = running_runtime();
     let initial = serde_json::to_value(&runtime).expect("serialize initial heap allocator view");

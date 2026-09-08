@@ -4929,6 +4929,9 @@ class BrowserRuntimeSession {
                   failInvariant("source fixture manifest is missing"),
               )
             : bridge.prepare(executable);
+      if (playPerformanceMode) {
+        bridge.setHeapPoisoningEnabled(false);
+      }
       this.#status("loading", "Authoritative Rust runtime state prepared");
       invariant(
         preparedOutput.metadata.schemaVersion === 2,
@@ -28938,7 +28941,7 @@ class BrowserRuntimeSession {
         "heap materialization fault escaped its allocation",
       );
       const expectedFill =
-        materialization.allocation.initialization === "zeroed" ? 0 : 0xa5;
+        playPerformanceMode || materialization.allocation.initialization === "zeroed" ? 0 : 0xa5;
       invariant(
         page.bytes.every((byte) => byte === expectedFill),
         "heap materialization initialization mismatch",

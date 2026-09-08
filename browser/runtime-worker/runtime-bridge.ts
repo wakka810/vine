@@ -222,6 +222,7 @@ interface RuntimeBridgeExports extends WebAssembly.Exports {
     hostMonotonicClockEnabled: number,
     encodedPointerCookie: number,
   ): number;
+  vine_bridge_set_heap_poisoning_v1(enabled: number): number;
   vine_bridge_synchronize_forward_clock_v1(
     retiredInstructionsLow: number,
     retiredInstructionsHigh: number,
@@ -507,6 +508,10 @@ export class RuntimeBridge {
         encodedPointerCookie,
       ),
     );
+  }
+
+  setHeapPoisoningEnabled(enabled: boolean): void {
+    this.#checkFastResult(this.#exports.vine_bridge_set_heap_poisoning_v1(Number(enabled)));
   }
 
   synchronizeForwardClock(retiredInstructions: number, elapsedMilliseconds: number): void {

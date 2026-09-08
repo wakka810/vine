@@ -5646,6 +5646,20 @@ pub extern "C" fn vine_bridge_prepare_bgi(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn vine_bridge_set_heap_poisoning_v1(enabled: u32) -> u32 {
+    run_bridge(|bridge| {
+        if enabled > 1 {
+            return Err("heap poisoning switch must be zero or one".to_owned());
+        }
+        bridge
+            .runtime_mut()?
+            .runtime
+            .set_heap_poisoning_enabled(enabled != 0);
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn vine_bridge_synchronize_forward_clock_v1(
     retired_instructions_low: u32,
     retired_instructions_high: u32,

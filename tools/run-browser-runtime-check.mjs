@@ -6278,6 +6278,21 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       );
       await client.sendToSession(workerSessionId, "Profiler.start");
       workerCpuProfileActive = true;
+      const frameProbe = await client.sendToSession(workerSessionId, "Runtime.evaluate", {
+        expression: `(() => {
+          const timing = self.__vineProfileFrames = { startedAt: performance.now(), frames: [], truncated: false };
+          const draw = WebGL2RenderingContext.prototype.drawArrays;
+          WebGL2RenderingContext.prototype.drawArrays = function(...args) {
+            const result = draw.apply(this, args);
+            if (timing.frames.length < 30_000) timing.frames.push(performance.now() - timing.startedAt);
+            else timing.truncated = true;
+            return result;
+          };
+          return true;
+        })()`,
+        returnByValue: true,
+      });
+      assert.equal(frameProbe.result?.value, true, "Worker frame probe was not installed");
       workerCpuProfileTask = (async () => {
         await new Promise((resolve) => {
           const handle = setTimeout(
@@ -6305,6 +6320,15 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         await writeFile(
           path.join(profileDirectory, "cpu-profile.json"),
           `${JSON.stringify(profile)}\n`,
+        );
+        const frameTiming = await client.sendToSession(workerSessionId, "Runtime.evaluate", {
+          expression: "self.__vineProfileFrames",
+          returnByValue: true,
+        });
+        assert(Array.isArray(frameTiming.result?.value?.frames), "Worker frame probe was lost");
+        await writeFile(
+          path.join(profileDirectory, "frame-times.json"),
+          `${JSON.stringify(frameTiming.result.value)}\n`,
         );
         await client.sendToSession(workerSessionId, "Profiler.disable");
       })();

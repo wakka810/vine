@@ -5047,6 +5047,15 @@ impl RuntimeKernel {
         self.heaps.large_backings()
     }
 
+    /// Diagnostic fills are optional; zero-initialization and allocation validation are not.
+    pub fn set_heap_poisoning_enabled(&mut self, enabled: bool) {
+        self.heaps.set_poisoning_enabled(enabled);
+    }
+
+    pub(crate) fn heap_poisoning_enabled(&self) -> bool {
+        self.heaps.poisoning_enabled()
+    }
+
     pub fn private_heap_allocation(
         &self,
         handle: u32,
@@ -5162,7 +5171,7 @@ impl RuntimeKernel {
             )
             .map_err(RuntimeStateError::from_memory)?;
         let fill_byte = plan.allocation.initialization.fill_byte();
-        if fill_byte != 0 {
+        if fill_byte != 0 && self.heaps.poisoning_enabled() {
             let bytes = vec![fill_byte; GUEST_PAGE_SIZE as usize];
             transaction
                 .write(plan.committed_page.start(), &bytes)

@@ -16,12 +16,18 @@ const REACHED_VARIABLE_LARGE_BYTES: u32 = 61_219_868;
 
 #[test]
 fn large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot() {
+    large_heap_materialization_case(true);
+    large_heap_materialization_case(false);
+}
+
+fn large_heap_materialization_case(poison: bool) {
     let mut memory = GuestMemory::new(MemoryLimits {
         max_physical_pages: 3,
         ..MemoryLimits::default()
     })
     .unwrap();
     let mut runtime = running_runtime();
+    runtime.set_heap_poisoning_enabled(poison);
     let handle = runtime.allocate_private_heap(0, 0x1000, 0).unwrap().handle;
     let small = ExecutionSession::new(&mut memory, &mut runtime)
         .allocate_private_heap_block(handle, 0x20, RuntimeHeapInitialization::Zeroed)
@@ -159,7 +165,12 @@ fn large_heap_reserves_lazily_materializes_pages_and_reuses_its_permanent_slot()
         materialize_delta.dirty_pages[0]
             .bytes
             .iter()
-            .all(|byte| *byte == RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE)
+            .all(|byte| *byte
+                == if poison {
+                    RUNTIME_PRIVATE_HEAP_UNINITIALIZED_BYTE
+                } else {
+                    0
+                })
     );
     memory
         .acknowledge_delta(materialize_delta.generation)

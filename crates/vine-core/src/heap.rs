@@ -23,7 +23,9 @@ pub(crate) fn allocate_private_heap_block(
             &mut transaction,
             plan.allocation.address,
             plan.allocation.reserved_byte_length,
-            initialization.fill_byte(),
+            (initialization == RuntimeHeapInitialization::Zeroed
+                || runtime.heap_poisoning_enabled())
+            .then_some(initialization.fill_byte()),
         )?;
     }
     let allocation = runtime.commit_private_heap_allocation(
@@ -42,7 +44,7 @@ pub(crate) fn free_private_heap_block(
 ) -> Result<RuntimeHeapAllocation, RuntimeStateError> {
     let plan = runtime.plan_private_heap_free(handle, address)?;
     let mut transaction = memory.begin_transaction();
-    prepare_free_memory(&mut transaction, &plan)?;
+    prepare_free_memory(&mut transaction, &plan, runtime.heap_poisoning_enabled())?;
     let allocation = runtime.commit_private_heap_free(plan)?;
     transaction.commit_transaction();
     Ok(allocation)
@@ -81,13 +83,19 @@ pub(crate) fn reallocate_private_heap_block(
             &mut transaction,
             allocation_plan.allocation.address,
             allocation_plan.allocation.reserved_byte_length,
-            initialization.fill_byte(),
+            (initialization == RuntimeHeapInitialization::Zeroed
+                || runtime.heap_poisoning_enabled())
+            .then_some(initialization.fill_byte()),
         )?;
         transaction
             .write(allocation_plan.allocation.address, &copy_bytes)
             .map_err(RuntimeStateError::from_memory)?;
     }
-    prepare_free_memory(&mut transaction, &free_plan)?;
+    prepare_free_memory(
+        &mut transaction,
+        &free_plan,
+        runtime.heap_poisoning_enabled(),
+    )?;
 
     let creates_memory_owner = allocation_plan.backing.creates_memory_owner();
     let allocation = runtime.commit_private_heap_allocation(
@@ -230,13 +238,14 @@ fn prepare_allocation_memory(
 fn prepare_free_memory(
     memory: &mut GuestMemory,
     plan: &crate::runtime::RuntimeHeapFreePlan,
+    poison: bool,
 ) -> Result<(), RuntimeStateError> {
     match &plan.backing {
         RuntimeHeapFreeBackingPlan::Small { .. } => fill_allocation(
             memory,
             plan.allocation.address,
             plan.allocation.reserved_byte_length,
-            RUNTIME_PRIVATE_HEAP_FREED_BYTE,
+            poison.then_some(RUNTIME_PRIVATE_HEAP_FREED_BYTE),
         ),
         RuntimeHeapFreeBackingPlan::Large { backing } => {
             memory
@@ -254,7 +263,7 @@ fn fill_allocation(
     memory: &mut GuestMemory,
     address: GuestAddress,
     byte_length: u32,
-    fill_byte: u8,
+    fill_byte: Option<u8>,
 ) -> Result<(), RuntimeStateError> {
     let byte_length = usize::try_from(byte_length).map_err(|_| {
         RuntimeStateError::runtime_defect(
@@ -263,6 +272,11 @@ fn fill_allocation(
             "private heap allocation size does not fit host accounting",
         )
     })?;
+    let Some(fill_byte) = fill_byte else {
+        return memory
+            .validate_host_write(address, byte_length)
+            .map_err(RuntimeStateError::from_memory);
+    };
     let bytes = vec![fill_byte; byte_length];
     memory
         .write(address, &bytes)
