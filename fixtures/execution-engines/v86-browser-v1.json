@@ -52,6 +52,11 @@
       "hostProfile": "windows-gnu-execution-island-data-mapping-only-v28",
       "bytes": 7407511,
       "sha256": "f9d825d7223fdd6d0e44241476b6db09d6ba88d83431e80dd79faf12d83f4372"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-selective-tlb-v29",
+      "bytes": 7407676,
+      "sha256": "349940ea206278f7f25db91ef787f3f422820ef66a321f5d04ef4d08ad168d40"
     }
   ]
 }

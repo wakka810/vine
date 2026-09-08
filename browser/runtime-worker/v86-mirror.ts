@@ -457,7 +457,7 @@ export class V86Mirror implements ExecutionEngine {
   #wasm!: V86Exports;
   readonly #identity: ExecutionEngineIdentity;
   readonly #mappings = new Map<number, MirrorMapping>();
-  readonly #writableMappings: MirrorMapping[] = [];
+  readonly #writableMappings = new Set<MirrorMapping>();
   readonly #reservations = new Map<number, MirrorReservation>();
   readonly #directoryMappingCounts = new Map<number, number>();
   readonly #dirtyMappingsScratch: MirrorMapping[] = [];
@@ -842,7 +842,7 @@ export class V86Mirror implements ExecutionEngine {
       dirty: Boolean(this.#physicalView.getUint32(mapping.pteAddress, true) & pageFlags.dirty),
     }));
     this.#mappings.clear();
-    this.#writableMappings.length = 0;
+    this.#writableMappings.clear();
     this.#installFreshAdapter(poolBytes);
     let restoredDirtyPage = false;
     for (const page of pages.sort((left, right) => left.address - right.address)) {
@@ -889,7 +889,7 @@ export class V86Mirror implements ExecutionEngine {
     this.#refreshLinearMemoryViews();
     const state = this.saveState().words;
     this.#mappings.clear();
-    this.#writableMappings.length = 0;
+    this.#writableMappings.clear();
     this.#reservations.clear();
     this.#pageTables.clear();
     this.#directoryMappingCounts.clear();
@@ -1812,36 +1812,15 @@ export class V86Mirror implements ExecutionEngine {
   }
 
   #trackWritableMapping(mapping: MirrorMapping): void {
-    let lower = 0;
-    let upper = this.#writableMappings.length;
-    while (lower < upper) {
-      const middle = (lower + upper) >>> 1;
-      if (this.#writableMappings[middle]!.address < mapping.address) {
-        lower = middle + 1;
-      } else {
-        upper = middle;
-      }
-    }
     invariant(
-      this.#writableMappings[lower]?.address !== mapping.address,
+      !this.#writableMappings.has(mapping),
       "writable mirror mapping is already indexed",
     );
-    this.#writableMappings.splice(lower, 0, mapping);
+    this.#writableMappings.add(mapping);
   }
 
   #untrackWritableMapping(mapping: MirrorMapping): void {
-    let lower = 0;
-    let upper = this.#writableMappings.length;
-    while (lower < upper) {
-      const middle = (lower + upper) >>> 1;
-      if (this.#writableMappings[middle]!.address < mapping.address) {
-        lower = middle + 1;
-      } else {
-        upper = middle;
-      }
-    }
-    invariant(this.#writableMappings[lower] === mapping, "writable mirror mapping index is stale");
-    this.#writableMappings.splice(lower, 1);
+    invariant(this.#writableMappings.delete(mapping), "writable mirror mapping index is stale");
   }
 
   #initializeCpu(prepared: ExecutionBootstrap): void {

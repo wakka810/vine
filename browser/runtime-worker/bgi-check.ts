@@ -1865,7 +1865,10 @@ function finish(report: SessionReport): void {
     document.body.dataset.checkStatus = "passed";
     document.body.dataset.report = JSON.stringify(evidence);
     status.textContent = report.outcome;
-    worker.terminate();
+    // The profiling runner closes the page after collecting the stopped Worker's CPU profile.
+    if (searchParams.get("cpuProfile") !== "1") {
+      worker.terminate();
+    }
     return;
   }
   const expectedOutcome =

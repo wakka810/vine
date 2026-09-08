@@ -6261,7 +6261,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         flatten: true,
         waitForDebuggerOnStart: false,
       });
-      await client.send("Page.navigate", { url: targetUrl });
+      await client.send("Page.navigate", { url: `${targetUrl}&cpuProfile=1` });
       const workerDeadline = Date.now() + 10_000;
       while (workerSessionId === null && Date.now() < workerDeadline) {
         await wait(20);

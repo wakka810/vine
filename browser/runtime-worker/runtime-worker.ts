@@ -5720,7 +5720,7 @@ class BrowserRuntimeSession {
       );
     }
     try {
-      this.#deliverInIssueOrder(message.requestId, () =>
+      this.#deliverHostResult(message.requestId, () =>
         this.#deliverHostCompletion(message),
       );
     } catch (error) {
@@ -6137,6 +6137,7 @@ class BrowserRuntimeSession {
     events.push({
       action,
       stage,
+      elapsedMilliseconds: performance.now() - this.#startedAt,
       instructionCount: this.#report.instructions,
       presentCount: this.#report.forwardDevelopment?.presentCount ?? 0,
     });
@@ -6960,11 +6961,14 @@ class BrowserRuntimeSession {
     }
   }
 
-  // Host completions must reach Rust in request-issue order: the Node oracle
-  // services every host request synchronously, so a younger completion (for
-  // example a timer-pacing deadline) may not overtake an older in-flight
-  // storage read without diverging from the frozen scheduling stream.
-  #deliverInIssueOrder(requestId: string, deliver: () => void): void {
+  // Only historical replay needs the synchronous Node oracle's issue order.
+  // Real play resumes each Rust-owned request when ready; an unrelated Sleep
+  // or audio wait must not hold up completed reads or another thread's timer.
+  #deliverHostResult(requestId: string, deliver: () => void): void {
+    if (this.#isForwardDevelopment()) {
+      deliver();
+      return;
+    }
     const head = this.#pendingHostRequests.first();
     if (head?.requestId === requestId) {
       deliver();
@@ -7199,7 +7203,7 @@ class BrowserRuntimeSession {
         payload.byteLength,
         0,
       ].forEach((word, index) => view.setUint32(index * 4, word, true));
-      this.#deliverInIssueOrder(metadata.requestId, () =>
+      this.#deliverHostResult(metadata.requestId, () =>
         this.#completeSourceRead(metadata, control, payload),
       );
     } finally {
@@ -7318,7 +7322,7 @@ class BrowserRuntimeSession {
         payload.byteLength,
         0,
       ].forEach((word, index) => view.setUint32(index * 4, word, true));
-      this.#deliverInIssueOrder(metadata.requestId, () =>
+      this.#deliverHostResult(metadata.requestId, () =>
         this.#completeSourceRead(metadata, control, payload),
       );
     } finally {
@@ -7434,7 +7438,7 @@ class BrowserRuntimeSession {
         baseGeneration,
         BigInt(committedGeneration),
       );
-      this.#deliverInIssueOrder(metadata.requestId, () => {
+      this.#deliverHostResult(metadata.requestId, () => {
         const completion = this.#completeWritableCommit(metadata, control);
         invariant(
           completion.succeeded,
@@ -7508,7 +7512,7 @@ class BrowserRuntimeSession {
       control.byteLength === 32,
       "writable commit response size mismatch",
     );
-    this.#deliverInIssueOrder(metadata.requestId, () => {
+    this.#deliverHostResult(metadata.requestId, () => {
       const completion = this.#completeWritableCommit(metadata, control);
       if (completion.succeeded) {
         file.exists = true;
@@ -7594,7 +7598,7 @@ class BrowserRuntimeSession {
         baseGeneration,
         BigInt(committedGeneration),
       );
-      this.#deliverInIssueOrder(metadata.requestId, () => {
+      this.#deliverHostResult(metadata.requestId, () => {
         const completion = this.#completeWritableDelete(metadata, control);
         invariant(
           completion.succeeded,
@@ -7666,7 +7670,7 @@ class BrowserRuntimeSession {
     );
     const control = new Uint8Array(await response.arrayBuffer());
     invariant(control.byteLength === 32, "writable delete response size mismatch");
-    this.#deliverInIssueOrder(metadata.requestId, () => {
+    this.#deliverHostResult(metadata.requestId, () => {
       const completion = this.#completeWritableDelete(metadata, control);
       if (completion.succeeded) {
         file.exists = false;
@@ -7754,7 +7758,7 @@ class BrowserRuntimeSession {
         baseGeneration,
         BigInt(committedGeneration),
       );
-      this.#deliverInIssueOrder(metadata.requestId, () => {
+      this.#deliverHostResult(metadata.requestId, () => {
         const completion = this.#completeWritableDirectoryCreate(
           metadata,
           control,
@@ -7827,7 +7831,7 @@ class BrowserRuntimeSession {
       control.byteLength === 32,
       "writable directory create response size mismatch",
     );
-    this.#deliverInIssueOrder(metadata.requestId, () => {
+    this.#deliverHostResult(metadata.requestId, () => {
       const completion = this.#completeWritableDirectoryCreate(
         metadata,
         control,
@@ -30099,7 +30103,7 @@ class BrowserRuntimeSession {
           }
           try {
             const pixels = rasterizeGdiText(metadata.arguments);
-            this.#deliverInIssueOrder(metadata.requestId, () =>
+            this.#deliverHostResult(metadata.requestId, () =>
               this.#completeGdiTextRaster(metadata, pixels),
             );
           } catch (error: unknown) {

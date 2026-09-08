@@ -132,6 +132,23 @@ assert.throws(
 );
 assert.equal(host.state(), "ready");
 
+const independent = new PendingHostRequestTable();
+independent.register({ ...pending, requestId: "10", threadId: 8192 });
+independent.register({ ...pending, requestId: "11", threadId: 8193 });
+assert.equal(independent.complete("11", 8193, 0).threadId, 8193);
+assert.equal(independent.first().requestId, "10");
+assert.equal(independent.pending("10").threadId, 8192);
+assert.throws(
+  () => independent.complete("10", 8193, 0),
+  (error) => error instanceof HostRequestIdentityError && error.code === "host-request-wrong-thread",
+);
+assert.throws(
+  () => independent.complete("11", 8193, 0),
+  (error) => error instanceof HostRequestIdentityError && error.code === "host-completion-duplicate",
+);
+assert.equal(independent.complete("10", 8192, 0).threadId, 8192);
+assert.equal(independent.size(), 0);
+
 const multiThread = new ExecutionStateMachine();
 multiThread.transition("running", { cause: "initial-slice", threadId: 8192 });
 multiThread.transition("api-trap", { cause: "initial-host-api", threadId: 8192 });

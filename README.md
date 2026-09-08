@@ -31,7 +31,7 @@ This section is generated from [`docs/current-checkpoint.json`](docs/current-che
 - The accepted checkpoint is .work-only and retains one 95,058-byte Q.Save with SHA-256 0cd7c853e9c4afd032e9f1235c2a9bb065d6b5a15cb35fc57c87921a991306ec; the ending run hydrated it unchanged and did not overwrite it
 - The measured route live set is bounded to 480 MiB; later-route peak memory and long-run reclamation are not yet accepted
 - Primary audio spans the representative flow, but format breadth, suspend/resume behavior, and long-run streaming stability are not yet accepted
-- Performance mode now retains JIT code across non-executable data mapping changes: a matched Chrome interval rose from 3.94 to 9.50 Presents/sec and 198M to 256M guest instructions/sec, with wall time falling from 50.82 to 47.03 seconds; long slices, heavy transitions, and 60 FPS-class response remain unaccepted
+- Performance mode retains JIT code across data mapping changes and rearms only dirty-page TLB entries. Removing historical request-order serialization from live host completions reduced two measured input-to-next-frame transitions from 4.42s/3.33s to 1.60s/0.54s in Chrome; the startup-through-transition run fell from 54.22s to 48.58s at 273M guest instructions/sec. This run still had a 173ms maximum slice and one audio underrun; whole-run Presents/sec is not steady-play FPS, and 60 FPS-class response remains unaccepted
 - Historical per-API capability profiles are frozen and are not the active development queue
 
 ### Commands

@@ -1,5 +1,5 @@
 use crate::cpu::cpu::{
-    full_clear_tlb, safe_read128s, safe_read32s, safe_read8, safe_write32, transition_fpu_to_mmx,
+    invlpg, safe_read128s, safe_read32s, safe_read8, safe_write32, transition_fpu_to_mmx,
     translate_address, translate_address_read_no_side_effects,
     translate_address_write_and_can_skip_dirty, write_mmx_reg64,
 };
@@ -625,6 +625,7 @@ unsafe fn clear_page_dirty(address: u32) -> bool {
         return false;
     }
     memory::write32_no_mmap_or_dirty_check(entry_address, (entry & !PTE_DIRTY) as i32);
+    invlpg(address as i32);
     true
 }
 
@@ -653,7 +654,6 @@ unsafe fn reconcile_dirty_pages() -> Result<bool, String> {
         }
     }
     vine::vine_reset_dirty_pages();
-    full_clear_tlb();
     WRITEBACK_BATCHES += 1;
     WRITEBACK_PAGES = WRITEBACK_PAGES
         .checked_add(receipt.touched_pages as u32)

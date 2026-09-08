@@ -217,7 +217,7 @@ fn api_boundary_round_robin_preserves_and_restores_callback_thread_lanes() {
 }
 
 #[test]
-fn executable_selection_runs_another_thread_while_host_completion_remains_thread_owned() {
+fn host_completions_resume_only_their_owner_when_delivered_out_of_order() {
     let mut runtime = running_runtime();
     runtime
         .register_thread(SECOND_THREAD_ID, 0)
@@ -234,6 +234,29 @@ fn executable_selection_runs_another_thread_while_host_completion_remains_thread
     assert_eq!(selection.thread_id, SECOND_THREAD_ID);
     assert_eq!(selection.state, SchedulerThreadState::Runnable);
     assert_eq!(runtime.current_thread_id(), SECOND_THREAD_ID);
+
+    let younger = runtime.begin_host_request("second-thread.ready").unwrap();
+    let completed = runtime.complete_host_request(younger.request_id).unwrap();
+    assert_eq!(completed.thread_id, SECOND_THREAD_ID);
+    assert_eq!(runtime.current_thread_id(), SECOND_THREAD_ID);
+    assert_eq!(
+        runtime
+            .scheduler_state_for_thread(INITIAL_THREAD_ID)
+            .unwrap(),
+        SchedulerThreadState::WaitingHost {
+            request_id: request.request_id,
+        }
+    );
+    assert_eq!(runtime.scheduler().host_requests().len(), 1);
+    let before_duplicate = runtime.clone();
+    assert_eq!(
+        runtime
+            .complete_host_request(younger.request_id)
+            .unwrap_err()
+            .code,
+        "host-request-id-unknown"
+    );
+    assert_eq!(runtime, before_duplicate);
 
     let completion = runtime
         .complete_host_request(request.request_id)

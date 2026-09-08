@@ -1264,6 +1264,7 @@ export interface RuntimeForwardDevelopmentSummary {
         | "activation-presented"
         | "activation-release-queued"
         | "activation-release-presented";
+      elapsedMilliseconds?: number;
       instructionCount: number;
       presentCount: number;
     }>;

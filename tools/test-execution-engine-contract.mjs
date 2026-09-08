@@ -109,6 +109,32 @@ const protection = {
   data: { read: true, write: true, execute: false },
 };
 
+const unorderedWrites = new Uint8Array(pageSize);
+unorderedWrites.set([0xff, 0x05, 0x00, 0x30, 0, 0, 0xff, 0x05, 0x00, 0x20, 0, 0, 0x0f, 0x0b]);
+const unorderedEngine = await initializeBoundaryEngine({
+  entryPoint: codeAddress, firstPage: unorderedWrites,
+  secondPage: new Uint8Array(pageSize), secondExecutable: false,
+});
+// Add the lower-address writable page last: full dirty scans must not depend on index order.
+unorderedEngine.applyMemoryDelta({
+  fromGeneration: 1n, generation: 2n,
+  cacheEffects: { flushTlb: true, invalidateInstructionFetch: false, invalidateGeneratedCode: false },
+  mappingOperations: [{ operation: "protect", owner: 9,
+    range: { base: dataAddress, byteLength: pageSize }, protection: protection.data }],
+  pages: [],
+});
+const unorderedContext = unorderedEngine.saveCpuContext();
+for (let pass = 1; pass <= 2; pass += 1) {
+  unorderedEngine.restoreCpuContext(unorderedContext);
+  assert.equal(unorderedEngine.executeBudget(10).stop.kind, "trap");
+  const dirty = unorderedEngine.collectChangedPages();
+  assert.deepEqual(dirty.map((page) => page.address), [dataAddress, 0x3000]);
+  for (const page of dirty) {
+    assert.equal(new DataView(page.bytes.buffer, page.bytes.byteOffset).getUint32(0, true), pass);
+  }
+  assert.deepEqual(unorderedEngine.collectChangedPages(), [], "dirty pages were not reset");
+}
+
 const dataLoopCode = new Uint8Array(pageSize);
 dataLoopCode.set([0xa1, 0x00, 0x30, 0, 0, 0x40, 0xa3, 0x00, 0x30, 0, 0, 0xeb, 0xf3]);
 const dataLoopEngine = await initializeBoundaryEngine({
