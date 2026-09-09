@@ -77,6 +77,11 @@
       "hostProfile": "windows-gnu-execution-island-mmx-v36",
       "bytes": 7423815,
       "sha256": "6009c2e4aad39ac062921f051b7614a6e00b7716e9459dfa9bc2c2568c73e1bc"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-direct-memory-v41",
+      "bytes": 7438887,
+      "sha256": "642c865e3d84a325aa1fd4c1fd631577ddf49b383598455b212ba4d50b386c7f"
     }
   ]
 }

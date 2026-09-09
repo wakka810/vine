@@ -10967,6 +10967,9 @@ class BrowserRuntimeSession {
             pixelSource.range.start,
             pixelSource.range.byteLength,
           );
+    const observeForwardFrame = !playPerformanceMode ||
+      (!manualPlayMode &&
+        (!this.#forwardPrimaryActionResponseSignaled || !this.#forwardVisibleFrameSignaled));
     const presentation = this.#d3d9Renderer.present(
       metadata.graphicsDevice,
       {
@@ -10975,13 +10978,9 @@ class BrowserRuntimeSession {
         interfaceName: frame.interface,
       },
       textureBacking,
-      !playPerformanceMode ||
-        (!manualPlayMode && !this.#forwardPrimaryActionResponseSignaled),
+      observeForwardFrame,
     );
-    if (
-      !playPerformanceMode ||
-      (!manualPlayMode && !this.#forwardPrimaryActionResponseSignaled)
-    ) {
+    if (observeForwardFrame) {
       this.#observeForwardPrimaryActionTarget();
     }
     return presentation;
@@ -11031,6 +11030,10 @@ class BrowserRuntimeSession {
         !this.#forwardPrimaryActionResponseSignaled
       ) {
         this.#forwardPrimaryActionResponseSignaled = true;
+        // The title may respond with a black frame. Keep the bounded frame probe alive
+        // until the next populated frame is observed instead of freezing that black sample.
+        this.#forwardVisibleFrameSignaled = false;
+        this.#forwardVisiblePresentationStreak = 0;
         this.#status(
           "running",
           "Forward primary action visible response observed",

@@ -869,6 +869,76 @@ await assert.rejects(
   /artifact identity mismatch/u,
 );
 
+// Exercise the real Rust-owned arena and v86 paging together, not an artificial
+// reflection whose pages have no authoritative backing in the island.
+await build({
+  entryPoints: ["v86-mirror", "runtime-bridge", "memory-transport"].map((name) =>
+    path.join(root, "browser", "runtime-worker", `${name}.ts`)),
+  bundle: true, format: "esm", platform: "node", target: "node24",
+  outdir: outputDirectory, outExtension: { ".js": ".mjs" },
+});
+const { V86Mirror } = await import(pathToFileURL(path.join(outputDirectory, "v86-mirror.mjs")));
+const { RuntimeBridge } = await import(pathToFileURL(path.join(outputDirectory, "runtime-bridge.mjs")));
+const { decodeReflection, decodeHostDelta } = await import(pathToFileURL(path.join(outputDirectory, "memory-transport.mjs")));
+const islandBytes = fs.readFileSync(path.join(path.dirname(adapterPath), "v86-island.wasm"));
+const island = await V86Mirror.prepareExecutionIsland(new URL(`data:application/wasm;base64,${islandBytes.toString("base64")}`));
+assert.equal(typeof island.runtimeExports.vine_execution_island_enable_direct_memory, "function");
+const bridge = RuntimeBridge.fromExports(island.runtimeExports);
+const prepared = bridge.prepare(new Uint8Array(fs.readFileSync(path.join(root, ".work", "toolchain-spike", "browser-vertical.exe"))));
+const directEngine = island.createEngine({ maximumPhysicalPages: prepared.metadata.maximumPhysicalPages });
+directEngine.initialize(decodeReflection(prepared.control, prepared.payload), prepared.metadata);
+bridge.acknowledgeFast(BigInt(prepared.metadata.generation));
+const directContext = directEngine.saveCpuContext();
+directContext.ebp = 0x1357_2468;
+directContext.opaqueWords[9] = directContext.ebp;
+directEngine.restoreCpuContext(directContext);
+const initialStack = directContext.esp;
+assert.equal(directEngine.readGuestBytes(directContext.instructionPointer, 1)[0], 0x55, "fixture starts with push ebp");
+const push = directEngine.executeBudget(1, { retiredInstructions: 0, hostElapsedTime100ns: 0n });
+assert.equal(push.stop.kind, "budget-yield");
+assert.equal(push.context.esp, initialStack - 4);
+assert.equal(push.executionIsland.writebackPages, 1);
+assert.equal(push.executionIsland.mirroredDeltaPages, 0);
+assert.deepEqual(directEngine.collectChangedPageViews(), [], "direct writes must not cross the TS payload bridge");
+const current = bridge.currentReflection();
+const after = decodeReflection(current.control, current.payload);
+const stack = after.pages.find((page) => page.address === ((initialStack - 4) & ~4095));
+assert(stack);
+assert.equal(new DataView(stack.bytes.buffer, stack.bytes.byteOffset).getUint32((initialStack - 4) & 4095, true), directContext.ebp);
+assert.equal(after.generation, push.executionIsland.generation);
+// Existing fixture stage 0 creates a fresh mapping; later stages include protection,
+// release and reuse. Malformed page ownership must be rejected before mirror mutation.
+for (const stage of [0, 1, 2, 3, 4, 5, 6]) {
+  const output = bridge.advanceMappingFixture(stage);
+  if (output.control.length === 0) continue;
+  const delta = decodeHostDelta(output.control, output.payload);
+  if (stage === 0) {
+    const bad = structuredClone(delta);
+    bad.pages[0].owner += 1;
+    const before = directEngine.memoryContractState();
+    assert.throws(() => directEngine.applyMemoryDelta(bad), /owner/u);
+    assert.equal(directEngine.memoryContractState(), before);
+  }
+  directEngine.applyMemoryDelta(delta);
+  bridge.acknowledgeFast(delta.generation);
+  if ([2, 4, 5, 6].includes(stage)) {
+    const address = output.metadata.probeAddress;
+    directEngine.restoreCpuContext(directContext);
+    directEngine.applyCpuResume({ instructionPointer: directContext.instructionPointer,
+      stackPointer: address + 4, eax: { action: "preserve" }, edx: { action: "preserve" },
+      eflags: { action: "preserve" } });
+    const store = directEngine.executeBudget(1, { retiredInstructions: 1, hostElapsedTime100ns: 0n });
+    assert.equal(store.stop.kind, stage === 5 ? "budget-yield" : "fault", `direct mapping stage ${stage}`);
+    assert.equal(store.context.esp, stage === 5 ? address : address + 4);
+    if (stage === 5) assert.equal(directEngine.readGuestU32(address), directContext.ebp);
+    assert.deepEqual(directEngine.collectChangedPageViews(), []);
+  }
+}
+assert.throws(() => island.createEngine({ maximumPhysicalPages: prepared.metadata.maximumPhysicalPages }),
+  /engine was created more than once/u, "a second engine must not replace the live arena");
+assert.throws(() => bridge.prepare(new Uint8Array()), /backing is pinned/u,
+  "repreparing the runtime must not free memory still referenced by the CPU");
+
 console.log(
   `ExecutionEngine contract passed: ${identity.engine} ${identity.sourceRevision.slice(0, 12)}, ` +
     `CPU context v${initialContext.version}/${initialContext.byteLength} bytes`,

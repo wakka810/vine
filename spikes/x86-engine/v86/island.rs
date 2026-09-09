@@ -16,6 +16,8 @@ const STOP_PENDING_DISPATCH: u32 = 4;
 pub(crate) const STOP_ISLAND_ERROR: u32 = 6;
 const STOP_INVALID_OPCODE: u32 = 0x106;
 const PAGE_BYTES: usize = 4096;
+// Null page, directory, all 1024 page tables, and v86's 128 KiB VGA hole.
+const DIRECT_TABLE_BYTES: usize = (1 + 1 + 1024 + 32) * PAGE_BYTES;
 const PAGE_MASK: u32 = (PAGE_BYTES as u32) - 1;
 const PTE_DIRTY: u32 = 0x40;
 const MAX_FAST_APIS_PER_SLICE: u32 = 256;
@@ -66,6 +68,37 @@ static mut WRITEBACK_BATCHES: u32 = 0;
 static mut WRITEBACK_PAGES: u32 = 0;
 static mut MIRRORED_DELTA_PAGES: u32 = 0;
 static mut GENERATION: u64 = 0;
+static mut DIRECT_MEMORY: bool = false;
+
+#[no_mangle]
+pub unsafe fn vine_execution_island_enable_direct_memory(pool_bytes: u32) -> u32 {
+    if DIRECT_MEMORY || !memory::mem8.is_null() {
+        vine_runtime_wasm::execution_island_set_error("execution memory is already installed".to_owned());
+        return 0;
+    }
+    match vine_runtime_wasm::execution_island_enable_direct_memory(pool_bytes as usize, DIRECT_TABLE_BYTES) {
+        Ok(base) => {
+            memory::mem8 = base as *mut u8;
+            DIRECT_MEMORY = true;
+            base as u32
+        }
+        Err(error) => {
+            vine_runtime_wasm::execution_island_set_error(error);
+            0
+        }
+    }
+}
+
+#[no_mangle]
+pub fn vine_execution_island_page_offset(address: u32, owner: u32, protection: u32) -> u32 {
+    match vine_runtime_wasm::execution_island_page_offset(address, owner, protection) {
+        Ok(offset) => offset as u32,
+        Err(error) => {
+            vine_runtime_wasm::execution_island_set_error(error);
+            0
+        }
+    }
+}
 
 enum FastDispatch {
     NotHandled,
@@ -630,14 +663,59 @@ unsafe fn clear_page_dirty(address: u32) -> bool {
 }
 
 unsafe fn reconcile_dirty_pages() -> Result<bool, String> {
-    if vine::vine_dirty_pages_overflowed() != 0 {
+    let overflow = vine::vine_dirty_pages_overflowed() != 0;
+    if overflow && !DIRECT_MEMORY {
         return Ok(false);
     }
     let count = vine::vine_dirty_page_count() as usize;
-    if count == 0 {
+    if count == 0 && !overflow {
         return Ok(true);
     }
-    let addresses = std::slice::from_raw_parts(vine::vine_dirty_pages_ptr() as *const u32, count);
+    let mut scanned = Vec::new();
+    let addresses = if overflow {
+        let directory = *cr.add(3) as u32 & !PAGE_MASK;
+        if directory as usize + PAGE_BYTES > DIRECT_TABLE_BYTES {
+            return Err("direct execution page directory escaped its reserved prefix".to_owned());
+        }
+        for directory_index in 0..1024 {
+            let entry = memory::read32s(directory + directory_index * 4) as u32;
+            if entry & 1 == 0 { continue; }
+            let table = entry & !PAGE_MASK;
+            if entry & 0x80 != 0 || table as usize + PAGE_BYTES > DIRECT_TABLE_BYTES {
+                return Err("direct execution page table escaped its reserved prefix".to_owned());
+            }
+            for index in 0..1024 {
+                let pte = memory::read32s(table + index * 4) as u32;
+                if pte & (1 | PTE_DIRTY) == (1 | PTE_DIRTY) {
+                    scanned.push(directory_index << 22 | index << 12);
+                }
+            }
+        }
+        scanned.as_slice()
+    } else {
+        std::slice::from_raw_parts(vine::vine_dirty_pages_ptr() as *const u32, count)
+    };
+    if DIRECT_MEMORY {
+        let mut pages = Vec::with_capacity(addresses.len());
+        for &address in addresses {
+            let physical = translate_address_read_no_side_effects(address as i32)
+                .map_err(|()| "direct execution lost a dirty page mapping".to_owned())? & !PAGE_MASK;
+            if memory::in_mapped_range(physical) {
+                return Err("direct dirty page reached device memory".to_owned());
+            }
+            pages.push((address, memory::mem8.add(physical as usize) as usize));
+        }
+        GENERATION = vine_runtime_wasm::execution_island_acknowledge_direct_writes(GENERATION, &pages)?;
+        for &address in addresses {
+            if !clear_page_dirty(address) {
+                return Err("direct execution lost an acknowledged dirty page".to_owned());
+            }
+        }
+        vine::vine_reset_dirty_pages();
+        WRITEBACK_BATCHES += 1;
+        WRITEBACK_PAGES += pages.len() as u32;
+        return Ok(true);
+    }
     let mut pages = Vec::with_capacity(count);
     for &address in addresses {
         let physical = match translate_address_read_no_side_effects(address as i32) {
@@ -821,11 +899,13 @@ unsafe fn apply_inline_delta(words: &[u32; FAST_RECORD_WORDS as usize]) -> Resul
         let page_address = read_u32(control, descriptor)?;
         let physical = translate_address(page_address as i32, true, *cpl == 3, false, false)
             .map_err(|()| "execution island delta lost a preflighted mirror page".to_owned())?;
-        std::ptr::copy(
-            payload.as_ptr().add(page_index * PAGE_BYTES),
-            memory::mem8.add(physical as usize),
-            PAGE_BYTES,
-        );
+        if !DIRECT_MEMORY {
+            std::ptr::copy(
+                payload.as_ptr().add(page_index * PAGE_BYTES),
+                memory::mem8.add(physical as usize),
+                PAGE_BYTES,
+            );
+        }
     }
     if vine_runtime_wasm::vine_bridge_acknowledge_fast_v1(
         generation as u32,
@@ -835,9 +915,11 @@ unsafe fn apply_inline_delta(words: &[u32; FAST_RECORD_WORDS as usize]) -> Resul
         return Err("execution island could not acknowledge its inline memory delta".to_owned());
     }
     GENERATION = generation;
-    MIRRORED_DELTA_PAGES = MIRRORED_DELTA_PAGES
-        .checked_add(page_count as u32)
-        .ok_or_else(|| "execution island mirrored-page count overflowed".to_owned())?;
+    if !DIRECT_MEMORY {
+        MIRRORED_DELTA_PAGES = MIRRORED_DELTA_PAGES
+            .checked_add(page_count as u32)
+            .ok_or_else(|| "execution island mirrored-page count overflowed".to_owned())?;
+    }
     Ok(true)
 }
 
@@ -944,8 +1026,7 @@ pub fn vine_execution_island_abi_version() -> u32 {
     1
 }
 
-#[no_mangle]
-pub unsafe fn vine_execution_island_execute_budget(
+unsafe fn execute_budget(
     max_instructions: u32,
     retired_instructions_low: u32,
     retired_instructions_high: u32,
@@ -982,7 +1063,25 @@ pub unsafe fn vine_execution_island_execute_budget(
             return STOP_BUDGET;
         }
         HOT_LOOP_ACTIVE = true;
-        let reason = crate::cpu::cpu::vine_execute_budget(max_instructions - executed);
+        let reason = if DIRECT_MEMORY {
+            match vine_runtime_wasm::execution_island_run_direct_cpu(|base, length| {
+                if base != memory::mem8 || length != *crate::cpu::global_pointers::memory_size as usize {
+                    return STOP_ISLAND_ERROR;
+                }
+                // Reborrow from GuestMemory for this run; no runtime/byte borrow crosses dispatch.
+                memory::mem8 = base;
+                crate::cpu::cpu::vine_execute_budget(max_instructions - executed)
+            }) {
+                Ok(reason) => reason,
+                Err(error) => {
+                    vine_runtime_wasm::execution_island_set_error(error);
+                    HOT_LOOP_ACTIVE = false;
+                    return STOP_ISLAND_ERROR;
+                }
+            }
+        } else {
+            crate::cpu::cpu::vine_execute_budget(max_instructions - executed)
+        };
         HOT_LOOP_ACTIVE = false;
         if reason != STOP_INVALID_OPCODE {
             return reason;
@@ -998,6 +1097,27 @@ pub unsafe fn vine_execution_island_execute_budget(
             }
         }
     }
+}
+
+#[no_mangle]
+pub unsafe fn vine_execution_island_execute_budget(
+    max_instructions: u32,
+    retired_instructions_low: u32,
+    retired_instructions_high: u32,
+    host_elapsed_time_100ns_low: u32,
+    host_elapsed_time_100ns_high: u32,
+) -> u32 {
+    let reason = execute_budget(
+        max_instructions, retired_instructions_low, retired_instructions_high,
+        host_elapsed_time_100ns_low, host_elapsed_time_100ns_high,
+    );
+    if DIRECT_MEMORY && reason != STOP_ISLAND_ERROR {
+        if let Err(error) = reconcile_dirty_pages() {
+            vine_runtime_wasm::execution_island_set_error(error);
+            return STOP_ISLAND_ERROR;
+        }
+    }
+    reason
 }
 
 #[no_mangle]

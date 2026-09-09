@@ -113,6 +113,8 @@ interface V86Exports extends WebAssembly.Exports {
 }
 
 interface V86IslandExports {
+  vine_execution_island_enable_direct_memory(poolBytes: number): number;
+  vine_execution_island_page_offset(address: number, owner: number, protection: number): number;
   vine_execution_island_abi_version(): number;
   vine_execution_island_execute_budget(
     instructions: number,
@@ -186,6 +188,7 @@ interface PhysicalCapacityRequirement {
   guestPages: number;
   pageTables: number;
   bytes: number;
+  directMappings?: Map<number, PlannedMapping | null>;
 }
 
 interface MirrorPageSnapshot {
@@ -285,6 +288,8 @@ function maximumPhysicalPoolBytes(maximumPhysicalPages: number): number {
     1 + maximumPageTables + maximumPhysicalPages,
   );
 }
+
+const directPageTableBytes = physicalPoolBytesForAllocations(1 + 1024);
 
 interface V86ArtifactProfile {
   hostProfile: string;
@@ -474,6 +479,7 @@ export class V86Mirror implements ExecutionEngine {
   readonly #relaxJitInstructionBudget: boolean;
   readonly #jitHotnessThreshold: number | undefined;
   readonly #sharedRuntime: boolean;
+  readonly #directMemory: boolean;
   readonly #initialPhysicalPoolBytes: number;
   readonly #maximumPhysicalPoolBytes: number;
   #physicalPoolBytes: number;
@@ -505,11 +511,15 @@ export class V86Mirror implements ExecutionEngine {
       options.relaxJitInstructionBudget ?? false;
     this.#jitHotnessThreshold = options.jitHotnessThreshold;
     this.#sharedRuntime = existingWasm !== undefined;
+    this.#directMemory = this.#sharedRuntime &&
+      typeof existingWasm?.vine_execution_island_enable_direct_memory === "function";
     this.#maximumPhysicalPages = requirePageCount(
       options.maximumPhysicalPages ?? defaultMaximumPhysicalPages,
       "maximum physical page count",
     );
-    this.#maximumPhysicalPoolBytes = maximumPhysicalPoolBytes(this.#maximumPhysicalPages);
+    this.#maximumPhysicalPoolBytes = this.#directMemory
+      ? directPageTableBytes + this.#maximumPhysicalPages * memoryPageSize
+      : maximumPhysicalPoolBytes(this.#maximumPhysicalPages);
     invariant(
       this.#maximumPhysicalPoolBytes <= hardMaximumPhysicalPoolBytes,
       `configured physical page limit requires ${this.#maximumPhysicalPoolBytes} bytes, ` +
@@ -766,7 +776,11 @@ export class V86Mirror implements ExecutionEngine {
     );
     invariant(wasm.vine_set_memory_size(poolBytes) === 0, "v86 rejected mirror memory size");
     wasm.vine_reset_execute_permissions();
-    const physicalBase = wasm.allocate_memory(poolBytes);
+    const physicalBase = this.#directMemory
+      ? (wasm as V86Exports & V86IslandExports).vine_execution_island_enable_direct_memory(poolBytes)
+      : wasm.allocate_memory(poolBytes);
+    invariant(physicalBase > 0 && physicalBase % memoryPageSize === 0,
+      "execution memory allocation is missing or unaligned");
     const dirtyPagesPointer = wasm.vine_dirty_pages_ptr();
     invariant(
       dirtyPagesPointer % Uint32Array.BYTES_PER_ELEMENT === 0 &&
@@ -785,12 +799,14 @@ export class V86Mirror implements ExecutionEngine {
     this.#directoryMappingCounts.clear();
     this.#forceFullDirtyScan = false;
     wasm.vine_reset_dirty_pages();
-    wasm.zero_memory(0, poolBytes);
+    if (!this.#directMemory) wasm.zero_memory(0, poolBytes);
     this.#pageDirectory = this.#allocatePage();
   }
 
   #capacityRequirement(guestPages: number, pageTables: number): PhysicalCapacityRequirement {
-    const bytes = physicalPoolBytesForAllocations(1 + pageTables + guestPages);
+    const bytes = this.#directMemory
+      ? directPageTableBytes + guestPages * memoryPageSize
+      : physicalPoolBytesForAllocations(1 + pageTables + guestPages);
     if (
       guestPages > this.#maximumPhysicalPages ||
       bytes > this.#maximumPhysicalPoolBytes
@@ -895,7 +911,7 @@ export class V86Mirror implements ExecutionEngine {
     this.#directoryMappingCounts.clear();
     this.#freePhysicalPages.length = 0;
     this.#nextPhysicalPage = memoryPageSize;
-    this.#physicalMemory.fill(0);
+    this.#physicalMemory.fill(0, 0, this.#directMemory ? directPageTableBytes : undefined);
     this.#wasm.vine_reset_execute_permissions();
     this.#wasm.vine_reset_dirty_pages();
     this.#forceFullDirtyScan = false;
@@ -1351,12 +1367,12 @@ export class V86Mirror implements ExecutionEngine {
           sameProtection(mapping.protection, page.protection),
           "host delta protection does not match the mirror",
         );
-        this.#physicalMemory.set(page.bytes, mapping.physicalBase);
+        this.#installPageBytes(page.bytes, mapping);
       } else {
         this.#preflightDeltaPages(delta.pages, this.#mappings);
         for (const page of delta.pages) {
           const mapping = this.#mappings.get(page.address)!;
-          this.#physicalMemory.set(page.bytes, mapping.physicalBase);
+          this.#installPageBytes(page.bytes, mapping);
         }
       }
       this.applyCacheEffects(delta.cacheEffects);
@@ -1364,12 +1380,27 @@ export class V86Mirror implements ExecutionEngine {
     }
     const capacity = this.#preflightHostDelta(delta);
     this.#ensurePhysicalCapacity(capacity);
-    for (const operation of delta.mappingOperations) {
-      this.#applyMappingOperation(operation);
+    if (capacity.directMappings !== undefined) {
+      // Rust has already committed the complete transaction. Intermediate mappings may
+      // no longer exist; validate the sequence, then install only its final page state.
+      for (const [address] of capacity.directMappings) {
+        if (this.#mappings.has(address)) this.#unmapPage(address);
+      }
+      for (const [address, mapping] of capacity.directMappings) {
+        if (mapping !== null) this.#mapPage(address, mapping.owner, mapping.protection, mapping.addressAllocationId);
+      }
+      for (const operation of delta.mappingOperations) {
+        if (operation.operation === "reserve") this.#applyMappingOperation(operation);
+        else if (operation.operation === "release") this.#reservations.delete(operation.range.base);
+      }
+    } else {
+      for (const operation of delta.mappingOperations) {
+        this.#applyMappingOperation(operation);
+      }
     }
     for (const page of delta.pages) {
       const mapping = this.#mappings.get(page.address)!;
-      this.#physicalMemory.set(page.bytes, mapping.physicalBase);
+      this.#installPageBytes(page.bytes, mapping);
     }
     this.applyCacheEffects(delta.cacheEffects);
   }
@@ -1565,6 +1596,12 @@ export class V86Mirror implements ExecutionEngine {
     }
 
     this.#preflightDeltaPagesWithLookup(delta.pages, plannedMapping);
+    if (this.#directMemory) {
+      for (const [address, mapping] of mappingChanges) {
+        if (mapping !== null) this.#authoritativePageOffset(address, mapping.owner, mapping.protection);
+      }
+      capacity.directMappings = mappingChanges;
+    }
     return capacity;
   }
 
@@ -1671,7 +1708,7 @@ export class V86Mirror implements ExecutionEngine {
     for (const page of reflection.pages) {
       this.#mapPage(page.address, page.owner, page.protection);
       const mapping = this.#mappings.get(page.address)!;
-      this.#physicalMemory.set(page.bytes, mapping.physicalBase);
+      this.#installPageBytes(page.bytes, mapping);
     }
   }
 
@@ -1719,7 +1756,9 @@ export class V86Mirror implements ExecutionEngine {
   ): void {
     const table = this.#ensurePageTable(address);
     const pteAddress = table + ((address >>> 12) & 0x3ff) * 4;
-    const physicalBase = this.#allocatePage();
+    const physicalBase = this.#directMemory
+      ? this.#authoritativePageOffset(address, owner, protection)
+      : this.#allocatePage();
     this.#physicalView.setUint32(
       pteAddress,
       physicalBase |
@@ -1750,6 +1789,27 @@ export class V86Mirror implements ExecutionEngine {
       this.#wasm.vine_set_page_executable(address, Number(protection.execute)) === 0,
       "v86 rejected mapped execute permission",
     );
+  }
+
+  #authoritativePageOffset(address: number, owner: number, protection: MemoryProtection): number {
+    const offset = (this.#wasm as V86Exports & V86IslandExports).vine_execution_island_page_offset(
+      address, owner, Number(protection.read) | Number(protection.write) << 1 | Number(protection.execute) << 2,
+    );
+    if (!Number.isInteger(offset) || offset < directPageTableBytes ||
+        offset % memoryPageSize !== 0 || offset + memoryPageSize > this.#physicalPoolBytes) {
+      throw new Error(`authoritative execution page is missing, stale, or outside its backing: ` +
+        `address=0x${address.toString(16)}, owner=${owner}, protection=${JSON.stringify(protection)}, offset=${offset}`);
+    }
+    return offset;
+  }
+
+  #installPageBytes(bytes: Uint8Array, mapping: MirrorMapping): void {
+    if (this.#directMemory) {
+      invariant(this.#authoritativePageOffset(mapping.address, mapping.owner, mapping.protection) ===
+        mapping.physicalBase, "host delta changed backing without a mapping operation");
+    } else {
+      this.#physicalMemory.set(bytes, mapping.physicalBase);
+    }
   }
 
   #updateProtection(address: number, protection: MemoryProtection): void {
@@ -1792,7 +1852,8 @@ export class V86Mirror implements ExecutionEngine {
       "v86 rejected unmapped execute permission",
     );
     this.#mappings.delete(address);
-    this.#releasePage(mapping.physicalBase);
+    if (this.#directMemory) this.#releasedPages += 1;
+    else this.#releasePage(mapping.physicalBase);
     const directoryIndex = address >>> 22;
     const directoryMappingCount = this.#directoryMappingCounts.get(directoryIndex);
     invariant(
@@ -1976,7 +2037,8 @@ export class V86Mirror implements ExecutionEngine {
         this.#nextPhysicalPage = excluded.end;
       }
     }
-    if (this.#nextPhysicalPage + memoryPageSize > this.#physicalPoolBytes) {
+    if (this.#nextPhysicalPage + memoryPageSize >
+        (this.#directMemory ? directPageTableBytes : this.#physicalPoolBytes)) {
       throw new V86PhysicalPoolExhausted(
         this.#mappings.size + 1,
         this.#maximumPhysicalPages,

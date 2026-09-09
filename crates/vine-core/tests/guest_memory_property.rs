@@ -19,11 +19,12 @@ struct ModelPage {
 #[test]
 fn randomized_guest_memory_operations_match_a_sparse_reference_model() {
     for seed in 1..=32 {
-        run_sequence(seed);
+        run_sequence(seed, false);
+        run_sequence(seed, true);
     }
 }
 
-fn run_sequence(seed: u64) {
+fn run_sequence(seed: u64, direct_execution: bool) {
     let mut random = Random(seed);
     let mut memory = GuestMemory::new(MemoryLimits {
         max_physical_pages: PAGE_COUNT as usize,
@@ -47,6 +48,10 @@ fn run_sequence(seed: u64) {
         .commit(owner, whole_range, read_write())
         .expect("commit initial pages");
     memory.seal_owner(owner).expect("seal owner");
+
+    if direct_execution {
+        memory.enable_execution_memory(16).expect("direct backing");
+    }
 
     let reflection = memory.pending_reflection().expect("initial reflection");
     let mut mirror = reflection
@@ -111,6 +116,170 @@ fn run_sequence(seed: u64) {
         );
         assert_eq!(stats.pending_invalidation, None, "seed {seed}");
     }
+}
+
+#[test]
+fn execution_backing_preserves_bytes_offsets_and_transactional_frame_reuse() {
+    let mut memory = GuestMemory::new(MemoryLimits {
+        max_physical_pages: 2,
+        max_regions: 2,
+        max_owners: 2,
+        max_access_bytes: 0x2000,
+    })
+    .unwrap();
+    let owner = memory.create_owner(MemoryOwnerKind::Anonymous).unwrap();
+    let range = memory
+        .reserve_fixed(owner, MemoryRegionKind::Anonymous, BASE, 0x2000)
+        .unwrap();
+    memory.commit(owner, range, read_write()).unwrap();
+    memory
+        .write_initialization(owner, BASE, &[1, 2, 3, 4])
+        .unwrap();
+    memory.seal_owner(owner).unwrap();
+    let reflection = memory.pending_reflection().unwrap();
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .unwrap();
+    let before = memory.stats();
+    assert!(memory.enable_execution_memory(0).is_err());
+    assert!(
+        memory
+            .begin_transaction()
+            .enable_execution_memory(16)
+            .is_err()
+    );
+    let (base, length) = memory.enable_execution_memory(16).unwrap();
+    assert_eq!(base % PAGE_SIZE as usize, 0);
+    assert_eq!(length, 18 * PAGE_SIZE as usize);
+    assert_eq!(memory.stats(), before);
+    assert!(memory.enable_execution_memory(16).is_err());
+    let offset = memory
+        .execution_page_offset(BASE, owner, read_write())
+        .unwrap();
+    assert!(offset >= 16 * PAGE_SIZE as usize && offset + PAGE_SIZE as usize <= length);
+    // No reference to GuestMemory or its bytes is live during this foreign read.
+    assert_eq!(
+        unsafe { std::slice::from_raw_parts((base + offset) as *const u8, 4) },
+        &[1, 2, 3, 4]
+    );
+    assert!(
+        memory
+            .execution_page_offset(GuestAddress(BASE.0 + 1), owner, read_write())
+            .is_err()
+    );
+    assert!(
+        memory
+            .execution_page_offset(BASE, MemoryOwnerId(owner.0 + 1), read_write())
+            .is_err()
+    );
+    let first_page = GuestRange::new(BASE, u64::from(PAGE_SIZE)).unwrap();
+    {
+        let mut transaction = memory.begin_transaction();
+        transaction.decommit(owner, first_page).unwrap();
+        assert_eq!(transaction.transaction_stats().journaled_frame_bytes, 0);
+        transaction.commit(owner, first_page, read_write()).unwrap();
+        assert_eq!(
+            transaction.transaction_stats().journaled_frame_bytes,
+            u64::from(PAGE_SIZE)
+        );
+    }
+    assert_eq!(memory.stats(), before);
+    assert_eq!(memory.read(BASE, 4).unwrap(), [1, 2, 3, 4]);
+    {
+        let mut transaction = memory.begin_transaction();
+        transaction.write(BASE, &[9, 8, 7, 6]).unwrap();
+        transaction.decommit(owner, first_page).unwrap();
+        transaction.commit(owner, first_page, read_write()).unwrap();
+        transaction
+            .write_initialization(owner, BASE, &[5])
+            .unwrap_err();
+    }
+    assert_eq!(memory.stats(), before);
+    assert_eq!(memory.read(BASE, 4).unwrap(), [1, 2, 3, 4]);
+    assert_eq!(
+        memory
+            .execution_page_offset(BASE, owner, read_write())
+            .unwrap(),
+        offset
+    );
+    memory.decommit(owner, first_page).unwrap();
+    memory.commit(owner, first_page, read_write()).unwrap();
+    let delta = memory.pending_delta().unwrap();
+    memory.acknowledge_delta(delta.generation).unwrap();
+    assert_eq!(memory.read(BASE, 4).unwrap(), [0; 4]);
+    assert_eq!(
+        memory
+            .execution_page_offset(BASE, owner, read_write())
+            .unwrap(),
+        offset
+    );
+    let generation = memory.synchronization_state().generation;
+    memory
+        .with_execution_memory(|pointer, bytes| {
+            assert_eq!(bytes, length);
+            assert_eq!(pointer as usize, base);
+            // Models CPU stores through its exclusive run borrow, not a Rust host write.
+            unsafe { std::ptr::copy_nonoverlapping([7, 6, 5, 4].as_ptr(), pointer.add(offset), 4) };
+        })
+        .unwrap();
+    assert!(
+        memory
+            .acknowledge_execution_writes(generation - 1, &[(BASE.0, base + offset)])
+            .is_err()
+    );
+    assert!(
+        memory
+            .acknowledge_execution_writes(generation, &[(BASE.0, base + offset + 1)])
+            .is_err()
+    );
+    assert!(
+        memory
+            .acknowledge_execution_writes(
+                generation,
+                &[(BASE.0, base + offset), (BASE.0, base + offset)]
+            )
+            .is_err()
+    );
+    assert_eq!(memory.synchronization_state().generation, generation);
+    assert_eq!(
+        memory
+            .acknowledge_execution_writes(generation, &[(BASE.0, base + offset)])
+            .unwrap(),
+        generation + 1
+    );
+    assert_eq!(memory.read(BASE, 4).unwrap(), [7, 6, 5, 4]);
+    assert_eq!(
+        memory.synchronization_state().acknowledged_generation,
+        generation + 1
+    );
+    let read_only = PageProtection {
+        write: false,
+        ..read_write()
+    };
+    memory.protect(owner, first_page, read_only).unwrap();
+    assert!(
+        memory
+            .with_execution_memory(|_, _| panic!("must not execute with pending mappings"))
+            .is_err()
+    );
+    let delta = memory.pending_delta().unwrap();
+    memory.acknowledge_delta(delta.generation).unwrap();
+    assert!(
+        memory
+            .execution_page_offset(BASE, owner, read_write())
+            .is_err()
+    );
+    assert!(
+        memory
+            .acknowledge_execution_writes(delta.generation, &[(BASE.0, base + offset)])
+            .is_err()
+    );
+    assert!(
+        memory
+            .begin_transaction()
+            .with_execution_memory(|_, _| panic!("CPU inside transaction"))
+            .is_err()
+    );
 }
 
 fn random_write(

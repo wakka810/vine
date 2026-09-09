@@ -47,6 +47,20 @@ It does not own Win32 handles、guest pointers、LastError、message queues、CO
 
 `GuestMemory` is authoritative for bytes、mapping、owner、protection、generation. v86 paging is a replaceable execution mirror. CPU synchronization uses bounded slices、checked binary transport、dirty discovery、and atomic reconciliation.
 
+Performance execution uses one page-aligned arena owned by `GuestMemory` in the same Wasm
+instance as the CPU. Its reserved prefix holds adapter page tables; Rust alone allocates
+and releases guest frames. The CPU borrows the arena exclusively for each run, releases
+that borrow before Windows semantics execute, and cannot replace its runtime while the
+backing is pinned. Normal/debug retain the separate copying mirror.
+
+Direct CPU stores already modify authoritative bytes. At stops, dirty-page descriptors
+are checked against the current generation, mapping, write permission and exact backing
+pointer before acknowledging the observed writes. No page payload is copied and no exact
+changed-byte count is claimed; the existing writeback-page metric counts observed pages.
+Host deltas still validate their complete operation sequence and cache effects, but the
+direct adapter installs only the final committed mappings. Released arena bytes remain
+available for rollback; a before-image is copied only if the transaction reuses that frame.
+
 All address arithmetic is checked. Guest address、host offset、size、allocation identity、Win32 handle、COM pointer、browser ID are distinct concepts. API-specific direct writes into the execution mirror are not allowed.
 
 Memory changes follow validate／plan／commit:

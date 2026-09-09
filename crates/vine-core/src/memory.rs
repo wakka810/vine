@@ -1136,10 +1136,28 @@ struct PageState {
     dirty_generation: Option<u64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
+enum FrameBytes {
+    Owned(Box<[u8; GUEST_PAGE_SIZE_USIZE]>),
+    ExecutionArena,
+}
+
+#[derive(Debug)]
+#[repr(align(4096))]
+struct ExecutionPage([u8; GUEST_PAGE_SIZE_USIZE]);
+
+#[derive(Debug)]
+struct ExecutionArena {
+    // Never resized after installation: foreign CPU pointers must remain stable.
+    pages: Vec<ExecutionPage>,
+    reserved_pages: usize,
+}
+
+#[derive(Debug)]
 struct PhysicalFrames {
     limit: usize,
-    frames: Vec<Option<Box<[u8; GUEST_PAGE_SIZE_USIZE]>>>,
+    frames: Vec<Option<FrameBytes>>,
+    execution_arena: Option<ExecutionArena>,
     free: Vec<usize>,
     in_use: usize,
 }
@@ -1159,14 +1177,8 @@ struct FrameAllocation {
 #[derive(Debug)]
 enum FrameUndo {
     Allocation(FrameAllocation),
-    Release {
-        frame: FrameId,
-        bytes: Box<[u8; GUEST_PAGE_SIZE_USIZE]>,
-    },
-    Bytes {
-        frame: FrameId,
-        image: usize,
-    },
+    Release { frame: FrameId, bytes: FrameBytes },
+    Bytes { frame: FrameId, image: usize },
 }
 
 #[derive(Debug)]
@@ -1181,6 +1193,7 @@ struct MemoryTransactionJournal {
     pages: BTreeMap<u32, Option<PageState>>,
     frame_bytes_recorded: BTreeSet<usize>,
     allocated_frames: BTreeSet<usize>,
+    released_arena_frames: BTreeSet<usize>,
     frame_undo: Vec<FrameUndo>,
     frame_images: Vec<[u8; GUEST_PAGE_SIZE_USIZE]>,
     offered_generations: BTreeSet<u64>,
@@ -1202,6 +1215,7 @@ impl MemoryTransactionJournal {
             pages: BTreeMap::new(),
             frame_bytes_recorded: BTreeSet::new(),
             allocated_frames: BTreeSet::new(),
+            released_arena_frames: BTreeSet::new(),
             frame_undo: Vec::new(),
             frame_images: Vec::new(),
             offered_generations: BTreeSet::new(),
@@ -1212,7 +1226,13 @@ impl MemoryTransactionJournal {
     }
 
     fn push_frame_undo(&mut self, undo: FrameUndo) {
-        if matches!(undo, FrameUndo::Release { .. } | FrameUndo::Bytes { .. }) {
+        if matches!(
+            undo,
+            FrameUndo::Release {
+                bytes: FrameBytes::Owned(_),
+                ..
+            } | FrameUndo::Bytes { .. }
+        ) {
             self.journaled_frame_bytes += GUEST_PAGE_SIZE;
             self.peak_journaled_frame_bytes = self
                 .peak_journaled_frame_bytes
@@ -1231,7 +1251,15 @@ impl MemoryTransactionJournal {
             journaled_frame_images: self
                 .frame_undo
                 .iter()
-                .filter(|undo| matches!(undo, FrameUndo::Release { .. } | FrameUndo::Bytes { .. }))
+                .filter(|undo| {
+                    matches!(
+                        undo,
+                        FrameUndo::Release {
+                            bytes: FrameBytes::Owned(_),
+                            ..
+                        } | FrameUndo::Bytes { .. }
+                    )
+                })
                 .count(),
             journaled_frame_bytes: self.journaled_frame_bytes,
             frame_allocator_operations: self
@@ -1258,6 +1286,7 @@ impl PhysicalFrames {
         Self {
             limit,
             frames: Vec::new(),
+            execution_arena: None,
             free: Vec::new(),
             in_use: 0,
         }
@@ -1275,7 +1304,11 @@ impl PhysicalFrames {
                 format!("physical page quota {} was reached", self.limit),
             ));
         }
-        let bytes = Box::new([0; GUEST_PAGE_SIZE_USIZE]);
+        let bytes = if self.execution_arena.is_some() {
+            FrameBytes::ExecutionArena
+        } else {
+            FrameBytes::Owned(Box::new([0; GUEST_PAGE_SIZE_USIZE]))
+        };
         let (index, source) = if let Some(index) = self.free.pop() {
             let slot = self.frames.get_mut(index).ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
@@ -1297,6 +1330,9 @@ impl PhysicalFrames {
             self.frames.push(Some(bytes));
             (self.frames.len() - 1, FrameAllocationSource::Appended)
         };
+        if let Some(arena) = &mut self.execution_arena {
+            arena.pages[arena.reserved_pages + index].0.fill(0);
+        }
         self.in_use += 1;
         Ok(FrameAllocation {
             frame: FrameId(index),
@@ -1304,10 +1340,7 @@ impl PhysicalFrames {
         })
     }
 
-    fn release(
-        &mut self,
-        frame: FrameId,
-    ) -> Result<Box<[u8; GUEST_PAGE_SIZE_USIZE]>, GuestMemoryError> {
+    fn release(&mut self, frame: FrameId) -> Result<FrameBytes, GuestMemoryError> {
         let slot = self.frames.get_mut(frame.0).ok_or_else(|| {
             GuestMemoryError::runtime_defect(
                 "physical-allocator",
@@ -1347,7 +1380,15 @@ impl PhysicalFrames {
                         "frame byte journal refers to a missing before-image",
                     )
                 })?;
-                self.bytes_mut(frame)?.copy_from_slice(bytes);
+                if let Some(arena) = &mut self.execution_arena {
+                    // A released arena frame may have been imaged immediately before reuse.
+                    // Its Release undo is earlier in the journal, so it can still be free here.
+                    arena.pages[arena.reserved_pages + frame.0]
+                        .0
+                        .copy_from_slice(bytes);
+                } else {
+                    self.bytes_mut(frame)?.copy_from_slice(bytes);
+                }
             }
             FrameUndo::Release { frame, bytes } => {
                 let free = self.free.pop().ok_or_else(|| {
@@ -1424,7 +1465,14 @@ impl PhysicalFrames {
     fn bytes(&self, frame: FrameId) -> Result<&[u8; GUEST_PAGE_SIZE_USIZE], GuestMemoryError> {
         self.frames
             .get(frame.0)
-            .and_then(Option::as_deref)
+            .and_then(Option::as_ref)
+            .map(|bytes| match bytes {
+                FrameBytes::Owned(bytes) => &**bytes,
+                FrameBytes::ExecutionArena => {
+                    let arena = self.execution_arena.as_ref().expect("live execution arena");
+                    &arena.pages[arena.reserved_pages + frame.0].0
+                }
+            })
             .ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
                     "physical-allocator",
@@ -1440,7 +1488,14 @@ impl PhysicalFrames {
     ) -> Result<&mut [u8; GUEST_PAGE_SIZE_USIZE], GuestMemoryError> {
         self.frames
             .get_mut(frame.0)
-            .and_then(Option::as_deref_mut)
+            .and_then(Option::as_mut)
+            .map(|bytes| match bytes {
+                FrameBytes::Owned(bytes) => &mut **bytes,
+                FrameBytes::ExecutionArena => {
+                    let arena = self.execution_arena.as_mut().expect("live execution arena");
+                    &mut arena.pages[arena.reserved_pages + frame.0].0
+                }
+            })
             .ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
                     "physical-allocator",
@@ -1693,6 +1748,23 @@ impl GuestMemory {
     }
 
     fn allocate_frame_zeroed(&mut self) -> Result<FrameId, GuestMemoryError> {
+        if let (Some(arena), Some(journal), Some(&frame)) = (
+            &self.frames.execution_arena,
+            &mut self.transaction,
+            self.frames.free.last(),
+        ) && journal.released_arena_frames.contains(&frame)
+            && !journal.frame_bytes_recorded.contains(&frame)
+        {
+            let image = journal.frame_images.len();
+            journal
+                .frame_images
+                .push(arena.pages[arena.reserved_pages + frame].0);
+            journal.frame_bytes_recorded.insert(frame);
+            journal.push_frame_undo(FrameUndo::Bytes {
+                frame: FrameId(frame),
+                image,
+            });
+        }
         let allocation = self.frames.allocate_zeroed()?;
         if let Some(journal) = self.transaction.as_mut() {
             journal.allocated_frames.insert(allocation.frame.0);
@@ -1702,6 +1774,14 @@ impl GuestMemory {
     }
 
     fn release_frame(&mut self, frame: FrameId) -> Result<(), GuestMemoryError> {
+        // Released arena bytes stay intact until reuse. Snapshot only if this transaction
+        // actually reuses a baseline frame; ordinary heap destruction needs no byte copy.
+        if self.frames.execution_arena.is_some()
+            && let Some(journal) = &mut self.transaction
+            && !journal.allocated_frames.contains(&frame.0)
+        {
+            journal.released_arena_frames.insert(frame.0);
+        }
         let bytes = self.frames.release(frame)?;
         if let Some(journal) = self.transaction.as_mut() {
             journal.push_frame_undo(FrameUndo::Release { frame, bytes });
@@ -1725,6 +1805,191 @@ impl GuestMemory {
 
     pub fn limits(&self) -> MemoryLimits {
         self.limits
+    }
+
+    pub fn has_execution_memory(&self) -> bool {
+        self.frames.execution_arena.is_some()
+    }
+
+    /// Move guest bytes to one page-aligned allocation owned by GuestMemory.
+    /// The prefix is reserved for the execution adapter's page tables, never guest frames.
+    /// The returned pointer is valid until this memory is dropped; foreign access requires
+    /// exclusive, quiescent execution, with no Rust references into the allocation alive.
+    pub fn enable_execution_memory(
+        &mut self,
+        reserved_pages: usize,
+    ) -> Result<(usize, usize), GuestMemoryError> {
+        if self.transaction.is_some() || self.frames.execution_arena.is_some() {
+            return Err(GuestMemoryError::conflict(
+                "execution-memory",
+                "execution-memory-already-active",
+                "execution memory can only be installed once, outside a transaction",
+            ));
+        }
+        let page_count = reserved_pages
+            .checked_add(self.frames.limit)
+            .filter(|count| {
+                reserved_pages > 0 && *count <= isize::MAX as usize / GUEST_PAGE_SIZE_USIZE
+            })
+            .ok_or_else(|| {
+                GuestMemoryError::resource_limit(
+                    "execution-memory",
+                    "execution-memory-size-invalid",
+                    "execution memory prefix and physical quota exceed the host range",
+                )
+            })?;
+        let mut pages = Vec::new();
+        pages.try_reserve_exact(page_count).map_err(|_| {
+            GuestMemoryError::resource_limit(
+                "execution-memory",
+                "execution-memory-allocation-failed",
+                "could not reserve the bounded execution memory allocation",
+            )
+        })?;
+        pages.resize_with(page_count, || ExecutionPage([0; GUEST_PAGE_SIZE_USIZE]));
+        for (index, bytes) in self.frames.frames.iter().enumerate() {
+            if let Some(FrameBytes::Owned(bytes)) = bytes {
+                pages[reserved_pages + index].0.copy_from_slice(&**bytes);
+            }
+        }
+        let base = pages.as_mut_ptr() as usize;
+        let byte_length = page_count * GUEST_PAGE_SIZE_USIZE;
+        for bytes in self.frames.frames.iter_mut().flatten() {
+            *bytes = FrameBytes::ExecutionArena;
+        }
+        self.frames.execution_arena = Some(ExecutionArena {
+            pages,
+            reserved_pages,
+        });
+        Ok((base, byte_length))
+    }
+
+    /// Resolve an authoritative frame; an execution adapter must not allocate a second one.
+    pub fn execution_page_offset(
+        &self,
+        address: GuestAddress,
+        owner: MemoryOwnerId,
+        protection: PageProtection,
+    ) -> Result<usize, GuestMemoryError> {
+        let arena = self.frames.execution_arena.as_ref().ok_or_else(|| {
+            GuestMemoryError::invalid_request(
+                "execution-memory",
+                "execution-memory-not-enabled",
+                "guest memory has no direct execution backing",
+            )
+        })?;
+        let page = self
+            .pages
+            .get(&(address.0 >> 12))
+            .filter(|page| {
+                address.0.is_multiple_of(GUEST_PAGE_SIZE as u32)
+                    && page.owner == owner
+                    && page.protection == protection
+            })
+            .ok_or_else(|| {
+                GuestMemoryError::conflict(
+                    "execution-memory",
+                    "execution-page-contract-mismatch",
+                    "execution mapping must match the current aligned owner and protection",
+                )
+            })?;
+        self.frames.bytes(page.frame)?;
+        Ok((arena.reserved_pages + page.frame.0) * GUEST_PAGE_SIZE_USIZE)
+    }
+
+    /// Borrow the allocation exclusively for one CPU run. The bridge must keep its runtime
+    /// borrow across this closure, so no host callback can access or remap guest bytes.
+    pub fn with_execution_memory<R>(
+        &mut self,
+        execute: impl FnOnce(*mut u8, usize) -> R,
+    ) -> Result<R, GuestMemoryError> {
+        self.ensure_synchronized()?;
+        self.ensure_generation_available()?;
+        if self.transaction.is_some() || !self.initial_reflection_acknowledged {
+            return Err(GuestMemoryError::conflict(
+                "execution-memory",
+                "execution-memory-not-quiescent",
+                "CPU execution requires acknowledged memory outside a transaction",
+            ));
+        }
+        let arena = self.frames.execution_arena.as_mut().ok_or_else(|| {
+            GuestMemoryError::invalid_request(
+                "execution-memory",
+                "execution-memory-not-enabled",
+                "guest memory has no direct execution backing",
+            )
+        })?;
+        Ok(execute(
+            arena.pages.as_mut_ptr().cast(),
+            arena.pages.len() * GUEST_PAGE_SIZE_USIZE,
+        ))
+    }
+
+    /// Acknowledge writes already performed in authoritative frames, without comparing or
+    /// copying 4 KiB pages. A dirty PTE observes a write, not an exact changed-byte count.
+    /// Every descriptor is checked before changing the synchronized generation.
+    pub fn acknowledge_execution_writes(
+        &mut self,
+        base_generation: u64,
+        pages: &[(u32, usize)],
+    ) -> Result<u64, GuestMemoryError> {
+        self.ensure_synchronized()?;
+        if self.transaction.is_some()
+            || !self.initial_reflection_acknowledged
+            || base_generation != self.generation
+            || base_generation != self.acknowledged_generation
+        {
+            return Err(GuestMemoryError::conflict(
+                "execution-memory",
+                "execution-write-generation-conflict",
+                "direct writes require the current quiescent synchronized generation",
+            ));
+        }
+        let arena = self.frames.execution_arena.as_ref().ok_or_else(|| {
+            GuestMemoryError::invalid_request(
+                "execution-memory",
+                "execution-memory-not-enabled",
+                "guest memory has no direct execution backing",
+            )
+        })?;
+        if pages.len() > self.frames.limit {
+            return Err(GuestMemoryError::resource_limit(
+                "execution-memory",
+                "execution-write-page-limit",
+                "direct dirty-page count exceeds the physical quota",
+            ));
+        }
+        let mut large_batch = (pages.len() > 16).then(BTreeSet::new);
+        for (index, &(address, pointer)) in pages.iter().enumerate() {
+            let duplicate = match &mut large_batch {
+                Some(seen) => !seen.insert(address),
+                None => pages[..index]
+                    .iter()
+                    .any(|&(previous, _)| previous == address),
+            };
+            if duplicate || !address.is_multiple_of(GUEST_PAGE_SIZE as u32) {
+                return Err(GuestMemoryError::conflict(
+                    "execution-memory",
+                    "execution-write-page-invalid",
+                    "direct dirty pages must be unique and page aligned",
+                ));
+            }
+            let page = self.preflight_cpu_writeback_page(GuestAddress(address))?;
+            let expected = arena.pages.as_ptr() as usize
+                + (arena.reserved_pages + page.frame.0) * GUEST_PAGE_SIZE_USIZE;
+            if pointer != expected || page.dirty_generation.is_some() {
+                return Err(GuestMemoryError::conflict(
+                    "execution-memory",
+                    "execution-write-backing-mismatch",
+                    "CPU page must point to the current clean authoritative frame",
+                ));
+            }
+        }
+        if !pages.is_empty() {
+            self.generation = self.next_generation()?;
+            self.acknowledged_generation = self.generation;
+        }
+        Ok(self.generation)
     }
 
     pub(crate) fn transaction_is_active(&self) -> bool {

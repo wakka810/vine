@@ -360,6 +360,7 @@ impl Bridge {
     }
 
     fn prepare(&mut self, input_length: usize, encoded_pointer_cookie: u32) -> Result<(), String> {
+        self.require_replaceable_runtime()?;
         let fixture = self
             .input
             .get(..input_length)
@@ -380,6 +381,7 @@ impl Bridge {
         capabilities: BgiCheckpointCapabilities,
         encoded_pointer_cookie: u32,
     ) -> Result<(), String> {
+        self.require_replaceable_runtime()?;
         let total_length = executable_length
             .checked_add(policy_length)
             .and_then(|length| length.checked_add(source_manifest_length))
@@ -422,6 +424,7 @@ impl Bridge {
         source_manifest_length: usize,
         encoded_pointer_cookie: u32,
     ) -> Result<(), String> {
+        self.require_replaceable_runtime()?;
         let total_length = executable_length
             .checked_add(policy_length)
             .and_then(|length| length.checked_add(source_manifest_length))
@@ -445,6 +448,19 @@ impl Bridge {
         )?;
         self.runtime = Some(runtime);
         self.set_output(metadata, reflection.control, reflection.page_bytes)
+    }
+
+    fn require_replaceable_runtime(&self) -> Result<(), String> {
+        if self
+            .runtime
+            .as_ref()
+            .is_some_and(|runtime| runtime.memory.has_execution_memory())
+        {
+            return Err(
+                "direct execution backing is pinned until its Worker is destroyed".to_owned(),
+            );
+        }
+        Ok(())
     }
 
     fn complete_source_read(
@@ -5520,6 +5536,91 @@ pub fn execution_island_reconcile_cpu_pages(
         runtime
             .memory
             .reconcile_cpu_writeback_pages_fast(generation, pages)
+            .map_err(error_string)
+    })
+}
+
+pub fn execution_island_enable_direct_memory(
+    pool_bytes: usize,
+    reserved_bytes: usize,
+) -> Result<usize, String> {
+    BRIDGE.with(|cell| {
+        let mut bridge = cell.borrow_mut();
+        let runtime = bridge.runtime_mut()?;
+        if !reserved_bytes.is_multiple_of(GUEST_PAGE_SIZE as usize)
+            || runtime
+                .memory
+                .limits()
+                .max_physical_pages
+                .checked_mul(GUEST_PAGE_SIZE as usize)
+                .and_then(|bytes| reserved_bytes.checked_add(bytes))
+                != Some(pool_bytes)
+        {
+            return Err("execution memory size disagrees with the authoritative quota".to_owned());
+        }
+        let (base, length) = runtime
+            .memory
+            .enable_execution_memory(reserved_bytes / GUEST_PAGE_SIZE as usize)
+            .map_err(error_string)?;
+        if length != pool_bytes {
+            return Err("execution memory allocation changed its preflighted length".to_owned());
+        }
+        Ok(base)
+    })
+}
+
+pub fn execution_island_page_offset(
+    address: u32,
+    owner: u32,
+    protection_bits: u32,
+) -> Result<usize, String> {
+    if protection_bits & !7 != 0 {
+        return Err("execution page protection contains unsupported bits".to_owned());
+    }
+    BRIDGE.with(|cell| {
+        let bridge = cell.borrow();
+        let runtime = bridge
+            .runtime
+            .as_ref()
+            .ok_or_else(|| "runtime bridge is not prepared".to_owned())?;
+        runtime
+            .memory
+            .execution_page_offset(
+                GuestAddress(address),
+                vine_core::MemoryOwnerId(owner),
+                PageProtection {
+                    read: protection_bits & 1 != 0,
+                    write: protection_bits & 2 != 0,
+                    execute: protection_bits & 4 != 0,
+                },
+            )
+            .map_err(error_string)
+    })
+}
+
+pub fn execution_island_run_direct_cpu<R>(
+    execute: impl FnOnce(*mut u8, usize) -> R,
+) -> Result<R, String> {
+    BRIDGE.with(|cell| {
+        // Retain this exclusive borrow until the CPU stops. JIT/clock imports must not
+        // reenter the runtime, and API semantics run only after this borrow is released.
+        cell.borrow_mut()
+            .runtime_mut()?
+            .memory
+            .with_execution_memory(execute)
+            .map_err(error_string)
+    })
+}
+
+pub fn execution_island_acknowledge_direct_writes(
+    generation: u64,
+    pages: &[(u32, usize)],
+) -> Result<u64, String> {
+    BRIDGE.with(|cell| {
+        cell.borrow_mut()
+            .runtime_mut()?
+            .memory
+            .acknowledge_execution_writes(generation, pages)
             .map_err(error_string)
     })
 }
