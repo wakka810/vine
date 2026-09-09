@@ -6281,6 +6281,20 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       const frameProbe = await client.sendToSession(workerSessionId, "Runtime.evaluate", {
         expression: `(() => {
           const timing = self.__vineProfileFrames = { startedAt: performance.now(), frames: [], truncated: false };
+          // Keep bounded JIT source references until profiling ends. Otherwise page
+          // recompilation can reclaim the hottest scripts before source collection.
+          const Module = WebAssembly.Module;
+          const jitModules = self.__vineProfileJitModules = [];
+          let retainedSourceBytes = 0;
+          WebAssembly.Module = class extends Module {
+            constructor(bytes, ...options) {
+              super(bytes, ...options);
+              if (jitModules.length < 1024 && retainedSourceBytes + bytes.byteLength <= 64 * 1024 * 1024) {
+                jitModules.push(this);
+                retainedSourceBytes += bytes.byteLength;
+              }
+            }
+          };
           timing.audio = { buffers: {}, waits: {}, tail: [], events: [] };
           const parse = JSON.parse;
           JSON.parse = function(...args) {
