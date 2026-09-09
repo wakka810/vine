@@ -368,6 +368,7 @@ pub(crate) struct RuntimeWaitableTimerPacingCompletionPlan {
 pub(crate) struct RuntimeAudioNotificationWaitCompletionPlan {
     scheduler: RuntimeHostCompletionPlan,
     audio: Option<RuntimeAudioNotificationWaitPlan>,
+    event_updates: Vec<(RuntimeObjectId, RuntimeObjectRecord)>,
     result_index: Option<u32>,
     payload: Vec<u8>,
 }
@@ -8184,22 +8185,46 @@ impl RuntimeKernel {
                     (Some(audio), result_index, expected_payload)
                 }
                 Err(error) if error.code == "audio-notification-wait-buffer-not-playing" => {
-                    let result_index = self.audio.stopped_notification_result(
+                    self.audio.validate_stopped_notification_wait(
                         &handles,
                         timeout_milliseconds,
                         payload,
                     )?;
-                    (None, Some(result_index), payload.to_vec())
+                    (None, None, payload.to_vec())
                 }
                 Err(error) => return Err(error),
             }
         };
-        Ok(RuntimeAudioNotificationWaitCompletionPlan {
+        let mut plan = RuntimeAudioNotificationWaitCompletionPlan {
             scheduler,
             audio,
+            event_updates: Vec::new(),
             result_index,
             payload: expected_payload,
-        })
+        };
+        // A notification is an event, not a property of being stopped. In particular,
+        // Stop may occur before a wait begins or while an inactive wait is pending.
+        // Consume the same Rust-owned auto-reset signal as WaitForMultipleObjects.
+        if plan.accepts_host_payload(payload) {
+            self.validate_audio_notification_wait_events(&handles)?;
+            for (index, &handle) in handles.iter().enumerate() {
+                let event = self.event_for_handle(handle)?;
+                if matches!(event.wait_state, RuntimeWaitState::Signaled { .. }) {
+                    let record = self
+                        .objects
+                        .object_for_handle(handle, RuntimeObjectKind::Event)?;
+                    plan.event_updates = self.objects.plan_wait_state_updates(&[(
+                        record.key.clone(),
+                        RuntimeWaitState::Nonsignaled,
+                    )])?;
+                    plan.audio = None;
+                    plan.result_index = Some(index as u32);
+                    plan.payload = payload.to_vec();
+                    break;
+                }
+            }
+        }
+        Ok(plan)
     }
 
     pub(crate) fn commit_audio_notification_wait_completion(
@@ -8216,6 +8241,7 @@ impl RuntimeKernel {
             .audio
             .map(|audio| self.audio.commit_notification_wait(audio))
             .unwrap_or(planned_result_index);
+        self.objects.commit_wait_state_updates(plan.event_updates);
         let completion = self.scheduler.commit_host_completion(plan.scheduler);
         (completion, result_index)
     }
@@ -8251,6 +8277,10 @@ impl RuntimeKernel {
     ) -> Result<RuntimeAudioBufferPlayResult, RuntimeStateError> {
         self.require_audio_operation_state()?;
         self.audio.preflight_buffer_play(&plan)?;
+        if let Some(handle) = self.audio.play_plan_stop_notification(&plan) {
+            // set_event preflights before mutation; the remaining audio commit is infallible.
+            self.set_event(handle)?;
+        }
         Ok(self.audio.commit_buffer_play(plan))
     }
 
@@ -16771,6 +16801,145 @@ mod tests {
                 .playback,
             RuntimeAudioPlaybackState::PlayingOnce
         );
+
+        // Exercise Stop on both sides of the wait/Play race without a second event authority.
+        for wait_before_play in [false, true] {
+            let mut notification_runtime = runtime.clone();
+            let object = secondary_interface.object_id;
+            let playback = |runtime: &mut RuntimeKernel, state| {
+                let plan = runtime
+                    .plan_audio_buffer_play(RuntimeAudioBufferPlayRequest {
+                        buffer_com_object_id: object,
+                        playback: state,
+                    })
+                    .unwrap();
+                runtime.commit_audio_buffer_play(plan).unwrap();
+            };
+            playback(
+                &mut notification_runtime,
+                RuntimeAudioPlaybackState::Stopped,
+            );
+            let position = notification_runtime.create_event(false, false).unwrap().0;
+            let stopped = notification_runtime.create_event(false, false).unwrap().0;
+            let handles = [position, stopped];
+            let notifications = notification_runtime
+                .plan_audio_buffer_notifications(RuntimeAudioBufferNotificationRequest {
+                    buffer_com_object_id: object,
+                    notifications: vec![
+                        RuntimeAudioNotification {
+                            offset_bytes: 0,
+                            event_handle: position,
+                        },
+                        RuntimeAudioNotification {
+                            offset_bytes: u32::MAX,
+                            event_handle: stopped,
+                        },
+                    ],
+                })
+                .unwrap();
+            notification_runtime
+                .commit_audio_buffer_notifications(notifications)
+                .unwrap();
+            let waiter = notification_runtime.current_thread_id();
+            let controller = RuntimeThreadId(0x3000);
+            notification_runtime.register_thread(controller, 0).unwrap();
+            if !wait_before_play {
+                playback(
+                    &mut notification_runtime,
+                    RuntimeAudioPlaybackState::PlayingLooping,
+                );
+            }
+            let wait = notification_runtime
+                .begin_audio_notification_wait(&handles, 100)
+                .unwrap();
+            notification_runtime.select_thread(controller).unwrap();
+            if wait_before_play {
+                playback(
+                    &mut notification_runtime,
+                    RuntimeAudioPlaybackState::PlayingLooping,
+                );
+            }
+            playback(
+                &mut notification_runtime,
+                RuntimeAudioPlaybackState::Stopped,
+            );
+            assert!(matches!(
+                notification_runtime
+                    .event_for_handle(stopped)
+                    .unwrap()
+                    .wait_state,
+                RuntimeWaitState::Signaled { .. }
+            ));
+            let completion = notification_runtime
+                .plan_audio_notification_wait_completion(
+                    wait.request.request_id,
+                    100,
+                    &wait.payload,
+                )
+                .unwrap();
+            assert!(completion.accepts_host_payload(&wait.payload));
+            assert_eq!(completion.result_index(), Some(1));
+            assert_eq!(
+                notification_runtime
+                    .commit_audio_notification_wait_completion(completion)
+                    .1,
+                Some(1)
+            );
+            assert!(!notification_runtime.try_wait_event(stopped).unwrap());
+
+            // No synthetic stop is replayed once the auto-reset event has been consumed.
+            notification_runtime.select_thread(waiter).unwrap();
+            let wait = notification_runtime
+                .begin_audio_notification_wait(&handles, 100)
+                .unwrap();
+            let completion = notification_runtime
+                .plan_audio_notification_wait_completion(
+                    wait.request.request_id,
+                    100,
+                    &wait.payload,
+                )
+                .unwrap();
+            assert_eq!(
+                notification_runtime
+                    .commit_audio_notification_wait_completion(completion)
+                    .1,
+                None
+            );
+
+            // A late waiter still sees Stop exactly once; repeated Stop creates no new transition.
+            playback(
+                &mut notification_runtime,
+                RuntimeAudioPlaybackState::PlayingLooping,
+            );
+            playback(
+                &mut notification_runtime,
+                RuntimeAudioPlaybackState::Stopped,
+            );
+            assert!(notification_runtime.try_wait_event(stopped).unwrap());
+            playback(
+                &mut notification_runtime,
+                RuntimeAudioPlaybackState::Stopped,
+            );
+            assert!(!notification_runtime.try_wait_event(stopped).unwrap());
+
+            playback(
+                &mut notification_runtime,
+                RuntimeAudioPlaybackState::PlayingLooping,
+            );
+            notification_runtime.close_handle(stopped).unwrap();
+            let stop = notification_runtime
+                .plan_audio_buffer_play(RuntimeAudioBufferPlayRequest {
+                    buffer_com_object_id: object,
+                    playback: RuntimeAudioPlaybackState::Stopped,
+                })
+                .unwrap();
+            let before = notification_runtime.clone();
+            assert!(notification_runtime.commit_audio_buffer_play(stop).is_err());
+            assert_eq!(
+                notification_runtime, before,
+                "failed event signal partially stopped audio"
+            );
+        }
 
         let release = dispatch_d3d9_fixture_release(
             &mut memory,

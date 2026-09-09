@@ -368,6 +368,128 @@ fn set_thread_priority_accepts_the_current_thread_pseudo_handle() {
     );
 }
 
+#[test]
+fn wait_for_single_object_joins_live_threads_and_keeps_event_reset_semantics() {
+    let (mut memory, mut runtime, owner) = prepared_runtime();
+    let wait = endpoint(owner, 1, 0x7f00_0310, 0x2000_0800, "WaitForSingleObject");
+    let contract = kernel32_contract_for_endpoint(wait.clone())
+        .unwrap()
+        .unwrap();
+    let dispatcher = ApiDispatcher::new(vec![wait.clone()], vec![contract]).unwrap();
+    let policy = thread_policy();
+    let second = RuntimeThreadId(8193);
+    let thread = runtime.register_thread(second, 0).unwrap();
+    write_words(
+        &mut memory,
+        owner,
+        GuestAddress(0x2000_0800),
+        &[wait.address.0],
+    );
+    write_words(&mut memory, owner, CREATE_STACK, &[0x401000, thread.0, 0]);
+    write_words(
+        &mut memory,
+        owner,
+        RESUME_STACK,
+        &[0x401100, thread.0, u32::MAX],
+    );
+    memory.seal_owner(owner).unwrap();
+    let reflection = memory.pending_reflection().unwrap();
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .unwrap();
+
+    let poll = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &wait,
+        CREATE_STACK,
+        &policy,
+    );
+    assert_eq!(poll.eax, RegisterUpdate::Set(258));
+    assert_eq!(poll.last_error, 0x5a5a);
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::Runnable
+    );
+    let join = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &wait,
+        RESUME_STACK,
+        &policy,
+    );
+    assert_eq!(join.eax, RegisterUpdate::Set(0));
+    assert_eq!(join.last_error, 0x5a5a);
+    assert_eq!(
+        join.execution_boundary,
+        vine_core::RuntimeApiBoundaryDisposition::BlockCurrentThread
+    );
+    assert!(matches!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::WaitingObject { .. }
+    ));
+
+    runtime.select_thread(second).unwrap();
+    runtime.request_current_thread_exit(23).unwrap();
+    assert!(matches!(
+        runtime
+            .scheduler_state_for_thread(INITIAL_THREAD_ID)
+            .unwrap(),
+        SchedulerThreadState::WaitingObject { .. }
+    ));
+    runtime.complete_current_thread_exit().unwrap();
+    runtime.select_thread(INITIAL_THREAD_ID).unwrap();
+    assert_eq!(
+        runtime.scheduler_state().unwrap(),
+        SchedulerThreadState::Runnable
+    );
+    assert!(runtime.scheduler().wait_registrations().is_empty());
+    for stack in [RESUME_STACK, CREATE_STACK, CREATE_STACK] {
+        let joined = dispatch(
+            &dispatcher,
+            &mut memory,
+            &mut runtime,
+            &wait,
+            stack,
+            &policy,
+        );
+        assert_eq!(joined.eax, RegisterUpdate::Set(0));
+        assert_eq!(joined.last_error, 0x5a5a);
+        assert_eq!(
+            joined.execution_boundary,
+            vine_core::RuntimeApiBoundaryDisposition::ContinueQuantum
+        );
+    }
+
+    runtime.close_handle(thread).unwrap();
+    let invalid = dispatch(
+        &dispatcher,
+        &mut memory,
+        &mut runtime,
+        &wait,
+        CREATE_STACK,
+        &policy,
+    );
+    assert_eq!(invalid.eax, RegisterUpdate::Set(u32::MAX));
+    assert_eq!(invalid.last_error, 6);
+    let event = runtime.create_event(false, true).unwrap().0;
+    write_runtime_u32(&mut memory, GuestAddress(CREATE_STACK.0 + 4), event.0);
+    for expected in [0, 258] {
+        let result = dispatch(
+            &dispatcher,
+            &mut memory,
+            &mut runtime,
+            &wait,
+            CREATE_STACK,
+            &policy,
+        );
+        assert_eq!(result.eax, RegisterUpdate::Set(expected));
+        assert_eq!(result.last_error, 6);
+    }
+}
+
 fn dispatch(
     dispatcher: &ApiDispatcher,
     memory: &mut GuestMemory,

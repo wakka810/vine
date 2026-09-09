@@ -4387,17 +4387,32 @@ fn handle_wait_for_single_object(
     let preserved_last_error = session
         .last_error()
         .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
-    if handle.kind() != Ok(RuntimeObjectKind::Event)
-        || session.runtime().event_for_handle(handle).is_err()
-    {
-        return Ok(ApiImmediate::new(ApiReturnValue::U32(WAIT_FAILED))
-            .with_last_error(ERROR_INVALID_HANDLE));
-    }
+    let kind = match handle.kind() {
+        Ok(kind @ (RuntimeObjectKind::Event | RuntimeObjectKind::Thread)) => kind,
+        _ => {
+            return Ok(ApiImmediate::new(ApiReturnValue::U32(WAIT_FAILED))
+                .with_last_error(ERROR_INVALID_HANDLE));
+        }
+    };
+    let wait_state = match session.runtime().object_wait_state(handle, kind) {
+        Ok(state) => state,
+        Err(error) if error.class == RuntimeStateErrorClass::RuntimeDefect => {
+            return Err(ApiFault::from_runtime(error, &contract.endpoint));
+        }
+        Err(_) => {
+            return Ok(ApiImmediate::new(ApiReturnValue::U32(WAIT_FAILED))
+                .with_last_error(ERROR_INVALID_HANDLE));
+        }
+    };
     if timeout == 0 {
-        let signaled = session
-            .runtime_mut()
-            .try_wait_event(handle)
-            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        let signaled = if kind == RuntimeObjectKind::Event {
+            session
+                .runtime_mut()
+                .try_wait_event(handle)
+                .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?
+        } else {
+            matches!(wait_state, RuntimeWaitState::Signaled { .. })
+        };
         return Ok(ApiImmediate::new(ApiReturnValue::U32(if signaled {
             WAIT_OBJECT_0
         } else {
@@ -4409,7 +4424,7 @@ fn handle_wait_for_single_object(
         return Err(ApiFault::unsupported(
             "win32-wait",
             "wait-for-single-object-finite-timeout-unsupported",
-            "bounded event WaitForSingleObject supports zero or infinite timeout",
+            "bounded event/thread WaitForSingleObject supports zero or infinite timeout",
         ));
     }
     let wait = session
@@ -4429,7 +4444,7 @@ fn handle_wait_for_single_object(
         RuntimeWaitDisposition::MutexAcquired { .. } => Err(ApiFault::runtime_defect(
             "win32-wait",
             "event-wait-returned-mutex-acquisition",
-            "event wait unexpectedly returned a mutex acquisition",
+            "event/thread wait unexpectedly returned a mutex acquisition",
         )),
     }
 }

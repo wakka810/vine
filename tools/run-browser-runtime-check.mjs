@@ -6281,6 +6281,43 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       const frameProbe = await client.sendToSession(workerSessionId, "Runtime.evaluate", {
         expression: `(() => {
           const timing = self.__vineProfileFrames = { startedAt: performance.now(), frames: [], truncated: false };
+          timing.audio = { buffers: {}, waits: {}, tail: [], events: [] };
+          const parse = JSON.parse;
+          JSON.parse = function(...args) {
+            const value = parse.apply(this, args);
+            const completion = value?.completion;
+            const symbol = completion?.frame?.endpoint?.symbol?.name;
+            if (["SetEvent", "ResetEvent", "CloseHandle", "WaitForSingleObject", "GetExitCodeThread"].includes(symbol) || value?.audioNotificationPacing) {
+              timing.audio.events.push({ at: performance.now() - timing.startedAt, threadId: value.threadId, completion });
+              if (timing.audio.events.length > 256) timing.audio.events.shift();
+            }
+            const buffer = value?.audioBuffer;
+            if (buffer && Object.keys(timing.audio.buffers).length < 64) {
+              const at = performance.now() - timing.startedAt;
+              const record = timing.audio.buffers[buffer.id] ??= { calls: 0, first: at, maximumGap: 0 };
+              record.calls++;
+              record.maximumGap = Math.max(record.maximumGap, at - (record.last ?? at));
+              record.last = at;
+              record.snapshot = buffer;
+              record.thread = value.call?.threadId;
+              if (value.call?.frame?.method !== "Unlock") {
+                timing.audio.tail.push({ at, method: value.call?.frame?.method, buffer });
+                if (timing.audio.tail.length > 64) timing.audio.tail.shift();
+              }
+            }
+            if (value?.kind === "host-request" && value.service === "runtime.audio-wait-delay.v1") {
+              const at = performance.now() - timing.startedAt;
+              const key = value.threadId + ":" + value.arguments[0] + ":" + value.arguments[3];
+              if (Object.keys(timing.audio.waits).length < 64) {
+                const record = timing.audio.waits[key] ??= { calls: 0, first: at, maximumGap: 0 };
+                record.calls++;
+                record.maximumGap = Math.max(record.maximumGap, at - (record.last ?? at));
+                record.last = at;
+                record.arguments = value.arguments;
+              }
+            }
+            return value;
+          };
           const draw = WebGL2RenderingContext.prototype.drawArrays;
           WebGL2RenderingContext.prototype.drawArrays = function(...args) {
             const result = draw.apply(this, args);

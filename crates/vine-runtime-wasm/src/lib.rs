@@ -2017,6 +2017,7 @@ impl BrowserRuntime {
                     }
                 },
             );
+        acknowledge_thread_wakes(&mut self.runtime);
         match outcome {
             DispatchOutcome::Deferred(call) => {
                 let arguments = decode_u32_payload(&call.request.payload);
@@ -2621,6 +2622,7 @@ impl BrowserRuntime {
                 session.dispatch_com_call(trap)
             }
         };
+        acknowledge_thread_wakes(&mut self.runtime);
         match outcome {
             ComDispatchOutcome::Completed(completion) => {
                 let graphics_device = if completion.frame.interface == "IDirect3DDevice9"
@@ -3680,6 +3682,7 @@ impl BrowserRuntime {
     }
 
     fn schedule_next_thread(&mut self) -> Result<Value, String> {
+        acknowledge_thread_wakes(&mut self.runtime);
         let previous_thread_id = self.runtime.current_thread_id();
         let Some(selection) = self
             .runtime
@@ -3754,6 +3757,7 @@ impl BrowserRuntime {
         self.runtime
             .complete_current_guest_thread_exit(&mut self.memory)
             .map_err(error_string)?;
+        acknowledge_thread_wakes(&mut self.runtime);
         let scheduler = self
             .runtime
             .scheduler_state_for_thread(thread_id)
@@ -5383,6 +5387,17 @@ fn decode_u32_payload(payload: &[u8]) -> Vec<u32> {
         .collect()
 }
 
+fn acknowledge_thread_wakes(runtime: &mut RuntimeState) {
+    // Rust has already committed these wakeups. The browser reads runnable state
+    // from the scheduler; do not leave notifications in front of a host receipt.
+    while matches!(
+        runtime.scheduler().events().front(),
+        Some(RuntimeSchedulerEvent::WaitSatisfied(_) | RuntimeSchedulerEvent::MessageReady(_))
+    ) {
+        runtime.pop_scheduler_event();
+    }
+}
+
 fn restore_selected_thread(
     runtime: &mut RuntimeState,
     previous_thread_id: RuntimeThreadId,
@@ -6392,6 +6407,35 @@ pub extern "C" fn vine_bridge_finish(exit_code: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn acknowledged_thread_join_wakes_do_not_consume_host_receipts() {
+        let mut runtime = controlled_runtime_state(0xec02_5c47).unwrap();
+        let initial = RuntimeThreadId(THREAD_ID);
+        let second = RuntimeThreadId(SECOND_THREAD_ID);
+        let handle = runtime.register_thread(second, 0).unwrap();
+        runtime.wait_current_thread_on(handle).unwrap();
+        runtime.select_thread(second).unwrap();
+        runtime.request_current_thread_exit(0).unwrap();
+        runtime.complete_current_thread_exit().unwrap();
+        runtime.select_thread(initial).unwrap();
+        let request = runtime
+            .begin_host_request("fixture.after-thread-join")
+            .unwrap();
+        let completion = runtime.complete_host_request(request.request_id).unwrap();
+        assert_eq!(runtime.scheduler().events().len(), 2);
+        acknowledge_thread_wakes(&mut runtime);
+        assert_eq!(
+            runtime.scheduler_state().unwrap(),
+            SchedulerThreadState::Runnable
+        );
+        assert_eq!(
+            runtime.pop_scheduler_event(),
+            Some(RuntimeSchedulerEvent::HostCompleted(completion))
+        );
+        assert!(runtime.scheduler().events().is_empty());
+        acknowledge_thread_wakes(&mut runtime);
+    }
 
     #[test]
     fn host_completion_selection_does_not_restore_a_blocked_previous_thread() {

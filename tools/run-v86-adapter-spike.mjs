@@ -765,6 +765,110 @@ assert.deepEqual(
   "bounded JIT continuation diverged from the interpreter",
 );
 
+// Lazy EFLAGS must survive compiled branches, helper calls, exact-budget exits
+// and a fault after earlier arithmetic has retired. Exercise all operand widths.
+const lazyFlagsProgram = [
+  0xb9, 0xa0, 0x86, 0x01, 0, // mov ecx, 100000
+  0xbc, 0, 0xf0, 0x01, 0, // mov esp, 0x1f000
+  0xb8, 0xff, 0xff, 0xff, 0x7f,
+  0xba, 0x67, 0x45, 0x23, 0x81,
+];
+const lazyFlagsLoop = lazyFlagsProgram.length;
+lazyFlagsProgram.push(
+  0x01, 0xd0, // add eax, edx
+  0x14, 0x7f, // adc al, 0x7f (helper consumes and produces flags)
+  0x66, 0x1d, 0xff, 0xff, // sbb ax, 0xffff
+  0x40, 0x66, 0x48, // inc eax; dec ax (preserve carry)
+  0xa8, 0x80, 0x74, 0x02, 0x34, 0x55, // test al; jz; xor al
+  0x66, 0x39, 0xd0, // cmp ax, dx
+  0x0f, 0x92, 0xc3, 0x0f, 0x9c, 0xc7, // setb bl; setl bh
+  0xf9, 0xf5, 0xf8, // stc; cmc; clc
+  0x31, 0xc2, 0x28, 0xd0, // xor edx, eax; sub al, dl
+  0x9f, 0x9e, // lahf helper; sahf
+  0xd1, 0xc2, // rol edx, 1
+  0xd3, 0xe0, 0xd3, 0xea, 0xd3, 0xfb, // shifts include zero and masked counts
+  0x6b, 0xdb, 0x7f, // imul ebx, ebx, 127
+  0x0f, 0xa3, 0xc8, 0x11, 0xd0, // bt eax, ecx; adc eax, edx
+  0xfd, 0xfc, // std; cld
+  0x9c, 0x5e, // pushf helper; pop esi
+  0x01, 0xf0, // flags stay live across integer-flag-transparent x87/MMX helpers
+  0xd9, 0x05, 0, 0x20, 0, 0, // fld dword [0x2000]
+  0xd8, 0x0d, 0x04, 0x20, 0, 0, // fmul dword [0x2004]
+  0xd9, 0x1d, 0x08, 0x20, 0, 0, // fstp dword [0x2008]
+  0x0f, 0xef, 0xc0, 0x0f, 0xd5, 0xc0, 0x0f, 0x67, 0xc0, // MMX
+  0x0f, 0x77, 0x11, 0xd0, // emms; adc eax, edx consumes preserved carry
+  0x66, 0x0f, 0x57, 0xc0, // xorpd xmm0, xmm0
+  0x66, 0x0f, 0x2e, 0xc0, 0x0f, 0x94, 0xc3, // comisd; setz bl consumes new flags
+  0x01, 0xf0, // add eax, esi: every lazy-flag field is live at the fault
+  0x89, 0x35, 0, 0x30, 0, 0, // mov [0x3000], esi
+  0xa3, 0x04, 0x30, 0, 0, // mov [0x3004], eax
+  0x49, 0x0f, 0x85,
+);
+lazyFlagsProgram.push(...new Uint8Array(
+  new Int32Array([lazyFlagsLoop - lazyFlagsProgram.length - 4]).buffer), 0xf4);
+
+async function runLazyFlags(disableJit, budget, fault = false) {
+  wasm.jit_clear_cache_js();
+  wasm.set_jit_config(0, disableJit ? 1 : 0);
+  configure(Uint8Array.from(lazyFlagsProgram), 0);
+  let data = new DataView(memory.buffer, memory.byteOffset);
+  data.setFloat32(0x2000, 1.5, true);
+  data.setFloat32(0x2004, -0.25, true);
+  data.setUint32(0x1f0000, 0x1f1007, true);
+  for (let page = 0; page < guest.memorySize / 4096; page += 1) {
+    data.setUint32(0x1f1000 + page * 4, page * 4096 | 7, true);
+  }
+  state.setUint32(stateOffset.controlRegisters + 3 * 4, 0x1f0000, true);
+  state.setUint32(stateOffset.controlRegisters,
+    state.getUint32(stateOffset.controlRegisters, true) | 0x80010000, true);
+  wasm.full_clear_tlb();
+  const jitBefore = wasm.vine_jit_retired_instructions_low();
+  let reason = stopReason.budget;
+  let slices = 0;
+  while (reason === stopReason.budget) {
+    reason = wasm.vine_execute_budget(budget);
+    await Promise.resolve();
+    refreshViews();
+    assert(++slices < 1024, "lazy flags loop exceeded its bounded slices");
+    if (fault && slices === 1) {
+      assert.equal(reason, stopReason.budget);
+      state.setUint32(stateOffset.instructionPointer, guest.codeAddress + lazyFlagsLoop, true);
+      data = new DataView(memory.buffer, memory.byteOffset);
+      data.setUint32(0x1f100c, 0x3005, true); // read-only output page
+      wasm.full_clear_tlb();
+    }
+  }
+  assert.equal(reason, fault ? stopReason.pageFault : stopReason.halt);
+  if (!disableJit) assert(wasm.vine_jit_retired_instructions_low() > jitBefore,
+    "lazy flags loop did not execute compiled code");
+  wasm.vine_cpu_state_save();
+  return {
+    reason,
+    errorCode: wasm.vine_get_stop_error_code(),
+    state: [...new Uint32Array(wasm.memory.buffer,
+      wasm.vine_cpu_state_ptr(), wasm.vine_cpu_state_size() / 4)],
+    instructionCount: wasm.vine_instruction_counter(),
+    output: [...memory.subarray(0x3000, 0x3008)],
+  };
+}
+const lazyFlagsReference = await runLazyFlags(true, 250_000);
+for (const budget of [250_000, 65_537, 8_193]) {
+  assert.deepEqual(await runLazyFlags(false, budget), lazyFlagsReference,
+    `lazy flags JIT diverged at budget ${budget}`);
+}
+const lazyFlagsFaultReference = await runLazyFlags(true, 250_000, true);
+const lazyFlagsFaultCompiled = await runLazyFlags(false, 250_000, true);
+assert(lazyFlagsFaultCompiled.instructionCount >= lazyFlagsFaultReference.instructionCount
+  && lazyFlagsFaultCompiled.instructionCount <= lazyFlagsFaultReference.instructionCount + 40);
+// v86's fault accounting includes the unretired block tail and retains its entry
+// in previous_ip; EIP, lazy flags, registers and output bytes still must match.
+for (const result of [lazyFlagsFaultReference, lazyFlagsFaultCompiled]) {
+  delete result.instructionCount;
+  result.state.splice(13, 1);
+}
+assert.deepEqual(lazyFlagsFaultCompiled, lazyFlagsFaultReference,
+  "lazy flags JIT fault changed architectural state");
+
 const packedSimdProgram = Uint8Array.from([
   0xb9, 0xa0, 0x86, 0x01, 0x00,
   0xf3, 0x0f, 0x6f, 0x05, 0x00, 0x20, 0x00, 0x00,
@@ -936,13 +1040,14 @@ for (const budget of [8_193, 32_771]) {
     `MMX move/unpack JIT diverged at short budget ${budget}`);
 }
 
-for (const opcode of [0x6e, 0x60, 0x61]) {
+for (const opcode of [0x6e, 0x60, 0x61, 0xd5, 0xfd, 0xf9, 0x67, 0xe5]) {
+  const width = [0x6e, 0x60, 0x61].includes(opcode) ? 4 : 8;
   for (const disableJit of [true, false]) {
     wasm.jit_clear_cache_js();
     wasm.set_jit_config(0, Number(disableJit));
     configure(Uint8Array.from([
       0xb9, 0xa0, 0x86, 0x01, 0x00,
-      0x0f, opcode, 0x3d, 0xfc, 0x2f, 0, 0,
+      0x0f, opcode, 0x3d, 0x100 - width, 0x2f, 0, 0,
       0x49, 0x75, 0xf6, 0xf4,
     ]), 0);
     let data = new DataView(memory.buffer, memory.byteOffset, memory.byteLength);
@@ -958,7 +1063,7 @@ for (const opcode of [0x6e, 0x60, 0x61]) {
     const jitBefore = wasm.vine_jit_retired_instructions_low();
     for (const budget of [250_000, 8_193]) {
       assert.equal(wasm.vine_execute_budget(budget), stopReason.budget,
-        "MMX memory operand read beyond its four bytes at the page boundary");
+        `MMX memory operand read beyond its ${width} bytes at the page boundary`);
       await Promise.resolve();
       refreshViews();
     }
@@ -986,6 +1091,92 @@ for (const opcode of [0x6e, 0x60, 0x61]) {
     assert.equal(state.getUint8(stateOffset.fpuStackEmpty), 0);
     assert.equal(state.getUint8(stateOffset.fpuStackPtr), 0);
   }
+}
+
+const mmxArithmeticCases = [];
+const mmxWords = [0, 1, 0x7fff, 0x8000, 0xffff, 0xff, 0x100, 0x8001];
+const signedWord = (n) => n << 16 >> 16;
+const wordBytes = (words) => words.flatMap(n => [n & 0xff, n >>> 8 & 0xff]);
+for (const opcode of [0xd5, 0xfd, 0xf9, 0x67, 0xe5]) {
+  for (const variant of ["memory", "register", "alias"]) {
+    for (let pattern = 0; pattern < 2; pattern += 1) {
+      const a = mmxWords.slice(pattern * 4, pattern * 4 + 4);
+      const b = variant === "alias" ? a : mmxWords.slice((1 - pattern) * 4, (1 - pattern) * 4 + 4).reverse();
+      const expected = opcode === 0x67
+        ? [...a, ...b].map(n => Math.max(0, Math.min(255, signedWord(n))))
+        : wordBytes(a.map((n, i) => opcode === 0xd5 ? n * b[i]
+          : opcode === 0xfd ? n + b[i] : opcode === 0xf9 ? n - b[i]
+            : signedWord(n) * signedWord(b[i]) >> 16));
+      mmxArithmeticCases.push({ opcode, variant, a: wordBytes(a), b: wordBytes(b), expected });
+    }
+  }
+}
+for (const group of [2, 4, 6]) {
+  for (const shift of [0, 1, 15, 16, 17, 255]) {
+    const a = [0x8001, 0xffff, 0x7fff, 0x5555];
+    const expected = wordBytes(a.map(n => group === 4 ? signedWord(n) >> Math.min(shift, 15)
+      : shift >= 16 ? 0 : group === 2 ? n >>> shift : n << shift));
+    mmxArithmeticCases.push({ group, shift, a: wordBytes(a), b: Array(8).fill(0), expected });
+  }
+}
+const mmxArithmeticProgram = [0xb9, 0, 0x20, 0, 0];
+const mmxArithmeticStart = mmxArithmeticProgram.length;
+const imm32 = n => [n & 255, n >>> 8 & 255, n >>> 16 & 255, n >>> 24 & 255];
+for (const [i, test] of mmxArithmeticCases.entries()) {
+  const r = i % 8, s = (r + 1) % 8;
+  mmxArithmeticProgram.push(0x0f, 0x6f, 0x05 | r << 3, ...imm32(0x4000 + i * 16));
+  if (test.group !== undefined) {
+    mmxArithmeticProgram.push(0x0f, 0x71, 0xc0 | test.group << 3 | r, test.shift);
+  } else if (test.variant === "memory") {
+    mmxArithmeticProgram.push(0x0f, test.opcode, 0x05 | r << 3, ...imm32(0x4008 + i * 16));
+  } else {
+    if (test.variant === "register") {
+      mmxArithmeticProgram.push(0x0f, 0x6f, 0x05 | s << 3, ...imm32(0x4008 + i * 16));
+    }
+    mmxArithmeticProgram.push(0x0f, test.opcode, 0xc0 | r << 3 | (test.variant === "alias" ? r : s));
+  }
+  mmxArithmeticProgram.push(0x0f, 0x7f, 0x05 | r << 3, ...imm32(0x6000 + i * 8));
+}
+mmxArithmeticProgram.push(0x49, 0x0f, 0x85,
+  ...imm32(mmxArithmeticStart - mmxArithmeticProgram.length - 7), 0xf4);
+assert(mmxArithmeticProgram.length < 4096);
+async function runMmxArithmetic(disableJit, budget = 250_000, iterations = 8192) {
+  wasm.jit_clear_cache_js();
+  wasm.set_jit_config(0, disableJit ? 1 : 0);
+  const program = Uint8Array.from(mmxArithmeticProgram);
+  new DataView(program.buffer).setUint32(1, iterations, true);
+  configure(program, 0);
+  for (const [i, test] of mmxArithmeticCases.entries()) memory.set([...test.a, ...test.b], 0x4000 + i * 16);
+  const before = wasm.vine_jit_retired_instructions_low();
+  let reason = stopReason.budget, slices = 0;
+  while (reason === stopReason.budget) {
+    reason = wasm.vine_execute_budget(budget);
+    await Promise.resolve();
+    refreshViews();
+    assert(++slices < 512, "MMX arithmetic exceeded its bounded slices");
+  }
+  assert.equal(reason, stopReason.halt);
+  if (!disableJit) assert(wasm.vine_jit_retired_instructions_low() > before,
+    "MMX arithmetic did not execute compiled instructions");
+  const output = [...memory.subarray(0x6000, 0x6000 + mmxArithmeticCases.length * 8)];
+  assert.deepEqual(output, mmxArithmeticCases.flatMap(test => test.expected));
+  wasm.vine_cpu_state_save();
+  return { output, instructions: wasm.vine_instruction_counter(),
+    state: [...new Uint32Array(wasm.memory.buffer, wasm.vine_cpu_state_ptr(), wasm.vine_cpu_state_size() / 4)] };
+}
+const mmxArithmeticReference = await runMmxArithmetic(true);
+assert.deepEqual(await runMmxArithmetic(false), mmxArithmeticReference);
+assert.deepEqual(await runMmxArithmetic(false, 8_193), mmxArithmeticReference);
+if (process.argv.includes("--measure-mmx")) {
+  const reference = await runMmxArithmetic(true, 250_000, 262_144);
+  const milliseconds = [];
+  for (let trial = 0; trial < 7; trial += 1) {
+    const started = performance.now();
+    assert.deepEqual(await runMmxArithmetic(false, 250_000, 262_144), reference);
+    milliseconds.push(performance.now() - started);
+  }
+  console.log(JSON.stringify({ mmxArithmetic: { instructions: reference.instructions,
+    medianMilliseconds: milliseconds.toSorted((a, b) => a - b)[3], milliseconds } }));
 }
 
 const x87MemoryProgram = [0xb9, 0xa0, 0x86, 0x01, 0x00];

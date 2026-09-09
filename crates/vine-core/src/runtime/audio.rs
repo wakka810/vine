@@ -1385,12 +1385,12 @@ impl RuntimeAudio {
         })
     }
 
-    pub(super) fn stopped_notification_result(
+    pub(super) fn validate_stopped_notification_wait(
         &self,
         handles: &[RuntimeHandle],
         timeout_milliseconds: u32,
         active_payload: &[u8],
-    ) -> Result<u32, RuntimeStateError> {
+    ) -> Result<(), RuntimeStateError> {
         let buffer = self
             .buffers
             .values()
@@ -1431,18 +1431,7 @@ impl RuntimeAudio {
                 "stopped notification completion does not match its active wait contract",
             ));
         }
-        buffer
-            .notifications
-            .iter()
-            .position(|notification| notification.offset_bytes == u32::MAX)
-            .and_then(|index| u32::try_from(index).ok())
-            .ok_or_else(|| {
-                RuntimeStateError::conflict(
-                    "runtime-audio",
-                    "audio-notification-stop-sentinel-missing",
-                    "stopped notification buffer has no DSBPN_OFFSETSTOP event",
-                )
-            })
+        Ok(())
     }
 
     pub(super) fn preflight_notification_wait(
@@ -1539,6 +1528,20 @@ impl RuntimeAudio {
             return Err(stale_plan("audio-buffer-play-plan-stale"));
         }
         Ok(())
+    }
+
+    pub(super) fn play_plan_stop_notification(
+        &self,
+        plan: &RuntimeAudioBufferPlayPlan,
+    ) -> Option<RuntimeHandle> {
+        if plan.next != RuntimeAudioPlaybackState::Stopped || plan.previous == plan.next {
+            return None;
+        }
+        self.buffers[&plan.buffer_id]
+            .notifications
+            .iter()
+            .find(|notification| notification.offset_bytes == u32::MAX)
+            .map(|notification| notification.event_handle)
     }
 
     pub(super) fn commit_buffer_play(
@@ -2851,17 +2854,14 @@ mod tests {
             })
             .unwrap();
         audio.commit_buffer_play(stop);
-        assert_eq!(
-            audio
-                .stopped_notification_result(&handles, 100, &stopped_wait_payload)
-                .unwrap(),
-            2
-        );
+        audio
+            .validate_stopped_notification_wait(&handles, 100, &stopped_wait_payload)
+            .unwrap();
         let mut wrong_handles_payload = stopped_wait_payload;
         wrong_handles_payload[13 * 4..14 * 4].copy_from_slice(&0u32.to_le_bytes());
         assert_eq!(
             audio
-                .stopped_notification_result(&handles, 100, &wrong_handles_payload)
+                .validate_stopped_notification_wait(&handles, 100, &wrong_handles_payload)
                 .unwrap_err()
                 .code,
             "audio-notification-stopped-payload-invalid"
