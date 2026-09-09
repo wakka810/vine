@@ -124,6 +124,14 @@ unorderedEngine.applyMemoryDelta({
   pages: [],
 });
 const unorderedContext = unorderedEngine.saveCpuContext();
+const byteSnapshot = unorderedEngine.readGuestBytes(dataAddress - 7, 14);
+const byteView = unorderedEngine.readGuestBytes(dataAddress - 7, 14, true);
+assert.deepEqual(byteView, byteSnapshot, "unaligned borrowed range changed bytes");
+assert(byteView.buffer.byteLength > byteView.byteLength, "contiguous pages were copied");
+assert.equal(byteSnapshot.buffer.byteLength, 14, "default reads must remain owned snapshots");
+for (const [address, length] of [[codeAddress, 0], [0xffff_fff0, 32], [0x3fff, 2]]) {
+  assert.throws(() => unorderedEngine.readGuestBytes(address, length, true));
+}
 for (let pass = 1; pass <= 2; pass += 1) {
   unorderedEngine.restoreCpuContext(unorderedContext);
   assert.equal(unorderedEngine.executeBudget(10).stop.kind, "trap");
@@ -183,6 +191,15 @@ dataLoopEngine.restoreCpuContext(dataLoopContext);
 assert.equal(dataLoopEngine.executeBudget(40_000).stop.kind, "fault");
 assert.equal(dataLoopEngine.readGuestU32(dataLoopRange.base), 10_100,
   "retained JIT code ignored changed data protection");
+dataLoopEngine.applyMemoryDelta({
+  fromGeneration: 4n, generation: 5n, cacheEffects: dataCacheEffects,
+  mappingOperations: [{ operation: "protect", owner: 9, range: dataLoopRange,
+    protection: { read: false, write: false, execute: false } }],
+  pages: [],
+});
+assert.throws(() => dataLoopEngine.readGuestBytes(0x2fff, 2, true),
+  error => error instanceof ExecutionMemoryAccessFault && error.code === "execution-read-protection",
+  "a readable first page must not expose an unreadable following page");
 
 async function initializeBoundaryEngine({ entryPoint, firstPage, secondPage, secondExecutable }) {
   const boundaryEngine = await instantiateExecutionEngineBytes(adapterBytes);
@@ -670,6 +687,10 @@ growthEngine.applyMemoryDelta({
   pages: expandedPages,
 });
 const capacityAfterGrowth = growthEngine.memoryCapacity();
+// This allocation crosses v86's reserved physical VGA hole, despite contiguous guest pages.
+const fragmentedView = growthEngine.readGuestBytes(expansionBase + 3, expansionRange.byteLength - 7, true);
+assert.equal(fragmentedView.buffer.byteLength, fragmentedView.byteLength, "fragmented backing must be copied");
+assert(fragmentedView.every(byte => byte === 0), "fragment fallback exposed unrelated memory");
 assert.equal(capacityAfterGrowth.growths, 1);
 assert(capacityAfterGrowth.physicalPoolBytes > 2 * 1024 * 1024);
 assert(capacityAfterGrowth.physicalPoolBytes <= capacityAfterGrowth.maximumPhysicalPoolBytes);
@@ -894,6 +915,9 @@ directContext.opaqueWords[9] = directContext.ebp;
 directEngine.restoreCpuContext(directContext);
 const initialStack = directContext.esp;
 assert.equal(directEngine.readGuestBytes(directContext.instructionPointer, 1)[0], 0x55, "fixture starts with push ebp");
+const directView = directEngine.readGuestBytes(directContext.instructionPointer, 1, true);
+assert.equal(directView.buffer, island.runtimeExports.memory.buffer, "direct read copied the authoritative arena");
+assert.equal(directView[0], 0x55);
 const push = directEngine.executeBudget(1, { retiredInstructions: 0, hostElapsedTime100ns: 0n });
 assert.equal(push.stop.kind, "budget-yield");
 assert.equal(push.context.esp, initialStack - 4);

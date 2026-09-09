@@ -6321,6 +6321,26 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           path.join(profileDirectory, "cpu-profile.json"),
           `${JSON.stringify(profile)}\n`,
         );
+        // Bounded, opt-in JIT samples for the CPU profile only; no runtime logging.
+        const hotScripts = new Map();
+        for (const node of profile.nodes) {
+          const { scriptId, url } = node.callFrame;
+          if (/^wasm:\/\/wasm\/[0-9a-f]+$/u.test(url)) {
+            hotScripts.set(scriptId, (hotScripts.get(scriptId) ?? 0) + (node.hitCount ?? 0));
+          }
+        }
+        await client.sendToSession(workerSessionId, "Debugger.enable");
+        const jitSources = [];
+        for (const [scriptId, hits] of [...hotScripts].sort((a, b) => b[1] - a[1]).slice(0, 12)) {
+          try {
+            const source = await client.sendToSession(workerSessionId, "Debugger.getScriptSource", { scriptId });
+            if (source.bytecode?.length <= 2_000_000) jitSources.push({ scriptId, hits, ...source });
+          } catch {
+            // Compiled functions can have been reclaimed before the profile stops.
+          }
+        }
+        await client.sendToSession(workerSessionId, "Debugger.disable");
+        await writeFile(path.join(profileDirectory, "jit-sources.json"), `${JSON.stringify(jitSources)}\n`);
         const frameTiming = await client.sendToSession(workerSessionId, "Runtime.evaluate", {
           expression: "self.__vineProfileFrames",
           returnByValue: true,

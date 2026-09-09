@@ -10966,6 +10966,7 @@ class BrowserRuntimeSession {
         : this.#requireEngine().readGuestBytes(
             pixelSource.range.start,
             pixelSource.range.byteLength,
+            playPerformanceMode,
           );
     const observeForwardFrame = !playPerformanceMode ||
       (!manualPlayMode &&

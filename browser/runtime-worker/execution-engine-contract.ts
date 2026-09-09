@@ -158,7 +158,9 @@ export interface ExecutionEngine {
   applyStoppedCpuResume(resume: CpuResume): void;
   enterGuestCallback(target: number, stackPointer: number): void;
   readGuestU32(address: number): number;
-  readGuestBytes(address: number, byteLength: number): Uint8Array;
+  // A borrowed view is read-only and valid only until the next runtime/engine call.
+  // Consume it synchronously; never retain, mutate or transfer its backing buffer.
+  readGuestBytes(address: number, byteLength: number, borrow?: boolean): Uint8Array;
   collectChangedPages(): DirtyMirrorPage[];
   collectChangedPageViews(): DirtyMirrorPage[];
   applyMemoryDelta(delta: HostMemoryDelta): void;

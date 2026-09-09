@@ -1228,7 +1228,7 @@ export class V86Mirror implements ExecutionEngine {
     return this.#physicalView.getUint32(physicalAddress, true);
   }
 
-  readGuestBytes(address: number, byteLength: number): Uint8Array {
+  readGuestBytes(address: number, byteLength: number, borrow = false): Uint8Array {
     this.#refreshLinearMemoryViews();
     invariant(
       Number.isSafeInteger(address) && address > 0 &&
@@ -1240,9 +1240,10 @@ export class V86Mirror implements ExecutionEngine {
       Number.isSafeInteger(end) && end <= 0x1_0000_0000,
       "guest mirror byte read wrapped the address space",
     );
-    const bytes = new Uint8Array(byteLength);
+    let bytes = borrow ? undefined : new Uint8Array(byteLength);
+    let physicalStart = 0;
     let offset = 0;
-    while (offset < bytes.length) {
+    while (offset < byteLength) {
       const current = address + offset;
       const mapping = this.#mappingFor(current);
       if (!mapping.protection.read) {
@@ -1253,17 +1254,24 @@ export class V86Mirror implements ExecutionEngine {
         );
       }
       const pageOffset = current & (memoryPageSize - 1);
-      const chunkLength = Math.min(bytes.length - offset, memoryPageSize - pageOffset);
-      bytes.set(
+      const physical = mapping.physicalBase + pageOffset;
+      if (offset === 0) physicalStart = physical;
+      if (bytes === undefined && physical !== physicalStart + offset) {
+        // Fragmented frames retain snapshot behavior; never expose unrelated backing.
+        bytes = new Uint8Array(byteLength);
+        bytes.set(this.#physicalMemory.subarray(physicalStart, physicalStart + offset));
+      }
+      const chunkLength = Math.min(byteLength - offset, memoryPageSize - pageOffset);
+      bytes?.set(
         this.#physicalMemory.subarray(
-          mapping.physicalBase + pageOffset,
-          mapping.physicalBase + pageOffset + chunkLength,
+          physical,
+          physical + chunkLength,
         ),
         offset,
       );
       offset += chunkLength;
     }
-    return bytes;
+    return bytes ?? this.#physicalMemory.subarray(physicalStart, physicalStart + byteLength);
   }
 
   readU32(address: number): number {
