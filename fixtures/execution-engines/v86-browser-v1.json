@@ -87,6 +87,11 @@
       "hostProfile": "windows-gnu-execution-island-thread-join-v47",
       "bytes": 7406427,
       "sha256": "a038d87e0ca3c84e9eb13f7f9af1bd2157bb3f2b958e469200afb5ef58d73422"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-right-button-v60",
+      "bytes": 7412966,
+      "sha256": "3b25b3a78f2a3c06bdcef1a2672a3b5d8c7f7074b4af7e24fab49c1699d9ac22"
     }
   ]
 }

@@ -9592,8 +9592,8 @@ fn def_window_proc_pointer_down_and_double_click_return_zero_without_mutation() 
         .runtime
         .set_current_last_error(0x2468_1357)
         .expect("seed DefWindowProcA pointer LastError");
-    for message in [0x0201, 0x0203] {
-        fixture.configure_def_window_proc_args(window_handle, message, 0x0001, 0x012c_0190);
+    for (message, keys) in [(0x0201, 1), (0x0203, 1), (0x0204, 2), (0x0206, 2)] {
+        fixture.configure_def_window_proc_args(window_handle, message, keys, 0x012c_0190);
         let runtime_before = fixture.runtime.clone();
         let memory_before = fixture.memory.stats();
 
@@ -9610,6 +9610,99 @@ fn def_window_proc_pointer_down_and_double_click_return_zero_without_mutation() 
         assert_eq!(completion.last_error, 0x2468_1357);
         assert!(completion.guest_writes.is_empty());
         assert_eq!(fixture.runtime, runtime_before);
+        assert_eq!(fixture.memory.stats(), memory_before);
+    }
+}
+
+#[test]
+fn def_window_proc_right_release_sends_synchronous_context_menu_and_preserves_failure_atomicity() {
+    let mut fixture = RegisterClassFixture::new();
+    let (handle, _) = fixture.prepare_active_window_with_small_icon();
+    fixture.policy = User32CompatibilityPolicy::controlled_v35();
+    let geometry = fixture.runtime.window(handle).unwrap().creation.geometry;
+    let screen_position = u32::from((geometry.client_x + 400) as u16)
+        | (u32::from((geometry.client_y + 300) as u16) << 16);
+    fixture.runtime.set_current_last_error(0x1234_5678).unwrap();
+    fixture.configure_def_window_proc_args(handle, 0x0205, 0, 0x012c_0190);
+    let before = fixture.runtime.clone();
+    let memory_before = fixture.memory.stats();
+    let call = match fixture.dispatch_configured_def_window_proc() {
+        DispatchOutcome::GuestCallback(call) => call,
+        other => panic!("expected synchronous context-menu callback, got {other:?}"),
+    };
+    assert_eq!(fixture.runtime, before);
+    assert_eq!(fixture.memory.stats(), memory_before);
+    assert_eq!(call.request.target, fixture.window_procedure);
+    assert_eq!(
+        call.request.arguments,
+        [handle, 0x007b, handle, screen_position]
+            .into_iter()
+            .map(GuestCallbackArgument::U32)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        call.request.completion_policy,
+        GuestCallbackCompletionPolicy::ReturnConstantU32 { value: 0 }
+    );
+    let prepared = ExecutionSession::new(&mut fixture.memory, &mut fixture.runtime)
+        .begin_guest_callback(&call)
+        .unwrap();
+    fixture.acknowledge_pending_delta();
+    fixture.configure_def_window_proc_args(handle, 0x007b, handle, screen_position);
+    let child = match fixture.dispatch_configured_def_window_proc() {
+        DispatchOutcome::Immediate(completion) => completion,
+        other => panic!("expected client context-menu default processing, got {other:?}"),
+    };
+    assert_eq!(child.eax, RegisterUpdate::Set(0));
+    assert_eq!(child.last_error, 0x1234_5678);
+    assert!(child.guest_writes.is_empty());
+    let completion = fixture.dispatcher.complete_guest_callback_result(
+        call,
+        0x1234,
+        &mut ExecutionSession::new(&mut fixture.memory, &mut fixture.runtime),
+    );
+    let DispatchOutcome::Immediate(completion) = completion else {
+        panic!("context-menu continuation must complete");
+    };
+    assert_eq!(completion.eax, RegisterUpdate::Set(0));
+    fixture
+        .runtime
+        .pop_callback_frame(prepared.frame_id)
+        .unwrap();
+    for (message, keys, position, code) in [
+        (
+            0x0204,
+            1,
+            0x012c_0190,
+            "def-window-proc-pointer-wparam-mismatch",
+        ),
+        (
+            0x0205,
+            2,
+            0x012c_0190,
+            "def-window-proc-pointer-wparam-mismatch",
+        ),
+        (
+            0x0205,
+            0,
+            0x012c_7fff,
+            "def-window-proc-pointer-client-position-invalid",
+        ),
+        (
+            0x007b,
+            handle,
+            u32::MAX,
+            "def-window-proc-context-position-unsupported",
+        ),
+    ] {
+        fixture.configure_def_window_proc_args(handle, message, keys, position);
+        let before = fixture.runtime.clone();
+        let memory_before = fixture.memory.stats();
+        let DispatchOutcome::Fault(fault) = fixture.dispatch_configured_def_window_proc() else {
+            panic!("malformed or unreached right-button relation must fail");
+        };
+        assert_eq!(fault.code, code);
+        assert_eq!(fixture.runtime, before);
         assert_eq!(fixture.memory.stats(), memory_before);
     }
 }

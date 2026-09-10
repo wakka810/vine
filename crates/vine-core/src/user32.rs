@@ -108,6 +108,7 @@ const WM_LBUTTONDBLCLK: u32 = 0x0203;
 const WM_RBUTTONDOWN: u32 = 0x0204;
 const WM_RBUTTONUP: u32 = 0x0205;
 const WM_RBUTTONDBLCLK: u32 = 0x0206;
+const WM_CONTEXTMENU: u32 = 0x007b;
 const WM_MOVE: u32 = 0x0003;
 const WM_SIZE: u32 = 0x0005;
 const WM_ACTIVATE: u32 = 0x0006;
@@ -5540,6 +5541,57 @@ fn handle_def_window_proc_a(
     session: &mut ExecutionSession<'_>,
 ) -> Result<ApiHandlerResult, ApiFault> {
     let message = required_argument(contract, frame, 1, "message")?;
+    if message == WM_RBUTTONUP {
+        // Validate the same owner, lifecycle, key state and client bounds as other pointer input.
+        handle_def_window_proc_a_immediate(policy, contract, frame, session)?;
+        let handle = required_argument(contract, frame, 0, "window handle")?;
+        let position = required_argument(contract, frame, 3, "lParam")?;
+        let window = session
+            .runtime()
+            .window(handle)
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        let geometry = window.creation.geometry;
+        let x = geometry.client_x.checked_add(i32::from(position as i16));
+        let y = geometry
+            .client_y
+            .checked_add(i32::from((position >> 16) as i16));
+        let (Some(x), Some(y)) = (
+            x.and_then(|v| i16::try_from(v).ok()),
+            y.and_then(|v| i16::try_from(v).ok()),
+        ) else {
+            return Err(ApiFault::unsupported(
+                "user32-windows",
+                "def-window-proc-context-position-unsupported",
+                "context-menu screen coordinates must fit signed message coordinates",
+            ));
+        };
+        let procedure = session
+            .runtime()
+            .resolve_window_procedure(handle)
+            .map_err(|error| ApiFault::from_runtime(error, &contract.endpoint))?;
+        let request = GuestCallbackRequest {
+            target: procedure.address,
+            arguments: [
+                handle,
+                WM_CONTEXTMENU,
+                handle,
+                u32::from(x as u16) | (u32::from(y as u16) << 16),
+            ]
+            .into_iter()
+            .map(GuestCallbackArgument::U32)
+            .collect(),
+            scratch: Vec::new(),
+            scratch_pointer_relocations: Vec::new(),
+            return_sentinel: callback_return_sentinel,
+            completion_policy: GuestCallbackCompletionPolicy::ReturnConstantU32 { value: 0 },
+        };
+        session.preflight_guest_callback(&ApiGuestCallbackCall {
+            request: Box::new(request.clone()),
+            contract: contract.clone(),
+            frame: frame.clone(),
+        })?;
+        return Ok(ApiHandlerResult::GuestCallback(request));
+    }
     if policy.set_window_pos.is_some() {
         if message == WM_WINDOWPOSCHANGED {
             return handle_def_window_proc_window_position(
@@ -6357,13 +6409,65 @@ fn handle_def_window_proc_a_immediate(
     }
     if matches!(
         message,
-        WM_MOUSEMOVE | WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_LBUTTONUP
+        WM_MOUSEMOVE
+            | WM_LBUTTONDOWN
+            | WM_LBUTTONDBLCLK
+            | WM_LBUTTONUP
+            | WM_RBUTTONDOWN
+            | WM_RBUTTONDBLCLK
+            | WM_RBUTTONUP
     ) {
         return handle_def_window_proc_pointer_message(
             policy, contract, message, w_param, l_param, &window, session,
         );
     }
     match (message, w_param, window.lifecycle) {
+        (WM_CONTEXTMENU, target, RuntimeWindowLifecycle::Created) if target == handle => {
+            if window.creation.parent != 0 {
+                return Err(ApiFault::unsupported(
+                    "user32-windows",
+                    "def-window-proc-context-parent-unsupported",
+                    "context-menu default processing currently supports top-level windows only",
+                ));
+            }
+            let geometry = window.creation.geometry;
+            let x = i32::from(l_param as i16).checked_sub(geometry.client_x);
+            let y = i32::from((l_param >> 16) as i16).checked_sub(geometry.client_y);
+            let (Some(x), Some(y)) = (
+                x.and_then(|v| i16::try_from(v).ok()),
+                y.and_then(|v| i16::try_from(v).ok()),
+            ) else {
+                return Err(ApiFault::unsupported(
+                    "user32-windows",
+                    "def-window-proc-context-position-unsupported",
+                    "context-menu default processing requires client coordinates",
+                ));
+            };
+            // Caption/system menus and keyboard (-1, -1) positioning remain unsupported.
+            if l_param == u32::MAX
+                || x < 0
+                || y < 0
+                || x as u32 >= geometry.client_width
+                || y as u32 >= geometry.client_height
+            {
+                return Err(ApiFault::unsupported(
+                    "user32-windows",
+                    "def-window-proc-context-position-unsupported",
+                    "context-menu default processing requires a position inside the client area",
+                ));
+            }
+            handle_def_window_proc_pointer_message(
+                policy,
+                contract,
+                WM_MOUSEMOVE,
+                0,
+                u32::from(x as u16) | (u32::from(y as u16) << 16),
+                &window,
+                session,
+            )?;
+            // DefWindowProc documents no LastError result; retain the existing preserve contract.
+            Ok(ApiImmediate::new(ApiReturnValue::U32(0)))
+        }
         (WM_SETTEXT, 0, RuntimeWindowLifecycle::Created) if policy.set_window_text_a.is_some() => {
             let profile = policy.set_window_text_a.as_ref().ok_or_else(|| {
                 ApiFault::runtime_defect(
@@ -6605,7 +6709,7 @@ fn handle_def_window_proc_pointer_message(
             }
             (w_param, 0, "pointer-move")
         }
-        WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
+        WM_LBUTTONDOWN | WM_LBUTTONDBLCLK | WM_RBUTTONDOWN | WM_RBUTTONDBLCLK => {
             let profile = policy
                 .def_window_proc_a_pointer_down
                 .as_ref()
@@ -6634,16 +6738,20 @@ fn handle_def_window_proc_pointer_message(
                 ));
             }
             (
-                profile.w_param,
+                if matches!(message, WM_RBUTTONDOWN | WM_RBUTTONDBLCLK) {
+                    pointer_profile.right_button_key_mask
+                } else {
+                    profile.w_param
+                },
                 profile.result,
-                if message == WM_LBUTTONDBLCLK {
+                if matches!(message, WM_LBUTTONDBLCLK | WM_RBUTTONDBLCLK) {
                     "pointer-double-click"
                 } else {
                     "pointer-down"
                 },
             )
         }
-        WM_LBUTTONUP => {
+        WM_LBUTTONUP | WM_RBUTTONUP => {
             let profile = policy
                 .def_window_proc_a_pointer_release
                 .as_ref()
@@ -6656,7 +6764,7 @@ fn handle_def_window_proc_pointer_message(
                 })?;
             if profile.profile_id
                 != "same-current-thread-visible-active-focused-foreground-cursor-wm-lbuttonup-v1"
-                || profile.message != message
+                || profile.message != WM_LBUTTONUP
                 || profile.w_param != 0
                 || profile.result != 0
                 || !profile.require_current_thread_visible_active_focused_foreground_window
