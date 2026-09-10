@@ -22,7 +22,7 @@ diff --git a/src/rust/cpu/cpu.rs b/src/rust/cpu/cpu.rs
  
      loop {
          if CHECK_MISSED_ENTRY_POINTS {
-@@ -3290,13 +3291,44 @@ unsafe fn jit_run_interpreted(mut phys_addr: u32, instruction_limit: u32) {
+@@ -3290,13 +3291,38 @@ unsafe fn jit_run_interpreted(mut phys_addr: u32, instruction_limit: u32) {
              break;
          }
          let opcode = *memory::mem8.offset(phys_addr as isize) as i32;
@@ -35,16 +35,10 @@ diff --git a/src/rust/cpu/cpu.rs b/src/rust/cpu/cpu.rs
 +            match crate::cpu::island::try_hot_loop(instruction_limit - retired, phys_addr) {
 +                Ok(true) => {
 +                    i -= 1;
-+                    if (*instruction_counter)
-+                        .wrapping_sub(initial_instruction_counter)
-+                        .wrapping_add(i)
-+                        >= instruction_limit
-+                    {
-+                        break;
-+                    }
-+                    *previous_ip = *instruction_pointer;
-+                    phys_addr = return_on_pagefault!(get_phys_eip()) as u32;
-+                    continue;
++                    // Let the dispatcher discover/compile the continuation. A native-loop
++                    // entry is intentionally excluded from JIT hotness; attributing its
++                    // interpreted tail to that entry would keep the tail cold forever.
++                    break;
 +                }
 +                Ok(false) => {}
 +                Err(error) => {

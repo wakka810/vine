@@ -6372,6 +6372,11 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           path.join(profileDirectory, "cpu-profile.json"),
           `${JSON.stringify(profile)}\n`,
         );
+        const frameTiming = await client.sendToSession(workerSessionId, "Runtime.evaluate", {
+          expression: "self.__vineProfileFrames",
+          returnByValue: true,
+        });
+        assert(Array.isArray(frameTiming.result?.value?.frames), "Worker frame probe was lost");
         // Bounded, opt-in JIT samples for the CPU profile only; no runtime logging.
         const hotScripts = new Map();
         for (const node of profile.nodes) {
@@ -6380,9 +6385,28 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
             hotScripts.set(scriptId, (hotScripts.get(scriptId) ?? 0) + (node.hitCount ?? 0));
           }
         }
+        const frames = frameTiming.result.value.frames;
+        const stalledFrames = frames.slice(1).map((end, index) => ({ start: frames[index], end }))
+          .filter(({ start, end }) => end - start >= 300 && end - start <= 1_000);
+        const nodesById = new Map(profile.nodes.map(node => [node.id, node]));
+        const transitionScripts = new Map();
+        let sampleTime = 0;
+        for (let index = 0; index < profile.samples.length; index++) {
+          sampleTime += profile.timeDeltas[index] / 1_000;
+          const { scriptId, url } = nodesById.get(profile.samples[index]).callFrame;
+          if (/^wasm:\/\/wasm\/[0-9a-f]+$/u.test(url) &&
+              stalledFrames.some(({ start, end }) => sampleTime >= start && sampleTime <= end)) {
+            transitionScripts.set(scriptId, (transitionScripts.get(scriptId) ?? 0) + profile.timeDeltas[index]);
+          }
+        }
+        const retainedScripts = new Map([
+          ...[...hotScripts].sort((a, b) => b[1] - a[1]).slice(0, 4),
+          ...[...transitionScripts].sort((a, b) => b[1] - a[1]).slice(0, 8)
+            .map(([scriptId]) => [scriptId, hotScripts.get(scriptId)]),
+        ]);
         await client.sendToSession(workerSessionId, "Debugger.enable");
         const jitSources = [];
-        for (const [scriptId, hits] of [...hotScripts].sort((a, b) => b[1] - a[1]).slice(0, 12)) {
+        for (const [scriptId, hits] of retainedScripts) {
           try {
             const source = await client.sendToSession(workerSessionId, "Debugger.getScriptSource", { scriptId });
             if (source.bytecode?.length <= 2_000_000) jitSources.push({ scriptId, hits, ...source });
@@ -6392,11 +6416,6 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
         }
         await client.sendToSession(workerSessionId, "Debugger.disable");
         await writeFile(path.join(profileDirectory, "jit-sources.json"), `${JSON.stringify(jitSources)}\n`);
-        const frameTiming = await client.sendToSession(workerSessionId, "Runtime.evaluate", {
-          expression: "self.__vineProfileFrames",
-          returnByValue: true,
-        });
-        assert(Array.isArray(frameTiming.result?.value?.frames), "Worker frame probe was lost");
         await writeFile(
           path.join(profileDirectory, "frame-times.json"),
           `${JSON.stringify(frameTiming.result.value)}\n`,

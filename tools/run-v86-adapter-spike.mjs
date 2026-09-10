@@ -1588,9 +1588,36 @@ if (exportNames.has("vine_execution_island_abi_version")) {
       output: [0x5000, 0x5001],
     },
   ];
+  for (const name of ["aligned SIMD copy", "bounded byte copy", "overlapping forward copy"]) {
+    const base = hotLoopCases.find(test => test.name === name);
+    for (const fault of ["source", "destination", "readonly destination"]) {
+      hotLoopCases.push({
+        ...base,
+        name: `${name} with a later ${fault} page fault`,
+        pageOverrides: [[fault === "source" ? 0x3000 : 0x5000,
+          fault === "readonly destination" ? 0x5005 : 0]],
+        setup() {
+          base.setup();
+          for (let index = 0; index < 128; index++) memory[0x2ff0 + index] = index * 17 & 0xff;
+          memory.fill(0xee, 0x4ff0, 0x5070);
+          state.setUint32(stateOffset.controlRegisters,
+            state.getUint32(stateOffset.controlRegisters, true) | 0x10000, true);
+          state.setUint32(stateOffset.registers, name === "aligned SIMD copy" ? 0x2ff0 : 0, true);
+          state.setUint32(stateOffset.registers + 4, name === "aligned SIMD copy" ? 4 : 64, true);
+          state.setUint32(stateOffset.registers + 8, 0x2000, true);
+          state.setUint32(stateOffset.registers + 5 * 4, 0x6000, true);
+          state.setUint32(stateOffset.registers + 6 * 4, 0x2ff0, true);
+          state.setUint32(stateOffset.registers + 7 * 4, 0x4ff0, true);
+          new DataView(memory.buffer, memory.byteOffset).setUint32(0x6008, 0x4ff0, true);
+        },
+        output: [0x4ff0, 0x5070],
+        extraOutput: [0x5cf8, 0x600c],
+      });
+    }
+  }
   async function runHotLoop(test, useIsland, budget, warm = false) {
     const program = [...test.program];
-    if (warm) {
+    if (warm === true) {
       // Enter the repeated blend by fallthrough and a warm JIT backedge.
       program.unshift(0xbb, 0x00, 0x02, 0x00, 0x00,
         0xb8, ...[0, 8, 16, 24].map((shift) => test.output[0] >>> shift & 0xff),
@@ -1673,6 +1700,33 @@ if (exportNames.has("vine_execution_island_abi_version")) {
     assert(jitInstructions < accelerated.instructionCount / 2,
       `${test.name} was compiled over the native island loop`);
   }
+  const nativeCopy = hotLoopCases.find(test => test.name === "aligned SIMD copy");
+  const nativeContinuation = {
+    ...nativeCopy,
+    name: "native entry with a JIT continuation",
+    program: [
+      ...nativeCopy.program.slice(0, -1),
+      0xb8, 0x00, 0x20, 0x00, 0x00, // reset source
+      0xb9, 0x01, 0x00, 0x00, 0x00, // one copy iteration
+      0x4b, 0x75, 0xdf, 0xf4, // 65,536 repetitions, then halt
+    ],
+    setup() {
+      nativeCopy.setup();
+      state.setUint32(stateOffset.registers + 4, 1, true);
+      state.setUint32(stateOffset.registers + 3 * 4, 65_536, true);
+    },
+  };
+  wasm.jit_clear_cache_js();
+  wasm.set_jit_config(0, 1);
+  const nativeContinuationReference = await runHotLoop(nativeContinuation, false, 100_000, "continuation");
+  wasm.jit_clear_cache_js();
+  wasm.set_jit_config(0, 0);
+  const nativeContinuationJitBefore = wasm.vine_jit_retired_instructions_low();
+  const nativeContinuationResult = await runHotLoop(nativeContinuation, true, 100_000, "continuation");
+  assert.deepEqual(nativeContinuationResult, nativeContinuationReference,
+    "native-loop continuation diverged from the interpreter");
+  assert(((wasm.vine_jit_retired_instructions_low() - nativeContinuationJitBefore) >>> 0) > 0,
+    "native-loop continuation never reached JIT execution");
   wasm.set_jit_config(0, 0);
   assert.equal(wasm.vine_execution_island_execute_budget(0, 0, 0, 0, 0), stopReason.budget);
   const islandGeneration =
