@@ -282,6 +282,66 @@ fn execution_backing_preserves_bytes_offsets_and_transactional_frame_reuse() {
     );
 }
 
+#[test]
+fn released_execution_pages_reuse_address_order_and_rollback_original_bytes() {
+    let mut memory = GuestMemory::new(MemoryLimits {
+        max_physical_pages: 4,
+        max_regions: 2,
+        max_owners: 2,
+        max_access_bytes: 0x4000,
+    })
+    .unwrap();
+    let owner = memory.create_owner(MemoryOwnerKind::Anonymous).unwrap();
+    let range = memory
+        .reserve_fixed(owner, MemoryRegionKind::Anonymous, BASE, 0x4000)
+        .unwrap();
+    memory.commit(owner, range, read_write()).unwrap();
+    let bytes: Vec<_> = (0..0x4000).map(|i| (i / 0x1000 + 1) as u8).collect();
+    memory.write_initialization(owner, BASE, &bytes).unwrap();
+    memory.seal_owner(owner).unwrap();
+    let reflection = memory.pending_reflection().unwrap();
+    memory
+        .acknowledge_delta(reflection.invalidation.generation)
+        .unwrap();
+    memory.enable_execution_memory(16).unwrap();
+    let first_offset = memory
+        .execution_page_offset(BASE, owner, read_write())
+        .unwrap();
+    let before = memory.stats();
+    for commit in [false, true] {
+        let mut transaction = memory.begin_transaction();
+        for i in [2, 0, 3, 1] {
+            let page = GuestRange::new(GuestAddress(BASE.0 + i * PAGE_SIZE), u64::from(PAGE_SIZE))
+                .unwrap();
+            transaction.decommit(owner, page).unwrap();
+        }
+        transaction.commit(owner, range, read_write()).unwrap();
+        for i in 0..4 {
+            assert_eq!(
+                transaction
+                    .execution_page_offset(
+                        GuestAddress(BASE.0 + i * PAGE_SIZE),
+                        owner,
+                        read_write()
+                    )
+                    .unwrap(),
+                first_offset + (i * PAGE_SIZE) as usize
+            );
+        }
+        if commit {
+            transaction.commit_transaction();
+        } else {
+            drop(transaction);
+            assert_eq!(memory.stats(), before);
+            assert_eq!(memory.read(BASE, 0x4000).unwrap(), bytes);
+        }
+    }
+    let delta = memory.pending_delta().unwrap();
+    memory.acknowledge_delta(delta.generation).unwrap();
+    assert_eq!(memory.read(BASE, 0x4000).unwrap(), vec![0; 0x4000]);
+    assert_eq!(memory.stats().physical_pages, before.physical_pages);
+}
+
 fn random_write(
     random: &mut Random,
     memory: &mut GuestMemory,

@@ -162,6 +162,7 @@ interface PlannedMapping {
   addressAllocationId?: number;
   owner: number;
   protection: MemoryProtection;
+  physicalBase?: number;
 }
 
 interface PreparedV86Adapter {
@@ -1391,11 +1392,22 @@ export class V86Mirror implements ExecutionEngine {
     if (capacity.directMappings !== undefined) {
       // Rust has already committed the complete transaction. Intermediate mappings may
       // no longer exist; validate the sequence, then install only its final page state.
-      for (const [address] of capacity.directMappings) {
-        if (this.#mappings.has(address)) this.#unmapPage(address);
+      for (const [address, mapping] of capacity.directMappings) {
+        const previous = this.#mappings.get(address);
+        if (previous !== undefined && (mapping === null ||
+            previous.owner !== mapping.owner ||
+            previous.addressAllocationId !== mapping.addressAllocationId ||
+            previous.physicalBase !== mapping.physicalBase)) this.#unmapPage(address);
       }
       for (const [address, mapping] of capacity.directMappings) {
-        if (mapping !== null) this.#mapPage(address, mapping.owner, mapping.protection, mapping.addressAllocationId);
+        if (mapping === null) continue;
+        const previous = this.#mappings.get(address);
+        if (previous === undefined) {
+          this.#mapPage(address, mapping.owner, mapping.protection,
+            mapping.addressAllocationId, mapping.physicalBase);
+        } else if (!sameProtection(previous.protection, mapping.protection)) {
+          this.#updateProtection(address, mapping.protection);
+        }
       }
       for (const operation of delta.mappingOperations) {
         if (operation.operation === "reserve") this.#applyMappingOperation(operation);
@@ -1606,7 +1618,18 @@ export class V86Mirror implements ExecutionEngine {
     this.#preflightDeltaPagesWithLookup(delta.pages, plannedMapping);
     if (this.#directMemory) {
       for (const [address, mapping] of mappingChanges) {
-        if (mapping !== null) this.#authoritativePageOffset(address, mapping.owner, mapping.protection);
+        if (mapping === null) continue;
+        // Keep the checked backing for this synchronous commit; Rust cannot change it
+        // between preflight and application. Protection-only deltas retain the PTE.
+        mapping.physicalBase = this.#authoritativePageOffset(address, mapping.owner, mapping.protection);
+        const previous = this.#mappings.get(address);
+        if (previous !== undefined && previous.owner === mapping.owner &&
+            previous.addressAllocationId === mapping.addressAllocationId &&
+            previous.physicalBase === mapping.physicalBase) {
+          invariant(mapping.protection.write ||
+            (this.#physicalWords[previous.pteWordIndex]! & pageFlags.dirty) === 0,
+            "mirror write protection changed while the CPU page was still dirty");
+        }
       }
       capacity.directMappings = mappingChanges;
     }
@@ -1761,11 +1784,12 @@ export class V86Mirror implements ExecutionEngine {
     owner: number,
     protection: MemoryProtection,
     addressAllocationId?: number,
+    checkedPhysicalBase?: number,
   ): void {
     const table = this.#ensurePageTable(address);
     const pteAddress = table + ((address >>> 12) & 0x3ff) * 4;
     const physicalBase = this.#directMemory
-      ? this.#authoritativePageOffset(address, owner, protection)
+      ? checkedPhysicalBase ?? this.#authoritativePageOffset(address, owner, protection)
       : this.#allocatePage();
     this.#physicalView.setUint32(
       pteAddress,

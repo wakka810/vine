@@ -1158,7 +1158,9 @@ struct PhysicalFrames {
     limit: usize,
     frames: Vec<Option<FrameBytes>>,
     execution_arena: Option<ExecutionArena>,
-    free: Vec<usize>,
+    // Reuse in address order so a released contiguous arena range stays borrowable.
+    // ponytail: first-fit can still fragment around live pages; no compaction of pinned backing.
+    free: BTreeSet<usize>,
     in_use: usize,
 }
 
@@ -1287,7 +1289,7 @@ impl PhysicalFrames {
             limit,
             frames: Vec::new(),
             execution_arena: None,
-            free: Vec::new(),
+            free: BTreeSet::new(),
             in_use: 0,
         }
     }
@@ -1309,7 +1311,7 @@ impl PhysicalFrames {
         } else {
             FrameBytes::Owned(Box::new([0; GUEST_PAGE_SIZE_USIZE]))
         };
-        let (index, source) = if let Some(index) = self.free.pop() {
+        let (index, source) = if let Some(index) = self.free.pop_first() {
             let slot = self.frames.get_mut(index).ok_or_else(|| {
                 GuestMemoryError::runtime_defect(
                     "physical-allocator",
@@ -1355,7 +1357,7 @@ impl PhysicalFrames {
                 "physical frame was released more than once",
             )
         })?;
-        self.free.push(frame.0);
+        self.free.insert(frame.0);
         self.in_use = self.in_use.checked_sub(1).ok_or_else(|| {
             GuestMemoryError::runtime_defect(
                 "physical-allocator",
@@ -1391,18 +1393,11 @@ impl PhysicalFrames {
                 }
             }
             FrameUndo::Release { frame, bytes } => {
-                let free = self.free.pop().ok_or_else(|| {
-                    GuestMemoryError::runtime_defect(
-                        "memory-transaction",
-                        "rollback-free-list-empty",
-                        "released frame was missing from the allocator free list",
-                    )
-                })?;
-                if free != frame.0 {
+                if !self.free.remove(&frame.0) {
                     return Err(GuestMemoryError::runtime_defect(
                         "memory-transaction",
-                        "rollback-free-list-order-mismatch",
-                        "allocator free-list order changed inside a memory transaction",
+                        "rollback-free-frame-missing",
+                        "released frame was missing from the allocator free set",
                     ));
                 }
                 let slot = self.frames.get_mut(frame.0).ok_or_else(|| {
@@ -1445,7 +1440,9 @@ impl PhysicalFrames {
                     )
                 })?;
                 match allocation.source {
-                    FrameAllocationSource::Reused => self.free.push(allocation.frame.0),
+                    FrameAllocationSource::Reused => {
+                        self.free.insert(allocation.frame.0);
+                    }
                     FrameAllocationSource::Appended => {
                         if allocation.frame.0 + 1 != self.frames.len() {
                             return Err(GuestMemoryError::runtime_defect(
@@ -1751,7 +1748,7 @@ impl GuestMemory {
         if let (Some(arena), Some(journal), Some(&frame)) = (
             &self.frames.execution_arena,
             &mut self.transaction,
-            self.frames.free.last(),
+            self.frames.free.first(),
         ) && journal.released_arena_frames.contains(&frame)
             && !journal.frame_bytes_recorded.contains(&frame)
         {

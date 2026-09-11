@@ -943,7 +943,19 @@ for (const stage of [0, 1, 2, 3, 4, 5, 6]) {
     assert.throws(() => directEngine.applyMemoryDelta(bad), /owner/u);
     assert.equal(directEngine.memoryContractState(), before);
   }
+  const capacityBeforeDelta = directEngine.memoryCapacity();
+  if (stage === 2 || stage === 3) {
+    const bad = structuredClone(delta);
+    bad.mappingOperations.push({ ...bad.mappingOperations[0], owner: bad.mappingOperations[0].owner + 1 });
+    const before = directEngine.memoryContractState();
+    assert.throws(() => directEngine.applyMemoryDelta(bad), /owner/u);
+    assert.equal(directEngine.memoryContractState(), before, "late protection rejection must be atomic");
+  }
   directEngine.applyMemoryDelta(delta);
+  if (stage === 2 || stage === 3) {
+    assert.equal(directEngine.memoryCapacity().releasedPages, capacityBeforeDelta.releasedPages,
+      "protection-only direct deltas must retain their validated page registration");
+  }
   bridge.acknowledgeFast(delta.generation);
   if ([2, 4, 5, 6].includes(stage)) {
     const address = output.metadata.probeAddress;

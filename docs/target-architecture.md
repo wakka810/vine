@@ -69,6 +69,9 @@ changed-byte count is claimed; the existing writeback-page metric counts observe
 Host deltas still validate their complete operation sequence and cache effects, but the
 direct adapter installs only the final committed mappings. Released arena bytes remain
 available for rollback; a before-image is copied only if the transaction reuses that frame.
+Protection-only deltas retain a page registration when its checked owner, allocation and
+backing match. Rust reuses free frames in address order to preserve contiguous browser
+borrows where possible; live arena frames never move, and fragmented ranges still copy.
 
 All address arithmetic is checked. Guest address、host offset、size、allocation identity、Win32 handle、COM pointer、browser ID are distinct concepts. API-specific direct writes into the execution mirror are not allowed.
 
