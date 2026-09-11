@@ -6281,6 +6281,13 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
       const frameProbe = await client.sendToSession(workerSessionId, "Runtime.evaluate", {
         expression: `(() => {
           const timing = self.__vineProfileFrames = { startedAt: performance.now(), frames: [], truncated: false };
+          const Instance = WebAssembly.Instance;
+          WebAssembly.Instance = class extends Instance {
+            constructor(...args) {
+              super(...args);
+              if (typeof this.exports.vine_affine_iterations === "function") self.__vineProfileAffine = this.exports;
+            }
+          };
           // Keep bounded JIT source references until profiling ends. Otherwise page
           // recompilation can reclaim the hottest scripts before source collection.
           const Module = WebAssembly.Module;
@@ -6373,7 +6380,7 @@ async function runBgiProbe(browserWebSocketUrl, baseUrl, scenario) {
           `${JSON.stringify(profile)}\n`,
         );
         const frameTiming = await client.sendToSession(workerSessionId, "Runtime.evaluate", {
-          expression: "self.__vineProfileFrames",
+          expression: "({ ...self.__vineProfileFrames, affineIterations: self.__vineProfileAffine?.vine_affine_iterations() ?? null })",
           returnByValue: true,
         });
         assert(Array.isArray(frameTiming.result?.value?.frames), "Worker frame probe was lost");

@@ -53,6 +53,15 @@ and releases guest frames. The CPU borrows the arena exclusively for each run, r
 that borrow before Windows semantics execute, and cannot replace its runtime while the
 backing is pinned. Normal/debug retain the separate copying mirror.
 
+Performance JIT also lowers proven single-page counted x86 loops through a bounded
+typed IR. It retains used MMX values in Wasm locals and validates each stream's TLB
+permissions once per page-bounded chunk. Invariant tables may span two proven
+contiguous pages. Chunks cannot consume the final iteration or exceed instruction
+headroom; the ordinary JIT handles terminal branches, faults, code-page writes and
+unsupported forms. Register roles and access ranges come from decoded operations
+and forward-path range analysis, never title addresses or byte signatures. Exit
+flags, MMX metadata and instruction accounting remain compatible with v86.
+
 Direct CPU stores already modify authoritative bytes. At stops, dirty-page descriptors
 are checked against the current generation, mapping, write permission and exact backing
 pointer before acknowledging the observed writes. No page payload is copied and no exact

@@ -97,6 +97,11 @@
       "hostProfile": "windows-gnu-execution-island-native-handoff-v65",
       "bytes": 7412972,
       "sha256": "12e0573a5b6583a9055454e041739a9867241e74de6669fb9810a5150306c768"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-counted-loops-v76",
+      "bytes": 7438097,
+      "sha256": "7f4343ddbf92a43a83386a2c93fa649fee50a94b2a423270c83d4a2380fbec52"
     }
   ]
 }

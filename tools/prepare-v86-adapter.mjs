@@ -232,16 +232,18 @@ function prepareSource() {
       "v86 state ABI source differs from the tracked overlay",
     );
   }
-  const expectedIslandSource = fs.readFileSync(islandSourcePath);
-  if (!fs.existsSync(islandTargetPath)) {
-    fs.copyFileSync(islandSourcePath, islandTargetPath);
-    console.log("Installed Vine execution-island source");
-  } else {
-    assert.deepEqual(
-      fs.readFileSync(islandTargetPath),
-      expectedIslandSource,
-      "v86 execution-island source differs from the tracked overlay",
-    );
+  for (const [source, target] of [
+    [islandSourcePath, islandTargetPath],
+    [path.join(root, "spikes", "x86-engine", "v86", "affine.rs"),
+      path.join(sourceDirectory, "src", "rust", "affine.rs")],
+  ]) {
+    if (!fs.existsSync(target)) {
+      fs.copyFileSync(source, target);
+      console.log(`Installed Vine source: ${path.basename(source)}`);
+    } else {
+      assert.deepEqual(fs.readFileSync(target), fs.readFileSync(source),
+        `v86 ${path.basename(source)} differs from the tracked overlay`);
+    }
   }
   run("git", ["-C", sourceDirectory, "diff", "--check"]);
 }

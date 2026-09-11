@@ -266,6 +266,130 @@ function currentState(reason) {
   };
 }
 
+async function checkCountedLoops() {
+  // Synthetic x86 image arithmetic: parameterized registers, addresses and data.
+  function countedMap({a=0, alpha=3, base=5, source=6, dest=7, count=2, mm=0, other=1, zero=7} = {}) {
+    const p = [], labels = {}, fixups = [];
+    const u32 = n => [n & 255, n >>> 8 & 255, n >>> 16 & 255, n >>> 24 & 255];
+    const mem = (r, b, offset=0, index=null) => index === null
+      ? [0x80 | r << 3 | b, ...u32(offset)]
+      : [0x84 | r << 3, 0xc0 | index << 3 | b, ...u32(offset)];
+    const branch = (op, target) => { p.push(op, 0); fixups.push([p.length - 1, target]); };
+    labels.start = p.length;
+    p.push(0x0f, 0xb6, ...mem(a, alpha), 0x40 | alpha, 0xd3, 0xe0 | a);
+    p.push(0x03, ...mem(a, base, 0)); branch(0x7e, 'tail');
+    p.push(0x0f, 0x6e, ...mem(mm, source), 0x81, 0xf8 | a, ...u32(256)); branch(0x73, 'store');
+    p.push(0xc1, 0xe8 | a, 1, 0x0f, 0x6e, ...mem(other, dest));
+    for (const r of [mm, other]) p.push(0x0f, 0x60, 0xc0 | r << 3 | zero);
+    p.push(0x0f, 0xf9, 0xc0 | mm << 3 | other, 0x0f, 0xd5, ...mem(mm, base, 128, a));
+    p.push(0x0f, 0x71, 0xe0 | mm, 7, 0x0f, 0xfd, 0xc0 | mm << 3 | other, 0x0f, 0x67, 0xc0 | mm << 3 | zero);
+    labels.store = p.length; p.push(0x0f, 0x7e, ...mem(mm, dest));
+    labels.tail = p.length; p.push(0x83, 0xc0 | dest, 4, 0x83, 0xc0 | source, 4, 0x48 | count);
+    branch(0x75, 'start'); p.push(0xf4);
+    for (const [at, target] of fixups) {
+      const displacement = labels[target] - at - 1;
+      assert(displacement >= -128 && displacement <= 127); p[at] = displacement & 255;
+    }
+    return {program: Uint8Array.from(p), registers: {a, alpha, base, source, dest, count, mm, other, zero}};
+  }
+
+  async function run(test, disabled) {
+    wasm.jit_clear_cache_js(); wasm.set_jit_config(0, Number(disabled));
+    wasm.set_jit_config(4, 1); wasm.set_jit_config(5, 32);
+    const {program: map, registers: r} = countedMap(test.roles);
+    const rgb = Uint8Array.from([
+      0x0f, 0xb6, 0x46, 2, 0x0f, 0xb6, 0x5e, 1, 0xc1, 0xe0, 8, 0x0b, 0xc3,
+      0x0f, 0xb6, 0x1e, 0xc1, 0xe0, 8, 0x09, 0xd8, 0x89, 0x07,
+      0x83, 0xc7, 4, 0x83, 0xc6, 3, 0x4a, 0x75, 0xe0, 0xf4,
+    ]);
+    const program = test.rgb ? rgb : map;
+    configure(program, 0);
+    const view = new DataView(memory.buffer, memory.byteOffset, memory.byteLength);
+    const pixels = test.pixels ?? 4096, src = 0x40000, dst = test.alias ? src + 4 : test.codeWrite ? 0x1800 : 0x140000;
+    const coeff = test.cross ? 0x120f00 : 0x120000, alpha = 0xc0000;
+    for (let i = 0; i < pixels * 4 + 4; i++) memory[src + i] = (i * 37 + (i >> 8) * 13) & 255;
+    if (!test.alias) memory.fill(0x55, dst, dst + pixels * 4);
+    for (let i = 0; i < pixels; i++) memory[alpha + i] = i * 23 & 255;
+    view.setInt32(coeff, 0, true);
+    for (let i = 0; i < 128; i++) for (let lane = 0; lane < 4; lane++) view.setUint16(coeff + 128 + i * 8 + lane * 2, (i * 113 + lane * 17011) & 65535, true);
+    for (let i = 0; i < 8; i++) {
+      state.setUint32(stateOffset.registers + i * 4, 0, true);
+      state.setBigUint64(stateOffset.fpuSt + i * 16, 0x8765432112345678n + BigInt(i), true);
+      state.setUint16(stateOffset.fpuSt + i * 16 + 8, 0x1234 + i, true);
+    }
+    const reg = (index, v) => state.setUint32(stateOffset.registers + index * 4, v, true);
+    reg(r.source, src); reg(r.dest, dst); reg(r.alpha, alpha); reg(r.base, coeff); reg(r.count, pixels);
+    reg(1, 0); state.setBigUint64(stateOffset.fpuSt + r.zero * 16, 0n, true);
+    state.setUint8(stateOffset.fpuStackPtr, 3); state.setUint8(stateOffset.fpuStackEmpty, 0x55);
+    view.setUint32(0x1f0000, 0x1f1007, true);
+    for (let page = 0; page < guest.memorySize / 4096; page++) view.setUint32(0x1f1000 + page * 4, page * 4096 | 7, true);
+    if (test.noncontiguous) {
+      memory.copyWithin(0x160000, 0x121000, 0x122000);
+      view.setUint32(0x1f1000 + 0x121 * 4, 0x160007, true);
+    }
+    if (test.fault) {
+      const page = (test.fault === 'read' ? src : dst) + 4096;
+      view.setUint32(0x1f1000 + (page >>> 12) * 4, test.fault === 'readonly' ? page | 5 : 0, true);
+    }
+    state.setUint32(stateOffset.controlRegisters + 3 * 4, 0x1f0000, true);
+    state.setUint32(stateOffset.controlRegisters, state.getUint32(stateOffset.controlRegisters, true) | 0x80010000 | (test.ts ? 8 : 0), true);
+    wasm.full_clear_tlb(); wasm.vine_reset_dirty_pages();
+    const before = wasm.vine_affine_iterations?.() ?? 0;
+    const stops = [];
+    for (let slice = 0; ; slice++) {
+      assert(slice < 2000);
+      if (slice === 2 && test.rearm) wasm.vine_reset_dirty_pages();
+      if (slice === 2 && (test.allZero || test.bias !== undefined || test.shift !== undefined)) {
+        if (test.allZero) memory.fill(0, alpha, alpha + pixels);
+        view.setInt32(coeff, test.bias ?? 0, true); reg(1, test.shift ?? 0);
+        state.setUint8(stateOffset.fpuStackEmpty, 0x55); state.setUint8(stateOffset.fpuStackPtr, 3);
+      }
+      const reason = wasm.vine_execute_budget(slice < 2 ? 8193 : test.budget ?? 8193);
+      await Promise.resolve(); refreshViews();
+      stops.push({reason, ip: state.getUint32(stateOffset.instructionPointer, true), count: wasm.vine_instruction_counter(),
+        registers: Array.from({length: 8}, (_,i) => state.getUint32(stateOffset.registers + i * 4, true)),
+        flags: wasm.get_eflags(), mmx: Array.from(new Uint8Array(wasm.memory.buffer, stateOffset.fpuSt, 128)),
+        tags: state.getUint8(stateOffset.fpuStackEmpty), top: state.getUint8(stateOffset.fpuStackPtr)});
+      if (reason !== stopReason.budget) break;
+    }
+    const result = {stops, hash: crypto.createHash('sha256').update(memory.subarray(dst, dst + pixels * 4)).digest('hex'),
+      dirty: Array.from(new Uint32Array(wasm.memory.buffer, wasm.vine_dirty_pages_ptr(), wasm.vine_dirty_page_count())).sort((a,b)=>a-b)};
+    return {result, iterations: (wasm.vine_affine_iterations?.() ?? 0) - before};
+  }
+  const cases = [
+    {name: 'mixed map'}, {name: 'small exact budget', budget: 4097}, {name: 'interpreter small budget', budget: 301},
+    {name: 'renamed registers', roles: {a:2, alpha:6, base:7, source:3, dest:5, count:0, mm:4, other:2, zero:6}},
+    {name: 'overlapping streams', alias: true}, {name: 'cross-page invariant', cross: true},
+    {name: 'no MMX branch', allZero: true},
+    {name: 'signed minimum', bias: -2147483648}, {name: 'signed overflow', bias: 2147483647},
+    {name: 'variable shift', shift: 3, bias: -101},
+    {name: 'late read fault', fault: 'read'}, {name: 'late write fault', fault: 'write'},
+    {name: 'late readonly fault', fault: 'readonly'}, {name: 'MMX task fault', ts: true},
+    {name: 'integer pixel conversion', rgb: true},
+    {name: 'noncontiguous invariant', cross: true, noncontiguous: true},
+    {name: 'dirty-page rearm', rearm: true},
+    {name: 'code-page destination', codeWrite: true, pixels: 128},
+  ];
+  for (const test of cases) {
+    const reference = await run(test, true), candidate = await run(test, false);
+    if (test.fault || test.ts) {
+      // Existing v86 counts the whole faulting basic block. Compare the architectural
+      // state exactly, and retain the measured accounting delta instead of hiding it.
+      const delta = candidate.result.stops.at(-1).count - reference.result.stops.at(-1).count;
+      assert.equal(delta, test.fault === 'read' ? 2 : test.fault === 'write' ? 3 : 0);
+
+      candidate.result.stops.at(-1).count -= delta;
+    }
+    assert.deepEqual(candidate.result, reference.result, test.name);
+    if (wasm.vine_affine_iterations && ['mixed map', 'renamed registers', 'overlapping streams', 'cross-page invariant', 'integer pixel conversion'].includes(test.name))
+      assert(candidate.iterations > 0, test.name + ' did not accelerate');
+
+  }
+}
+await checkCountedLoops();
+wasm.set_jit_config(5, 200_000);
+wasm.jit_clear_cache_js();
+
 configure(Uint8Array.from([0x40, 0xeb, 0xfd]), 3);
 const zeroBudget = currentState(wasm.vine_execute_budget(0));
 const firstBudget = currentState(wasm.vine_execute_budget(7));

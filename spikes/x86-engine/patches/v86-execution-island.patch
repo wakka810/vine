@@ -73,7 +73,7 @@ diff --git a/src/rust/cpu/mod.rs b/src/rust/cpu/mod.rs
 diff --git a/src/rust/jit.rs b/src/rust/jit.rs
 --- a/src/rust/jit.rs
 +++ b/src/rust/jit.rs
-@@ -564,6 +564,12 @@ fn jit_find_basic_blocks(
+@@ -565,6 +565,12 @@ fn jit_find_basic_blocks(
          };
          loop {
              let addr_before_instruction = current_address;
@@ -105,7 +105,15 @@ diff --git a/src/rust/jit.rs b/src/rust/jit.rs
  
      let mut pages = HashSet::new();
  
-@@ -2218,7 +2227,7 @@ pub fn jit_increase_hotness_and_maybe_compile(
+@@ -1336,6 +1345,7 @@ fn jit_generate_module(
+         match block {
+             Work::WasmStructure(WasmStructure::BasicBlock(addr)) => {
+                 let block = basic_blocks.get(&addr).unwrap();
++                crate::affine::generate(ctx, basic_blocks, addr);
+                 jit_generate_basic_block(ctx, block);
+ 
+                 if block.has_sti {
+@@ -2217,7 +2227,7 @@ pub fn jit_increase_hotness_and_maybe_compile(
      state_flags: CachedStateFlags,
      heat: u32,
  ) {
@@ -490,10 +498,98 @@ index 6c1a4df..a0680f2 100644
          result
 
 diff --git a/src/rust/wasmgen/wasm_builder.rs b/src/rust/wasmgen/wasm_builder.rs
-index a09723b..d64ae03 100644
 --- a/src/rust/wasmgen/wasm_builder.rs
 +++ b/src/rust/wasmgen/wasm_builder.rs
-@@ -824,15 +824,23 @@ impl WasmBuilder {
+@@ -88,6 +88,7 @@ pub struct WasmBuilder {
+ 
+     free_locals_i32: Vec<WasmLocal>,
+     free_locals_i64: Vec<WasmLocalI64>,
++    free_locals_v128: Vec<WasmLocalV128>,
+     local_count: u8,
+     pub arg_local_initial_state: WasmLocal,
+ }
+@@ -102,6 +103,7 @@ impl WasmLocal {
+ }
+ 
+ pub struct WasmLocalI64(u8);
++pub struct WasmLocalV128(u8);
+ impl WasmLocalI64 {
+     pub fn idx(&self) -> u8 { self.0 }
+ }
+@@ -134,6 +136,7 @@ impl WasmBuilder {
+ 
+             free_locals_i32: Vec::with_capacity(8),
+             free_locals_i64: Vec::with_capacity(8),
++            free_locals_v128: Vec::new(),
+             local_count: 0,
+             arg_local_initial_state: WasmLocal(0),
+         };
+@@ -164,6 +167,7 @@ impl WasmBuilder {
+         self.instruction_body.clear();
+         self.free_locals_i32.clear();
+         self.free_locals_i64.clear();
++        self.free_locals_v128.clear();
+         self.local_count = 0;
+ 
+         dbg_assert!(self.label_to_depth.is_empty());
+@@ -198,7 +202,7 @@ impl WasmBuilder {
+         self.output.push(0);
+ 
+         dbg_assert!(
+-            self.local_count as usize == self.free_locals_i32.len() + self.free_locals_i64.len(),
++            self.local_count as usize == self.free_locals_i32.len() + self.free_locals_i64.len() + self.free_locals_v128.len(),
+             "All locals should have been freed"
+         );
+ 
+@@ -207,7 +211,10 @@ impl WasmBuilder {
+ 
+         let locals = (0..self.local_count).map(|i| {
+             let local_index = WASM_MODULE_ARGUMENT_COUNT + i;
+-            if free_locals_i64.iter().any(|v| v.idx() == local_index) {
++            if self.free_locals_v128.iter().any(|v| v.0 == local_index) {
++                0x7b // v128
++            }
++            else if free_locals_i64.iter().any(|v| v.idx() == local_index) {
+                 op::TYPE_I64
+             }
+             else {
+@@ -648,6 +655,27 @@ impl WasmBuilder {
+         write_leb_i64(&mut self.instruction_body, v);
+     }
+ 
++    pub fn set_new_local_v128(&mut self) -> WasmLocalV128 {
++        let local = self.free_locals_v128.pop().unwrap_or_else(|| {
++            let index = self.local_count + WASM_MODULE_ARGUMENT_COUNT;
++            self.local_count = self.local_count.checked_add(1).unwrap();
++            WasmLocalV128(index)
++        });
++        self.set_local_v128(&local);
++        local
++    }
++    pub fn get_local_v128(&mut self, local: &WasmLocalV128) {
++        self.instruction_body.push(op::OP_GETLOCAL);
++        self.instruction_body.push(local.0);
++    }
++    pub fn set_local_v128(&mut self, local: &WasmLocalV128) {
++        self.instruction_body.push(op::OP_SETLOCAL);
++        self.instruction_body.push(local.0);
++    }
++    pub fn free_local_v128(&mut self, local: WasmLocalV128) {
++        self.free_locals_v128.push(local);
++    }
++
+     pub fn load_fixed_u8(&mut self, addr: u32) {
+         self.const_i32(addr as i32);
+         self.load_u8(0);
+@@ -808,6 +836,7 @@ impl WasmBuilder {
+     pub fn mul_i32(&mut self) { self.instruction_body.push(op::OP_I32MUL); }
+     pub fn mul_i64(&mut self) { self.instruction_body.push(op::OP_I64MUL); }
+     pub fn div_i64(&mut self) { self.instruction_body.push(op::OP_I64DIVU); }
++    pub fn div_u_i32(&mut self) { self.instruction_body.push(op::OP_I32DIVU); }
+     pub fn rem_i64(&mut self) { self.instruction_body.push(op::OP_I64REMU); }
+ 
+     fn simd(&mut self, opcode: u8) {
+@@ -824,15 +853,23 @@ impl WasmBuilder {
          self.instruction_body.extend(bytes);
      }
      pub fn bitselect_v128(&mut self) { self.simd(op::SIMD_V128_BITSELECT); }
@@ -517,6 +613,14 @@ index a09723b..d64ae03 100644
      pub fn add_f32x4(&mut self) { self.simd(op::SIMD_F32X4_ADD); }
      pub fn sub_f32x4(&mut self) { self.simd(op::SIMD_F32X4_SUB); }
      pub fn mul_f32x4(&mut self) { self.simd(op::SIMD_F32X4_MUL); }
+@@ -851,6 +888,7 @@ impl WasmBuilder {
+     pub fn ne_i64(&mut self) { self.instruction_body.push(op::OP_I64NE); }
+ 
+     pub fn le_i32(&mut self) { self.instruction_body.push(op::OP_I32LES); }
++    pub fn le_i64(&mut self) { self.instruction_body.push(op::OP_I64LES); }
+     pub fn lt_i32(&mut self) { self.instruction_body.push(op::OP_I32LTS); }
+     pub fn ge_i32(&mut self) { self.instruction_body.push(op::OP_I32GES); }
+     pub fn gt_i32(&mut self) { self.instruction_body.push(op::OP_I32GTS); }
 diff --git a/src/rust/wasmgen/wasm_opcodes.rs b/src/rust/wasmgen/wasm_opcodes.rs
 index 5fad93c..83bba1e 100644
 --- a/src/rust/wasmgen/wasm_opcodes.rs
@@ -542,3 +646,28 @@ index 5fad93c..83bba1e 100644
  c!(SIMD_F32X4_ADD, 0xe4);
  c!(SIMD_F32X4_SUB, 0xe5);
  c!(SIMD_F32X4_MUL, 0xe6);
+diff --git a/src/rust/modrm.rs b/src/rust/modrm.rs
+--- a/src/rust/modrm.rs
++++ b/src/rust/modrm.rs
+@@ -17,6 +17,10 @@ pub struct ModrmByte {
+     is_16: bool,
+ }
+ impl ModrmByte {
++    pub fn flat_parts(&self) -> Option<(Option<u32>, Option<u32>, u8, i32)> {
++        if self.is_16 || !matches!(self.segment, DS | SS) { return None; }
++        Some((self.first_reg, self.second_reg, self.shift, self.immediate))
++    }
+     pub fn is_nop(&self, reg: u32) -> bool {
+         self.first_reg == Some(reg)
+             && self.second_reg.is_none()
+diff --git a/src/rust/lib.rs b/src/rust/lib.rs
+--- a/src/rust/lib.rs
++++ b/src/rust/lib.rs
+@@ -16,6 +16,7 @@ mod control_flow;
+ mod cpu_context;
+ mod gen;
+ mod jit;
++mod affine;
+ mod jit_instructions;
+ mod leb;
+ mod modrm;
