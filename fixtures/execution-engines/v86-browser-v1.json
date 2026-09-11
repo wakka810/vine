@@ -107,6 +107,11 @@
       "hostProfile": "windows-gnu-execution-island-ordered-frames-v78",
       "bytes": 7441695,
       "sha256": "3f92d748dc0fb8420fc6a6bfc9cf2fcdb69d044d1a4a1ad9b9f7fc541a6ecbee"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-counted-budget-v84",
+      "bytes": 7441728,
+      "sha256": "05b61b30ba822a74aafbace7230cb7ae3ac51e73adebc02bd6310ccaa874cf0b"
     }
   ]
 }

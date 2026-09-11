@@ -387,6 +387,47 @@ async function checkCountedLoops() {
   }
 }
 await checkCountedLoops();
+// A side entry may reach a counted loop after the enclosing JIT has exhausted
+// its allowance. Disabling the outer reloop check makes that case deterministic.
+if (wasm.vine_affine_iterations) {
+  wasm.jit_clear_cache_js();
+  wasm.set_jit_config(0, 0); wasm.set_jit_config(2, 0);
+  wasm.set_jit_config(4, 0); wasm.set_jit_config(5, 32);
+  const program = Uint8Array.from([
+    0x49, 0x75, 0xfd, // long bounded prefix: DEC ECX; JNZ
+    0x0f, 0xb6, 0x46, 2, 0x0f, 0xb6, 0x5e, 1, 0xc1, 0xe0, 8, 0x0b, 0xc3,
+    0x0f, 0xb6, 0x1e, 0xc1, 0xe0, 8, 0x09, 0xd8, 0x89, 0x07,
+    0x83, 0xc7, 4, 0x83, 0xc6, 3, 0x4a, 0x75, 0xe0, 0xf4,
+  ]);
+  configure(program, 0);
+  const setReg = (r, value) => state.setUint32(stateOffset.registers + r * 4, value, true);
+  setReg(1, 100000); setReg(2, 8192); setReg(6, 0x40000); setReg(7, 0x140000);
+  let warmed;
+  for (let i=0; i<20; i++) {
+    warmed = wasm.vine_execute_budget(50000); await Promise.resolve(); refreshViews();
+    if (warmed !== stopReason.budget) break;
+  }
+  assert.equal(warmed, stopReason.halt);
+  setReg(1, 100000); setReg(2, 8192); setReg(6, 0x40000); setReg(7, 0x140000);
+  state.setUint8(stateOffset.inHalt, 0);
+  state.setUint32(stateOffset.instructionPointer, guest.codeAddress, true);
+  state.setUint32(stateOffset.previousInstructionPointer, guest.codeAddress, true);
+  for (let i=0; i<8192*3; i++) memory[0x40000+i]=(i*19)&255;
+  const before = wasm.vine_affine_iterations();
+  let reason;
+  for (let i=0; i<20; i++) {
+    reason = wasm.vine_execute_budget(50000);
+    await Promise.resolve(); refreshViews();
+    if (reason !== stopReason.budget) break;
+  }
+  assert.equal(reason, stopReason.halt);
+  assert(wasm.vine_affine_iterations() - before > 4000,
+    'exhausted enclosing JIT budget stranded a counted loop on the slow path: ' + (wasm.vine_affine_iterations() - before));
+  for (let i=0; i<8192; i++) assert.deepEqual(
+    memory.subarray(0x140000+i*4,0x140000+i*4+4),
+    Uint8Array.of(memory[0x40000+i*3],memory[0x40001+i*3],memory[0x40002+i*3],0));
+  wasm.set_jit_config(2, 1); wasm.set_jit_config(4, 1);
+}
 wasm.set_jit_config(5, 200_000);
 wasm.jit_clear_cache_js();
 

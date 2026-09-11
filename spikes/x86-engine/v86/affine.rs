@@ -504,7 +504,12 @@ pub fn generate(ctx: &mut JitContext, blocks: &HashMap<u32, BasicBlock>, root: u
     ctx.builder.get_local(&limit);
     ctx.builder.get_local(&ctx.instruction_counter);
     ctx.builder.leu_i32();
-    ctx.builder.br_if(fallback);
+    ctx.builder.if_void();
+    // Side entries can bypass the enclosing reloop's budget check. Return at the
+    // loop head instead of running its remaining iterations in the ordinary JIT.
+    codegen::gen_set_eip_low_bits(ctx.builder, root as i32 & 0xfff);
+    ctx.builder.br(ctx.exit_label);
+    ctx.builder.block_end();
     ctx.builder.get_local(&limit);
     ctx.builder.get_local(&ctx.instruction_counter);
     ctx.builder.sub_i32();
