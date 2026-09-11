@@ -161,6 +161,7 @@ worker.addEventListener("message", (event: MessageEvent<WorkerToMainMessage>) =>
       break;
     }
     case "session-finished":
+      pcmRenderer.stopAll();
       finishSession(message.report);
       break;
   }
@@ -829,6 +830,7 @@ function resetSurface(): void {
 }
 
 function showFatalError(error: unknown): void {
+  pcmRenderer.stopAll();
   const fatal = error instanceof Error ? error : new Error(String(error));
   stopHeartbeat();
   setControls(false);

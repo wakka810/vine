@@ -1826,6 +1826,7 @@ if (
 }
 
 function finish(report: SessionReport): void {
+  pcmRenderer.stopAll();
   window.clearInterval(heartbeat);
   if (forwardDevelopment) {
     const accepted =
@@ -1909,6 +1910,7 @@ function finish(report: SessionReport): void {
 }
 
 function fail(error: Error): void {
+  pcmRenderer.stopAll();
   window.clearInterval(heartbeat);
   window.__vineBgiCheck.error = error.message;
   document.body.dataset.checkStatus = "failed";

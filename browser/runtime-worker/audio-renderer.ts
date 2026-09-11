@@ -94,6 +94,7 @@ export class BrowserPcmRenderer {
   #context: AudioContext | null = null;
   #moduleReady: Promise<void> | null = null;
   #operationTail: Promise<void> = Promise.resolve();
+  #sessionEpoch = 0;
   readonly #sources = new Map<number, ActiveAudioSource>();
   readonly #latestStopGeneration = new Map<number, number>();
   readonly #pacing = new Map<number, AudioPacingAccumulator>();
@@ -131,7 +132,8 @@ export class BrowserPcmRenderer {
   }
 
   play(message: AudioPlaybackMessage): Promise<BrowserAudioPlaybackReceipt> {
-    const operation = this.#operationTail.then(() => this.#play(message));
+    const epoch = this.#sessionEpoch;
+    const operation = this.#operationTail.then(() => this.#play(message, epoch));
     this.#operationTail = operation.then(
       () => undefined,
       () => undefined,
@@ -141,6 +143,7 @@ export class BrowserPcmRenderer {
 
   async #play(
     message: AudioPlaybackMessage,
+    epoch: number,
   ): Promise<BrowserAudioPlaybackReceipt> {
     const { format } = message;
     if (
@@ -171,6 +174,7 @@ export class BrowserPcmRenderer {
     const previous = this.#sources.get(message.bufferId);
     const stoppedGeneration = this.#latestStopGeneration.get(message.bufferId);
     const staleMessageIgnored =
+      epoch !== this.#sessionEpoch ||
       (stoppedGeneration !== undefined &&
         message.bufferGeneration <= stoppedGeneration) ||
       (previous !== undefined &&
@@ -312,6 +316,13 @@ export class BrowserPcmRenderer {
       context,
       { updatedAudioMilliseconds: 0, updateIntervalMilliseconds: null },
     );
+  }
+
+  stopAll(): void {
+    this.#sessionEpoch += 1;
+    for (const active of this.#sources.values()) this.#retire(active);
+    this.#sources.clear();
+    this.#latestStopGeneration.clear();
   }
 
   stop(message: AudioStopMessage): BrowserAudioStopReceipt {

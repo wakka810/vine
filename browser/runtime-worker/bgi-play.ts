@@ -159,6 +159,7 @@ function handleWorkerMessage(event: MessageEvent<WorkerToMainMessage>): void {
       fail(new Error(`unsupported browser service ${message.service}`));
       break;
     case "session-finished":
+      pcmRenderer.stopAll();
       play.result = message.report;
       stopButton.disabled = true;
       setStatus(message.report.error ?? `停止: ${message.report.outcome}`);
@@ -334,6 +335,7 @@ function setStatus(detail: string): void {
 }
 
 function fail(error: unknown): void {
+  pcmRenderer.stopAll();
   const message = error instanceof Error ? error.message : String(error);
   play.error = message;
   setStatus(message);
