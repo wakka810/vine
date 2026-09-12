@@ -463,7 +463,6 @@ export class V86Mirror implements ExecutionEngine {
   #wasm!: V86Exports;
   readonly #identity: ExecutionEngineIdentity;
   readonly #mappings = new Map<number, MirrorMapping>();
-  readonly #writableMappings = new Set<MirrorMapping>();
   readonly #reservations = new Map<number, MirrorReservation>();
   readonly #directoryMappingCounts = new Map<number, number>();
   readonly #dirtyMappingsScratch: MirrorMapping[] = [];
@@ -859,7 +858,6 @@ export class V86Mirror implements ExecutionEngine {
       dirty: Boolean(this.#physicalView.getUint32(mapping.pteAddress, true) & pageFlags.dirty),
     }));
     this.#mappings.clear();
-    this.#writableMappings.clear();
     this.#installFreshAdapter(poolBytes);
     let restoredDirtyPage = false;
     for (const page of pages.sort((left, right) => left.address - right.address)) {
@@ -906,7 +904,6 @@ export class V86Mirror implements ExecutionEngine {
     this.#refreshLinearMemoryViews();
     const state = this.saveState().words;
     this.#mappings.clear();
-    this.#writableMappings.clear();
     this.#reservations.clear();
     this.#pageTables.clear();
     this.#directoryMappingCounts.clear();
@@ -1302,7 +1299,10 @@ export class V86Mirror implements ExecutionEngine {
       this.#forceFullDirtyScan || this.#wasm.vine_dirty_pages_overflowed() !== 0;
     this.#forceFullDirtyScan = false;
     if (scanAll) {
-      for (const mapping of this.#writableMappings) {
+      // ponytail: rare overflow/restoration scans use the existing page map;
+      // maintaining a second index costs work on every texture lock/unlock.
+      for (const mapping of this.#mappings.values()) {
+        if (!mapping.protection.write) continue;
         const pte = this.#physicalWords[mapping.pteWordIndex]!;
         if ((pte & pageFlags.dirty) !== 0) {
           this.#physicalWords[mapping.pteWordIndex] = pte & ~pageFlags.dirty;
@@ -1387,6 +1387,12 @@ export class V86Mirror implements ExecutionEngine {
       this.applyCacheEffects(delta.cacheEffects);
       return;
     }
+    const onlyOperation = delta.mappingOperations[0]!;
+    if (this.#directMemory && delta.mappingOperations.length === 1 &&
+        onlyOperation.operation === "protect" && this.#applyDirectProtection(delta, onlyOperation)) {
+      this.applyCacheEffects(delta.cacheEffects);
+      return;
+    }
     const capacity = this.#preflightHostDelta(delta);
     this.#ensurePhysicalCapacity(capacity);
     if (capacity.directMappings !== undefined) {
@@ -1427,6 +1433,42 @@ export class V86Mirror implements ExecutionEngine {
 
   applyHostDelta(delta: HostMemoryDelta): void {
     this.applyMemoryDelta(delta);
+  }
+
+  #applyDirectProtection(
+    delta: HostMemoryDelta,
+    operation: Extract<MappingOperation, { operation: "protect" }>,
+  ): boolean {
+    // A protection-only transaction cannot change capacity or ownership. Check the
+    // existing pages in place; avoid building a new per-page planning map every frame.
+    const addresses = pageAddresses(operation.range);
+    for (const address of addresses) {
+      const mapping = this.#mappings.get(address);
+      invariant(mapping !== undefined, "protect operation targets an unmapped mirror page");
+      invariant(mapping.owner === operation.owner, "protect operation owner mismatch");
+      invariant(mapping.addressAllocationId === operation.addressAllocationId,
+        "protect operation address allocation mismatch");
+      if (this.#authoritativePageOffset(address, mapping.owner, operation.protection) !==
+          mapping.physicalBase) return false; // A stale backing needs the complete mapping plan.
+      invariant(operation.protection.write ||
+        (this.#physicalWords[mapping.pteWordIndex]! & pageFlags.dirty) === 0,
+        "mirror write protection changed while the CPU page was still dirty");
+    }
+    this.#preflightDeltaPagesWithLookup(delta.pages, (address) => {
+      const mapping = this.#mappings.get(address);
+      return mapping !== undefined && address >= operation.range.base && address < rangeEnd(operation.range)
+        ? { ...mapping, protection: operation.protection } : mapping;
+    });
+    for (const page of delta.pages) {
+      invariant(this.#authoritativePageOffset(page.address, page.owner, page.protection) ===
+        this.#mappings.get(page.address)!.physicalBase,
+        "host delta changed backing without a mapping operation");
+    }
+    for (const address of addresses) {
+      if (!sameProtection(this.#mappings.get(address)!.protection, operation.protection))
+        this.#updateProtection(address, operation.protection);
+    }
+    return true;
   }
 
   #preflightHostDelta(delta: HostMemoryDelta): PhysicalCapacityRequirement {
@@ -1814,9 +1856,6 @@ export class V86Mirror implements ExecutionEngine {
       directoryIndex,
       (this.#directoryMappingCounts.get(directoryIndex) ?? 0) + 1,
     );
-    if (mapping.protection.write) {
-      this.#trackWritableMapping(mapping);
-    }
     invariant(
       this.#wasm.vine_set_page_executable(address, Number(protection.execute)) === 0,
       "v86 rejected mapped execute permission",
@@ -1851,7 +1890,6 @@ export class V86Mirror implements ExecutionEngine {
       protection.write || dirty === 0,
       "mirror write protection changed while the CPU page was still dirty",
     );
-    const wasWritable = mapping.protection.write;
     this.#physicalView.setUint32(
       mapping.pteAddress,
       mapping.physicalBase |
@@ -1862,11 +1900,6 @@ export class V86Mirror implements ExecutionEngine {
       true,
     );
     mapping.protection = { ...protection };
-    if (wasWritable && !protection.write) {
-      this.#untrackWritableMapping(mapping);
-    } else if (!wasWritable && protection.write) {
-      this.#trackWritableMapping(mapping);
-    }
     invariant(
       this.#wasm.vine_set_page_executable(address, Number(protection.execute)) === 0,
       "v86 rejected protected execute permission",
@@ -1875,9 +1908,6 @@ export class V86Mirror implements ExecutionEngine {
 
   #unmapPage(address: number): void {
     const mapping = this.#mappings.get(address)!;
-    if (mapping.protection.write) {
-      this.#untrackWritableMapping(mapping);
-    }
     this.#physicalView.setUint32(mapping.pteAddress, 0, true);
     invariant(
       this.#wasm.vine_set_page_executable(address, 0) === 0,
@@ -1902,18 +1932,6 @@ export class V86Mirror implements ExecutionEngine {
     } else {
       this.#directoryMappingCounts.set(directoryIndex, directoryMappingCount - 1);
     }
-  }
-
-  #trackWritableMapping(mapping: MirrorMapping): void {
-    invariant(
-      !this.#writableMappings.has(mapping),
-      "writable mirror mapping is already indexed",
-    );
-    this.#writableMappings.add(mapping);
-  }
-
-  #untrackWritableMapping(mapping: MirrorMapping): void {
-    invariant(this.#writableMappings.delete(mapping), "writable mirror mapping index is stale");
   }
 
   #initializeCpu(prepared: ExecutionBootstrap): void {

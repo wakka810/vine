@@ -656,6 +656,9 @@ growthEngine.initialize(
 );
 const capacityBeforeGrowth = growthEngine.memoryCapacity();
 assert.equal(capacityBeforeGrowth.physicalPoolBytes, 64 * 1024);
+const beforeDirtyGrowth = growthEngine.saveCpuContext();
+assert.equal(growthEngine.executeBudget(1).stop.kind, "budget-yield");
+growthEngine.restoreCpuContext(beforeDirtyGrowth);
 const expansionPageCount = 512;
 const expansionBase = 0x2000_0000;
 const expansionRange = { base: expansionBase, byteLength: expansionPageCount * pageSize };
@@ -687,6 +690,11 @@ growthEngine.applyMemoryDelta({
   pages: expandedPages,
 });
 const capacityAfterGrowth = growthEngine.memoryCapacity();
+const restoredDirty = growthEngine.collectChangedPages();
+assert.deepEqual(restoredDirty.map(page => page.address), [dataAddress],
+  "growth must recover CPU dirtiness through the full mapping scan");
+assert.equal(new DataView(restoredDirty[0].bytes.buffer).getUint32(0, true), 0x12345678);
+assert.deepEqual(growthEngine.collectChangedPages(), []);
 // This allocation crosses v86's reserved physical VGA hole, despite contiguous guest pages.
 const fragmentedView = growthEngine.readGuestBytes(expansionBase + 3, expansionRange.byteLength - 7, true);
 assert.equal(fragmentedView.buffer.byteLength, fragmentedView.byteLength, "fragmented backing must be copied");
@@ -945,6 +953,20 @@ for (const stage of [0, 1, 2, 3, 4, 5, 6]) {
   }
   const capacityBeforeDelta = directEngine.memoryCapacity();
   if (stage === 2 || stage === 3) {
+    // The single-protect path must validate the entire range and payload before
+    // changing any PTE, even when only a later page/descriptor is invalid.
+    for (const mutation of [
+      bad => { bad.mappingOperations[0].range.byteLength += pageSize; },
+      bad => { bad.mappingOperations[0].addressAllocationId = 0xffff; },
+      bad => { bad.pages.push({ address: bad.mappingOperations[0].range.base,
+        owner: 0xffff, protection: bad.mappingOperations[0].protection, bytes: new Uint8Array(pageSize) }); },
+    ]) {
+      const bad = structuredClone(delta);
+      mutation(bad);
+      const before = directEngine.memoryContractState();
+      assert.throws(() => directEngine.applyMemoryDelta(bad));
+      assert.equal(directEngine.memoryContractState(), before, "single protection preflight must be atomic");
+    }
     const bad = structuredClone(delta);
     bad.mappingOperations.push({ ...bad.mappingOperations[0], owner: bad.mappingOperations[0].owner + 1 });
     const before = directEngine.memoryContractState();
