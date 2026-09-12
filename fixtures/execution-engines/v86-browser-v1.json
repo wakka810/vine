@@ -112,6 +112,11 @@
       "hostProfile": "windows-gnu-execution-island-counted-budget-v84",
       "bytes": 7441728,
       "sha256": "05b61b30ba822a74aafbace7230cb7ae3ac51e73adebc02bd6310ccaa874cf0b"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-vector-windows-v98",
+      "bytes": 7470131,
+      "sha256": "4c3d8af61632905a5a6891cee441a78c7aa16b9ee143f54f10d626d167280453"
     }
   ]
 }

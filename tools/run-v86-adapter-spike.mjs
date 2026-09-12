@@ -387,6 +387,134 @@ async function checkCountedLoops() {
   }
 }
 await checkCountedLoops();
+async function checkVectorWindows() {
+  const batchCount = () => wasm.vine_vector_batches?.() ?? 0;
+  const imm = n => [n & 255, n >>> 8 & 255, n >>> 16 & 255, n >>> 24 & 255];
+  const gather = [0xf3,0x0f,0x7e,0x1e,0x66,0x0f,0x61,0xdf,0x0f,0x5b,0xdb,
+    0x0f,0x6f,0x0c,0x1e,0x0f,0x67,0xc9,0x0f,0x7e,0xc8];
+  for (let lane=0; lane<4; lane++) {
+    gather.push(0x0f,0xb6,0xc8);
+    for (const [r,offset] of [[4,0],[5,2048]]) for (let half=0; half<2; half++)
+      gather.push(0x66,0x0f,0xc4,0x84|(r<<3),0x8a,...imm(offset+half*2),lane*2+half);
+    if (lane<3) gather.push(0xc1,0xe8,8);
+  }
+  gather.push(0x0f,0x58,0xe3,0xf3,0x0f,0x5b,0xe4,0x66,0x0f,0x6b,0xe4,
+    0x66,0x0f,0x67,0xe4,0x66,0x0f,0xf7,0xe0,
+    0x0f,0x58,0xeb,0xf3,0x0f,0x5b,0xed,0x66,0x0f,0x6b,0xed,
+    0x66,0x0f,0x67,0xed,0x66,0x0f,0xf7,0xe9);
+  const transform = [
+    0xf3,0x0f,0x7e,0x1e,0x66,0x0f,0x61,0xdb,0x66,0x0f,0x72,0xe3,16,0x0f,0x5b,0xdb,
+    0x0f,0x59,0x1a,0x0f,0x28,0xe3,0x0f,0x58,0x62,16,0x0f,0x5c,0xe3,
+    0x0f,0x29,0x27,0xf3,0x0f,0x10,0x6f,4,0x0f,0xc6,0x2f,0x64,
+    0x0f,0xc6,0xec,0x88,0x0f,0x59,0xec,0xf3,0x0f,0x5b,0xed,
+    0x66,0x0f,0x72,0xe5,255,0x66,0x0f,0x6b,0xed,0x66,0x0f,0x71,0xe5,19,
+    0xf3,0x0f,0xd6,0xd6,0x66,0x0f,0xef,0xc0,0x66,0x0f,0xfd,0xea,
+    0x66,0x0f,0x69,0xe5,0x66,0x0f,0xeb,0xe2,0x66,0x0f,0x6f,0xf4,
+    0x66,0x0f,0x7f,0x77,16];
+  async function run(kind,test,disabled) {
+    // Neither window begins at a BB entry. Integer instructions separate them,
+    // and ADC consumes flags after the second window.
+    const p = kind==='gather' ? [0x90,...gather] : [0x90,0x31,0xc0,...transform,0x41,...transform,0x83,0xd0,0];
+    p.push(0xff,0x4d,0xfc); p.push(0x0f,0x85,...imm(-(p.length+6)),0xf4);
+    wasm.jit_clear_cache_js(); wasm.set_jit_config(0,Number(disabled)); wasm.set_jit_config(5,32);
+    configure(Uint8Array.from(p),0);
+    let view=new DataView(memory.buffer,memory.byteOffset,memory.byteLength);
+    const step=async budget => {
+      const reason=wasm.vine_execute_budget(budget); await Promise.resolve(); refreshViews();
+      view=new DataView(memory.buffer,memory.byteOffset,memory.byteLength); return reason;
+    };
+    const reg=(r,n)=>state.setUint32(stateOffset.registers+r*4,n,true);
+    view.setUint32(0x1f0000,0x1f1007,true);
+    for (let page=0;page<512;page++) view.setUint32(0x1f1000+page*4,page*4096|7,true);
+    state.setUint32(stateOffset.controlRegisters+12,0x1f0000,true);
+    state.setUint32(stateOffset.controlRegisters,state.getUint32(stateOffset.controlRegisters,true)|0x80010000,true);
+    wasm.full_clear_tlb();
+    const crossing=['cross','noncontiguous','second-missing'].includes(test);
+    const coeff=crossing?(kind==='gather'?0x120800:0x120ff0):0x120000;
+    let dst=test==='alias'?coeff:test==='dst-cross'?0x140ff0:
+      (test==='unaligned'||kind==='gather'?0x140001:0x140000);
+    for (let i=0;i<8;i++) {
+      view.setInt16(0x40000+i*2,i*67-128,true);
+      view.setInt16(0x50000+i*2,[0,127,255,512,-5,53,8191,85][i],true);
+    }
+    for (let i=0;i<1024;i++) view.setFloat32(coeff+i*4,(i%32-16)*1.25,true);
+    if (test==='special') for (let i=0;i<1024;i++) view.setUint32(coeff+i*4,
+      [0x7fc00123,0xffc00987,0x7f800000,0xff800000,0x4f000000,0xcf000000,1,0x80000001][i%8],true);
+    memory.fill(0x55,dst,dst+32);
+    [0,0,coeff,0x10000,0x1e000,0x20000,0x40000,dst].forEach((n,r)=>reg(r,n));
+    new Uint8Array(wasm.memory.buffer,stateOffset.xmm,128).fill(0);
+    for (let i=0;i<32;i++) state.setUint8(stateOffset.xmm+i,(i%3?0:0x80)|i);
+    state.setUint32(824,0x1f80,true); view.setInt32(0x1fffc,262144,true);
+    const before=batchCount();
+    for(let i=0;i<3;i++) assert.equal(await step(500003),stopReason.budget);
+    const warmed=batchCount();
+    if (!disabled&&wasm.vine_vector_batches&&test!=='unaligned') assert(warmed>before,kind+': compiler did not execute');
+    state.setUint32(stateOffset.instructionPointer,guest.codeAddress,true);
+    state.setUint32(stateOffset.previousInstructionPointer,guest.codeAddress,true);
+    view.setInt32(0x1fffc,65536,true);
+    if(test==='code-destination') {
+      dst=0x1800;reg(7,dst);memory.fill(0x55,dst,dst+32);
+      view.setInt32(0x1fffc,256,true);
+    }
+    if(test==='missing') {view.setUint32(0x1f1000+(coeff>>>12)*4,0,true);wasm.full_clear_tlb();}
+    if(test==='readonly') {view.setUint32(0x1f1000+(dst>>>12)*4,(dst&~4095)|5,true);wasm.full_clear_tlb();}
+    if(test==='rearm') wasm.vine_reset_dirty_pages();
+    if(test==='remap'||test==='noncontiguous') {
+      const page=test==='remap'?coeff&~4095:0x121000;
+      memory.copyWithin(0x160000,page,page+4096);
+      view.setUint32(0x1f1000+(page>>>12)*4,0x160007,true);wasm.full_clear_tlb();
+    }
+    if(test==='second-missing') {view.setUint32(0x1f1000+0x121*4,0,true);wasm.full_clear_tlb();}
+    if(test==='code') {memory[guest.codeAddress]=0x40;wasm.jit_dirty_cache(guest.codeAddress,guest.codeAddress+1);}
+    if(test==='mxcsr') state.setUint32(824,0x3f80,true);
+    if(test==='ts'||test==='em') state.setUint32(stateOffset.controlRegisters,
+      state.getUint32(stateOffset.controlRegisters,true)|(test==='ts'?8:4),true);
+    if(test==='cr4') state.setUint32(stateOffset.controlRegisters+16,0,true);
+    if(test==='mask-zero'||test==='mask-all') new Uint8Array(wasm.memory.buffer,stateOffset.xmm,32).fill(test==='mask-zero'?0:255);
+    const stops=[];let reason;
+    for(let i=0;i<2000;i++) {
+      reason=await step(i===0?500003:[1,4095,4096,8193,100129][i%5]);
+      stops.push({reason,count:wasm.vine_instruction_counter(),error:wasm.vine_get_stop_error_code(),
+        ip:state.getUint32(stateOffset.instructionPointer,true),
+        regs:Array.from({length:8},(_,r)=>state.getUint32(stateOffset.registers+r*4,true)),flags:wasm.get_eflags(),
+        mxcsr:state.getUint32(824,true),xmm:Array.from(new Uint32Array(wasm.memory.buffer,stateOffset.xmm,32)),
+        top:state.getUint8(stateOffset.fpuStackPtr),tags:state.getUint8(stateOffset.fpuStackEmpty),
+        mmx:Array.from({length:8},(_,r)=>Array.from(new Uint8Array(wasm.memory.buffer,stateOffset.fpuSt+r*16,10))),
+        output:Array.from(memory.subarray(dst,dst+32))});
+      if(reason!==stopReason.budget) break;
+    }
+    assert.notEqual(reason,stopReason.budget);
+    const batches=batchCount()-warmed;
+    if(!disabled&&wasm.vine_vector_batches&&test==='plain') assert(batches>0,'warmed window must run before tiny-budget fragmentation');
+    if(!disabled&&['mxcsr','ts','em','cr4'].includes(test)) assert.equal(batches,0,kind+'/'+test);
+    return stops;
+  }
+  for(const kind of ['gather','transform']) {
+    const tests=['plain','cross','noncontiguous','second-missing','alias','missing','readonly','remap','rearm','code','code-destination','mxcsr','ts','em','cr4'];
+    tests.push(...(kind==='gather'?['special','mask-zero','mask-all']:['unaligned','dst-cross']));
+    for(const test of tests) {
+      const reference=await run(kind,test,true),candidate=await run(kind,test,false);
+      assert.equal(candidate.length,reference.length,kind+'/'+test);
+      for(let i=0;i<reference.length;i++) {
+        // Existing v86 charges the unretired BB tail on faults. Its EIP, error,
+        // bytes and registers must still match; normal slices count exactly.
+        if(reference[i].reason>2) {
+          const excess=candidate[i].count-reference[i].count;
+          assert(excess>=0&&excess<64);
+          candidate[i].count-=excess;
+        }
+        if(test==='code-destination') {
+          // Existing SMC exits precharge the remaining BB tail (v84 baseline).
+          const excess=kind==='gather'?1:7;
+          assert.equal(candidate[i].count-reference[i].count,excess,kind);
+          candidate[i].count-=excess;
+        }
+        assert.deepEqual(candidate[i],reference[i],kind+'/'+test+'/'+i);
+      }
+    }
+  }
+}
+await checkVectorWindows();
 // A side entry may reach a counted loop after the enclosing JIT has exhausted
 // its allowance. Disabling the outer reloop check makes that case deterministic.
 if (wasm.vine_affine_iterations) {

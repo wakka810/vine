@@ -236,6 +236,8 @@ function prepareSource() {
     [islandSourcePath, islandTargetPath],
     [path.join(root, "spikes", "x86-engine", "v86", "affine.rs"),
       path.join(sourceDirectory, "src", "rust", "affine.rs")],
+    [path.join(root, "spikes", "x86-engine", "v86", "vector_batch.rs"),
+      path.join(sourceDirectory, "src", "rust", "vector_batch.rs")],
   ]) {
     if (!fs.existsSync(target)) {
       fs.copyFileSync(source, target);

@@ -71,9 +71,19 @@ diff --git a/src/rust/cpu/mod.rs b/src/rust/cpu/mod.rs
  pub mod vine;
 +pub mod island;
 diff --git a/src/rust/jit.rs b/src/rust/jit.rs
+index e586186..aed828f 100644
 --- a/src/rust/jit.rs
 +++ b/src/rust/jit.rs
-@@ -565,6 +565,12 @@ fn jit_find_basic_blocks(
+@@ -21,6 +21,8 @@ use crate::profiler;
+ use crate::profiler::stat;
+ use crate::state_flags::CachedStateFlags;
+ use crate::wasmgen::wasm_builder::{Label, WasmBuilder, WasmLocal};
++#[path = "vector_batch.rs"]
++mod vector_batch;
+ 
+ #[derive(Copy, Clone, Eq, Hash, PartialEq)]
+ #[repr(transparent)]
+@@ -565,6 +567,12 @@ fn jit_find_basic_blocks(
          };
          loop {
              let addr_before_instruction = current_address;
@@ -86,7 +96,7 @@ diff --git a/src/rust/jit.rs b/src/rust/jit.rs
              let mut cpu = &mut CpuContext {
                  eip: current_address,
                  ..cpu
-@@ -802,7 +808,7 @@ fn jit_find_basic_blocks(
+@@ -802,7 +810,7 @@ fn jit_find_basic_blocks(
  
      let basic_blocks: Vec<BasicBlock> = basic_blocks.into_iter().map(|(_, block)| block).collect();
  
@@ -95,7 +105,7 @@ diff --git a/src/rust/jit.rs b/src/rust/jit.rs
          let next_block_addr = basic_blocks[i + 1].addr;
          let next_block_end_addr = basic_blocks[i + 1].end_addr;
          let next_block_is_entry = basic_blocks[i + 1].is_entry_block;
-@@ -900,6 +906,9 @@ fn jit_analyze_and_generate(
+@@ -900,6 +908,9 @@ fn jit_analyze_and_generate(
          .map(|e| virt_page.to_address() as i32 | *e as i32)
          .collect();
      let basic_blocks = jit_find_basic_blocks(ctx, entry_points, cpu.clone());
@@ -105,7 +115,7 @@ diff --git a/src/rust/jit.rs b/src/rust/jit.rs
  
      let mut pages = HashSet::new();
  
-@@ -1336,6 +1345,7 @@ fn jit_generate_module(
+@@ -1336,6 +1347,7 @@ fn jit_generate_module(
          match block {
              Work::WasmStructure(WasmStructure::BasicBlock(addr)) => {
                  let block = basic_blocks.get(&addr).unwrap();
@@ -113,7 +123,35 @@ diff --git a/src/rust/jit.rs b/src/rust/jit.rs
                  jit_generate_basic_block(ctx, block);
  
                  if block.has_sti {
-@@ -2217,7 +2227,7 @@ pub fn jit_increase_hotness_and_maybe_compile(
+@@ -2147,7 +2159,15 @@ fn jit_generate_basic_block(ctx: &mut JitContext, block: &BasicBlock) {
+     ctx.current_instruction = Instruction::Other;
+     ctx.previous_instruction = Instruction::Other;
+ 
++    let mut vector_end = None;
+     loop {
++        if vector_end.is_none() {
++            vector_end = vector_batch::generate(ctx, block);
++            if vector_end.is_some() {
++                ctx.current_instruction = Instruction::Other;
++                ctx.previous_instruction = Instruction::Other;
++            }
++        }
+         let mut instruction = 0;
+         if cfg!(feature = "profiler") {
+             instruction = memory::read32s(ctx.cpu.eip) as u32;
+@@ -2175,6 +2195,11 @@ fn jit_generate_basic_block(ctx: &mut JitContext, block: &BasicBlock) {
+         let mut instruction_flags = 0;
+         jit_instructions::jit_instruction(ctx, &mut instruction_flags);
+         let end_eip = ctx.cpu.eip;
++        if vector_end.is_some_and(|(end, _)| end == end_eip) {
++            ctx.builder.block_end();
++            vector_end = None;
++            ctx.current_instruction = Instruction::Other;
++        }
+ 
+         let instruction_length = end_eip - start_eip;
+         let was_block_boundary = instruction_flags & JIT_INSTR_BLOCK_BOUNDARY_FLAG != 0;
+@@ -2217,7 +2242,7 @@ pub fn jit_increase_hotness_and_maybe_compile(
      state_flags: CachedStateFlags,
      heat: u32,
  ) {
@@ -498,6 +536,7 @@ index 6c1a4df..a0680f2 100644
          result
 
 diff --git a/src/rust/wasmgen/wasm_builder.rs b/src/rust/wasmgen/wasm_builder.rs
+index a09723b..d75d8c3 100644
 --- a/src/rust/wasmgen/wasm_builder.rs
 +++ b/src/rust/wasmgen/wasm_builder.rs
 @@ -88,6 +88,7 @@ pub struct WasmBuilder {
@@ -589,10 +628,13 @@ diff --git a/src/rust/wasmgen/wasm_builder.rs b/src/rust/wasmgen/wasm_builder.rs
      pub fn rem_i64(&mut self) { self.instruction_body.push(op::OP_I64REMU); }
  
      fn simd(&mut self, opcode: u8) {
-@@ -824,15 +853,23 @@ impl WasmBuilder {
+@@ -824,15 +853,32 @@ impl WasmBuilder {
          self.instruction_body.extend(bytes);
      }
      pub fn bitselect_v128(&mut self) { self.simd(op::SIMD_V128_BITSELECT); }
++    pub fn xor_v128(&mut self) { self.simd(op::SIMD_V128_XOR); }
++    pub fn or_v128(&mut self) { self.simd(op::SIMD_V128_OR); }
++    pub fn shr_s_i32x4(&mut self) { self.simd(op::SIMD_I32X4_SHR_S); }
 +    pub fn splat_i32x4(&mut self) { self.simd(op::SIMD_I32X4_SPLAT); }
 +    pub fn splat_i64x2(&mut self) { self.simd(op::SIMD_I64X2_SPLAT); }
 +    pub fn extract_low_i64x2(&mut self) {
@@ -600,6 +642,12 @@ diff --git a/src/rust/wasmgen/wasm_builder.rs b/src/rust/wasmgen/wasm_builder.rs
 +        self.instruction_body.push(0);
 +    }
      pub fn lt_f32x4(&mut self) { self.simd(op::SIMD_F32X4_LT); }
++    pub fn lt_s_i8x16(&mut self) { self.simd(op::SIMD_I8X16_LT_S); }
++    pub fn convert_i32x4_s(&mut self) { self.simd(op::SIMD_F32X4_CONVERT_I32X4_S); }
++    pub fn replace_i16x8_lane(&mut self, lane: u8) {
++        self.simd(op::SIMD_I16X8_REPLACE_LANE);
++        self.instruction_body.push(lane);
++    }
      pub fn trunc_sat_f32x4_s(&mut self) { self.simd(op::SIMD_I32X4_TRUNC_SAT_F32X4_S); }
      pub fn i8x16_narrow_i16x8_u(&mut self) { self.simd(op::SIMD_I8X16_NARROW_I16X8_U); }
      pub fn i16x8_narrow_i32x4_s(&mut self) { self.simd(op::SIMD_I16X8_NARROW_I32X4_S); }
@@ -613,7 +661,7 @@ diff --git a/src/rust/wasmgen/wasm_builder.rs b/src/rust/wasmgen/wasm_builder.rs
      pub fn add_f32x4(&mut self) { self.simd(op::SIMD_F32X4_ADD); }
      pub fn sub_f32x4(&mut self) { self.simd(op::SIMD_F32X4_SUB); }
      pub fn mul_f32x4(&mut self) { self.simd(op::SIMD_F32X4_MUL); }
-@@ -851,6 +888,7 @@ impl WasmBuilder {
+@@ -851,6 +897,7 @@ impl WasmBuilder {
      pub fn ne_i64(&mut self) { self.instruction_body.push(op::OP_I64NE); }
  
      pub fn le_i32(&mut self) { self.instruction_body.push(op::OP_I32LES); }
@@ -622,18 +670,24 @@ diff --git a/src/rust/wasmgen/wasm_builder.rs b/src/rust/wasmgen/wasm_builder.rs
      pub fn ge_i32(&mut self) { self.instruction_body.push(op::OP_I32GES); }
      pub fn gt_i32(&mut self) { self.instruction_body.push(op::OP_I32GTS); }
 diff --git a/src/rust/wasmgen/wasm_opcodes.rs b/src/rust/wasmgen/wasm_opcodes.rs
-index 5fad93c..83bba1e 100644
+index 5fad93c..3442638 100644
 --- a/src/rust/wasmgen/wasm_opcodes.rs
 +++ b/src/rust/wasmgen/wasm_opcodes.rs
-@@ -220,15 +220,20 @@ c!(SIMD_V128_LOAD, 0x00);
+@@ -220,15 +220,26 @@ c!(SIMD_V128_LOAD, 0x00);
  c!(SIMD_V128_STORE, 0x0b);
  c!(SIMD_V128_CONST, 0x0c);
  c!(SIMD_I8X16_SHUFFLE, 0x0d);
 +c!(SIMD_I32X4_SPLAT, 0x11);
 +c!(SIMD_I64X2_SPLAT, 0x12);
 +c!(SIMD_I64X2_EXTRACT_LANE, 0x1d);
++c!(SIMD_I16X8_REPLACE_LANE, 0x1a);
++c!(SIMD_I8X16_LT_S, 0x25);
++c!(SIMD_F32X4_CONVERT_I32X4_S, 0xfa);
  c!(SIMD_F32X4_LT, 0x43);
  c!(SIMD_V128_BITSELECT, 0x52);
++c!(SIMD_V128_XOR, 0x51);
++c!(SIMD_V128_OR, 0x50);
++c!(SIMD_I32X4_SHR_S, 0xac);
  c!(SIMD_I8X16_NARROW_I16X8_U, 0x66);
  c!(SIMD_I16X8_NARROW_I32X4_S, 0x85);
 +c!(SIMD_I16X8_SHL, 0x8b);
