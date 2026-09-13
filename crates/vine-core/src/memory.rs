@@ -2983,6 +2983,13 @@ impl GuestMemory {
     }
 
     pub fn pending_delta(&mut self) -> Result<MemoryDelta, GuestMemoryError> {
+        let mut delta = self.pending_delta_without_content_hash()?;
+        delta.content_sha256 = hash_delta_content(&delta.mapping_operations, &delta.dirty_pages);
+        Ok(delta)
+    }
+
+    /// Metadata and page payloads for transports that do not consume the diagnostic hash.
+    pub fn pending_delta_without_content_hash(&mut self) -> Result<MemoryDelta, GuestMemoryError> {
         let invalidation = self.require_pending_delta()?;
         let mapping_operations = self.pending_mapping_operations();
         let dirty_pages = self.collect_dirty_pages()?;
@@ -2995,7 +3002,6 @@ impl GuestMemory {
                 )
             })
         })?;
-        let content_sha256 = hash_delta_content(&mapping_operations, &dirty_pages);
         self.record_offered_generation(invalidation.generation, false);
         Ok(MemoryDelta {
             from_generation: self.acknowledged_generation,
@@ -3005,7 +3011,7 @@ impl GuestMemory {
             dirty_pages,
             cache_effects: invalidation.into(),
             transferred_bytes,
-            content_sha256,
+            content_sha256: String::new(),
         })
     }
 

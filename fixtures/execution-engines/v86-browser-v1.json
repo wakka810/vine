@@ -127,6 +127,11 @@
       "hostProfile": "windows-gnu-execution-island-delta-stream-v117",
       "bytes": 7483198,
       "sha256": "0c6166b0645d74cd9951dcc42fc86f70e63b48aba1f86be8e6a1b01afce0ba56"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-page-service-v118",
+      "bytes": 7476858,
+      "sha256": "cfac874908be30ea9c4966564892f92bea8084b52cea17863c3efaa107f75a52"
     }
   ]
 }

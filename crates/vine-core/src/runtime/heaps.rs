@@ -1461,6 +1461,14 @@ impl RuntimeHeaps {
             || backing
                 .materialized_pages
                 .contains(&plan.committed_page.start().0)
+            || !plan
+                .committed_page
+                .start()
+                .0
+                .is_multiple_of(GUEST_PAGE_SIZE as u32)
+            || plan.committed_page.byte_length() != GUEST_PAGE_SIZE
+            || plan.committed_page.start().0 < backing.range.start().0
+            || plan.committed_page.end() > backing.range.end()
         {
             return Err(RuntimeStateError::conflict(
                 "runtime-heap-backing",
@@ -2222,13 +2230,19 @@ fn validate_large_heap_backing(
                 "large private heap slot overflows x86 address accounting",
             )
         })?;
-    let pages_fit = backing.materialized_pages.iter().all(|page_base| {
+    let page_fits = |page_base: &u32| {
         page_base.is_multiple_of(GUEST_PAGE_SIZE as u32)
             && *page_base >= expected_base.0
             && page_base
                 .checked_add(GUEST_PAGE_SIZE as u32)
                 .is_some_and(|end| end <= expected_end)
-    });
+    };
+    // Only commit_page_materialization inserts, validating alignment and range there.
+    // Ordered endpoints prove the range without an O(n) rescan on every new page.
+    // Keep the complete internal-state audit in debug builds.
+    let pages_fit = backing.materialized_pages.first().is_none_or(page_fits)
+        && backing.materialized_pages.last().is_none_or(page_fits)
+        && (!cfg!(debug_assertions) || backing.materialized_pages.iter().all(page_fits));
     if backing.slot == 0
         || backing.slot > RUNTIME_PRIVATE_HEAP_LARGE_SLOT_LIMIT
         || backing.handle != heap.handle
@@ -2504,6 +2518,73 @@ mod tests {
                 .code,
             "heap-live-allocation-count-mismatch"
         );
+        assert_eq!(heaps, before);
+    }
+
+    #[test]
+    fn large_page_insertion_validates_before_mutation_and_accepts_sparse_order() {
+        let mut heaps = RuntimeHeaps::default();
+        let mut heap = heap();
+        heap.live_allocations = 1;
+        let base = large_heap_slot_base(1).unwrap();
+        let backing = RuntimeLargeHeapAllocationBacking {
+            slot: 1,
+            handle: HANDLE,
+            memory_owner: MemoryOwnerId(1),
+            address_allocation_id: ProcessAddressAllocationId(1),
+            range: GuestRange::new(base, u64::from(RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE)).unwrap(),
+            allocation: RuntimeHeapAllocation {
+                id: RuntimeHeapAllocationId(1),
+                address: base,
+                byte_length: RUNTIME_PRIVATE_HEAP_ARENA_STRIDE + 0x3000,
+                reserved_byte_length: RUNTIME_PRIVATE_HEAP_ARENA_STRIDE + 0x3000,
+                initialization: RuntimeHeapInitialization::Zeroed,
+            },
+            materialized_pages: BTreeSet::new(),
+        };
+        let mut plan = RuntimeHeapPageMaterializationPlan {
+            large_slot: 1,
+            handle: HANDLE,
+            allocation: backing.allocation,
+            backing_range: backing.range,
+            memory_owner: backing.memory_owner,
+            address_allocation_id: backing.address_allocation_id,
+            fault_address: base,
+            page_fault_error_code: 6,
+            committed_page: GuestRange::new(base, GUEST_PAGE_SIZE).unwrap(),
+            previous_materialized_pages: 0,
+        };
+        heaps.large_backings.insert(1, backing);
+        for (address, length) in [
+            (base.0 + 1, GUEST_PAGE_SIZE),
+            (base.0, 2 * GUEST_PAGE_SIZE),
+            (base.0 - GUEST_PAGE_SIZE as u32, GUEST_PAGE_SIZE),
+            (
+                base.0 + RUNTIME_PRIVATE_HEAP_LARGE_SLOT_SIZE,
+                GUEST_PAGE_SIZE,
+            ),
+        ] {
+            let before = heaps.clone();
+            let mut invalid = plan;
+            invalid.committed_page = GuestRange::new(GuestAddress(address), length).unwrap();
+            assert!(heaps.commit_page_materialization(invalid).is_err());
+            assert_eq!(heaps, before);
+        }
+        for offset in [0x2000, 0, 0x1000] {
+            plan.committed_page =
+                GuestRange::new(GuestAddress(base.0 + offset), GUEST_PAGE_SIZE).unwrap();
+            plan.fault_address = plan.committed_page.start();
+            heaps.commit_page_materialization(plan).unwrap();
+            plan.previous_materialized_pages += 1;
+            validate_large_heap_backing(
+                &heap,
+                &heaps.large_backings[&1],
+                RuntimeHeapAllocationId(2),
+            )
+            .unwrap();
+        }
+        let before = heaps.clone();
+        assert!(heaps.commit_page_materialization(plan).is_err());
         assert_eq!(heaps, before);
     }
 }

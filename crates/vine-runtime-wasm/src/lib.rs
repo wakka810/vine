@@ -1582,7 +1582,10 @@ impl BrowserRuntime {
             _ => return Err("browser mapping fixture stage is unsupported".to_owned()),
         };
 
-        let delta = self.memory.pending_delta().map_err(error_string)?;
+        let delta = self
+            .memory
+            .pending_delta_without_content_hash()
+            .map_err(error_string)?;
         let mapping_operations = delta
             .mapping_operations
             .iter()
@@ -1678,7 +1681,10 @@ impl BrowserRuntime {
                 ));
             }
         };
-        let delta = self.memory.pending_delta().map_err(error_string)?;
+        let delta = self
+            .memory
+            .pending_delta_without_content_hash()
+            .map_err(error_string)?;
         let metadata = json!({
             "kind": "page-fault-resolved",
             "resolution": resolution,
@@ -2799,9 +2805,8 @@ impl BrowserRuntime {
         let prepared = ExecutionSession::new(&mut self.memory, &mut self.runtime)
             .begin_guest_callback(&call)
             .map_err(api_fault_string)?;
-        let delta = self.memory.pending_delta().map_err(error_string)?;
-        let generation = delta.generation;
-        let buffers = delta.encode_binary().map_err(error_string)?;
+        let buffers = self.memory.pending_delta_binary().map_err(error_string)?;
+        let generation = self.memory.stats().generation;
         let thread_id = self.runtime.current_thread_id();
         let queued_thread_messages = self
             .runtime
@@ -3653,9 +3658,8 @@ impl BrowserRuntime {
                     frame_id: prepared.frame_id,
                     stack_pointer: prepared.stack_pointer,
                 };
-                let delta = self.memory.pending_delta().map_err(error_string)?;
-                let generation = delta.generation;
-                let buffers = delta.encode_binary().map_err(error_string)?;
+                let buffers = self.memory.pending_delta_binary().map_err(error_string)?;
+                let generation = self.memory.stats().generation;
                 Ok((
                     json!({
                         "kind": "guest-callback",
@@ -3779,13 +3783,7 @@ impl BrowserRuntime {
             metadata["markerValue"] = json!(marker_value);
         }
         let delta = if controlled.is_none() {
-            Some(
-                self.memory
-                    .pending_delta()
-                    .map_err(error_string)?
-                    .encode_binary()
-                    .map_err(error_string)?,
-            )
+            Some(self.memory.pending_delta_binary().map_err(error_string)?)
         } else {
             None
         };

@@ -547,6 +547,9 @@ fn synchronize(
         .expect("streamed binary delta");
     assert_eq!(memory.stats(), before);
     let delta = memory.pending_delta().expect("pending delta");
+    let unhashed = memory.pending_delta_without_content_hash().unwrap();
+    assert!(unhashed.content_sha256.is_empty());
+    assert_eq!(unhashed.encode_binary().unwrap(), binary);
     assert_eq!(binary, delta.encode_binary().expect("owned binary delta"));
     apply_delta(mirror, &delta);
     memory
