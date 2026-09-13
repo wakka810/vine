@@ -117,6 +117,11 @@
       "hostProfile": "windows-gnu-execution-island-vector-windows-v98",
       "bytes": 7470131,
       "sha256": "4c3d8af61632905a5a6891cee441a78c7aa16b9ee143f54f10d626d167280453"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-conditional-stream-v111",
+      "bytes": 7476466,
+      "sha256": "a0d6236c3ce355adbd877db62fb24d296c004d83b35fa1eac15cddfd5042753f"
     }
   ]
 }

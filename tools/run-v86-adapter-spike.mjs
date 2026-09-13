@@ -334,10 +334,26 @@ async function checkCountedLoops() {
     state.setUint32(stateOffset.controlRegisters + 3 * 4, 0x1f0000, true);
     state.setUint32(stateOffset.controlRegisters, state.getUint32(stateOffset.controlRegisters, true) | 0x80010000 | (test.ts ? 8 : 0), true);
     wasm.full_clear_tlb(); wasm.vine_reset_dirty_pages();
-    const before = wasm.vine_affine_iterations?.() ?? 0;
+    let before = wasm.vine_affine_iterations?.() ?? 0;
     const stops = [];
     for (let slice = 0; ; slice++) {
       assert(slice < 2000);
+      if (slice === 2 && test.cold) {
+        // Warmed code, cold conditional streams: no access may fault until the
+        // branch actually uses it. Restart to exercise a completed skip prefix.
+        before = wasm.vine_affine_iterations?.() ?? 0;
+        memory.fill(0, alpha, alpha + pixels);
+        if (test.firstRead !== undefined) memory[alpha + test.firstRead] = 128;
+        reg(r.source, src); reg(r.dest, dst); reg(r.alpha, alpha); reg(r.count, pixels);
+        state.setUint32(stateOffset.instructionPointer, guest.codeAddress, true);
+        state.setUint32(stateOffset.previousInstructionPointer, guest.codeAddress, true);
+        if (test.removeStream) {
+          const address = test.removeStream === 'source' ? src : dst;
+          for (let page = address >>> 12; page < (address + pixels * 4) >>> 12; page++)
+            view.setUint32(0x1f1000 + page * 4, test.streamReadonly ? page * 4096 | 5 : 0, true);
+        }
+        wasm.full_clear_tlb();
+      }
       if (slice === 2 && test.rearm) wasm.vine_reset_dirty_pages();
       if (slice === 2 && (test.allZero || test.bias !== undefined || test.shift !== undefined)) {
         if (test.allZero) memory.fill(0, alpha, alpha + pixels);
@@ -357,6 +373,15 @@ async function checkCountedLoops() {
     return {result, iterations: (wasm.vine_affine_iterations?.() ?? 0) - before};
   }
   const cases = [
+    {name: 'unused unmapped source', cold: true, removeStream: 'source'},
+    {name: 'unused unmapped destination', cold: true, removeStream: 'destination'},
+    {name: 'unused readonly destination', cold: true, removeStream: 'destination', streamReadonly: true},
+    {name: 'cold first source read', cold: true, firstRead: 0},
+    {name: 'cold late source read', cold: true, firstRead: 700},
+    {name: 'cold boundary source read', cold: true, firstRead: 1024},
+    {name: 'cold final source read', cold: true, firstRead: 4095},
+    {name: 'cold missing late source read', cold: true, removeStream: 'source', firstRead: 700},
+    {name: 'cold missing first source read', cold: true, removeStream: 'source', firstRead: 0},
     {name: 'mixed map'}, {name: 'small exact budget', budget: 4097}, {name: 'interpreter small budget', budget: 301},
     {name: 'renamed registers', roles: {a:2, alpha:6, base:7, source:3, dest:5, count:0, mm:4, other:2, zero:6}},
     {name: 'overlapping streams', alias: true}, {name: 'cross-page invariant', cross: true},
@@ -372,15 +397,18 @@ async function checkCountedLoops() {
   ];
   for (const test of cases) {
     const reference = await run(test, true), candidate = await run(test, false);
-    if (test.fault || test.ts) {
+    const coldReadFault = test.cold && test.removeStream === 'source' && test.firstRead !== undefined;
+    if (test.fault || test.ts || coldReadFault) {
       // Existing v86 counts the whole faulting basic block. Compare the architectural
       // state exactly, and retain the measured accounting delta instead of hiding it.
       const delta = candidate.result.stops.at(-1).count - reference.result.stops.at(-1).count;
-      assert.equal(delta, test.fault === 'read' ? 2 : test.fault === 'write' ? 3 : 0);
+      assert.equal(delta, test.fault === 'read' || coldReadFault ? 2 : test.fault === 'write' ? 3 : 0);
 
       candidate.result.stops.at(-1).count -= delta;
     }
     assert.deepEqual(candidate.result, reference.result, test.name);
+    if (wasm.vine_affine_iterations && test.cold && test.firstRead === undefined)
+      assert(candidate.iterations > 1000, test.name + ' did not accelerate unused mappings');
     if (wasm.vine_affine_iterations && ['mixed map', 'renamed registers', 'overlapping streams', 'cross-page invariant', 'integer pixel conversion'].includes(test.name))
       assert(candidate.iterations > 0, test.name + ' did not accelerate');
 

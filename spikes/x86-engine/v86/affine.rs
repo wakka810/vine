@@ -1,5 +1,5 @@
 //! Bounded counted-loop lowering. Proof failures fall through to the ordinary JIT.
-//! No guest state changes until every access in the chunk has a valid TLB mapping.
+//! Only checked ordinary-RAM accesses execute; skipped branches need no mapping.
 use crate::cpu::{cpu, global_pointers as gp};
 use crate::cpu_context::CpuContext;
 use crate::jit::{BasicBlock, BasicBlockType, JitContext};
@@ -475,10 +475,52 @@ fn read(ctx: &mut JitContext, a: &Access, translations: &[Option<WasmLocal>; 8])
         _ => ctx.builder.load_unaligned_i64(0),
     }
 }
+// First conditional MMX operation, streams used only in that branch, and GPRs
+// changed by its write-free prefix. No other branch may bypass the guard.
+fn conditional_streams(p: &Plan) -> Option<(usize, u8, u8)> {
+    let mut restore = 0;
+    for (i, &op) in p.ops.iter().enumerate() {
+        match op {
+            Op::Load(r, _)
+            | Op::Or(r, _)
+            | Op::AddMemory(r, _)
+            | Op::AddImmediate(r, _, _)
+            | Op::Shift(r, _, _) => restore |= 1 << r,
+            Op::Compare(..) => {},
+            Op::Branch(..) if matches!(p.ops.get(i + 1), Some(Op::MmxLoad(..))) => {},
+            Op::MmxLoad(..) => {
+                let Op::Branch(_, target) = p.ops[i.checked_sub(1)?] else {
+                    return None;
+                };
+                let mut mask = 0;
+                for (r, span) in p.spans.iter().enumerate() {
+                    if span.as_ref().is_none_or(|s| s.stride == 0) {
+                        continue;
+                    }
+                    if p.ops.iter().enumerate().all(|(n, &op)| {
+                        op.access().is_none_or(|m| {
+                            p.accesses[m].root != r || n >= i && p.addresses[n] < target
+                        })
+                    }) {
+                        mask |= 1 << r;
+                    }
+                }
+                return (mask != 0).then_some((i, mask, restore));
+            },
+            _ => return None,
+        }
+    }
+    None
+}
 pub fn generate(ctx: &mut JitContext, blocks: &HashMap<u32, BasicBlock>, root: u32) {
     let Some(p) = plan(ctx, blocks, root) else {
         return;
     };
+    let optional = conditional_streams(&p);
+    let invalid_read = optional.map(|_| {
+        ctx.builder.const_i32(0);
+        ctx.builder.set_new_local()
+    });
     let fallback = ctx.builder.block_void();
     if p.mmx_used != 0 {
         ctx.builder.load_fixed_i32(gp::cr as u32);
@@ -556,16 +598,19 @@ pub fn generate(ctx: &mut JitContext, blocks: &HashMap<u32, BasicBlock>, root: u
         let mask = 0xfff
             & !cpu::TLB_GLOBAL
             & !(if ctx.cpu.cpl3() { 0 } else { cpu::TLB_NO_USER })
-            & !(if s.write {
-                0
-            } else {
-                cpu::TLB_READONLY | cpu::TLB_HAS_CODE
-            });
+            & !(if s.write { 0 } else { cpu::TLB_READONLY | cpu::TLB_HAS_CODE });
         ctx.builder.const_i32(mask);
         ctx.builder.and_i32();
         ctx.builder.const_i32(cpu::TLB_VALID);
         ctx.builder.ne_i32();
-        ctx.builder.br_if(fallback);
+        if optional.is_some_and(|(_, mask, _)| mask & (1 << r) != 0) {
+            let invalid = invalid_read.as_ref().unwrap();
+            ctx.builder.get_local(invalid);
+            ctx.builder.or_i32();
+            ctx.builder.set_local(invalid);
+        } else {
+            ctx.builder.br_if(fallback);
+        }
         ctx.builder.get_local(&entry);
         ctx.builder.const_i32(!0xfff);
         ctx.builder.and_i32();
@@ -633,7 +678,27 @@ pub fn generate(ctx: &mut JitContext, blocks: &HashMap<u32, BasicBlock>, root: u
     let dirty = ctx.builder.set_new_local();
     ctx.builder.const_i32(0);
     let signed_le = ctx.builder.set_new_local();
+    let saved_regs: Vec<_> = (0..8)
+        .filter(|&r| optional.is_some_and(|(_, _, mask)| mask & (1 << r) != 0))
+        .map(|r| {
+            ctx.builder.const_i32(0);
+            (r, ctx.builder.set_new_local())
+        })
+        .collect();
+    let saved_count = optional.map(|_| {
+        ctx.builder.const_i32(0);
+        ctx.builder.set_new_local()
+    });
+    let done = optional.map(|_| ctx.builder.block_void());
     let looping = ctx.builder.loop_void();
+    for (r, saved) in &saved_regs {
+        ctx.builder.get_local(&ctx.reg(*r));
+        ctx.builder.set_local(saved);
+    }
+    if let Some(saved) = &saved_count {
+        ctx.builder.get_local(&ctx.instruction_counter);
+        ctx.builder.set_local(saved);
+    }
     let mut labels = HashMap::new();
     let mut targets: Vec<_> = p.ops[..p.ops.len() - 1]
         .iter()
@@ -721,9 +786,23 @@ pub fn generate(ctx: &mut JitContext, blocks: &HashMap<u32, BasicBlock>, root: u
                     ctx.builder.geu_i32();
                 }
                 ctx.builder.br_if(labels[&target]);
-            }
-            Op::Branch(_, _) => {}
+            },
+            Op::Branch(_, _) => {},
             Op::MmxLoad(r, m) => {
+                if optional.is_some_and(|(at, _, _)| at == i) {
+                    ctx.builder.get_local(invalid_read.as_ref().unwrap());
+                    ctx.builder.if_void();
+                    // No guest writes or MMX changes precede this read. Roll back
+                    // only this iteration, then commit the completed prefix below.
+                    for (reg, saved) in &saved_regs {
+                        ctx.builder.get_local(saved);
+                        ctx.builder.set_local(&ctx.reg(*reg));
+                    }
+                    ctx.builder.get_local(saved_count.as_ref().unwrap());
+                    ctx.builder.set_local(&ctx.instruction_counter);
+                    ctx.builder.br(done.unwrap());
+                    ctx.builder.block_end();
+                }
                 read(ctx, &p.accesses[m], &translations);
                 if p.accesses[m].bytes == 4 {
                     ctx.builder.extend_unsigned_i32_to_i64();
@@ -803,6 +882,24 @@ pub fn generate(ctx: &mut JitContext, blocks: &HashMap<u32, BasicBlock>, root: u
     ctx.builder.tee_local(&n);
     ctx.builder.br_if(looping);
     ctx.builder.block_end();
+    if done.is_some() {
+        ctx.builder.block_end();
+        ctx.builder.get_local(&total);
+        ctx.builder.get_local(&n);
+        ctx.builder.sub_i32();
+        ctx.builder.tee_local(&total);
+        ctx.builder.eqz_i32();
+        ctx.builder.br_if(fallback);
+    }
+    for (_, saved) in saved_regs {
+        ctx.builder.free_local(saved);
+    }
+    if let Some(saved) = saved_count {
+        ctx.builder.free_local(saved);
+    }
+    if let Some(invalid) = invalid_read {
+        ctx.builder.free_local(invalid);
+    }
     for (r, local) in mmx.into_iter().enumerate() {
         let Some(local) = local else {
             continue;
