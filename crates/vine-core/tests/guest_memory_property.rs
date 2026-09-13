@@ -54,6 +54,10 @@ fn run_sequence(seed: u64, direct_execution: bool) {
     }
 
     let reflection = memory.pending_reflection().expect("initial reflection");
+    assert_eq!(
+        memory.pending_delta_binary().unwrap_err().code,
+        "initial-memory-reflection-required"
+    );
     let mut mirror = reflection
         .pages
         .iter()
@@ -72,6 +76,10 @@ fn run_sequence(seed: u64, direct_execution: bool) {
     memory
         .acknowledge_delta(reflection.invalidation.generation)
         .expect("initial acknowledgement");
+    assert_eq!(
+        memory.pending_delta_binary().unwrap_err().code,
+        "no-memory-delta-pending"
+    );
 
     for _ in 0..128 {
         match random.next_u32() % 9 {
@@ -512,6 +520,18 @@ fn rollback_random_transaction(
                 0x1000,
             )
             .expect("transaction reserve");
+        let binary = transaction
+            .pending_delta_binary()
+            .expect("transaction delta");
+        assert_eq!(transaction.transaction_stats().offered_generations, 1);
+        assert_eq!(
+            binary,
+            transaction
+                .pending_delta()
+                .unwrap()
+                .encode_binary()
+                .unwrap()
+        );
     }
     assert_eq!(memory.stats(), before);
 }
@@ -521,7 +541,13 @@ fn synchronize(
     mirror: &mut BTreeMap<u32, ModelPage>,
     model: &BTreeMap<u32, ModelPage>,
 ) {
+    let before = memory.stats();
+    let binary = memory
+        .pending_delta_binary()
+        .expect("streamed binary delta");
+    assert_eq!(memory.stats(), before);
     let delta = memory.pending_delta().expect("pending delta");
+    assert_eq!(binary, delta.encode_binary().expect("owned binary delta"));
     apply_delta(mirror, &delta);
     memory
         .acknowledge_delta(delta.generation)

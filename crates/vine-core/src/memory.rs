@@ -316,22 +316,48 @@ impl MemoryDelta {
                 "binary memory delta requires 4 KiB pages",
             ));
         }
-        let mapping_count = u32::try_from(self.mapping_operations.len()).map_err(|_| {
+        let mut buffers = MemoryDeltaBuffers::new(
+            self.from_generation,
+            self.generation,
+            &self.mapping_operations,
+            self.cache_effects,
+            self.dirty_pages.len(),
+        )?;
+        for page in &self.dirty_pages {
+            buffers.push_page(
+                page.address,
+                page.owner,
+                page_protection_flags(page.protection) | u32::from(page.owner_sealed) << 3,
+                &page.bytes,
+            )?;
+        }
+        Ok(buffers)
+    }
+}
+
+impl MemoryDeltaBuffers {
+    fn new(
+        from_generation: u64,
+        generation: u64,
+        mapping_operations: &[MappingOperation],
+        cache_effects: CacheEffects,
+        page_count: usize,
+    ) -> Result<Self, GuestMemoryError> {
+        let mapping_count = u32::try_from(mapping_operations.len()).map_err(|_| {
             GuestMemoryError::resource_limit(
                 "memory-delta-transport",
                 "memory-delta-mapping-count-overflow",
                 "memory delta mapping count does not fit the binary control format",
             )
         })?;
-        let dirty_count = u32::try_from(self.dirty_pages.len()).map_err(|_| {
+        let dirty_count = u32::try_from(page_count).map_err(|_| {
             GuestMemoryError::resource_limit(
                 "memory-delta-transport",
                 "memory-delta-page-count-overflow",
                 "memory delta page count does not fit the binary control format",
             )
         })?;
-        let mapping_bytes = self
-            .mapping_operations
+        let mapping_bytes = mapping_operations
             .len()
             .checked_mul(MEMORY_DELTA_MAPPING_DESCRIPTOR_BYTES)
             .ok_or_else(|| {
@@ -341,9 +367,7 @@ impl MemoryDelta {
                     "memory delta mapping size overflowed host accounting",
                 )
             })?;
-        let page_descriptor_bytes = self
-            .dirty_pages
-            .len()
+        let page_descriptor_bytes = page_count
             .checked_mul(MEMORY_DELTA_PAGE_DESCRIPTOR_BYTES)
             .ok_or_else(|| {
                 GuestMemoryError::resource_limit(
@@ -352,9 +376,7 @@ impl MemoryDelta {
                     "memory delta page descriptor size overflowed host accounting",
                 )
             })?;
-        let payload_bytes = self
-            .dirty_pages
-            .len()
+        let payload_bytes = page_count
             .checked_mul(GUEST_PAGE_SIZE_USIZE)
             .ok_or_else(|| {
                 GuestMemoryError::resource_limit(
@@ -377,19 +399,19 @@ impl MemoryDelta {
         control.extend_from_slice(MEMORY_DELTA_CONTROL_MAGIC);
         control.extend_from_slice(&MEMORY_DELTA_BINARY_VERSION.to_le_bytes());
         control.extend_from_slice(&(GUEST_PAGE_SIZE as u32).to_le_bytes());
-        control.extend_from_slice(&self.from_generation.to_le_bytes());
-        control.extend_from_slice(&self.generation.to_le_bytes());
+        control.extend_from_slice(&from_generation.to_le_bytes());
+        control.extend_from_slice(&generation.to_le_bytes());
         control.extend_from_slice(&mapping_count.to_le_bytes());
         control.extend_from_slice(&(MEMORY_DELTA_MAPPING_DESCRIPTOR_BYTES as u32).to_le_bytes());
         control.extend_from_slice(&dirty_count.to_le_bytes());
         control.extend_from_slice(&(MEMORY_DELTA_PAGE_DESCRIPTOR_BYTES as u32).to_le_bytes());
-        let cache_flags = u32::from(self.cache_effects.flush_tlb)
-            | u32::from(self.cache_effects.invalidate_instruction_fetch) << 1
-            | u32::from(self.cache_effects.invalidate_generated_code) << 2;
+        let cache_flags = u32::from(cache_effects.flush_tlb)
+            | u32::from(cache_effects.invalidate_instruction_fetch) << 1
+            | u32::from(cache_effects.invalidate_generated_code) << 2;
         control.extend_from_slice(&cache_flags.to_le_bytes());
         control.extend_from_slice(&0u32.to_le_bytes());
 
-        for operation in &self.mapping_operations {
+        for operation in mapping_operations {
             let (operation_code, address_allocation_id, owner, kind, range, protection) =
                 match operation {
                     MappingOperation::Reserve {
@@ -453,26 +475,32 @@ impl MemoryDelta {
             control.extend_from_slice(&0u32.to_le_bytes());
         }
 
-        let mut page_bytes = Vec::with_capacity(payload_bytes);
-        for page in &self.dirty_pages {
-            if page.bytes.len() != GUEST_PAGE_SIZE_USIZE {
-                return Err(GuestMemoryError::runtime_defect(
-                    "memory-delta-transport",
-                    "memory-delta-page-size-mismatch",
-                    "memory delta contains a page with a non-4-KiB payload",
-                ));
-            }
-            let flags = page_protection_flags(page.protection) | u32::from(page.owner_sealed) << 3;
-            control.extend_from_slice(&page.address.0.to_le_bytes());
-            control.extend_from_slice(&page.owner.0.to_le_bytes());
-            control.extend_from_slice(&flags.to_le_bytes());
-            control.extend_from_slice(&0u32.to_le_bytes());
-            page_bytes.extend_from_slice(&page.bytes);
-        }
-        Ok(MemoryDeltaBuffers {
+        Ok(Self {
             control,
-            page_bytes,
+            page_bytes: Vec::with_capacity(payload_bytes),
         })
+    }
+
+    fn push_page(
+        &mut self,
+        address: GuestAddress,
+        owner: MemoryOwnerId,
+        flags: u32,
+        bytes: &[u8],
+    ) -> Result<(), GuestMemoryError> {
+        if bytes.len() != GUEST_PAGE_SIZE_USIZE {
+            return Err(GuestMemoryError::runtime_defect(
+                "memory-delta-transport",
+                "memory-delta-page-size-mismatch",
+                "memory delta contains a page with a non-4-KiB payload",
+            ));
+        }
+        self.control.extend_from_slice(&address.0.to_le_bytes());
+        self.control.extend_from_slice(&owner.0.to_le_bytes());
+        self.control.extend_from_slice(&flags.to_le_bytes());
+        self.control.extend_from_slice(&0u32.to_le_bytes());
+        self.page_bytes.extend_from_slice(bytes);
+        Ok(())
     }
 }
 
@@ -2955,37 +2983,8 @@ impl GuestMemory {
     }
 
     pub fn pending_delta(&mut self) -> Result<MemoryDelta, GuestMemoryError> {
-        self.pending_delta_with_content_hash(true)
-    }
-
-    pub fn pending_delta_binary(&mut self) -> Result<MemoryDeltaBuffers, GuestMemoryError> {
-        self.pending_delta_with_content_hash(false)?.encode_binary()
-    }
-
-    fn pending_delta_with_content_hash(
-        &mut self,
-        include_content_hash: bool,
-    ) -> Result<MemoryDelta, GuestMemoryError> {
-        if !self.initial_reflection_acknowledged {
-            return Err(GuestMemoryError::invalid_request(
-                "memory-delta",
-                "initial-memory-reflection-required",
-                "a full memory reflection must be acknowledged before incremental deltas",
-            ));
-        }
-        let invalidation = self.pending_invalidation().ok_or_else(|| {
-            GuestMemoryError::invalid_request(
-                "memory-delta",
-                "no-memory-delta-pending",
-                "there is no pending memory delta to transfer",
-            )
-        })?;
-
-        let mapping_operations = self
-            .pending_changes
-            .iter()
-            .flat_map(|change| change.mapping_operations.iter().cloned())
-            .collect::<Vec<_>>();
+        let invalidation = self.require_pending_delta()?;
+        let mapping_operations = self.pending_mapping_operations();
         let dirty_pages = self.collect_dirty_pages()?;
         let transferred_bytes = dirty_pages.iter().try_fold(0usize, |total, page| {
             total.checked_add(page.bytes.len()).ok_or_else(|| {
@@ -2996,11 +2995,7 @@ impl GuestMemory {
                 )
             })
         })?;
-        let content_sha256 = if include_content_hash {
-            hash_delta_content(&mapping_operations, &dirty_pages)
-        } else {
-            String::new()
-        };
+        let content_sha256 = hash_delta_content(&mapping_operations, &dirty_pages);
         self.record_offered_generation(invalidation.generation, false);
         Ok(MemoryDelta {
             from_generation: self.acknowledged_generation,
@@ -3014,23 +3009,76 @@ impl GuestMemory {
         })
     }
 
+    pub fn pending_delta_binary(&mut self) -> Result<MemoryDeltaBuffers, GuestMemoryError> {
+        let invalidation = self.require_pending_delta()?;
+        let mut buffers = MemoryDeltaBuffers::new(
+            self.acknowledged_generation,
+            invalidation.generation,
+            &self.pending_mapping_operations(),
+            invalidation.into(),
+            self.dirty_pages.len(),
+        )?;
+        // Encode directly from authoritative frames: no per-page allocation or intermediate copy.
+        for &virtual_page in &self.dirty_pages {
+            let page = self.require_dirty_page(virtual_page)?;
+            let owner = self.require_owner(page.owner)?;
+            buffers.push_page(
+                virtual_page_address(virtual_page, "memory-delta")?,
+                page.owner,
+                page_protection_flags(page.protection) | u32::from(owner.sealed) << 3,
+                self.frames.bytes(page.frame)?,
+            )?;
+        }
+        self.record_offered_generation(invalidation.generation, false);
+        Ok(buffers)
+    }
+
+    fn require_pending_delta(&self) -> Result<MemoryInvalidation, GuestMemoryError> {
+        if !self.initial_reflection_acknowledged {
+            return Err(GuestMemoryError::invalid_request(
+                "memory-delta",
+                "initial-memory-reflection-required",
+                "a full memory reflection must be acknowledged before incremental deltas",
+            ));
+        }
+        self.pending_invalidation().ok_or_else(|| {
+            GuestMemoryError::invalid_request(
+                "memory-delta",
+                "no-memory-delta-pending",
+                "there is no pending memory delta to transfer",
+            )
+        })
+    }
+
+    fn pending_mapping_operations(&self) -> Vec<MappingOperation> {
+        self.pending_changes
+            .iter()
+            .flat_map(|change| change.mapping_operations.iter().cloned())
+            .collect()
+    }
+
+    fn require_dirty_page(&self, virtual_page: u32) -> Result<&PageState, GuestMemoryError> {
+        let page = self.pages.get(&virtual_page).ok_or_else(|| {
+            GuestMemoryError::runtime_defect(
+                "memory-delta",
+                "dirty-page-index-stale",
+                "dirty-page index references an uncommitted guest page",
+            )
+        })?;
+        if page.dirty_generation.is_none() {
+            return Err(GuestMemoryError::runtime_defect(
+                "memory-delta",
+                "dirty-page-index-clean",
+                "dirty-page index references a clean guest page",
+            ));
+        }
+        Ok(page)
+    }
+
     fn collect_dirty_pages(&self) -> Result<Vec<DirtyPage>, GuestMemoryError> {
         let mut dirty_pages = Vec::with_capacity(self.dirty_pages.len());
         for &virtual_page in &self.dirty_pages {
-            let page = self.pages.get(&virtual_page).ok_or_else(|| {
-                GuestMemoryError::runtime_defect(
-                    "memory-delta",
-                    "dirty-page-index-stale",
-                    "dirty-page index references an uncommitted guest page",
-                )
-            })?;
-            if page.dirty_generation.is_none() {
-                return Err(GuestMemoryError::runtime_defect(
-                    "memory-delta",
-                    "dirty-page-index-clean",
-                    "dirty-page index references a clean guest page",
-                ));
-            }
+            let page = self.require_dirty_page(virtual_page)?;
             let address = virtual_page_address(virtual_page, "memory-delta")?;
             let owner = self.require_owner(page.owner)?;
             dirty_pages.push(DirtyPage {
