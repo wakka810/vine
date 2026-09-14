@@ -4583,29 +4583,22 @@ impl RuntimeKernel {
         &self,
         include_current: bool,
     ) -> Result<Option<(RuntimeThreadId, RuntimeThreadPriority)>, RuntimeStateError> {
-        let thread_ids = self
-            .scheduler
-            .thread_states()
-            .keys()
-            .copied()
-            .collect::<Vec<_>>();
+        let thread_states = self.scheduler.thread_states();
         let current_thread_id = self.current_thread_id();
-        let current_index = thread_ids
-            .iter()
-            .position(|thread_id| *thread_id == current_thread_id)
-            .ok_or_else(|| {
-                RuntimeStateError::runtime_defect(
-                    "runtime-scheduler",
-                    "current-thread-scheduler-state-missing",
-                    "current runtime thread has no scheduler lane",
-                )
-            })?;
+        if !thread_states.contains_key(&current_thread_id) {
+            return Err(RuntimeStateError::runtime_defect(
+                "runtime-scheduler",
+                "current-thread-scheduler-state-missing",
+                "current runtime thread has no scheduler lane",
+            ));
+        }
         let mut preferred = None;
-        for offset in 1..=thread_ids.len() {
-            let thread_id = thread_ids[(current_index + offset) % thread_ids.len()];
-            if (!include_current && thread_id == current_thread_id)
-                || !self.scheduler.state(thread_id)?.is_executable()
-            {
+        let after_current = thread_states.range((
+            std::ops::Bound::Excluded(current_thread_id),
+            std::ops::Bound::Unbounded,
+        ));
+        for (&thread_id, state) in after_current.chain(thread_states.range(..=current_thread_id)) {
+            if (!include_current && thread_id == current_thread_id) || !state.is_executable() {
                 continue;
             }
             let priority = self.threads.effective_priority(thread_id)?;

@@ -1589,6 +1589,25 @@ pub fn dispatch_user32_api_with_policy(
     if let Err(fault) = policy.validate() {
         return ApiHandlerResult::Fault(fault);
     }
+    dispatch_user32_api_with_prevalidated_policy(
+        policy,
+        callback_return_sentinel,
+        contract,
+        frame,
+        session,
+    )
+}
+
+/// The caller must validate the policy once and keep it unchanged while dispatching.
+/// Guest arguments, handles, memory and window state still use the same handlers.
+pub fn dispatch_user32_api_with_prevalidated_policy(
+    policy: &User32CompatibilityPolicy,
+    callback_return_sentinel: GuestAddress,
+    contract: &ApiContract,
+    frame: &ApiCallFrame,
+    session: &mut ExecutionSession<'_>,
+) -> ApiHandlerResult {
+    debug_assert!(policy.validate().is_ok());
     match contract.implementation_id.as_str() {
         ENUM_DISPLAY_MONITORS_IMPLEMENTATION => {
             handle_enum_display_monitors(policy, callback_return_sentinel, contract, frame, session)

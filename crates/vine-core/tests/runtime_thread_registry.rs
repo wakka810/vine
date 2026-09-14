@@ -12,6 +12,66 @@ const INITIAL_THREAD_ID: RuntimeThreadId = RuntimeThreadId(8192);
 const SECOND_THREAD_ID: RuntimeThreadId = RuntimeThreadId(4097);
 
 #[test]
+fn executable_selection_preserves_cyclic_priority_order_with_blocked_lanes() {
+    let ids = [
+        RuntimeThreadId(4097),
+        INITIAL_THREAD_ID,
+        RuntimeThreadId(8193),
+        RuntimeThreadId(9000),
+    ];
+    for seed in 0..32 {
+        let mut runtime = running_runtime();
+        let mut priorities = std::collections::BTreeMap::from([(INITIAL_THREAD_ID, 0)]);
+        for (index, &id) in ids.iter().enumerate() {
+            if id == INITIAL_THREAD_ID {
+                continue;
+            }
+            let handle = runtime.register_thread(id, 0).unwrap();
+            let rank = (seed + index) % 3;
+            runtime
+                .set_thread_priority(
+                    handle,
+                    match rank {
+                        0 => RuntimeThreadPriority::BelowNormal,
+                        1 => RuntimeThreadPriority::Normal,
+                        _ => RuntimeThreadPriority::AboveNormal,
+                    },
+                )
+                .unwrap();
+            priorities.insert(id, rank as i32 - 1);
+        }
+        for (index, &id) in ids.iter().enumerate() {
+            if seed & (1 << index) != 0 {
+                runtime.select_thread(id).unwrap();
+                runtime.begin_host_request("selection-order-test").unwrap();
+            }
+        }
+        for &current in &ids {
+            runtime.select_thread(current).unwrap();
+            let start = ids.iter().position(|id| *id == current).unwrap();
+            let mut expected = None;
+            for offset in 1..=ids.len() {
+                let id = ids[(start + offset) % ids.len()];
+                if runtime
+                    .scheduler_state_for_thread(id)
+                    .unwrap()
+                    .is_executable()
+                    && expected.is_none_or(|previous| priorities[&id] > priorities[&previous])
+                {
+                    expected = Some(id);
+                }
+            }
+            let actual = runtime.select_next_executable_thread().unwrap();
+            assert_eq!(
+                actual.map(|selection| selection.thread_id),
+                expected,
+                "seed {seed}"
+            );
+        }
+    }
+}
+
+#[test]
 fn api_boundary_quantum_selects_another_runnable_thread_without_immediate_preemption() {
     let mut runtime = running_runtime();
     runtime

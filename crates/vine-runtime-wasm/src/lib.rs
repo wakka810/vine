@@ -42,7 +42,7 @@ use vine_core::{
     dispatch_dinput8_com_call, dispatch_dsound_api, dispatch_dsound_com_call,
     dispatch_gdi32_api_with_policy, dispatch_gdiplus_api_with_policy,
     dispatch_imm32_api_with_policy, dispatch_kernel32_api_with_prevalidated_policy,
-    dispatch_ole32_api, dispatch_shell32_api, dispatch_user32_api_with_policy,
+    dispatch_ole32_api, dispatch_shell32_api, dispatch_user32_api_with_prevalidated_policy,
     dispatch_winmm_api_with_policy, dsound_contract_for_endpoint, gdi32_contract_for_endpoint,
     gdiplus_contract_for_endpoint, imm32_contract_for_endpoint, install_controlled_initial_stack,
     install_controlled_process_environment_with_command_line, install_dynamic_export_thunks,
@@ -1897,7 +1897,8 @@ impl BrowserRuntime {
                         ..
                     } => {
                         if contract.endpoint.module.eq_ignore_ascii_case("user32.dll") {
-                            dispatch_user32_api_with_policy(
+                            // prepare_bgi validates this privately owned, immutable policy.
+                            dispatch_user32_api_with_prevalidated_policy(
                                 user32_policy,
                                 callback_sentinel,
                                 contract,

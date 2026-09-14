@@ -28,14 +28,15 @@ use vine_core::{
     RuntimeWindowLifecycle, SchedulerThreadState, StackCleanup, User32CompatibilityPolicy,
     begin_paint_contract, build_pe32_load_plan, create_window_ex_a_contract,
     def_window_proc_a_contract, dispatch_gdi32_api, dispatch_imm32_api_with_policy,
-    dispatch_message_a_contract, dispatch_user32_api_with_policy, enable_menu_item_contract,
-    end_paint_contract, enum_display_monitors_contract, fill_rect_contract,
-    gdi32_contract_for_endpoint, get_async_key_state_contract, get_client_rect_contract,
-    get_cursor_info_contract, get_cursor_pos_contract, get_dc_contract,
-    get_foreground_window_contract, get_monitor_info_a_contract, get_stock_object_contract,
-    get_system_menu_contract, get_system_metrics_contract, get_window_rect_contract,
-    imm_associate_context_contract, imm_get_default_ime_wnd_contract, is_iconic_contract,
-    load_cursor_a_contract, load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
+    dispatch_message_a_contract, dispatch_user32_api_with_policy,
+    dispatch_user32_api_with_prevalidated_policy, enable_menu_item_contract, end_paint_contract,
+    enum_display_monitors_contract, fill_rect_contract, gdi32_contract_for_endpoint,
+    get_async_key_state_contract, get_client_rect_contract, get_cursor_info_contract,
+    get_cursor_pos_contract, get_dc_contract, get_foreground_window_contract,
+    get_monitor_info_a_contract, get_stock_object_contract, get_system_menu_contract,
+    get_system_metrics_contract, get_window_rect_contract, imm_associate_context_contract,
+    imm_get_default_ime_wnd_contract, is_iconic_contract, load_cursor_a_contract,
+    load_icon_a_contract, load_image_a_contract, materialize_pe32_image,
     monitor_from_window_contract, peek_message_a_contract, register_class_ex_a_contract,
     release_dc_contract, send_message_a_contract, set_cursor_contract, set_cursor_pos_contract,
     set_focus_contract, set_rect_contract, set_timer_contract, set_window_long_a_contract,
@@ -403,6 +404,15 @@ impl SwapFixture {
     }
 
     fn dispatch(&mut self, stack_pointer: u32, return_address: GuestAddress) -> DispatchOutcome {
+        self.dispatch_with_policy_check(stack_pointer, return_address, false)
+    }
+
+    fn dispatch_with_policy_check(
+        &mut self,
+        stack_pointer: u32,
+        return_address: GuestAddress,
+        prevalidated: bool,
+    ) -> DispatchOutcome {
         let mut session = ExecutionSession::new(&mut self.memory, &mut self.runtime);
         self.dispatcher.dispatch_owned(
             ApiOwnedTrap {
@@ -413,13 +423,12 @@ impl SwapFixture {
             },
             &mut session,
             |contract, frame, session| {
-                dispatch_user32_api_with_policy(
-                    &self.policy,
-                    CALLBACK_SENTINEL,
-                    contract,
-                    frame,
-                    session,
-                )
+                let dispatch = if prevalidated {
+                    dispatch_user32_api_with_prevalidated_policy
+                } else {
+                    dispatch_user32_api_with_policy
+                };
+                dispatch(&self.policy, CALLBACK_SENTINEL, contract, frame, session)
             },
         )
     }
@@ -12310,6 +12319,30 @@ fn register_class_ex_a_negative_paths_are_failure_atomic_and_do_not_consume_atom
     assert_eq!(fault.class, ApiFaultClass::Unsupported);
     assert_eq!(fault.code, "register-class-ex-a-policy-disabled");
     assert!(disabled.runtime.window_classes().is_empty());
+}
+
+#[test]
+fn prevalidated_user32_policy_preserves_dispatch_results_and_state() {
+    for initial_swapped in [false, true] {
+        let mut checked = SwapFixture::new(initial_swapped);
+        let mut prevalidated = SwapFixture::new(initial_swapped);
+        prevalidated.policy.validate().unwrap();
+        for (stack, return_address) in [
+            (STACK_POINTER, SWAP_FIRST_RETURN_ADDRESS),
+            (SWAP_SECOND_STACK_POINTER, SWAP_SECOND_RETURN_ADDRESS),
+            (STACK_POINTER, GuestAddress(SWAP_FIRST_RETURN_ADDRESS.0 + 4)),
+            (u32::MAX - 3, SWAP_FIRST_RETURN_ADDRESS),
+        ] {
+            let before = checked.runtime.clone();
+            let expected = checked.dispatch(stack, return_address);
+            let actual = prevalidated.dispatch_with_policy_check(stack, return_address, true);
+            assert_eq!(actual, expected);
+            assert_eq!(prevalidated.runtime, checked.runtime);
+            if matches!(expected, DispatchOutcome::Fault(_)) {
+                assert_eq!(checked.runtime, before);
+            }
+        }
+    }
 }
 
 #[test]
