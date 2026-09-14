@@ -137,6 +137,11 @@
       "hostProfile": "windows-gnu-execution-island-api-boundary-v124",
       "bytes": 7475012,
       "sha256": "a1907020042166dcc247a1db7419a9290d22fa048fc10604830fb0e2fd79268c"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-native-heap-v128",
+      "bytes": 7483148,
+      "sha256": "d9b736858121b04d5e51789f700ffd698a2ab44ce6d230e0de4004e31b28255f"
     }
   ]
 }

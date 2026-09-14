@@ -84,6 +84,7 @@ export interface ExecutionSlice {
     writebackBatches: number;
     writebackPages: number;
     mirroredDeltaPages: number;
+    nativeHeapPages?: number;
     generation: bigint;
   };
 }

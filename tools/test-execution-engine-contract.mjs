@@ -997,6 +997,67 @@ assert.throws(() => island.createEngine({ maximumPhysicalPages: prepared.metadat
 assert.throws(() => bridge.prepare(new Uint8Array()), /backing is pinned/u,
   "repreparing the runtime must not free memory still referenced by the CPU");
 
+// The large-heap fixture uses the same Rust owner as product play. First faults
+// without a page table remain ordinary; subsequent faults are handled in-island.
+let largeAddress;
+for (const stage of [7, 8, 9, 10]) {
+  const output = bridge.advanceMappingFixture(stage);
+  const delta = decodeHostDelta(output.control, output.payload);
+  directEngine.applyMemoryDelta(delta);
+  bridge.acknowledgeFast(delta.generation);
+  if (stage === 7) largeAddress = output.metadata.probeAddress;
+  const address = largeAddress + pageSize;
+  directEngine.restoreCpuContext(directContext);
+  directEngine.applyCpuResume({ instructionPointer: directContext.instructionPointer,
+    stackPointer: address + 4, eax: { action: "preserve" }, edx: { action: "preserve" },
+    eflags: { action: "preserve" } });
+  const before = bridge.currentMemorySummary().metadata;
+  const slice = directEngine.executeBudget(1, { retiredInstructions: 2, hostElapsedTime100ns: 0n });
+  assert.equal(slice.stop.kind, stage === 8 ? "budget-yield" : "fault", `native heap stage ${stage}`);
+  assert.equal(slice.executionIsland.nativeHeapPages ?? 0, stage === 8 ? 1 : 0);
+  if (stage === 8) {
+    // Existing v86 accounting consumes one attempted instruction for the fault.
+    // The budget-edge return must leave EIP/ESP unchanged and resume the PUSH once.
+    assert.equal(slice.context.esp, address + 4);
+    assert.equal(slice.context.instructionPointer, directContext.instructionPointer);
+    assert.equal(slice.executionIsland.writebackPages, 0);
+    assert.equal(directEngine.readGuestU32(address), 0);
+    const resumed = directEngine.executeBudget(1, { retiredInstructions: 3, hostElapsedTime100ns: 0n });
+    assert.equal(resumed.stop.kind, "budget-yield");
+    assert.equal(resumed.context.esp, address);
+    assert.equal(resumed.executionIsland.nativeHeapPages, 0);
+    assert.equal(resumed.executionIsland.writebackPages, 1);
+    assert.equal(directEngine.readGuestU32(address), directContext.ebp);
+    assert.equal(directEngine.readGuestU32(address + 4), 0);
+    assert.equal(directEngine.collectChangedPageViews().length, 0);
+    const reflection = bridge.currentReflection();
+    const reflected = decodeReflection(reflection.control, reflection.payload);
+    assert.equal(reflected.generation, resumed.executionIsland.generation);
+    const page = reflected.pages.find(p => p.address === address);
+    assert(page);
+    assert.equal(new DataView(page.bytes.buffer, page.bytes.byteOffset).getUint32(0, true), directContext.ebp);
+    directEngine.restoreCpuContext(directContext);
+    directEngine.applyCpuResume({ instructionPointer: directContext.instructionPointer,
+      stackPointer: address + pageSize + 4, eax: { action: "preserve" }, edx: { action: "preserve" },
+      eflags: { action: "preserve" } });
+    const inline = directEngine.executeBudget(2, { retiredInstructions: 4, hostElapsedTime100ns: 0n });
+    assert.equal(inline.stop.kind, "budget-yield");
+    assert.equal(inline.executionIsland.nativeHeapPages, 1);
+    assert.equal(inline.executionIsland.writebackPages, 1);
+    assert.equal(inline.context.esp, address + pageSize);
+    assert.equal(directEngine.readGuestU32(address + pageSize), directContext.ebp);
+    directEngine.applyCpuResume({ instructionPointer: address + pageSize,
+      stackPointer: inline.context.esp, eax: { action: "preserve" }, edx: { action: "preserve" },
+      eflags: { action: "preserve" } });
+    const executeFault = directEngine.executeBudget(1, { retiredInstructions: 6, hostElapsedTime100ns: 0n });
+    assert.equal(executeFault.stop.kind, "fault", "native heap must remain non-executable");
+    assert.equal(executeFault.executionIsland.nativeHeapPages, 0);
+  } else {
+    assert.equal(slice.context.esp, address + 4);
+    assert.deepEqual(bridge.currentMemorySummary().metadata, before, "rejected native heap fault changed authority");
+  }
+}
+
 console.log(
   `ExecutionEngine contract passed: ${identity.engine} ${identity.sourceRevision.slice(0, 12)}, ` +
     `CPU context v${initialContext.version}/${initialContext.byteLength} bytes`,

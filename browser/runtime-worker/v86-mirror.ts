@@ -113,6 +113,8 @@ interface V86Exports extends WebAssembly.Exports {
 }
 
 interface V86IslandExports {
+  vine_execution_island_heap_pages_count?(): number;
+  vine_execution_island_heap_pages_ptr?(): number;
   vine_execution_island_enable_direct_memory(poolBytes: number): number;
   vine_execution_island_page_offset(address: number, owner: number, protection: number): number;
   vine_execution_island_abi_version(): number;
@@ -1046,6 +1048,7 @@ export class V86Mirror implements ExecutionEngine {
     this.#refreshLinearMemoryViews();
     const errorCode = this.#wasm.vine_get_stop_error_code();
     this.#wasm.vine_cpu_state_save();
+    const nativeHeapPages = this.#adoptNativeHeapPages(island);
     const words = this.#liveStateWords();
     const after = this.#wasm.vine_instruction_counter();
     const state = {
@@ -1060,6 +1063,7 @@ export class V86Mirror implements ExecutionEngine {
         ? undefined
         : {
             fastApiCompletions: island.vine_execution_island_fast_api_count?.() ?? 0,
+            nativeHeapPages,
             writebackBatches: island.vine_execution_island_writeback_batches?.() ?? 0,
             writebackPages: island.vine_execution_island_writeback_pages?.() ?? 0,
             mirroredDeltaPages:
@@ -1090,6 +1094,48 @@ export class V86Mirror implements ExecutionEngine {
       instructionPointer: words[stateWord.instructionPointer] ?? 0,
       previousInstructionPointer: words[stateWord.previousInstructionPointer] ?? 0,
     };
+  }
+
+  #adoptNativeHeapPages(island: Partial<V86IslandExports>): number {
+    const count = island.vine_execution_island_heap_pages_count?.() ?? 0;
+    if (count === 0) return 0;
+    invariant(this.#directMemory && Number.isInteger(count) && count > 0 && count <= 128 &&
+      this.#mappings.size + count <= this.#maximumPhysicalPages,
+      "invalid native heap-page count");
+    const pointer = island.vine_execution_island_heap_pages_ptr?.() ?? 0;
+    invariant(pointer > 0 && pointer % 4 === 0 && pointer + count * 24 <= this.#wasm.memory.buffer.byteLength,
+      "invalid native heap-page record range");
+    const records = new Uint32Array(this.#wasm.memory.buffer, pointer, count * 6);
+    const pages: MirrorMapping[] = [];
+    const seen = new Set<number>();
+    const protection = { read: true, write: true, execute: false };
+    for (let i = 0; i < count; i += 1) {
+      const address = records[i * 6]!;
+      const owner = records[i * 6 + 1]!;
+      const addressAllocationId = records[i * 6 + 2]! + records[i * 6 + 3]! * 0x1_0000_0000;
+      const physicalBase = records[i * 6 + 4]!;
+      const pteAddress = records[i * 6 + 5]!;
+      invariant(Number.isSafeInteger(addressAllocationId) && addressAllocationId > 0 &&
+        (address & 4095) === 0 && !seen.has(address) && !this.#mappings.has(address),
+        "native heap-page identity is invalid or duplicated");
+      const reservation = [...this.#reservations.values()].find(r => r.owner === owner &&
+        r.addressAllocationId === addressAllocationId && r.kind === "heap" &&
+        rangeContains(r.range, { base: address, byteLength: memoryPageSize }));
+      invariant(reservation !== undefined, "native heap-page escaped its owner reservation");
+      const table = this.#pageTables.get(address >>> 22);
+      invariant(table !== undefined && pteAddress === table + ((address >>> 12) & 1023) * 4 &&
+        (this.#physicalView.getUint32(pteAddress, true) & 0xffff_f007) >>> 0 === (physicalBase | 7) >>> 0 &&
+        this.#authoritativePageOffset(address, owner, protection) === physicalBase,
+        "native heap-page mapping is missing, stale, or has wrong protection");
+      seen.add(address);
+      pages.push({ address, owner, addressAllocationId, protection, physicalBase, pteAddress, pteWordIndex: pteAddress >>> 2 });
+    }
+    for (const page of pages) {
+      this.#mappings.set(page.address, page);
+      const directory = page.address >>> 22;
+      this.#directoryMappingCounts.set(directory, (this.#directoryMappingCounts.get(directory) ?? 0) + 1);
+    }
+    return count;
   }
 
   saveCpuContext(): ExecutionCpuContext {

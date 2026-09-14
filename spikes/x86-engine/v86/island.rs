@@ -69,6 +69,55 @@ static mut WRITEBACK_PAGES: u32 = 0;
 static mut MIRRORED_DELTA_PAGES: u32 = 0;
 static mut GENERATION: u64 = 0;
 static mut DIRECT_MEMORY: bool = false;
+const NATIVE_HEAP_PAGE_CAPACITY: usize = 128;
+// ponytail: bounded receipts reuse installed tables; overflow/new tables fall back
+// to the existing adapter, which can be widened if profiling shows a remaining cost.
+static mut NATIVE_HEAP_PAGES: [[u32; 6]; NATIVE_HEAP_PAGE_CAPACITY] = [[0; 6]; NATIVE_HEAP_PAGE_CAPACITY];
+static mut NATIVE_HEAP_PAGE_COUNT: usize = 0;
+
+#[no_mangle]
+pub unsafe fn vine_execution_island_heap_pages_ptr() -> u32 {
+    std::ptr::addr_of!(NATIVE_HEAP_PAGES) as u32
+}
+
+#[no_mangle]
+pub unsafe fn vine_execution_island_heap_pages_count() -> u32 { NATIVE_HEAP_PAGE_COUNT as u32 }
+
+unsafe fn materialize_heap_fault() -> Result<bool, String> {
+    if NATIVE_HEAP_PAGE_COUNT == NATIVE_HEAP_PAGE_CAPACITY { return Ok(false); }
+    let address = *cr.add(2) as u32;
+    let error = crate::cpu::cpu::vine_get_stop_error_code() as u32;
+    if error & 1 != 0 { return Ok(false); }
+    // Only reuse an already installed page table. Creating a table still uses
+    // the existing TS adapter allocator; no second page-table allocator here.
+    let directory = *cr.add(3) as u32 & !PAGE_MASK;
+    if directory as usize + PAGE_BYTES > DIRECT_TABLE_BYTES { return Ok(false); }
+    let pde = memory::read32s(directory + (address >> 22) * 4) as u32;
+    let table = pde & !PAGE_MASK;
+    if pde & 0x87 != 7 || table < PAGE_BYTES as u32 || table as usize + PAGE_BYTES > DIRECT_TABLE_BYTES
+        || memory::in_mapped_range(table) { return Ok(false); }
+    let pte = table + ((address >> 12) & 1023) * 4;
+    if memory::read32s(pte) != 0 { return Ok(false); }
+    if !reconcile_dirty_pages()? { return Ok(false); }
+    let page = match vine_runtime_wasm::execution_island_materialize_heap_page(address,error)? {
+        Some(page) => page,
+        None => return Ok(false),
+    };
+    if (page.physical_offset as usize) < DIRECT_TABLE_BYTES || page.physical_offset & PAGE_MASK != 0
+        || page.physical_offset as u64 + PAGE_BYTES as u64 > *crate::cpu::global_pointers::memory_size as u64 {
+        return Err("native heap page escaped the authoritative arena".to_owned());
+    }
+    if vine::vine_set_page_executable(page.address, 0) != 0 {
+        return Err("native heap page has an invalid execute-permission address".to_owned());
+    }
+    memory::write32_no_mmap_or_dirty_check(pte,(page.physical_offset | 7) as i32);
+    invlpg(page.address as i32);
+    NATIVE_HEAP_PAGES[NATIVE_HEAP_PAGE_COUNT] = [page.address,page.owner,page.allocation as u32,
+        (page.allocation>>32)as u32,page.physical_offset,pte];
+    NATIVE_HEAP_PAGE_COUNT += 1;
+    GENERATION = page.generation;
+    Ok(true)
+}
 
 #[no_mangle]
 pub unsafe fn vine_execution_island_enable_direct_memory(pool_bytes: u32) -> u32 {
@@ -1034,6 +1083,7 @@ unsafe fn execute_budget(
     host_elapsed_time_100ns_high: u32,
 ) -> u32 {
     FAST_API_COUNT = 0;
+    NATIVE_HEAP_PAGE_COUNT = 0;
     HOT_LOOP_ACTIVE = false;
     WRITEBACK_BATCHES = 0;
     WRITEBACK_PAGES = 0;
@@ -1083,9 +1133,21 @@ unsafe fn execute_budget(
             crate::cpu::cpu::vine_execute_budget(max_instructions - executed)
         };
         HOT_LOOP_ACTIVE = false;
+        if DIRECT_MEMORY && reason == 0x10e {
+            match materialize_heap_fault() {
+                Ok(true) => continue,
+                Ok(false) => {},
+                Err(error) => {
+                    vine_runtime_wasm::execution_island_set_error(error);
+                    return STOP_ISLAND_ERROR;
+                }
+            }
+        }
         if reason != STOP_INVALID_OPCODE {
             return reason;
         }
+        // Publish new mappings before any API can protect/free/reuse their frames.
+        if NATIVE_HEAP_PAGE_COUNT != 0 { return reason; }
         let retired = retired_base + (*instruction_counter).wrapping_sub(initial_counter) as u64;
         match dispatch_fast(retired, &host_clock, &mut prevalidated_endpoint) {
             Ok(FastDispatch::Continued) => {}

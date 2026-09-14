@@ -67,7 +67,7 @@ const CANCEL_EXIT_CODE: u32 = 0xc000_013a;
 const DEFERRED_ADD: &str = "browser-fixture-deferred-add-v1";
 const CALL_CALLBACK: &str = "browser-fixture-call-callback-v1";
 const COMMIT_OUTPUTS: &str = "browser-fixture-commit-outputs-v1";
-const MAPPING_FIXTURE_STAGE_COUNT: u32 = 7;
+const MAPPING_FIXTURE_STAGE_COUNT: u32 = 11;
 const FIXTURE_MAX_PHYSICAL_PAGES: usize = 16;
 const BGI_SHA256: &str = "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1";
 const BGI_LOAD_BASE: GuestAddress = GuestAddress(0x1000_0000);
@@ -1571,13 +1571,59 @@ impl BrowserRuntime {
                     .map_err(error_string)?;
                 ("heap-recommit", self.mapping_fixture_allocation_address()?)
             }
-            6 => {
+            6 | 10 => {
                 let handle = self.mapping_fixture_heap_handle()?;
                 let address = self.mapping_fixture_allocation_address()?;
                 ExecutionSession::new(&mut self.memory, &mut self.runtime)
                     .destroy_private_heap(handle)
                     .map_err(error_string)?;
                 ("heap-release", address)
+            }
+            7 => {
+                let handle = self
+                    .runtime
+                    .allocate_private_heap(0, 0x1000, 0)
+                    .map_err(error_string)?
+                    .handle;
+                let allocation = ExecutionSession::new(&mut self.memory, &mut self.runtime)
+                    .allocate_private_heap_block(
+                        handle,
+                        vine_core::RUNTIME_PRIVATE_HEAP_ARENA_STRIDE + 0x3000,
+                        RuntimeHeapInitialization::Zeroed,
+                    )
+                    .map_err(error_string)?;
+                let backing = self
+                    .runtime
+                    .large_heap_allocation_backing()
+                    .ok_or_else(|| "large fixture heap has no backing".to_owned())?;
+                self.mapping_fixture.heap_handle = Some(handle);
+                self.mapping_fixture.allocation_address = Some(allocation.address);
+                self.mapping_fixture.backing_owner = Some(backing.memory_owner);
+                ("large-heap-reserve", allocation.address)
+            }
+            8 => {
+                let address = self.mapping_fixture_allocation_address()?;
+                self.runtime
+                    .materialize_private_heap_page(&mut self.memory, address, 6)
+                    .map_err(error_string)?;
+                ("large-heap-first-page", address)
+            }
+            9 => {
+                let address = GuestAddress(
+                    self.mapping_fixture_allocation_address()?.0 + GUEST_PAGE_SIZE as u32,
+                );
+                self.memory
+                    .protect(
+                        self.mapping_fixture_backing_owner()?,
+                        GuestRange::new(address, GUEST_PAGE_SIZE).map_err(error_string)?,
+                        PageProtection {
+                            read: true,
+                            write: false,
+                            execute: false,
+                        },
+                    )
+                    .map_err(error_string)?;
+                ("large-heap-protect-read-only", address)
             }
             _ => return Err("browser mapping fixture stage is unsupported".to_owned()),
         };
@@ -5639,6 +5685,91 @@ pub fn execution_island_acknowledge_direct_writes(
     })
 }
 
+pub struct ExecutionHeapPage {
+    pub address: u32,
+    pub owner: u32,
+    pub allocation: u64,
+    pub physical_offset: u32,
+    pub generation: u64,
+}
+
+/// The execution adapter preflights its absent PTE before calling. Ordinary fault
+/// handling remains responsible for stack growth and rejected lazy-heap faults.
+pub fn execution_island_materialize_heap_page(
+    fault_address: u32,
+    error_code: u32,
+) -> Result<Option<ExecutionHeapPage>, String> {
+    BRIDGE.with(|cell| {
+        let mut bridge = cell.borrow_mut();
+        let runtime = bridge.runtime_mut()?;
+        materialize_execution_heap_page(
+            &mut runtime.memory,
+            &mut runtime.runtime,
+            fault_address,
+            error_code,
+        )
+    })
+}
+
+fn materialize_execution_heap_page(
+    memory: &mut GuestMemory,
+    runtime: &mut RuntimeState,
+    fault_address: u32,
+    error_code: u32,
+) -> Result<Option<ExecutionHeapPage>, String> {
+    memory
+        .with_execution_memory(|_, _| ())
+        .map_err(error_string)?;
+    let before = memory.synchronization_state();
+    let page = match runtime.materialize_private_heap_page(
+        memory,
+        GuestAddress(fault_address),
+        error_code,
+    ) {
+        Ok(page) => page,
+        Err(_) => {
+            if memory.synchronization_state() != before {
+                return Err("rejected native heap fault changed memory".to_owned());
+            }
+            return Ok(None);
+        }
+    };
+    let protection = PageProtection {
+        read: true,
+        write: true,
+        execute: false,
+    };
+    let delta = memory
+        .pending_delta_without_content_hash()
+        .map_err(error_string)?;
+    if delta.from_generation != before.generation
+        || !matches!(delta.mapping_operations.as_slice(),
+                [MappingOperation::Commit { range, owner, address_allocation_id, protection: mapped }]
+                    if *range == page.committed_page && *owner == page.memory_owner
+                        && *address_allocation_id == Some(page.address_allocation_id.0) && *mapped == protection)
+        || delta.dirty_pages.len() != 1
+        || delta.dirty_pages[0].address != page.committed_page.start()
+        || delta.dirty_pages[0].owner != page.memory_owner
+        || delta.dirty_pages[0].protection != protection
+    {
+        return Err("native heap fault produced an unexpected memory delta".to_owned());
+    }
+    let physical_offset = memory
+        .execution_page_offset(page.committed_page.start(), page.memory_owner, protection)
+        .map_err(error_string)?;
+    let physical_offset = u32::try_from(physical_offset).map_err(error_string)?;
+    memory
+        .acknowledge_delta(delta.generation)
+        .map_err(error_string)?;
+    Ok(Some(ExecutionHeapPage {
+        address: page.committed_page.start().0,
+        owner: page.memory_owner.0,
+        allocation: page.address_allocation_id.0,
+        physical_offset,
+        generation: delta.generation,
+    }))
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn vine_bridge_input_resize(byte_length: u32) -> u32 {
     run_bridge(|bridge| {
@@ -6406,6 +6537,93 @@ pub extern "C" fn vine_bridge_finish(exit_code: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_heap_pages_are_zeroed_authoritative_and_rejections_are_atomic() {
+        let mut runtime = controlled_runtime_state(0xec02_5c47).unwrap();
+        runtime.set_heap_poisoning_enabled(false);
+        let mut memory = GuestMemory::new(MemoryLimits {
+            max_physical_pages: 1,
+            ..MemoryLimits::default()
+        })
+        .unwrap();
+        let handle = runtime.allocate_private_heap(0, 0x1000, 0).unwrap().handle;
+        let length = vine_core::RUNTIME_PRIVATE_HEAP_ARENA_STRIDE + 0x3000;
+        let allocation = ExecutionSession::new(&mut memory, &mut runtime)
+            .allocate_private_heap_block(
+                handle,
+                length,
+                RuntimeHeapInitialization::DeterministicUninitialized,
+            )
+            .unwrap();
+        let reflection = memory.pending_reflection().unwrap();
+        memory
+            .acknowledge_delta(reflection.invalidation.generation)
+            .unwrap();
+        memory.enable_execution_memory(1).unwrap();
+        let page =
+            materialize_execution_heap_page(&mut memory, &mut runtime, allocation.address.0 + 7, 6)
+                .unwrap()
+                .unwrap();
+        assert_eq!(page.address, allocation.address.0);
+        assert_eq!(page.physical_offset, 4096);
+        assert_eq!(
+            memory.synchronization_state().acknowledged_generation,
+            page.generation
+        );
+        assert!(!memory.has_pending_delta());
+        let reflected = memory.current_reflection().unwrap();
+        assert_eq!(reflected.pages.len(), 1);
+        assert!(reflected.pages[0].bytes.iter().all(|byte| *byte == 0));
+        assert_eq!(reflected.pages[0].owner.0, page.owner);
+
+        // Already committed, outside the allocation, protection, and exhausted pool.
+        for (address, error) in [
+            (page.address, 6),
+            (page.address - 1, 6),
+            (page.address + length, 4),
+            (page.address + 4096, 7),
+            (page.address + 4096, 6),
+        ] {
+            let before = runtime.clone();
+            let stats = memory.stats();
+            let bytes = memory.current_reflection().unwrap().content_sha256;
+            assert!(
+                materialize_execution_heap_page(&mut memory, &mut runtime, address, error)
+                    .unwrap()
+                    .is_none()
+            );
+            assert_eq!(runtime, before);
+            assert_eq!(memory.stats(), stats);
+            assert_eq!(memory.current_reflection().unwrap().content_sha256, bytes);
+        }
+
+        memory.write(allocation.address, &[0x5a; 16]).unwrap();
+        let delta = memory.pending_delta_without_content_hash().unwrap();
+        memory.acknowledge_delta(delta.generation).unwrap();
+        ExecutionSession::new(&mut memory, &mut runtime)
+            .free_private_heap_block(handle, allocation.address)
+            .unwrap();
+        let delta = memory.pending_delta_without_content_hash().unwrap();
+        memory.acknowledge_delta(delta.generation).unwrap();
+        let reused = ExecutionSession::new(&mut memory, &mut runtime)
+            .allocate_private_heap_block(handle, length, RuntimeHeapInitialization::Zeroed)
+            .unwrap();
+        if memory.has_pending_delta() {
+            let delta = memory.pending_delta_without_content_hash().unwrap();
+            memory.acknowledge_delta(delta.generation).unwrap();
+        }
+        let again = materialize_execution_heap_page(&mut memory, &mut runtime, reused.address.0, 4)
+            .unwrap()
+            .unwrap();
+        assert_eq!(again.physical_offset, page.physical_offset);
+        assert!(
+            memory.current_reflection().unwrap().pages[0]
+                .bytes
+                .iter()
+                .all(|byte| *byte == 0)
+        );
+    }
 
     #[test]
     fn acknowledged_thread_join_wakes_do_not_consume_host_receipts() {

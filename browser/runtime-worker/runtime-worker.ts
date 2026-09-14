@@ -8291,6 +8291,9 @@ class BrowserRuntimeSession {
           "execution island memory generation moved backwards",
         );
         this.#generation = island.generation;
+        this.#report.mappingDeltas += island.nativeHeapPages ?? 0;
+        this.#report.mappingOperations.commit += island.nativeHeapPages ?? 0;
+        this.#report.mappingDirtyPages += island.nativeHeapPages ?? 0;
         this.#report.writebackBatches += island.writebackBatches;
         this.#report.writebackPages += island.writebackPages;
         this.#report.executionTiming.executionIsland.fastApiCompletions +=
