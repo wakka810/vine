@@ -86,6 +86,7 @@ interface V86Exports extends WebAssembly.Exports {
   reset_cpu(): void;
   full_clear_tlb(): void;
   jit_clear_cache_js(): void;
+  jit_dirty_cache(start: number, end: number): void;
   set_jit_config(index: number, value: number): void;
   get_jit_config(index: number): number;
   codegen_finalize_finished(index: number, start: number, stateFlags: number): void;
@@ -1430,13 +1431,13 @@ export class V86Mirror implements ExecutionEngine {
           this.#installPageBytes(page.bytes, mapping);
         }
       }
-      this.applyCacheEffects(delta.cacheEffects);
+      this.applyCacheEffects(delta.cacheEffects, delta.pages.length !== 0);
       return;
     }
     const onlyOperation = delta.mappingOperations[0]!;
     if (this.#directMemory && delta.mappingOperations.length === 1 &&
         onlyOperation.operation === "protect" && this.#applyDirectProtection(delta, onlyOperation)) {
-      this.applyCacheEffects(delta.cacheEffects);
+      this.applyCacheEffects(delta.cacheEffects, true);
       return;
     }
     const capacity = this.#preflightHostDelta(delta);
@@ -1474,7 +1475,8 @@ export class V86Mirror implements ExecutionEngine {
       const mapping = this.#mappings.get(page.address)!;
       this.#installPageBytes(page.bytes, mapping);
     }
-    this.applyCacheEffects(delta.cacheEffects);
+    this.applyCacheEffects(delta.cacheEffects,
+      delta.pages.length !== 0 || delta.mappingOperations.some((op) => op.operation !== "reserve"));
   }
 
   applyHostDelta(delta: HostMemoryDelta): void {
@@ -1505,15 +1507,11 @@ export class V86Mirror implements ExecutionEngine {
       return mapping !== undefined && address >= operation.range.base && address < rangeEnd(operation.range)
         ? { ...mapping, protection: operation.protection } : mapping;
     });
-    for (const page of delta.pages) {
-      invariant(this.#authoritativePageOffset(page.address, page.owner, page.protection) ===
-        this.#mappings.get(page.address)!.physicalBase,
-        "host delta changed backing without a mapping operation");
-    }
     for (const address of addresses) {
       if (!sameProtection(this.#mappings.get(address)!.protection, operation.protection))
         this.#updateProtection(address, operation.protection);
     }
+    for (const page of delta.pages) this.#invalidateMappedCode(this.#mappings.get(page.address)!);
     return true;
   }
 
@@ -1748,6 +1746,10 @@ export class V86Mirror implements ExecutionEngine {
         sameProtection(mapping.protection, page.protection),
         "host delta protection does not match the mirror",
       );
+      if (this.#directMemory && mapping.physicalBase !== undefined) {
+        invariant(this.#authoritativePageOffset(page.address, page.owner, page.protection) ===
+          mapping.physicalBase, "host delta changed backing without a mapping operation");
+      }
     }
   }
 
@@ -1794,7 +1796,7 @@ export class V86Mirror implements ExecutionEngine {
     }
   }
 
-  applyCacheEffects(effects: CacheEffects): void {
+  applyCacheEffects(effects: CacheEffects, mappedDelta = false): void {
     if (effects.flushTlb || effects.invalidateInstructionFetch) {
       this.#wasm.full_clear_tlb();
       this.#cacheEffectCounts.tlbFlushes += 1;
@@ -1803,7 +1805,7 @@ export class V86Mirror implements ExecutionEngine {
       effects.invalidateInstructionFetch,
     );
     if (effects.invalidateGeneratedCode) {
-      this.#wasm.jit_clear_cache_js();
+      if (!this.#directMemory || !mappedDelta) this.#wasm.jit_clear_cache_js();
       this.#cacheEffectCounts.generatedCodeInvalidations += 1;
     }
   }
@@ -1896,6 +1898,7 @@ export class V86Mirror implements ExecutionEngine {
       pteAddress,
       pteWordIndex: pteAddress >>> 2,
     };
+    this.#invalidateMappedCode(mapping);
     this.#mappings.set(address, mapping);
     const directoryIndex = address >>> 22;
     this.#directoryMappingCounts.set(
@@ -1920,10 +1923,19 @@ export class V86Mirror implements ExecutionEngine {
     return offset;
   }
 
+  #invalidateMappedCode(mapping: MirrorMapping): void {
+    if (this.#directMemory && mapping.protection.execute) {
+      // Invalidate by execution-mirror physical page before reuse/unmapping.
+      // v86 also discards modules spanning this page and in-flight compilations.
+      this.#wasm.jit_dirty_cache(mapping.physicalBase, mapping.physicalBase + memoryPageSize);
+    }
+  }
+
   #installPageBytes(bytes: Uint8Array, mapping: MirrorMapping): void {
     if (this.#directMemory) {
       invariant(this.#authoritativePageOffset(mapping.address, mapping.owner, mapping.protection) ===
         mapping.physicalBase, "host delta changed backing without a mapping operation");
+      this.#invalidateMappedCode(mapping);
     } else {
       this.#physicalMemory.set(bytes, mapping.physicalBase);
     }
@@ -1936,6 +1948,7 @@ export class V86Mirror implements ExecutionEngine {
       protection.write || dirty === 0,
       "mirror write protection changed while the CPU page was still dirty",
     );
+    this.#invalidateMappedCode(mapping);
     this.#physicalView.setUint32(
       mapping.pteAddress,
       mapping.physicalBase |
@@ -1954,6 +1967,7 @@ export class V86Mirror implements ExecutionEngine {
 
   #unmapPage(address: number): void {
     const mapping = this.#mappings.get(address)!;
+    this.#invalidateMappedCode(mapping);
     this.#physicalView.setUint32(mapping.pteAddress, 0, true);
     invariant(
       this.#wasm.vine_set_page_executable(address, 0) === 0,

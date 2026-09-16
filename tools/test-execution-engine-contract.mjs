@@ -1058,6 +1058,80 @@ for (const stage of [7, 8, 9, 10]) {
   }
 }
 
+// Independent executable pages must retain their JIT entries across a scoped
+// host update. These numeric instructions live only in a synthetic fixture arena.
+const cacheIsland = await V86Mirror.prepareExecutionIsland(new URL(`data:application/wasm;base64,${islandBytes.toString("base64")}`));
+const cacheBridge = RuntimeBridge.fromExports(cacheIsland.runtimeExports);
+const cachePrepared = cacheBridge.prepare(new Uint8Array(fs.readFileSync(path.join(root, ".work", "toolchain-spike", "browser-vertical.exe"))));
+const cacheReflection = decodeReflection(cachePrepared.control, cachePrepared.payload);
+const cacheEngine = cacheIsland.createEngine({ maximumPhysicalPages: cachePrepared.metadata.maximumPhysicalPages,
+  relaxJitInstructionBudget: true });
+cacheEngine.initialize(cacheReflection, cachePrepared.metadata);
+cacheBridge.acknowledgeFast(BigInt(cachePrepared.metadata.generation));
+cacheIsland.runtimeExports.set_jit_config(4, 1);
+cacheIsland.runtimeExports.set_jit_config(5, 16);
+const executablePages = cacheReflection.pages.filter(page => page.protection.execute).slice(0, 2);
+assert.equal(executablePages.length, 2);
+const cacheContext = cacheEngine.saveCpuContext();
+const resetCacheProbe = (page) => {
+  const context = structuredClone(cacheContext);
+  context.opaqueWords[4] = 0;
+  context.opaqueWords[5] = 1_000_000;
+  context.opaqueWords[12] = page.address;
+  context.opaqueWords[13] = page.address;
+  cacheEngine.restoreCpuContext(context);
+};
+for (const page of executablePages) {
+  cacheEngine.readGuestBytes(page.address, 6, true).set([0x40, 0x49, 0x75, 0xfc, 0x0f, 0x0b]);
+  resetCacheProbe(page);
+  cacheEngine.execute(100_000);
+}
+const compiledPages = cacheEngine.performanceMetrics();
+assert(compiledPages.jitActiveFunctions >= 2);
+const codeEffects = { flushTlb: true, invalidateInstructionFetch: true, invalidateGeneratedCode: true };
+const changedCode = { fromGeneration: 1n, generation: 2n, cacheEffects: codeEffects,
+  mappingOperations: [], pages: [{ ...executablePages[1], bytes: cacheEngine.readGuestBytes(executablePages[1].address, pageSize) }] };
+const malformedCode = structuredClone(changedCode);
+malformedCode.pages.push({ ...executablePages[0], owner: 0xffff,
+  bytes: cacheEngine.readGuestBytes(executablePages[0].address, pageSize) });
+assert.throws(() => cacheEngine.applyMemoryDelta(malformedCode), /repeats|owner/u);
+assert.deepEqual(cacheEngine.performanceMetrics(), compiledPages, "failed delta invalidated compiled pages");
+cacheEngine.readGuestBytes(executablePages[1].address, 1, true)[0] = 0x48;
+changedCode.pages[0].bytes[0] = 0x48;
+cacheEngine.applyMemoryDelta(changedCode);
+const invalidatedPage = cacheEngine.performanceMetrics();
+assert.equal(invalidatedPage.jitClears, compiledPages.jitClears + 1);
+assert.equal(invalidatedPage.jitActiveFunctions, compiledPages.jitActiveFunctions - 1);
+resetCacheProbe(executablePages[0]);
+const retainedCode = cacheEngine.execute(100_000);
+assert.equal(retainedCode.reason, 1);
+assert.equal(cacheEngine.performanceMetrics().jitCompilations, compiledPages.jitCompilations,
+  "untouched page needed recompilation");
+assert(cacheEngine.performanceMetrics().jitInstructions > invalidatedPage.jitInstructions);
+resetCacheProbe(executablePages[1]);
+const replacedCode = cacheEngine.execute(100_000);
+assert.equal(replacedCode.reason, 1);
+assert.equal(replacedCode.state.eax, (-retainedCode.state.eax) >>> 0, "changed page used stale compiled code");
+const changedPage = executablePages[1];
+const changedRegion = cachePrepared.metadata.regions.find(region => region.owner === changedPage.owner);
+const beforeRemoval = cacheEngine.performanceMetrics();
+const changedRange = { base: changedPage.address, byteLength: pageSize };
+// Exercise the mirror's removal/reuse boundary; this synthetic owner still holds
+// its authoritative frame so the recommit can validate the exact same backing.
+cacheEngine.applyMemoryDelta({ fromGeneration: 2n, generation: 3n, cacheEffects: codeEffects,
+  mappingOperations: [{ operation: "decommit", owner: changedPage.owner,
+    addressAllocationId: changedRegion.addressAllocationId, range: changedRange }], pages: [] });
+assert.equal(cacheEngine.performanceMetrics().jitClears, beforeRemoval.jitClears + 1);
+assert.throws(() => cacheEngine.readGuestBytes(changedPage.address, 1));
+cacheEngine.applyMemoryDelta({ fromGeneration: 3n, generation: 4n, cacheEffects: codeEffects,
+  mappingOperations: [{ operation: "commit", owner: changedPage.owner,
+    addressAllocationId: changedRegion.addressAllocationId, range: changedRange, protection: changedPage.protection }],
+  pages: [{ ...changedPage, bytes: changedCode.pages[0].bytes }] });
+resetCacheProbe(changedPage);
+assert.equal(cacheEngine.execute(100_000).state.eax, replacedCode.state.eax, "recommitted code reused a stale entry");
+cacheEngine.applyCacheEffects(codeEffects);
+assert.equal(cacheEngine.performanceMetrics().jitActiveFunctions, 0, "unscoped invalidation must discard all code");
+
 console.log(
   `ExecutionEngine contract passed: ${identity.engine} ${identity.sourceRevision.slice(0, 12)}, ` +
     `CPU context v${initialContext.version}/${initialContext.byteLength} bytes`,
