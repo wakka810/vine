@@ -447,7 +447,7 @@ index 6c1a4df..a0680f2 100644
          let mut x = F80::ZERO;
          unsafe { f32_to_extF80M(src, &mut x) };
          x
-@@ -114,6 +123,62 @@ impl F80 {
+@@ -114,6 +123,78 @@ impl F80 {
      }
      fn of_f64x(src: f64) -> F80 { F80::of_f64(f64::to_bits(src)) }
  
@@ -507,10 +507,27 @@ index 6c1a4df..a0680f2 100644
 +        })
 +    }
 +
-     pub fn to_f32(&self) -> i32 { unsafe { extF80M_to_f32(self) } }
+-    pub fn to_f32(&self) -> i32 { unsafe { extF80M_to_f32(self) } }
++    pub fn to_f32(&self) -> i32 {
++        let exponent = self.sign_exponent & 0x7fff;
++        if unsafe { softfloat_roundingMode == 0 }
++            && (0x3f81..0x407e).contains(&exponent) && self.mantissa >> 63 != 0
++        {
++            // Round all 64 significand bits directly; no binary64 double rounding.
++            // ponytail: only safe normal outputs; other modes/boundaries use SoftFloat.
++            let tail = self.mantissa & 0xff_ffff_ffff;
++            let significant = (self.mantissa >> 40) as u32;
++            let rounded = significant + (tail > 0x80_0000_0000
++                || tail == 0x80_0000_0000 && significant & 1 != 0) as u32;
++            if tail != 0 { unsafe { softfloat_exceptionFlags |= 1; } }
++            return (u32::from(self.sign_exponent & 0x8000) << 16
++                | (u32::from(exponent - 0x3f81) << 23) + rounded) as i32;
++        }
++        unsafe { extF80M_to_f32(self) }
++    }
      pub fn to_f64(&self) -> u64 { unsafe { extF80M_to_f64(self) } }
      fn to_f64x(&self) -> f64 { f64::from_bits(self.to_f64()) }
-@@ -213,6 +278,7 @@ impl F80 {
+@@ -213,6 +294,7 @@ impl F80 {
  impl std::ops::Add for F80 {
      type Output = F80;
      fn add(self, other: Self) -> Self {
@@ -518,7 +535,7 @@ index 6c1a4df..a0680f2 100644
          let mut result = F80::ZERO;
          unsafe { extF80M_add(&self, &other, &mut result) };
          result
-@@ -221,6 +287,7 @@ impl std::ops::Add for F80 {
+@@ -221,6 +303,7 @@ impl std::ops::Add for F80 {
  impl std::ops::Sub for F80 {
      type Output = F80;
      fn sub(self, other: Self) -> Self {
@@ -526,7 +543,7 @@ index 6c1a4df..a0680f2 100644
          let mut result = F80::ZERO;
          unsafe { extF80M_sub(&self, &other, &mut result) };
          result
-@@ -237,6 +304,7 @@ impl std::ops::Neg for F80 {
+@@ -237,6 +320,7 @@ impl std::ops::Neg for F80 {
  impl std::ops::Mul for F80 {
      type Output = F80;
      fn mul(self, other: Self) -> Self {

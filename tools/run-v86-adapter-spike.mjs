@@ -1713,6 +1713,41 @@ if (exportNames.has("vine_fpu_push_m32")) {
     // Cancellation and rounding carry, which independent random exponents miss.
     checkArithmetic(left, [right[0], left[1] ^ 0x8000], 0x27f);
   }
+
+  const checkStore = (mantissa, exponent, controlWord) => {
+    const results = [];
+    for (const [cpu, view] of [[reference, baselineState], [wasm, candidateState]]) {
+      cpu.set_control_word(controlWord);
+      view.setUint16(1040, 0x4100, true);
+      results.push([cpu.f80_to_f32(mantissa, exponent) >>> 0, view.getUint16(1040, true)]);
+    }
+    assert.deepEqual(results[1], results[0],
+      `x87 binary32 store diverged: cw=${controlWord.toString(16)}, ` +
+      `mantissa=${mantissa.toString(16)}, exponent=${exponent.toString(16)}`);
+  };
+  // Halfway-even/odd, rounding carry, noncanonical encodings, signed zeros,
+  // exponent boundaries and special values; store rounding ignores x87 precision.
+  const storeMantissas = [0n, 1n, 0x7fffffffffffffffn, 0x8000000000000000n,
+    0x8000000000000001n, 0x8000007fffffffffn, 0x8000008000000000n,
+    0x8000008000000001n, 0x8000018000000000n, 0xffffff8000000000n,
+    0xffffffffffffffffn, 0xc000000000000000n];
+  for (const precision of [0, 2, 3]) {
+    for (const rounding of [0, 1, 2, 3]) {
+      const controlWord = 0x7f | precision << 8 | rounding << 10;
+      for (const exponent of [0, 1, 0x3f60, 0x3f7f, 0x3f80, 0x3f81, 0x3f82,
+        0x3fff, 0x407d, 0x407e, 0x407f, 0x7fff]) {
+        for (const mantissa of storeMantissas) {
+          checkStore(mantissa, exponent, controlWord);
+          checkStore(mantissa, exponent | 0x8000, controlWord);
+        }
+      }
+    }
+  }
+  for (let i = 0; i < 10000; i++) {
+    const mantissa = BigInt(next()) << 32n | BigInt(next()) | 1n << 63n;
+    checkStore(mantissa, (0x3f00 + next() % 512) | next() & 0x8000,
+      0x7f | (i % 3 === 0 ? 3 : 2) << 8 | (i % 4) << 10);
+  }
 }
 
 let executionIsland = null;
