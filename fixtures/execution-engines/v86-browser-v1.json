@@ -147,6 +147,11 @@
       "hostProfile": "windows-gnu-execution-island-direct-f32-v149",
       "bytes": 7493428,
       "sha256": "664aa283408a3ed4d6ef12496ca145717e708f2bb439338cedda99288935052b"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-direct-sti-v153",
+      "bytes": 7495889,
+      "sha256": "b2577e44124d36f4acaaf5d52767cee673a224c6a9b7802a1ecdb8383aa41441"
     }
   ]
 }

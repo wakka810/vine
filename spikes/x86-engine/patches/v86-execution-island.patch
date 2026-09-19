@@ -11,6 +11,43 @@ diff --git a/Cargo.toml b/Cargo.toml
  [lib]
  crate-type = ["cdylib"]
  path = "src/rust/lib.rs"
+diff --git a/src/rust/codegen.rs b/src/rust/codegen.rs
+--- a/src/rust/codegen.rs
++++ b/src/rust/codegen.rs
+@@ -2485,14 +2485,25 @@ pub fn gen_test_jcxz(ctx: &mut JitContext, is_asize_32: bool) {
+ }
+ 
+ pub fn gen_fpu_get_sti(ctx: &mut JitContext, i: u32) {
+-    ctx.builder
+-        .const_i32(global_pointers::sse_scratch_register as i32);
+-    ctx.builder.const_i32(i as i32);
+-    ctx.builder.call_fn2("fpu_get_sti_jit");
+-    ctx.builder
+-        .load_fixed_i64(global_pointers::sse_scratch_register as u32);
+-    ctx.builder
+-        .load_fixed_u16(global_pointers::sse_scratch_register as u32 + 8);
++    let b = &mut ctx.builder;
++    b.load_fixed_u8(global_pointers::fpu_stack_ptr as u32);
++    b.const_i32(i as i32); b.add_i32(); b.const_i32(7); b.and_i32();
++    let index = b.set_new_local();
++    b.load_fixed_u8(global_pointers::fpu_stack_empty as u32);
++    b.get_local(&index); b.shr_u_i32(); b.const_i32(1); b.and_i32();
++    b.if_i32();
++    // Retain the original stack-underflow/exception path for empty registers.
++    b.const_i32(global_pointers::sse_scratch_register as i32);
++    b.const_i32(i as i32); b.call_fn2("fpu_get_sti_jit");
++    b.const_i32(global_pointers::sse_scratch_register as i32);
++    b.else_();
++    b.get_local(&index); b.const_i32(4); b.shl_i32();
++    b.const_i32(global_pointers::fpu_st as i32); b.add_i32();
++    b.block_end();
++    let address = b.set_new_local();
++    b.get_local(&address); b.load_aligned_i64(0);
++    b.get_local(&address); b.load_aligned_u16(8);
++    b.free_local(index); b.free_local(address);
+ }
+ 
+ pub fn gen_fpu_load_m32(ctx: &mut JitContext, modrm_byte: ModrmByte) {
 diff --git a/src/rust/cpu/cpu.rs b/src/rust/cpu/cpu.rs
 --- a/src/rust/cpu/cpu.rs
 +++ b/src/rust/cpu/cpu.rs

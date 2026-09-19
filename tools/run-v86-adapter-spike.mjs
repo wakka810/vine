@@ -1513,11 +1513,13 @@ x87MemoryProgram.push(
 );
 x87MemoryProgram.push((x87LoopStart - x87MemoryProgram.length - 1) & 0xff, 0xf4);
 
-async function runX87Memory(disableJit, values, controlWord, budget = 250_000, fault = null) {
+async function runX87Memory(disableJit, values, controlWord, budget = 250_000, fault = null,
+  program = x87MemoryProgram, stackTop = 0) {
   wasm.jit_clear_cache_js();
   wasm.set_jit_config(0, disableJit ? 1 : 0);
-  configure(Uint8Array.from(x87MemoryProgram), 0);
+  configure(Uint8Array.from(program), 0);
   new Uint8Array(wasm.memory.buffer, stateOffset.fpuSt, 8 * 16).fill(0);
+  state.setUint8(stateOffset.fpuStackPtr, stackTop);
   wasm.set_control_word(controlWord);
   const data = new DataView(memory.buffer, memory.byteOffset);
   values.forEach((value, index) => data.setUint32(0x2000 + index * 4, value, true));
@@ -1612,6 +1614,23 @@ for (const fault of ["read", "write"]) {
   compiled.state.splice(13, 1);
   reference.state.splice(13, 1);
   assert.deepEqual(compiled, reference, `x87 JIT ${fault} fault changed architectural state`);
+}
+
+// Register reads must preserve operand order, TOP wrapping and empty-tag faults.
+for (const empty of [false, true]) {
+  const program = [0xb9, 0xa0, 0x86, 0x01, 0x00];
+  const loop = program.length;
+  program.push(0xd9, 0x05, 0x00, 0x20, 0, 0, 0xd9, 0x05, 0x04, 0x20, 0, 0,
+    0xd9, 0xc0, 0xd8, empty ? 0xc7 : 0xc1, 0xdc, 0xc1, 0xde, 0xe9,
+    0xd9, 0x1d, 0x1c, 0x20, 0, 0, 0xd9, 0x1d, 0x20, 0x20, 0, 0, 0x49, 0x75);
+  program.push((loop - program.length - 1) & 0xff, 0xf4);
+  for (let top = 0; top < 8; top++) {
+    for (const controlWord of [0x27f, 0x37f]) {
+      const args = [x87MemoryCases[0], controlWord, 250_000, null, program, top];
+      assert.deepEqual(await runX87Memory(false, ...args), await runX87Memory(true, ...args),
+        `x87 register read diverged: empty=${empty}, top=${top}, cw=${controlWord}`);
+    }
+  }
 }
 
 const forbiddenCalls = Object.keys(hostImportCalls).filter(
