@@ -51,7 +51,28 @@ diff --git a/src/rust/codegen.rs b/src/rust/codegen.rs
 diff --git a/src/rust/cpu/cpu.rs b/src/rust/cpu/cpu.rs
 --- a/src/rust/cpu/cpu.rs
 +++ b/src/rust/cpu/cpu.rs
-@@ -3273,6 +3273,7 @@ unsafe fn jit_run_interpreted(mut phys_addr: u32, instruction_limit: u32) {
+@@ -3125,7 +3125,9 @@ unsafe fn cycle_internal_with_budget(interpreter_budget: u32) {
+             }
+         },
+     }
+-    if interpreter_budget < VINE_JIT_MIN_BUDGET {
++    // Relaxed slices already stop at bounded JIT loops. Interpreting their tails
++    // manufactures mid-block entries and progressively fragments hot code.
++    if vine_jit_exact_instruction_budget && interpreter_budget < VINE_JIT_MIN_BUDGET {
+         jit_entry = None;
+     }
+ 
+@@ -3210,7 +3212,8 @@ unsafe fn cycle_internal_with_budget(interpreter_budget: u32) {
+                 Some(c) => {
+                     let c = c.as_ref();
+ 
+-                    if interpreter_budget >= VINE_JIT_MIN_BUDGET
++                    if (!vine_jit_exact_instruction_budget
++                        || interpreter_budget >= VINE_JIT_MIN_BUDGET)
+                         && initial_state_flags == c.state_flags
+                         && c.state_table[initial_eip as usize & 0xFFF] != u16::MAX
+                     {
+@@ -3273,6 +3276,7 @@ unsafe fn jit_run_interpreted(mut phys_addr: u32, instruction_limit: u32) {
  
      jit_block_boundary = false;
      let mut i = 0;
@@ -59,7 +80,7 @@ diff --git a/src/rust/cpu/cpu.rs b/src/rust/cpu/cpu.rs
  
      loop {
          if CHECK_MISSED_ENTRY_POINTS {
-@@ -3290,13 +3291,38 @@ unsafe fn jit_run_interpreted(mut phys_addr: u32, instruction_limit: u32) {
+@@ -3290,13 +3294,38 @@ unsafe fn jit_run_interpreted(mut phys_addr: u32, instruction_limit: u32) {
              break;
          }
          let opcode = *memory::mem8.offset(phys_addr as isize) as i32;

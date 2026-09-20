@@ -584,6 +584,56 @@ if (wasm.vine_affine_iterations) {
     Uint8Array.of(memory[0x40000+i*3],memory[0x40001+i*3],memory[0x40002+i*3],0));
   wasm.set_jit_config(2, 1); wasm.set_jit_config(4, 1);
 }
+// Tiny relaxed tails must stay in the JIT: interpreting them trains spurious
+// interior entries. Exact mode still stops at each requested instruction.
+if (wasm.vine_affine_iterations) {
+  const program = Uint8Array.from([
+    0xb9, 0x40, 0x42, 0x0f, 0, // MOV ECX,1000000
+    0x8b, 0x06, 0x83, 0xc0, 3, 0xc1, 0xc0, 5, 0x31, 0xd8, 0x89, 0x07,
+    0x83, 0xc3, 7, 0x49, 0x75, 0xee, 0xf4,
+  ]);
+  const setup = (disabled, exact) => {
+    wasm.jit_clear_cache_js(); wasm.set_jit_config(0, Number(disabled));
+    wasm.set_jit_config(4, Number(exact)); wasm.set_jit_config(5, 200000);
+    configure(program, 0);
+    state.setUint32(stateOffset.registers + 6 * 4, 0x20000, true);
+    state.setUint32(stateOffset.registers + 7 * 4, 0x30000, true);
+    memory.set([71, 39, 241, 93], 0x20000);
+  };
+  const snapshot = reason => ({ ...currentState(reason),
+    regs: Array.from({ length: 8 }, (_, r) => state.getUint32(stateOffset.registers + r * 4, true)),
+    flags: wasm.get_eflags(), output: Array.from(memory.subarray(0x30000, 0x30004)),
+  });
+  for (const exact of [true, false]) {
+    setup(false, exact);
+    let reason;
+    for (let i = 0; i < 10; i++) {
+      reason = wasm.vine_execute_budget(100003); await Promise.resolve(); refreshViews();
+      assert.equal(reason, stopReason.budget);
+    }
+    const checkpoints = [snapshot(reason)];
+    let tinyJit = 0;
+    for (let i = 0; i < 36; i++) {
+      const budget = [1, 7, 31, 4095, 4096, 100003][i % 6];
+      const before = wasm.vine_instruction_counter(), jit = wasm.vine_jit_retired_instructions_low();
+      reason = wasm.vine_execute_budget(budget); await Promise.resolve(); refreshViews();
+      const retired = (wasm.vine_instruction_counter() - before) >>> 0;
+      if (exact) assert.equal(retired, budget);
+      else assert(retired >= budget && retired < budget + 104100, "unbounded relaxed budget");
+      if (budget === 1) tinyJit += (wasm.vine_jit_retired_instructions_low() - jit) >>> 0;
+      checkpoints.push(snapshot(reason));
+    }
+    if (!exact) assert(tinyJit > 0, "tiny relaxed slices stranded hot code on the interpreter");
+    setup(true, true);
+    let previous = 0;
+    for (const expected of checkpoints) {
+      const actual = snapshot(wasm.vine_execute_budget((expected.instructionCount - previous) >>> 0));
+      assert.deepEqual(actual, expected);
+      previous = expected.instructionCount;
+    }
+  }
+  wasm.set_jit_config(0, 0); wasm.set_jit_config(4, 1);
+}
 wasm.set_jit_config(5, 200_000);
 wasm.jit_clear_cache_js();
 
