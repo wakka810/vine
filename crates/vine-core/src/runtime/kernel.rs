@@ -3745,6 +3745,9 @@ impl RuntimeKernel {
     }
 
     pub fn set_current_last_error(&mut self, value: u32) -> Result<(), RuntimeStateError> {
+        if self.current_last_error()? == value {
+            return Ok(());
+        }
         let plan = self
             .threads
             .plan_last_error(self.current_thread_id(), value)?;

@@ -543,6 +543,85 @@ async function checkVectorWindows() {
   }
 }
 await checkVectorWindows();
+async function checkScalarWindows() {
+  const imm = n => [n & 255, n >>> 8 & 255, n >>> 16 & 255, n >>> 24 & 255];
+  async function run(arithmetic, test, disabled) {
+    // A non-entry cursor update: aliases, live CF and partial AL must survive.
+    const p = [test === "carry-clear" ? 0xf8 : 0xf9, 0x89,0xf0,
+      0x8b,0x48,0x3c, 0x89,0x48,0x38, 0x8b,0x50,0x38,
+      ...(arithmetic ? [0x42,0x3b,0x50,0x20,0x19,0xc9,0x21,0xd1] : [0x41]),
+      0x89,0x48,0x3c,
+      ...(arithmetic ? [] : [0x8b,0x48,0x10,0x8a,0x04,0x11]),
+      0x83,0xd7,0, 0xff,0x4d,0xfc];
+    p.push(0x0f,0x85,...imm(-(p.length+6)),0xf4);
+    wasm.jit_clear_cache_js(); wasm.set_jit_config(0, Number(disabled));
+    wasm.set_jit_config(4, 1); wasm.set_jit_config(5, 32);
+    configure(Uint8Array.from(p), ["cpl3", "supervisor"].includes(test) ? 3 : 0);
+    let view = new DataView(memory.buffer, memory.byteOffset, memory.byteLength);
+    const step = async budget => {
+      const reason = wasm.vine_execute_budget(budget);
+      await Promise.resolve(); refreshViews();
+      view = new DataView(memory.buffer, memory.byteOffset, memory.byteLength);
+      return reason;
+    };
+    view.setUint32(0x1f0000, 0x1f1007, true);
+    for (let page=0; page<512; page++) view.setUint32(0x1f1000+page*4, page*4096|7, true);
+    state.setUint32(stateOffset.controlRegisters+12, 0x1f0000, true);
+    state.setUint32(stateOffset.controlRegisters, state.getUint32(stateOffset.controlRegisters,true)|0x80010000, true);
+    wasm.full_clear_tlb();
+    const crossing = ["cross", "noncontiguous", "second-missing"].includes(test);
+    const base = crossing ? 0x120fd0 : 0x120001;
+    for (let i=0; i<0x40000; i++) memory[0x60000+i] = (i*17+11)&255;
+    view.setUint32(base+0x10, 0x60000, true);
+    view.setUint32(base+0x20, 65535, true);
+    view.setUint32(base+0x3c, 0, true);
+    [0,0,0,0,0x1e000,0x20000,base,0].forEach((n,r)=>state.setUint32(stateOffset.registers+r*4,n,true));
+    view.setUint32(0x1fffc, 262144, true);
+    for (let i=0; i<3; i++) assert.equal(await step(500003), stopReason.budget);
+    state.setUint32(stateOffset.instructionPointer, guest.codeAddress, true);
+    state.setUint32(stateOffset.previousInstructionPointer, guest.codeAddress, true);
+    view.setUint32(base+0x3c, 0, true); view.setUint32(0x1fffc, 65536, true);
+    state.setUint32(stateOffset.registers+7*4, 0, true);
+    if (["missing", "readonly", "supervisor"].includes(test)) {
+      view.setUint32(0x1f1000+(base>>>12)*4,
+        test === "missing" ? 0 : (base&~4095)|(test === "readonly" ? 5 : 3), true);
+      wasm.full_clear_tlb();
+    }
+    if (test === "second-missing") { view.setUint32(0x1f1000+0x121*4,0,true); wasm.full_clear_tlb(); }
+    if (["remap", "noncontiguous"].includes(test)) {
+      const page = test === "remap" ? base&~4095 : 0x121000;
+      memory.copyWithin(0x160000,page,page+4096);
+      view.setUint32(0x1f1000+(page>>>12)*4,0x160007,true); wasm.full_clear_tlb();
+    }
+    if (test === "rearm") wasm.vine_reset_dirty_pages();
+    if (test === "code") { memory[guest.codeAddress]=0xf8; wasm.jit_dirty_cache(guest.codeAddress,guest.codeAddress+1); }
+    if (test === "alias") view.setUint32(base+0x10,base+0x38,true);
+    const stops = [];
+    for (let i=0; i<200; i++) {
+      const reason = await step(i===0 ? 500003 : [1,4095,4096,8193,100129][i%5]);
+      stops.push({...currentState(reason), flags:wasm.get_eflags(),
+        registers:Array.from({length:8},(_,r)=>state.getUint32(stateOffset.registers+r*4,true)),
+        output:[...memory.slice(base,base+64),...memory.slice(0x160000,0x161000)]});
+      if (reason !== stopReason.budget) return stops;
+    }
+    assert.fail("scalar window did not terminate");
+  }
+  for (const arithmetic of [false, true]) for (const test of ["plain", "cpl3", "supervisor",
+    "carry-clear", "cross", "noncontiguous", "second-missing", "missing", "readonly",
+    "remap", "rearm", "code", "alias"]) {
+    const reference = await run(arithmetic,test,true), candidate = await run(arithmetic,test,false);
+    assert.equal(candidate.length, reference.length, test);
+    for (let i=0; i<reference.length; i++) {
+      if (reference[i].reason > 2) {
+        // Existing v86 precharges the unretired BB tail at faults.
+        const excess = candidate[i].instructionCount-reference[i].instructionCount;
+        assert(excess>=0 && excess<20); candidate[i].instructionCount-=excess;
+      }
+      assert.deepEqual(candidate[i], reference[i], `${arithmetic}/${test}/${i}`);
+    }
+  }
+}
+await checkScalarWindows();
 // A side entry may reach a counted loop after the enclosing JIT has exhausted
 // its allowance. Disabling the outer reloop check makes that case deterministic.
 if (wasm.vine_affine_iterations) {

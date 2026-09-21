@@ -351,6 +351,32 @@ fn thread_registry_isolates_thread_state_and_terminates_all_lanes_deterministica
         .push_callback_frame(GuestAddress(0x1000_1000), GuestAddress(0x7f01_0000))
         .expect("initial thread callback");
 
+    let before_preserve = runtime.clone();
+    let tls_address = runtime.tls_value(tls_index).unwrap() as *const RuntimeTlsValue;
+    let frames_address = runtime
+        .current_thread_state()
+        .unwrap()
+        .callback_frames
+        .as_ptr();
+    for _ in 0..3 {
+        runtime.set_current_last_error(11).unwrap();
+        assert_eq!(runtime, before_preserve);
+        assert_eq!(
+            runtime.tls_value(tls_index).unwrap() as *const RuntimeTlsValue,
+            tls_address,
+            "preserving LastError must not clone thread-local storage"
+        );
+        assert_eq!(
+            runtime
+                .current_thread_state()
+                .unwrap()
+                .callback_frames
+                .as_ptr(),
+            frames_address,
+            "preserving LastError must not clone callback frames"
+        );
+    }
+
     let second_handle = runtime
         .register_thread(SECOND_THREAD_ID, 22)
         .expect("register controlled second thread");

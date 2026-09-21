@@ -14,7 +14,32 @@ diff --git a/Cargo.toml b/Cargo.toml
 diff --git a/src/rust/codegen.rs b/src/rust/codegen.rs
 --- a/src/rust/codegen.rs
 +++ b/src/rust/codegen.rs
-@@ -2485,14 +2485,25 @@ pub fn gen_test_jcxz(ctx: &mut JitContext, is_asize_32: bool) {
+@@ -547,6 +547,11 @@ pub fn gen_safe_read16(ctx: &mut JitContext, address_local: &WasmLocal) {
+     gen_safe_read(ctx, BitSize::WORD, address_local, None);
+ }
+ pub fn gen_safe_read32(ctx: &mut JitContext, address_local: &WasmLocal) {
++    if let Some((base, offset)) = &ctx.checked_dword {
++        ctx.builder.get_local(base);
++        ctx.builder.load_unaligned_i32(*offset);
++        return;
++    }
+     gen_safe_read(ctx, BitSize::DWORD, address_local, None);
+ }
+ pub fn gen_safe_read64(ctx: &mut JitContext, address_local: &WasmLocal) {
+@@ -605,6 +610,12 @@ pub fn gen_safe_write16(ctx: &mut JitContext, address_local: &WasmLocal, value_l
+     )
+ }
+ pub fn gen_safe_write32(ctx: &mut JitContext, address_local: &WasmLocal, value_local: &WasmLocal) {
++    if let Some((base, offset)) = &ctx.checked_dword {
++        ctx.builder.get_local(base);
++        ctx.builder.get_local(value_local);
++        ctx.builder.store_unaligned_i32(*offset);
++        return;
++    }
+     gen_safe_write(
+         ctx,
+         BitSize::DWORD,
+@@ -2485,14 +2496,25 @@ pub fn gen_test_jcxz(ctx: &mut JitContext, is_asize_32: bool) {
  }
  
  pub fn gen_fpu_get_sti(ctx: &mut JitContext, i: u32) {
@@ -129,7 +154,6 @@ diff --git a/src/rust/cpu/mod.rs b/src/rust/cpu/mod.rs
  pub mod vine;
 +pub mod island;
 diff --git a/src/rust/jit.rs b/src/rust/jit.rs
-index e586186..aed828f 100644
 --- a/src/rust/jit.rs
 +++ b/src/rust/jit.rs
 @@ -21,6 +21,8 @@ use crate::profiler;
@@ -141,7 +165,15 @@ index e586186..aed828f 100644
  
  #[derive(Copy, Clone, Eq, Hash, PartialEq)]
  #[repr(transparent)]
-@@ -565,6 +567,12 @@ fn jit_find_basic_blocks(
+@@ -348,6 +350,7 @@ pub struct JitContext<'a> {
+     pub previous_instruction: Instruction,
+     pub instruction_counter: WasmLocal,
+     pub wasm_table_index: WasmTableIndex,
++    pub checked_dword: Option<(WasmLocal, u32)>,
+ }
+ impl<'a> JitContext<'a> {
+     pub fn reg(&self, i: u32) -> WasmLocal {
+@@ -565,6 +568,12 @@ fn jit_find_basic_blocks(
          };
          loop {
              let addr_before_instruction = current_address;
@@ -154,7 +186,7 @@ index e586186..aed828f 100644
              let mut cpu = &mut CpuContext {
                  eip: current_address,
                  ..cpu
-@@ -802,7 +810,7 @@ fn jit_find_basic_blocks(
+@@ -802,7 +811,7 @@ fn jit_find_basic_blocks(
  
      let basic_blocks: Vec<BasicBlock> = basic_blocks.into_iter().map(|(_, block)| block).collect();
  
@@ -163,7 +195,7 @@ index e586186..aed828f 100644
          let next_block_addr = basic_blocks[i + 1].addr;
          let next_block_end_addr = basic_blocks[i + 1].end_addr;
          let next_block_is_entry = basic_blocks[i + 1].is_entry_block;
-@@ -900,6 +908,9 @@ fn jit_analyze_and_generate(
+@@ -900,6 +909,9 @@ fn jit_analyze_and_generate(
          .map(|e| virt_page.to_address() as i32 | *e as i32)
          .collect();
      let basic_blocks = jit_find_basic_blocks(ctx, entry_points, cpu.clone());
@@ -173,7 +205,15 @@ index e586186..aed828f 100644
  
      let mut pages = HashSet::new();
  
-@@ -1336,6 +1347,7 @@ fn jit_generate_module(
+@@ -1263,6 +1275,7 @@ fn jit_generate_module(
+         previous_instruction: Instruction::Other,
+         instruction_counter,
+         wasm_table_index,
++        checked_dword: None,
+     };
+ 
+     let entry_blocks = {
+@@ -1336,6 +1349,7 @@ fn jit_generate_module(
          match block {
              Work::WasmStructure(WasmStructure::BasicBlock(addr)) => {
                  let block = basic_blocks.get(&addr).unwrap();
@@ -181,7 +221,7 @@ index e586186..aed828f 100644
                  jit_generate_basic_block(ctx, block);
  
                  if block.has_sti {
-@@ -2147,7 +2159,15 @@ fn jit_generate_basic_block(ctx: &mut JitContext, block: &BasicBlock) {
+@@ -2147,7 +2161,15 @@ fn jit_generate_basic_block(ctx: &mut JitContext, block: &BasicBlock) {
      ctx.current_instruction = Instruction::Other;
      ctx.previous_instruction = Instruction::Other;
  
@@ -197,7 +237,7 @@ index e586186..aed828f 100644
          let mut instruction = 0;
          if cfg!(feature = "profiler") {
              instruction = memory::read32s(ctx.cpu.eip) as u32;
-@@ -2175,6 +2195,11 @@ fn jit_generate_basic_block(ctx: &mut JitContext, block: &BasicBlock) {
+@@ -2175,6 +2197,11 @@ fn jit_generate_basic_block(ctx: &mut JitContext, block: &BasicBlock) {
          let mut instruction_flags = 0;
          jit_instructions::jit_instruction(ctx, &mut instruction_flags);
          let end_eip = ctx.cpu.eip;
@@ -209,7 +249,7 @@ index e586186..aed828f 100644
  
          let instruction_length = end_eip - start_eip;
          let was_block_boundary = instruction_flags & JIT_INSTR_BLOCK_BOUNDARY_FLAG != 0;
-@@ -2217,7 +2242,7 @@ pub fn jit_increase_hotness_and_maybe_compile(
+@@ -2217,7 +2244,7 @@ pub fn jit_increase_hotness_and_maybe_compile(
      state_flags: CachedStateFlags,
      heat: u32,
  ) {

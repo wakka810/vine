@@ -1,8 +1,8 @@
-//! Checked straight-line SIMD batches; a failed preflight runs the original JIT.
+//! Checked straight-line memory/SIMD windows; failed preflight runs the original JIT.
 //! Guest mappings and bytes remain owned by the existing execution island.
 use crate::cpu::{cpu, global_pointers as gp};
 use crate::cpu_context::CpuContext;
-use crate::jit::{BasicBlock, JitContext};
+use crate::jit::{BasicBlock, Instruction, JitContext};
 use crate::wasmgen::wasm_builder::{Label, WasmLocal};
 use crate::{codegen, jit_instructions, modrm};
 
@@ -173,6 +173,7 @@ static mut BATCHES: u64 = 0;
 pub unsafe fn vine_vector_batches() -> f64 { BATCHES as f64 }
 
 pub fn generate(ctx: &mut JitContext, block:&BasicBlock) -> Option<(u32,Label)> {
+    if let Some(window) = scalar_window(ctx, block) { return Some(window); }
     let p = plan(ctx,block)?;
     let done = ctx.builder.block_void(); let fallback = ctx.builder.block_void();
     ctx.builder.load_fixed_i32(gp::cr as u32); ctx.builder.const_i32(cpu::CR0_EM | cpu::CR0_TS);
@@ -347,4 +348,104 @@ pub fn generate(ctx: &mut JitContext, block:&BasicBlock) -> Option<(u32,Label)> 
     ctx.builder.add_i64(); ctx.builder.store_aligned_i64(metric);
     ctx.builder.br(done); ctx.builder.block_end();
     Some((p.end,done))
+}
+
+fn scalar_window(ctx: &mut JitContext, block: &BasicBlock) -> Option<(u32, Label)> {
+    if !ctx.cpu.state_flags.is_32() || !ctx.cpu.has_flat_segmentation() || block.has_sti {
+        return None;
+    }
+    let mut c = ctx.cpu.clone();
+    c.prefixes = 0;
+    let mut ops = Vec::new();
+    let (mut base, mut written, mut accesses) = (0, 0u32, 0);
+    let (mut low, mut high, mut write, mut end) = (i32::MAX, i32::MIN, false, c.eip);
+    // ponytail: one unchanged base, <=32 instructions and one resident RAM page.
+    // Dependent pointers, wider windows and unknown opcodes retain ordinary JIT.
+    while c.eip < block.last_instruction_addr && ops.len() < 32 {
+        let start = c.eip;
+        let opcode = c.read_imm8();
+        let mut dest = None;
+        let offset = match opcode {
+            0x89 | 0x8b | 0x3b => {
+                let b = c.read_imm8();
+                let r = (b >> 3 & 7) as u32;
+                if b >= 0xc0 {
+                    if opcode != 0x3b { dest = Some(if opcode == 0x89 { (b & 7) as u32 } else { r }); }
+                    None
+                } else {
+                    let Some((Some(address_base), None, _, offset)) = modrm::decode(&mut c, b).flat_parts() else { break };
+                    if written & (1 << address_base) != 0 || accesses != 0 && address_base != base { break; }
+                    let Some(last) = offset.checked_add(3) else { break };
+                    if high.max(last) as i64 - low.min(offset) as i64 >= 4096 { break; }
+                    base = address_base;
+                    low = low.min(offset);
+                    high = high.max(last);
+                    accesses += 1;
+                    if opcode == 0x8b { dest = Some(r); }
+                    write |= opcode == 0x89;
+                    Some(offset)
+                }
+            }
+            0x40..=0x4f => { dest = Some((opcode & 7) as u32); None }
+            0x01 | 0x03 | 0x09 | 0x0b | 0x11 | 0x13 | 0x19 | 0x1b |
+            0x21 | 0x23 | 0x29 | 0x2b | 0x31 | 0x33 | 0x39 | 0x85 => {
+                let b = c.read_imm8();
+                if b < 0xc0 { break; }
+                if !matches!(opcode, 0x39 | 0x85) {
+                    dest = Some(if opcode & 2 != 0 { (b >> 3 & 7) as u32 } else { (b & 7) as u32 });
+                }
+                None
+            }
+            0x81 | 0x83 => {
+                let b = c.read_imm8();
+                if b < 0xc0 { break; }
+                if b >> 3 & 7 != 7 { dest = Some((b & 7) as u32); }
+                if opcode == 0x81 { c.read_imm32(); } else { c.read_imm8(); }
+                None
+            }
+            _ => break,
+        };
+        if c.eip > block.last_instruction_addr { break; }
+        ops.push((start, offset));
+        end = c.eip;
+        if let Some(r) = dest {
+            written |= 1 << r;
+            if accesses != 0 && r == base { break; }
+        }
+    }
+    if accesses < 3 { return None; }
+    let done = ctx.builder.block_void();
+    let fallback = ctx.builder.block_void();
+    ctx.builder.get_local(&ctx.reg(base));
+    ctx.builder.const_i32(low);
+    ctx.builder.add_i32();
+    let address = ctx.builder.set_new_local();
+    ctx.builder.get_local(&address);
+    ctx.builder.const_i32(4095);
+    ctx.builder.and_i32();
+    ctx.builder.const_i32(4095 - (high - low));
+    ctx.builder.gtu_i32();
+    ctx.builder.br_if(fallback);
+    let physical = checked_translation(ctx, &address, write, fallback);
+    ctx.builder.get_local(&physical);
+    ctx.builder.get_local(&address);
+    ctx.builder.add_i32();
+    ctx.builder.set_local(&physical);
+    let start = ctx.cpu.eip;
+    ctx.previous_instruction = Instruction::Other;
+    ctx.current_instruction = Instruction::Other;
+    for (at, offset) in ops {
+        ctx.cpu.eip = at;
+        ctx.start_of_current_instruction = at;
+        ctx.checked_dword = offset.map(|o| (physical.unsafe_clone(), (o - low) as u32));
+        jit_instructions::jit_instruction(ctx, &mut 0);
+        ctx.checked_dword = None;
+        ctx.previous_instruction = std::mem::replace(&mut ctx.current_instruction, Instruction::Other);
+    }
+    ctx.cpu.eip = start;
+    ctx.builder.free_local(physical);
+    ctx.builder.free_local(address);
+    ctx.builder.br(done);
+    ctx.builder.block_end();
+    Some((end, done))
 }

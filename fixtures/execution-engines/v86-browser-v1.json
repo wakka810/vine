@@ -157,6 +157,11 @@
       "hostProfile": "windows-gnu-execution-island-small-jit-v156",
       "bytes": 7492779,
       "sha256": "a56d393f43ea8c84f835d93104da04eac342dc958ebfe4ae4c55c945ed534905"
+    },
+    {
+      "hostProfile": "windows-gnu-execution-island-scalar-windows-v160",
+      "bytes": 7491179,
+      "sha256": "b23397bf8c7952b99688779d63cb04d0c528252e368ee72c68b2f6f0332448cb"
     }
   ]
 }
