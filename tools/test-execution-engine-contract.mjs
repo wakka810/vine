@@ -771,6 +771,19 @@ const capacityAfterRangeRelease = growthEngine.memoryCapacity();
 assert(capacityAfterRangeRelease.pageTablePages < capacityAfterReuse.pageTablePages);
 assert(capacityAfterRangeRelease.freePhysicalPages > capacityAfterReuse.freePhysicalPages);
 
+// The requested 1.5 GiB guest allowance must fit, while the physical pool
+// must still reject configurations beyond its 1600 MiB cap.
+const saveCapacityEngine = await instantiateExecutionEngineBytes(adapterBytes, undefined, {
+  maximumPhysicalPages: 384 * 1024,
+});
+assert.equal(saveCapacityEngine.memoryCapacity().maximumPhysicalPages, 384 * 1024);
+await assert.rejects(
+  () => instantiateExecutionEngineBytes(adapterBytes, undefined, {
+    maximumPhysicalPages: 400 * 1024,
+  }),
+  /above the hard .* mirror limit/u,
+);
+
 const exhaustedEngine = await instantiateExecutionEngineBytes(adapterBytes, undefined, {
   maximumPhysicalPages: 4,
 });

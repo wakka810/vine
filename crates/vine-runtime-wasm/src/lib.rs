@@ -71,9 +71,8 @@ const MAPPING_FIXTURE_STAGE_COUNT: u32 = 11;
 const FIXTURE_MAX_PHYSICAL_PAGES: usize = 16;
 const BGI_SHA256: &str = "f4b2f23ab7cb08d655dca8058863c9bf5f73f36edb188360ab6465fe84c4ffc1";
 const BGI_LOAD_BASE: GuestAddress = GuestAddress(0x1000_0000);
-// Save compression materializes both lazy large-heap buffers past the 448 MiB
-// ceiling. Keep a bounded 480 MiB working set within the mirror cap.
-const BGI_MAX_PHYSICAL_PAGES: usize = 120 * 1024;
+// User-requested 1.5 GiB guest RAM allowance for full traversal and save compression.
+const BGI_MAX_PHYSICAL_PAGES: usize = 384 * 1024;
 const BGI_KERNEL32_HANDLE: u32 = 0x4d01_0001;
 const FAST_DISPATCH_RECORD_VERSION: u32 = 2;
 const FAST_DISPATCH_RECORD_WORDS: usize = 36;
