@@ -1256,10 +1256,10 @@ const startMessage = {
     policyUrl: "./private/kernel32-policy.json",
     instructionBudget:
       scenario === "watchdog" ? 4 : forwardDevelopment ? 524_288 : 16_384,
-    // The release JIT sustains more than 80M guest instructions/second on the
-    // private target. Keep the wall deadline authoritative for forward runs.
+    // Release performance traversal measured 305–321M instructions/second.
+    // Leave headroom so the bounded wall deadline governs forward runs.
     watchdogInstructionLimit: forwardDevelopment
-      ? Math.max(12_000_000_000, forwardSeconds * 100_000_000)
+      ? Math.max(12_000_000_000, forwardSeconds * 500_000_000)
       : scenario === "watchdog"
         ? 1
         : capabilityProfile === "user32-get-cursor-info" ||
