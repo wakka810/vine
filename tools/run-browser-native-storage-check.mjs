@@ -3,10 +3,11 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import { loadChromeForTestingArtifact } from "./chrome-for-testing.mjs";
 
@@ -28,11 +29,11 @@ const port = await listen(server);
 const origin = `http://127.0.0.1:${port}`;
 const temporaryRoot = path.resolve(os.tmpdir());
 const profile = await mkdtemp(path.join(temporaryRoot, "vine-browser-storage-"));
-const chromeArtifact = await loadChromeForTestingArtifact(root);
+const chromeSelection = await resolveChromeSelection();
 let chrome = null;
 
 try {
-  chrome = await startChrome(chromeArtifact.executablePath, profile);
+  chrome = await startChrome(chromeSelection.executablePath, profile);
   const prepare = await runPhase(
     chrome.browserWebSocketUrl,
     `${origin}/storage-check.html?phase=prepare&runId=${encodeURIComponent(runId)}`,
@@ -41,7 +42,7 @@ try {
   await stopChrome(chrome);
   chrome = null;
 
-  chrome = await startChrome(chromeArtifact.executablePath, profile);
+  chrome = await startChrome(chromeSelection.executablePath, profile);
   const reload = await runPhase(
     chrome.browserWebSocketUrl,
     `${origin}/storage-check.html?phase=reload&runId=${encodeURIComponent(runId)}`,
@@ -59,9 +60,12 @@ try {
     schemaVersion: 1,
     runId,
     chrome: {
-      artifactId: chromeArtifact.manifest.id,
-      version: chromeArtifact.manifest.version,
-      executable: chromeArtifact.executableIdentity,
+      artifactId: chromeSelection.artifact?.manifest.id ?? "VINE_CHROME",
+      version: chromeSelection.version,
+      executable:
+        chromeSelection.artifact?.executableIdentity ?? {
+          path: chromeSelection.executablePath,
+        },
     },
     prepare,
     reload,
@@ -69,7 +73,7 @@ try {
   const reportBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
   await writeFile(path.join(assetsRoot, "browser-report.json"), reportBytes);
   console.log(
-    `browser-native storage passed: Chrome=${chromeArtifact.manifest.version}, ` +
+    `browser-native storage passed: Chrome=${chromeSelection.version}, ` +
       `generation=${reload.profile.committedGeneration}, ` +
       `restartSource=${reload.source.indexedDbHandleRoundTrip}, ` +
       `reportSha256=${crypto.createHash("sha256").update(reportBytes).digest("hex")}`,
@@ -91,6 +95,35 @@ try {
       });
     }
   }
+}
+
+async function resolveChromeSelection() {
+  const executablePath = process.env.VINE_CHROME;
+  if (executablePath) {
+    assert(fs.existsSync(executablePath), `VINE_CHROME does not exist: ${executablePath}`);
+    const version =
+      process.platform === "win32"
+        ? (
+            await promisify(execFile)(
+              "powershell.exe",
+              [
+                "-NoProfile",
+                "-Command",
+                "(Get-Item -LiteralPath $env:VINE_CHROME_PATH).VersionInfo.ProductVersion",
+              ],
+              { env: { ...process.env, VINE_CHROME_PATH: executablePath } },
+            )
+          ).stdout.trim()
+        : (await promisify(execFile)(executablePath, ["--version"])).stdout.trim();
+    return { artifact: null, executablePath, version };
+  }
+
+  const artifact = await loadChromeForTestingArtifact(root);
+  return {
+    artifact,
+    executablePath: artifact.executablePath,
+    version: artifact.manifest.version,
+  };
 }
 
 function assertReport(report, phase) {
