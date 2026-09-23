@@ -86,6 +86,7 @@ jobs:
           path: |
             .work/toolchain-spike
             .work/v86-adapter-source/build/v86-fallback.wasm
+            .work/v86-adapter-source/build/v86-island.wasm
             .work/v86-adapter-spike/report.json
           include-hidden-files: true
           if-no-files-found: error
