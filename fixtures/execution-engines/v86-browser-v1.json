@@ -167,6 +167,16 @@
       "hostProfile": "windows-gnu-execution-island-1536m-guest",
       "bytes": 7491179,
       "sha256": "9c121ec1d1bd0ef38b057778e1afec784df3b060368e504de320401442818e8b"
+    },
+    {
+      "hostProfile": "linux-gnu-v86-fallback-v2",
+      "bytes": 2137393,
+      "sha256": "e00b712ef00acaaf3cdbeff1b772cf0f79b3052a23ff3f3a59a0e4a863bfd5a6"
+    },
+    {
+      "hostProfile": "linux-gnu-execution-island-current",
+      "bytes": 7794833,
+      "sha256": "b62f6320486b1a8f6bbfbb906e9989ce90da1c0a50ff4957889a033ad47eebc3"
     }
   ]
 }
