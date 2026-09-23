@@ -18,6 +18,13 @@ const adapterProfiles = Object.freeze([
     hasCanonicalReportFingerprints: false,
   }),
   Object.freeze({
+    id: "linux-gnu-packed-convert-fallback-v22",
+    bytes: 2_137_393,
+    sha256: "e00b712ef00acaaf3cdbeff1b772cf0f79b3052a23ff3f3a59a0e4a863bfd5a6",
+    exports: 824,
+    hasCanonicalReportFingerprints: false,
+  }),
+  Object.freeze({
     id: "windows-gnu-page-table-dirty-bypass-v13",
     bytes: 1_860_684,
     sha256: "d7faadb387c09913e0ecb266a01981864e4c6e330f56cd1df80adccc35feb661",
